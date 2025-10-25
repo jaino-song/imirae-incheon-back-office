@@ -15,7 +15,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,cts,mts,json,md,css,mjs,cjs}\"",
     "test:api": "jest --config apps/api/test/jest-e2e.json",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "sync:lock": "node scripts/generate-package-lock.mjs"
   },
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx,cts,mts,json,md,css,mjs,cjs}": [
