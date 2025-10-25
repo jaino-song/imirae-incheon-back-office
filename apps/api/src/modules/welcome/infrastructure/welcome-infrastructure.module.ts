@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
 
-import { WELCOME_MESSAGE_REPOSITORY } from '@api/core/application/ports/welcome-message.repository';
-
-import { InMemoryWelcomeMessageRepository } from './persistence/in-memory-welcome-message.repository';
+import { WELCOME_MESSAGE_REPOSITORY } from '../domain/repositories/welcome-message.repository';
+import { InMemoryWelcomeMessageRepository } from './repositories/in-memory-welcome-message.repository';
 
 const infrastructureProviders = [
   {
@@ -15,4 +14,4 @@ const infrastructureProviders = [
   providers: [...infrastructureProviders],
   exports: [...infrastructureProviders],
 })
-export class InfrastructureModule {}
+export class WelcomeInfrastructureModule {}

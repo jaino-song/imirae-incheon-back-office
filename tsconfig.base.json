@@ -18,9 +18,8 @@
     "paths": {
       "@shared-types": ["libs/shared-types/src/index"],
       "@shared-types/*": ["libs/shared-types/src/*"],
-      "@api/core/*": ["apps/api/src/core/*"],
-      "@api/infrastructure/*": ["apps/api/src/infrastructure/*"],
-      "@api/presentation/*": ["apps/api/src/presentation/*"]
+      "@api/modules/*": ["apps/api/src/modules/*"],
+      "@api/modules/welcome/*": ["apps/api/src/modules/welcome/*"]
     }
   }
 }

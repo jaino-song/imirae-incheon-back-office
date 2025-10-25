@@ -10,6 +10,13 @@ apps/
   frontend/    Next.js application
 libs/
   shared-types/  Shared TypeScript definitions that can be imported from both apps
+
+apps/api/src/modules/
+  welcome/        Clean Architecture feature module for the welcome flow
+    domain/         Pure business entities and repositories
+    application/    Use cases and mappers orchestrating domain logic
+    infrastructure/ Framework and persistence adapters
+    presentation/   HTTP controllers and Nest modules exposing the use cases
 ```
 
 ## Getting Started
@@ -49,6 +56,17 @@ Husky and lint-staged are configured to run `eslint --fix` and `prettier --write
 ## Continuous Integration
 
 The GitHub Actions workflow in `.github/workflows/ci.yml` installs dependencies, lints the codebase, and builds the shared library, API, and frontend to validate pull requests.
+
+### Clean Architecture in the API
+
+The backend is organised by feature modules under `apps/api/src/modules`. Each feature, such as the welcome flow, is layered:
+
+- **Domain** – entities and value objects with all business rules.
+- **Application** – use cases that coordinate repositories and expose DTOs for the outer layers.
+- **Infrastructure** – adapters and providers that implement the domain interfaces.
+- **Presentation** – Nest controllers/modules wiring requests to use cases.
+
+This arrangement keeps the domain independent from Nest-specific concerns while letting the presentation layer swap implementations by changing the infrastructure providers.
 
 ## Sharing Code Between Apps
 

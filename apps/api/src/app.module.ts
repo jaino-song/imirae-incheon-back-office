@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { PresentationModule } from './presentation/presentation.module';
+import { WelcomeModule } from './modules/welcome/welcome.module';
 
 @Module({
   imports: [
@@ -9,7 +9,7 @@ import { PresentationModule } from './presentation/presentation.module';
       isGlobal: true,
       envFilePath: ['apps/api/.env', '.env'],
     }),
-    PresentationModule,
+    WelcomeModule,
   ],
 })
 export class AppModule {}
