@@ -1,10 +1,12 @@
 import request from 'supertest';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+
 import { defaultWelcomeMessage } from '@shared-types';
+
 import { AppModule } from '../src/app.module';
 
-describe('AppController (e2e)', () => {
+describe('WelcomeController (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {

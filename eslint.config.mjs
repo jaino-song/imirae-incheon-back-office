@@ -4,10 +4,11 @@ import tsParser from "@typescript-eslint/parser";
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
 
-const typescriptRules = Object.assign(
-  {},
-  ...tseslint.configs.recommended.map((config) => config.rules ?? {})
-);
+const recommendedConfigs = Array.isArray(tseslint.configs.recommended)
+  ? tseslint.configs.recommended
+  : [tseslint.configs.recommended];
+
+const typescriptRules = Object.assign({}, ...recommendedConfigs.map((config) => config.rules ?? {}));
 
 export default defineConfig([
   {
@@ -27,7 +28,12 @@ export default defineConfig([
       parserOptions: {
         tsconfigRootDir: import.meta.dirname
       }
-    }
+    },
+    settings: {
+      next: {
+        rootDir: ["apps/frontend"],
+      },
+    },
   },
   {
     files: ["apps/api/**/*.ts", "libs/**/*.ts"],
