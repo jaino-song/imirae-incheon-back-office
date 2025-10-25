@@ -9,6 +9,7 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+/dist
 
 # testing
 /coverage
@@ -16,6 +17,8 @@
 # next.js
 /.next/
 /out/
+/apps/frontend/.next/
+/apps/frontend/out/
 
 # production
 /build
@@ -32,10 +35,15 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+apps/api/.env
+!apps/api/.env.example
+apps/frontend/.env.local
+!apps/frontend/.env.example
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+apps/frontend/next-env.d.ts

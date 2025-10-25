@@ -1,0 +1,13 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "../../",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.ts$": ["ts-jest", { "tsconfig": "apps/api/tsconfig.spec.json" }]
+  },
+  "moduleNameMapper": {
+    "^@shared-types$": "<rootDir>/libs/shared-types/src/index.ts",
+    "^@shared-types/(.*)$": "<rootDir>/libs/shared-types/src/$1"
+  }
+}
