@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Imirae Incheon Back Office Monorepo
+
+This repository hosts the back-office platform using a Nest.js API and a Next.js frontend within a single monorepo managed by the Nest CLI.
+
+## Project Structure
+
+```
+apps/
+  api/         Nest.js HTTP API (monorepo managed by Nest CLI)
+  frontend/    Next.js application
+libs/
+  shared-types/  Shared TypeScript definitions that can be imported from both apps
+
+apps/api/src/modules/
+  welcome/        Clean Architecture feature module for the welcome flow
+    domain/         Pure business entities and repositories
+    application/    Use cases and mappers orchestrating domain logic
+    infrastructure/ Framework and persistence adapters
+    presentation/   HTTP controllers and Nest modules exposing the use cases
+```
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies (requires access to the public npm registry):
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy the environment examples and adjust the values to match your local configuration:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.example .env
+cp apps/api/.env.example apps/api/.env
+cp apps/frontend/.env.example apps/frontend/.env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Available Scripts
 
-## Learn More
+| Command | Description |
+| ------- | ----------- |
+| `npm run dev:frontend` | Start the Next.js development server. |
+| `npm run dev:api` | Start the Nest.js API in watch mode. |
+| `npm run build:frontend` | Build the frontend application. |
+| `npm run build:api` | Compile the API. |
+| `npm run build:shared-types` | Build the shared types library. |
+| `npm run start:frontend` | Run the compiled frontend in production mode. |
+| `npm run start:api` | Start the compiled API server. |
+| `npm run lint` | Lint the entire monorepo. |
+| `npm run lint:fix` | Lint and automatically fix issues where possible. |
+| `npm run format` | Format supported files with Prettier. |
+| `npm run test:api` | Execute API end-to-end tests using Jest. |
 
-To learn more about Next.js, take a look at the following resources:
+Husky and lint-staged are configured to run `eslint --fix` and `prettier --write` on staged files before committing.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Continuous Integration
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The GitHub Actions workflow in `.github/workflows/ci.yml` installs dependencies, lints the codebase, and builds the shared library, API, and frontend to validate pull requests.
 
-## Deploy on Vercel
+### Clean Architecture in the API
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The backend is organised by feature modules under `apps/api/src/modules`. Each feature, such as the welcome flow, is layered:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Domain** – entities and value objects with all business rules.
+- **Application** – use cases that coordinate repositories and expose DTOs for the outer layers.
+- **Infrastructure** – adapters and providers that implement the domain interfaces.
+- **Presentation** – Nest controllers/modules wiring requests to use cases.
+
+This arrangement keeps the domain independent from Nest-specific concerns while letting the presentation layer swap implementations by changing the infrastructure providers.
+
+## Sharing Code Between Apps
+
+Reusable DTOs and types live in `libs/shared-types`. Import them with the `@shared-types` path alias from either application:
+
+```ts
+import { defaultWelcomeMessage } from "@shared-types";
+```
+
+## Environment Variables
+
+- `.env` (optional) – shared defaults for the entire monorepo.
+- `apps/api/.env` – runtime configuration for the API server (e.g., `PORT`).
+- `apps/frontend/.env.local` – frontend-specific environment values (e.g., `NEXT_PUBLIC_API_URL`).
+
+Each application loads environment files relative to its directory, ensuring local development and CI environments stay isolated.

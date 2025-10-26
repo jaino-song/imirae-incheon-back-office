@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "outDir": "../../dist/apps/api-test",
+    "types": ["node", "jest"]
+  },
+  "include": ["test/**/*.ts", "src/**/*.spec.ts"],
+  "exclude": ["node_modules"]
+}
