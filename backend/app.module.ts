@@ -3,8 +3,10 @@ import { PrismaService } from "./infrastructure/database/prisma.service";
 import { JwtModule } from "@nestjs/jwt";
 import { JwtStrategy } from "./infrastructure/auth/jwt.strategy";
 import { AuthController } from "interface/controllers/auth.controller";
+import { EformsignController } from "interface/controllers/eformsign.controller";
 import { KakaoStrategy } from "infrastructure/auth/kakao.strategy";
 import { AuthService } from "application/services/auth.service";
+import { EformsignService } from "application/services/eformsign.service";
 import { ConfigModule } from "@nestjs/config";
 import { PassportModule } from "@nestjs/passport";
 
@@ -19,8 +21,8 @@ import { PassportModule } from "@nestjs/passport";
             signOptions: { expiresIn: "7d" },
         }),
     ],
-    controllers: [AuthController],
-    providers: [AuthService, KakaoStrategy, JwtStrategy, PrismaService],
+    controllers: [AuthController, EformsignController],
+    providers: [AuthService, EformsignService, KakaoStrategy, JwtStrategy, PrismaService],
 })
 export class AppModule {}
 

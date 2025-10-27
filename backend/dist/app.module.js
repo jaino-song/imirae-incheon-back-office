@@ -12,8 +12,10 @@ const prisma_service_1 = require("./infrastructure/database/prisma.service");
 const jwt_1 = require("@nestjs/jwt");
 const jwt_strategy_1 = require("./infrastructure/auth/jwt.strategy");
 const auth_controller_1 = require("./interface/controllers/auth.controller");
+const eformsign_controller_1 = require("./interface/controllers/eformsign.controller");
 const kakao_strategy_1 = require("./infrastructure/auth/kakao.strategy");
 const auth_service_1 = require("./application/services/auth.service");
+const eformsign_service_1 = require("./application/services/eformsign.service");
 const config_1 = require("@nestjs/config");
 const passport_1 = require("@nestjs/passport");
 let AppModule = class AppModule {
@@ -31,8 +33,8 @@ exports.AppModule = AppModule = __decorate([
                 signOptions: { expiresIn: "7d" },
             }),
         ],
-        controllers: [auth_controller_1.AuthController],
-        providers: [auth_service_1.AuthService, kakao_strategy_1.KakaoStrategy, jwt_strategy_1.JwtStrategy, prisma_service_1.PrismaService],
+        controllers: [auth_controller_1.AuthController, eformsign_controller_1.EformsignController],
+        providers: [auth_service_1.AuthService, eformsign_service_1.EformsignService, kakao_strategy_1.KakaoStrategy, jwt_strategy_1.JwtStrategy, prisma_service_1.PrismaService],
     })
 ], AppModule);
 //# sourceMappingURL=app.module.js.map
