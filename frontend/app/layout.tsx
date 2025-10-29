@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { queryClient } from "@/src/lib/queryClient";
+import { queryClient } from "../lib/queryClient";
 
 export const metadata: Metadata = {
   title: "Create Next App",
