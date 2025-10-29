@@ -46,7 +46,8 @@ export class UserEntity {
         );
     }
 
-    toPrisma(): { id: string, kakaoId: string, email: string | null, name: string | null, profile_image: string | null, role: string | null, created_at: Date } {
+    // Prepare this entity into this shape to be saved to the database
+    toPersistence(): { id: string, kakaoId: string, email: string | null, name: string | null, profile_image: string | null, role: string | null, created_at: Date } {
         return {
             id: this.id,
             kakaoId: this.kakaoId,

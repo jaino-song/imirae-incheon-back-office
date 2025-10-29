@@ -36,7 +36,8 @@ export class VoucherPriceInfoEntity {
         );
     }
 
-    toPrisma(): { id: number, type: string | null, duration: bigint | null, fullPrice: string | null, grant: string | null, actualPrice: string | null } {
+    // Prepare this entity into this shape to be saved to the database
+    toPersistence(): { id: number, type: string | null, duration: bigint | null, fullPrice: string | null, grant: string | null, actualPrice: string | null } {
         return {
             id: this.id,
             type: this.type,

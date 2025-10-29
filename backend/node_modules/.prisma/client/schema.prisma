@@ -43,3 +43,13 @@ model voucherPriceInfo {
   grant       String?
   actualPrice String?
 }
+
+model employee {
+  id                Int      @id @db.SmallInt
+  name              String
+  work_area         String
+  phone             String   @unique
+  grade             String
+  open_to_next_work Boolean  @default(true)
+  registered_date   DateTime @default(now()) @db.Timestamptz(6)
+}

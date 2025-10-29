@@ -2,6 +2,7 @@ import { IBankAccountInfoRepository } from "domain/repositories/bank-account-inf
 import { PrismaService } from "../prisma.service";
 import { BankAccountInfoEntity } from "domain/entities/bank-account-info.entity";
 import { Injectable } from "@nestjs/common";
+import { BankAccountInfoMapper } from "../mapper/bank-account-info.mapper";
 
 @Injectable()
 export class SbBankAccountInfoRepository implements IBankAccountInfoRepository {
@@ -11,29 +12,22 @@ export class SbBankAccountInfoRepository implements IBankAccountInfoRepository {
         const bankAccountInfo = await this.prismaService.bankAccountInfo.findUnique({
             where: { area },
         });
-        return bankAccountInfo ? BankAccountInfoEntity.fromPrisma(bankAccountInfo) : null;
+        return bankAccountInfo ? BankAccountInfoMapper.toDomain(bankAccountInfo) : null;
     }
 
     async create(bankAccountInfo: BankAccountInfoEntity): Promise<BankAccountInfoEntity> {
         const created = await this.prismaService.bankAccountInfo.create({
-            data: {
-                area: bankAccountInfo.area,
-                bankName: bankAccountInfo.bankName,
-                accNum: bankAccountInfo.accNum,
-            },
+            data: BankAccountInfoMapper.toPrismaCreate(bankAccountInfo),
         });
-        return BankAccountInfoEntity.fromPrisma(created);
+        return BankAccountInfoMapper.toDomain(created);
     }
 
     async update(bankAccountInfo: BankAccountInfoEntity): Promise<BankAccountInfoEntity> {
         const updated = await this.prismaService.bankAccountInfo.update({
             where: { area: bankAccountInfo.area },
-            data: {
-                bankName: bankAccountInfo.bankName,
-                accNum: bankAccountInfo.accNum,
-            },
+            data: BankAccountInfoMapper.toPrismaUpdate(bankAccountInfo),
         });
-        return BankAccountInfoEntity.fromPrisma(updated);
+        return BankAccountInfoMapper.toDomain(updated);
     }
 
     async delete(area: string): Promise<void> {

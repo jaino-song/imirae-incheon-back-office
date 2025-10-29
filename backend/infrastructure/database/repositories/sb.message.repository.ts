@@ -2,6 +2,7 @@ import { IMessageRepository } from "domain/repositories/message.repository.inter
 import { MessageEntity } from "domain/entities/message.entity";
 import { PrismaService } from "../prisma.service";
 import { Injectable } from "@nestjs/common";
+import { MessageMapper } from "../mapper/message.mapper";
 
 @Injectable()
 export class SbMessageRepository implements IMessageRepository {
@@ -11,29 +12,22 @@ export class SbMessageRepository implements IMessageRepository {
         const message = await this.prismaService.message.findUnique({
             where: { id },
         });
-        return message ? MessageEntity.fromPrisma(message) : null;
+        return message ? MessageMapper.toDomain(message) : null;
     }
 
     async create(message: MessageEntity): Promise<MessageEntity> {
         const created = await this.prismaService.message.create({
-            data: {
-                title: message.title,
-                text: message.text,
-            },
+            data: MessageMapper.toPrismaCreate(message),
         });
-        return MessageEntity.fromPrisma(created);
+        return MessageMapper.toDomain(created);
     }
 
     async update(message: MessageEntity): Promise<MessageEntity> {
         const updated = await this.prismaService.message.update({
             where: { id: message.id },
-            data: {
-                title: message.title,
-                text: message.text,
-                edited_at: message.editedAt ?? null,
-            },
+            data: MessageMapper.toPrismaUpdate(message),
         });
-        return MessageEntity.fromPrisma(updated);
+        return MessageMapper.toDomain(updated);
     }
 
     async delete(id: number): Promise<void> {

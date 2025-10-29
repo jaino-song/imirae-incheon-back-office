@@ -17,7 +17,8 @@ export class BankAccountInfoEntity {
         return new BankAccountInfoEntity(prismaData.area, prismaData.bankName, prismaData.accNum);
     }
 
-    toPrisma(): { area: string, bankName: string | null, accNum: string | null } {
+    // Prepare this entity into this shape to be saved to the database
+    toPersistence(): { area: string, bankName: string | null, accNum: string | null } {
         return {
             area: this.area,
             bankName: this.bankName,

@@ -37,7 +37,8 @@ export class MessageEntity {
         );
     }
 
-    toPrisma(): { id: number, title: string | null, text: string | null, created_at: Date, edited_at: Date | null } {
+    // Prepare this entity into this shape to be saved to the database
+    toPersistence(): { id: number, title: string | null, text: string | null, created_at: Date, edited_at: Date | null } {
         return {
             id: this.id,
             title: this.title,
