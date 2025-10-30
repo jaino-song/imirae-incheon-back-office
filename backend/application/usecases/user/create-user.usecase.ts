@@ -15,7 +15,7 @@ export class CreateUserUsecase {
             return existingUser;
         }
 
-        const user = UserEntity.create(kakaoId, name, email, profileImage);
-        return this.userRepository.create(user);    
+        const user = UserEntity.create(kakaoId, name, profileImage, email);
+        return this.userRepository.create(user);
     }
 }

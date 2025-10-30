@@ -14,3 +14,5 @@ export interface IEmployeeRepository {
     changeOpenToNextWork(id: number, openToNextWork: boolean): Promise<void>;
     findAllOpenToNextWork(): Promise<EmployeeEntity[]>;
 }
+
+export const EMPLOYEE_REPOSITORY = "EMPLOYEE_REPOSITORY";
