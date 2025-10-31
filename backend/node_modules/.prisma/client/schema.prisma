@@ -45,11 +45,44 @@ model voucherPriceInfo {
 }
 
 model employee {
-  id                Int      @id @db.SmallInt
-  name              String
-  work_area         String
-  phone             String   @unique
-  grade             String
-  open_to_next_work Boolean  @default(true)
-  registered_date   DateTime @default(now()) @db.Timestamptz(6)
+  id                      Int                 @id @db.SmallInt
+  name                    String
+  work_area               String
+  phone                   String              @unique
+  grade                   String
+  open_to_next_work       Boolean             @default(true)
+  company_registered_date DateTime?           @db.Date
+  employee_schedule       employee_schedule[]
+}
+
+model employee_schedule {
+  id                                                     Int      @id @default(autoincrement())
+  employee_id                                            Int      @db.SmallInt
+  work_address                                           String
+  start_date                                             DateTime @db.Date
+  end_date                                               DateTime @db.Date
+  replaced                                               Boolean  @default(false)
+  client_client_primary_employee_idToemployee_schedule   client[] @relation("client_primary_employee_idToemployee_schedule")
+  client_client_secondary_employee_idToemployee_schedule client[] @relation("client_secondary_employee_idToemployee_schedule")
+  employee                                               employee @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model client {
+  id                                                                Int                @id @default(autoincrement())
+  name                                                              String
+  primary_employee_id                                               Int                @db.SmallInt
+  secondary_employee_id                                             Int?               @db.SmallInt
+  address                                                           String?
+  phone                                                             String?
+  type                                                              String?
+  duration                                                          Int?               @db.SmallInt
+  full_price                                                        String?
+  grant                                                             String?
+  actual_price                                                      String?
+  start_date                                                        DateTime?          @db.Date
+  end_date                                                          DateTime?          @db.Date
+  care_center                                                       Boolean
+  voucher_client                                                    Boolean
+  employee_schedule_client_primary_employee_idToemployee_schedule   employee_schedule  @relation("client_primary_employee_idToemployee_schedule", fields: [primary_employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  employee_schedule_client_secondary_employee_idToemployee_schedule employee_schedule? @relation("client_secondary_employee_idToemployee_schedule", fields: [secondary_employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }

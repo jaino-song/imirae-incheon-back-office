@@ -3,11 +3,11 @@ import { EmployeeEntity } from "domain/entities/employee.entity";
 type EmployeeRow = {
     id: number;
     name: string;
-    workArea: string;
+    work_area: string;
     phone: string;
     grade: string;
-    openToNextWork: boolean;
-    registeredDate: Date;
+    open_to_next_work: boolean;
+    registered_date: Date;
 };
 
 export class EmployeeMapper {
@@ -15,32 +15,32 @@ export class EmployeeMapper {
         return new EmployeeEntity(
             row.id,
             row.name,
-            row.workArea,
+            row.work_area,
             row.phone,
             row.grade,
-            row.openToNextWork,
-            row.registeredDate,
+            row.open_to_next_work,
+            row.registered_date,
         );
     }
 
     static toPrismaCreate(entity: EmployeeEntity) {
         return {
             name: entity.name,
-            workArea: entity.workArea,
+            work_area: entity.workArea,
             phone: entity.phone,
             grade: entity.grade,
-            openToNextWork: entity.openToNextWork,
-            registeredDate: entity.registeredDate,
+            open_to_next_work: entity.openToNextWork,
+            registered_date: entity.registeredDate,
         };
     }
 
     static toPrismaUpdate(entity: EmployeeEntity) {
         return {
             name: entity.name,
-            workArea: entity.workArea,
+            work_area: entity.workArea,
             phone: entity.phone,
             grade: entity.grade,
-            openToNextWork: entity.openToNextWork,
+            open_to_next_work: entity.openToNextWork,
         };
     }
 }
