@@ -9,8 +9,15 @@ export class CreateEmployeeUsecase {
         private readonly employeeRepository: IEmployeeRepository,
     ) {}
 
-    execute(name: string, workArea: string, phone: string, grade: string, openToNextWork: boolean): Promise<EmployeeEntity> {
-        const employee = EmployeeEntity.create(name, workArea, phone, grade, openToNextWork);
+    execute(
+        name: string,
+        workArea: string,
+        phone: string,
+        grade: string,
+        openToNextWork: boolean,
+        registeredDate?: Date,
+    ): Promise<EmployeeEntity> {
+        const employee = EmployeeEntity.create(name, workArea, phone, grade, openToNextWork, registeredDate);
         return this.employeeRepository.create(employee);
     }
 }

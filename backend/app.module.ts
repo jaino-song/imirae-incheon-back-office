@@ -13,6 +13,8 @@ import { UserModule } from "module/user.module";
 import { MessageModule } from "module/message.module";
 import { VoucherPriceInfoModule } from "module/voucher-price-info.module";
 import { EmployeeModule } from "module/employee.module";
+import { ClientModule } from "module/client.module";
+import { EmployeeScheduleModule } from "module/employee-schedule.module";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 @Module({
@@ -30,6 +32,8 @@ import { PrismaService } from "infrastructure/database/prisma.service";
         MessageModule,
         VoucherPriceInfoModule,
         EmployeeModule,
+        ClientModule,
+        EmployeeScheduleModule,
     ],
     controllers: [AuthController, EformsignController],
     providers: [AuthService, EformsignService, KakaoStrategy, JwtStrategy, PrismaService],

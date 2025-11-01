@@ -7,7 +7,7 @@ type EmployeeRow = {
     phone: string;
     grade: string;
     open_to_next_work: boolean;
-    registered_date: Date;
+    company_registered_date: Date | null;
 };
 
 export class EmployeeMapper {
@@ -19,18 +19,19 @@ export class EmployeeMapper {
             row.phone,
             row.grade,
             row.open_to_next_work,
-            row.registered_date,
+            row.company_registered_date ?? new Date(),
         );
     }
 
     static toPrismaCreate(entity: EmployeeEntity) {
         return {
+            id: entity.id,
             name: entity.name,
             work_area: entity.workArea,
             phone: entity.phone,
             grade: entity.grade,
             open_to_next_work: entity.openToNextWork,
-            registered_date: entity.registeredDate,
+            company_registered_date: entity.registeredDate,
         };
     }
 
