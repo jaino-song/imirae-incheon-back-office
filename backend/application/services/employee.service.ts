@@ -40,14 +40,14 @@ export class EmployeeService {
         private readonly listEmployeesOpenToNextWorkUsecase: ListEmployeesOpenToNextWorkUsecase,
     ) {}
 
-    create(params: { name: string; workArea: string; phone: string; grade: string; openToNextWork: boolean }): Promise<EmployeeEntity> {
+    create(params: { name: string; workArea: string; phone: string; grade: string; openToNextWork: boolean; registeredDate?: string }): Promise<EmployeeEntity> {
         return this.createEmployeeUsecase.execute(
             params.name,
             params.workArea,
             params.phone,
             params.grade,
             params.openToNextWork,
-            params.registeredDate,
+            params.registeredDate ? new Date(params.registeredDate) : undefined,
         );
     }
 

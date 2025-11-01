@@ -38,28 +38,28 @@ export class SbEmployeeRepository implements IEmployeeRepository {
 
     async findAll(): Promise<EmployeeEntity[]> {
         const employees = await this.prismaService.employee.findMany();
-        return employees.map(EmployeeMapper.toDomain);
+        return employees.map((employee) => EmployeeMapper.toDomain(employee));
     }
 
     async findByWorkArea(workArea: string): Promise<EmployeeEntity[]> {
         const employees = await this.prismaService.employee.findMany({
             where: { work_area: workArea },
         });
-        return employees.map(EmployeeMapper.toDomain);
+        return employees.map((employee) => EmployeeMapper.toDomain(employee));
     }
 
     async findByGrade(grade: string): Promise<EmployeeEntity[]> {
         const employees = await this.prismaService.employee.findMany({
             where: { grade },
         });
-        return employees.map(EmployeeMapper.toDomain);
+        return employees.map((employee) => EmployeeMapper.toDomain(employee));
     }
 
     async findByOpenToNextWork(openToNextWork: boolean): Promise<EmployeeEntity[]> {
         const employees = await this.prismaService.employee.findMany({
             where: { open_to_next_work: openToNextWork },
         });
-        return employees.map(EmployeeMapper.toDomain);
+        return employees.map((employee) => EmployeeMapper.toDomain(employee));
     }
 
     async findByRegisteredDate(registeredDate: Date): Promise<EmployeeEntity[]> {
@@ -70,25 +70,25 @@ export class SbEmployeeRepository implements IEmployeeRepository {
 
         const employees = await this.prismaService.employee.findMany({
             where: {
-                registered_date: {
+                company_registered_date: {
                     gte: start,
                     lte: end,
                 },
             },
         });
-        return employees.map(EmployeeMapper.toDomain);
+        return employees.map((employee) => EmployeeMapper.toDomain(employee));
     }
 
     async findByRegisteredDateRange(startDate: Date, endDate: Date): Promise<EmployeeEntity[]> {
         const employees = await this.prismaService.employee.findMany({
             where: {
-                registered_date: {
+                company_registered_date: {
                     gte: startDate,
                     lte: endDate,
                 },
             },
         });
-        return employees.map(EmployeeMapper.toDomain);
+        return employees.map((employee) => EmployeeMapper.toDomain(employee));
     }
 
     async changeOpenToNextWork(id: number, openToNextWork: boolean): Promise<void> {
@@ -102,7 +102,7 @@ export class SbEmployeeRepository implements IEmployeeRepository {
         const employees = await this.prismaService.employee.findMany({
             where: { open_to_next_work: true },
         });
-        return employees.map(EmployeeMapper.toDomain);
+        return employees.map((employee) => EmployeeMapper.toDomain(employee));
     }
 }
 

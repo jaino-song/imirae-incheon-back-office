@@ -37,6 +37,7 @@ export class EmployeeEntity {
         phone: string,
         grade: string,
         openToNextWork: boolean,
+        registeredDate?: Date,
     ): EmployeeEntity {
         return new EmployeeEntity(
             0,
@@ -45,7 +46,7 @@ export class EmployeeEntity {
             phone,
             grade,
             openToNextWork,
-            new Date(),
+            registeredDate ?? new Date(),
         );
     }
 

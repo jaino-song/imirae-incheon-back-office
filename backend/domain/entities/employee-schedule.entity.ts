@@ -7,4 +7,14 @@ export class EmployeeScheduleEntity {
         public endDate: Date,
         public replaced: boolean = false,
     ) {}
+
+    static create(
+        employeeId: number,
+        workAddress: string,
+        startDate: Date,
+        endDate: Date,
+        replaced = false,
+    ): EmployeeScheduleEntity {
+        return new EmployeeScheduleEntity(0, employeeId, workAddress, startDate, endDate, replaced);
+    }
 }
