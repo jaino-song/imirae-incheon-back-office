@@ -140,11 +140,14 @@ test.describe("Mobile prices skeletons", () => {
 
     await page.locator('[data-component="mobile-prices-row"]').first().click();
 
-    await expect(page.locator('[data-component="mobile-prices-stack"]')).toHaveClass(/show-detail/);
-    await expect(page.locator('[data-component="mobile-prices-detail-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_prices_detail-sheet_stack"]')).toHaveClass(/show-detail/);
+    const detailPage = page.locator(
+      '[data-component="mobile_prices_detail-sheet_stack_detail-page"][data-slot="mobile-detail-stack-detail-page"]',
+    );
+    await expect(detailPage).toBeVisible();
     await expect
       .poll(async () =>
-        page.locator('[data-component="mobile-prices-detail-page"]').evaluate((element) => {
+        detailPage.evaluate((element) => {
           const transform = window.getComputedStyle(element).transform;
 
           if (transform === "none") {
@@ -156,10 +159,12 @@ test.describe("Mobile prices skeletons", () => {
       )
       .toBe(0);
 
-    const detailMetrics = await page.locator('[data-component="mobile-prices-detail-page"]').evaluate((element) => {
+    const detailMetrics = await detailPage.evaluate((element) => {
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
-      const scrim = document.querySelector('[data-component="mobile-prices-detail-scrim"]');
+      const scrim = document.querySelector(
+        '[data-component="mobile_prices_detail-sheet_stack_scrim"]',
+      );
       const scrimStyle = scrim ? window.getComputedStyle(scrim) : null;
       const scrimRect = scrim?.getBoundingClientRect();
 
