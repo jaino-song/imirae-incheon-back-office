@@ -16,23 +16,23 @@ describe("DetailPanel", () => {
 
   it("renders semantic header and footer without nesting a main landmark", () => {
     const { container } = render(
-      <DetailPanel title="상세" footer={<button type="button">저장</button>}>
+      <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel" title="상세" footer={<button type="button">저장</button>}>
         본문
       </DetailPanel>,
     );
 
-    expect(container.querySelector('header[data-component="detail-panel-header"]')).toBeInTheDocument();
-    expect(container.querySelector('main[data-component="detail-panel-main"]')).not.toBeInTheDocument();
-    expect(container.querySelector('div[data-component="detail-panel-main"]')).toBeInTheDocument();
-    expect(container.querySelector('footer[data-component="detail-panel-footer"]')).toBeInTheDocument();
+    expect(container.querySelector('header[data-slot="detail-panel-header"]')).toBeInTheDocument();
+    expect(container.querySelector('main[data-slot="detail-panel-main"]')).not.toBeInTheDocument();
+    expect(container.querySelector('div[data-slot="detail-panel-main"]')).toBeInTheDocument();
+    expect(container.querySelector('footer[data-slot="detail-panel-footer"]')).toBeInTheDocument();
   });
 
   it("keeps the bottom spacer below the scroll region without overlaying content", () => {
-    const { container } = render(<DetailPanel title="상세">본문</DetailPanel>);
+    const { container } = render(<DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-2" title="상세">본문</DetailPanel>);
 
-    const main = container.querySelector('[data-component="detail-panel-main"]');
-    const scrollContent = container.querySelector('[data-component="detail-panel-scroll-content"]');
-    const spacer = container.querySelector('[data-component="detail-panel-bottom-spacer"]');
+    const main = container.querySelector('[data-slot="detail-panel-main"]');
+    const scrollContent = container.querySelector('[data-slot="detail-panel-scroll-content"]');
+    const spacer = container.querySelector('[data-slot="detail-panel-bottom-spacer"]');
 
     expect(main).toBeInTheDocument();
     expect(main).toHaveClass("flex-col");
@@ -47,21 +47,21 @@ describe("DetailPanel", () => {
 
   it("remounts and animates the main region when the main animation key changes", () => {
     const { container, rerender } = render(
-      <DetailPanel title="상세" mainAnimationKey="step-1">
+      <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-3" title="상세" mainAnimationKey="step-1">
         1단계
       </DetailPanel>,
     );
-    const firstMain = container.querySelector('[data-component="detail-panel-main"]');
+    const firstMain = container.querySelector('[data-slot="detail-panel-main"]');
 
     expect(firstMain).toHaveClass("animate-v3-slide-up");
 
     rerender(
-      <DetailPanel title="상세" mainAnimationKey="step-2">
+      <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-4" title="상세" mainAnimationKey="step-2">
         2단계
       </DetailPanel>,
     );
 
-    const secondMain = container.querySelector('[data-component="detail-panel-main"]');
+    const secondMain = container.querySelector('[data-slot="detail-panel-main"]');
     expect(secondMain).toHaveClass("animate-v3-slide-up");
     expect(secondMain).not.toBe(firstMain);
   });
@@ -70,26 +70,26 @@ describe("DetailPanel", () => {
     const goToList = jest.fn();
     const renderCompactPanel = (animationKey: string, content: string) => (
       <SplitLayoutContext.Provider value={{ goToList, isMobile: true }}>
-        <DetailPanel title="상세" mainAnimationKey={animationKey}>
+        <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-5" title="상세" mainAnimationKey={animationKey}>
           {content}
         </DetailPanel>
       </SplitLayoutContext.Provider>
     );
     const { container, rerender } = render(renderCompactPanel("step-1", "1단계"));
-    const firstMain = container.querySelector('[data-component="detail-panel-main"]');
+    const firstMain = container.querySelector('[data-slot="detail-panel-main"]');
 
     expect(firstMain).not.toHaveClass("animate-v3-slide-up");
 
     rerender(renderCompactPanel("step-2", "2단계"));
 
-    const secondMain = container.querySelector('[data-component="detail-panel-main"]');
+    const secondMain = container.querySelector('[data-slot="detail-panel-main"]');
     expect(secondMain).not.toHaveClass("animate-v3-slide-up");
     expect(secondMain).toBe(firstMain);
   });
 
   it("renders emptyState through the root overlay layer", () => {
     const { container } = render(
-      <DetailPanel
+      <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-6"
         title="상세"
         emptyState={
           <DetailEmptyState
@@ -104,7 +104,7 @@ describe("DetailPanel", () => {
       </DetailPanel>,
     );
 
-    expect(container.querySelector('[data-component="detail-panel-overlay"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="detail-panel-overlay"]')).toBeInTheDocument();
     expect(screen.getByText("항목을 선택하면 상세 정보가 표시됩니다.")).toBeInTheDocument();
     expect(container.querySelector('[data-component="detail-panel-empty"]')).not.toBeInTheDocument();
     expect(container.querySelector('[data-component="list-empty-state-copy"]')).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("DetailPanel", () => {
 
     render(
       <SplitLayoutContext.Provider value={{ goToList, isMobile: true }}>
-        <DetailPanel title="상세" compactBackLabel="고객 목록으로 돌아가기">{null}</DetailPanel>
+        <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-7" title="상세" compactBackLabel="고객 목록으로 돌아가기">{null}</DetailPanel>
       </SplitLayoutContext.Provider>,
     );
 
@@ -127,7 +127,7 @@ describe("DetailPanel", () => {
 
   it("renders the optional stepper on the right side of the structured header", () => {
     render(
-      <DetailPanel
+      <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-8"
         title="전자계약서 작성"
         subtitle="고객에게 전자계약서를 발송합니다"
         stepper={<div data-testid="detail-panel-stepper">1 / 5</div>}
@@ -143,7 +143,7 @@ describe("DetailPanel", () => {
   it("keeps the panel mounted while loading and skeletonizes only text chrome", () => {
     const onTabChange = jest.fn();
     const { container } = render(
-      <DetailPanel
+      <DetailPanel data-component="desktop_v3_tests_split-layout_detail-panel-9"
         isLoading
         title="전자계약서 작성"
         subtitle="고객에게 전자계약서를 발송합니다"
@@ -162,11 +162,11 @@ describe("DetailPanel", () => {
       </DetailPanel>,
     );
 
-    expect(container.querySelector('[data-component="detail-panel"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="detail-panel-title-skeleton"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="detail-panel-subtitle-skeleton"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="detail-panel"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_detail-panel-9_header_title-group_title-row_title-skeleton"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_detail-panel-9_header_title-group_subtitle-skeleton"]')).toBeInTheDocument();
     expect(container.querySelectorAll('[data-component="detail-tabs-text-skeleton"]')).toHaveLength(2);
-    expect(container.querySelector('[data-component="detail-panel-scroll-content"]')).toBeEmptyDOMElement();
+    expect(container.querySelector('[data-slot="detail-panel-scroll-content"]')).toBeEmptyDOMElement();
     expect(screen.queryByTestId("detail-loaded-body")).not.toBeInTheDocument();
 
     fireEvent.click(container.querySelector('[data-component="detail-tabs-button"]') as HTMLElement);

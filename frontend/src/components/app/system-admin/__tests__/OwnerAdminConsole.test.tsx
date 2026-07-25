@@ -255,7 +255,7 @@ describe("OwnerAdminConsole", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "계정 관리" })[0]);
 
-    expect(container.querySelector('[data-component="split-layout"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="split-layout"]')).toBeInTheDocument();
     expect(
       container.querySelector('[data-component="system-admin-pending-approvals"]'),
     ).not.toBeInTheDocument();

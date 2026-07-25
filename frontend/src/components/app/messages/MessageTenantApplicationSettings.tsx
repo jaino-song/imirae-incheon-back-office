@@ -446,7 +446,7 @@ export function MessageTenantApplicationSettings() {
         data-component="messages-settings-layout"
         className="grid min-h-[560px] flex-1 gap-6 lg:grid-cols-[380px_1fr]"
       >
-        <ListPanel
+        <ListPanel data-component="desktop_messages_split-layout_list-panel"
           title="설정"
           subtitle="메시지에 관련된 설정들을 정할 수 있어요"
           headerActions={
@@ -460,7 +460,7 @@ export function MessageTenantApplicationSettings() {
           />
         </ListPanel>
 
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_split-layout_detail-panel"
           title="설정"
           subtitle="메시지에 관련된 설정들을 정할 수 있어요"
         >
@@ -478,7 +478,7 @@ export function MessageTenantApplicationSettings() {
       data-component="messages-settings-tenant-application"
       className="grid min-h-[560px] flex-1 gap-6 lg:grid-cols-[380px_1fr]"
     >
-      <ListPanel
+      <ListPanel data-component="desktop_messages_split-layout_list-panel-2"
         title="설정"
         subtitle="메시지에 관련된 설정들을 정할 수 있어요"
         headerActions={
@@ -528,7 +528,7 @@ export function MessageTenantApplicationSettings() {
       </ListPanel>
 
       {selectedItem?.kind === "automation-policy" ? (
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-2"
           avatar={
             <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
               <SelectedItemIcon className="h-5 w-5" />
@@ -673,7 +673,7 @@ export function MessageTenantApplicationSettings() {
           </div>
         </DetailPanel>
       ) : selectedItem?.kind === "client-registration-policy" ? (
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-3"
           avatar={<div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"><UserPlus className="h-5 w-5" /></div>}
           title="고객 자동 등록"
           subtitle="전자문서 고객 등록과 인사 문자 발송을 관리합니다."
@@ -694,7 +694,7 @@ export function MessageTenantApplicationSettings() {
           </InfoCard>
         </DetailPanel>
       ) : selectedItem?.kind === "duplicate-send-policy" ? (
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-4"
           avatar={
             <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
               <Repeat2 className="h-5 w-5" />
@@ -751,7 +751,7 @@ export function MessageTenantApplicationSettings() {
           </div>
         </DetailPanel>
       ) : (
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-5"
           avatar={
             <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
               <ShieldCheck className="h-5 w-5" />

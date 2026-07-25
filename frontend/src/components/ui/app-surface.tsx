@@ -75,7 +75,8 @@ export interface AppContentCardProps extends Omit<React.HTMLAttributes<HTMLEleme
   titleDataComponent?: string;
   descriptionDataComponent?: string;
   bodyDataComponent?: string;
-  "data-component"?: string;
+  "data-component": string;
+  "data-source-component"?: string;
 }
 
 export function AppContentCard({
@@ -96,7 +97,8 @@ export function AppContentCard({
   descriptionDataComponent,
   bodyDataComponent,
   children,
-  "data-component": dataComponent = "app-content-card",
+  "data-component": dataComponent,
+  "data-source-component": dataSourceComponent = "AppContentCard",
   ...props
 }: AppContentCardProps) {
   const Component = as as React.ElementType;
@@ -115,21 +117,22 @@ export function AppContentCard({
   return (
     <Component
       data-component={dataComponent}
+      data-source-component={dataSourceComponent}
       className={cn("grid gap-[calc(12px*var(--glint-ui-scale,1))]", variantClassName, className)}
       {...props}
     >
       {title || description ? (
         <div
-          data-component={headerDataComponent ?? `${dataComponent}-head`}
+          data-component={headerDataComponent ?? `${dataComponent}_head`}
           className={cn("grid gap-[calc(3px*var(--glint-ui-scale,1))]", headerClassName)}
         >
           {title ? (
             <div
-              data-component={`${dataComponent}-title-row`}
+              data-component={`${dataComponent}_head_title-row`}
               className="flex items-center gap-[calc(8px*var(--glint-ui-scale,1))]"
             >
               <TitleElement
-                data-component={titleDataComponent ?? `${dataComponent}-title`}
+                data-component={titleDataComponent ?? `${dataComponent}_head_title-row_title`}
                 className={cn(titleClass, titleClassName)}
               >
                 {title}
@@ -139,7 +142,7 @@ export function AppContentCard({
           ) : null}
           {description ? (
             <p
-              data-component={descriptionDataComponent ?? `${dataComponent}-caption`}
+              data-component={descriptionDataComponent ?? `${dataComponent}_head_caption`}
               className={cn(APP_CONTENT_CARD_DESCRIPTION_CLASS_NAME, descriptionClassName)}
             >
               {description}
@@ -149,7 +152,7 @@ export function AppContentCard({
       ) : null}
 
       <div
-        data-component={bodyDataComponent ?? `${dataComponent}-body`}
+        data-component={bodyDataComponent ?? `${dataComponent}_body`}
         className={cn(APP_CONTENT_CARD_BODY_CLASS_NAME, contentClassName)}
       >
         {children}

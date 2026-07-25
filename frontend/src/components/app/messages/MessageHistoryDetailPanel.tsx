@@ -253,7 +253,7 @@ export function MessageHistoryDetailPanel({
   const displayFailureReason = formatMessageHistoryFailureReason(selectedRecord?.failureReason);
 
   return (
-    <DetailPanel
+    <DetailPanel data-component="desktop_messages_split-layout_detail-panel"
       backAction={backAction}
       overlay={
         !selectedRecord ? (

@@ -104,12 +104,12 @@ export default function WebsiteAdminPage() {
 
   return (
     <PageSection name="website-admin">
-      <SplitLayout
+      <SplitLayout data-component="desktop_website-admin_split-layout"
         hasSelection={activeSection !== null}
         onBack={() => setActiveSection(null)}
         onModeChange={setSplitLayoutMode}
       >
-        <ListPanel
+        <ListPanel data-component="desktop_website-admin_split-layout_list-panel"
           title="홈페이지 관리"
           subtitle="홈페이지에 노출되는 콘텐츠와 설정을 관리합니다."
         >
@@ -139,7 +139,7 @@ export default function WebsiteAdminPage() {
           />
         </ListPanel>
 
-        <DetailPanel
+        <DetailPanel data-component="desktop_website-admin_split-layout_detail-panel"
           title="리본 배너"
           subtitle="홈페이지 상단에 표시되는 알림 리본을 관리합니다."
           compactBackLabel="홈페이지 관리 목록으로 돌아가기"

@@ -366,7 +366,7 @@ describe("MessageTenantApplicationSettings", () => {
     for (const rule of DEFAULT_TRIGGER_RULES) {
       expect(screen.getByText(rule.name)).toBeInTheDocument();
     }
-    expect(container.querySelectorAll('[data-component^="messages-settings-past-trigger-policy-order-trigger-rule-"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[data-source-component="InfoRow"][data-component^="messages-settings-past-trigger-policy-order-trigger-rule-"]')).toHaveLength(6);
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => {

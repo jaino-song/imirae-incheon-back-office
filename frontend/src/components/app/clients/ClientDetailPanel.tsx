@@ -461,8 +461,8 @@ function ClientDetailPanelBody({
     client,
     trailing,
     onScheduleChangeDecided,
-    dataComponentPrefix = "clients-detail",
-    messageHistoryDataComponentPrefix = "clients-message-history",
+    dataComponentPrefix = "desktop_clients-detail_panel",
+    messageHistoryDataComponentPrefix = "desktop_clients-detail_panel_message-history",
     idPrefix,
     tabsAriaLabel,
     compactBackLabel,
@@ -723,10 +723,12 @@ function ClientDetailPanelBody({
             messageHistoryDataComponentPrefix={messageHistoryDataComponentPrefix}
         >
             <DetailPanel
+                data-component={dataComponentPrefix}
+                data-source-component="ClientDetailPanel"
                 compactBackLabel={compactBackLabel}
                 avatar={
                     <div
-                        data-component={`${dataComponentPrefix}-avatar`}
+                        data-component={`${dataComponentPrefix}_header_avatar`}
                         className={cn(
                             "w-16 h-16 rounded-[20px] flex items-center justify-center shadow-lg shrink-0",
                             getClientBadgeAvatarClassName(getPrimaryClientBadge(clientBadges))
@@ -776,8 +778,8 @@ function ClientDetailPanelBody({
             >
                 <DetailTabPanels
                     activeTab={activeDetailTab}
-                    dataComponent={`${dataComponentPrefix}-content`}
-                    panelDataComponent={`${dataComponentPrefix}-content-panel`}
+                    dataComponent={`${dataComponentPrefix}_content`}
+                    panelDataComponent={`${dataComponentPrefix}_content_panel`}
                     idPrefix={idPrefix}
                     className={tabPanelsClassName}
                     trackClassName={tabPanelsTrackClassName}
@@ -790,7 +792,7 @@ function ClientDetailPanelBody({
                                     children: (
                                         <InfoCard
                                             title="서비스 일정 변경 요청이 있습니다."
-                                            data-component={`${dataComponentPrefix}-schedule-change-card`}
+                                            data-component={`${dataComponentPrefix}_content_schedule-change_info-card`}
                                         >
                                             <InfoRow
                                                 label="기존 날짜"
@@ -813,7 +815,7 @@ function ClientDetailPanelBody({
                                                 size="compact"
                                             />
                                             <div
-                                                data-component={`${dataComponentPrefix}-schedule-change-actions`}
+                                                data-component={`${dataComponentPrefix}_content_schedule-change_info-card_actions`}
                                                 className="mt-[calc(14px*var(--glint-ui-scale,1))] flex flex-wrap items-center justify-end gap-[calc(12px*var(--glint-ui-scale,1))]"
                                             >
                                                 <Button
@@ -845,8 +847,8 @@ function ClientDetailPanelBody({
                         {
                             key: "basic",
                             children: (
-                                <div data-component={`${dataComponentPrefix}-basic-grid`} className="grid grid-cols-2 gap-4">
-                                    <InfoCard title="고객 정보" className="col-start-1 row-start-1 row-end-3">
+                                <div data-component={`${dataComponentPrefix}_content_basic_grid`} className="grid grid-cols-2 gap-4">
+                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_client-card`} title="고객 정보" className="col-start-1 row-start-1 row-end-3">
                                         <InfoRow
                                             label={t(locale, "clients.form.name")}
                                             value={client.name}
@@ -871,7 +873,7 @@ function ClientDetailPanelBody({
                                         />
                                     </InfoCard>
 
-                                    <InfoCard title="담당 관리사" className="col-start-1 row-start-3 row-end-5">
+                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_employee-card`} title="담당 관리사" className="col-start-1 row-start-3 row-end-5">
                                         <InfoRow
                                             label={t(locale, "clients.form.primary-employee")}
                                             value={
@@ -900,7 +902,7 @@ function ClientDetailPanelBody({
                                         />
                                     </InfoCard>
 
-                                    <InfoCard title="서비스 정보" className="col-start-2 row-start-1 row-end-5">
+                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_service-card`} title="서비스 정보" className="col-start-2 row-start-1 row-end-5">
                                         <InfoRow
                                             label={t(locale, "clients.form.voucher-type")}
                                             value={client.type || "-"}
@@ -971,6 +973,7 @@ function ClientDetailPanelBody({
                             key: "service-records",
                             children: (
                                 <ClientServiceRecordsTab
+                                    data-component={`${dataComponentPrefix}_service-records`}
                                     overview={serviceRecordsQuery.data}
                                     clientId={clientId}
                                     isLoading={serviceRecordsQuery.isLoading}

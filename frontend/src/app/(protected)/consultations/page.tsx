@@ -205,14 +205,14 @@ export default function ConsultationsPage() {
                 ]}
             />
 
-            <SplitLayout
+            <SplitLayout data-component="desktop_consultations_split-layout"
                 hasSelection={!!activeInquiry}
                 onBack={() => {
                     setSelectedInquiry(null);
                     setActiveDetailTab("customer");
                 }}
             >
-                <ListPanel
+                <ListPanel data-component="desktop_consultations_split-layout_list-panel"
                     title="상담 문의"
                     tabs={READ_TABS}
                     activeTab={activeReadState}
@@ -298,7 +298,7 @@ export default function ConsultationsPage() {
                 </ListPanel>
 
                 {activeInquiry ? (
-                    <DetailPanel
+                    <DetailPanel data-component="desktop_consultations_split-layout_detail-panel"
                         avatar={
                             <div data-component="consultations-detail-avatar" className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-[20px] shadow-lg", getConsultationAvatarClassName(activeInquiry.readAt))}>
                                 <UserRound className="h-7 w-7" />
@@ -328,7 +328,7 @@ export default function ConsultationsPage() {
                                     key: "customer",
                                     children: (
                                         <div data-component="consultations-detail-basic-grid" className="grid grid-cols-1 gap-4">
-                                            <InfoCard title="고객 정보">
+                                            <InfoCard data-component="desktop_consultations_detail-panel_info-card" title="고객 정보">
                                                 <InfoRow label="이름" value={activeInquiry.motherName} />
                                                 <InfoRow label="연락처" value={activeInquiry.phone} />
                                                 <InfoRow label="주소" value={activeInquiry.address} />
@@ -343,7 +343,7 @@ export default function ConsultationsPage() {
                                     key: "inquiry",
                                     children: (
                                         <div data-component="consultations-detail-inquiry-grid" className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-4">
-                                            <InfoCard title="문의 정보" className="min-w-0 content-start">
+                                            <InfoCard data-component="desktop_consultations_detail-panel_info-card-2" title="문의 정보" className="min-w-0 content-start">
                                                 <InfoRow label="근무 지역" value={getInquiryRegion(activeInquiry.address)} />
                                                 <InfoRow label="추천 경로" value={activeInquiry.referralSource || "-"} />
                                                 <InfoRow label="선호 매니저" value={activeInquiry.preferredCaregiverName || "-"} />
@@ -377,7 +377,7 @@ export default function ConsultationsPage() {
 
                                             <SelectedServicesCard inquiry={activeInquiry} className="min-w-0 content-start" />
 
-                                            <InfoCard title="문의 상태" className="min-w-0 content-start">
+                                            <InfoCard data-component="desktop_consultations_detail-panel_info-card-3" title="문의 상태" className="min-w-0 content-start">
                                                 <InfoRow
                                                     label="확인 여부"
                                                     value={

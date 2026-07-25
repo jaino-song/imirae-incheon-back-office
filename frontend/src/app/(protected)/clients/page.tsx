@@ -179,11 +179,11 @@ function ClientAutomationSection() {
 
     return (
         <section data-component="clients-automation-section" className="flex h-full min-h-0 flex-1 flex-col">
-            <SplitLayout
+            <SplitLayout data-component="desktop_clients_split-layout"
                 hasSelection={selectedAutomation !== null}
                 onBack={() => setSelectedAutomationId(null)}
             >
-                <ListPanel
+                <ListPanel data-component="desktop_clients_split-layout_list-panel"
                     title="고객 자동화"
                     subtitle="고객 등록과 문서 흐름을 자동화합니다."
                 >
@@ -228,12 +228,12 @@ function ClientAutomationSection() {
                 </ListPanel>
 
                 {selectedAutomation ? (
-                    <DetailPanel
+                    <DetailPanel data-component="desktop_clients_split-layout_detail-panel"
                         compactBackLabel="자동화 목록으로 돌아가기"
                         title={selectedAutomation.title}
                         subtitle={selectedAutomation.subtitle}
                     >
-                        <InfoCard title="자동화 안내">
+                        <InfoCard data-component="desktop_clients_detail-panel_info-card" title="자동화 안내">
                             <p data-component="clients-automation-detail-temporary-copy" className="text-[0.85rem] leading-6 text-v3-text-muted">
                                 {selectedAutomationEnabled
                                     ? "전자문서 생성 시에 자동으로 고객이 등록됩니다."
@@ -242,7 +242,7 @@ function ClientAutomationSection() {
                         </InfoCard>
                     </DetailPanel>
                 ) : (
-                    <DetailPanel
+                    <DetailPanel data-component="desktop_clients_split-layout_detail-panel-2"
                         overlay={(
                             <ListEmptyState
                                 name="clients-automation-detail-empty"
@@ -635,7 +635,7 @@ export default function ClientsPage() {
                 <div data-component="clients-section-content" className="flex min-h-0 min-w-0 flex-1 flex-col">
                     {activeSection === "list" ? (
                         <section data-component="clients-list-section" className="flex min-h-0 flex-1 flex-col">
-                            <SplitLayout
+                            <SplitLayout data-component="desktop_clients_split-layout-2"
                                 hasSelection={shouldShowClientFormPanel || !!activeSelectedClient}
                                 onBack={() => {
                                     if (shouldShowClientFormPanel) {
@@ -650,7 +650,7 @@ export default function ClientsPage() {
                                     setSelectedClient(null);
                                 }}
                             >
-                <ListPanel
+                <ListPanel data-component="desktop_clients_split-layout_list-panel"
                     title="고객 목록"
                     tabs={FILTER_CHIPS}
                     activeTab={activeFilter}
@@ -749,7 +749,7 @@ export default function ClientsPage() {
                         activeStep={clientFormActiveStep}
                         onActiveStepChange={setClientFormActiveStep}
                         renderLayout={({ content, footer }) => (
-                            <DetailPanel
+                            <DetailPanel data-component="desktop_clients_split-layout_detail-panel-3"
                                 compactBackLabel="고객 목록으로 돌아가기"
                                 title={panelFormClient ? t(locale, "clients.form.edit-title") : t(locale, "clients.form.add-title")}
                                 subtitle={

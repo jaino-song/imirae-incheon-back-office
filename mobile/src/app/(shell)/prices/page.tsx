@@ -197,6 +197,7 @@ export default function PricesPage() {
   return (
     <div data-component="prices-page" className="md:hidden">
       <MobileDetailSheet
+        data-component="mobile_prices_detail-sheet"
         name="prices"
         isOpen={isOpen}
         onClose={closeSheet}
@@ -342,8 +343,8 @@ export default function PricesPage() {
 
 function PriceDetailContent({ row, year }: { row: DisplayRow; year: number }) {
   return (
-    <MobileDetailPage name="prices">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile_prices_detail-sheet_stack_detail-page_body" name="prices">
+      <MobileDetailHeader data-component="mobile_prices_detail-sheet_stack_detail-page_body_header"
         name="prices"
         avatar={<Calculator size={24} strokeWidth={2.5} aria-hidden="true" />}
         avatarClassName="price-detail-avatar"

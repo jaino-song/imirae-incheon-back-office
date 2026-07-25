@@ -724,7 +724,7 @@
 }
 
 /* V3 split layout responsive mode. */
-[data-component="split-layout"][data-mode="compact"] {
+[data-slot="split-layout"][data-mode="compact"] {
   display: block;
   height: 100%;
   max-width: 100%;
@@ -733,35 +733,35 @@
   width: var(--compact-viewport-width, 100%);
 }
 
-[data-component="split-layout-track"][data-mode="compact"] {
+[data-slot="split-layout-track"][data-mode="compact"] {
   display: flex;
   gap: var(--compact-panel-gap, 0px);
   height: 100%;
 }
 
-[data-component="split-layout-panel"][data-mode="compact"] {
+[data-slot="split-layout-panel"][data-mode="compact"] {
   flex-shrink: 0;
   height: 100%;
   overflow-y: auto;
 }
 
-[data-component="split-layout-panel"][data-mode="compact"][data-panel="list"] {
+[data-slot="split-layout-panel"][data-mode="compact"][data-panel="list"] {
   width: var(--compact-list-width, 100%);
 }
 
-[data-component="split-layout-panel"][data-mode="compact"][data-panel="detail"] {
+[data-slot="split-layout-panel"][data-mode="compact"][data-panel="detail"] {
   width: var(--compact-detail-width, 100%);
 }
 
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="list-panel"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="detail-panel"] {
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="list-panel"],
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="detail-panel"] {
   width: 100%;
 }
 
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="list-panel"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="detail-panel"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-detail-empty"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-activities-panel"] > div {
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="list-panel"],
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="detail-panel"],
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-detail-empty"],
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-activities-panel"] > div {
   box-shadow: none;
 }
 
@@ -844,7 +844,7 @@
     [data-component="system-admin-sections"],
     [data-component="messages-sections"],
     [data-component="settings-sections"]
-  ) [data-component="split-layout"] {
+  ) [data-slot="split-layout"] {
     display: block;
     height: 100%;
     max-width: 100%;
@@ -860,7 +860,7 @@
     [data-component="system-admin-sections"],
     [data-component="messages-sections"],
     [data-component="settings-sections"]
-  ) [data-component="split-layout-track"] {
+  ) [data-slot="split-layout-track"] {
     display: flex;
     gap: var(--compact-panel-gap, 16px);
     height: 100%;
@@ -873,7 +873,7 @@
     [data-component="system-admin-sections"],
     [data-component="messages-sections"],
     [data-component="settings-sections"]
-  ) [data-component="split-layout"][data-columns="2"][data-has-selection="true"] [data-component="split-layout-track"] {
+  ) [data-slot="split-layout"][data-columns="2"][data-has-selection="true"] [data-slot="split-layout-track"] {
     transform: translateX(calc(-100% - var(--compact-panel-gap, 16px)));
   }
 
@@ -884,7 +884,7 @@
     [data-component="system-admin-sections"],
     [data-component="messages-sections"],
     [data-component="settings-sections"]
-  ) [data-component="split-layout-panel"] {
+  ) [data-slot="split-layout-panel"] {
     flex-shrink: 0;
     height: 100%;
     overflow-y: auto;
@@ -898,7 +898,7 @@
     [data-component="system-admin-sections"],
     [data-component="messages-sections"],
     [data-component="settings-sections"]
-  ) [data-component="split-layout-panel"] > [data-component="list-panel"],
+  ) [data-slot="split-layout-panel"] > [data-slot="list-panel"],
   :is(
     [data-component="messages-sections"],
     [data-component="contracts-sections"],
@@ -906,7 +906,7 @@
     [data-component="system-admin-sections"],
     [data-component="messages-sections"],
     [data-component="settings-sections"]
-  ) [data-component="split-layout-panel"] > [data-component="detail-panel"] {
+  ) [data-slot="split-layout-panel"] > [data-slot="detail-panel"] {
     width: 100%;
   }
 }

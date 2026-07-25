@@ -445,7 +445,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <MobileDetailSheet
+      <MobileDetailSheet data-component="mobile_dashboard_detail-sheet"
         name="dashboard"
         isOpen={Boolean(selectedClient)}
         onClose={closeDetail}
@@ -463,6 +463,7 @@ export default function DashboardPage() {
         detail={
           selectedClient ? (
             <ClientDetailContent
+              data-component="mobile_dashboard_detail-sheet_stack_detail-page_content"
               client={selectedClient}
               activeTab={detailTab}
               notificationLogs={detailNotificationLogs}

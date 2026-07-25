@@ -201,7 +201,7 @@ export default function EmployeesPage() {
                 ]}
             />
 
-            <SplitLayout
+            <SplitLayout data-component="desktop_employees_split-layout"
                 hasSelection={isCreatingEmployee || !!selectedEmployee}
                 onBack={() => {
                     if (isCreatingEmployee) {
@@ -212,7 +212,7 @@ export default function EmployeesPage() {
                     setSelectedEmployee(null);
                 }}
             >
-                <ListPanel
+                <ListPanel data-component="desktop_employees_split-layout_list-panel"
                     title="직원 목록"
                     tabs={filterItems}
                     activeTab={filter}
@@ -295,7 +295,7 @@ export default function EmployeesPage() {
                         onClose={handleFormPanelClose}
                         onSuccess={handleFormPanelSuccess}
                         renderLayout={({ content, footer }) => (
-                            <DetailPanel
+                            <DetailPanel data-component="desktop_employees_split-layout_detail-panel_create"
                                 compactBackLabel="직원 목록으로 돌아가기"
                                 title="직원 추가"
                                 subtitle="이름, 연락처, 등급과 근무 가능 지역을 입력합니다."
@@ -367,7 +367,7 @@ interface EmployeeDetailProps {
 
 function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
     return (
-        <DetailPanel
+        <DetailPanel data-component="desktop_employees_split-layout_detail-panel"
             avatar={
                 <div data-component="employees-detail-avatar" className={cn("w-12 h-12 rounded-[16px] flex items-center justify-center shadow-lg shrink-0", getEmployeeAvatarClassName(employee.openToNextWork))}>
                     <UserCheck className="w-5 h-5 shrink-0 transition-colors" aria-hidden="true" />
@@ -415,13 +415,13 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
             }
         >
             <div data-component="employees-detail" className="space-y-5">
-                <InfoCard title="기본 정보">
+                <InfoCard data-component="desktop_employees_detail-panel_info-card" title="기본 정보">
                     <InfoRow label="이름" value={employee.name} />
                     <InfoRow label="연락처" value={formatPhoneNumber(employee.phone)} />
                     <InfoRow label="근무 상태" value={EMPLOYEE_STATUS_LABELS[employee.status]} />
                 </InfoCard>
 
-                <InfoCard title="업무 정보">
+                <InfoCard data-component="desktop_employees_detail-panel_info-card-2" title="업무 정보">
                     <InfoRow label="등급" value={normalizeEmployeeGrade(employee.grade)} />
                     <InfoRow
                         label="다음 업무 가능"
@@ -444,7 +444,7 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
                     />
                 </InfoCard>
 
-                <InfoCard title="등록 정보">
+                <InfoCard data-component="desktop_employees_detail-panel_info-card-3" title="등록 정보">
                     <InfoRow label="등록일" value={formatDate(employee.registeredDate)} />
                 </InfoCard>
             </div>

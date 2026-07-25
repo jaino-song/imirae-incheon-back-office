@@ -180,8 +180,8 @@ describe("mobile message data pages", () => {
 
     await user.click(screen.getByRole("button", { name: /제공기록지 작성 링크/ }));
 
-    const detailPage = container.querySelector('[data-component="mobile-messages-detail-page"]');
-    const stack = container.querySelector('[data-component="mobile-messages-stack"]');
+    const detailPage = container.querySelector('[data-slot="mobile-detail-stack-detail-page"]');
+    const stack = container.querySelector('[data-slot="mobile-detail-stack-track"]');
 
     expect(stack).toHaveClass("show-detail");
     expect(detailPage).toHaveAttribute("aria-hidden", "false");

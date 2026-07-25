@@ -27,6 +27,7 @@ export function MessagesTriggersPage() {
 
   return (
     <MobileDetailSheet
+      data-component="mobile_messages_triggers_detail-sheet"
       name="message-triggers"
       isOpen={isEditorOpen}
       onClose={closeEditor}

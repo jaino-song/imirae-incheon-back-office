@@ -281,7 +281,7 @@ export function RecentActivitiesPanel({
   const isListEmpty = !isLoading && !isError && (isEmpty || listItems.length === 0);
 
   return (
-    <ListPanel
+    <ListPanel data-component="desktop_v3_split-layout_list-panel"
       title={title}
       tabs={tabs}
       activeTab={activeTab}

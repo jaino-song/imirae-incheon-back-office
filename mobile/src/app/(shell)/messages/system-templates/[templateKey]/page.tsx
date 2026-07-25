@@ -99,14 +99,14 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
           </span>
         </div>
 
-        <InfoCard title="메시지 내용">
+        <InfoCard data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card" title="메시지 내용">
           <p className="message-detail-body" data-component="messages-system-template-content">
             {template.content}
           </p>
         </InfoCard>
 
         {template.requiredVariables && template.requiredVariables.length > 0 ? (
-          <InfoCard title="필수 변수">
+          <InfoCard data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card-2" title="필수 변수">
             <div className="flex flex-wrap gap-2" data-component="messages-system-template-variables">
               {template.requiredVariables.map((variable) => (
                 <span

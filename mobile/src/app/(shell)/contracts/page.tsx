@@ -30,9 +30,9 @@ import { useEformsignAuth } from "@/hooks/useEformsignAuth";
 import { useEformsignDocumentEvents } from "@/hooks/useEformsignDocumentEvents";
 import {
   useDeleteEformsignDocument,
-  useEformsignDocumentsByType,
   eformsignQueryKeys,
 } from "@/hooks/useEformsignDocuments";
+import { CONTRACTS_NEXT_PAGE_SIZE, useInfiniteContracts } from "@/hooks/useInfiniteContracts";
 import { useEformsign } from "@/hooks/useEformsign";
 import { useEmployees, type Employee } from "@/hooks/useEmployees";
 import { useListInfiniteScroll } from "@/hooks/useListInfiniteScroll";
@@ -69,7 +69,12 @@ import {
 import { HeadlessProgressModal } from "@/components/app/eformsign/HeadlessProgressModal";
 import { MobileTwoButtonModal } from "@/components/app/ui/MobileTwoButtonModal";
 import type { EformsignDocClientSummary } from "@babyjamjam/shared/types/eformsign";
-import { eformsignApi } from "@/services/api";
+import {
+  eformsignApi,
+  withEformsignReauth,
+  type EformsignStatusCategoryParam,
+  type EformsignStatusSignal,
+} from "@/services/api";
 import {
   Badge,
   ListCard,
@@ -212,6 +217,41 @@ function categorize(doc: EformsignDocument): ContractCategory {
   const cat = getStatusCategory(doc.current_status?.status_type);
   if (cat === "completed" || cat === "expired" || cat === "unknown") return cat;
   return isProviderReviewStep(doc) ? "in-progress" : "drafting";
+}
+
+/** 필터 pill → 서버 statusCategory 파라미터. "전체"는 상태 필터 없음(null). */
+const FILTER_TO_STATUS_CATEGORY: Record<FilterKey, EformsignStatusCategoryParam | null> = {
+  전체: null,
+  대기: "drafting",
+  "검토 필요": "in-progress",
+  완료: "completed",
+  "기간 만료": "expired",
+  "상태 확인": "unknown",
+};
+
+const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
+  drafting: "대기",
+  "in-progress": "검토 필요",
+  completed: "완료",
+  expired: "기간 만료",
+  unknown: "상태 확인",
+};
+
+/** status-counts 신호를 문서와 동일한 규칙으로 분류한다(categorize와 같은 로직). */
+function categorizeSignal(signal: EformsignStatusSignal): ContractCategory {
+  const cat = getStatusCategory(signal.status_type ?? undefined);
+  if (cat === "completed" || cat === "expired" || cat === "unknown") return cat;
+  return isProviderReviewWorkflowStep(signal) ? "in-progress" : "drafting";
+}
+
+/** 서버 검색 요청을 타이핑당 1회로 묶기 위한 로컬 디바운스. */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 function isProviderReviewStep(doc: EformsignDocument): boolean {
@@ -1172,7 +1212,7 @@ function ContractDetailContent({
         comment: "재요청입니다.",
       });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() }),
+        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() }),
         queryClient.invalidateQueries({ queryKey: ["eformsign-document-detail", doc.id] }),
         queryClient.invalidateQueries({ queryKey: ["messages", "logs", "all"] }),
       ]);
@@ -1237,8 +1277,8 @@ function ContractDetailContent({
   };
 
   return (
-    <MobileDetailPage name="contracts">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile-contracts-detail" name="contracts">
+      <MobileDetailHeader data-component="mobile-contracts-detail-header"
         name="contracts"
         avatar={<FileCheck2 size={24} strokeWidth={2.5} />}
         avatarTone="primary"
@@ -1296,7 +1336,7 @@ function ContractDetailContent({
       />
 
       {!isPreviewOpen || (reviewNeeded && onFinalize) ? (
-        <MobileDetailActions
+        <MobileDetailActions data-component="mobile_contracts_detail-sheet_stack_detail-page_actions"
           name="contracts"
           actions={[
             ...(!isPreviewOpen
@@ -1397,15 +1437,15 @@ function ContractDetailContent({
             onTabChange={(id) => onTabChange(id as DetailTabId)}
           />
 
-          <MobileDetailTabPanel name="contracts" tabId="basic" activeTab={activeTab}>
-            <InfoCard title="이용자 정보">
+          <MobileDetailTabPanel data-component="mobile_contracts_detail-sheet_stack_detail-page_tab-panel" name="contracts" tabId="basic" activeTab={activeTab}>
+            <InfoCard data-component="mobile_contracts_detail-panel_info-card" title="이용자 정보">
               <InfoRow label="이용자" value={resolvedCustomerName} />
               {customerPhone ? (
                 <InfoRow label="연락처" value={formatClientPhone(customerPhone) ?? customerPhone} />
               ) : null}
               <InfoRow label="제공인력" value={resolvedProviderName} />
             </InfoCard>
-            <InfoCard title="계약 정보" delay={60}>
+            <InfoCard data-component="mobile_contracts_detail-panel_info-card-2" title="계약 정보" delay={60}>
               <InfoRow
                 label="계약서 종류"
                 value={<span style={{ fontFamily: "'SF Mono', monospace" }}>{contractNum}</span>}
@@ -1420,14 +1460,14 @@ function ContractDetailContent({
             </InfoCard>
           </MobileDetailTabPanel>
 
-          <MobileDetailTabPanel name="contracts" tabId="signers" activeTab={activeTab}>
-            <InfoCard title="계약서 단계">
+          <MobileDetailTabPanel data-component="mobile_contracts_detail-sheet_stack_detail-page_tab-panel-2" name="contracts" tabId="signers" activeTab={activeTab}>
+            <InfoCard data-component="mobile_contracts_detail-panel_info-card-3" title="계약서 단계">
               <ActivityTimeline items={stageItems} maxHeight="360px" />
             </InfoCard>
           </MobileDetailTabPanel>
 
-          <MobileDetailTabPanel name="contracts" tabId="messages" activeTab={activeTab}>
-            <InfoCard title="발송 내역">
+          <MobileDetailTabPanel data-component="mobile_contracts_detail-sheet_stack_detail-page_tab-panel-3" name="contracts" tabId="messages" activeTab={activeTab}>
+            <InfoCard data-component="mobile_contracts_detail-panel_info-card-4" title="발송 내역">
               {notificationRows.length > 0 ? (
                 notificationRows.map((log) => {
                   const tone = notificationStatusTone(log.status);
@@ -1515,10 +1555,10 @@ export default function ContractsPage() {
           setFinalizeDoc(null);
           setFinalizeEndDateInput("");
           setFinalizeFeedback("계약서가 완료 처리되었습니다.");
-          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           [2000, 5000].forEach((delay) => {
             setTimeout(() => {
-              queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+              queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
             }, delay);
           });
         },
@@ -1672,10 +1712,10 @@ export default function ContractsPage() {
       if (headless.ok) {
         headlessOk = true;
         setFinalizeProgress({ step: "sent", completed: true, failed: false });
-        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
         [2000, 5000].forEach((delay) => {
           setTimeout(() => {
-            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           }, delay);
         });
         setTimeout(() => {
@@ -1756,6 +1796,7 @@ export default function ContractsPage() {
   const { isAuthenticated, isLoading: isAuthLoading } = useEformsignAuth();
   const refreshContractsFromEvent = useCallback(
     (event: { documentId?: string }) => {
+      // documents() 광역 prefix가 all/paginated/status-counts 하위 키를 전부 덮는다.
       void queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
       void queryClient.invalidateQueries({ queryKey: ["eformsign-doc-client-names"] });
       void queryClient.invalidateQueries({ queryKey: ["eformsign-document-detail"] });
@@ -1772,16 +1813,70 @@ export default function ContractsPage() {
     onDocsChanged: refreshContractsFromEvent,
   });
 
-  const { data: allData, isLoading: isDocumentsLoading } = useEformsignDocumentsByType(isAuthenticated, null);
   const { data: feedbackTemplateData, isLoading: isFeedbackTemplateLoading } = useQuery({
     queryKey: ["eformsign-docs", "feedback-template-id"],
     queryFn: eformsignApi.getFeedbackTemplateId,
     enabled: isAuthenticated,
     staleTime: 1000 * 60 * 5,
   });
+
+  // 섹션(산모 계약서/제공기록지)은 제공기록지 template id의 include/exclude로 서버에서 필터한다.
+  // template id가 미설정(null)인 설치에서는 모든 문서를 산모 계약서로 취급한다 —
+  // 산모 섹션은 템플릿 필터 없이 조회하고, 제공기록지 섹션만 비활성(빈 목록)으로 남긴다.
+  const serviceRecordTemplateId = feedbackTemplateData?.templateId ?? null;
+  const isFeedbackTemplateResolved = feedbackTemplateData !== undefined;
+  const sectionTemplateMatch = activeSection === "service-records" ? "include" : "exclude";
+  const sectionFilterReady =
+    isFeedbackTemplateResolved
+    && (activeSection === "maternal-contracts" || Boolean(serviceRecordTemplateId));
+  const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
+  const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
+
+  const {
+    documents: paginatedDocuments,
+    totalRows,
+    branchId,
+    isLoading: isDocumentsLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    isLoadMoreError,
+  } = useInfiniteContracts({
+    statusCategory: statusCategoryParam,
+    search: debouncedSearchQuery,
+    templateId: serviceRecordTemplateId,
+    templateMatch: sectionTemplateMatch,
+    enabled: isAuthenticated && sectionFilterReady,
+  });
+
+  // 필터 pill 카운터: 목록과 동일한 선(先)필터가 적용된 상태 신호를 받아 클라이언트에서 접는다.
+  const { data: statusCountsData } = useQuery({
+    // "eformsign-documents" 아래에 중첩 — 문서 변이가 광역 prefix 무효화만 해도
+    // (삭제 훅, 생성 플로우, 지점 전환 removeQueries) 카운터가 함께 갱신된다.
+    queryKey: [
+      "eformsign-documents",
+      "status-counts",
+      branchId ?? "unknown",
+      activeSection,
+      debouncedSearchQuery,
+      serviceRecordTemplateId ?? "no-template",
+    ],
+    queryFn: () =>
+      withEformsignReauth(() =>
+        eformsignApi.getStatusCounts({
+          templateId: serviceRecordTemplateId ?? undefined,
+          templateMatch: serviceRecordTemplateId ? sectionTemplateMatch : undefined,
+          search: debouncedSearchQuery || undefined,
+          excludeDeleted: true,
+        }),
+      ),
+    enabled: isAuthenticated && sectionFilterReady && Boolean(branchId),
+    staleTime: 1000 * 60 * 5,
+  });
+
   const isContractsLoading =
     isAuthLoading ||
-    (isAuthenticated && isDocumentsLoading && !allData) ||
+    (isAuthenticated && isDocumentsLoading) ||
     (isAuthenticated && isFeedbackTemplateLoading && !feedbackTemplateData);
   const { data: documentClientSummaries = [] } = useQuery({
     queryKey: ["eformsign-doc-client-names"],
@@ -1813,12 +1908,12 @@ export default function ContractsPage() {
 
   const missingCustomerNameDocumentIds = useMemo(
     () =>
-      (allData?.documents ?? [])
+      paginatedDocuments
         .filter((doc) => !isDeletedStatusCode(doc.current_status?.status_type))
         .filter((doc) => customerName(doc) === UNKNOWN_CUSTOMER_NAME)
         .map((doc) => doc.id)
         .filter((id): id is string => Boolean(id)),
-    [allData?.documents],
+    [paginatedDocuments],
   );
 
   const { data: missingCustomerNameDetails = [] } = useQuery<EformsignDocument[]>({
@@ -1841,10 +1936,10 @@ export default function ContractsPage() {
 
   const displayDocuments = useMemo(
     () =>
-      (allData?.documents ?? []).map((doc) =>
+      paginatedDocuments.map((doc) =>
         mergeDocumentForDisplayData(doc, missingCustomerNameDetailById.get(doc.id)),
       ),
-    [allData?.documents, missingCustomerNameDetailById],
+    [paginatedDocuments, missingCustomerNameDetailById],
   );
 
   const selectedListDoc = useMemo(() => {
@@ -1853,8 +1948,8 @@ export default function ContractsPage() {
   }, [displayDocuments, selectedDoc?.id]);
 
   const documentIdsSignature = useMemo(
-    () => (allData?.documents ?? []).map((doc) => doc.id).join("|"),
-    [allData?.documents],
+    () => paginatedDocuments.map((doc) => doc.id).join("|"),
+    [paginatedDocuments],
   );
 
   useEffect(() => {
@@ -1881,67 +1976,32 @@ export default function ContractsPage() {
     return undefined;
   }, [documentClientSummaryById, selectedDetailDoc?.id, selectedDoc?.id, selectedListDoc?.id]);
 
-  const allDocuments = useMemo(
-    () =>
-      displayDocuments.filter((doc) => {
-        if (isDeletedStatusCode(doc.current_status?.status_type)) return false;
-        return !EXCLUDED_CUSTOMER_NAMES.includes(customerName(doc));
-      }),
+  // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다. 클라이언트에는
+  // 고객명 제외 목록(현재 비어 있음)만 안전망으로 남긴다.
+  const filteredDocuments = useMemo(
+    () => displayDocuments.filter((doc) => !EXCLUDED_CUSTOMER_NAMES.includes(customerName(doc))),
     [displayDocuments],
   );
 
-  const sectionDocuments = useMemo(() => {
-    const serviceRecordTemplateId = feedbackTemplateData?.templateId;
-    return allDocuments.filter((doc) => {
-      const isServiceRecord = isServiceRecordDocument(doc, serviceRecordTemplateId);
-      return activeSection === "service-records" ? isServiceRecord : !isServiceRecord;
-    });
-  }, [activeSection, allDocuments, feedbackTemplateData?.templateId]);
-
-  const filteredDocuments = useMemo(() => {
-    const q = searchQuery.trim();
-    if (!q) return sectionDocuments;
-    return sectionDocuments.filter(
-      (doc) => {
-        return (
-          matchesKoreanSearch(customerName(doc), q) ||
-          matchesKoreanSearch(doc.document_name ?? "", q) ||
-          matchesKoreanSearch(templateName(doc), q) ||
-          matchesKoreanSearch(contractNumber(doc), q)
-        );
-      },
-    );
-  }, [searchQuery, sectionDocuments]);
-
-  const grouped = useMemo(() => {
-    const groups: Record<ContractCategory, EformsignDocument[]> = {
-      "in-progress": [],
-      drafting: [],
-      completed: [],
-      expired: [],
-      unknown: [],
-    };
-    for (const doc of filteredDocuments) {
-      groups[categorize(doc)].push(doc);
-    }
-    return groups;
-  }, [filteredDocuments]);
-
   const filterItems = useMemo(() => {
-    if (isContractsLoading) {
+    if (isContractsLoading || !statusCountsData) {
       return FILTER_LABELS.map((label) => ({ label, count: "00", skeleton: true }));
     }
 
+    // 목록과 동일한 선(先)필터가 적용된 신호를 문서와 같은 규칙으로 접는다.
     const counts: Record<FilterKey, number> = {
-      전체: filteredDocuments.length,
-      대기: grouped.drafting.length,
-      "검토 필요": grouped["in-progress"].length,
-      완료: grouped.completed.length,
-      "기간 만료": grouped.expired.length,
-      "상태 확인": grouped.unknown.length,
+      전체: statusCountsData.documents.length,
+      대기: 0,
+      "검토 필요": 0,
+      완료: 0,
+      "기간 만료": 0,
+      "상태 확인": 0,
     };
+    for (const signal of statusCountsData.documents) {
+      counts[FILTER_BY_CATEGORY[categorizeSignal(signal)]] += 1;
+    }
     return FILTER_LABELS.map((label) => ({ label, count: String(counts[label]) }));
-  }, [filteredDocuments.length, grouped, isContractsLoading]);
+  }, [isContractsLoading, statusCountsData]);
 
   const sectionsFull = useMemo(() => {
     type Section = {
@@ -1958,52 +2018,43 @@ export default function ContractsPage() {
       category: ContractCategory,
     ): Section => ({ key, title, fullDocs: docs, fullCount: docs.length, category });
 
-    // 전체: 카테고리 grouping 없이 최신순 단일 리스트 (총 8개부터 teaser → 무한 스크롤).
+    if (filteredDocuments.length === 0) return [];
+
+    // 활성 뷰당 1쿼리: 서버가 이미 활성 pill 기준으로 필터·정렬(생성일 내림차순)한
+    // 목록을 내려주므로, 화면은 그 목록을 단일 섹션으로 그대로 보여준다.
     if (activeFilter === "전체") {
-      const flat = [...filteredDocuments].sort((a, b) => docRecency(b) - docRecency(a));
-      return flat.length > 0 ? [section("all", "", flat, "in-progress")] : [];
+      return [section("all", "", filteredDocuments, "in-progress")];
     }
+    const SECTION_META: Record<Exclude<FilterKey, "전체">, { key: string; title: string; category: ContractCategory }> = {
+      "검토 필요": { key: "in-progress", title: "검토 필요", category: "in-progress" },
+      대기: { key: "drafting", title: "대기", category: "drafting" },
+      완료: { key: "completed", title: "완료 · 최근", category: "completed" },
+      "기간 만료": { key: "expired", title: "기간 만료/반려", category: "expired" },
+      "상태 확인": { key: "unknown", title: "상태 확인", category: "unknown" },
+    };
+    const meta = SECTION_META[activeFilter];
+    return [section(meta.key, meta.title, filteredDocuments, meta.category)];
+  }, [activeFilter, filteredDocuments]);
 
-    // 개별 필터: 해당 카테고리 단일 섹션.
-    if (activeFilter === "검토 필요") {
-      return grouped["in-progress"].length > 0
-        ? [section("in-progress", "검토 필요", grouped["in-progress"], "in-progress")]
-        : [];
-    }
-    if (activeFilter === "대기") {
-      return grouped.drafting.length > 0
-        ? [section("drafting", "대기", grouped.drafting, "drafting")]
-        : [];
-    }
-    if (activeFilter === "완료") {
-      return grouped.completed.length > 0
-        ? [section("completed", "완료 · 최근", grouped.completed, "completed")]
-        : [];
-    }
-    if (activeFilter === "기간 만료") {
-      return grouped.expired.length > 0
-        ? [section("expired", "기간 만료/반려", grouped.expired, "expired")]
-        : [];
-    }
-    if (activeFilter === "상태 확인") {
-      return grouped.unknown.length > 0
-        ? [section("unknown", "상태 확인", grouped.unknown, "unknown")]
-        : [];
-    }
-    return [];
-  }, [grouped, activeFilter, filteredDocuments]);
-
-  const maxFullCount = useMemo(
-    () => sectionsFull.reduce((m, s) => Math.max(m, s.fullCount), 0),
-    [sectionsFull],
-  );
+  // 노출 한도는 서버의 필터 적용 후 총 건수 기준 — teaser/센티널이 로드된 페이지 너머까지 이어진다.
+  const maxFullCount = totalRows;
 
   const { visibleCount, isInitialLoad, hasMore, sentinelRef, scrollContainerRef, loadMore } =
     useListInfiniteScroll({
-      resetKey: `${activeSection}::${activeFilter}::${searchQuery}`,
+      resetKey: `${activeSection}::${activeFilter}::${debouncedSearchQuery}`,
       totalItems: maxFullCount,
       fallbackInitialCount: CONTRACT_LIST_INITIAL_VISIBLE_COUNT,
     });
+
+  // 노출 창(visibleCount)이 로드된 문서 끝에 다가서면 다음 서버 페이지(6건)를 미리 당겨온다.
+  // react-query가 동시 요청을 dedupe하고, 실패 후에는 자동 재시도하지 않는다(무한 루프 방지) —
+  // 필터/검색/지점 변경 또는 stale 재조회가 오류 상태를 자연스럽게 초기화한다.
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage || isLoadMoreError) return;
+    if (visibleCount + CONTRACTS_NEXT_PAGE_SIZE > paginatedDocuments.length) {
+      void fetchNextPage();
+    }
+  }, [visibleCount, paginatedDocuments.length, hasNextPage, isFetchingNextPage, isLoadMoreError, fetchNextPage]);
 
   const visibleSections = useMemo(
     () =>
@@ -2013,7 +2064,7 @@ export default function ContractsPage() {
     [sectionsFull, visibleCount],
   );
 
-  const totalDocs = filteredDocuments.length;
+  const totalDocs = totalRows;
   const activeSectionLabel = activeSection === "maternal-contracts" ? "산모 계약서" : "제공기록지";
   const listCount = isContractsLoading ? (
     <span className="contracts-count-placeholder" aria-label="계약서 불러오는 중" />
@@ -2022,8 +2073,9 @@ export default function ContractsPage() {
   );
 
   const mainSheet = (
-    <MobileDetailSheet
+    <MobileDetailSheet data-component="mobile_contracts_detail-sheet"
       name="contracts"
+      detailDataComponent="mobile-contracts-detail-page"
       isOpen={Boolean(selectedDoc)}
       onClose={() => setSelectedDoc(null)}
       list={

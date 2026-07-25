@@ -10,6 +10,8 @@ import type {
 } from "@babyjamjam/shared/types/service-record";
 
 const mockMutateAsync = jest.fn();
+const TEST_COMPONENT =
+    "mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_service-records_content";
 
 jest.mock("@/hooks/useServiceRecords", () => ({
     useSendServiceRecordLink: () => ({
@@ -85,6 +87,7 @@ function renderComponent(
 ) {
     return render(
         <ClientServiceRecords
+            data-component={TEST_COMPONENT}
             client={client}
             activeTab="serviceRecords"
             overview={overview}
@@ -126,7 +129,7 @@ describe("ClientServiceRecords", () => {
         });
 
         const statusCard = container.querySelector(
-            '[data-component="mobile-clients-service-records-status-card"]',
+            `[data-component="${TEST_COMPONENT}_status-card"]`,
         );
 
         expect(statusCard).toHaveTextContent("제공기록지 진행 상태");
@@ -152,7 +155,7 @@ describe("ClientServiceRecords", () => {
         });
 
         const documentCard = container.querySelector(
-            '[data-component="mobile_clients_service-records_signature-card"]',
+            `[data-component="${TEST_COMPONENT}_signature-card"]`,
         );
 
         expect(documentCard).toHaveTextContent("제공기록지 전자문서 1");
@@ -292,6 +295,7 @@ describe("ClientServiceRecords", () => {
         const { container } = render(
             <div className="detail-body">
                 <ClientServiceRecords
+                    data-component={TEST_COMPONENT}
                     client={client}
                     activeTab="serviceRecords"
                     overview={{ assignments: [createAssignment(1, "sent")] }}

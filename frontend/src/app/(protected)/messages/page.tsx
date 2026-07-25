@@ -601,14 +601,14 @@ function MessageScheduledSection() {
 
   return (
     <div data-component="messages-scheduled-layout" className="flex min-h-[560px] flex-1 flex-col">
-      <SplitLayout
+      <SplitLayout data-component="desktop_messages_split-layout"
         hasSelection={!!selectedJob}
         onBack={() => {
           setSelectedJobId(null);
           setScheduledDetailTab("info");
         }}
       >
-        <ListPanel
+        <ListPanel data-component="desktop_messages_split-layout_list-panel"
           title="발송 예정"
           subtitle="발송이 예정된 메시지를 확인할 수 있어요."
           tabs={SCHEDULED_PREVIEW_TABS}
@@ -699,7 +699,7 @@ function MessageScheduledSection() {
             </div>
         </ListPanel>
 
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_scheduled_split-layout_detail-panel"
           avatar={selectedJob ? (
             <div
               data-component="messages-scheduled-detail-avatar"
@@ -957,8 +957,8 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
 
   return (
     <div data-component="messages-section-placeholder-layout" className="flex min-h-[560px] flex-1 flex-col">
-      <SplitLayout hasSelection={!!selectedPreview} onBack={() => setSelectedPreviewId(null)}>
-        <ListPanel
+      <SplitLayout data-component="desktop_messages_split-layout-2" hasSelection={!!selectedPreview} onBack={() => setSelectedPreviewId(null)}>
+        <ListPanel data-component="desktop_messages_split-layout_list-panel-2"
           title={section.label}
           subtitle={copy.description}
           tabs={isScheduledSection ? SCHEDULED_PREVIEW_TABS : undefined}
@@ -1041,7 +1041,7 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
             </div>
         </ListPanel>
 
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_section_split-layout_detail-panel"
           avatar={!isScheduledSection || selectedPreview ? (
             <div
               data-component="messages-section-placeholder-detail-avatar"
@@ -1359,12 +1359,12 @@ function MessageHistorySection() {
   }, [retryHistory, selectedRecord, toast]);
 
   return (
-    <SplitLayout
+    <SplitLayout data-component="desktop_messages_split-layout-3"
       hasSelection={!!selectedRecord}
       onBack={() => setSelectedRecordId(null)}
       onModeChange={setSplitLayoutMode}
     >
-      <ListPanel
+      <ListPanel data-component="desktop_messages_split-layout_list-panel-3"
         title="발송 기록"
         subtitle="발송된 메시지 기록을 볼 수 있어요."
         tabs={MESSAGE_HISTORY_TABS}
@@ -1805,7 +1805,7 @@ export default function MessagesPage() {
               data-component={activeSection === "send" ? "messages-send-section" : "messages-templates-section"}
               className="flex min-h-0 flex-1 flex-col"
             >
-              <SplitLayout
+              <SplitLayout data-component="desktop_messages_split-layout-4"
                 hasSelection={!!activeTemplateId}
                 onModeChange={setTemplateSplitLayoutMode}
                 onBack={() => {
@@ -1814,7 +1814,7 @@ export default function MessagesPage() {
                   setTemplatePreviewOverride(null);
                 }}
               >
-                <ListPanel
+                <ListPanel data-component="desktop_messages_split-layout_list-panel-4"
                   title="메시지 템플릿"
                   tabs={TEMPLATE_FILTERS}
                   activeTab={templateFilter}
@@ -1883,7 +1883,7 @@ export default function MessagesPage() {
                   ) : null}
                 </ListPanel>
 
-                <DetailPanel
+                <DetailPanel data-component="desktop_messages_templates_split-layout_detail-panel"
                   avatar={
                     activeTemplateId ? (
                       <div

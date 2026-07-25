@@ -84,7 +84,7 @@ export function AnimatedSlotList<T>({
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
 
-    const panelContent = sentinel.closest('[data-component="list-panel-content"]');
+    const panelContent = sentinel.closest('[data-slot="list-panel-content"]');
     const root = panelContent instanceof HTMLElement ? panelContent : null;
 
     const observer = new IntersectionObserver(

@@ -43,8 +43,8 @@ export function ContractsServiceRecordsSection() {
       data-component="contracts-service-records"
       className="flex min-h-0 flex-1 flex-col"
     >
-      <SplitLayout hasSelection={selectedClientId !== null} onBack={clearSelection}>
-        <ListPanel title="제공기록지 조회" subtitle="고객별 기록과 발송 상태">
+      <SplitLayout data-component="desktop_contracts_split-layout" hasSelection={selectedClientId !== null} onBack={clearSelection}>
+        <ListPanel data-component="desktop_contracts_split-layout_list-panel" title="제공기록지 조회" subtitle="고객별 기록과 발송 상태">
           <div
             data-component="contracts-service-records-client-picker"
             className="flex min-h-full flex-1 flex-col gap-[calc(20px*var(--glint-ui-scale,1))] pt-[calc(4px*var(--glint-ui-scale,1))]"
@@ -86,7 +86,7 @@ export function ContractsServiceRecordsSection() {
         </ListPanel>
 
         {selectedClientId !== null && selectedClient ? (
-          <DetailPanel
+          <DetailPanel data-component="desktop_contracts_split-layout_detail-panel"
             title={selectedClient.name}
             subtitle={clientSubtitle || "제공기록지"}
             avatar={
@@ -95,7 +95,7 @@ export function ContractsServiceRecordsSection() {
               </div>
             }
           >
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component="desktop_contracts_service-records"
               overview={serviceRecordsQuery.data}
               clientId={selectedClientId}
               isLoading={serviceRecordsQuery.isLoading}

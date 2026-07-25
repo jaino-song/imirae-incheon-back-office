@@ -108,6 +108,7 @@ function renderDetail(
 ) {
   return render(
     <ClientDetailContent
+      data-component="mobile_clients_detail-sheet_stack_detail-page_content"
       client={detailClient}
       contractDocument={contractDocument}
       activeTab="basic"
@@ -197,6 +198,7 @@ describe("ClientDetailContent", () => {
 
     render(
       <ClientDetailContent
+        data-component="mobile_clients_detail-sheet_stack_detail-page_content"
         client={client}
         contractDocument={null}
         activeTab="message"

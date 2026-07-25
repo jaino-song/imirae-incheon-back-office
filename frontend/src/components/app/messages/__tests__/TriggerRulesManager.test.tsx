@@ -190,11 +190,11 @@ describe("TriggerRulesManager", () => {
 
     fireEvent.click(activeTab);
 
-    expect(container.querySelector('[data-component="list-panel-disabled-overlay"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="list-panel-disabled-overlay"]')).toBeInTheDocument();
     expect(
       screen.getAllByText("메시지 발송 승인 후에 설정 가능합니다. 설정에서 메시지 발송 기능을 신청해 주세요."),
     ).toHaveLength(2);
-    expect(container.querySelector('[data-component="detail-panel-scroll-content"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="detail-panel-scroll-content"]')).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "알림톡 발송 신청하기" })).not.toBeInTheDocument();
   });
 

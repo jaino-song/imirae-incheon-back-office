@@ -406,7 +406,7 @@ export default function ServiceRecordPage() {
             clearStoredFormState(token);
             setEditing(false);
             setMomSignature(null);
-            navigateTo("overview", { mode: historyMode });
+            navigateTo("done", { mode: historyMode });
             return;
         }
 

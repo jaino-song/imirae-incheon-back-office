@@ -501,6 +501,7 @@ export default function ClientsPage() {
   return (
     <>
       <MobileDetailSheet
+        data-component="mobile_clients_detail-sheet"
         name="clients"
         isOpen={Boolean(detailClient)}
         onClose={handleCloseDetailSheet}
@@ -612,6 +613,7 @@ export default function ClientsPage() {
         detail={
           detailClient ? (
             <ClientDetailContent
+              data-component="mobile_clients_detail-sheet_stack_detail-page_content"
               client={syncedDetailClient ?? detailClient}
               contractDocument={detailContractDocument ?? null}
               activeTab={detailSheetTab}

@@ -1,12 +1,12 @@
 .pageRoot,
-:global(main[data-component="main-content"]:has([data-component="contracts-creation-page-shell"])) {
+:global(main[data-component="main-content"]:has([data-component="mobile_contracts-new_screen_root"])) {
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
   -webkit-font-smoothing: antialiased;
 }
 
-:global(main[data-component="main-content"]:has([data-component="contracts-creation-page-shell"])) {
+:global(main[data-component="main-content"]:has([data-component="mobile_contracts-new_screen_root"])) {
   display: flex;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
   min-height: 0;
@@ -15,21 +15,21 @@
   background: hsl(var(--v3-dim-white));
 }
 
-:global(main[data-component="main-content"]:has([data-component="contracts-creation-page-shell"]) > [data-component="contracts-creation-page-shell"]) {
+:global(main[data-component="main-content"]:has([data-component="mobile_contracts-new_screen_root"]) > [data-component="mobile_contracts-new_screen_root"]) {
   flex: 1;
   min-height: 0;
 }
 
-:global([data-component="app-root"]:has([data-component="contracts-creation-page-shell"]) [data-component="mobile-header"]),
-:global([data-component="app-root"]:has([data-component="contracts-creation-page-shell"]) [data-component="floating-quick-actions"]) {
+:global([data-component="app-root"]:has([data-component="mobile_contracts-new_screen_root"]) [data-component="mobile-header"]),
+:global([data-component="app-root"]:has([data-component="mobile_contracts-new_screen_root"]) [data-component="floating-quick-actions"]) {
   display: none !important;
 }
 
-:global(main[data-component="main-content"]:has([data-component="contracts-creation-page-shell"]) ~ [data-component="mobile-bottom-nav"]) {
+:global(main[data-component="main-content"]:has([data-component="mobile_contracts-new_screen_root"]) ~ [data-component="mobile-bottom-nav"]) {
   display: none !important;
 }
 
-:global(body:has([data-component="contracts-creation-page-shell"]) nextjs-portal) {
+:global(body:has([data-component="mobile_contracts-new_screen_root"]) nextjs-portal) {
   display: none !important;
 }
 

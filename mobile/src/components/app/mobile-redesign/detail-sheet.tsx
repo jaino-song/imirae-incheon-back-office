@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useRef } from "react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import Link from "next/link";
@@ -31,7 +31,8 @@ export type DetailAction = {
 };
 
 export function MobileDetailStack({
-  name,
+  "data-component": dataComponent,
+  "data-source-component": dataSourceComponent = "MobileDetailStack",
   isOpen,
   onClose,
   list,
@@ -58,6 +59,8 @@ export function MobileDetailStack({
   closeLabel = "상세 닫기",
   closeDisabled,
 }: {
+  "data-component": string;
+  "data-source-component"?: string;
   name: string;
   isOpen: boolean;
   onClose: () => void;
@@ -87,18 +90,21 @@ export function MobileDetailStack({
 }) {
   return (
     <section
-      data-component={sectionDataComponent ?? name}
+      data-component={sectionDataComponent ?? dataComponent}
+      data-source-component={dataSourceComponent}
+      data-slot="mobile-detail-stack"
       className={sectionClassName}
       style={sectionStyle}
       aria-hidden={sectionAriaHidden}
     >
       <div
         className={cn("nav-stack", isOpen && "show-detail", stackClassName)}
-        data-component={stackDataComponent ?? `mobile-${name}-stack`}
+        data-component={stackDataComponent ?? `${dataComponent}_stack`}
+        data-slot="mobile-detail-stack-track"
       >
         <div
           className={cn("nav-page list", listClassName)}
-          data-component={listDataComponent ?? `mobile-${name}-list-page`}
+          data-component={listDataComponent ?? `${dataComponent}_stack_list-page`}
           aria-hidden={list == null}
         >
           {list}
@@ -107,22 +113,24 @@ export function MobileDetailStack({
           type="button"
           aria-label={closeLabel}
           className={cn("scrim", scrimClassName)}
-          data-component={scrimDataComponent ?? `mobile-${name}-detail-scrim`}
+          data-component={scrimDataComponent ?? `${dataComponent}_stack_scrim`}
           onClick={onClose}
           disabled={scrimDisabled}
         />
         <div
           className={cn("nav-page detail", detailClassName)}
-          data-component={detailDataComponent ?? `mobile-${name}-detail-page`}
+          data-component={detailDataComponent ?? `${dataComponent}_stack_detail-page`}
+          data-slot="mobile-detail-stack-detail-page"
           role={detailRole}
           aria-modal={detailAriaModal}
           aria-labelledby={detailAriaLabelledBy}
           aria-describedby={detailAriaDescribedBy}
           aria-hidden={!isOpen}
         >
-          <div className="sheet-handle" />
-          <div className={cn("sheet-header", sheetHeaderClassName)} data-component={sheetHeaderDataComponent}>
+          <div data-component={`${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_handle`} className="sheet-handle" />
+          <div className={cn("sheet-header", sheetHeaderClassName)} data-component={sheetHeaderDataComponent ?? `${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_header`}>
             <button
+              data-component={`${sheetHeaderDataComponent ?? `${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_header`}_close`}
               type="button"
               className="sheet-close"
               aria-label={closeLabel}
@@ -141,24 +149,36 @@ export function MobileDetailStack({
 }
 
 export function MobileDetailSheet({
+  "data-component": dataComponent,
   name,
   isOpen,
   onClose,
   list,
   detail,
+  detailDataComponent,
 }: {
+  "data-component": string;
   name: string;
   isOpen: boolean;
   onClose: () => void;
   list: ReactNode;
   detail: ReactNode;
+  /**
+   * Explicit name for the sliding detail pane. Pass it when the page also
+   * annotates its own detail body, so the two elements do not end up sharing
+   * one generated `data-component` value.
+   */
+  detailDataComponent?: string;
 }) {
   return (
     <MobileDetailStack
+      data-component={dataComponent}
+      data-source-component="MobileDetailSheet"
       name={name}
       isOpen={isOpen}
       onClose={onClose}
       list={list}
+      detailDataComponent={detailDataComponent}
       sectionClassName="mobile-detail-sheet relative flex flex-col flex-1 min-h-0 overflow-hidden -mx-4 -mb-24"
       sectionStyle={{ minHeight: "var(--mobile-detail-sheet-min-height, calc(100dvh - 80px))" }}
     >
@@ -168,22 +188,24 @@ export function MobileDetailSheet({
 }
 
 export function MobileDetailPage({
-  name,
+  "data-component": dataComponent,
+  "data-source-component": dataSourceComponent = "MobileDetailPage",
   children,
   className,
-  dataComponent,
   style,
 }: {
+  "data-component": string;
+  "data-source-component"?: string;
   name: string;
   children: ReactNode;
   className?: string;
-  dataComponent?: string;
   style?: CSSProperties;
 }) {
   return (
     <div
       className={cn("detail-body detail-column", className)}
-      data-component={dataComponent ?? `mobile-${name}-detail`}
+      data-component={dataComponent}
+      data-source-component={dataSourceComponent}
       style={style}
     >
       {children}
@@ -192,7 +214,7 @@ export function MobileDetailPage({
 }
 
 export function MobileDetailHeader({
-  name,
+  "data-component": dataComponent,
   avatar,
   avatarTone = "primary",
   avatarClassName,
@@ -203,6 +225,7 @@ export function MobileDetailHeader({
   menu,
   className,
 }: {
+  "data-component": string;
   name: string;
   avatar: ReactNode;
   avatarTone?: AvatarTone;
@@ -215,23 +238,23 @@ export function MobileDetailHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("client-detail-header pop-up", className)} data-component={`mobile-${name}-detail-header`}>
+    <div className={cn("client-detail-header pop-up", className)} data-component={dataComponent} data-source-component="MobileDetailHeader">
       <div
         className={cn("client-detail-avatar-lg", `av-${avatarTone}`, avatarClassName)}
-        data-component={`mobile-${name}-detail-avatar`}
+        data-component={`${dataComponent}_avatar`}
       >
         {avatar}
       </div>
-      <div className="client-detail-title" data-component={`mobile-${name}-detail-title`}>
+      <div className="client-detail-title" data-component={`${dataComponent}_title-group`}>
         <div
           className={cn("client-detail-name", titleClassName)}
-          data-component={`mobile-${name}-detail-name`}
+          data-component={`${dataComponent}_title-group_name`}
           style={titleStyle}
         >
           {title}
         </div>
         {badges && badges.length > 0 ? (
-          <div className="client-detail-badges" data-component={`mobile-${name}-detail-badges`}>
+          <div className="client-detail-badges" data-component={`${dataComponent}_title-group_badges`}>
             {badges.map((badge, index) => (
               <span
                 key={`${badge.tone}-${index}`}
@@ -250,18 +273,20 @@ export function MobileDetailHeader({
 }
 
 export function MobileDetailActions({
+  "data-component": dataComponent,
   name,
   actions,
   children,
   className,
 }: {
+  "data-component": string;
   name: string;
   actions?: DetailAction[];
   children?: ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn("detail-actions", className)} data-component={`mobile-${name}-detail-actions`}>
+    <div className={cn("detail-actions", className)} data-component={dataComponent} data-source-component="MobileDetailActions">
       {actions?.map((action, index) => {
         const actionClassName = cn("btn", `btn-${action.variant ?? "secondary"}`, action.className);
         const key = action.dataComponent ?? `${name}-action-${index}`;
@@ -274,7 +299,7 @@ export function MobileDetailActions({
               href={action.href}
               className={actionClassName}
               aria-label={action.ariaLabel}
-              data-component={action.dataComponent}
+              data-component={action.dataComponent ?? `${dataComponent}_action-${index + 1}`}
             >
               {action.label}
             </Link>
@@ -290,7 +315,7 @@ export function MobileDetailActions({
             disabled={isDisabled}
             aria-busy={action.busy}
             aria-label={action.ariaLabel}
-            data-component={action.dataComponent}
+            data-component={action.dataComponent ?? `${dataComponent}_action-${index + 1}`}
           >
             {action.label}
           </button>
@@ -302,66 +327,79 @@ export function MobileDetailActions({
 }
 
 export function MobileDetailTabPanel({
-  name,
+  "data-component": dataComponent,
   tabId,
   activeTab,
   children,
-  dataComponent,
   className,
 }: {
+  "data-component": string;
   name: string;
   tabId: string;
   activeTab: string;
   children: ReactNode;
-  dataComponent?: string;
   className?: string;
 }) {
   return (
     <div
       className={cn("tab-content", activeTab === tabId && "active", className)}
       data-tab-content={tabId}
-      data-component={dataComponent ?? `mobile-${name}-${tabId}-tab`}
+      data-component={dataComponent}
+      data-source-component="MobileDetailTabPanel"
     >
       {children}
     </div>
   );
 }
 
+const InfoCardDataComponentContext = createContext<string | null>(null);
+
 export function InfoCard({
+  "data-component": dataComponent,
   title,
   children,
   delay,
   padded = false,
 }: {
+  "data-component": string;
   title: string;
   children: ReactNode;
   delay?: number;
   padded?: boolean;
 }) {
   return (
-    <div
-      className={cn("info-card pop-up", padded && "info-card-padded")}
-      style={delay ? { animationDelay: `${delay}ms` } : undefined}
-    >
-      <div className="info-card-title">{title}</div>
-      {children}
-    </div>
+    <InfoCardDataComponentContext.Provider value={dataComponent}>
+      <div
+        data-component={dataComponent}
+        data-source-component="InfoCard"
+        className={cn("info-card pop-up", padded && "info-card-padded")}
+        style={delay ? { animationDelay: `${delay}ms` } : undefined}
+      >
+        <div data-component={`${dataComponent}_title`} className="info-card-title">{title}</div>
+        {children}
+      </div>
+    </InfoCardDataComponentContext.Provider>
   );
 }
 
 export function InfoRow({
+  "data-component": explicitDataComponent,
   label,
   value,
   tone,
 }: {
+  "data-component"?: string;
   label?: string;
   value: ReactNode;
   tone?: InfoTone;
 }) {
+  const ownerDataComponent = useContext(InfoCardDataComponentContext);
+  const dataComponent =
+    explicitDataComponent ?? (ownerDataComponent ? `${ownerDataComponent}_row` : undefined);
   return (
-    <div className={cn("info-row", !label && "info-row-no-label")}>
-      {label ? <span className="info-row-label">{label}</span> : null}
-      <span className={cn("info-row-value", tone && `info-row-value-${tone}`)}>{value}</span>
+    <div data-component={dataComponent} data-source-component="InfoRow" className={cn("info-row", !label && "info-row-no-label")}>
+      {label ? <span data-component={dataComponent ? `${dataComponent}_label` : undefined} className="info-row-label">{label}</span> : null}
+      <span data-component={dataComponent ? `${dataComponent}_value` : undefined} className={cn("info-row-value", tone && `info-row-value-${tone}`)}>{value}</span>
     </div>
   );
 }

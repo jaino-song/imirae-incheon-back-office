@@ -22,7 +22,7 @@ export interface FormSectionProps extends Omit<React.HTMLAttributes<HTMLElement>
   titleDataComponent?: string;
   descriptionDataComponent?: string;
   bodyDataComponent?: string;
-  "data-component"?: string;
+  "data-component": string;
 }
 
 function FormSection({
@@ -37,22 +37,25 @@ function FormSection({
   descriptionDataComponent,
   bodyDataComponent,
   children,
-  "data-component": dataComponent = "form-section",
+  "data-component": dataComponent,
   ...props
 }: FormSectionProps) {
+  const sub = (suffix: string) => dataComponent ? `${dataComponent}_${suffix}` : undefined;
+
   return (
     <>
       {showSeparator && <Separator className="my-4" />}
       <AppContentCard
         as="section"
         data-component={dataComponent}
+        data-source-component="FormSection"
         title={title}
         description={description}
         titleTrailing={badge}
-        headerDataComponent={headerDataComponent ?? `${dataComponent}-head`}
-        titleDataComponent={titleDataComponent ?? `${dataComponent}-title`}
-        descriptionDataComponent={descriptionDataComponent ?? `${dataComponent}-caption`}
-        bodyDataComponent={bodyDataComponent ?? `${dataComponent}-body`}
+        headerDataComponent={headerDataComponent ?? sub("header")}
+        titleDataComponent={titleDataComponent ?? sub("title")}
+        descriptionDataComponent={descriptionDataComponent ?? sub("description")}
+        bodyDataComponent={bodyDataComponent ?? sub("body")}
         contentClassName={bodyClassName}
         className={className}
         {...props}
@@ -69,12 +72,13 @@ export interface FormGridProps extends React.HTMLAttributes<HTMLDivElement> {
 
 function FormGrid({
   className,
-  "data-component": dataComponent = "form-grid",
+  "data-component": dataComponent,
   ...props
 }: FormGridProps) {
   return (
     <div
       data-component={dataComponent}
+      data-source-component="FormGrid"
       className={cn("grid grid-cols-1 gap-[calc(16px*var(--glint-ui-scale,1))] sm:grid-cols-2", className)}
       {...props}
     />
@@ -100,15 +104,16 @@ function FormField({
   requiredDataComponent,
   className,
   children,
-  "data-component": dataComponent = "form-field",
+  "data-component": dataComponent,
   ...props
 }: FormFieldProps) {
+  const sub = (suffix: string) => dataComponent ? `${dataComponent}_${suffix}` : undefined;
   const labelContent = (
     <>
       {label}
       {required ? (
         <span
-          data-component={requiredDataComponent ?? `${dataComponent}-required`}
+          data-component={requiredDataComponent ?? sub("required")}
           className="ml-0.5 text-v3-burgundy"
         >
           *
@@ -118,7 +123,7 @@ function FormField({
   );
   const labelNode = htmlFor ? (
     <Label
-      data-component={labelDataComponent ?? `${dataComponent}-label`}
+      data-component={labelDataComponent ?? sub("label")}
       htmlFor={htmlFor}
       className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold leading-[1.3] text-v3-text-muted"
     >
@@ -126,7 +131,7 @@ function FormField({
     </Label>
   ) : (
     <div
-      data-component={labelDataComponent ?? `${dataComponent}-label`}
+      data-component={labelDataComponent ?? sub("label")}
       className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold leading-[1.3] text-v3-text-muted"
     >
       {labelContent}
@@ -136,17 +141,18 @@ function FormField({
   return (
     <div
       data-component={dataComponent}
+      data-source-component="FormField"
       className={cn("grid gap-[calc(7px*var(--glint-ui-scale,1))]", className)}
       {...props}
     >
       {labelAccessory ? (
         <div
-          data-component={`${dataComponent}-label-row`}
+          data-component={sub("label-row")}
           className="flex min-w-0 items-center justify-between gap-2"
         >
           {labelNode}
           <div
-            data-component={`${dataComponent}-label-accessory`}
+            data-component={sub("label-accessory")}
             className="ml-auto min-w-0 text-right"
           >
             {labelAccessory}
@@ -167,10 +173,11 @@ export interface FormTextInputProps extends React.InputHTMLAttributes<HTMLInputE
 }
 
 const FormTextInput = React.forwardRef<HTMLInputElement, FormTextInputProps>(
-  ({ className, error, "data-component": dataComponent = "form-text-input", ...props }, ref) => (
+  ({ className, error, "data-component": dataComponent, ...props }, ref) => (
     <input
       ref={ref}
       data-component={dataComponent}
+      data-source-component="FormTextInput"
       className={cn(
         APP_FORM_CONTROL_CLASS_NAME,
         "placeholder:text-muted-foreground",
@@ -184,6 +191,47 @@ const FormTextInput = React.forwardRef<HTMLInputElement, FormTextInputProps>(
 );
 FormTextInput.displayName = "FormTextInput";
 
+export interface FormTextInputWithSuffixProps extends FormTextInputProps {
+  suffix: React.ReactNode;
+  inputDataComponent?: string;
+  suffixDataComponent?: string;
+}
+
+const FormTextInputWithSuffix = React.forwardRef<HTMLInputElement, FormTextInputWithSuffixProps>(
+  ({
+    suffix,
+    className,
+    inputDataComponent,
+    suffixDataComponent,
+    "data-component": dataComponent,
+    ...props
+  }, ref) => {
+    const sub = (suffixName: string) => dataComponent ? `${dataComponent}_${suffixName}` : undefined;
+
+    return (
+    <div
+      data-component={dataComponent}
+      data-source-component="FormTextInputWithSuffix"
+      className="relative"
+    >
+      <FormTextInput
+        ref={ref}
+        data-component={inputDataComponent ?? sub("input")}
+        className={cn("pr-[calc(38px*var(--v3-ui-scale,1))]", className)}
+        {...props}
+      />
+      <span
+        data-component={suffixDataComponent ?? sub("suffix")}
+        className="pointer-events-none absolute right-[calc(14px*var(--v3-ui-scale,1))] top-1/2 -translate-y-1/2 text-[calc(12px*var(--v3-ui-scale,1))] font-semibold text-v3-text-muted"
+      >
+        {suffix}
+      </span>
+    </div>
+    );
+  },
+);
+FormTextInputWithSuffix.displayName = "FormTextInputWithSuffix";
+
 export interface FormHelperTextProps extends React.HTMLAttributes<HTMLParagraphElement> {
   tone?: "default" | "error";
   "data-component"?: string;
@@ -192,12 +240,13 @@ export interface FormHelperTextProps extends React.HTMLAttributes<HTMLParagraphE
 function FormHelperText({
   tone = "default",
   className,
-  "data-component": dataComponent = "form-helper-text",
+  "data-component": dataComponent,
   ...props
 }: FormHelperTextProps) {
   return (
     <p
       data-component={dataComponent}
+      data-source-component="FormHelperText"
       className={cn(
         tone === "error"
           ? "text-[calc(12px*var(--glint-ui-scale,1))] font-bold leading-[1.35] text-v3-burgundy"
@@ -230,6 +279,7 @@ export interface FormNativeSelectProps
   wrapDataComponent?: string;
   selectDataComponent?: string;
   iconDataComponent?: string;
+  "data-component"?: string;
 }
 
 function isFormNativeSelectGroup(option: FormNativeSelectEntry): option is FormNativeSelectGroup {
@@ -242,16 +292,24 @@ function FormNativeSelect({
   placeholder,
   hideIcon = false,
   className,
-  wrapDataComponent = "form-native-select-wrap",
-  selectDataComponent = "form-native-select",
-  iconDataComponent = "form-native-select-icon",
+  wrapDataComponent,
+  selectDataComponent,
+  iconDataComponent,
+  "data-component": dataComponent,
   value,
   ...props
 }: FormNativeSelectProps) {
+  const sub = (suffix: string) => dataComponent ? `${dataComponent}_${suffix}` : undefined;
+  const resolvedWrapDataComponent = wrapDataComponent ?? dataComponent;
+
   return (
-    <div data-component={wrapDataComponent} className="relative">
+    <div
+      data-component={resolvedWrapDataComponent}
+      data-source-component="FormNativeSelect"
+      className="relative"
+    >
       <select
-        data-component={selectDataComponent}
+        data-component={selectDataComponent ?? sub("select")}
         className={cn(
           "box-border h-[calc(38px*var(--glint-ui-scale,1))] min-h-[calc(38px*var(--glint-ui-scale,1))] w-full appearance-none rounded-[13px] border-[1.35px] border-input bg-white px-[calc(14px*var(--glint-ui-scale,1))] pr-[calc(44px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] font-[Pretendard] font-medium leading-[1.2] text-v3-dark outline-none focus:border-v3-primary focus:ring-[3px] focus:ring-inset focus:ring-v3-primary/10 disabled:cursor-not-allowed disabled:opacity-55",
           value === "" && "text-v3-text-muted",
@@ -284,7 +342,7 @@ function FormNativeSelect({
       </select>
       {hideIcon ? null : (
         <ChevronDown
-          data-component={iconDataComponent}
+          data-component={iconDataComponent ?? sub("icon")}
           className="pointer-events-none absolute right-[calc(14px*var(--glint-ui-scale,1))] top-1/2 h-[calc(16px*var(--glint-ui-scale,1))] w-[calc(16px*var(--glint-ui-scale,1))] -translate-y-1/2 text-v3-text-muted"
           aria-hidden="true"
           strokeWidth={2.2}
@@ -303,13 +361,14 @@ function FormChip({
   selected = false,
   className,
   type = "button",
-  "data-component": dataComponent = "form-chip",
+  "data-component": dataComponent,
   ...props
 }: FormChipProps) {
   return (
     <button
       type={type}
       data-component={dataComponent}
+      data-source-component="FormChip"
       className={cn(
         "min-h-[calc(34px*var(--glint-ui-scale,1))] rounded-full border-[1.5px] border-v3-border bg-white px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(7px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] font-extrabold leading-none text-v3-text-muted transition-colors disabled:cursor-not-allowed disabled:opacity-55",
         selected && "border-v3-primary/40 bg-v3-primary-light text-v3-primary",
@@ -351,12 +410,15 @@ function FormSwitchRow({
   buttonDataComponent,
   thumbDataComponent,
   className,
-  "data-component": dataComponent = "form-switch-row",
+  "data-component": dataComponent,
   ...props
 }: FormSwitchRowProps) {
+  const sub = (suffix: string) => dataComponent ? `${dataComponent}_${suffix}` : undefined;
+
   return (
     <div
       data-component={dataComponent}
+      data-source-component="FormSwitchRow"
       className={cn(
         "flex min-h-[calc(54px*var(--glint-ui-scale,1))] items-center justify-between gap-[calc(14px*var(--glint-ui-scale,1))] rounded-[14px] border-[1.5px] border-v3-border bg-white px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(10px*var(--glint-ui-scale,1))]",
         size === "control" && "h-[calc(38px*var(--glint-ui-scale,1))] min-h-[calc(38px*var(--glint-ui-scale,1))] border-[1.35px] py-0",
@@ -364,16 +426,16 @@ function FormSwitchRow({
       )}
       {...props}
     >
-      <div data-component={copyDataComponent ?? `${dataComponent}-copy`}>
+      <div data-component={copyDataComponent ?? sub("copy")}>
         <strong
-          data-component={titleDataComponent ?? `${dataComponent}-title`}
+          data-component={titleDataComponent ?? sub("title")}
           className="block text-[calc(12px*var(--glint-ui-scale,1))] font-bold leading-[1.3] text-v3-dark"
         >
           {title}
         </strong>
         {description ? (
           <span
-            data-component={descriptionDataComponent ?? `${dataComponent}-description`}
+            data-component={descriptionDataComponent ?? sub("description")}
             className="mt-[calc(3px*var(--glint-ui-scale,1))] block text-[calc(11.2px*var(--glint-ui-scale,1))] font-semibold leading-[1.35] text-v3-text-muted"
           >
             {description}
@@ -381,8 +443,8 @@ function FormSwitchRow({
         ) : null}
       </div>
       <Switch
-        data-component={buttonDataComponent ?? `${dataComponent}-button`}
-        thumbDataComponent={thumbDataComponent ?? `${dataComponent}-thumb`}
+        data-component={buttonDataComponent ?? sub("button")}
+        thumbDataComponent={thumbDataComponent ?? sub("thumb")}
         checked={checked}
         onCheckedChange={onToggle}
         aria-label={buttonAriaLabel}
@@ -397,6 +459,7 @@ export {
   FormGrid,
   FormField,
   FormTextInput,
+  FormTextInputWithSuffix,
   FormHelperText,
   FormNativeSelect,
   FormChip,

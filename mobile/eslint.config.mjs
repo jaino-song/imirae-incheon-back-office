@@ -1,7 +1,7 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
-import dataComponentPlugin from "@babyjamjam/shared/eslint-plugin";
+import dataComponentPlugin, { uiArchitecture } from "@babyjamjam/shared/eslint-plugin";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -22,6 +22,18 @@ const eslintConfig = defineConfig([
     },
     rules: {
       "data-component/require-data-component": "warn",
+    },
+  },
+  {
+    files: ["src/app/**/page.tsx"],
+    plugins: {
+      "ui-architecture": uiArchitecture,
+    },
+    rules: {
+      "ui-architecture/no-page-local-components": "warn",
+      "ui-architecture/no-page-style-constants": "warn",
+      "ui-architecture/no-raw-ui-in-pages": "warn",
+      "ui-architecture/no-visual-tailwind-in-pages": "warn",
     },
   },
 ]);

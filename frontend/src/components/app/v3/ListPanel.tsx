@@ -15,6 +15,7 @@ interface TabItem {
 }
 
 interface ListPanelProps {
+  "data-component": string;
   title: string;
   subtitle?: string;
   /** Optional avatar element rendered to the left of the title group */
@@ -44,6 +45,7 @@ interface ListPanelProps {
 }
 
 export function ListPanel({
+  "data-component": dataComponent,
   title,
   subtitle,
   avatar,
@@ -179,18 +181,20 @@ export function ListPanel({
 
   return (
     <div
-      data-component="list-panel"
+      data-component={dataComponent}
+      data-source-component="ListPanel"
+      data-slot="list-panel"
       className={cn(
         "relative flex h-full min-h-0 flex-1 self-stretch flex-col overflow-hidden rounded-[28px] bg-white shadow-v3",
         className,
       )}
     >
-      <div data-component="list-panel-top-area" className="relative z-20 shrink-0">
-        <div data-component="list-panel-header" className={headerClassName}>
+      <div data-component={`${dataComponent}_top-area`} data-slot="list-panel-top-area" className="relative z-20 shrink-0">
+        <div data-component={`${dataComponent}_top-area_header`} data-slot="list-panel-header" className={headerClassName}>
           <div className="flex min-w-0 items-center gap-[calc(16px*var(--glint-ui-scale,1))]">
             {avatar}
             <PanelTitleGroup
-              component="list-panel"
+              data-component={`${dataComponent}_top-area_header_title-group`}
               title={title}
               subtitle={subtitle}
               titleClassName="text-[calc(18px*var(--glint-ui-scale,1))]"
@@ -198,7 +202,7 @@ export function ListPanel({
           </div>
           {headerActions && (
             <div
-              data-component="list-panel-header-actions"
+              data-component={`${dataComponent}_top-area_header_actions`}
               className={cn(disabled && "pointer-events-none opacity-40")}
             >
               {headerActions}
@@ -206,11 +210,12 @@ export function ListPanel({
           )}
         </div>
 
-        {subHeader && <div data-component="list-panel-sub-header" className="shrink-0 px-[calc(24px*var(--glint-ui-scale,1))] pt-[calc(12px*var(--glint-ui-scale,1))]">{subHeader}</div>}
+        {subHeader && <div data-component={`${dataComponent}_top-area_sub-header`} className="shrink-0 px-[calc(24px*var(--glint-ui-scale,1))] pt-[calc(12px*var(--glint-ui-scale,1))]">{subHeader}</div>}
 
         {showControls && (
           <div
-            data-component="list-panel-tabs"
+            data-component={`${dataComponent}_top-area_controls`}
+            data-slot="list-panel-controls"
             className={cn(
               "relative flex min-h-[calc(52px*var(--glint-ui-scale,1))] shrink-0 items-center gap-[calc(12px*var(--glint-ui-scale,1))] overflow-visible px-[calc(24px*var(--glint-ui-scale,1))] pt-[calc(16px*var(--glint-ui-scale,1))] [container-type:inline-size]",
               showTabs ? "justify-between" : "justify-end",
@@ -257,19 +262,22 @@ export function ListPanel({
                 </div>
               ) : (
                 <div
-                  data-component="list-panel-tab-scroll"
+                  data-component={`${dataComponent}_top-area_controls_tab-scroll`}
+                  data-slot="list-panel-tab-scroll"
                   className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                 >
                   <div
                     ref={inlineTabsRef}
-                    data-component="list-panel-tab-list"
+                    data-component={`${dataComponent}_top-area_controls_tab-scroll_list`}
+                    data-slot="list-panel-tab-list"
                     role={tabsAriaLabel ? "group" : undefined}
                     aria-label={tabsAriaLabel}
                     className="relative flex w-max gap-[calc(4px*var(--glint-ui-scale,1))]"
                   >
                     {(tabs ?? []).map((tab) => (
                       <button
-                        data-component="list-panel-tab-button"
+                        data-component={`${dataComponent}_top-area_controls_tab-scroll_list_button`}
+                        data-slot="list-panel-tab-button"
                         type="button"
                         key={tab.value}
                         ref={(node) => {
@@ -290,7 +298,8 @@ export function ListPanel({
                       </button>
                     ))}
                     <span
-                      data-component="list-panel-tab-indicator"
+                      data-component={`${dataComponent}_top-area_controls_tab-scroll_list_indicator`}
+                      data-slot="list-panel-tab-indicator"
                       className={cn(
                         "pointer-events-none absolute bottom-0 left-0 h-0.5 will-change-[transform,width]",
                         activeTabIndicatorClassName,
@@ -323,7 +332,8 @@ export function ListPanel({
       </div>
       {resolvedOverlay ? (
         <div
-          data-component="list-panel-overlay"
+          data-component={`${dataComponent}_overlay`}
+          data-slot="list-panel-overlay"
           className={cn(
             "pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-[calc(24px*var(--glint-ui-scale,1))]",
             overlay ? "-translate-y-[calc(12px*var(--glint-ui-scale,1))]" : undefined,
@@ -334,7 +344,8 @@ export function ListPanel({
       ) : null}
 
       <div
-        data-component="list-panel-content"
+        data-component={`${dataComponent}_content`}
+        data-slot="list-panel-content"
         className="scrollbar-on-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto px-[calc(24px*var(--glint-ui-scale,1))] pt-[calc(12px*var(--glint-ui-scale,1))]"
         data-scroll-active={isScrollActive ? "true" : "false"}
         onScroll={handleScroll}
@@ -344,7 +355,8 @@ export function ListPanel({
       </div>
       {disabled ? (
         <div
-          data-component="list-panel-disabled-overlay"
+          data-component={`${dataComponent}_disabled-overlay`}
+          data-slot="list-panel-disabled-overlay"
           aria-hidden="true"
           className="absolute inset-0 z-20 bg-slate-200/70 backdrop-blur-[1.5px]"
         >

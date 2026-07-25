@@ -385,8 +385,8 @@ export default function NewClientPage() {
       label: "기본 정보",
       summaryTitle: store.name || undefined,
       content: (
-        <div data-component="clients-new-basic-step" className={GRID_CLS}>
-          <div data-component="clients-new-basic-name-field">
+        <div data-component="desktop_clients-new_basic_step" className={GRID_CLS}>
+          <div data-component="desktop_clients-new_basic_step_name-field">
             <FormField
               label={t(locale, "clients.form.name")}
               required
@@ -399,7 +399,7 @@ export default function NewClientPage() {
               placeholder="홍길동"
             />
           </div>
-          <div data-component="clients-new-basic-birthday-field">
+          <div data-component="desktop_clients-new_basic_step_birthday-field">
             <FormField
               label={t(locale, "clients.form.birthday")}
               type="text"
@@ -410,7 +410,7 @@ export default function NewClientPage() {
               maxLength={6}
             />
           </div>
-          <div data-component="clients-new-basic-due-date-field">
+          <div data-component="desktop_clients-new_basic_step_due-date-field">
             <FormField
               label={t(locale, "clients.form.due-date")}
               type="date"
@@ -418,7 +418,7 @@ export default function NewClientPage() {
               onChange={(e) => setField("dueDate", e.target.value)}
             />
           </div>
-          <div data-component="clients-new-basic-phone-field">
+          <div data-component="desktop_clients-new_basic_step_phone-field">
             <FormField
               label={t(locale, "clients.form.phone")}
               required
@@ -435,7 +435,7 @@ export default function NewClientPage() {
               errorDisplay="inline"
             />
           </div>
-          <div data-component="clients-new-basic-address-field" className="md:col-span-2">
+          <div data-component="desktop_clients-new_basic_step_address-field" className="md:col-span-2">
             <FormField
               label={t(locale, "clients.form.address")}
               type="text"
@@ -445,7 +445,7 @@ export default function NewClientPage() {
             />
           </div>
           {error && (
-            <div data-component="clients-new-basic-error" className="md:col-span-2 text-[0.8rem] text-v3-burgundy font-semibold bg-v3-burgundy-light rounded-[14px] px-4 py-3">
+            <div data-component="desktop_clients-new_basic_step_error" className="md:col-span-2 text-[0.8rem] text-v3-burgundy font-semibold bg-v3-burgundy-light rounded-[14px] px-4 py-3">
               {error}
             </div>
           )}
@@ -455,8 +455,8 @@ export default function NewClientPage() {
     {
       label: "서비스 설정",
       content: (
-        <div data-component="clients-new-service-step" className="space-y-6">
-          <div data-component="clients-new-voucher-toggle" className="flex justify-center">
+        <div data-component="desktop_clients-new_service_step" className="space-y-6">
+          <div data-component="desktop_clients-new_service_step_voucher-toggle" className="flex justify-center">
             <TogglePill
               value={store.voucherClient}
               onValueChange={handleVoucherClientChange}
@@ -466,8 +466,8 @@ export default function NewClientPage() {
             />
           </div>
 
-          <div data-component="clients-new-service-grid" className={GRID_CLS}>
-            {store.voucherClient && <div data-component="clients-new-service-year-field" className="flex flex-col gap-1.5">
+          <div data-component="desktop_clients-new_service_step_grid" className={GRID_CLS}>
+            {store.voucherClient && <div data-component="desktop_clients-new_service_step_grid_year-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.voucher-year")}</label>
               <FormNativeSelect
                 className={SELECT_CLS}
@@ -476,7 +476,7 @@ export default function NewClientPage() {
                 options={voucherYearOptions}
               />
             </div>}
-            {store.voucherClient && <div data-component="clients-new-service-type-field" className="flex flex-col gap-1.5">
+            {store.voucherClient && <div data-component="desktop_clients-new_service_step_grid_type-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.voucher-type")}</label>
               <FormNativeSelect
                 className={SELECT_CLS}
@@ -493,9 +493,9 @@ export default function NewClientPage() {
                 ]}
               />
             </div>}
-            <div data-component="clients-new-service-duration-field" className="flex flex-col gap-1.5">
+            <div data-component="desktop_clients-new_service_step_grid_duration-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.duration")}</label>
-              <div data-component="clients-new-service-duration-select-wrap" className="relative">
+              <div data-component="desktop_clients-new_service_step_grid_duration-field_duration-select-wrap" className="relative">
                 <FormNativeSelect
                   className={cn(SELECT_CLS, (store.voucherClient
                     ? !store.type || isPriceLoading
@@ -514,21 +514,21 @@ export default function NewClientPage() {
                   ]}
                 />
                 {(store.voucherClient ? isPriceLoading : isOutOfPocketPriceLoading) && (
-                  <div data-component="clients-new-service-duration-loading" className="absolute right-10 top-1/2 -translate-y-1/2">
-                    <div data-component="clients-new-service-duration-spinner" className="w-4 h-4 border-2 border-v3-primary/30 border-t-v3-primary rounded-full animate-spin" />
+                  <div data-component="desktop_clients-new_service_step_grid_duration-field_duration-select-wrap_duration-loading" className="absolute right-10 top-1/2 -translate-y-1/2">
+                    <div data-component="desktop_clients-new_service_step_grid_duration-field_duration-select-wrap_duration-loading_duration-spinner" className="w-4 h-4 border-2 border-v3-primary/30 border-t-v3-primary rounded-full animate-spin" />
                   </div>
                 )}
               </div>
             </div>
           </div>
           {!store.voucherClient && isOutOfPocketPriceError && (
-            <p data-component="clients-new-out-of-pocket-price-error" className="text-xs font-semibold text-v3-burgundy">
+            <p data-component="desktop_clients-new_service_step_out-of-pocket-price-error" className="text-xs font-semibold text-v3-burgundy">
               자부담 요금 정보를 불러오지 못했습니다.
             </p>
           )}
 
-          <div data-component="clients-new-service-employee-grid" className={GRID_CLS}>
-            <div data-component="clients-new-service-primary-employee-field" className="flex flex-col gap-1.5">
+          <div data-component="desktop_clients-new_service_step_employee-grid" className={GRID_CLS}>
+            <div data-component="desktop_clients-new_service_step_employee-grid_primary-employee-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.primary-employee")}</label>
               <EmployeeAutocomplete
                 value={store.primaryEmployeeId}
@@ -542,7 +542,7 @@ export default function NewClientPage() {
                 }}
               />
             </div>
-            <div data-component="clients-new-service-secondary-employee-field" className="flex flex-col gap-1.5">
+            <div data-component="desktop_clients-new_service_step_employee-grid_secondary-employee-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.secondary-employee")}</label>
               <EmployeeAutocomplete
                 value={store.secondaryEmployeeId}
@@ -558,8 +558,8 @@ export default function NewClientPage() {
             </div>
           </div>
 
-          <div data-component="clients-new-service-pricing-section">
-            <div data-component="clients-new-service-pricing-header" className="flex items-center gap-2 mb-3">
+          <div data-component="desktop_clients-new_service_step_pricing-section">
+            <div data-component="desktop_clients-new_service_step_pricing-section_pricing-header" className="flex items-center gap-2 mb-3">
               <span className={LABEL_CLS}>{t(locale, "clients.form.section-pricing")}</span>
               {selectedPriceInfo && !pricesManuallyEdited && (
                 <span className="text-[0.65rem] font-bold text-v3-primary bg-v3-primary-light px-2 py-0.5 rounded-full">
@@ -567,10 +567,10 @@ export default function NewClientPage() {
                 </span>
               )}
             </div>
-            <div data-component="clients-new-service-pricing-grid" className={cn("grid grid-cols-1 gap-4", store.voucherClient && "md:grid-cols-3")}>
-              <div data-component="clients-new-service-full-price-field" className="flex flex-col gap-1.5">
+            <div data-component="desktop_clients-new_service_step_pricing-section_pricing-grid" className={cn("grid grid-cols-1 gap-4", store.voucherClient && "md:grid-cols-3")}>
+              <div data-component="desktop_clients-new_service_step_pricing-section_pricing-grid_full-price-field" className="flex flex-col gap-1.5">
                 <label className={LABEL_CLS}>{t(locale, "clients.form.full-price")}</label>
-                <div data-component="clients-new-service-full-price-input-wrap" className="relative">
+                <div data-component="desktop_clients-new_service_step_pricing-section_pricing-grid_full-price-field_full-price-input-wrap" className="relative">
                   <input
                     className={cn(INPUT_CLS, "pr-8")}
                     value={arePriceInputsLocked ? "" : formatPrice(store.fullPrice)}
@@ -581,9 +581,9 @@ export default function NewClientPage() {
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-v3-text-muted">원</span>
                 </div>
               </div>
-              {store.voucherClient && <div data-component="clients-new-service-grant-field" className="flex flex-col gap-1.5">
+              {store.voucherClient && <div data-component="desktop_clients-new_service_step_pricing-section_pricing-grid_grant-field" className="flex flex-col gap-1.5">
                 <label className={LABEL_CLS}>{t(locale, "clients.form.grant")}</label>
-                <div data-component="clients-new-service-grant-input-wrap" className="relative">
+                <div data-component="desktop_clients-new_service_step_pricing-section_pricing-grid_grant-field_grant-input-wrap" className="relative">
                   <input
                     className={cn(INPUT_CLS, "pr-8")}
                     value={formatPrice(store.grant)}
@@ -593,9 +593,9 @@ export default function NewClientPage() {
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-v3-text-muted">원</span>
                 </div>
               </div>}
-              {store.voucherClient && <div data-component="clients-new-service-actual-price-field" className="flex flex-col gap-1.5">
+              {store.voucherClient && <div data-component="desktop_clients-new_service_step_pricing-section_pricing-grid_actual-price-field" className="flex flex-col gap-1.5">
                 <label className={LABEL_CLS}>{t(locale, "clients.form.actual-price")}</label>
-                <div data-component="clients-new-service-actual-price-input-wrap" className="relative">
+                <div data-component="desktop_clients-new_service_step_pricing-section_pricing-grid_actual-price-field_actual-price-input-wrap" className="relative">
                   <input
                     className={cn(INPUT_CLS, "pr-8")}
                     value={formatPrice(store.actualPrice)}
@@ -608,9 +608,9 @@ export default function NewClientPage() {
             </div>
           </div>
 
-          <div data-component="clients-new-service-flags-field">
+          <div data-component="desktop_clients-new_service_step_flags-field">
             <span className={cn(LABEL_CLS, "mb-3 block")}>{t(locale, "clients.form.section-flags")}</span>
-            <div data-component="clients-new-service-flags-options" className="flex flex-wrap gap-3">
+            <div data-component="desktop_clients-new_service_step_flags-field_flags-options" className="flex flex-wrap gap-3">
               {([
                 { key: "careCenter" as const, label: t(locale, "clients.form.care-center") },
                 { key: "breastPump" as const, label: t(locale, "clients.form.breast-pump") },
@@ -618,6 +618,7 @@ export default function NewClientPage() {
               ]).map(({ key, label }) => (
                 <button
                   key={key}
+                  data-component={`desktop_clients-new_service_flags-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}-chip`}
                   type="button"
                   onClick={() => setField(key, !store[key])}
                   className={cn(
@@ -635,14 +636,14 @@ export default function NewClientPage() {
           </div>
 
           {error && (
-            <div data-component="clients-new-service-error" className="text-[0.8rem] text-v3-burgundy font-semibold bg-v3-burgundy-light rounded-[14px] px-4 py-3">
+            <div data-component="desktop_clients-new_service_step_error" className="text-[0.8rem] text-v3-burgundy font-semibold bg-v3-burgundy-light rounded-[14px] px-4 py-3">
               {error}
             </div>
           )}
         </div>
       ),
       summary: (
-        <div data-component="clients-new-service-summary" className="flex gap-3 flex-wrap">
+        <div data-component="desktop_clients-new_service_summary" className="flex gap-3 flex-wrap">
           {store.type && (
             <span className={COMPLETED_PILL}>
               <Check className="w-4 h-4 text-v3-green" strokeWidth={2} />
@@ -667,9 +668,9 @@ export default function NewClientPage() {
     {
       label: "계약 정보",
       content: (
-        <div data-component="clients-new-contract-step" className="space-y-6">
-          <div data-component="clients-new-contract-grid" className={GRID_CLS}>
-            <div data-component="clients-new-contract-status-field" className="flex flex-col gap-1.5">
+        <div data-component="desktop_clients-new_contract_step" className="space-y-6">
+          <div data-component="desktop_clients-new_contract_step_grid" className={GRID_CLS}>
+            <div data-component="desktop_clients-new_contract_step_grid_status-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.contract-status")}</label>
               <FormNativeSelect
                 className={SELECT_CLS}
@@ -678,8 +679,8 @@ export default function NewClientPage() {
                 options={SERVICE_STATUS_OPTIONS}
               />
             </div>
-            <div data-component="clients-new-contract-spacer" />
-            <div data-component="clients-new-contract-start-date-field" className="flex flex-col gap-1.5">
+            <div data-component="desktop_clients-new_contract_step_grid_spacer" />
+            <div data-component="desktop_clients-new_contract_step_grid_start-date-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.start-date")}</label>
               <input
                 type="date"
@@ -688,7 +689,7 @@ export default function NewClientPage() {
                 onChange={(e) => setField("startDate", e.target.value)}
               />
             </div>
-            <div data-component="clients-new-contract-end-date-field" className="flex flex-col gap-1.5">
+            <div data-component="desktop_clients-new_contract_step_grid_end-date-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.end-date")}</label>
               <input
                 type="date"
@@ -700,7 +701,7 @@ export default function NewClientPage() {
           </div>
 
           {error && (
-            <div data-component="clients-new-contract-error" className="text-[0.8rem] text-v3-burgundy font-semibold bg-v3-burgundy-light rounded-[14px] px-4 py-3">
+            <div data-component="desktop_clients-new_contract_step_error" className="text-[0.8rem] text-v3-burgundy font-semibold bg-v3-burgundy-light rounded-[14px] px-4 py-3">
               {error}
             </div>
           )}
@@ -711,9 +712,10 @@ export default function NewClientPage() {
 
   return (
     <>
-      <div data-component="clients-new-main-content" className="flex min-h-[calc(100dvh-6rem)] items-start justify-center py-6 md:py-8">
-        <div data-component="clients-new-main-content-inner" className="flex w-full flex-col">
+      <div data-component="desktop_clients-new_main_content" className="flex min-h-[calc(100dvh-6rem)] items-start justify-center py-6 md:py-8">
+        <div data-component="desktop_clients-new_main_content_content-inner" className="flex w-full flex-col">
           <button
+            data-component="desktop_clients-new_main_content_content-inner_back-button"
             type="button"
             onClick={() => router.push("/clients")}
             className="inline-flex items-center gap-1.5 text-[0.85rem] md:text-[0.85rem] text-[0.8rem] font-semibold text-v3-text-muted hover:text-v3-primary transition-colors mb-4 md:mb-6 self-start"
@@ -722,7 +724,7 @@ export default function NewClientPage() {
             고객 목록으로 돌아가기
           </button>
 
-          <div data-component="clients-new-stepper-shell">
+          <div data-component="desktop_clients-new_main_content_content-inner_shell">
             <SteppedWizard
               title={t(locale, "clients.form.add-title")}
               subtitle="고객 정보를 단계별로 입력해 주세요"

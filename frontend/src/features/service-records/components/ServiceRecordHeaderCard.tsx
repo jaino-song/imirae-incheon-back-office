@@ -9,10 +9,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { ServiceRecordHeader } from "@/features/service-records/types";
 
 interface ServiceRecordHeaderCardProps {
+  "data-component": string;
   header: ServiceRecordHeader | null;
   showStatusBadge?: boolean;
   isLoading?: boolean;
-  dataComponent?: string;
 }
 
 const SERVICE_RECORD_HEADER_LABELS = [
@@ -30,14 +30,15 @@ function formatBabyWeight(value: string | null): string {
 }
 
 export function ServiceRecordHeaderCard({
+  "data-component": dataComponent,
   header,
   showStatusBadge = true,
   isLoading = false,
-  dataComponent = "clients-detail-service-records-header-card",
 }: ServiceRecordHeaderCardProps) {
   return (
     <InfoCard
       data-component={dataComponent}
+      data-source-component="ServiceRecordHeaderCard"
       title="서비스 기본정보"
       description={!isLoading && !header ? "산모 및 신생아 정보" : undefined}
       className={header || isLoading ? "h-full grid-rows-[auto_minmax(0,1fr)]" : undefined}
@@ -59,7 +60,7 @@ export function ServiceRecordHeaderCard({
           {SERVICE_RECORD_HEADER_LABELS.map((label) => (
             <div
               key={label}
-              data-component="info-row"
+              data-component={`${dataComponent}_body_row`}
               className="flex items-start gap-[calc(16px*var(--glint-ui-scale,1))] border-b border-v3-border py-[calc(10px*var(--glint-ui-scale,1))] last:border-b-0"
             >
               <span className="shrink-0 text-[calc(12px*var(--glint-ui-scale,1))] text-v3-text-muted">
@@ -72,19 +73,20 @@ export function ServiceRecordHeaderCard({
       ) : header ? (
         <div className="flex h-full flex-col">
           <div>
-            <InfoRow label="산모 성명" value={header.momName || "-"} size="compact" />
+            <InfoRow data-component={`${dataComponent}_body_row`} label="산모 성명" value={header.momName || "-"} size="compact" />
             <InfoRow
+              data-component={`${dataComponent}_body_row`}
               label="산모 생년월일"
               value={formatBirthdayYYMMDD(header.momBirth ?? "") || "-"}
               size="compact"
             />
-            <InfoRow label="신생아 성명" value={header.babyName || "-"} size="compact" />
-            <InfoRow label="신생아 출생일자" value={header.babyBirth || "-"} size="compact" />
-            <InfoRow label="분만형태" value={header.deliveryType || "-"} size="compact" />
-            <InfoRow label="신생아 몸무게" value={formatBabyWeight(header.babyWeight)} size="compact" />
+            <InfoRow data-component={`${dataComponent}_body_row`} label="신생아 성명" value={header.babyName || "-"} size="compact" />
+            <InfoRow data-component={`${dataComponent}_body_row`} label="신생아 출생일자" value={header.babyBirth || "-"} size="compact" />
+            <InfoRow data-component={`${dataComponent}_body_row`} label="분만형태" value={header.deliveryType || "-"} size="compact" />
+            <InfoRow data-component={`${dataComponent}_body_row`} label="신생아 몸무게" value={formatBabyWeight(header.babyWeight)} size="compact" />
           </div>
           <p
-            data-component="clients-detail-service-records-header-card-caption"
+            data-component={`${dataComponent}_body_caption`}
             className="mt-auto text-right text-[calc(11.2px*var(--glint-ui-scale,1))] font-semibold leading-[1.4] text-v3-text-muted"
           >
             {formatDateTimeKo(header.createdAt)} 작성

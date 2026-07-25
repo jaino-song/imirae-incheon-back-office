@@ -4,7 +4,7 @@ import React from "react";
 import { cn } from "@/lib/utils";
 
 interface PanelTitleGroupProps {
-  component: "list-panel" | "detail-panel";
+  "data-component": string;
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   /** Badges rendered before the title (leftmost position) */
@@ -19,7 +19,7 @@ interface PanelTitleGroupProps {
 }
 
 export function PanelTitleGroup({
-  component,
+  "data-component": dataComponent,
   title,
   subtitle,
   badgesLeft,
@@ -30,17 +30,28 @@ export function PanelTitleGroup({
   subtitleClassName,
 }: PanelTitleGroupProps) {
   return (
-    <div data-component={`${component}-title-group`} className={cn("flex min-w-0 flex-col gap-[calc(2px*var(--glint-ui-scale,1))]", className)}>
-      <div data-component={`${component}-title-row`} className="flex flex-wrap items-center gap-[calc(6px*var(--glint-ui-scale,1))]">
+    <div
+      data-component={dataComponent}
+      data-source-component="PanelTitleGroup"
+      className={cn("flex min-w-0 flex-col gap-[calc(2px*var(--glint-ui-scale,1))]", className)}
+    >
+      <div data-component={`${dataComponent}_title-row`} className="flex flex-wrap items-center gap-[calc(6px*var(--glint-ui-scale,1))]">
         {badgesLeft}
-        <h2 data-component={`${component}-title`} className={cn("truncate font-bold text-v3-dark", titleClassName)}>
+        <h2 data-component={`${dataComponent}_title-row_title`} className={cn("truncate font-bold text-v3-dark", titleClassName)}>
           {title}
         </h2>
         {badges}
-        {badgesRight ? <div className="ml-auto flex shrink-0 items-center gap-[calc(6px*var(--glint-ui-scale,1))]">{badgesRight}</div> : null}
+        {badgesRight ? (
+          <div
+            data-component={`${dataComponent}_title-row_badges-right`}
+            className="ml-auto flex shrink-0 items-center gap-[calc(6px*var(--glint-ui-scale,1))]"
+          >
+            {badgesRight}
+          </div>
+        ) : null}
       </div>
       {subtitle ? (
-        <p data-component={`${component}-subtitle`} className={cn("text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-text-muted", subtitleClassName)}>
+        <p data-component={`${dataComponent}_subtitle`} className={cn("text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-text-muted", subtitleClassName)}>
           {subtitle}
         </p>
       ) : null}

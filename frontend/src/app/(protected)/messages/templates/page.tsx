@@ -169,8 +169,8 @@ export default function TemplatesPage() {
 
   return (
     <section data-component="messages-templates">
-      <SplitLayout hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
-        <ListPanel
+      <SplitLayout data-component="desktop_messages_templates_split-layout" hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
+        <ListPanel data-component="desktop_messages_templates_split-layout_list-panel"
           title="지점 템플릿 수정"
           subtitle="새로 만든 템플릿은 모두 지점 템플릿으로 저장됩니다."
           headerActions={
@@ -229,7 +229,7 @@ export default function TemplatesPage() {
             </div>
         </ListPanel>
 
-        <DetailPanel>
+        <DetailPanel data-component="desktop_messages_templates_split-layout_detail-panel">
           {!activeTemplateId ? (
             <DetailEmptyState
               name="messages-templates-detail-empty"

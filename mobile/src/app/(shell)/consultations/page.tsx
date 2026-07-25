@@ -184,8 +184,8 @@ function ConsultationDetail({
   previousConsultationDates: string[];
 }) {
   return (
-    <MobileDetailPage name="consultations">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile_consultations_detail-sheet_stack_detail-page" name="consultations">
+      <MobileDetailHeader data-component="mobile_consultations_detail-sheet_stack_detail-page_header"
         name="consultations"
         avatar={row.initial}
         avatarTone={row.status === "unread" ? "burgundy" : "green"}
@@ -208,8 +208,8 @@ function ConsultationDetail({
         onTabChange={(id) => onTabChange(id as DetailTabId)}
       />
 
-      <MobileDetailTabPanel name="consultations" tabId="inquiry" activeTab={activeTab}>
-        <InfoCard title="문의 정보">
+      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_tab-panel" name="consultations" tabId="inquiry" activeTab={activeTab}>
+        <InfoCard data-component="mobile_consultations_detail-panel_info-card" title="문의 정보">
           <InfoRow label="근무 지역" value={row.region} />
           <InfoRow label="담당 지점" value={row.branchName} />
           <InfoRow
@@ -260,8 +260,8 @@ function ConsultationDetail({
         </InfoCard>
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel name="consultations" tabId="info" activeTab={activeTab}>
-        <InfoCard title="기본 정보">
+      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_tab-panel-2" name="consultations" tabId="info" activeTab={activeTab}>
+        <InfoCard data-component="mobile_consultations_detail-panel_info-card-2" title="기본 정보">
           <InfoRow label="이름" value={row.name} />
           <InfoRow label="연락처" value={row.contact} />
           <InfoRow label="주소" value={row.address || "-"} />
@@ -269,7 +269,7 @@ function ConsultationDetail({
           <InfoRow label="출산 경험" value={row.birthExperience || "-"} />
           <InfoRow label="바우처 유형" value={row.voucher} />
         </InfoCard>
-        <InfoCard title="문의 상태" delay={60}>
+        <InfoCard data-component="mobile_consultations_detail-panel_info-card-3" title="문의 상태" delay={60}>
           <InfoRow label="출처" value={row.source} />
           <InfoRow
             label="확인 여부"
@@ -386,7 +386,7 @@ export default function ConsultationsPage() {
   };
 
   return (
-    <MobileDetailSheet
+    <MobileDetailSheet data-component="mobile_consultations_detail-sheet"
       name="consultations"
       isOpen={selectedRow !== null}
       onClose={() => setSelectedId(null)}

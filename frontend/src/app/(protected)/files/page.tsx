@@ -157,8 +157,8 @@ export default function FilesPage() {
         ]}
       />
 
-      <SplitLayout hasSelection={!!selectedDocument} onBack={() => setSelectedDocId(null)}>
-        <ListPanel
+      <SplitLayout data-component="desktop_files_split-layout" hasSelection={!!selectedDocument} onBack={() => setSelectedDocId(null)}>
+        <ListPanel data-component="desktop_files_split-layout_list-panel"
           title="파일 목록"
           tabs={filterItems}
           activeTab={activeFilter}
@@ -348,7 +348,7 @@ function FileDetail({ document: doc, getCategoryLabel, onPreview, onEdit, onDele
   onDelete: () => void;
 }) {
   return (
-    <DetailPanel
+    <DetailPanel data-component="desktop_files_split-layout_detail-panel"
       title={doc.name}
       badges={
         <span className="inline-flex items-center rounded-[50px] px-3 py-1 text-[0.65rem] font-semibold bg-v3-primary-light text-v3-primary">
@@ -393,7 +393,7 @@ function FileDetail({ document: doc, getCategoryLabel, onPreview, onEdit, onDele
       }
     >
       <div data-component="files-detail-content" className="space-y-5">
-        <InfoCard title="파일 정보">
+        <InfoCard data-component="desktop_files_detail-panel_info-card" title="파일 정보">
           <InfoRow label="파일명" value={doc.name} />
           <InfoRow label="형식" value={getFileFormatLabel(doc).toUpperCase()} />
           <InfoRow label="카테고리" value={getCategoryLabel(doc.categoryId)} />
@@ -402,13 +402,13 @@ function FileDetail({ document: doc, getCategoryLabel, onPreview, onEdit, onDele
         </InfoCard>
 
         {doc.description && (
-          <InfoCard title="설명">
+          <InfoCard data-component="desktop_files_detail-panel_info-card-2" title="설명">
             <p className="text-[0.8rem] text-v3-text">{doc.description}</p>
           </InfoCard>
         )}
 
         {doc.tags && doc.tags.length > 0 && (
-          <InfoCard title="태그">
+          <InfoCard data-component="desktop_files_detail-panel_info-card-3" title="태그">
             <div data-component="files-detail-tags" className="flex flex-wrap gap-2">
               {doc.tags.map(tag => (
                 <span key={tag} className="inline-flex items-center rounded-[50px] px-3 py-1 text-[0.65rem] font-semibold bg-v3-primary-light text-v3-primary">

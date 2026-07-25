@@ -5,6 +5,7 @@ import type { ServiceRecordAssignment, ServiceRecordOverview } from "@/features/
 
 const mutateAsync = jest.fn();
 const toast = jest.fn();
+const TEST_COMPONENT = "desktop_clients-detail_panel_service-records";
 
 jest.mock("@/features/service-records/hooks/use-service-records", () => ({
     useSendServiceRecordLink: () => ({
@@ -58,7 +59,7 @@ describe("ClientServiceRecordsTab", () => {
 
     it("keeps the service-record card containers mounted while loading", () => {
         const { container } = render(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 clientId={100}
                 isLoading
                 isError={false}
@@ -66,22 +67,22 @@ describe("ClientServiceRecordsTab", () => {
         );
 
         expect(
-            container.querySelector('[data-component="clients-detail-service-records"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}"]`),
         ).toBeInTheDocument();
         expect(
-            container.querySelector('[data-component="clients-detail-service-records-overview-grid"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}_overview-grid"]`),
         ).toBeInTheDocument();
         expect(
-            container.querySelector('[data-component="clients-detail-service-records-status-card"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}_overview-grid_status-card"]`),
         ).toHaveTextContent("제공기록지 진행 상태");
         expect(
-            container.querySelector('[data-component="clients-detail-service-records-header-card"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}_overview-grid_header-card"]`),
         ).toHaveTextContent("서비스 기본정보");
         expect(
-            container.querySelector('[data-component="clients-detail-service-records-link-card"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}_overview-grid_link-card"]`),
         ).toHaveTextContent("제공기록지 작성 링크");
         expect(
-            container.querySelector('[data-component="clients-detail-service-records-sessions"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}_sessions"]`),
         ).toHaveTextContent("회차별 제공기록");
         expect(container.querySelectorAll('[data-slot="skeleton"].animate-pulse').length).toBeGreaterThan(0);
         expect(
@@ -93,7 +94,7 @@ describe("ClientServiceRecordsTab", () => {
         const onRefresh = jest.fn();
         const assignment = createAssignment(1, "none");
         const { rerender } = render(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 overview={{ assignments: [assignment] }}
                 clientId={100}
                 isLoading={false}
@@ -111,7 +112,7 @@ describe("ClientServiceRecordsTab", () => {
         expect(onRefresh).toHaveBeenCalledTimes(1);
 
         rerender(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 overview={{ assignments: [assignment] }}
                 clientId={100}
                 isLoading={false}
@@ -139,7 +140,7 @@ describe("ClientServiceRecordsTab", () => {
         };
 
         render(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 overview={overview}
                 clientId={100}
                 isLoading={false}
@@ -165,7 +166,7 @@ describe("ClientServiceRecordsTab", () => {
         };
 
         render(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 overview={{ assignments: [assignment] }}
                 clientId={100}
                 isLoading={false}
@@ -186,7 +187,7 @@ describe("ClientServiceRecordsTab", () => {
         };
 
         render(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 overview={{ assignments: [assignment] }}
                 clientId={100}
                 isLoading={false}
@@ -202,7 +203,7 @@ describe("ClientServiceRecordsTab", () => {
     it("opens unsubmitted sessions with empty detail values", () => {
         const assignment = createAssignment(1, "none");
         const { container } = render(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 overview={{ assignments: [assignment] }}
                 clientId={100}
                 isLoading={false}
@@ -221,11 +222,11 @@ describe("ClientServiceRecordsTab", () => {
         expect(screen.getByText("서비스 기록")).toBeInTheDocument();
         expect(screen.getByText("산모 서명")).toBeInTheDocument();
         const detail = container.querySelector(
-            '[data-component="clients-detail-service-records-session-detail"]',
+            `[data-component="${TEST_COMPONENT}_sessions_list_row_detail"]`,
         );
         expect(detail).toBeInTheDocument();
         const emptyValues = detail!.querySelectorAll(
-            '[data-component="clients-detail-service-records-session-empty-value"]',
+            `[data-component="${TEST_COMPONENT}_sessions_list_row_detail_field_empty-value"]`,
         );
         expect(emptyValues.length).toBeGreaterThan(0);
         expect(Array.from(emptyValues).every((value) => value.textContent === "-")).toBe(true);
@@ -295,7 +296,7 @@ describe("ClientServiceRecordsTab", () => {
         };
 
         const { container } = render(
-            <ClientServiceRecordsTab
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
                 overview={overview}
                 clientId={100}
                 isLoading={false}
@@ -315,7 +316,7 @@ describe("ClientServiceRecordsTab", () => {
         ).not.toBeInTheDocument();
 
         const overviewGrid = container.querySelector<HTMLElement>(
-            '[data-component="clients-detail-service-records-overview-grid"]',
+            `[data-component="${TEST_COMPONENT}_overview-grid"]`,
         );
         expect(overviewGrid).toHaveClass(
             "grid",
@@ -336,10 +337,10 @@ describe("ClientServiceRecordsTab", () => {
         expect(container).not.toHaveTextContent("제출 시점의 양식 스냅샷");
         expect(
             overviewCards[2].querySelector(
-                '[data-component="clients-detail-service-records-link-card-caption"]',
+                `[data-component="${TEST_COMPONENT}_overview-grid_link-card_head_caption"]`,
             ),
         ).not.toBeInTheDocument();
-        expect(overviewCards[2].querySelectorAll('[data-component="info-row"]')).toHaveLength(4);
+        expect(overviewCards[2].querySelectorAll(`[data-component="${TEST_COMPONENT}_overview-grid_link-card_row"]`)).toHaveLength(4);
         expect(overviewCards[2]).toHaveTextContent("제공인력 이름");
         expect(overviewCards[2]).toHaveTextContent("제공인력 연락처");
         expect(overviewCards[2]).toHaveTextContent("메시지 최근 발송");
@@ -350,26 +351,26 @@ describe("ClientServiceRecordsTab", () => {
         expect(resendButton).toHaveClass("w-full");
         expect(resendButton).toHaveAttribute("data-variant", "positive");
         expect(overviewCards[2]).not.toHaveTextContent("기존 링크가 그대로 전송됩니다.");
-        expect(overviewCards[0].querySelector('[data-component="info-row"] > span')).toHaveClass(
+        expect(overviewCards[0].querySelector(`[data-component="${TEST_COMPONENT}_overview-grid_status-card_row"] > span`)).toHaveClass(
             "text-[calc(12px*var(--glint-ui-scale,1))]",
         );
         expect(overviewCards[0].querySelector('[data-component="status-badge"]')).not.toBeInTheDocument();
         expect(
             overviewCards[1].querySelector(
-                '[data-component="clients-detail-service-records-header-card-title-row"] [data-component="status-badge"]',
+                `[data-component="${TEST_COMPONENT}_overview-grid_header-card_head_title-row"] [data-component="status-badge"]`,
             ),
         ).not.toBeInTheDocument();
         expect(
             overviewCards[2].querySelector(
-                '[data-component="clients-detail-service-records-link-card-title-row"] [data-component="status-badge"]',
+                `[data-component="${TEST_COMPONENT}_overview-grid_link-card_head_title-row"] [data-component="status-badge"]`,
             ),
         ).not.toBeInTheDocument();
         const sessionDetail = container.querySelector<HTMLElement>(
-            '[data-component="clients-detail-service-records-session-detail"]',
+            `[data-component="${TEST_COMPONENT}_sessions_list_row_detail"]`,
         );
         expect(sessionDetail).toBeInTheDocument();
         const sessionValues = sessionDetail!.querySelectorAll(
-            '[data-component="clients-detail-service-records-session-value"]',
+            `[data-component="${TEST_COMPONENT}_sessions_list_row_detail_field_value"]`,
         );
         expect(sessionValues.length).toBeGreaterThan(0);
         sessionValues.forEach((value) => {
@@ -391,12 +392,12 @@ describe("ClientServiceRecordsTab", () => {
         expect(within(sessionDetail!).getByText("완료")).not.toHaveClass("text-v3-green");
         expect(within(sessionDetail!).getByText("서명함")).not.toHaveClass("text-v3-green");
         const headerCaption = overviewCards[1].querySelector<HTMLElement>(
-            '[data-component="clients-detail-service-records-header-card-caption"]',
+            `[data-component="${TEST_COMPONENT}_overview-grid_header-card_body_caption"]`,
         );
         expect(headerCaption).toHaveClass("mt-auto", "text-right");
         expect(
             overviewCards[1].querySelector(
-                '[data-component="clients-detail-service-records-header-card-head"] [data-component="clients-detail-service-records-header-card-caption"]',
+                `[data-component="${TEST_COMPONENT}_overview-grid_header-card_head"] [data-component="${TEST_COMPONENT}_overview-grid_header-card_body_caption"]`,
             ),
         ).not.toBeInTheDocument();
     });

@@ -95,7 +95,7 @@ export default function AdminFeedbackPage() {
 
       <ShortcutGrid shortcuts={shortcuts} className="bg-white rounded-2xl shadow-v3 p-4" />
 
-      <ListPanel
+      <ListPanel data-component="mobile_admin_feedback_split-layout_list-panel"
         title="피드백 목록"
         tabs={filterItems}
         activeTab={filterType}

@@ -155,8 +155,8 @@ function EmployeeDetailContent({
     useEmployeeActiveClients(employee.id);
 
   return (
-    <MobileDetailPage name="employees">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile_employees_detail-sheet_stack_detail-page_body" name="employees">
+      <MobileDetailHeader data-component="mobile_employees_detail-sheet_stack_detail-page_body_header"
         name="employees"
         avatar={employeeInitial(employee.name)}
         avatarTone={group.badgeTone}
@@ -219,9 +219,9 @@ function EmployeeDetailContent({
         name="employees"
         tabId="basic"
         activeTab={activeTab}
-        dataComponent="mobile-employees-detail-basic"
+        data-component="mobile-employees-detail-basic"
       >
-        <InfoCard title="제공인력 정보">
+        <InfoCard data-component="mobile_employees_detail-panel_info-card" title="제공인력 정보">
           <InfoRow label="이름" value={employee.name} />
           <InfoRow label="연락처" value={formatPhoneNumber(employee.phone)} />
           <InfoRow
@@ -235,7 +235,7 @@ function EmployeeDetailContent({
             value={employeeAreaSummary(employee)}
           />
         </InfoCard>
-        <InfoCard title="등록 정보" delay={60}>
+        <InfoCard data-component="mobile_employees_detail-panel_info-card-2" title="등록 정보" delay={60}>
           <InfoRow label="등록일" value={formatRegisteredDate(employee.registeredDate)} />
         </InfoCard>
       </MobileDetailTabPanel>
@@ -244,9 +244,9 @@ function EmployeeDetailContent({
         name="employees"
         tabId="clients"
         activeTab={activeTab}
-        dataComponent="mobile-employees-detail-clients"
+        data-component="mobile-employees-detail-clients"
       >
-        <InfoCard title="현재 담당">
+        <InfoCard data-component="mobile_employees_detail-panel_info-card-3" title="현재 담당">
           {isActiveClientsLoading ? (
             <div className="space-y-3" data-component="mobile-employees-clients-loading">
               <Skeleton className="h-14 w-full rounded-xl" />
@@ -279,9 +279,9 @@ function EmployeeDetailContent({
         name="employees"
         tabId="history"
         activeTab={activeTab}
-        dataComponent="mobile-employees-detail-history"
+        data-component="mobile-employees-detail-history"
       >
-        <InfoCard title="이전 담당">
+        <InfoCard data-component="mobile_employees_detail-panel_info-card-4" title="이전 담당">
           <div
             className="detail-empty-state"
             data-component="mobile-employees-history-empty"
@@ -448,6 +448,7 @@ export default function EmployeesPage() {
   return (
     <>
       <MobileDetailSheet
+        data-component="mobile_employees_detail-sheet"
         name="employees"
         isOpen={Boolean(selected)}
         onClose={handleCloseDetailSheet}

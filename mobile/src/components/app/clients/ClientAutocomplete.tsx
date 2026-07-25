@@ -14,6 +14,7 @@ import { Autocomplete } from "@/components/app/ui/Autocomplete";
 import { StatusBadge } from "@/components/app/ui/status-badge";
 
 interface ClientAutocompleteProps {
+    "data-component"?: string;
     inputId?: string;
     value: number | null;
     onChange: (clientId: number | null, client: Client | null) => void;
@@ -32,6 +33,7 @@ interface ClientAutocompleteProps {
 }
 
 export function ClientAutocomplete({
+    "data-component": dataComponent,
     inputId,
     value,
     onChange,
@@ -64,6 +66,7 @@ export function ClientAutocomplete({
 
     return (
         <Autocomplete<Client>
+            data-component={dataComponent}
             name="clients"
             inputId={inputId}
             value={selectedClient}

@@ -264,7 +264,7 @@ export default function DashboardPage() {
         name="dashboard-split"
         className="flex-1 min-h-0"
       >
-        <SplitLayout
+        <SplitLayout data-component="desktop_dashboard_split-layout"
           hasSelection={!!selectedClientData}
           onBack={handleClearSelectedClient}
         >
@@ -286,8 +286,8 @@ export default function DashboardPage() {
           {selectedClientData ? (
             <ClientDetailPanel
               client={selectedClientData}
-              dataComponentPrefix="dashboard-detail"
-              messageHistoryDataComponentPrefix="dashboard-message-history"
+              dataComponentPrefix="desktop_dashboard_client-detail_panel"
+              messageHistoryDataComponentPrefix="desktop_dashboard_client-detail_panel_message-history"
               idPrefix="dashboard-client-detail"
               tabsAriaLabel="고객 상세 정보"
               onScheduleChangeDecided={handleScheduleChangeDecided}
@@ -314,7 +314,7 @@ export default function DashboardPage() {
               }
             />
           ) : (
-            <DetailPanel
+            <DetailPanel data-component="desktop_dashboard_split-layout_detail-panel"
               emptyState={
                 <DetailEmptyState
                   name="dashboard-detail-empty"

@@ -29,4 +29,32 @@ describe("MobileTwoButtonModal", () => {
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("button", { name: "일정 변경" })).toBeDisabled();
   });
+
+  it("forwards the caller context and keeps the source component identity", () => {
+    render(
+      <MobileTwoButtonModal
+        data-component="mobile_contracts-new_confirmation_modal"
+        open
+        title="계약서 재생성 확인"
+        description="새 계약서를 생성합니다."
+        cancelLabel="취소"
+        confirmLabel="생성"
+        onOpenChange={jest.fn()}
+        onCancel={jest.fn()}
+        onConfirm={jest.fn()}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("data-component", "mobile_contracts-new_confirmation_modal");
+    expect(dialog).toHaveAttribute("data-source-component", "MobileTwoButtonModal");
+    expect(screen.getByText("계약서 재생성 확인")).toHaveAttribute(
+      "data-component",
+      "mobile_contracts-new_confirmation_modal_title",
+    );
+    expect(screen.getByRole("button", { name: "생성" })).toHaveAttribute(
+      "data-component",
+      "mobile_contracts-new_confirmation_modal_confirm-button",
+    );
+  });
 });

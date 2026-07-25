@@ -1,199 +1,44 @@
-# Data-Component Naming Convention
+# Mobile Data-Component Naming Convention
 
-## 1. Overview
+모바일도 frontend와 같은 full-parent-path 계약을 사용한다. 유일한 platform prefix는
+`mobile`이다.
 
-This project uses a **layered attribute strategy** for DOM element identification:
-
-| Attribute | Purpose | Scope |
-|-----------|---------|-------|
-| `data-component` | Primary identifier for app-level elements. Used for E2E testing, analytics, AI targeting, and debugging. | App components |
-| `data-slot` | shadcn/ui primitive internals only. **DO NOT MODIFY.** | `frontend/src/components/ui/` |
-| `data-testid` | Test-specific selectors for unique test identification. | Test files |
-| `data-instance` *(future)* | Reserved for per-instance tracking. **Not implemented yet.** | — |
-
-### Selector Precedence
-
-```
-data-component > data-slot > data-testid
+```text
+mobile_clients_detail-sheet
+mobile_clients_detail-sheet_stack
+mobile_clients_detail-sheet_stack_detail-page
+mobile_clients_detail-sheet_stack_detail-page_content
+mobile_clients_detail-sheet_stack_detail-page_content_service-records
 ```
 
-When querying elements, prefer `data-component` first. Fall back to `data-slot` for shadcn primitives, then `data-testid` for test-only selectors.
+## Rules
 
----
+- 형식:
+  `/^(desktop|mobile)_[a-z0-9]+(?:-[a-z0-9]+)*(?:_[a-z0-9]+(?:-[a-z0-9]+)*){1,}$/`
+- 자식은 직계 parent scope의 완전한 값을 prefix로 유지한다.
+- depth 제한과 namespace restart는 없다.
+- shared/mobile-redesign/v3 composite는 route-aware caller가 완성된 base를 전달한다.
+- composite 내부 named part는 `${base}_${suffix}`로만 확장한다.
+- `data-source-component`는 실제 exported component 이름을 PascalCase literal로 root에 기록한다.
+- CSS와 imperative behavior는 `data-component` 대신 `data-slot`, class, ref를 사용한다.
 
-## 2. Naming Format
+예:
 
-```
-{page-name}-{parent}-{child}-{element}
-```
-
-- All values **MUST** be `kebab-case`
-- No PascalCase, no camelCase, no underscores
-- Examples: `dashboard-header-actions`, `clients-filter-search-input`
-
----
-
-## 3. Page Name Mapping
-
-| Route | Semantic Page Name |
-|-------|-------------------|
-| `/` | `home` |
-| `/dashboard` | `dashboard` |
-| `/clients` | `clients` |
-| `/clients/filtered` | `clients-filtered` |
-| `/employees` | `employees` |
-| `/contracts` | `contracts` |
-| `/contracts/creation` | `contracts-creation` |
-| `/messages` | `messages` |
-| `/messages/templates` | `messages-templates` |
-| `/messages/templates/new` | `messages-templates-new` |
-| `/messages/templates/[id]/edit` | `messages-template-edit` |
-| `/messages/system-templates` | `messages-system-templates` |
-| `/messages/system-templates/[templateKey]` | `messages-system-template-detail` |
-| `/settings` | `settings` |
-| `/settings/general` | `settings-general` |
-| `/settings/voucher-price` | `settings-voucher-price` |
-| `/admin` | `admin` |
-| `/admin/feedback/[id]` | `admin-feedback-detail` |
-| `/auth/register` | `auth-register` |
-| `/auth/forgot-password` | `auth-forgot-password` |
-| `/auth/reset-password` | `auth-reset-password` |
-| `/auth/verify-email` | `auth-verify-email` |
-| `/callback` | `auth-callback` |
-| `/chat` | `chat` |
-| `/files` | `files` |
-| `/select-branch` | `select-org` |
-| `/login` | `login` |
-| `/logout` | `logout` |
-| `/test` | `test` |
-
-> **NOTE:** `/auth/login` does **NOT** exist. Login is at `/login`.
-
----
-
-## 4. Layout / Global Components (No Page Prefix)
-
-Layout and global components use generic names **without** a page prefix:
-
-| Component | `data-component` |
-|-----------|-----------------|
-| V3Sidebar root | `sidebar` |
-| V3Sidebar nav section | `sidebar-nav` |
-| V3Sidebar nav item | `sidebar-nav-item` |
-| V3MainContent root | `main-content` |
-| V3MobileHeader root | `mobile-header` |
-| MobileBottomNav root | `mobile-bottom-nav` |
-
----
-
-## 5. Depth Limit Rule
-
-- **Maximum 5 segments** in a name (e.g., `dashboard-split-detail-summary-row`)
-- If deeper nesting occurs, **restart the hierarchy** from the nearest named component
-- **Page prefix MUST be retained** even when restarting hierarchy
-
-### Example
-
-Instead of:
-```
-dashboard-split-list-item-status-badge-icon   ← 7 segments, too deep
+```tsx
+<MobileDetailSheet data-component="mobile_clients_detail-sheet" />
 ```
 
-Use:
-```
-dashboard-list-item-status-badge   ← 5 segments, restarted from "list-item"
-```
+렌더 경로:
 
----
-
-## 6. Collision Policy
-
-### Repeated Structures
-Repeated structures (e.g., multiple list items) use the **same** `data-component` value. The attribute identifies the component **type**, not the instance.
-
-### Shared Components Across Pages
-Use the **page prefix of where the component is rendered**:
-- `dashboard-chat-widget` — when rendered on the dashboard page
-- `chat-widget` — when rendered on the chat page
-
-Inside the component file itself, use the component's own name as prefix.
-
-### Duplicate Detection
-If two different elements on the same page would get the same name, append a **semantic disambiguator** based on purpose:
-- `dashboard-header-action-primary`
-- `dashboard-header-action-secondary`
-
----
-
-## 7. Path Disambiguation (CRITICAL)
-
-Two directories named `ui/` exist in the project:
-
-| Path | Purpose | Attribute | Editable? |
-|------|---------|-----------|-----------|
-| `frontend/src/components/ui/` | shadcn/ui primitives | `data-slot` | **DO NOT MODIFY** |
-| `frontend/src/app/(components)/ui/` | App-level shared UI | `data-component` | **EDITABLE** |
-
-Always verify which `ui/` directory you are working in before making changes.
-
----
-
-## 8. Example: Dashboard Page Tree
-
-```html
-<section data-component="dashboard">
-  <div data-component="dashboard-header">
-    <div data-component="dashboard-header-actions">
-      <a data-component="dashboard-header-send-contract">
-      <a data-component="dashboard-header-send-message">
-  <div data-component="dashboard-stats">
-    <div data-component="dashboard-stats-active-clients">
-    <div data-component="dashboard-stats-upcoming">
-    <div data-component="dashboard-stats-pending-sign">
-    <div data-component="dashboard-stats-pending-send">
-  <div data-component="dashboard-split">
-    <div data-component="dashboard-split-list">
-      <div data-component="dashboard-split-list-tabs">
-      <div data-component="dashboard-split-list-item">
-    <div data-component="dashboard-split-detail">
-      <div data-component="dashboard-split-detail-summary">
-        <div data-component="dashboard-split-detail-summary-row">
-      <div data-component="dashboard-split-detail-chat">
+```text
+mobile_clients_detail-sheet
+mobile_clients_detail-sheet_stack
+mobile_clients_detail-sheet_stack_list-page
+mobile_clients_detail-sheet_stack_scrim
+mobile_clients_detail-sheet_stack_detail-page
+mobile_clients_detail-sheet_stack_detail-page_header
+mobile_clients_detail-sheet_stack_detail-page_header_close
 ```
 
----
-
-## 9. How to Name a New Component (Step-by-Step)
-
-1. **Identify the page** — Check which route renders this component
-2. **Look up the semantic name** — Find the page in the [Page Name Mapping](#3-page-name-mapping) table
-3. **Trace the hierarchy** — Walk from the page root down to your component
-4. **Build the name** — `{page-name}-{parent}-{child}-{element}`
-5. **Check depth** — If more than 5 segments, restart from nearest named component (keep page prefix)
-6. **Verify kebab-case** — No PascalCase, no camelCase, no underscores
-7. **Check for collisions** — If another element has the same name, add a semantic disambiguator
-8. **Layout/global components** — Use generic names without page prefix
-
----
-
-## 10. What Gets Annotated
-
-### ✅ Annotate
-
-- Named components (their root DOM element)
-- Structural wrappers (`<div>`, `<section>`, `<nav>`, `<main>`, `<aside>`, `<article>`, `<header>`, `<footer>`)
-- Actionable elements (buttons, inputs, links)
-
-### ❌ Do NOT Annotate
-
-- Inline text elements (`<p>`, `<span>`, `<label>`, `<br>`, `<hr>`)
-- SVG internals (`<svg>`, `<path>`, `<circle>`)
-- Component invocation sites (e.g., `<PageHeader />`) — only DOM nodes inside implementations
-- shadcn/ui components in `frontend/src/components/ui/` (they use `data-slot`)
-- Third-party library internals (Radix, recharts, etc.)
-
----
-
-## 11. SSR Compatibility
-
-All `data-component` values are **static strings**. No React Context, no runtime logic, no `'use client'` additions needed. Fully SSR-compatible.
+단순 layout wrapper나 모든 inline text에 기계적인 `_div`, `_span` 이름을 붙이지 않는다.
+route/screen/component root와 의미 있는 named subpart만 annotation한다.

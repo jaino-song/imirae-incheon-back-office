@@ -165,8 +165,8 @@ export function MessageTriggerEditor({
   };
 
   return (
-    <MobileDetailPage name="message-trigger-editor">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile_mobile-redesign_detail-sheet_stack_detail-page" name="message-trigger-editor">
+      <MobileDetailHeader data-component="mobile_mobile-redesign_detail-sheet_stack_detail-page_header"
         name="message-trigger-editor"
         avatar={<BellRing size={22} aria-hidden="true" />}
         title={rule ? "자동 전송 규칙 수정" : "자동 전송 규칙 추가"}

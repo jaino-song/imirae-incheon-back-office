@@ -117,7 +117,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     expect(label.parentElement).toContainElement(error);
     expect(label.parentElement).toHaveAttribute(
       "data-component",
-      "employees-form-panel-work-area-field-label-row",
+      "employees-form-panel-work-area-field_label-row",
     );
     expect(trigger).toHaveAttribute("aria-invalid", "true");
     expect(field!.nextElementSibling).toBe(openStatusField);
@@ -162,7 +162,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     expect(label.parentElement).toContainElement(error);
     expect(label.parentElement).toHaveAttribute(
       "data-component",
-      "employees-form-dialog-field-work-area-label-row",
+      "employees-form-dialog-field-work-area_label-row",
     );
     expect(trigger).toHaveAttribute("aria-describedby", "employee-form-work-area-error");
   });
@@ -213,7 +213,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     expect(phoneLabel.parentElement).toContainElement(duplicateMessage);
     expect(phoneLabel.parentElement).toHaveAttribute(
       "data-component",
-      "employees-form-dialog-field-phone-label-row",
+      "employees-form-dialog-field-phone_label-row",
     );
     expect(phoneInput).toHaveAttribute("aria-invalid", "true");
     expect(phoneInput).toHaveAttribute(

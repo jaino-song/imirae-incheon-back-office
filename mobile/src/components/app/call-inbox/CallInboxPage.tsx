@@ -188,6 +188,7 @@ export function CallInboxPage() {
   return (
     <>
       <MobileDetailSheet
+        data-component="mobile_call-inbox_detail-sheet"
         name="call-inbox"
         isOpen={Boolean(reviewDraftId || logRecordId)}
         onClose={closeSheets}

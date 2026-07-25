@@ -90,7 +90,7 @@ export function ClientMessageHistoryDetail({
         </span>
       </div>
 
-      <InfoCard title="발송 정보">
+      <InfoCard data-component="mobile_clients_detail-panel_info-card" title="발송 정보">
         <InfoRow label="수신자" value={view.recipientName} />
         <InfoRow label="연락처" value={view.recipientPhone} />
         <InfoRow label="템플릿" value={view.templateLabel} />
@@ -100,7 +100,7 @@ export function ClientMessageHistoryDetail({
         ) : null}
       </InfoCard>
 
-      <InfoCard title="메시지 내용">
+      <InfoCard data-component="mobile_clients_detail-panel_info-card-2" title="메시지 내용">
         <p
           className="message-detail-body"
           data-component={`${dataComponentPrefix}-detail-body`}

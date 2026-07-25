@@ -186,10 +186,11 @@ export class AuthController {
             : Promise.resolve(null);
 
         const [user, org] = await Promise.all([userPromise, branchPromise]);
+        const branchId = req.user.branchId ?? null;
         const branchName = org?.name ?? null;
         const branchSlug = org?.slug ?? null;
 
-        return { ...user, branchName, branchSlug };
+        return { ...user, branchId, branchName, branchSlug };
     }
 
     @Post("token")

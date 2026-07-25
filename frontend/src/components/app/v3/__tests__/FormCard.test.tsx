@@ -14,8 +14,8 @@ describe("FormCard", () => {
 
     expect(card).toHaveClass("border", "border-v3-border", "bg-transparent");
     expect(card).not.toHaveClass("bg-white", "bg-v3-dim-white");
-    expect(container.querySelector('[data-component="form-card-head"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="form-card-body"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="form-card_head"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="form-card_body"]')).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "기본 정보" })).toBeInTheDocument();
     expect(screen.getByText("폼 내용")).toBeInTheDocument();
   });

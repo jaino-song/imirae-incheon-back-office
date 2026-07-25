@@ -395,7 +395,7 @@ function InfoRowsCard({
   className?: string;
 }) {
   return (
-    <InfoCard title={title} className={className}>
+    <InfoCard data-component="desktop_contracts_detail-panel_info-card" title={title} className={className}>
       {rows.map((row, index) => (
         <InfoRow
           key={row.label}
@@ -701,14 +701,14 @@ export default function ContractsPage() {
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {activeSection === "maternity" ? (
             <section data-component="contracts-maternity" className="flex flex-1 min-h-0 flex-col">
-        <SplitLayout
+        <SplitLayout data-component="desktop_contracts_split-layout"
           hasSelection={!!selectedDocument || isCreating || hasContractCreationSession}
           onBack={() => {
             setSelectedDocId(null);
             setIsCreating(false);
           }}
         >
-          <ListPanel
+          <ListPanel data-component="desktop_contracts_split-layout_list-panel"
             title="계약 목록"
             tabs={TAB_ITEMS}
             activeTab={activeTab}
@@ -781,7 +781,7 @@ export default function ContractsPage() {
                   activeStep={contractCreationActiveStep}
                   onActiveStepChange={setContractCreationActiveStep}
                   renderLayout={({ content, footer, footerClassName }) => (
-                    <DetailPanel
+                    <DetailPanel data-component="desktop_contracts_split-layout_detail-panel_creation"
                       title="전자계약서 작성"
                       subtitle="고객에게 전자계약서를 발송합니다"
                       avatar={
@@ -835,11 +835,11 @@ export default function ContractsPage() {
 
           {activeSection === "service-records" ? (
             <section data-component="contracts-service-records" className="flex flex-1 min-h-0 flex-col">
-              <SplitLayout
+              <SplitLayout data-component="desktop_contracts_split-layout-2"
                 hasSelection={!!selectedServiceRecordDocument}
                 onBack={() => setSelectedServiceRecordDocId(null)}
               >
-                <ListPanel
+                <ListPanel data-component="desktop_contracts_split-layout_list-panel-2"
                   title="제공기록지 목록"
                   tabs={SERVICE_RECORD_TAB_ITEMS}
                   activeTab={serviceRecordActiveTab}
@@ -914,8 +914,8 @@ export default function ContractsPage() {
 
           {activeSection === "caregiver" ? (
             <section data-component="contracts-caregiver" className="flex flex-1 min-h-0 flex-col">
-              <SplitLayout hasSelection={false}>
-                <ListPanel
+              <SplitLayout data-component="desktop_contracts_split-layout-3" hasSelection={false}>
+                <ListPanel data-component="desktop_contracts_split-layout_list-panel-3"
                   title="제공인력 계약 목록"
                   subtitle="아직 준비중입니다"
                   avatar={
@@ -927,7 +927,7 @@ export default function ContractsPage() {
                 >
                   {null}
                 </ListPanel>
-                <DetailPanel
+                <DetailPanel data-component="desktop_contracts_split-layout_detail-panel-2"
                   title="제공인력 계약서"
                   subtitle="아직 준비중입니다"
                   avatar={
@@ -944,8 +944,8 @@ export default function ContractsPage() {
 
           {activeSection === "documents" ? (
             <section data-component="contracts-documents" className="flex flex-1 min-h-0 flex-col">
-              <SplitLayout hasSelection={false}>
-                <ListPanel
+              <SplitLayout data-component="desktop_contracts_split-layout-4" hasSelection={false}>
+                <ListPanel data-component="desktop_contracts_split-layout_list-panel-4"
                   title="전자문서 목록"
                   subtitle="아직 준비중입니다"
                   avatar={
@@ -957,7 +957,7 @@ export default function ContractsPage() {
                 >
                   {null}
                 </ListPanel>
-                <DetailPanel
+                <DetailPanel data-component="desktop_contracts_split-layout_detail-panel-3"
                   title="전자문서"
                   subtitle="아직 준비중입니다"
                   avatar={
@@ -974,8 +974,8 @@ export default function ContractsPage() {
 
           {activeSection === "notifications" ? (
             <section data-component="contracts-notifications" className="flex flex-1 min-h-0 flex-col">
-              <SplitLayout hasSelection={false}>
-                <ListPanel
+              <SplitLayout data-component="desktop_contracts_split-layout-5" hasSelection={false}>
+                <ListPanel data-component="desktop_contracts_split-layout_list-panel-5"
                   title="알림 설정"
                   subtitle="아직 준비중입니다"
                   avatar={
@@ -987,7 +987,7 @@ export default function ContractsPage() {
                 >
                   {null}
                 </ListPanel>
-                <DetailPanel
+                <DetailPanel data-component="desktop_contracts_split-layout_detail-panel-4"
                   title="알림 설정"
                   subtitle="아직 준비중입니다"
                   avatar={
@@ -1573,11 +1573,11 @@ function ContractDetail({
   const documentTabCards = [
     isServiceRecordDocument ? (
       <ServiceRecordHeaderCard
+        data-component="desktop_contracts_detail-panel_service-records_header-card"
         key="document-profile"
         header={serviceRecordHeader}
         isLoading={isCustomerInfoLoading}
         showStatusBadge={false}
-        dataComponent="contracts-service-records-header-card"
       />
     ) : (
       <InfoRowsCard
@@ -1759,7 +1759,7 @@ function ContractDetail({
   );
 
   return (
-    <DetailPanel
+    <DetailPanel data-component="desktop_contracts_split-layout_detail-panel-5"
       title={isServiceRecordDocument ? "제공기록지" : detailedDocument.document_name}
       badges={<StatusBadge status={statusType} label={statusLabel} />}
       subtitle={

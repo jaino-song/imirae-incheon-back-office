@@ -906,7 +906,7 @@ export function OwnerAdminConsole() {
         />
 
         <div className="min-h-0 flex-1">
-          <SplitLayout
+          <SplitLayout data-component="desktop_system-admin_split-layout"
             hasSelection={Boolean(selectedRecord || branchFormMode)}
             onModeChange={setSplitLayoutMode}
             onBack={() => {
@@ -920,7 +920,7 @@ export function OwnerAdminConsole() {
               }));
             }}
           >
-            <ListPanel
+            <ListPanel data-component="desktop_system-admin_split-layout_list-panel"
               title={activeSection.listTitle}
               subtitle={activeSection.listSubtitle}
               tabs={activeSection.tabs ? [...activeSection.tabs] : undefined}
@@ -1094,7 +1094,7 @@ export function OwnerAdminConsole() {
             </ListPanel>
 
             {branchFormMode ? (
-              <DetailPanel
+              <DetailPanel data-component="desktop_system-admin_split-layout_detail-panel"
                 avatar={
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-green-light text-v3-green">
                     <Building2 className="h-5 w-5" aria-hidden="true" />
@@ -1140,7 +1140,7 @@ export function OwnerAdminConsole() {
                 ]}
               />
             ) : selectedRecord ? (
-              <DetailPanel
+              <DetailPanel data-component="desktop_system-admin_split-layout_detail-panel-2"
                 avatar={
                   <div
                     className={cn(
@@ -1178,12 +1178,12 @@ export function OwnerAdminConsole() {
               >
                 {activeSection.id === "notifications" ? (
                   <div className="space-y-5">
-                    <InfoCard title="테스트 정보">
+                    <InfoCard data-component="desktop_system-admin_detail-panel_info-card" title="테스트 정보">
                       {selectedRecord.detailRows.map((row) => (
                         <InfoRow key={row.label} label={row.label} value={row.value} />
                       ))}
                     </InfoCard>
-                    <InfoCard title="알림 실행">
+                    <InfoCard data-component="desktop_system-admin_detail-panel_info-card-2" title="알림 실행">
                       <NotificationTestSection />
                     </InfoCard>
                   </div>
@@ -1191,7 +1191,7 @@ export function OwnerAdminConsole() {
                   <div className="space-y-5">
                     {activeSection.id === "branches" && selectedRecord.requests?.length ? (
                       <section data-component="system-admin-detail-section" className="space-y-4">
-                        <InfoCard
+                        <InfoCard data-component="desktop_system-admin_detail-panel_info-card-3"
                           title="지점 정보"
                           titleTrailing={
                             <HeaderActionButton
@@ -1265,13 +1265,13 @@ export function OwnerAdminConsole() {
                           className={cn("space-y-4", index > 0 && "border-t border-v3-border pt-5")}
                         >
                           {request.applicantRows ? (
-                            <InfoCard title="신청인 정보">
+                            <InfoCard data-component="desktop_system-admin_detail-panel_info-card-4" title="신청인 정보">
                               {request.applicantRows.map((row) => (
                                 <InfoRow key={row.label} label={row.label} value={row.value} />
                               ))}
                             </InfoCard>
                           ) : null}
-                          <InfoCard
+                          <InfoCard data-component="desktop_system-admin_detail-panel_info-card-5"
                             title={infoTitle}
                             titleTrailing={
                               activeSection.id === "branches" && infoTitle === "지점 정보" ? (
@@ -1563,7 +1563,7 @@ export function OwnerAdminConsole() {
                 )}
               </DetailPanel>
             ) : (
-              <DetailPanel
+              <DetailPanel data-component="desktop_system-admin_split-layout_detail-panel-3"
                 avatar={
                   <div
                     className={cn(

@@ -5,7 +5,7 @@ import { ListPanel } from "../ListPanel";
 describe("ListPanel", () => {
   it("renders overlay through the root list-panel overlay layer", () => {
     const { container } = render(
-      <ListPanel
+      <ListPanel data-component="desktop_v3_tests_split-layout_list-panel"
         title="목록"
         subtitle="설명"
         overlay={
@@ -20,7 +20,7 @@ describe("ListPanel", () => {
       </ListPanel>,
     );
 
-    expect(container.querySelector('[data-component="list-panel-overlay"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="list-panel-overlay"]')).toBeInTheDocument();
     expect(container.querySelector('[data-component="list-panel-empty"]')).not.toBeInTheDocument();
     expect(container.querySelector('[data-component="list-empty-state-copy"]')).toBeInTheDocument();
     expect(container.querySelector('[data-component="list-panel-empty-copy"]')).not.toBeInTheDocument();
@@ -29,7 +29,7 @@ describe("ListPanel", () => {
 
   it("renders emptyState through the overlay layer while keeping content mounted", () => {
     const { container } = render(
-      <ListPanel
+      <ListPanel data-component="desktop_v3_tests_split-layout_list-panel-2"
         title="목록"
         emptyState={<ListEmptyState message="항목이 없습니다." />}
       >
@@ -37,9 +37,9 @@ describe("ListPanel", () => {
       </ListPanel>,
     );
 
-    expect(container.querySelector('[data-component="list-panel-overlay"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="list-panel-overlay"]')).toBeInTheDocument();
     expect(container.querySelector('[data-component="list-panel-empty-state"]')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-component="list-panel-content"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="list-panel-content"]')).toBeInTheDocument();
     expect(screen.getByTestId("list-panel-content-child")).toBeInTheDocument();
     expect(screen.getByText("항목이 없습니다.")).toBeInTheDocument();
   });
@@ -48,37 +48,37 @@ describe("ListPanel", () => {
     const emptyState = <ListEmptyState message="항목이 없습니다." />;
     const content = <div data-testid="list-panel-content-child">본문</div>;
     const { container, rerender } = render(
-      <ListPanel title="목록" emptyState={emptyState} isLoading>
+      <ListPanel data-component="desktop_v3_tests_split-layout_list-panel-3" title="목록" emptyState={emptyState} isLoading>
         {content}
       </ListPanel>,
     );
 
-    expect(container.querySelector('[data-component="list-panel-overlay"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="list-panel-overlay"]')).not.toBeInTheDocument();
     expect(screen.getByTestId("list-panel-content-child")).toBeInTheDocument();
     expect(screen.queryByText("항목이 없습니다.")).not.toBeInTheDocument();
 
     rerender(
-      <ListPanel title="목록" emptyState={emptyState} isContentLoading>
+      <ListPanel data-component="desktop_v3_tests_split-layout_list-panel-4" title="목록" emptyState={emptyState} isContentLoading>
         {content}
       </ListPanel>,
     );
 
-    expect(container.querySelector('[data-component="list-panel-overlay"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="list-panel-overlay"]')).not.toBeInTheDocument();
     expect(screen.queryByText("항목이 없습니다.")).not.toBeInTheDocument();
 
     rerender(
-      <ListPanel title="목록" emptyState={emptyState}>
+      <ListPanel data-component="desktop_v3_tests_split-layout_list-panel-5" title="목록" emptyState={emptyState}>
         {content}
       </ListPanel>,
     );
 
-    expect(container.querySelector('[data-component="list-panel-overlay"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="list-panel-overlay"]')).toBeInTheDocument();
     expect(screen.getByText("항목이 없습니다.")).toBeInTheDocument();
   });
 
   it("keeps inline tabs scrollable while search expands as an overlay", () => {
     const { container } = render(
-      <ListPanel
+      <ListPanel data-component="desktop_v3_tests_split-layout_list-panel-6"
         title="고객 목록"
         tabs={[
           { label: "전체", value: "all" },
@@ -96,10 +96,10 @@ describe("ListPanel", () => {
       </ListPanel>,
     );
 
-    expect(container.querySelector('[data-component="list-panel-tabs"]')).toHaveClass(
+    expect(container.querySelector('[data-slot="list-panel-controls"]')).toHaveClass(
       "[container-type:inline-size]",
     );
-    expect(container.querySelector('[data-component="list-panel-tab-scroll"]')).toHaveClass(
+    expect(container.querySelector('[data-slot="list-panel-tab-scroll"]')).toHaveClass(
       "min-w-0",
       "flex-1",
       "overflow-x-auto",
@@ -144,7 +144,7 @@ describe("ListPanel", () => {
     const onTabChange = jest.fn();
 
     render(
-      <ListPanel
+      <ListPanel data-component="desktop_v3_tests_split-layout_list-panel-7"
         title="최근 현황"
         tabs={[
           { label: "전체", value: "all" },

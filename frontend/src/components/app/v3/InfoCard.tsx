@@ -3,6 +3,7 @@
 import React from "react";
 
 import { AppContentCard } from "@/components/ui/app-surface";
+import { InfoCardDataComponentProvider } from "./InfoCardDataComponentContext";
 
 interface InfoCardProps {
   title: string;
@@ -11,7 +12,8 @@ interface InfoCardProps {
   titleTrailing?: React.ReactNode;
   className?: string;
   contentClassName?: string;
-  "data-component"?: string;
+  "data-component": string;
+  "data-source-component"?: string;
 }
 
 export function InfoCard({
@@ -21,22 +23,25 @@ export function InfoCard({
   titleTrailing,
   className,
   contentClassName,
-  "data-component": dataComponent = "info-card",
+  "data-component": dataComponent,
+  "data-source-component": dataSourceComponent = "InfoCard",
 }: InfoCardProps) {
   return (
-    <AppContentCard
-      data-component={dataComponent}
-      variant="muted"
-      title={title}
-      description={description}
-      titleVariant="eyebrow"
-      titleElement="h3"
-      titleTrailing={titleTrailing}
-      titleDataComponent="info-card-title"
-      contentClassName={contentClassName ?? "block"}
-      className={className}
-    >
-      {children}
-    </AppContentCard>
+    <InfoCardDataComponentProvider value={dataComponent}>
+      <AppContentCard
+        data-component={dataComponent}
+        data-source-component={dataSourceComponent}
+        variant="muted"
+        title={title}
+        description={description}
+        titleVariant="eyebrow"
+        titleElement="h3"
+        titleTrailing={titleTrailing}
+        contentClassName={contentClassName ?? "block"}
+        className={className}
+      >
+        {children}
+      </AppContentCard>
+    </InfoCardDataComponentProvider>
   );
 }

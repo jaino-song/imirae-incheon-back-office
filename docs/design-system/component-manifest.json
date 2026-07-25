@@ -1,0 +1,1793 @@
+{
+  "version": 1,
+  "updated": "2026-07-08",
+  "purpose": "Machine-readable inventory of BabyJamJam design-system components. Agents MUST consult this before any UI work and compose ONLY these components in pages. See docs/design-system/AGENT_UI_RULES.md.",
+  "docs": {
+    "rules": "docs/design-system/AGENT_UI_RULES.md",
+    "inventory": "docs/design-system/component-inventory.md",
+    "designPhilosophy": "frontend/docs/design-system/README.md",
+    "dataComponentConvention": "mobile/DATA-COMPONENT-CONVENTION.md"
+  },
+  "conventions": {
+    "dataComponent": "{platform}_{route}_{owner}[_{child}...] full-parent path; underscore separates owner layers and dash is allowed only inside a segment",
+    "layers": {
+      "atom": "direct visual-token consumers (components/ui, shadcn-based)",
+      "molecule": "atom compositions: fields, badges, rows, chips",
+      "organism": "workflow-level compositions: panels, tables, wizards, dialogs",
+      "template": "page-level layout shells: split layouts, app frames",
+      "tokens": "shared class-name/token constants — importable by design-system components only, NEVER by pages",
+      "hook": "UI behavior hooks"
+    },
+    "pages": "src/app/**/page.tsx files assemble templates/organisms only. No local components, no style constants, no raw button/input/select/textarea/dialog, no visual Tailwind (bg-*, text-*, border-*, rounded-*, shadow-*)."
+  },
+  "components": {
+    "frontend": [
+      {
+        "name": "Alert",
+        "layer": "atom",
+        "import": "@/components/ui/alert",
+        "file": "frontend/src/components/ui/alert.tsx",
+        "exports": [
+          "Alert",
+          "AlertTitle",
+          "AlertDescription"
+        ]
+      },
+      {
+        "name": "AppContentCard",
+        "layer": "tokens",
+        "import": "@/components/ui/app-surface",
+        "file": "frontend/src/components/ui/app-surface.tsx",
+        "exports": [
+          "APP_DIALOG_SURFACE_CLASS_NAME",
+          "APP_DIALOG_CONTENT_CLASS_NAME",
+          "APP_DIALOG_PADDED_CONTENT_CLASS_NAME",
+          "APP_DIALOG_FLUSH_CONTENT_CLASS_NAME",
+          "APP_FORM_DIALOG_CONTENT_CLASS_NAME",
+          "APP_DIALOG_HEADER_CLASS_NAME",
+          "APP_DIALOG_HEADER_ROW_CLASS_NAME",
+          "APP_DIALOG_TITLE_CLASS_NAME",
+          "APP_DIALOG_DESCRIPTION_CLASS_NAME",
+          "APP_DIALOG_EYEBROW_CLASS_NAME",
+          "APP_DIALOG_BODY_CLASS_NAME",
+          "APP_DIALOG_FOOTER_CLASS_NAME",
+          "APP_DIALOG_INLINE_CLOSE_BUTTON_CLASS_NAME",
+          "APP_DIALOG_FLOATING_CLOSE_BUTTON_CLASS_NAME",
+          "APP_DIALOG_CLOSE_ICON_CLASS_NAME",
+          "APP_CONTENT_CARD_CLASS_NAME",
+          "APP_CONTENT_CARD_MUTED_CLASS_NAME",
+          "APP_CONTENT_CARD_OUTLINED_CLASS_NAME",
+          "APP_CONTENT_CARD_TITLE_CLASS_NAME",
+          "APP_CONTENT_CARD_EYEBROW_TITLE_CLASS_NAME",
+          "APP_CONTENT_CARD_DESCRIPTION_CLASS_NAME",
+          "APP_CONTENT_CARD_BODY_CLASS_NAME",
+          "APP_CONTENT_BODY_CARD_CLASS_NAME",
+          "APP_CONTENT_BODY_CARD_OUTLINED_CLASS_NAME",
+          "APP_SURFACE_CARD_CLASS_NAME",
+          "AppContentCard"
+        ]
+      },
+      {
+        "name": "Avatar",
+        "layer": "atom",
+        "import": "@/components/ui/avatar",
+        "file": "frontend/src/components/ui/avatar.tsx",
+        "exports": [
+          "Avatar",
+          "AvatarImage",
+          "AvatarFallback"
+        ]
+      },
+      {
+        "name": "Badge",
+        "layer": "atom",
+        "import": "@/components/ui/badge",
+        "file": "frontend/src/components/ui/badge.tsx",
+        "exports": [
+          "Badge",
+          "badgeVariants"
+        ],
+        "replaces": [
+          "custom pill spans"
+        ]
+      },
+      {
+        "name": "Button",
+        "layer": "atom",
+        "import": "@/components/ui/button",
+        "file": "frontend/src/components/ui/button.tsx",
+        "exports": [
+          "Button",
+          "buttonVariants"
+        ],
+        "replaces": [
+          "raw <button>"
+        ],
+        "requiredFor": [
+          "any clickable action"
+        ]
+      },
+      {
+        "name": "CardShell",
+        "layer": "atom",
+        "import": "@/components/ui/card-shell",
+        "file": "frontend/src/components/ui/card-shell.tsx",
+        "exports": [
+          "CardShell"
+        ]
+      },
+      {
+        "name": "Card",
+        "layer": "atom",
+        "import": "@/components/ui/card",
+        "file": "frontend/src/components/ui/card.tsx",
+        "exports": [
+          "Card",
+          "CardHeader",
+          "CardFooter",
+          "CardTitle",
+          "CardDescription",
+          "CardContent",
+          "cardVariants"
+        ]
+      },
+      {
+        "name": "Checkbox",
+        "layer": "atom",
+        "import": "@/components/ui/checkbox",
+        "file": "frontend/src/components/ui/checkbox.tsx",
+        "exports": [
+          "Checkbox"
+        ]
+      },
+      {
+        "name": "Collapsible",
+        "layer": "atom",
+        "import": "@/components/ui/collapsible",
+        "file": "frontend/src/components/ui/collapsible.tsx",
+        "exports": [
+          "Collapsible",
+          "CollapsibleTrigger",
+          "CollapsibleContent"
+        ]
+      },
+      {
+        "name": "Command",
+        "layer": "atom",
+        "import": "@/components/ui/command",
+        "file": "frontend/src/components/ui/command.tsx",
+        "exports": [
+          "Command",
+          "CommandDialog",
+          "CommandInput",
+          "CommandList",
+          "CommandEmpty",
+          "CommandGroup",
+          "CommandItem",
+          "CommandShortcut",
+          "CommandSeparator"
+        ]
+      },
+      {
+        "name": "Dialog",
+        "layer": "atom",
+        "import": "@/components/ui/dialog",
+        "file": "frontend/src/components/ui/dialog.tsx",
+        "exports": [
+          "Dialog",
+          "DialogClose",
+          "DialogContent",
+          "DialogDescription",
+          "DialogFooter",
+          "DialogHeader",
+          "DialogOverlay",
+          "DialogPortal",
+          "DialogTitle",
+          "DialogTrigger"
+        ],
+        "note": "shadcn primitive; app dialogs should go through FormDialogShell or ConfirmActionModal-style organisms."
+      },
+      {
+        "name": "DropdownMenu",
+        "layer": "atom",
+        "import": "@/components/ui/dropdown-menu",
+        "file": "frontend/src/components/ui/dropdown-menu.tsx",
+        "exports": [
+          "DropdownMenu",
+          "DropdownMenuPortal",
+          "DropdownMenuTrigger",
+          "DropdownMenuContent",
+          "DropdownMenuGroup",
+          "DropdownMenuLabel",
+          "DropdownMenuItem",
+          "DropdownMenuCheckboxItem",
+          "DropdownMenuRadioGroup",
+          "DropdownMenuRadioItem",
+          "DropdownMenuSeparator",
+          "DropdownMenuShortcut",
+          "DropdownMenuSub",
+          "DropdownMenuSubTrigger",
+          "DropdownMenuSubContent"
+        ]
+      },
+      {
+        "name": "FooterNavigation",
+        "layer": "molecule",
+        "import": "@/components/ui/footer-navigation",
+        "file": "frontend/src/components/ui/footer-navigation.tsx",
+        "exports": [
+          "FooterNavigation"
+        ]
+      },
+      {
+        "name": "Input",
+        "layer": "atom",
+        "import": "@/components/ui/input",
+        "file": "frontend/src/components/ui/input.tsx",
+        "exports": [
+          "Input",
+          "inputVariants",
+          "V3_INPUT_CONTROL_CLASS_NAME"
+        ],
+        "replaces": [
+          "raw <input>"
+        ],
+        "note": "In app forms prefer FormField/FormTextInput wrappers."
+      },
+      {
+        "name": "Label",
+        "layer": "atom",
+        "import": "@/components/ui/label",
+        "file": "frontend/src/components/ui/label.tsx",
+        "exports": [
+          "Label"
+        ]
+      },
+      {
+        "name": "Popover",
+        "layer": "atom",
+        "import": "@/components/ui/popover",
+        "file": "frontend/src/components/ui/popover.tsx",
+        "exports": [
+          "Popover",
+          "PopoverTrigger",
+          "PopoverContent",
+          "PopoverAnchor",
+          "PopoverHeader",
+          "PopoverTitle",
+          "PopoverDescription"
+        ]
+      },
+      {
+        "name": "Progress",
+        "layer": "atom",
+        "import": "@/components/ui/progress",
+        "file": "frontend/src/components/ui/progress.tsx",
+        "exports": [
+          "Progress"
+        ]
+      },
+      {
+        "name": "RadioGroup",
+        "layer": "atom",
+        "import": "@/components/ui/radio-group",
+        "file": "frontend/src/components/ui/radio-group.tsx",
+        "exports": [
+          "RadioGroup",
+          "RadioGroupItem"
+        ]
+      },
+      {
+        "name": "ScrollArea",
+        "layer": "atom",
+        "import": "@/components/ui/scroll-area",
+        "file": "frontend/src/components/ui/scroll-area.tsx",
+        "exports": [
+          "ScrollArea",
+          "ScrollBar"
+        ]
+      },
+      {
+        "name": "Select",
+        "layer": "atom",
+        "import": "@/components/ui/select",
+        "file": "frontend/src/components/ui/select.tsx",
+        "exports": [
+          "Select",
+          "SelectContent",
+          "SelectGroup",
+          "SelectItem",
+          "SelectLabel",
+          "SelectScrollDownButton",
+          "SelectScrollUpButton",
+          "SelectSeparator",
+          "SelectTrigger",
+          "SelectValue"
+        ],
+        "replaces": [
+          "raw <select>"
+        ],
+        "note": "In app forms prefer FormField + FormNativeSelect or Select composition."
+      },
+      {
+        "name": "Separator",
+        "layer": "atom",
+        "import": "@/components/ui/separator",
+        "file": "frontend/src/components/ui/separator.tsx",
+        "exports": [
+          "Separator"
+        ]
+      },
+      {
+        "name": "Sheet",
+        "layer": "atom",
+        "import": "@/components/ui/sheet",
+        "file": "frontend/src/components/ui/sheet.tsx",
+        "exports": [
+          "Sheet",
+          "SheetPortal",
+          "SheetOverlay",
+          "SheetTrigger",
+          "SheetClose",
+          "SheetContent",
+          "SheetHeader",
+          "SheetFooter",
+          "SheetTitle",
+          "SheetDescription"
+        ]
+      },
+      {
+        "name": "Skeleton",
+        "layer": "atom",
+        "import": "@/components/ui/skeleton",
+        "file": "frontend/src/components/ui/skeleton.tsx",
+        "exports": [
+          "Skeleton"
+        ],
+        "replaces": [
+          "custom pulse divs"
+        ],
+        "requiredFor": [
+          "loading placeholders"
+        ]
+      },
+      {
+        "name": "Spinner",
+        "layer": "atom",
+        "import": "@/components/ui/spinner",
+        "file": "frontend/src/components/ui/spinner.tsx",
+        "exports": [
+          "Spinner"
+        ],
+        "replaces": [
+          "custom loaders"
+        ]
+      },
+      {
+        "name": "Stepper",
+        "layer": "molecule",
+        "import": "@/components/ui/stepper",
+        "file": "frontend/src/components/ui/stepper.tsx",
+        "exports": [
+          "Stepper",
+          "Step",
+          "StepLabel"
+        ]
+      },
+      {
+        "name": "SurfaceCard",
+        "layer": "atom",
+        "import": "@/components/ui/surface-card",
+        "file": "frontend/src/components/ui/surface-card.tsx",
+        "exports": [
+          "SurfaceCard"
+        ]
+      },
+      {
+        "name": "SurfaceFrame",
+        "layer": "atom",
+        "import": "@/components/ui/surface-frame",
+        "file": "frontend/src/components/ui/surface-frame.tsx",
+        "exports": [
+          "SurfaceFrame"
+        ]
+      },
+      {
+        "name": "Switch",
+        "layer": "atom",
+        "import": "@/components/ui/switch",
+        "file": "frontend/src/components/ui/switch.tsx",
+        "exports": [
+          "Switch"
+        ]
+      },
+      {
+        "name": "Table",
+        "layer": "atom",
+        "import": "@/components/ui/table",
+        "file": "frontend/src/components/ui/table.tsx",
+        "exports": [
+          "Table",
+          "TableHeader",
+          "TableBody",
+          "TableFooter",
+          "TableHead",
+          "TableRow",
+          "TableCell",
+          "TableCaption"
+        ]
+      },
+      {
+        "name": "Tabs",
+        "layer": "atom",
+        "import": "@/components/ui/tabs",
+        "file": "frontend/src/components/ui/tabs.tsx",
+        "exports": [
+          "Tabs",
+          "TabsList",
+          "TabsTrigger",
+          "TabsContent"
+        ]
+      },
+      {
+        "name": "Textarea",
+        "layer": "atom",
+        "import": "@/components/ui/textarea",
+        "file": "frontend/src/components/ui/textarea.tsx",
+        "exports": [
+          "Textarea"
+        ],
+        "replaces": [
+          "raw <textarea>"
+        ]
+      },
+      {
+        "name": "TitleSelectMolecule",
+        "layer": "molecule",
+        "import": "@/components/ui/title-select-molecule",
+        "file": "frontend/src/components/ui/title-select-molecule.tsx",
+        "exports": [
+          "TitleSelectMolecule"
+        ],
+        "replaces": [
+          "raw label+select"
+        ],
+        "note": "Prefer FormField family in app pages."
+      },
+      {
+        "name": "TitleTextInputMolecule",
+        "layer": "molecule",
+        "import": "@/components/ui/title-text-input-molecule",
+        "file": "frontend/src/components/ui/title-text-input-molecule.tsx",
+        "exports": [
+          "TitleTextInputMolecule"
+        ],
+        "replaces": [
+          "raw label+input"
+        ],
+        "note": "Prefer FormField family in app pages; this is the landing/auth-side molecule."
+      },
+      {
+        "name": "TitleTextareaMolecule",
+        "layer": "molecule",
+        "import": "@/components/ui/title-textarea-molecule",
+        "file": "frontend/src/components/ui/title-textarea-molecule.tsx",
+        "exports": [
+          "TitleTextareaMolecule"
+        ],
+        "replaces": [
+          "raw label+textarea"
+        ]
+      },
+      {
+        "name": "Toaster",
+        "layer": "atom",
+        "import": "@/components/ui/toaster",
+        "file": "frontend/src/components/ui/toaster.tsx",
+        "exports": [
+          "Toaster"
+        ]
+      },
+      {
+        "name": "Tooltip",
+        "layer": "atom",
+        "import": "@/components/ui/tooltip",
+        "file": "frontend/src/components/ui/tooltip.tsx",
+        "exports": [
+          "Tooltip",
+          "TooltipTrigger",
+          "TooltipContent",
+          "TooltipProvider"
+        ]
+      },
+      {
+        "name": "FormDialogShell",
+        "layer": "organism",
+        "import": "@/components/app/ui/FormDialogShell",
+        "file": "frontend/src/components/app/ui/FormDialogShell.tsx",
+        "exports": [
+          "FormDialogShell"
+        ],
+        "replaces": [
+          "custom modal/dialog markup in pages",
+          "page-local dialog components"
+        ],
+        "requiredFor": [
+          "create/edit dialogs"
+        ]
+      },
+      {
+        "name": "TitleDescChildrenMolecule",
+        "layer": "molecule",
+        "import": "@/components/app/ui/TitleDescChildrenMolecule",
+        "file": "frontend/src/components/app/ui/TitleDescChildrenMolecule.tsx",
+        "exports": [
+          "TitleDescChildrenMolecule"
+        ]
+      },
+      {
+        "name": "DataTable",
+        "layer": "molecule",
+        "import": "@/components/app/ui/datatable",
+        "file": "frontend/src/components/app/ui/datatable/DataTable.tsx",
+        "exports": [
+          "DataTable"
+        ],
+        "replaces": [
+          "hand-rolled <table> markup",
+          "page-local table components"
+        ],
+        "requiredFor": [
+          "tabular data"
+        ]
+      },
+      {
+        "name": "DataTablePagination",
+        "layer": "molecule",
+        "import": "@/components/app/ui/datatable",
+        "file": "frontend/src/components/app/ui/datatable/DataTablePagination.tsx",
+        "exports": [
+          "DataTablePagination"
+        ]
+      },
+      {
+        "name": "DataTableToolbar",
+        "layer": "molecule",
+        "import": "@/components/app/ui/datatable",
+        "file": "frontend/src/components/app/ui/datatable/DataTableToolbar.tsx",
+        "exports": [
+          "DataTableToolbar"
+        ]
+      },
+      {
+        "name": "FormSection",
+        "layer": "molecule",
+        "import": "@/components/app/ui/form-section",
+        "file": "frontend/src/components/app/ui/form-section.tsx",
+        "exports": [
+          "APP_FORM_CONTROL_CLASS_NAME",
+          "FormSection",
+          "FormGrid",
+          "FormField",
+          "FormTextInput",
+          "FormTextInputWithSuffix",
+          "FormHelperText",
+          "FormNativeSelect",
+          "FormChip",
+          "FormSwitchRow"
+        ],
+        "replaces": [
+          "page-local <section> + heading markup",
+          "custom form wrapper divs"
+        ],
+        "requiredFor": [
+          "form layout"
+        ],
+        "members": {
+          "FormGrid": {
+            "replaces": [
+              "GRID_CLS grid wrappers"
+            ],
+            "requiredFor": [
+              "multi-column form rows"
+            ]
+          },
+          "FormField": {
+            "replaces": [
+              "raw label + input pairs",
+              "INPUT_CLS/LABEL_CLS style constants",
+              "custom field wrappers"
+            ],
+            "requiredFor": [
+              "form input",
+              "field label",
+              "field error"
+            ]
+          },
+          "FormTextInput": {
+            "replaces": [
+              "raw <input> with Tailwind classes",
+              "INPUT_CLS"
+            ],
+            "requiredFor": [
+              "text input in forms"
+            ]
+          },
+          "FormTextInputWithSuffix": {
+            "replaces": [
+              "custom relative input wrapper with unit suffix",
+              "INPUT_CLS plus absolute suffix span"
+            ],
+            "requiredFor": [
+              "text input with inline unit suffix in forms"
+            ]
+          },
+          "FormHelperText": {
+            "replaces": [
+              "ad-hoc helper/error <p> tags"
+            ]
+          },
+          "FormNativeSelect": {
+            "replaces": [
+              "raw <select> with SELECT_CLS"
+            ],
+            "requiredFor": [
+              "native select in forms"
+            ]
+          },
+          "FormChip": {
+            "replaces": [
+              "custom chip/tag toggles in forms"
+            ]
+          },
+          "FormSwitchRow": {
+            "replaces": [
+              "custom toggle rows"
+            ],
+            "requiredFor": [
+              "boolean flags in forms"
+            ]
+          }
+        }
+      },
+      {
+        "name": "InfoRow",
+        "layer": "molecule",
+        "import": "@/components/app/ui/info-row",
+        "file": "frontend/src/components/app/ui/info-row.tsx",
+        "exports": [
+          "InfoRow"
+        ],
+        "replaces": [
+          "custom label/value rows"
+        ],
+        "requiredFor": [
+          "label-value display"
+        ],
+        "status": "deprecated",
+        "deprecatedBy": "@/components/app/v3 InfoRow",
+        "deprecationReason": "duplicate of v3 InfoRow"
+      },
+      {
+        "name": "StatusBadge",
+        "layer": "molecule",
+        "import": "@/components/app/ui/status-badge",
+        "file": "frontend/src/components/app/ui/status-badge.tsx",
+        "exports": [
+          "StatusBadge",
+          "StatusPill",
+          "statusBadgeVariants"
+        ],
+        "replaces": [
+          "custom status color spans",
+          "page-local status badge components",
+          "ad-hoc bg-*-100 text-*-700 pills"
+        ],
+        "requiredFor": [
+          "domain status display"
+        ]
+      },
+      {
+        "name": "Tabs",
+        "layer": "molecule",
+        "import": "@/components/app/ui/tabs",
+        "file": "frontend/src/components/app/ui/tabs.tsx",
+        "exports": [
+          "Tabs",
+          "TabsList",
+          "TabsTrigger",
+          "TabsContent"
+        ],
+        "status": "deprecated",
+        "deprecatedBy": "@/components/ui/tabs",
+        "deprecationReason": "duplicate of base Tabs"
+      },
+      {
+        "name": "TagPill",
+        "layer": "molecule",
+        "import": "@/components/app/ui/tag-pill",
+        "file": "frontend/src/components/app/ui/tag-pill.tsx",
+        "exports": [
+          "TagPill"
+        ],
+        "replaces": [
+          "custom tag chips"
+        ]
+      },
+      {
+        "name": "ActivityTimeline",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/ActivityTimeline.tsx",
+        "exports": [
+          "ActivityTimeline"
+        ],
+        "replaces": [
+          "custom timeline markup"
+        ]
+      },
+      {
+        "name": "AnimatedSlotList",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/AnimatedSlotList.tsx",
+        "exports": [
+          "AnimatedSlotList"
+        ]
+      },
+      {
+        "name": "AnimatedSlotListItemContent",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/AnimatedSlotListItemContent.tsx",
+        "exports": [
+          "AnimatedSlotListItemContent"
+        ]
+      },
+      {
+        "name": "Block",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/Block.tsx",
+        "exports": [
+          "Block"
+        ]
+      },
+      {
+        "name": "CompactDateSelect",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/CompactDateSelect.tsx",
+        "exports": [
+          "CompactDateSelect"
+        ]
+      },
+      {
+        "name": "DetailActions",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/DetailActions.tsx",
+        "exports": [
+          "DetailActions"
+        ]
+      },
+      {
+        "name": "DetailEmptyState",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/DetailEmptyState.tsx",
+        "exports": [
+          "DetailEmptyState"
+        ],
+        "replaces": [
+          "page-local detail placeholders"
+        ]
+      },
+      {
+        "name": "DetailPanel",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/DetailPanel.tsx",
+        "exports": [
+          "DETAIL_PANEL_FOOTER_CLASS_NAME",
+          "DETAIL_PANEL_FOOTER_PROGRESS_CLASS_NAME",
+          "DETAIL_PANEL_FOOTER_ACTIONS_CLASS_NAME",
+          "DetailPanel"
+        ],
+        "replaces": [
+          "custom detail containers"
+        ],
+        "requiredFor": [
+          "detail side of split pages"
+        ]
+      },
+      {
+        "name": "DetailSkeleton",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/DetailSkeleton.tsx",
+        "exports": [
+          "DetailSkeleton"
+        ],
+        "replaces": [
+          "page-local loading skeletons"
+        ],
+        "requiredFor": [
+          "detail loading state"
+        ]
+      },
+      {
+        "name": "DetailTabPanels",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/DetailTabPanels.tsx",
+        "exports": [
+          "DetailTabPanels"
+        ]
+      },
+      {
+        "name": "DetailTabs",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/DetailTabs.tsx",
+        "exports": [
+          "DetailTabs"
+        ]
+      },
+      {
+        "name": "EmptyState",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/EmptyState.tsx",
+        "exports": [
+          "EmptyState"
+        ],
+        "replaces": [
+          "page-local empty placeholder markup"
+        ],
+        "requiredFor": [
+          "empty list/detail states"
+        ]
+      },
+      {
+        "name": "ExpandableSearch",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/ExpandableSearch.tsx",
+        "exports": [
+          "ExpandableSearch"
+        ]
+      },
+      {
+        "name": "FilterChips",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/FilterChips.tsx",
+        "exports": [
+          "FilterChips"
+        ],
+        "replaces": [
+          "page-local filter chip rows",
+          "ALL_FILTER-style local constants"
+        ]
+      },
+      {
+        "name": "FloatingQuickActions",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/FloatingQuickActions.tsx",
+        "exports": [
+          "FloatingQuickActions"
+        ]
+      },
+      {
+        "name": "HeaderActionButton",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/HeaderActionButton.tsx",
+        "exports": [
+          "HeaderActionButton"
+        ]
+      },
+      {
+        "name": "InfoCard",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/InfoCard.tsx",
+        "exports": [
+          "InfoCard"
+        ],
+        "replaces": [
+          "custom div cards",
+          "page-local card components"
+        ],
+        "requiredFor": [
+          "detail info sections"
+        ]
+      },
+      {
+        "name": "InfoRow",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/InfoRow.tsx",
+        "exports": [
+          "InfoRow"
+        ],
+        "replaces": [
+          "custom label/value rows"
+        ],
+        "requiredFor": [
+          "label-value display"
+        ]
+      },
+      {
+        "name": "ListEmptyState",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/ListEmptyState.tsx",
+        "exports": [
+          "ListEmptyState"
+        ],
+        "replaces": [
+          "page-local list placeholders"
+        ]
+      },
+      {
+        "name": "ListPanel",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/ListPanel.tsx",
+        "exports": [
+          "ListPanel"
+        ],
+        "replaces": [
+          "custom list containers"
+        ],
+        "requiredFor": [
+          "list side of split pages"
+        ]
+      },
+      {
+        "name": "PageHeader",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/PageHeader.tsx",
+        "exports": [
+          "PageHeader"
+        ],
+        "replaces": [
+          "custom page title markup"
+        ],
+        "requiredFor": [
+          "page titles"
+        ]
+      },
+      {
+        "name": "PageSection",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/PageSection.tsx",
+        "exports": [
+          "PageSection"
+        ],
+        "replaces": [
+          "custom section wrappers"
+        ]
+      },
+      {
+        "name": "PanelTitleGroup",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/PanelTitleGroup.tsx",
+        "exports": [
+          "PanelTitleGroup"
+        ]
+      },
+      {
+        "name": "QuickActionButton",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/QuickActionButton.tsx",
+        "exports": [
+          "DEFAULT_QUICK_ACTION_COLORS",
+          "QuickActionButton"
+        ]
+      },
+      {
+        "name": "QuickActions",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/QuickActions.tsx",
+        "exports": [
+          "QuickActions"
+        ]
+      },
+      {
+        "name": "RecentActivitiesPanel",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/RecentActivitiesPanel.tsx",
+        "exports": [
+          "getRecentActivityActionVisual",
+          "getRecentActivityAvatarClass",
+          "RecentActivitiesPanel"
+        ]
+      },
+      {
+        "name": "SearchBox",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SearchBox.tsx",
+        "exports": [
+          "SearchBox"
+        ]
+      },
+      {
+        "name": "SearchFilterBar",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SearchFilterBar.tsx",
+        "exports": [
+          "SearchFilterBar"
+        ],
+        "replaces": [
+          "page-local search+filter rows"
+        ],
+        "requiredFor": [
+          "list filtering"
+        ]
+      },
+      {
+        "name": "SectionNav",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SectionNav.tsx",
+        "exports": [
+          "SectionNav"
+        ]
+      },
+      {
+        "name": "ShortcutGrid",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/ShortcutGrid.tsx",
+        "exports": [
+          "ShortcutGrid"
+        ]
+      },
+      {
+        "name": "SidebarAccountMenu",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SidebarAccountMenu.tsx",
+        "exports": [
+          "SidebarAccountMenu"
+        ]
+      },
+      {
+        "name": "SidebarNotifications",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SidebarNotifications.tsx",
+        "exports": [
+          "SidebarNotifications"
+        ]
+      },
+      {
+        "name": "SplitLayout",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SplitLayout.tsx",
+        "exports": [
+          "useSplitLayoutSelection",
+          "SplitLayout",
+          "useSplitLayoutNav"
+        ],
+        "replaces": [
+          "page-local two-panel layouts"
+        ],
+        "requiredFor": [
+          "list+detail pages"
+        ]
+      },
+      {
+        "name": "SplitLayoutContext",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SplitLayoutContext.tsx",
+        "exports": [
+          "SplitLayoutContext",
+          "useSplitLayoutNav",
+          "useSplitLayoutNavOptional"
+        ]
+      },
+      {
+        "name": "StatMini",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/StatMini.tsx",
+        "exports": [
+          "StatMini"
+        ]
+      },
+      {
+        "name": "StatsBar",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/StatsBar.tsx",
+        "exports": [
+          "StatsBar"
+        ],
+        "replaces": [
+          "custom stat rows"
+        ]
+      },
+      {
+        "name": "StatusBadge",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/StatusBadge.tsx",
+        "exports": [
+          "StatusBadge"
+        ],
+        "replaces": [
+          "custom status color spans",
+          "page-local status badge components",
+          "ad-hoc bg-*-100 text-*-700 pills"
+        ],
+        "requiredFor": [
+          "domain status display"
+        ],
+        "status": "deprecated",
+        "deprecatedBy": "@/components/app/ui/status-badge StatusBadge",
+        "deprecationReason": "app/ui status-badge carries variants + StatusPill; v3 copy is narrower (provisional — confirm in pilots)"
+      },
+      {
+        "name": "SteppedWizard",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SteppedWizard.tsx",
+        "exports": [
+          "SteppedWizard"
+        ],
+        "replaces": [
+          "page-local wizard/step logic markup"
+        ],
+        "requiredFor": [
+          "multi-step forms"
+        ]
+      },
+      {
+        "name": "SteppedWizardPanelContent",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SteppedWizardPanelLayout.tsx",
+        "exports": [
+          "STEPPED_WIZARD_PANEL_CONTENT_CLASS_NAME",
+          "STEPPED_WIZARD_PANEL_STEP_CONTENT_CLASS_NAME",
+          "SteppedWizardPanelContent"
+        ]
+      },
+      {
+        "name": "SteppedWizardStepper",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/SteppedWizardStepper.tsx",
+        "exports": [
+          "SteppedWizardStepper"
+        ]
+      },
+      {
+        "name": "Stepper",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/Stepper.tsx",
+        "exports": [
+          "Stepper"
+        ]
+      },
+      {
+        "name": "V3MainContent",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/V3MainContent.tsx",
+        "exports": [
+          "V3MainContent"
+        ]
+      },
+      {
+        "name": "V3MobileHeader",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/V3MobileHeader.tsx",
+        "exports": [
+          "V3MobileHeader"
+        ]
+      },
+      {
+        "name": "V3Sidebar",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/V3Sidebar.tsx",
+        "exports": [
+          "V3Sidebar"
+        ]
+      },
+      {
+        "name": "useScrollActivity",
+        "layer": "hook",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/useScrollActivity.ts",
+        "exports": [
+          "useScrollActivity"
+        ]
+      },
+      {
+        "name": "useV3UiScaleStyle",
+        "layer": "hook",
+        "import": "@/components/app/v3",
+        "file": "frontend/src/components/app/v3/useV3UiScale.ts",
+        "exports": [
+          "useV3UiScaleStyle"
+        ]
+      }
+    ],
+    "mobile": [
+      {
+        "name": "Autocomplete",
+        "layer": "molecule",
+        "import": "@/components/app/ui/Autocomplete",
+        "file": "mobile/src/components/app/ui/Autocomplete.tsx",
+        "exports": [
+          "Autocomplete"
+        ],
+        "replaces": [
+          "page-local autocomplete inputs"
+        ]
+      },
+      {
+        "name": "ConfirmActionModal",
+        "layer": "molecule",
+        "import": "@/components/app/ui/ConfirmActionModal",
+        "file": "mobile/src/components/app/ui/ConfirmActionModal.tsx",
+        "exports": [
+          "ConfirmActionModal"
+        ],
+        "replaces": [
+          "page-local confirm modals"
+        ],
+        "requiredFor": [
+          "destructive confirmations"
+        ]
+      },
+      {
+        "name": "DataTable",
+        "layer": "molecule",
+        "import": "@/components/app/ui/datatable",
+        "file": "mobile/src/components/app/ui/datatable/DataTable.tsx",
+        "exports": [
+          "DataTable"
+        ],
+        "replaces": [
+          "hand-rolled tables"
+        ]
+      },
+      {
+        "name": "DataTablePagination",
+        "layer": "molecule",
+        "import": "@/components/app/ui/datatable",
+        "file": "mobile/src/components/app/ui/datatable/DataTablePagination.tsx",
+        "exports": [
+          "DataTablePagination"
+        ]
+      },
+      {
+        "name": "DataTableToolbar",
+        "layer": "molecule",
+        "import": "@/components/app/ui/datatable",
+        "file": "mobile/src/components/app/ui/datatable/DataTableToolbar.tsx",
+        "exports": [
+          "DataTableToolbar"
+        ]
+      },
+      {
+        "name": "ErrorFallback",
+        "layer": "molecule",
+        "import": "@/components/app/ui/error-fallback",
+        "file": "mobile/src/components/app/ui/error-fallback.tsx",
+        "exports": [
+          "ErrorFallback"
+        ]
+      },
+      {
+        "name": "FormSection",
+        "layer": "molecule",
+        "import": "@/components/app/ui/form-section",
+        "file": "mobile/src/components/app/ui/form-section.tsx",
+        "exports": [
+          "FormSection"
+        ],
+        "replaces": [
+          "page-local section wrappers"
+        ],
+        "requiredFor": [
+          "mobile form layout"
+        ]
+      },
+      {
+        "name": "InfoRow",
+        "layer": "molecule",
+        "import": "@/components/app/ui/info-row",
+        "file": "mobile/src/components/app/ui/info-row.tsx",
+        "exports": [
+          "InfoRow"
+        ],
+        "replaces": [
+          "custom label/value rows"
+        ],
+        "status": "deprecated",
+        "deprecatedBy": "@/components/app/v3 InfoRow",
+        "deprecationReason": "duplicate of v3 InfoRow"
+      },
+      {
+        "name": "StatusBadge",
+        "layer": "molecule",
+        "import": "@/components/app/ui/status-badge",
+        "file": "mobile/src/components/app/ui/status-badge.tsx",
+        "exports": [
+          "StatusBadge",
+          "StatusPill",
+          "statusBadgeVariants"
+        ],
+        "replaces": [
+          "custom status spans"
+        ],
+        "requiredFor": [
+          "domain status display"
+        ]
+      },
+      {
+        "name": "Tabs",
+        "layer": "molecule",
+        "import": "@/components/app/ui/tabs",
+        "file": "mobile/src/components/app/ui/tabs.tsx",
+        "exports": [
+          "Tabs",
+          "TabsList",
+          "TabsTrigger",
+          "TabsContent"
+        ]
+      },
+      {
+        "name": "TagPill",
+        "layer": "molecule",
+        "import": "@/components/app/ui/tag-pill",
+        "file": "mobile/src/components/app/ui/tag-pill.tsx",
+        "exports": [
+          "TagPill"
+        ]
+      },
+      {
+        "name": "ToggleRow",
+        "layer": "molecule",
+        "import": "@/components/app/ui/toggle-row",
+        "file": "mobile/src/components/app/ui/toggle-row.tsx",
+        "exports": [
+          "ToggleRow"
+        ],
+        "replaces": [
+          "page-local switch rows",
+          "custom toggle buttons"
+        ]
+      },
+      {
+        "name": "ContractCreationScreen",
+        "layer": "organism",
+        "import": "@/components/app/contracts",
+        "file": "mobile/src/components/app/contracts/ContractCreationScreen.tsx",
+        "exports": [
+          "ContractCreationScreen"
+        ],
+        "replaces": [
+          "contracts/new page-local form assembly"
+        ],
+        "requiredFor": [
+          "contracts/new route assembly"
+        ]
+      },
+      {
+        "name": "ActivityTimeline",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/ActivityTimeline.tsx",
+        "exports": [
+          "ActivityTimeline"
+        ]
+      },
+      {
+        "name": "AnimatedSlotList",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/AnimatedSlotList.tsx",
+        "exports": [
+          "AnimatedSlotList"
+        ]
+      },
+      {
+        "name": "Block",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/Block.tsx",
+        "exports": [
+          "Block"
+        ]
+      },
+      {
+        "name": "CardHeader",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/CardHeader.tsx",
+        "exports": [
+          "CardHeader"
+        ]
+      },
+      {
+        "name": "DetailActions",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/DetailActions.tsx",
+        "exports": [
+          "DetailActions"
+        ]
+      },
+      {
+        "name": "DetailPanel",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/DetailPanel.tsx",
+        "exports": [
+          "DetailPanel"
+        ]
+      },
+      {
+        "name": "DetailSkeleton",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/DetailSkeleton.tsx",
+        "exports": [
+          "DetailSkeleton"
+        ]
+      },
+      {
+        "name": "DetailTabs",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/DetailTabs.tsx",
+        "exports": [
+          "DetailTabs"
+        ]
+      },
+      {
+        "name": "EmptyState",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/EmptyState.tsx",
+        "exports": [
+          "EmptyState"
+        ],
+        "replaces": [
+          "page-local empty placeholders"
+        ]
+      },
+      {
+        "name": "ExpandableSearch",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/ExpandableSearch.tsx",
+        "exports": [
+          "ExpandableSearch"
+        ]
+      },
+      {
+        "name": "FilterChips",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/FilterChips.tsx",
+        "exports": [
+          "FilterChips"
+        ]
+      },
+      {
+        "name": "FloatingQuickActions",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/FloatingQuickActions.tsx",
+        "exports": [
+          "FloatingQuickActions"
+        ]
+      },
+      {
+        "name": "HeaderActionButton",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/HeaderActionButton.tsx",
+        "exports": [
+          "HeaderActionButton"
+        ]
+      },
+      {
+        "name": "InfoCard",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/InfoCard.tsx",
+        "exports": [
+          "InfoCard"
+        ],
+        "replaces": [
+          "custom div cards"
+        ]
+      },
+      {
+        "name": "InfoRow",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/InfoRow.tsx",
+        "exports": [
+          "InfoRow"
+        ],
+        "replaces": [
+          "custom label/value rows"
+        ]
+      },
+      {
+        "name": "Input",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/Input.tsx",
+        "exports": [
+          "Input"
+        ],
+        "replaces": [
+          "raw <input>"
+        ]
+      },
+      {
+        "name": "InputField",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/InputField.tsx",
+        "exports": [
+          "InputField"
+        ],
+        "replaces": [
+          "page-local Field components",
+          "raw label+input",
+          "CSS-module field styles"
+        ],
+        "requiredFor": [
+          "mobile form fields"
+        ]
+      },
+      {
+        "name": "ListEmptyState",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/ListEmptyState.tsx",
+        "exports": [
+          "ListEmptyState"
+        ]
+      },
+      {
+        "name": "ListPanel",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/ListPanel.tsx",
+        "exports": [
+          "ListPanel"
+        ]
+      },
+      {
+        "name": "PageSection",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/PageSection.tsx",
+        "exports": [
+          "PageSection"
+        ]
+      },
+      {
+        "name": "PanelTitleGroup",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/PanelTitleGroup.tsx",
+        "exports": [
+          "PanelTitleGroup"
+        ]
+      },
+      {
+        "name": "QuickActionButton",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/QuickActionButton.tsx",
+        "exports": [
+          "DEFAULT_QUICK_ACTION_COLORS",
+          "QuickActionButton"
+        ]
+      },
+      {
+        "name": "QuickActions",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/QuickActions.tsx",
+        "exports": [
+          "QuickActions"
+        ]
+      },
+      {
+        "name": "RecentActivitiesPanel",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/RecentActivitiesPanel.tsx",
+        "exports": [
+          "RecentActivitiesPanel"
+        ]
+      },
+      {
+        "name": "SearchBox",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/SearchBox.tsx",
+        "exports": [
+          "SearchBox"
+        ]
+      },
+      {
+        "name": "SearchFilterBar",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/SearchFilterBar.tsx",
+        "exports": [
+          "SearchFilterBar"
+        ]
+      },
+      {
+        "name": "SectionNav",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/SectionNav.tsx",
+        "exports": [
+          "SectionNav"
+        ]
+      },
+      {
+        "name": "ShortcutGrid",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/ShortcutGrid.tsx",
+        "exports": [
+          "ShortcutGrid"
+        ]
+      },
+      {
+        "name": "SplitLayout",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/SplitLayout.tsx",
+        "exports": [
+          "SplitLayout",
+          "useSplitLayoutNav"
+        ],
+        "replaces": [
+          "page-local layouts"
+        ]
+      },
+      {
+        "name": "SplitLayoutContext",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/SplitLayoutContext.tsx",
+        "exports": [
+          "SplitLayoutContext",
+          "useSplitLayoutNav",
+          "useSplitLayoutNavOptional"
+        ]
+      },
+      {
+        "name": "StatMini",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/StatMini.tsx",
+        "exports": [
+          "StatMini"
+        ]
+      },
+      {
+        "name": "StatsBar",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/StatsBar.tsx",
+        "exports": [
+          "StatsBar"
+        ]
+      },
+      {
+        "name": "StatusBadge",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/StatusBadge.tsx",
+        "exports": [
+          "StatusBadge"
+        ],
+        "replaces": [
+          "custom status spans"
+        ],
+        "requiredFor": [
+          "domain status display"
+        ],
+        "status": "deprecated",
+        "deprecatedBy": "@/components/app/ui/status-badge StatusBadge",
+        "deprecationReason": "same as frontend (provisional)"
+      },
+      {
+        "name": "SteppedWizard",
+        "layer": "organism",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/SteppedWizard.tsx",
+        "exports": [
+          "SteppedWizard"
+        ],
+        "replaces": [
+          "page-local step logic markup"
+        ],
+        "requiredFor": [
+          "multi-step mobile forms"
+        ]
+      },
+      {
+        "name": "Stepper",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/Stepper.tsx",
+        "exports": [
+          "Stepper"
+        ]
+      },
+      {
+        "name": "TeaserOverlay",
+        "layer": "molecule",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/TeaserOverlay.tsx",
+        "exports": [
+          "TeaserOverlay"
+        ]
+      },
+      {
+        "name": "V3MainContent",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/V3MainContent.tsx",
+        "exports": [
+          "V3MainContent"
+        ]
+      },
+      {
+        "name": "V3MobileHeader",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/V3MobileHeader.tsx",
+        "exports": [
+          "V3MobileHeader"
+        ]
+      },
+      {
+        "name": "V3Sidebar",
+        "layer": "template",
+        "import": "@/components/app/v3",
+        "file": "mobile/src/components/app/v3/V3Sidebar.tsx",
+        "exports": [
+          "V3Sidebar"
+        ]
+      }
+    ]
+  }
+}

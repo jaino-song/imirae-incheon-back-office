@@ -227,7 +227,7 @@ export function SidebarNotifications() {
             >
               <div className="flex items-start justify-between p-6 pb-4 shrink-0">
                 <PanelTitleGroup
-                  component="list-panel"
+                  data-component="desktop_chrome_sidebar_notifications-modal_title-group"
                   title="알림"
                   titleClassName="text-xl"
                 />

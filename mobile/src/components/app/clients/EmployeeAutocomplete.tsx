@@ -22,6 +22,7 @@ function formatPhone(phone: string): string {
 }
 
 interface EmployeeAutocompleteProps {
+    "data-component"?: string;
     "data-testid"?: string;
     value: number | null;
     onChange: (employeeId: number | null, employee: Employee | null) => void;
@@ -39,6 +40,7 @@ interface EmployeeAutocompleteProps {
 }
 
 export function EmployeeAutocomplete({
+    "data-component": dataComponent,
     value,
     onChange,
     inputValue,
@@ -69,6 +71,7 @@ export function EmployeeAutocomplete({
 
     return (
         <Autocomplete<Employee>
+            data-component={dataComponent}
             name="employee"
             value={selectedEmployee}
             onChange={(emp) => onChange(emp?.id ?? null, emp)}

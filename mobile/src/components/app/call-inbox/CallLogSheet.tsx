@@ -24,14 +24,14 @@ export function CallLogSheet({ recordId }: { recordId: string | null }) {
   if (recordId === null) return null;
 
   return (
-    <MobileDetailPage name="call-inbox" dataComponent="call-inbox-log">
+    <MobileDetailPage name="call-inbox" data-component="call-inbox-log">
       {isLoading || !record ? (
         <div className="p-4 text-[0.82rem] text-v3-text-muted" data-component="call-inbox-log-loading">
           불러오는 중...
         </div>
       ) : (
         <div className="flex flex-col gap-4 px-1 pb-6" data-component="call-inbox-log-detail">
-          <MobileDetailHeader
+          <MobileDetailHeader data-component="mobile_call-inbox_detail-sheet_stack_detail-page_header"
             name="call-inbox"
             avatar={<span className="text-[1rem]">📞</span>}
             avatarTone={record.category === "NEW_CONSULTATION" ? "green" : record.category === "CLIENT_SERVICE" ? "orange" : "muted"}

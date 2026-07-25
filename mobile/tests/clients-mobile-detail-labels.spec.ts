@@ -77,6 +77,74 @@ test.describe("Mobile clients detail labels", () => {
     });
   });
 
+  test("keeps the client card above the shared bottom navigation", async ({ page }) => {
+    await page.setViewportSize({ width: 430, height: 932 });
+    await page.route("**/api/clients?**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: [CLIENT],
+          total: 1,
+          page: 1,
+          limit: 50,
+          totalPages: 1,
+        }),
+      });
+    });
+
+    await page.goto("/clients");
+    await expect(page.locator('[data-component="mobile-clients-row"]')).toBeVisible({ timeout: 15000 });
+
+    const geometry = await page.evaluate(() => {
+      const rect = (selector: string) => {
+        const element = document.querySelector(selector);
+        const box = element?.getBoundingClientRect();
+        return box
+          ? {
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+              right: box.right,
+              bottom: box.bottom,
+            }
+          : null;
+      };
+      const nav = document.querySelector('[data-component="mobile-bottom-nav"]');
+
+      return {
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        appRoot: rect('[data-component="app-root"]'),
+        appShell: rect('[data-slot="app-shell"]'),
+        appContent: rect('[data-slot="app-content"]'),
+        card: rect('[data-component="mobile-redesign-list-card"]'),
+        nav: rect('[data-component="mobile-bottom-nav"]'),
+        navPosition: nav ? getComputedStyle(nav).position : null,
+      };
+    });
+
+    expect(geometry.appRoot).toEqual({
+      x: 0,
+      y: 0,
+      width: geometry.viewport.width,
+      height: geometry.viewport.height,
+      right: geometry.viewport.width,
+      bottom: geometry.viewport.height,
+    });
+    expect(geometry.appShell).toEqual(geometry.appRoot);
+    expect(geometry.appContent).toEqual(geometry.appRoot);
+    expect(geometry.card).not.toBeNull();
+    expect(geometry.nav).not.toBeNull();
+    if (!geometry.card || !geometry.nav) {
+      throw new Error("Client card and bottom navigation should be measurable");
+    }
+
+    expect(geometry.navPosition).toBe("absolute");
+    expect(geometry.nav.bottom).toBeLessThanOrEqual(geometry.viewport.height);
+    expect(geometry.card.bottom).toBeLessThanOrEqual(geometry.nav.y - 8);
+  });
+
   test("uses the compact notification labels in the client detail sheet", async ({ page }) => {
     await page.route(`**/api/clients/${CLIENT.id}`, async (route) => {
       await route.fulfill({
@@ -108,7 +176,7 @@ test.describe("Mobile clients detail labels", () => {
     await expect(notificationTabButton).toBeVisible();
     await notificationTabButton.dispatchEvent("click");
 
-    const messageTab = page.locator('[data-component="mobile-clients-message-tab"]');
+    const messageTab = page.locator('[data-component="mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_message"]');
     await expect(messageTab).toBeVisible();
     await expect(messageTab.locator(".info-card-title")).toHaveText("발송 내역");
     await expect(messageTab).toContainText("메시지 · 수동 메시지");
@@ -193,7 +261,7 @@ test.describe("Mobile clients detail labels", () => {
     await page.locator('[data-component="mobile-clients-row"]', { hasText: CLIENT.name }).click();
     await page.locator('[data-component="mobile-redesign-detail-tabs"] [data-tab="message"]').click();
 
-    const messageTab = page.locator('[data-component="mobile-clients-message-tab"]');
+    const messageTab = page.locator('[data-component="mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_message"]');
     await expect(messageTab).toContainText("발송 내역을 불러오지 못했습니다.");
     await expect(messageTab).not.toContainText("발송 내역이 없습니다.");
     await expect(messageTab.locator('[data-component="mobile-clients-message-retry"]')).toBeVisible();

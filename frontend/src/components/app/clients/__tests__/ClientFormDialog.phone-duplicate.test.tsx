@@ -86,7 +86,7 @@ describe("ClientFormPanel phone duplicate check", () => {
     expect(phoneLabel.parentElement).toContainElement(availableMessage);
     expect(phoneLabel.parentElement).toHaveAttribute(
       "data-component",
-      "clients-form-panel-phone-input-label-row",
+      "clients-form-panel-phone-input_label-row",
     );
     await waitFor(() => expect(nextButton).toBeEnabled());
     expect(phoneInput).not.toHaveAttribute("aria-invalid");

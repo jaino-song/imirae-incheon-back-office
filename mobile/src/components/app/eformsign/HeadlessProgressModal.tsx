@@ -25,10 +25,16 @@ export function HeadlessProgressModal({
     steps,
     progress,
     errorHint,
-    dataComponentPrefix = "headless-progress",
+    dataComponentPrefix,
 }: HeadlessProgressModalProps) {
     if (!open) return null;
 
+    const legacyBase = "headless-progress";
+    const rootDataComponent = dataComponentPrefix
+        ? `${dataComponentPrefix}_root`
+        : `${legacyBase}-modal`;
+    const sub = (suffix: string) =>
+        dataComponentPrefix ? `${dataComponentPrefix}_${suffix}` : `${legacyBase}-${suffix}`;
     const currentIdx = progress.step
         ? steps.findIndex((s) => s.key === progress.step)
         : -1;
@@ -41,11 +47,19 @@ export function HeadlessProgressModal({
     const progressSubtitle = subtitle ?? defaultSub;
 
     return (
-        <div className={styles.progressModal} data-component={`${dataComponentPrefix}-modal`}>
-            <div className={styles.progressCard}>
-                <h2 className={styles.progressTitle}>{title}</h2>
-                {progressSubtitle ? <p className={styles.progressSub}>{progressSubtitle}</p> : null}
-                <div className={styles.progressList}>
+        <div
+            className={styles.progressModal}
+            data-component={rootDataComponent}
+            data-source-component="HeadlessProgressModal"
+        >
+            <div className={styles.progressCard} data-component={sub("card")}>
+                <h2 className={styles.progressTitle} data-component={sub("title")}>{title}</h2>
+                {progressSubtitle ? (
+                    <p className={styles.progressSub} data-component={sub("subtitle")}>
+                        {progressSubtitle}
+                    </p>
+                ) : null}
+                <div className={styles.progressList} data-component={sub("list")}>
                     {steps.map((step, idx) => {
                         const isFailedHere = progress.failed && currentIdx === idx;
                         const isActive = !progress.failed && !progress.completed && currentIdx === idx;
@@ -63,9 +77,12 @@ export function HeadlessProgressModal({
                             <div
                                 key={step.key}
                                 className={cn(styles.progressRow, rowClass)}
-                                data-component={`${dataComponentPrefix}-${step.key}`}
+                                data-component={sub(`step-${step.key}`)}
                             >
-                                <div className={styles.progressIndicator}>
+                                <div
+                                    className={styles.progressIndicator}
+                                    data-component={sub(`step-${step.key}-indicator`)}
+                                >
                                     {isDone ? (
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                                             <polyline points="20 6 9 17 4 12" />
@@ -77,13 +94,17 @@ export function HeadlessProgressModal({
                                         </svg>
                                     ) : null}
                                 </div>
-                                <span>{isFailedHere ? step.errorLabel : step.label}</span>
+                                <span data-component={sub(`step-${step.key}-label`)}>
+                                    {isFailedHere ? step.errorLabel : step.label}
+                                </span>
                             </div>
                         );
                     })}
                 </div>
                 {errorHint ? (
-                    <div className={styles.progressErrorHint}>{errorHint}</div>
+                    <div className={styles.progressErrorHint} data-component={sub("error-hint")}>
+                        {errorHint}
+                    </div>
                 ) : null}
             </div>
         </div>

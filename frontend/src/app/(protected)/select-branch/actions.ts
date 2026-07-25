@@ -1,9 +1,12 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { serverAPIClient } from "@/lib/api/server";
 import { AxiosError } from "axios";
+
+import { serverAPIClient } from "@/lib/api/server";
 import { setAuthSessionCookies } from "@/lib/auth/session-cookies";
+
+import { prioritizeRecentBranch } from "./branch-order";
 
 interface Branch {
   id: string;
@@ -41,6 +44,7 @@ export async function getUserBranches(): Promise<{
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value || null;
+    const recentBranchId = cookieStore.get("selected_branch_id")?.value;
 
     const response = await serverAPIClient.get("/auth/branches", {
       headers: getAuthHeaders(token),
@@ -53,8 +57,11 @@ export async function getUserBranches(): Promise<{
 
       return {
         success: true,
-        branches: (data.organizations ?? []).map((organization: Partial<Branch>) =>
-          normalizeBranchRecord(organization)
+        branches: prioritizeRecentBranch(
+          (data.organizations ?? []).map((organization: Partial<Branch>) =>
+            normalizeBranchRecord(organization)
+          ),
+          recentBranchId,
         ),
       };
     }
@@ -69,8 +76,11 @@ export async function getUserBranches(): Promise<{
 
     return {
       success: true,
-      branches: (response.data.branches ?? []).map((branch: Partial<Branch>) =>
-        normalizeBranchRecord(branch)
+      branches: prioritizeRecentBranch(
+        (response.data.branches ?? []).map((branch: Partial<Branch>) =>
+          normalizeBranchRecord(branch)
+        ),
+        recentBranchId,
       ),
     };
   } catch (error) {

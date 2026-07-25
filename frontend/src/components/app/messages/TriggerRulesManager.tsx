@@ -541,12 +541,12 @@ export function TriggerRulesManager({
       className="flex h-full min-h-0 flex-1 flex-col"
     >
       <div data-component={component("trigger-rules-layout")} className="flex h-full min-h-0 flex-1 flex-col">
-        <SplitLayout
+        <SplitLayout data-component="desktop_messages_split-layout"
           hasSelection={hasVisibleDetailPanel}
           onBack={handleBackToRuleList}
           onModeChange={setSplitLayoutMode}
         >
-          <ListPanel
+          <ListPanel data-component="desktop_messages_split-layout_list-panel"
             title={copy.listTitle}
             subtitle={copy.listSubtitle}
             tabs={RULE_STATUS_TABS.map((tab) => ({ ...tab }))}
@@ -630,7 +630,7 @@ export function TriggerRulesManager({
           </ListPanel>
 
           {isTriggerRulesLocked ? (
-            <DetailPanel
+            <DetailPanel data-component="desktop_messages_split-layout_detail-panel"
               overlay={(
                 <ListEmptyState
                   name={component("trigger-rules-locked")}
@@ -643,7 +643,7 @@ export function TriggerRulesManager({
               {null}
             </DetailPanel>
           ) : effectiveSelectedRuleId === null && !isDetailLoading ? (
-            <DetailPanel
+            <DetailPanel data-component="desktop_messages_split-layout_detail-panel-2"
               overlay={(
                 <ListEmptyState
                   name={component("trigger-rules-detail-empty")}
@@ -656,7 +656,7 @@ export function TriggerRulesManager({
               {null}
             </DetailPanel>
           ) : (
-            <DetailPanel
+            <DetailPanel data-component="desktop_messages_split-layout_detail-panel-3"
               isLoading={isDetailLoading}
               title={effectiveSelectedRuleId === "new" ? "새 발송 규칙" : selectedRule?.name ?? "발송 규칙"}
               subtitle={copy.detailSubtitle}

@@ -12,7 +12,7 @@ export interface EmptyStateProps {
 
 export function EmptyState({ icon: Icon, message, name, className }: EmptyStateProps) {
   return (
-    <DetailPanel
+    <DetailPanel data-component="desktop_v3_split-layout_detail-panel"
       emptyState={
         <ListEmptyState
           name={name}

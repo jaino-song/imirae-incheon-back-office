@@ -147,7 +147,7 @@ test.describe('Notification Bell Navigation', () => {
     });
 
     await page.goto('/clients');
-    await expect(page.locator('[data-component="clients"]')).toBeVisible({ timeout: 15000 });
+    await ensureNotificationBell(page);
 
     const e2eFlag = await page.evaluate(() => (window as Window & { __E2E_AUTH__?: boolean }).__E2E_AUTH__);
     if (!e2eFlag) {
@@ -155,7 +155,7 @@ test.describe('Notification Bell Navigation', () => {
         (window as Window & { __E2E_AUTH__?: boolean }).__E2E_AUTH__ = true;
       });
       await page.reload();
-      await expect(page.locator('[data-component="clients"]')).toBeVisible({ timeout: 15000 });
+      await ensureNotificationBell(page);
     }
   });
 
@@ -190,7 +190,7 @@ test.describe('Notification Bell Navigation', () => {
     await page.waitForURL(/\/clients\/1/);
 
     await page.goBack();
-    await expect(page.locator('[data-component="clients"]')).toBeVisible({ timeout: 15000 });
+    await ensureNotificationBell(page);
 
     await expect(badge).toHaveText('1');
   });

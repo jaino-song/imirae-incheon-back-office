@@ -229,7 +229,7 @@ export function MessagesHistoryPage() {
     : null;
 
   return (
-    <MobileDetailSheet
+    <MobileDetailSheet data-component="mobile_mobile-redesign_detail-sheet"
       name="messages"
       isOpen={normalizedSelectedRecord !== null}
       onClose={() => setSelectedRecord(null)}
@@ -257,7 +257,7 @@ export function MessagesHistoryPage() {
         normalizedSelectedRecord ? (
           <MobileDetailPage
             name="messages"
-            dataComponent="mobile-messages-history-detail-content"
+            data-component="mobile-messages-history-detail-content"
           >
             <ClientMessageHistoryDetail
               dataComponentPrefix="mobile-messages-history"

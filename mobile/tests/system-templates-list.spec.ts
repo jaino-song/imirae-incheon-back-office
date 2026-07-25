@@ -73,7 +73,7 @@ test.describe('Templates List', () => {
     await expect(page.getByText('템플릿 관리')).toBeVisible({ timeout: 15000 });
 
     await expect(page.locator('[data-component="messages-templates-search"]')).toBeVisible();
-    await expect(page.locator('[data-component="messages-templates-filters"]')).toBeVisible();
+    await expect(page.getByRole('button', { name: /전체\s*2/ })).toBeVisible();
     await expect(page.locator('[data-component="messages-templates-section-header"]').first()).toContainText(
       '기본 템플릿',
     );

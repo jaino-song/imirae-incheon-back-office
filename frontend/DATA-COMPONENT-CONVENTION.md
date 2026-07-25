@@ -1,199 +1,91 @@
 # Data-Component Naming Convention
 
-## 1. Overview
+`data-component`는 화면에서 요소가 **어디에 속하는지**를 나타내고,
+`data-source-component`는 그 DOM root를 **어떤 React 컴포넌트가 렌더링했는지**를 나타낸다.
 
-This project uses a **layered attribute strategy** for DOM element identification:
+## Canonical format
 
-| Attribute | Purpose | Scope |
-|-----------|---------|-------|
-| `data-component` | Primary identifier for app-level elements. Used for E2E testing, analytics, AI targeting, and debugging. | App components |
-| `data-slot` | shadcn/ui primitive internals only. **DO NOT MODIFY.** | `frontend/src/components/ui/` |
-| `data-testid` | Test-specific selectors for unique test identification. | Test files |
-| `data-instance` *(future)* | Reserved for per-instance tracking. **Not implemented yet.** | — |
-
-### Selector Precedence
-
-```
-data-component > data-slot > data-testid
+```text
+{platform}_{route-or-surface}_{owner}_{child}[_{subpart}...]
 ```
 
-When querying elements, prefer `data-component` first. Fall back to `data-slot` for shadcn primitives, then `data-testid` for test-only selectors.
+- `platform`: `desktop` 또는 `mobile`
+- 의미 단위 사이는 `_`
+- 한 의미 단위 안의 복합어는 `-`
+- 전체 값은 다음 정규식을 만족해야 한다.
 
----
-
-## 2. Naming Format
-
-```
-{page-name}-{parent}-{child}-{element}
-```
-
-- All values **MUST** be `kebab-case`
-- No PascalCase, no camelCase, no underscores
-- Examples: `dashboard-header-actions`, `clients-filter-search-input`
-
----
-
-## 3. Page Name Mapping
-
-| Route | Semantic Page Name |
-|-------|-------------------|
-| `/` | `home` |
-| `/dashboard` | `dashboard` |
-| `/clients` | `clients` |
-| `/clients/filtered` | `clients-filtered` |
-| `/employees` | `employees` |
-| `/contracts` | `contracts` |
-| `/contracts/creation` | `contracts-creation` |
-| `/messages` | `messages` |
-| `/messages/templates` | `messages-templates` |
-| `/messages/templates/new` | `messages-templates-new` |
-| `/messages/templates/[id]/edit` | `messages-template-edit` |
-| `/messages/system-templates` | `messages-system-templates` |
-| `/messages/system-templates/[templateKey]` | `messages-system-template-detail` |
-| `/settings` | `settings` |
-| `/settings/general` | `settings-general` |
-| `/settings/voucher-price` | `settings-voucher-price` |
-| `/admin` | `admin` |
-| `/admin/feedback/[id]` | `admin-feedback-detail` |
-| `/auth/register` | `auth-register` |
-| `/auth/forgot-password` | `auth-forgot-password` |
-| `/auth/reset-password` | `auth-reset-password` |
-| `/auth/verify-email` | `auth-verify-email` |
-| `/callback` | `auth-callback` |
-| `/chat` | `chat` |
-| `/files` | `files` |
-| `/select-branch` | `select-org` |
-| `/login` | `login` |
-| `/logout` | `logout` |
-| `/test` | `test` |
-
-> **NOTE:** `/auth/login` does **NOT** exist. Login is at `/login`.
-
----
-
-## 4. Layout / Global Components (No Page Prefix)
-
-Layout and global components use generic names **without** a page prefix:
-
-| Component | `data-component` |
-|-----------|-----------------|
-| V3Sidebar root | `sidebar` |
-| V3Sidebar nav section | `sidebar-nav` |
-| V3Sidebar nav item | `sidebar-nav-item` |
-| V3MainContent root | `main-content` |
-| V3MobileHeader root | `mobile-header` |
-| MobileBottomNav root | `mobile-bottom-nav` |
-
----
-
-## 5. Depth Limit Rule
-
-- **Maximum 5 segments** in a name (e.g., `dashboard-split-detail-summary-row`)
-- If deeper nesting occurs, **restart the hierarchy** from the nearest named component
-- **Page prefix MUST be retained** even when restarting hierarchy
-
-### Example
-
-Instead of:
-```
-dashboard-split-list-item-status-badge-icon   ← 7 segments, too deep
+```regex
+/^(desktop|mobile)_[a-z0-9]+(?:-[a-z0-9]+)*(?:_[a-z0-9]+(?:-[a-z0-9]+)*){1,}$/
 ```
 
-Use:
+예:
+
+```text
+desktop_clients-detail_panel
+desktop_clients-detail_panel_service-records
+desktop_clients-detail_panel_service-records_overview-grid_header-card
+desktop_clients-detail_panel_service-records_overview-grid_header-card_head_title-row_title
 ```
-dashboard-list-item-status-badge   ← 5 segments, restarted from "list-item"
+
+## Full-parent-path rule
+
+모든 annotated child는 route/surface root부터 현재 component boundary까지의 의미 있는
+부모 경로를 빠짐없이 유지한다. 부모가 `P`라면 자식은 반드시 `P_...`로 시작한다.
+
+- 최대 depth 제한이 없다.
+- 중간에서 page prefix만 남기고 namespace를 다시 시작하지 않는다.
+- `info-card-title`, `detail-panel-header` 같은 context-free fallback을 사용하지 않는다.
+- 단순 styling wrapper는 새 component layer가 아니다. 의미 있는 이름이 없는 모든
+  `<div>`/`<span>`에 기계적인 이름을 추가하지 않는다.
+
+## Reusable components
+
+재사용 composite는 caller가 완성된 `data-component` base를 전달해야 한다.
+컴포넌트 root는 base를 그대로 사용하고 내부 named part는 `${base}_${suffix}`로 만든다.
+
+```tsx
+<InfoCard data-component={`${panelBase}_service-records_header-card`} />
 ```
 
----
+`InfoCard` 내부:
 
-## 6. Collision Policy
+```text
+..._header-card
+..._header-card_head
+..._header-card_head_title-row
+..._header-card_head_title-row_title
+..._header-card_body
+```
 
-### Repeated Structures
-Repeated structures (e.g., multiple list items) use the **same** `data-component` value. The attribute identifies the component **type**, not the instance.
-
-### Shared Components Across Pages
-Use the **page prefix of where the component is rendered**:
-- `dashboard-chat-widget` — when rendered on the dashboard page
-- `chat-widget` — when rendered on the chat page
-
-Inside the component file itself, use the component's own name as prefix.
-
-### Duplicate Detection
-If two different elements on the same page would get the same name, append a **semantic disambiguator** based on purpose:
-- `dashboard-header-action-primary`
-- `dashboard-header-action-secondary`
-
----
-
-## 7. Path Disambiguation (CRITICAL)
-
-Two directories named `ui/` exist in the project:
-
-| Path | Purpose | Attribute | Editable? |
-|------|---------|-----------|-----------|
-| `frontend/src/components/ui/` | shadcn/ui primitives | `data-slot` | **DO NOT MODIFY** |
-| `frontend/src/app/(components)/ui/` | App-level shared UI | `data-component` | **EDITABLE** |
-
-Always verify which `ui/` directory you are working in before making changes.
-
----
-
-## 8. Example: Dashboard Page Tree
+같은 concrete DOM root를 여러 React wrapper가 공유하면 가장 바깥의 semantic owner가
+`data-source-component`를 소유한다. 예:
 
 ```html
-<section data-component="dashboard">
-  <div data-component="dashboard-header">
-    <div data-component="dashboard-header-actions">
-      <a data-component="dashboard-header-send-contract">
-      <a data-component="dashboard-header-send-message">
-  <div data-component="dashboard-stats">
-    <div data-component="dashboard-stats-active-clients">
-    <div data-component="dashboard-stats-upcoming">
-    <div data-component="dashboard-stats-pending-sign">
-    <div data-component="dashboard-stats-pending-send">
-  <div data-component="dashboard-split">
-    <div data-component="dashboard-split-list">
-      <div data-component="dashboard-split-list-tabs">
-      <div data-component="dashboard-split-list-item">
-    <div data-component="dashboard-split-detail">
-      <div data-component="dashboard-split-detail-summary">
-        <div data-component="dashboard-split-detail-summary-row">
-      <div data-component="dashboard-split-detail-chat">
+<div
+  data-component="desktop_clients-detail_panel_service-records_overview-grid_header-card"
+  data-source-component="ServiceRecordHeaderCard"
+>
 ```
 
----
+## Selector discipline
 
-## 9. How to Name a New Component (Step-by-Step)
+`data-component`는 debugging/inspection 계약이지 styling 또는 runtime behavior hook이 아니다.
+공용 컴포넌트 내부 동작과 CSS는 `data-slot`, class, ref를 사용한다. 기존
+`[data-component="..."]` consumer가 있는 값을 변경할 때 producer와 consumer를 같은
+변경에서 함께 옮긴다.
 
-1. **Identify the page** — Check which route renders this component
-2. **Look up the semantic name** — Find the page in the [Page Name Mapping](#3-page-name-mapping) table
-3. **Trace the hierarchy** — Walk from the page root down to your component
-4. **Build the name** — `{page-name}-{parent}-{child}-{element}`
-5. **Check depth** — If more than 5 segments, restart from nearest named component (keep page prefix)
-6. **Verify kebab-case** — No PascalCase, no camelCase, no underscores
-7. **Check for collisions** — If another element has the same name, add a semantic disambiguator
-8. **Layout/global components** — Use generic names without page prefix
+## Annotation scope
 
----
+다음에는 부여한다.
 
-## 10. What Gets Annotated
+- route/screen/panel/template root
+- 재사용 component root
+- composite의 이름 있는 subpart
+- debugging 또는 테스트에서 독립적으로 식별할 가치가 있는 action/field/state
 
-### ✅ Annotate
+다음에는 억지로 부여하지 않는다.
 
-- Named components (their root DOM element)
-- Structural wrappers (`<div>`, `<section>`, `<nav>`, `<main>`, `<aside>`, `<article>`, `<header>`, `<footer>`)
-- Actionable elements (buttons, inputs, links)
-
-### ❌ Do NOT Annotate
-
-- Inline text elements (`<p>`, `<span>`, `<label>`, `<br>`, `<hr>`)
-- SVG internals (`<svg>`, `<path>`, `<circle>`)
-- Component invocation sites (e.g., `<PageHeader />`) — only DOM nodes inside implementations
-- shadcn/ui components in `frontend/src/components/ui/` (they use `data-slot`)
-- Third-party library internals (Radix, recharts, etc.)
-
----
-
-## 11. SSR Compatibility
-
-All `data-component` values are **static strings**. No React Context, no runtime logic, no `'use client'` additions needed. Fully SSR-compatible.
+- 의미 없는 layout-only wrapper
+- inline text의 모든 `<span>`/`<p>`
+- SVG/third-party internals
+- shadcn primitive 내부 (`data-slot` 유지)

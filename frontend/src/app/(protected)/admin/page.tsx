@@ -85,8 +85,8 @@ export default function AdminFeedbackPage() {
         ]}
       />
 
-      <SplitLayout>
-        <ListPanel
+      <SplitLayout data-component="desktop_admin_split-layout">
+        <ListPanel data-component="desktop_admin_split-layout_list-panel"
           title="피드백 목록"
           tabs={filterItems}
           activeTab={filterType}
@@ -172,7 +172,7 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
   });
 
   return (
-    <DetailPanel
+    <DetailPanel data-component="desktop_admin_split-layout_detail-panel"
       title={feedback.type === 'positive' ? '긍정적 피드백' : '부정적 피드백'}
       badges={
         <span className={cn(
@@ -187,7 +187,7 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
       subtitle={<>작성일: {formatDate(feedback.createdAt)}</>}
     >
       <div data-component="admin-detail-content" className="space-y-5">
-        <InfoCard title="피드백 정보">
+        <InfoCard data-component="desktop_admin_detail-panel_info-card" title="피드백 정보">
           <InfoRow label="유형" value={feedback.type === 'positive' ? '긍정적' : '부정적'} />
           <InfoRow label="사용자" value={feedback.user.name || feedback.user.email || '익명'} />
           <InfoRow label="날짜" value={formatDate(feedback.createdAt)} />
@@ -195,7 +195,7 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
         </InfoCard>
 
         {detailLoading ? (
-          <InfoCard title="대화 내역">
+          <InfoCard data-component="desktop_admin_detail-panel_info-card-2" title="대화 내역">
             <div data-component="admin-detail-loading-messages" className="space-y-3">
               {[1, 2, 3].map(i => (
                 <div key={i} data-component="admin-detail-loading-message" className="space-y-2">
@@ -206,7 +206,7 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
             </div>
           </InfoCard>
         ) : detail?.session?.messages && detail.session.messages.length > 0 ? (
-          <InfoCard title="대화 내역">
+          <InfoCard data-component="desktop_admin_detail-panel_info-card-3" title="대화 내역">
             <div data-component="admin-detail-messages" className="space-y-3">
               {detail.session.messages.map((message: SessionMessage) => {
                 const isHighlighted = message.id === detail.message.id;

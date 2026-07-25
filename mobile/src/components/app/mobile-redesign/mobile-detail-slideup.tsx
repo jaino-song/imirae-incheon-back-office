@@ -48,7 +48,7 @@ export function MobileDetailSlideUp({
   const hasActions = Boolean(secondaryAction || primaryAction);
 
   return (
-    <MobileDetailStack
+    <MobileDetailStack data-component="mobile_mobile-redesign_detail-sheet_stack"
       name={name}
       isOpen={open}
       onClose={onClose}

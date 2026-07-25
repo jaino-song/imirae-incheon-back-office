@@ -98,6 +98,23 @@ describe("CreateEformsignDocUsecase", () => {
         expect(clientRepository.findByPhone).not.toHaveBeenCalled();
     });
 
+    it("links by normalized recipient phone when the supplied client does not exist", async () => {
+        const phoneMatchedClient = createClient(12, "01012345678");
+        clientRepository.findById.mockResolvedValue(null);
+        clientRepository.findByPhone.mockResolvedValue(phoneMatchedClient);
+
+        const result = await usecase.execute(branchId, createParams());
+
+        expect(clientRepository.findByPhone).toHaveBeenCalledWith(branchId, "01012345678");
+        expect(result.clientId).toBe(12);
+        expect(eformsignDocRepository.upsertByDocumentId).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ clientId: 12, documentId }),
+        );
+        expect(phoneMatchedClient.eDocId).toBe(documentId);
+        expect(clientRepository.update).toHaveBeenCalledWith(branchId, phoneMatchedClient);
+    });
+
     it("returns a warning while keeping the document when client linking fails", async () => {
         const client = createClient(7, "010-1234-5678");
         clientRepository.findById.mockResolvedValue(client);
