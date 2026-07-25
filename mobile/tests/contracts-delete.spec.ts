@@ -124,16 +124,16 @@ test.describe("Contracts delete flow", () => {
 
     await page.locator('[data-component="mobile-contracts-detail-menu-trigger"]').click();
     await page.locator('[data-component="mobile-contracts-detail-menu-delete"]').click();
-    await expect(page.locator('[data-component="confirm-action-modal"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile-two-button-modal"]')).toBeVisible();
     await expect(page.getByText("선택한 계약서를 삭제할까요?")).toBeVisible();
 
-    await page.locator('[data-component="confirm-action-modal-actions"]').getByRole("button", { name: "취소" }).click();
-    await expect(page.locator('[data-component="confirm-action-modal"]')).not.toBeVisible();
+    await page.locator('[data-component="mobile-two-button-modal-actions"]').getByRole("button", { name: "취소" }).click();
+    await expect(page.locator('[data-component="mobile-two-button-modal"]')).not.toBeVisible();
     expect(deleteRequestCount).toBe(0);
 
     await page.locator('[data-component="mobile-contracts-detail-menu-trigger"]').click();
     await page.locator('[data-component="mobile-contracts-detail-menu-delete"]').click();
-    await page.locator('[data-component="confirm-action-modal-actions"]').getByRole("button", { name: "삭제" }).click();
+    await page.locator('[data-component="mobile-two-button-modal-actions"]').getByRole("button", { name: "삭제" }).click();
 
     await expect.poll(() => deleteRequestCount).toBe(1);
     await expect(page.locator('[data-component="toast"]')).toContainText("삭제대상 고객 계약서를 삭제했습니다.");

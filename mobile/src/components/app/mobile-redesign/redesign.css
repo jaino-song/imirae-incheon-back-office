@@ -6634,6 +6634,27 @@ body.mobile-contracts-route [data-component="mobile-contracts-content"] {
   overflow-y: auto;
 }
 
+/* First paint must match the hydrated route state. `mobile-contracts-route` is
+   added to <body> by a client effect on the contracts page, so the very first
+   frame is rendered without it. The older fallback keyed on
+   [data-component="contracts"], but that anchor is no longer rendered, which
+   left the first frame 16px lower than the hydrated layout:
+     unhydrated  = main-content `pt-20` (80px) + `.shell-content` (12px) = 92px
+     hydrated    = main-content `padding: 0` (0px) + the rule above (76px) = 76px
+   Horizontal geometry already matches, because main-content's `p-4` is
+   cancelled by the detail sheet's `-mx-4`, so only the top offset needs a
+   route-independent fallback. Scoped with :not(.mobile-contracts-route) so it
+   stops applying the moment the class lands — the hydrated state is untouched. */
+body:not(.mobile-contracts-route):has([data-component="mobile-contracts-content"])
+  [data-component="main-content"] {
+  padding-top: 0;
+}
+
+body:not(.mobile-contracts-route):has([data-component="mobile-contracts-content"])
+  [data-component="mobile-contracts-content"] {
+  padding-top: 76px;
+}
+
 html:has(body.mobile-contracts-route),
 html:has(body [data-component="contracts"]),
 body.mobile-contracts-route,
