@@ -51,6 +51,10 @@ const VERSION_KEY_PREFIX = "eformsign:doclist-version";
 const SNAPSHOT_TTL_SECONDS = 5 * 60;
 /** 목록 스냅샷 하나가 이보다 커지면 저장을 건너뛴다(Valkey 메모리 보호). */
 const SNAPSHOT_MAX_BYTES = 4_000_000;
+/** 스냅샷 페이로드·검색 인덱스 구조가 바뀔 때 올린다 — 배포 직후 이전 구조 스냅샷 재사용을 차단. */
+const SNAPSHOT_SCHEMA_VERSION = 1;
+/** in-memory 저장소 상한(FIFO 축출) — Valkey 없는 환경에서 무한 성장으로 인한 OOM 방지. */
+const MEMORY_STORE_MAX_ENTRIES = 32;
 
 /**
  * 지점 단위 eformsign 문서 목록 스냅샷 캐시.
@@ -85,6 +89,11 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
                 connectTimeout: 2_000,
             })
             : null;
+        // ioredis는 'error' 리스너가 없으면 원시 스택을 console로 쏟아내고, 일부 내부
+        // 불변식 위반은 하드 emit으로 프로세스를 죽일 수 있다 — 항상 리스너를 단다.
+        this.redis?.on("error", (error) => {
+            this.logger.warn(`Valkey client error: ${describeError(error)}`);
+        });
     }
 
     async onModuleDestroy(): Promise<void> {
@@ -263,6 +272,13 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
         if (!this.redis) {
             this.pruneMemoryStore();
+            while (this.memoryStore.size >= MEMORY_STORE_MAX_ENTRIES) {
+                const oldestKey = this.memoryStore.keys().next().value;
+                if (oldestKey === undefined) {
+                    break;
+                }
+                this.memoryStore.delete(oldestKey);
+            }
             this.memoryStore.set(key, {
                 expiresAt: Date.now() + SNAPSHOT_TTL_SECONDS * 1_000,
                 payload,
@@ -280,7 +296,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
     private snapshotKey(params: DocumentSnapshotKeyParams, version: number): string {
         const tokenHash = createHash("sha256").update(params.accessToken).digest("hex");
-        return `${SNAPSHOT_KEY_PREFIX}:${params.branchId}:${params.scope}:${tokenHash}:${version}`;
+        return `${SNAPSHOT_KEY_PREFIX}:v${SNAPSHOT_SCHEMA_VERSION}:${params.branchId}:${params.scope}:${tokenHash}:${version}`;
     }
 
     private versionKey(branchId: string): string {
