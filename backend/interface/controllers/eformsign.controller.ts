@@ -545,10 +545,13 @@ export class EformsignController {
     ): Promise<EformsignListDoc[]> {
         const PAGE_SIZE = 100;
         const MAX_PAGES = 10;
+        const scanStartedAt = Date.now();
+        let pagesFetched = 0;
         const collected = new Map<string, EformsignListDoc>();
         let exhausted = false;
 
         for (let page = 0; page < MAX_PAGES; page++) {
+            pagesFetched = page + 1;
             const result = await fetchPage(PAGE_SIZE, page * PAGE_SIZE);
             const pageDocs: EformsignListDoc[] = result.documents ?? [];
             if (pageDocs.length === 0) {
@@ -573,6 +576,9 @@ export class EformsignController {
             );
         }
 
+        this.logger.log(
+            `scanCompanyDocuments branch=${branchId} pages=${pagesFetched} matched=${collected.size} tookMs=${Date.now() - scanStartedAt}`,
+        );
         return sortDocumentsByCreatedDate(Array.from(collected.values()));
     }
 
@@ -720,7 +726,8 @@ export class EformsignController {
         accessToken: string,
         documents: EformsignListDoc[],
     ): Promise<EformsignListDoc[]> {
-        return mapWithConcurrency(documents, DETAIL_ENRICHMENT_CONCURRENCY, async (doc) => {
+        const enrichStartedAt = Date.now();
+        const enriched = await mapWithConcurrency(documents, DETAIL_ENRICHMENT_CONCURRENCY, async (doc) => {
             if (documentHasCustomerNameField(doc)) {
                 return doc;
             }
@@ -740,6 +747,10 @@ export class EformsignController {
                 return doc;
             }
         });
+        this.logger.log(
+            `enrichDocumentsWithDisplayFields docs=${documents.length} tookMs=${Date.now() - enrichStartedAt}`,
+        );
+        return enriched;
     }
 
     @Post("generate-signature")
