@@ -13,3 +13,17 @@ id = "GHSA-mh99-v99m-4gvg"
 # expansion in production runtime code. Revisit when minimatch ships releases
 # on brace-expansion >=5.0.8 (then drop this entry and the override).
 reason = "No patched 1.x/2.x release exists; 5.x pinned to 5.0.8; vulnerable path only reachable via developer-authored glob patterns in build tooling, not untrusted input."
+
+[[IgnoredVulns]]
+id = "GHSA-w5hq-g745-h8pq"
+# uuid 10.0.0 → fixed only in 11.1.1 (major jump). Deferred to a dedicated
+# dependency-upgrade PR with its own regression run; not bumped inside a
+# feature PR. Remove this entry when uuid is upgraded to >=11.1.1.
+reason = "Fix requires the uuid v11 major; scheduled as a dedicated chore PR, not a drive-by bump in a feature branch."
+
+[[IgnoredVulns]]
+id = "GHSA-frvp-7c67-39w9"
+# @hono/node-server 1.19.15 → fixed only in 2.0.5 (major jump). Transitive
+# tooling dependency; same dedicated-upgrade policy as above. Remove when the
+# consumer chain moves to >=2.0.5.
+reason = "Fix requires the @hono/node-server v2 major; scheduled as a dedicated chore PR, not a drive-by bump in a feature branch."
