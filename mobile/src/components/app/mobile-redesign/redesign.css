@@ -3105,7 +3105,7 @@ body:has([data-component="consultations"]):has([data-component="mobile-consultat
 }
 
 /* ===== /employees pixel shell — scoped to this route only ===== */
-body:has([data-component="employees"]) {
+body:has([data-component="mobile_employees_detail-sheet"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
@@ -3117,7 +3117,7 @@ body:has([data-component="employees"]) {
   overflow: hidden;
 }
 
-body:has([data-component="employees"]) [data-component="app-root"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"] {
   position: relative;
   padding: 12px;
   background: #000;
@@ -3126,7 +3126,7 @@ body:has([data-component="employees"]) [data-component="app-root"] {
   overflow: hidden;
 }
 
-body:has([data-component="employees"]) [data-component="app-root"]::before {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -3140,7 +3140,7 @@ body:has([data-component="employees"]) [data-component="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="employees"]) [data-component="app-providers"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-providers"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -3149,7 +3149,7 @@ body:has([data-component="employees"]) [data-component="app-providers"] {
   border-radius: 38px;
 }
 
-body:has([data-component="employees"]) [data-component="main-content"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -3157,7 +3157,7 @@ body:has([data-component="employees"]) [data-component="main-content"] {
   line-height: normal;
 }
 
-body:has([data-component="employees"]) [data-component="employees"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet"] {
   position: relative !important;
   inset: auto !important;
   width: auto !important;
@@ -3169,7 +3169,7 @@ body:has([data-component="employees"]) [data-component="employees"] {
   margin: 0 !important;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-header"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -3181,34 +3181,34 @@ body:has([data-component="employees"]) [data-component="mobile-header"] {
   transform: none !important;
 }
 
-body:has([data-component="employees"]) [data-component="employees"].mobile-detail-sheet {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet"].mobile-detail-sheet {
   flex: 1;
   min-height: 0;
   height: 100%;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-employees-content"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-employees-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body:has([data-component="employees"]) .list-title {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-title {
   line-height: normal;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-employees-content"] .search-bar {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-employees-content"] .search-bar {
   margin: 4px 12px 8px;
 }
 
-body:has([data-component="employees"]) .search-bar input {
+body:has([data-component="mobile_employees_detail-sheet"]) .search-bar input {
   line-height: normal;
 }
 
-body:has([data-component="employees"]) .filter-pill {
+body:has([data-component="mobile_employees_detail-sheet"]) .filter-pill {
   line-height: normal;
 }
 
-body:has([data-component="employees"]) button.list-item {
+body:has([data-component="mobile_employees_detail-sheet"]) button.list-item {
   width: 100%;
   border: 0;
   background: transparent;
@@ -3217,75 +3217,83 @@ body:has([data-component="employees"]) button.list-item {
   text-align: left;
 }
 
-body:has([data-component="employees"]) .list-name,
-body:has([data-component="employees"]) .list-meta,
-body:has([data-component="employees"]) .section-header {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-name,
+body:has([data-component="mobile_employees_detail-sheet"]) .list-meta,
+body:has([data-component="mobile_employees_detail-sheet"]) .section-header {
   line-height: normal;
 }
 
-body:has([data-component="employees"]) .list-avatar.av-primary {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-primary {
   background: linear-gradient(135deg, hsl(var(--v3-primary)), hsl(214, 100%, 28%));
 }
 
-body:has([data-component="employees"]) .list-avatar.av-green {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-green {
   background: linear-gradient(135deg, hsl(var(--v3-green)), hsl(137, 34%, 25%));
 }
 
-body:has([data-component="employees"]) .list-avatar.av-orange {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-orange {
   background: linear-gradient(135deg, hsl(var(--v3-orange)), hsl(34, 100%, 45%));
 }
 
-body:has([data-component="employees"]) .list-avatar.av-burgundy {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-burgundy {
   background: hsl(var(--v3-burgundy));
 }
 
-body:has([data-component="employees"]) .list-avatar.av-purple {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-purple {
   background: linear-gradient(135deg, hsl(var(--v3-purple)), hsl(267, 50%, 38%));
 }
 
-body:has([data-component="employees"]) .list-avatar.av-muted {
+body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-muted {
   background: linear-gradient(135deg, hsl(var(--v3-text-muted)), hsl(220, 8%, 35%));
 }
 
-body:has([data-component="employees"]) [data-component="mobile-employees-stack"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-employees-list-page"],
-body:has([data-component="employees"]) [data-component="mobile-employees-detail-page"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_list-page"] {
   position: absolute;
   inset: 0;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-employees-stack"].show-detail .nav-page.list {
+/* The detail pane only needs to leave the flex flow — its offsets stay with the
+   shared `.nav-page.detail` primitive so the sheet keeps its `--mobile-detail-top-gap`
+   peek. Pinning `inset: 0` here would flush it to the top and flatten the
+   bottom-sheet look (the rounded top corners and shadow would have nothing to
+   sit against). */
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_detail-page"] {
+  position: absolute;
+}
+
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
-body:has([data-component="employees"]):has([data-component="mobile-employees-stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body:has([data-component="mobile_employees_detail-sheet"]):has([data-component="mobile_employees_detail-sheet_stack"].show-detail) [data-component="mobile-bottom-nav"] {
   opacity: 0;
   pointer-events: none;
   translate: 0 calc(100% + 32px) !important;
 }
 
-body:has([data-component="employees"]) .badge-mini {
+body:has([data-component="mobile_employees_detail-sheet"]) .badge-mini {
   height: 28px;
   font-size: 0.68rem;
   border: 1px solid;
 }
 
-body:has([data-component="employees"]) .info-row-value-orange {
+body:has([data-component="mobile_employees_detail-sheet"]) .info-row-value-orange {
   color: hsl(38, 92%, 35%);
 }
 
-body:has([data-component="employees"]) .detail-body .detail-actions {
+body:has([data-component="mobile_employees_detail-sheet"]) .detail-body .detail-actions {
   margin-top: 0;
   padding: 14px 16px;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-bottom-nav"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -3303,18 +3311,18 @@ body:has([data-component="employees"]) [data-component="mobile-bottom-nav"] {
   transform: none !important;
 }
 
-body:has([data-component="employees"]) nav[data-component="mobile-bottom-nav"] a {
+body:has([data-component="mobile_employees_detail-sheet"]) nav[data-component="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-bottom-nav"] svg {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="employees"]) [data-component="mobile-bottom-nav"] span {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -5656,7 +5664,7 @@ body.mobile-dashboard-route [data-component="mobile-dashboard-detail-scrim"] {
 /* Detail pages should run edge-to-edge after removing the device frame. */
 body:has([data-component="consultations"]) [data-component$="-detail-page"],
 body:has([data-component="clients"]) [data-component$="-detail-page"],
-body:has([data-component="employees"]) [data-component$="-detail-page"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-page"],
 body:has([data-component="files"]) [data-component$="-detail-page"],
 body:has([data-component="messages"]) [data-component$="-detail-page"],
 body:has([data-component="prices-page"]) [data-component$="-detail-page"],
@@ -5676,7 +5684,7 @@ body.mobile-prices-route [data-component$="-detail-page"] {
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.22) !important;
 }
 
-body:has([data-component="employees"]) [data-component$="-detail-scrim"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-scrim"],
 body:has([data-component="messages"]) [data-component$="-detail-scrim"],
 body:has([data-component="prices-page"]) [data-component$="-detail-scrim"],
 body.mobile-contracts-route [data-component$="-detail-scrim"],
@@ -5695,7 +5703,7 @@ body:has([data-component="files"]) [data-component$="-detail-scrim"] {
 
 body:has([data-component="consultations"] .nav-stack.show-detail) [data-component="mobile-header"],
 body:has([data-component="clients"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="employees"] .nav-stack.show-detail) [data-component="mobile-header"],
+body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-component="mobile-header"],
 body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobile-header"],
 body:has([data-component="messages"] .nav-stack.show-detail) [data-component="mobile-header"],
 body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-component="mobile-header"] {
@@ -5707,7 +5715,7 @@ html:has(body [data-component="dashboard"]),
 html:has(body.mobile-all-route),
 html:has(body [data-component="consultations"]),
 html:has(body [data-component="clients"]),
-html:has(body [data-component="employees"]),
+html:has(body [data-component="mobile_employees_detail-sheet"]),
 html:has(body [data-component="files"]),
 html:has(body [data-component="messages"]),
 html:has(body [data-component="messages-new-page"]),
@@ -5729,7 +5737,7 @@ body:has([data-component="dashboard"]),
 body.mobile-all-route,
 body:has([data-component="consultations"]),
 body:has([data-component="clients"]),
-body:has([data-component="employees"]),
+body:has([data-component="mobile_employees_detail-sheet"]),
 body:has([data-component="files"]),
 body:has([data-component="messages"]),
 body:has([data-component="messages-new-page"]),
@@ -5751,7 +5759,7 @@ body.mobile-contracts-route {
 body.mobile-all-route [data-component="app-root"],
 body:has([data-component="consultations"]) [data-component="app-root"],
 body:has([data-component="clients"]) [data-component="app-root"],
-body:has([data-component="employees"]) [data-component="app-root"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
 body:has([data-component="files"]) [data-component="app-root"],
 body:has([data-component="messages"]) [data-component="app-root"],
 body:has([data-component="messages-new-page"]) [data-component="app-root"],
@@ -5776,7 +5784,7 @@ body.mobile-contracts-route [data-component="app-root"] {
 body.mobile-all-route [data-component="app-root"]::before,
 body:has([data-component="consultations"]) [data-component="app-root"]::before,
 body:has([data-component="clients"]) [data-component="app-root"]::before,
-body:has([data-component="employees"]) [data-component="app-root"]::before,
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"]::before,
 body:has([data-component="files"]) [data-component="app-root"]::before,
 body:has([data-component="messages"]) [data-component="app-root"]::before,
 body:has([data-component="messages-new-page"]) [data-component="app-root"]::before,
@@ -5799,7 +5807,7 @@ body.mobile-contracts-route [data-component="app-root"]::before {
 body.mobile-all-route [data-component="app-providers"],
 body:has([data-component="consultations"]) [data-component="app-providers"],
 body:has([data-component="clients"]) [data-component="app-providers"],
-body:has([data-component="employees"]) [data-component="app-providers"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-providers"],
 body:has([data-component="files"]) [data-component="app-providers"],
 body:has([data-component="messages"]) [data-component="app-providers"],
 body:has([data-component="messages-new-page"]) [data-component="app-providers"],
@@ -5821,7 +5829,7 @@ body:has([data-component="dashboard"]) nextjs-portal,
 body.mobile-all-route nextjs-portal,
 body:has([data-component="consultations"]) nextjs-portal,
 body:has([data-component="clients"]) nextjs-portal,
-body:has([data-component="employees"]) nextjs-portal,
+body:has([data-component="mobile_employees_detail-sheet"]) nextjs-portal,
 body:has([data-component="files"]) nextjs-portal,
 body:has([data-component="messages"]) nextjs-portal,
 body:has([data-component="messages-new-page"]) nextjs-portal,
@@ -6016,24 +6024,24 @@ body:has([data-component="prices-page"]) .mobile-detail-sheet {
   margin: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile-prices-stack"],
-body:has([data-component="prices-page"]) [data-component="mobile-prices-stack"] {
+body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack"],
+body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body.mobile-prices-route [data-component="mobile-prices-list-page"],
-body.mobile-prices-route [data-component="mobile-prices-detail-page"],
-body:has([data-component="prices-page"]) [data-component="mobile-prices-list-page"],
-body:has([data-component="prices-page"]) [data-component="mobile-prices-detail-page"] {
+body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_list-page"],
+body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_detail-page"],
+body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_list-page"],
+body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-prices-route [data-component="mobile-prices-detail-page"],
-body:has([data-component="prices-page"]) [data-component="mobile-prices-detail-page"] {
+body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_detail-page"],
+body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_detail-page"] {
   position: fixed !important;
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
@@ -6046,8 +6054,8 @@ body:has([data-component="prices-page"]) [data-component="mobile-prices-detail-p
   padding-top: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile-prices-detail-scrim"],
-body:has([data-component="prices-page"]) [data-component="mobile-prices-detail-scrim"] {
+body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_scrim"],
+body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_scrim"] {
   position: fixed !important;
   inset: 0 !important;
   width: 100vw !important;
@@ -6056,8 +6064,8 @@ body:has([data-component="prices-page"]) [data-component="mobile-prices-detail-s
   border-radius: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile-prices-stack"].show-detail .nav-page.list,
-body:has([data-component="prices-page"]) [data-component="mobile-prices-stack"].show-detail .nav-page.list {
+body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack"].show-detail .nav-page.list,
+body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
@@ -6099,7 +6107,7 @@ body.mobile-prices-route [data-component="mobile-bottom-nav"] span {
   line-height: 1;
 }
 
-[data-component="prices"] [data-component="mobile-prices-content"] {
+[data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
@@ -6279,7 +6287,7 @@ body:has([data-component="clients"]) [data-component="main-content"],
 body:has([data-component="consultations"]) [data-component="main-content"],
 body:has([data-component="contracts"]) [data-component="main-content"],
 body:has([data-component="dashboard"]) [data-component="main-content"],
-body:has([data-component="employees"]) [data-component="main-content"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main-content"],
 body:has([data-component="files"]) [data-component="main-content"],
 body:has([data-component="messages"]) [data-component="main-content"],
 body:has([data-component="prices-page"]) [data-component="main-content"],
@@ -6303,7 +6311,7 @@ body:has([data-component="clients"]) .mobile-detail-sheet,
 body:has([data-component="consultations"]) .mobile-detail-sheet,
 body:has([data-component="contracts"]) .mobile-detail-sheet,
 body:has([data-component="dashboard"]) .mobile-detail-sheet,
-body:has([data-component="employees"]) .mobile-detail-sheet,
+body:has([data-component="mobile_employees_detail-sheet"]) .mobile-detail-sheet,
 body:has([data-component="files"]) .mobile-detail-sheet,
 body:has([data-component="messages"]) .mobile-detail-sheet,
 body:has([data-component="prices-page"]) .mobile-detail-sheet,
@@ -6320,10 +6328,10 @@ body.mobile-prices-route .mobile-detail-sheet {
 [data-component="consultations"] [data-component="mobile-consultations-content"],
 [data-component="contracts"] [data-component="mobile-contracts-content"],
 [data-component="dashboard"] [data-component="mobile-dashboard-content"],
-[data-component="employees"] [data-component="mobile-employees-content"],
+[data-component="mobile_employees_detail-sheet"] [data-component="mobile-employees-content"],
 [data-component="files"] [data-component="mobile-files-content"],
 [data-component="messages"] [data-component="mobile-messages-content"],
-[data-component="prices"] [data-component="mobile-prices-content"] {
+[data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
   padding-top: 76px !important;
 }
 
@@ -6679,7 +6687,7 @@ body:has([data-component="contracts"]) [data-component="app-providers"] {
   body:has([data-component="all-page"]) [data-component="app-root"],
   body:has([data-component="consultations"]) [data-component="app-root"],
   body:has([data-component="clients"]) [data-component="app-root"],
-  body:has([data-component="employees"]) [data-component="app-root"],
+  body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
   body:has([data-component="files"]) [data-component="app-root"],
   body:has([data-component="messages"]) [data-component="app-root"],
   body:has([data-component="messages-new-page"]) [data-component="app-root"],

@@ -25,7 +25,7 @@ import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { AdminGuard } from "infrastructure/auth/admin.guard";
 import { ChatFeedbackRepository } from "infrastructure/database/repositories/chat-feedback.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { CurrentTenant } from "infrastructure/tenant";
+import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 
 interface JwtUser {
     userId: string;
@@ -45,7 +45,11 @@ export class AIChatController {
         private readonly prisma: PrismaService,
     ) {}
 
+    // TenantGuard is what populates `request.tenant`; without it `@CurrentTenant()`
+    // resolves to undefined and reading `tenant.branchId` below throws, which the
+    // catch block reports to the client as an SSE `error` event.
     @Post("stream")
+    @UseGuards(TenantGuard)
     async streamChat(
         @Body() dto: ChatStreamDto,
         @Req() req: Request,

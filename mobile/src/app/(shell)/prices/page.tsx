@@ -343,8 +343,8 @@ export default function PricesPage() {
 
 function PriceDetailContent({ row, year }: { row: DisplayRow; year: number }) {
   return (
-    <MobileDetailPage data-component="mobile_prices_detail-sheet_stack_detail-page" name="prices">
-      <MobileDetailHeader data-component="mobile_prices_detail-sheet_stack_detail-page_header"
+    <MobileDetailPage data-component="mobile_prices_detail-sheet_stack_detail-page_body" name="prices">
+      <MobileDetailHeader data-component="mobile_prices_detail-sheet_stack_detail-page_body_header"
         name="prices"
         avatar={<Calculator size={24} strokeWidth={2.5} aria-hidden="true" />}
         avatarClassName="price-detail-avatar"

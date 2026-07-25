@@ -131,11 +131,11 @@ test.describe('Custom Template Variables', () => {
     await mockComposeDependencies(page, templateWithPhoneVariable);
 
     await page.goto('/messages/new?template=SERVICE_INFO');
-    await expect(page.locator('[data-component="messages-new-page"]')).toBeVisible({
+    await expect(page.locator('form[data-form="messages-new-form"]')).toBeVisible({
       timeout: 15000,
     });
 
-    await expect(page.getByLabel('이름')).toBeVisible();
+    await expect(page.getByLabel(/산모님 성함/)).toBeVisible();
     await expect(page.getByLabel('연락처')).toBeVisible();
     await expect(
       page.locator('[data-component="messages-new-template-variable-row"][data-template-variable-key="phone"]'),
@@ -146,11 +146,11 @@ test.describe('Custom Template Variables', () => {
     await mockComposeDependencies(page, templateWithPhoneContent);
 
     await page.goto('/messages/new?template=SERVICE_INFO');
-    await expect(page.locator('[data-component="messages-new-page"]')).toBeVisible({
+    await expect(page.locator('form[data-form="messages-new-form"]')).toBeVisible({
       timeout: 15000,
     });
 
-    await page.getByLabel('이름').fill('김철수');
+    await page.getByLabel(/산모님 성함/).fill('김철수');
     await page.getByLabel('연락처').fill('010-2222-3333');
 
     await expect(page.getByLabel('메시지 본문')).toHaveValue(/김철수/);

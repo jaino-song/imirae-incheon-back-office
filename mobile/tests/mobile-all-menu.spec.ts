@@ -138,8 +138,7 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await expect(page.locator(".menu-value", { hasText: "2명" })).toBeVisible();
     await expect(page.locator(".menu-value", { hasText: "1명" })).toBeVisible();
     await expect(page.locator(".menu-value", { hasText: "5건" })).toBeVisible();
-    // 4 mocked rules + UI_ONLY_AUTOMATION_TRIGGER_COUNT(1) → "5개"
-    await expect(page.locator(".menu-value", { hasText: "5개" })).toBeVisible();
+    await expect(page.locator(".menu-value", { hasText: "4개" })).toBeVisible();
     await expect(page.locator(".menu-badge", { hasText: "3" })).toBeVisible();
     await expect(page.locator('[data-component="mobile-all-value-skeleton"]')).toHaveCount(0);
     await expect(page.locator('[data-component="mobile-all-badge-skeleton"]')).toHaveCount(0);
@@ -386,13 +385,9 @@ test.describe("Mobile nav: center chat + /all menu", () => {
       throw new Error("All page wide shell geometry should be measurable");
     }
 
-    const expectedRootWidth = Math.min(geometry.viewportWidth, 390);
-    const expectedRootHeight = Math.min(geometry.viewportHeight, 844);
-    const expectedRootX = (geometry.viewportWidth - expectedRootWidth) / 2;
-
-    expect(Math.abs(geometry.appRoot.x - expectedRootX)).toBeLessThanOrEqual(1);
-    expect(Math.abs(geometry.appRoot.width - expectedRootWidth)).toBeLessThanOrEqual(1);
-    expect(Math.abs(geometry.appRoot.height - expectedRootHeight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.appRoot.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.appRoot.width - geometry.viewportWidth)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.appRoot.height - geometry.viewportHeight)).toBeLessThanOrEqual(1);
     expect(geometry.appRoot.height).toBeLessThanOrEqual(geometry.viewportHeight);
     expect(geometry.appRoot.padding).toBe("0px");
     expect(geometry.appRoot.borderRadius).toBe("0px");

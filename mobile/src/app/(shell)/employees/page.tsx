@@ -155,8 +155,8 @@ function EmployeeDetailContent({
     useEmployeeActiveClients(employee.id);
 
   return (
-    <MobileDetailPage data-component="mobile_employees_detail-sheet_stack_detail-page" name="employees">
-      <MobileDetailHeader data-component="mobile_employees_detail-sheet_stack_detail-page_header"
+    <MobileDetailPage data-component="mobile_employees_detail-sheet_stack_detail-page_body" name="employees">
+      <MobileDetailHeader data-component="mobile_employees_detail-sheet_stack_detail-page_body_header"
         name="employees"
         avatar={employeeInitial(employee.name)}
         avatarTone={group.badgeTone}

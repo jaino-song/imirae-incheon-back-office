@@ -5,11 +5,22 @@ import { test, expect } from "@playwright/test";
 // 데이터는 page.route()로 mock하므로 시드 의존 없음.
 
 const CLIENT_ID = 42;
+const VOUCHER_TYPE = "A통합3형";
 const OUT_OF_POCKET_PRICES = [
   { id: 1, duration: 5, fullPrice: "815000" },
   { id: 2, duration: 10, fullPrice: "1620000" },
   { id: 3, duration: 15, fullPrice: "2425000" },
   { id: 4, duration: 20, fullPrice: "3240000" },
+];
+const VOUCHER_PRICE_INFOS = [
+  {
+    id: 24,
+    type: VOUCHER_TYPE,
+    duration: "20",
+    fullPrice: "2848000",
+    grant: "1766000",
+    actualPrice: "1082000",
+  },
 ];
 
 const MOCK_CLIENT = {
@@ -23,7 +34,7 @@ const MOCK_CLIENT = {
   phone: "010-9641-1878",
   primaryEmployee: { id: 1, name: "김정인" },
   secondaryEmployee: { id: 2, name: "박지영" },
-  type: "A_INTEGRATED_3",
+  type: VOUCHER_TYPE,
   duration: 20,
   fullPrice: "2848000",
   grant: "1766000",
@@ -56,9 +67,15 @@ test.describe("clients edit wizard hydration", () => {
       });
     });
 
-    // 2. 바우처 가격 정보 — empty (자동 입력 effect 비활성)
+    // 2. 가격 정보 API는 production과 동일하게 배열을 반환한다.
     await page.route("**/api/voucher-price-infos**", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+      const requestUrl = new URL(route.request().url());
+      const type = requestUrl.searchParams.get("type");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(type === VOUCHER_TYPE ? VOUCHER_PRICE_INFOS : []),
+      });
     });
     await page.route("**/api/out-of-pocket-price-infos**", async (route) => {
       await route.fulfill({
