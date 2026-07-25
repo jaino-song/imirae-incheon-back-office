@@ -36,6 +36,7 @@ import { AreaTemplateModule } from "module/area-template.module";
 import { EformsignDocController } from "interface/controllers/eformsign-doc.controller";
 import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/eformsign-doc/create-and-send-service-record-snapshot.usecase";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 
 @Module({
     imports: [DatabaseModule, AreaTemplateModule],
@@ -72,6 +73,7 @@ import { ContractClientAssignmentGuardService } from "application/services/contr
         EformsignDocsEventBus,
         EformsignHeadlessProgressService,
         ContractClientAssignmentGuardService,
+        EformsignDocumentSnapshotService,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
@@ -93,7 +95,9 @@ import { ContractClientAssignmentGuardService } from "application/services/contr
         EformsignDocsEventBus,
         EformsignHeadlessProgressService,
         EFORMSIGN_CLIENT_REPOSITORY,
+        EFORMSIGN_DOC_REPOSITORY,
         CreateAndSendServiceRecordSnapshotUsecase,
+        EformsignDocumentSnapshotService,
     ],
 })
 export class EformsignDocModule {}

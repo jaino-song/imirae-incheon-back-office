@@ -23,6 +23,7 @@ import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
 } from "./service-record-lifecycle.service";
+import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
 
 /**
  * Eformsign document status codes (from document.status field)
@@ -116,6 +117,7 @@ export class EformsignWebhookService {
         private readonly employeeRepository: IEmployeeRepository,
         @Optional() private readonly prisma?: PrismaService,
         @Optional() private readonly serviceRecordLifecycle?: ServiceRecordLifecycleService,
+        @Optional() private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
     ) {}
 
     /**
@@ -359,6 +361,7 @@ export class EformsignWebhookService {
         });
 
         if (claimResult === "claimed") {
+            await this.bumpDocumentSnapshotVersion(branchid);
             this.logger.log(`Document ${documentId} completion claimed from ${source}`);
             return true;
         }
@@ -379,11 +382,24 @@ export class EformsignWebhookService {
         branchid: string,
         params: Parameters<UpdateEformsignDocStatusUsecase["execute"]>[1],
     ): Promise<void> {
-        await this.updateStatusUsecase.execute(branchid, params);
+        const updated = await this.updateStatusUsecase.execute(branchid, params);
+        if (updated.statusType === params.statusType) {
+            await this.bumpDocumentSnapshotVersion(branchid);
+        }
         try {
             await this.linkDocumentUsecase.execute(branchid, params.documentId);
         } catch (error) {
             this.logger.warn(`Failed to keep client linked for document ${params.documentId}: ${error}`);
+        }
+    }
+
+    private async bumpDocumentSnapshotVersion(branchId: string): Promise<void> {
+        if (!branchId) return;
+
+        try {
+            await this.documentSnapshotService?.bumpVersion(branchId);
+        } catch {
+            // 캐시 무효화 실패가 웹훅 상태 동기화 성공을 되돌리면 안 된다.
         }
     }
 
