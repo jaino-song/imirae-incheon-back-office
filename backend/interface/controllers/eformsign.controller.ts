@@ -255,6 +255,19 @@ function filterDocumentsByStatusCategory(
     });
 }
 
+function filterOutDeletedDocuments(
+    documents: EformsignListDoc[],
+    excludeDeleted: boolean,
+): EformsignListDoc[] {
+    if (!excludeDeleted) {
+        return documents;
+    }
+    return documents.filter((document) => {
+        const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
+        return !DELETED_STATUS_CODES.has(normalizeStatusCode(statusType));
+    });
+}
+
 function getChosung(character: string): string {
     const code = character.charCodeAt(0);
     if (code >= 0xac00 && code <= 0xd7a3) {
@@ -411,11 +424,11 @@ function documentSearchValues(document: EformsignListDoc, localValues: string[])
     const template = isRecord(document["template"]) ? document["template"] : null;
     const templateName = (stringFromUnknown(template?.["name"]) ?? "").replace(/\s*계약서$/, "");
     const documentNumber = (
-        stringFromUnknown(document["document_number"]) ?? document.id.slice(0, 16)
+        stringFromUnknown(document["document_number"]) ?? document.id?.slice(0, 16)
     ) || "-";
 
     return [
-        documentCustomerNameValue(document) ?? "",
+        documentCustomerNameValue(document) ?? "고객 미지정",
         ...localValues,
         stringFromUnknown(document["document_name"]) ?? "",
         templateName,
@@ -648,9 +661,11 @@ export class EformsignController {
         templateMatch: TemplateMatch,
         statusCategory: DocumentStatusCategory | undefined,
         search: string | undefined,
+        excludeDeleted = false,
     ): Promise<EformsignListDoc[]> {
         const templateFiltered = filterDocumentsByTemplate(documents, templateId, templateMatch);
-        const statusFiltered = filterDocumentsByStatusCategory(templateFiltered, statusCategory);
+        const deletionFiltered = filterOutDeletedDocuments(templateFiltered, excludeDeleted);
+        const statusFiltered = filterDocumentsByStatusCategory(deletionFiltered, statusCategory);
         const searchFiltered = await this.filterDocumentsBySearch(statusFiltered, branchId, search);
         return sortDocumentsByCreatedDate(searchFiltered);
     }
@@ -874,6 +889,7 @@ export class EformsignController {
         @Query("templateMatch") templateMatchValue?: string,
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
+        @Query("excludeDeleted") excludeDeletedValue?: string,
     ) {
         try {
             if (!accessToken) {
@@ -886,6 +902,7 @@ export class EformsignController {
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
+            const excludeDeleted = excludeDeletedValue === "true";
             const branchId = tenant.branchId ?? "";
 
             // 인천점(본사): 회사 전체에서 다른 지점 소유분만 빼고 모은 뒤 요청 구간만 잘라 반환.
@@ -899,6 +916,7 @@ export class EformsignController {
                     templateMatch,
                     statusCategory,
                     search,
+                    excludeDeleted,
                 );
                 const pageDocuments = filteredDocuments.slice(parsedSkip, parsedSkip + parsedLimit);
                 return {
@@ -921,6 +939,7 @@ export class EformsignController {
                 templateMatch,
                 statusCategory,
                 search,
+                excludeDeleted,
             );
             const pageDocuments = filteredDocuments.slice(parsedSkip, parsedSkip + parsedLimit);
             return {
