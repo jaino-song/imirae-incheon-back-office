@@ -394,7 +394,12 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
     await routeContractsList(page, SECTION_DOCUMENTS);
-    await routeDocumentClientSummaries(page, []);
+    // Service-record rows take their name from the client-summary map, so the
+    // section fixture has to supply one for both documents.
+    await routeDocumentClientSummaries(
+      page,
+      createDocumentClientSummaries(SECTION_DOCUMENTS.documents),
+    );
     await routeNotificationLogs(page);
 
     await page.goto("/contracts");
@@ -441,8 +446,11 @@ test.describe("Mobile contracts list rows", () => {
     await expect(row.locator(".list-name")).toContainText("홍길동");
   });
 
-  test("renders nine first-page rows and requests six more after tapping load more", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 1600 });
+  // The reveal window is measured from the scroll viewport (rows that fit + 1 peek)
+  // and is capped by the server total, so the phone-sized viewport from
+  // `test.use` is what keeps the teaser button on screen for a 15-row total.
+  // A very tall viewport would reveal every row at once and hide the teaser.
+  test("requests a nine-row first page and a six-row next page", async ({ page }) => {
     await page.route("**/api/access-token", async (route) => {
       await route.fulfill({
         status: 200,
@@ -477,17 +485,19 @@ test.describe("Mobile contracts list rows", () => {
           && request.excludeDeleted,
       ),
     ).toBe(true);
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(9, {
-      timeout: 15000,
-    });
+    const rows = page.locator('[data-component="mobile-contracts-row"]');
     const loadMoreButton = page.locator(
       '[data-component="mobile-contracts-load-more-button"]',
     );
-    await expect(loadMoreButton).toBeVisible();
+    await expect(loadMoreButton).toBeVisible({ timeout: 15000 });
     await expect(loadMoreButton).toContainText("탭하여 더보기");
 
-    await loadMoreButton.click();
+    // Only the first server page has been revealed while the teaser is showing.
+    const revealedBeforeTap = await rows.count();
+    expect(revealedBeforeTap).toBeGreaterThan(0);
+    expect(revealedBeforeTap).toBeLessThanOrEqual(9);
 
+    // The next server page is pulled with the smaller page size at the first-page offset.
     await expect.poll(() =>
       listRequests.some(
         (request) =>
@@ -500,6 +510,12 @@ test.describe("Mobile contracts list rows", () => {
           && request.excludeDeleted,
       ),
     ).toBe(true);
+
+    await loadMoreButton.click();
+
+    // Tapping the teaser hands the list over to the scroll sentinel.
+    await expect(loadMoreButton).toHaveCount(0);
+    await expect.poll(() => rows.count()).toBeGreaterThan(revealedBeforeTap);
   });
 
   test("hides load more when all nine documents fit in the first page", async ({ page }) => {
@@ -633,7 +649,7 @@ test.describe("Mobile contracts list rows", () => {
     await routeNotificationLogs(page);
 
     await page.goto("/contracts");
-    await expect(page.locator('[data-component="contracts"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile-redesign-list-card"]')).toBeVisible();
 
     const geometry = await page.evaluate(() => {
       const appRoot = document.querySelector('[data-component="app-root"]')?.getBoundingClientRect();
@@ -710,7 +726,7 @@ test.describe("Mobile contracts list rows", () => {
     await routeNotificationLogs(page);
 
     await page.goto("/contracts");
-    await expect(page.locator('[data-component="contracts"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile-redesign-list-card"]')).toBeVisible();
 
     await page.evaluate(() => {
       document.body.classList.remove("mobile-contracts-route");
@@ -823,7 +839,9 @@ test.describe("Mobile contracts list rows", () => {
     await page.goto("/contracts");
     await page.getByRole("button", { name: "제공기록지", exact: true }).click();
     await page.locator('[data-component="mobile-contracts-row"]', { hasText: "검토고객" }).click();
-    await expect(page.locator('[data-component="mobile-contracts-detail-name"]')).toHaveText("제공기록지");
+    await expect(
+      page.locator('[data-component="mobile-contracts-detail-header_title-group_name"]'),
+    ).toHaveText("제공기록지");
     const userInfo = page.locator(".info-card", { hasText: "이용자 정보" });
     await expect(userInfo).toContainText("검토고객");
     await expect(userInfo).toContainText("010-5555-6666");

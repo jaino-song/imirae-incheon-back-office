@@ -225,8 +225,9 @@ test.describe('Contracts Page Search Feature', () => {
     await page.goto('/contracts');
     await expect(page.getByPlaceholder(SEARCH_PLACEHOLDER)).toBeVisible({ timeout: 15000 });
 
+    // The empty copy is scoped to the active section label ("산모 계약서" by default).
     await expect(page.locator('[data-component="mobile-contracts-empty"]')).toContainText(
-      '등록된 계약서가 없습니다.',
+      '등록된 산모 계약서가 없습니다.',
     );
   });
 });

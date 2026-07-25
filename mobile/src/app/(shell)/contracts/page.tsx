@@ -1277,8 +1277,8 @@ function ContractDetailContent({
   };
 
   return (
-    <MobileDetailPage data-component="mobile_contracts_detail-sheet_stack_detail-page" name="contracts">
-      <MobileDetailHeader data-component="mobile_contracts_detail-sheet_stack_detail-page_header"
+    <MobileDetailPage data-component="mobile-contracts-detail" name="contracts">
+      <MobileDetailHeader data-component="mobile-contracts-detail-header"
         name="contracts"
         avatar={<FileCheck2 size={24} strokeWidth={2.5} />}
         avatarTone="primary"
@@ -2075,6 +2075,7 @@ export default function ContractsPage() {
   const mainSheet = (
     <MobileDetailSheet data-component="mobile_contracts_detail-sheet"
       name="contracts"
+      detailDataComponent="mobile-contracts-detail-page"
       isOpen={Boolean(selectedDoc)}
       onClose={() => setSelectedDoc(null)}
       list={
