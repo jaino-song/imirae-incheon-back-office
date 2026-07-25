@@ -30,6 +30,7 @@ interface SnapshotServiceInternals {
 
 interface RedisStub {
     status: string;
+    on: jest.Mock<RedisStub, [string, (...args: unknown[]) => void]>;
     connect: jest.Mock<Promise<void>, []>;
     disconnect: jest.Mock<void, []>;
     get: jest.Mock<Promise<string | null>, [string]>;
@@ -82,8 +83,9 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 function createRedisStub(overrides: Partial<RedisStub> = {}): RedisStub {
-    return {
+    const stub: RedisStub = {
         status: "ready",
+        on: jest.fn<RedisStub, [string, (...args: unknown[]) => void]>(),
         connect: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
         disconnect: jest.fn<void, []>(),
         get: jest.fn<Promise<string | null>, [string]>().mockResolvedValue(null),
@@ -91,6 +93,8 @@ function createRedisStub(overrides: Partial<RedisStub> = {}): RedisStub {
         incr: jest.fn<Promise<number>, [string]>().mockResolvedValue(1),
         ...overrides,
     };
+    stub.on.mockReturnValue(stub);
+    return stub;
 }
 
 function useRedisStub(redis: RedisStub): void {
@@ -275,7 +279,7 @@ describe("EformsignDocumentSnapshotService", () => {
         const accessToken = "raw-secret-access-token";
         const params = createParams({ accessToken });
         const tokenHash = createHash("sha256").update(accessToken).digest("hex");
-        const expectedKey = `eformsign:doclist:branch-a:all:${tokenHash}:0`;
+        const expectedKey = `eformsign:doclist:v1:branch-a:all:${tokenHash}:0`;
         const logSpy = jest.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
         const warnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
         const service = new EformsignDocumentSnapshotService();
