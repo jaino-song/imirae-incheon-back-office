@@ -9,7 +9,6 @@ import { expect, test } from '@playwright/test';
  * dev DB.
  */
 const BACKEND_URL = process.env.DEVELOPMENT_API_BASE_URL || 'http://127.0.0.1:3001';
-const BRANCH_ID = '33dbe950-1574-4951-b7b4-92d97ab29512';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -20,18 +19,37 @@ test.describe('Critical flows (real backend)', () => {
     page,
     context,
   }) => {
-    // 1. Seeded state: branch approved → the sender-approval page shows it
-    //    and the message composer is not blocked by the approval gate.
+    const cookies = await context.cookies();
+    const authToken = cookies.find((cookie) => cookie.name === 'auth_token')?.value;
+    const branchId = cookies.find((cookie) => cookie.name === 'selected_branch_id')?.value;
+
+    expect(authToken).toBeTruthy();
+    expect(branchId).toBeTruthy();
+    if (!authToken || !branchId) {
+      throw new Error('Critical flow requires auth_token and selected_branch_id cookies');
+    }
+
+    const headers = { Authorization: `Bearer ${authToken}` };
+
+    // 1. Normalize the mutable CI fixture to approved, then verify the UI gate.
+    const initialRequestRes = await page.request.post(
+      `${BACKEND_URL}/settings/message-sender-approval/request`,
+      { headers, data: { senderPhone: '01099998888' } },
+    );
+    expect(initialRequestRes.ok()).toBeTruthy();
+
+    const initialApproveRes = await page.request.post(
+      `${BACKEND_URL}/settings/message-sender-approval/${branchId}/approve`,
+      { headers, data: {} },
+    );
+    expect(initialApproveRes.ok()).toBeTruthy();
+
     await page.goto('/messages/sender-approval');
     await expect(page.getByText('승인 완료').first()).toBeVisible({ timeout: 15000 });
 
     // 2. Drive the backend transitions directly (the admin approve UI lives
     //    in the staff frontend app, not this mobile app): request → pending,
     //    owner approve → approved. Auth via the storage-state JWT.
-    const authToken = (await context.cookies()).find((c) => c.name === 'auth_token')?.value;
-    expect(authToken).toBeTruthy();
-    const headers = { Authorization: `Bearer ${authToken}` };
-
     const requestRes = await page.request.post(
       `${BACKEND_URL}/settings/message-sender-approval/request`,
       { headers, data: { senderPhone: '01099998888' } },
@@ -46,7 +64,7 @@ test.describe('Critical flows (real backend)', () => {
     expect(await pendingRes.json()).toMatchObject({ approvalStatus: 'pending', isApproved: false });
 
     const approveRes = await page.request.post(
-      `${BACKEND_URL}/settings/message-sender-approval/${BRANCH_ID}/approve`,
+      `${BACKEND_URL}/settings/message-sender-approval/${branchId}/approve`,
       { headers, data: {} },
     );
     expect(approveRes.ok()).toBeTruthy();

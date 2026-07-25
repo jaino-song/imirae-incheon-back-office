@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 const MOCK_EMPLOYEES = [
   {
@@ -23,22 +23,50 @@ const MOCK_EMPLOYEES = [
   },
 ];
 
+const MOCK_ACTIVE_CLIENTS = [
+  {
+    clientId: 201,
+    clientName: "윤정아",
+    role: "primary",
+    startDate: "2026-06-01",
+    endDate: "2026-06-30",
+  },
+];
+
+async function mockEmployeesApi(page: Page) {
+  await page.route("**/api/employees**", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+
+    const pathname = new URL(route.request().url()).pathname;
+    let body: unknown;
+
+    if (pathname === "/api/employees") {
+      body = MOCK_EMPLOYEES;
+    } else if (pathname === "/api/employees/101/active-clients") {
+      body = MOCK_ACTIVE_CLIENTS;
+    } else if (pathname === "/api/employees/102/active-clients") {
+      body = [];
+    } else {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+}
+
 test.use({ viewport: { width: 390, height: 844 } });
 
 test.describe("employees mobile detail layout", () => {
   test("uses the shared absolute detail-sheet geometry", async ({ page }) => {
-    await page.route("**/api/employees**", async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback();
-        return;
-      }
-
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_EMPLOYEES),
-      });
-    });
+    await mockEmployeesApi(page);
 
     await page.goto("/employees");
     await expect(page.locator('[data-component="mobile-employees-row"]')).toHaveCount(2, {
@@ -53,9 +81,13 @@ test.describe("employees mobile detail layout", () => {
     await expect(assignedRow).toHaveCount(1);
     await assignedRow.click();
 
-    const stack = page.locator('[data-component="mobile-employees-stack"]');
-    const detailPage = page.locator('[data-component="mobile-employees-detail-page"]');
-    const listPage = page.locator('[data-component="mobile-employees-list-page"]');
+    const stack = page.locator('[data-component="mobile_employees_detail-sheet_stack"]');
+    const detailPage = page.locator(
+      '[data-component="mobile_employees_detail-sheet_stack_detail-page"][data-slot="mobile-detail-stack-detail-page"]',
+    );
+    const listPage = page.locator(
+      '[data-component="mobile_employees_detail-sheet_stack_list-page"]',
+    );
 
     await expect(stack).toHaveClass(/show-detail/);
     await expect(stack).toHaveCSS("position", "absolute");
@@ -96,18 +128,7 @@ test.describe("employees mobile detail layout", () => {
   });
 
   test("shows an empty state when the employee has no assigned client", async ({ page }) => {
-    await page.route("**/api/employees**", async (route) => {
-      if (route.request().method() !== "GET") {
-        await route.fallback();
-        return;
-      }
-
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_EMPLOYEES),
-      });
-    });
+    await mockEmployeesApi(page);
 
     await page.goto("/employees");
     await expect(page.locator('[data-component="mobile-employees-row"]')).toHaveCount(2, {
@@ -122,7 +143,7 @@ test.describe("employees mobile detail layout", () => {
     await page.getByRole("button", { name: "담당 고객" }).click();
 
     await expect(page.locator('[data-component="mobile-employees-clients-empty"]')).toHaveText(
-      "배정된 고객이 없습니다.",
+      "현재 담당 고객이 없습니다.",
     );
   });
 });
