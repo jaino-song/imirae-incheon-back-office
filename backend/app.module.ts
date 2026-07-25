@@ -33,6 +33,7 @@ import { SystemAdminModule } from "module/system-admin.module";
 import { ServiceRecordEntryModule } from "module/service-record-entry.module";
 import { getJwtSecret } from "./infrastructure/auth/jwt-secret";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 
 const ENV_FILE_PATHS = [
     resolve(process.cwd(), "backend/.env.local"),
@@ -87,6 +88,7 @@ const ENV_FILE_PATHS = [
         EformsignService,
         JwtStrategy,
         ContractClientAssignmentGuardService,
+        EformsignDocumentSnapshotService,
     ],
 })
 export class AppModule {}

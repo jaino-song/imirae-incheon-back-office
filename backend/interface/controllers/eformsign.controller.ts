@@ -18,6 +18,12 @@ import {
     ReRequestOutsiderDocumentRequestDto,
 } from "interface/dto/eformsign.dto";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import {
+    DocumentSnapshotEntry,
+    DocumentSnapshotResult,
+    DocumentSnapshotScope,
+    EformsignDocumentSnapshotService,
+} from "application/services/eformsign-document-snapshot.service";
 
 function throwHttpOrInternalError(error: unknown): never {
     if (error instanceof HttpException) {
@@ -423,6 +429,16 @@ function documentSearchValues(document: EformsignListDoc, localValues: string[])
     ];
 }
 
+/**
+ * 문서 자체에서 파생되는 검색 값(고객명/문서명/템플릿명/문서번호)만 미리 뽑아 스냅샷에 넣는다.
+ * 로컬 DB에서 오는 값(stepRecipientName)은 검색어가 있을 때만 조회하는 기존 동작을 유지하기
+ * 위해 여기에 포함하지 않고, 질의 시점에 합쳐 쓴다. 빈 문자열은 어떤 검색어와도 매칭되지
+ * 않으므로 제거해 스냅샷 크기를 줄인다.
+ */
+function documentSearchIndex(document: EformsignListDoc): string[] {
+    return documentSearchValues(document, []).filter((value) => value.length > 0);
+}
+
 function hasCollectionValues(value: unknown): boolean {
     return Array.isArray(value) ? value.length > 0 : value != null;
 }
@@ -487,6 +503,7 @@ export class EformsignController {
         private readonly eformsignDocService: EformsignDocService,
         private readonly prisma: PrismaService,
         private readonly assignmentGuard: ContractClientAssignmentGuardService,
+        private readonly documentSnapshotService: EformsignDocumentSnapshotService,
     ) { }
 
     /**
@@ -618,6 +635,7 @@ export class EformsignController {
         documents: EformsignListDoc[],
         branchId: string,
         search: string | undefined,
+        searchIndexByDocumentId?: Map<string, string[]>,
     ): Promise<EformsignListDoc[]> {
         const query = search?.trim() ?? "";
         if (!query) {
@@ -633,12 +651,14 @@ export class EformsignController {
             localValuesByDocumentId.set(localDocument.documentId, values);
         }
 
-        return documents.filter((document) =>
-            documentSearchValues(
-                document,
-                localValuesByDocumentId.get(document.id) ?? [],
-            ).some((value) => matchesKoreanSearch(value, query)),
-        );
+        return documents.filter((document) => {
+            const localValues = localValuesByDocumentId.get(document.id) ?? [];
+            const precomputed = searchIndexByDocumentId?.get(document.id);
+            const values = precomputed
+                ? [...precomputed, ...localValues]
+                : documentSearchValues(document, localValues);
+            return values.some((value) => matchesKoreanSearch(value, query));
+        });
     }
 
     private async filterAndSortDocuments(
@@ -648,25 +668,45 @@ export class EformsignController {
         templateMatch: TemplateMatch,
         statusCategory: DocumentStatusCategory | undefined,
         search: string | undefined,
+        searchIndexByDocumentId?: Map<string, string[]>,
     ): Promise<EformsignListDoc[]> {
         const templateFiltered = filterDocumentsByTemplate(documents, templateId, templateMatch);
         const statusFiltered = filterDocumentsByStatusCategory(templateFiltered, statusCategory);
-        const searchFiltered = await this.filterDocumentsBySearch(statusFiltered, branchId, search);
+        const searchFiltered = await this.filterDocumentsBySearch(
+            statusFiltered,
+            branchId,
+            search,
+            searchIndexByDocumentId,
+        );
         return sortDocumentsByCreatedDate(searchFiltered);
     }
 
-    private async getBranchScopedStatusPage(
+    private toSnapshotEntries(documents: EformsignListDoc[]): DocumentSnapshotEntry<EformsignListDoc>[] {
+        return documents.map((document) => ({
+            document,
+            searchIndex: documentSearchIndex(document),
+        }));
+    }
+
+    /**
+     * 스냅샷(정렬까지 끝난 지점 문서 목록)에 요청별 필터를 적용하고 요청 구간만 잘라 반환한다.
+     * 상세 보강(enrich)은 잘라낸 페이지에만 적용한다. 캐시가 우회된 요청은 snapshot_version을 생략한다.
+     */
+    private async paginateSnapshot(
         accessToken: string,
         branchId: string,
+        snapshot: DocumentSnapshotResult<EformsignListDoc>,
         limit: number,
         skip: number,
-        fetchPage: (limit: number, skip: number) => Promise<{ documents?: EformsignListDoc[] }>,
-        templateId?: string,
-        templateMatch: TemplateMatch = "include",
-        statusCategory?: DocumentStatusCategory,
-        search?: string,
+        templateId: string | undefined,
+        templateMatch: TemplateMatch,
+        statusCategory: DocumentStatusCategory | undefined,
+        search: string | undefined,
     ) {
-        const documents = await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage);
+        const documents = snapshot.entries.map((entry) => entry.document);
+        const searchIndexByDocumentId = new Map(
+            snapshot.entries.map((entry) => [entry.document.id, entry.searchIndex] as const),
+        );
         const filteredDocuments = await this.filterAndSortDocuments(
             documents,
             branchId,
@@ -674,6 +714,7 @@ export class EformsignController {
             templateMatch,
             statusCategory,
             search,
+            searchIndexByDocumentId,
         );
         const pageDocuments = filteredDocuments.slice(skip, skip + limit);
         return {
@@ -682,7 +723,39 @@ export class EformsignController {
             limit,
             skip,
             has_more: skip + limit < filteredDocuments.length,
+            ...(snapshot.snapshotVersion ? { snapshot_version: snapshot.snapshotVersion } : {}),
         };
+    }
+
+    private async getBranchScopedStatusPage(
+        accessToken: string,
+        branchId: string,
+        limit: number,
+        skip: number,
+        fetchPage: (limit: number, skip: number) => Promise<{ documents?: EformsignListDoc[] }>,
+        scope: DocumentSnapshotScope,
+        templateId?: string,
+        templateMatch: TemplateMatch = "include",
+        statusCategory?: DocumentStatusCategory,
+        search?: string,
+    ) {
+        const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
+            { scope, branchId, accessToken },
+            async () => this.toSnapshotEntries(
+                await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage),
+            ),
+        );
+        return this.paginateSnapshot(
+            accessToken,
+            branchId,
+            snapshot,
+            limit,
+            skip,
+            templateId,
+            templateMatch,
+            statusCategory,
+            search,
+        );
     }
 
     /**
@@ -891,45 +964,45 @@ export class EformsignController {
             // 인천점(본사): 회사 전체에서 다른 지점 소유분만 빼고 모은 뒤 요청 구간만 잘라 반환.
             // (필터링 때문에 외부 페이지네이션을 그대로 흘리면 페이지 경계에 빈틈이 생긴다.)
             if (await this.isHeadquartersBranch(branchId)) {
-                const hqDocuments = await this.collectHeadquartersDocuments(accessToken, branchId);
-                const filteredDocuments = await this.filterAndSortDocuments(
-                    hqDocuments,
+                const hqSnapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
+                    { scope: "all", branchId, accessToken },
+                    async () => this.toSnapshotEntries(
+                        await this.collectHeadquartersDocuments(accessToken, branchId),
+                    ),
+                );
+                return this.paginateSnapshot(
+                    accessToken,
                     branchId,
+                    hqSnapshot,
+                    parsedLimit,
+                    parsedSkip,
                     templateId,
                     templateMatch,
                     statusCategory,
                     search,
                 );
-                const pageDocuments = filteredDocuments.slice(parsedSkip, parsedSkip + parsedLimit);
-                return {
-                    documents: await this.enrichDocumentsWithDisplayFields(accessToken, pageDocuments),
-                    total_rows: filteredDocuments.length,
-                    limit: parsedLimit,
-                    skip: parsedSkip,
-                    has_more: parsedSkip + parsedLimit < filteredDocuments.length,
-                };
             }
 
             // 일반 지점: 지점 보유 문서 전체를 모은 뒤 요청 구간만 잘라 반환한다.
             // (회사 페이지를 그대로 필터하면 지점 문서가 뒤 페이지에 있을 때 무한스크롤이
             //  빈 페이지에서 멈춰 누락되므로, 지점 단위로 페이지네이션한다.)
-            const branchDocuments = await this.collectBranchDocuments(accessToken, branchId);
-            const filteredDocuments = await this.filterAndSortDocuments(
-                branchDocuments,
+            const branchSnapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
+                { scope: "all", branchId, accessToken },
+                async () => this.toSnapshotEntries(
+                    await this.collectBranchDocuments(accessToken, branchId),
+                ),
+            );
+            return this.paginateSnapshot(
+                accessToken,
                 branchId,
+                branchSnapshot,
+                parsedLimit,
+                parsedSkip,
                 templateId,
                 templateMatch,
                 statusCategory,
                 search,
             );
-            const pageDocuments = filteredDocuments.slice(parsedSkip, parsedSkip + parsedLimit);
-            return {
-                documents: await this.enrichDocumentsWithDisplayFields(accessToken, pageDocuments),
-                total_rows: filteredDocuments.length,
-                limit: parsedLimit,
-                skip: parsedSkip,
-                has_more: parsedSkip + parsedLimit < filteredDocuments.length,
-            };
         } catch (error) {
             throwHttpOrInternalError(error);
         }
@@ -999,6 +1072,7 @@ export class EformsignController {
                     pageLimit,
                     pageSkip,
                 ),
+                "in-progress",
                 templateId,
                 templateMatch,
                 statusCategory,
@@ -1044,6 +1118,7 @@ export class EformsignController {
                     pageLimit,
                     pageSkip,
                 ),
+                "completed",
                 templateId,
                 templateMatch,
                 statusCategory,
@@ -1089,6 +1164,7 @@ export class EformsignController {
                     pageLimit,
                     pageSkip,
                 ),
+                "rejected",
                 templateId,
                 templateMatch,
                 statusCategory,
