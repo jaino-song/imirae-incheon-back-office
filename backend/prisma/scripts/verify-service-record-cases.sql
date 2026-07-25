@@ -30,8 +30,15 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'active feedback token unique index is missing';
     END IF;
+    -- Deleted clients intentionally leave branch-owned records with NULL client_id.
+    -- PostgreSQL unique constraints permit multiple NULLs, so only live client
+    -- ownership participates in the one-case-per-client invariant.
     IF EXISTS (
-        SELECT "client_id" FROM "service_record_case" GROUP BY "client_id" HAVING COUNT(*) > 1
+        SELECT "client_id"
+        FROM "service_record_case"
+        WHERE "client_id" IS NOT NULL
+        GROUP BY "client_id"
+        HAVING COUNT(*) > 1
     ) THEN
         RAISE EXCEPTION 'duplicate service_record_case rows exist for a client';
     END IF;

@@ -89,7 +89,7 @@ describe("SbMessageLogRepository", () => {
             null,
             1,
             null,
-            null,
+            new Date("2026-07-22T17:23:11.000Z"),
             new Date("2026-07-22T17:18:11.000Z"),
         );
 
@@ -114,7 +114,7 @@ describe("SbMessageLogRepository", () => {
                 errorMessage: null,
                 attempts: 1,
                 lastAttemptAt: null,
-                nextRetryAt: null,
+                nextRetryAt: retryDraft.nextRetryAt,
                 createdAt: retryDraft.createdAt,
                 updatedAt: retryDraft.createdAt,
             });

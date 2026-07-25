@@ -98,7 +98,10 @@ describe("UpdateUserUsecase", () => {
 
                 await usecase.execute("user_1", { role, callerRole: "owner" });
 
-                expect(mockRepository.clearBranchOwnershipsCalls).toEqual(["user_1"]);
+                expect(mockRepository.clearBranchOwnershipsCalls).toEqual([{
+                    userId: "user_1",
+                    membershipRole: role,
+                }]);
             },
         );
 

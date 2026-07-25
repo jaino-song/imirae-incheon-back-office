@@ -2,18 +2,18 @@ import { GUARDS_METADATA } from "@nestjs/common/constants";
 
 import { ListOutOfPocketPriceInfoUsecase } from "application/usecases/out-of-pocket-price-info/list-out-of-pocket-price-info.usecase";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
-import { OwnerOrAdminGuard } from "infrastructure/auth/owner-or-admin.guard";
+import { TenantGuard } from "infrastructure/tenant";
 import { OutOfPocketPriceInfoController } from "interface/controllers/out-of-pocket-price-info.controller";
 
 describe("OutOfPocketPriceInfoController", () => {
-    it("should protect the price list with owner/admin guards", () => {
+    it("should protect the price list with authenticated tenant guards", () => {
         const guards = Reflect.getMetadata(
             GUARDS_METADATA,
             OutOfPocketPriceInfoController.prototype.list,
         ) ?? [];
 
         expect(guards).toContain(JwtGuard);
-        expect(guards).toContain(OwnerOrAdminGuard);
+        expect(guards).toContain(TenantGuard);
     });
 
     it("should return JSON-safe price rows", async () => {

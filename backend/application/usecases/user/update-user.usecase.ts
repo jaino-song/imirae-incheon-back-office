@@ -48,7 +48,10 @@ export class UpdateUserUsecase {
                 throw new ForbiddenException("오너 계정의 역할은 변경할 수 없습니다.");
             }
             user.role = updates.role;
-            await this.userRepository.clearBranchOwnerships(user.id);
+            const membershipRole = updates.role === "admin" || updates.role === "manager"
+                ? updates.role
+                : "user";
+            await this.userRepository.clearBranchOwnerships(user.id, membershipRole);
         }
 
         if (updates.branchId) {

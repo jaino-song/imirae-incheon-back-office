@@ -1,6 +1,6 @@
 BEGIN;
 
-CREATE TABLE "out_of_pocket_price_info" (
+CREATE TABLE IF NOT EXISTS "out_of_pocket_price_info" (
     "id" SMALLSERIAL NOT NULL,
     "duration" SMALLINT NOT NULL,
     "full_price" BIGINT NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE "out_of_pocket_price_info" (
         CHECK ("full_price" >= 0)
 );
 
-CREATE UNIQUE INDEX "out_of_pocket_price_info_duration_key"
+CREATE UNIQUE INDEX IF NOT EXISTS "out_of_pocket_price_info_duration_key"
     ON "out_of_pocket_price_info"("duration");
 
 INSERT INTO "out_of_pocket_price_info" (
@@ -27,6 +27,7 @@ VALUES
     (5, 815000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     (10, 1620000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     (15, 2425000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    (20, 3240000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+    (20, 3240000, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT ("duration") DO NOTHING;
 
 COMMIT;

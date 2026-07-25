@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Link2 } from "lucide-react";
-import { REGISTERABLE_ROLE_OPTIONS } from "@babyjamjam/shared";
+import { CheckCircle, ChevronLeft, ChevronRight, Link2 } from "lucide-react";
 
 import { authApi } from "@/services/api";
 import {
@@ -25,10 +24,9 @@ interface AxiosLikeError {
 }
 
 const EMAIL_DUPLICATE_ERROR = "이미 등록된 이메일입니다.";
-const REGISTER_TOTAL_STEPS = 3;
+const REGISTER_TOTAL_STEPS = 2;
 const ACCOUNT_FIELDS = ["email", "name", "password", "confirmPassword"] as const;
 const PROFILE_FIELDS = ["phone", "birthDate"] as const;
-const APPROVAL_FIELDS = ["role"] as const;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -41,7 +39,6 @@ export default function RegisterPage() {
   const [profileData, setProfileData] = useState({
     phone: "",
     birthDate: "",
-    role: "",
   });
   const [currentStep, setCurrentStep] = useState(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -156,7 +153,7 @@ export default function RegisterPage() {
 
   const handleProfileChange =
     (field: keyof typeof profileData) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    (e: React.ChangeEvent<HTMLInputElement>) => {
       setProfileData((prev) => ({ ...prev, [field]: e.target.value }));
       setErrors((prev) => {
         if (!prev[field]) return prev;
@@ -217,25 +214,6 @@ export default function RegisterPage() {
     setCurrentStep(2);
   };
 
-  const handleProfileStepNext = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setServerError(null);
-    const result = registerSchema.safeParse(getCombinedFormData());
-    if (!result.success) {
-      const fieldErrors = collectFieldErrors(result.error.issues, PROFILE_FIELDS);
-      if (Object.keys(fieldErrors).length > 0) {
-        setErrors((prev) => ({ ...prev, ...fieldErrors }));
-        return;
-      }
-    }
-    setErrors((prev) => {
-      const next = { ...prev };
-      PROFILE_FIELDS.forEach((field) => delete next[field]);
-      return next;
-    });
-    setCurrentStep(3);
-  };
-
   const handlePreviousStep = () => {
     setServerError(null);
     setCurrentStep((step) => Math.max(1, step - 1));
@@ -263,7 +241,6 @@ export default function RegisterPage() {
       const fieldErrors = collectFieldErrors(result.error.issues, [
         ...ACCOUNT_FIELDS,
         ...PROFILE_FIELDS,
-        ...APPROVAL_FIELDS,
       ]);
       setErrors(fieldErrors);
       if (ACCOUNT_FIELDS.some((field) => fieldErrors[field])) setCurrentStep(1);
@@ -489,7 +466,7 @@ export default function RegisterPage() {
       )}
 
       {currentStep === 2 && (
-        <form className="auth-form auth-step-view active" onSubmit={handleProfileStepNext} data-component="auth-register-profile-form">
+        <form className="auth-form auth-step-view active" onSubmit={handleSubmit} data-component="auth-register-profile-form">
           <div className="auth-input-group" data-component="auth-register-phone-field">
             <label className="auth-label" htmlFor="register-phone">전화번호</label>
             <input
@@ -539,49 +516,10 @@ export default function RegisterPage() {
               <ChevronLeft size={14} strokeWidth={2.5} />
               이전
             </button>
-            <button type="submit" className="auth-btn" disabled={isLoading}>
-              다음
-              <ChevronRight size={14} strokeWidth={2.5} />
-            </button>
-          </div>
-        </form>
-      )}
-
-      {currentStep === 3 && (
-        <form className="auth-form auth-step-view active" onSubmit={handleSubmit} data-component="auth-register-submit-form">
-          <div className="auth-input-group" data-component="auth-register-role-field">
-            <label className="auth-label" htmlFor="register-role">요청 권한</label>
-            <div className="auth-select-wrap" data-component="auth-register-role-select-wrap">
-              <select
-                id="register-role"
-                className="auth-select"
-                value={profileData.role}
-                onChange={handleProfileChange("role")}
-                disabled={isLoading}
-                aria-invalid={!!errors.role}
-              >
-                <option value="">역할을 선택해주세요</option>
-                {REGISTERABLE_ROLE_OPTIONS.map((role) => (
-                  <option key={role.value} value={role.value}>
-                    {role.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="auth-select-chev" size={16} strokeWidth={2.5} aria-hidden="true" />
-            </div>
-            {errors.role && <div className="auth-helper error" data-component="auth-register-role-error">{errors.role}</div>}
-            <div className="auth-helper" data-component="auth-register-role-helper">오너가 지점과 최종 권한을 배정합니다.</div>
-          </div>
-
-          <div className="auth-actions" data-component="auth-register-step-actions">
-            <button type="button" className="auth-btn secondary" onClick={handlePreviousStep} disabled={isLoading}>
-              <ChevronLeft size={14} strokeWidth={2.5} />
-              이전
-            </button>
             <button
               type="submit"
               className="auth-btn"
-              disabled={isLoading || isCheckingEmailDuplicate}
+              disabled={isLoading || isCheckingEmailDuplicate || isEmailDuplicate}
               aria-label={isLoading ? "회원가입 처리 중" : "회원가입"}
               data-component="auth-register-submit"
             >

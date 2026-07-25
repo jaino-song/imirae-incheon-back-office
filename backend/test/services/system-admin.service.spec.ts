@@ -51,6 +51,7 @@ describe("SystemAdminService", () => {
     };
     type MockUserBranchModel = {
         upsert: jest.Mock;
+        updateMany: jest.Mock;
     };
 
     let branchModel: MockBranchModel;
@@ -118,6 +119,7 @@ describe("SystemAdminService", () => {
         };
         userBranchModel = {
             upsert: jest.fn(),
+            updateMany: jest.fn(),
         };
         prisma = {
             branch: branchModel,
@@ -564,6 +566,14 @@ describe("SystemAdminService", () => {
                 where: { id: "prev-owner-1", role: "admin" },
                 data: { role: "user" },
             });
+            expect(userBranchModel.updateMany).toHaveBeenCalledWith({
+                where: {
+                    userId: "prev-owner-1",
+                    branchId: "branch-1",
+                    role: "admin",
+                },
+                data: { role: "user" },
+            });
         });
 
         it("does NOT demote the previous owner when they still own another branch", async () => {
@@ -577,6 +587,14 @@ describe("SystemAdminService", () => {
             });
 
             expect(userModel.updateMany).not.toHaveBeenCalled();
+            expect(userBranchModel.updateMany).toHaveBeenCalledWith({
+                where: {
+                    userId: "prev-owner-1",
+                    branchId: "branch-1",
+                    role: "admin",
+                },
+                data: { role: "user" },
+            });
         });
 
         it("does NOT run the demotion query when dto.ownerId is not provided", async () => {
@@ -586,6 +604,7 @@ describe("SystemAdminService", () => {
 
             expect(branchModel.findFirst).not.toHaveBeenCalled();
             expect(userModel.updateMany).not.toHaveBeenCalled();
+            expect(userBranchModel.updateMany).not.toHaveBeenCalled();
         });
 
         it("runs the demotion path on 해제 (ownerId explicitly set to null)", async () => {
@@ -601,6 +620,14 @@ describe("SystemAdminService", () => {
                 where: { id: "prev-owner-1", role: "admin" },
                 data: { role: "user" },
             });
+            expect(userBranchModel.updateMany).toHaveBeenCalledWith({
+                where: {
+                    userId: "prev-owner-1",
+                    branchId: "branch-1",
+                    role: "admin",
+                },
+                data: { role: "user" },
+            });
         });
 
         it("does NOT demote when the branch previously had no owner", async () => {
@@ -614,6 +641,7 @@ describe("SystemAdminService", () => {
 
             expect(branchModel.findFirst).not.toHaveBeenCalled();
             expect(userModel.updateMany).not.toHaveBeenCalled();
+            expect(userBranchModel.updateMany).not.toHaveBeenCalled();
         });
     });
 });

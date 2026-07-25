@@ -135,6 +135,14 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260721090000_make_branch_owner_nullable/migration.sql
 
+      - name: Apply out-of-pocket price info patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260722123000_add_out_of_pocket_price_info/migration.sql
+
+      - name: Verify out-of-pocket price info patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-out-of-pocket-price-info.sql
+
       - name: Preserve electronic documents on client deletion
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260723090000_preserve_electronic_documents_on_client_delete/migration.sql
@@ -188,13 +196,13 @@ jobs:
       - name: Apply message schema compatibility patches
         working-directory: backend
         run: |
-          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713120000_repair_message_table_renames/migration.sql
-          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709000000_message_automation_hardening/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713120000_repair_message_table_renames/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260709000000_message_automation_hardening/migration.sql
 
       - name: Apply idempotent database patches
         working-directory: backend
         run: |
-          pnpm exec prisma db execute --schema prisma/schema.prisma --stdin <<'SQL'
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --stdin <<'SQL'
           ALTER TABLE "client" ALTER COLUMN "care_center" DROP NOT NULL;
           ALTER TABLE "client_draft" ADD COLUMN IF NOT EXISTS "confirming_started_at" TIMESTAMPTZ(6);
           ALTER TABLE "message_trigger_job"  ADD COLUMN IF NOT EXISTS "attempts" INTEGER NOT NULL DEFAULT 0;
@@ -226,7 +234,7 @@ jobs:
       - name: Verify database patches
         working-directory: backend
         run: |
-          pnpm exec prisma db execute --schema prisma/schema.prisma --stdin <<'SQL'
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --stdin <<'SQL'
           DO $$
           BEGIN
             IF EXISTS (
@@ -318,74 +326,94 @@ jobs:
       - name: Apply eformsign document relation patches
         working-directory: backend
         run: |
-          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709100000_link_eformsign_and_message_relations/migration.sql
-          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709110000_add_message_log_recipient_snapshot/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260709100000_link_eformsign_and_message_relations/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260709110000_add_message_log_recipient_snapshot/migration.sql
 
       - name: Verify eformsign document relation patches
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-relations.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-relations.sql
 
       - name: Apply client-owned service-record patch
         working-directory: backend
         run: |
-          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713000000_add_client_service_record_case/migration.sql
-          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713110000_align_service_record_case_schema/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713000000_add_client_service_record_case/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713110000_align_service_record_case_schema/migration.sql
 
       - name: Verify client-owned service-record patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-service-record-cases.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-service-record-cases.sql
 
       - name: Apply user approval + token-version patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713100000_add_user_approval_and_token_version/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713100000_add_user_approval_and_token_version/migration.sql
 
       - name: Verify user approval + token-version patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-user-approval.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-user-approval.sql
 
       - name: Apply auth session + outbox patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717090000_add_auth_sessions/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260717090000_add_auth_sessions/migration.sql
 
       - name: Verify auth session + outbox patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-auth-sessions.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-auth-sessions.sql
 
       - name: Apply service-record mom signature patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260715140000_add_client_signature_to_service_record_day/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260715140000_add_client_signature_to_service_record_day/migration.sql
 
       - name: Apply feedback to service-record rename patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260716090000_rename_feedback_to_service_record/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260716090000_rename_feedback_to_service_record/migration.sql
 
       - name: Apply employee/client hardening patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
 
       - name: Verify employee/client hardening patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
 
       - name: Apply client pre-booking status patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717120000_add_client_pre_booking_status/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260717120000_add_client_pre_booking_status/migration.sql
 
       - name: Verify client pre-booking status patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-pre-booking-status.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-client-pre-booking-status.sql
 
       - name: Apply branch owner nullable patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260721090000_make_branch_owner_nullable/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260721090000_make_branch_owner_nullable/migration.sql
+
+      - name: Apply out-of-pocket price info patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260722123000_add_out_of_pocket_price_info/migration.sql
+
+      - name: Verify out-of-pocket price info patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-out-of-pocket-price-info.sql
 
       - name: Preserve electronic documents on client deletion
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260723090000_preserve_electronic_documents_on_client_delete/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260723090000_preserve_electronic_documents_on_client_delete/migration.sql
 
       - name: Verify client deletion document preservation
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-delete-document-preservation.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-client-delete-document-preservation.sql
+
+      # One-shot data/policy patch — runs ONLY when manually dispatched (target=preview),
+      # never on ordinary prisma pushes, so it does not re-assert branch state.
+      - name: Activate Incheon district branches + rename HQ (manual)
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/activate-incheon-districts-and-rename-hq.sql
+
+      - name: Verify Incheon districts operational (manual)
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-incheon-districts-operational.sql
 
       # One-shot data/policy patch — runs ONLY when manually dispatched (target=preview),
       # never on ordinary prisma pushes, so it does not re-assert branch state.
@@ -638,6 +666,14 @@ jobs:
       - name: Apply branch owner nullable patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260721090000_make_branch_owner_nullable/migration.sql
+
+      - name: Apply out-of-pocket price info patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260722123000_add_out_of_pocket_price_info/migration.sql
+
+      - name: Verify out-of-pocket price info patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-out-of-pocket-price-info.sql
 
       - name: Preserve electronic documents on client deletion
         working-directory: backend

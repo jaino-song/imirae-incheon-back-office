@@ -8,7 +8,10 @@ import { IUserRepository } from "domain/repositories/user.repository.interface";
 export class MockUserRepository implements IUserRepository {
     private users: Map<string, UserEntity> = new Map();
     private userIdCounter: number = 1;
-    clearBranchOwnershipsCalls: string[] = [];
+    clearBranchOwnershipsCalls: Array<{
+        userId: string;
+        membershipRole: "admin" | "manager" | "user";
+    }> = [];
 
     /**
      * 테스트 데이터 초기화
@@ -107,8 +110,11 @@ export class MockUserRepository implements IUserRepository {
         return this.users.has(id);
     }
 
-    async clearBranchOwnerships(userId: string): Promise<void> {
-        this.clearBranchOwnershipsCalls.push(userId);
+    async clearBranchOwnerships(
+        userId: string,
+        membershipRole: "admin" | "manager" | "user",
+    ): Promise<void> {
+        this.clearBranchOwnershipsCalls.push({ userId, membershipRole });
     }
 
     async findByRoles(roles: string[]): Promise<UserEntity[]> {

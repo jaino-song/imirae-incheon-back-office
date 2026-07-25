@@ -128,6 +128,7 @@ describe("SmsRetryService", () => {
                 id: 0,
                 status: "pending",
                 attempts: 1,
+                nextRetryAt: new Date(300_000),
                 variables: expect.objectContaining({
                     retryOfLogId: "77",
                     retryAttempt: "2",
