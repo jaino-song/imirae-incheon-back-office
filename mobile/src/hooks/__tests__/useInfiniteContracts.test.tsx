@@ -282,6 +282,8 @@ describe("useInfiniteContracts", () => {
       "branch-1",
       "drafting",
       "alpha",
+      "any-template",
+      "include",
     ])).toBeDefined();
     expect(queryClient.getQueryState([
       "eformsign-documents",
@@ -289,6 +291,8 @@ describe("useInfiniteContracts", () => {
       "branch-1",
       "completed",
       "alpha",
+      "any-template",
+      "include",
     ])).toBeDefined();
     expect(queryClient.getQueryState([
       "eformsign-documents",
@@ -296,6 +300,8 @@ describe("useInfiniteContracts", () => {
       "branch-1",
       "completed",
       "beta",
+      "any-template",
+      "include",
     ])).toBeDefined();
     expect(result.current.queryKey).toEqual([
       "eformsign-documents",
@@ -303,6 +309,8 @@ describe("useInfiniteContracts", () => {
       "branch-2",
       "completed",
       "beta",
+      "any-template",
+      "include",
     ]);
   });
 

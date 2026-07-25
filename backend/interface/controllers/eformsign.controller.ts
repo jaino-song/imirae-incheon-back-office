@@ -1039,6 +1039,10 @@ export class EformsignController {
     async getStatusCounts(
         @CurrentTenant() tenant: { branchId?: string },
         @Query("accessToken") accessToken: string,
+        @Query("templateId") templateId?: string,
+        @Query("templateMatch") templateMatchValue?: string,
+        @Query("search") search?: string,
+        @Query("excludeDeleted") excludeDeletedValue?: string,
     ) {
         try {
             if (!accessToken) {
@@ -1047,6 +1051,8 @@ export class EformsignController {
                     HttpStatus.BAD_REQUEST
                 );
             }
+            const templateMatch = parseTemplateMatch(templateMatchValue);
+            const excludeDeleted = excludeDeletedValue === "true";
             const branchId = tenant.branchId ?? "";
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
             // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
@@ -1058,7 +1064,22 @@ export class EformsignController {
                         : await this.collectBranchDocuments(accessToken, branchId),
                 ),
             );
-            return { documents: snapshot.entries.map((entry) => toStatusSignal(entry.document)) };
+            // 모바일 필터 pill 카운터용: 목록과 동일한 선(先)필터를 적용한 뒤 신호만 내려준다.
+            // 파라미터 미지정 시 기존과 동일하게 전체 신호를 반환한다.
+            const searchIndexByDocumentId = new Map(
+                snapshot.entries.map((entry) => [entry.document.id, entry.searchIndex] as const),
+            );
+            const filteredDocuments = await this.filterAndSortDocuments(
+                snapshot.entries.map((entry) => entry.document),
+                branchId,
+                templateId,
+                templateMatch,
+                undefined,
+                search,
+                excludeDeleted,
+                searchIndexByDocumentId,
+            );
+            return { documents: filteredDocuments.map((doc) => toStatusSignal(doc)) };
         } catch (error) {
             throwHttpOrInternalError(error);
         }

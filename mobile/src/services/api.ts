@@ -156,6 +156,18 @@ export interface GetAllDocumentsParams {
     excludeDeleted?: boolean;
 }
 
+/** Raw status signal for one document, as returned by GET /eformsign/documents/status-counts. */
+export interface EformsignStatusSignal {
+    status_type: string | null;
+    step_type: string | null;
+    step_name: string | null;
+    step_recipient_types: Array<string | null>;
+}
+
+export interface EformsignStatusCountsResponse {
+    documents: EformsignStatusSignal[];
+}
+
 /**
  * Serializes document-list params for the Next.js proxy route.
  * Undefined/blank values are omitted so the backend keeps its own defaults, and
@@ -391,6 +403,16 @@ export const eformsignApi = {
     // the filtered set (see backend eformsign.controller.ts document list handlers).
     getAllDocuments: async (params?: GetAllDocumentsParams): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get('/eformsign/documents', {
+            params: buildDocumentListParams(params),
+        });
+        return data;
+    },
+    // Raw per-document status signals with the same pre-slice filters as the list.
+    // Used to fold filter-pill counts client-side without fetching full documents.
+    getStatusCounts: async (
+        params?: Pick<GetAllDocumentsParams, "templateId" | "templateMatch" | "search" | "excludeDeleted">,
+    ): Promise<EformsignStatusCountsResponse> => {
+        const { data } = await api.get('/eformsign/documents/status-counts', {
             params: buildDocumentListParams(params),
         });
         return data;

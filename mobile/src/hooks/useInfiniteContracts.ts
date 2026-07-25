@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { infiniteQueryOptions, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
 import { eformsignApi, withEformsignReauth } from "@/services/api";
-import type { EformsignStatusCategoryParam } from "@/services/api";
+import type { EformsignStatusCategoryParam, EformsignTemplateMatchParam } from "@/services/api";
 import type { EformsignDocument, EformsignDocumentsResponse } from "@/lib/eformsign/types";
 import type { DocumentFilterType } from "@/lib/eformsign/status-codes";
 import { useGetAuthUser } from "./useGetAuthUser";
@@ -30,18 +30,27 @@ export interface InfiniteContractsQueryInput {
   statusCategory?: EformsignStatusCategoryParam | null;
   /** Server-side search term (chosung-aware on the backend). */
   search?: string | null;
+  /**
+   * Section filter: the service-record template id, matched `include` for the
+   * 제공기록지 section and `exclude` for the 산모 계약서 section. Part of the key so
+   * section switches restart from page 1.
+   */
+  templateId?: string | null;
+  templateMatch?: EformsignTemplateMatchParam | null;
 }
 
 export const infiniteContractsQueryKeys = {
   /** Prefix for every paginated contracts query (useful for invalidate/remove). */
   all: () => ["eformsign-documents", "paginated"] as const,
-  list: ({ branchId, statusCategory, search }: InfiniteContractsQueryInput) =>
+  list: ({ branchId, statusCategory, search, templateId, templateMatch }: InfiniteContractsQueryInput) =>
     [
       "eformsign-documents",
       "paginated",
       branchId ?? "unknown",
       statusCategory ?? "all",
       search ?? "",
+      templateId ?? "any-template",
+      templateMatch ?? "include",
     ] as const,
 };
 
@@ -91,15 +100,21 @@ export function infiniteContractsQueryOptions({
   branchId,
   statusCategory,
   search,
+  templateId,
+  templateMatch,
 }: InfiniteContractsQueryInput) {
   const normalizedSearch = search?.trim() ?? "";
   const normalizedStatusCategory = statusCategory ?? null;
+  const normalizedTemplateId = templateId ?? null;
+  const normalizedTemplateMatch = templateMatch ?? null;
 
   return infiniteQueryOptions({
     queryKey: infiniteContractsQueryKeys.list({
       branchId,
       statusCategory: normalizedStatusCategory,
       search: normalizedSearch,
+      templateId: normalizedTemplateId,
+      templateMatch: normalizedTemplateMatch,
     }),
     queryFn: ({ pageParam }) =>
       withEformsignReauth(() =>
@@ -108,6 +123,8 @@ export function infiniteContractsQueryOptions({
           skip: pageParam.skip,
           statusCategory: normalizedStatusCategory ?? undefined,
           search: normalizedSearch || undefined,
+          templateId: normalizedTemplateId ?? undefined,
+          templateMatch: normalizedTemplateMatch ?? undefined,
           // Mobile never shows deleted documents; filtering server-side keeps the
           // page slice honest (deleted docs would otherwise eat page slots).
           excludeDeleted: true,
@@ -134,6 +151,8 @@ export interface UseInfiniteContractsOptions extends Omit<InfiniteContractsQuery
 export function useInfiniteContracts({
   statusCategory = null,
   search = "",
+  templateId = null,
+  templateMatch = null,
   enabled = true,
 }: UseInfiniteContractsOptions = {}) {
   const queryClient = useQueryClient();
@@ -141,8 +160,8 @@ export function useInfiniteContracts({
   const branchId = authUser?.branchId ?? null;
 
   const options = useMemo(
-    () => infiniteContractsQueryOptions({ branchId, statusCategory, search }),
-    [branchId, statusCategory, search],
+    () => infiniteContractsQueryOptions({ branchId, statusCategory, search, templateId, templateMatch }),
+    [branchId, statusCategory, search, templateId, templateMatch],
   );
 
   const query = useInfiniteQuery({
