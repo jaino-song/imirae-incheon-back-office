@@ -399,8 +399,8 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    const maternalContractsButton = page.getByRole("button", { name: "산모 계약서" });
-    const serviceRecordsButton = page.getByRole("button", { name: "제공기록지" });
+    const maternalContractsButton = page.getByRole("button", { name: "산모 계약서", exact: true });
+    const serviceRecordsButton = page.getByRole("button", { name: "제공기록지", exact: true });
     await expect(maternalContractsButton).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(1);
     await expect(page.locator('[data-component="mobile-contracts-row"]')).toContainText("홍길동");
@@ -821,7 +821,7 @@ test.describe("Mobile contracts list rows", () => {
     await routeNotificationLogs(page);
 
     await page.goto("/contracts");
-    await page.getByRole("button", { name: "제공기록지" }).click();
+    await page.getByRole("button", { name: "제공기록지", exact: true }).click();
     await page.locator('[data-component="mobile-contracts-row"]', { hasText: "검토고객" }).click();
     await expect(page.locator('[data-component="mobile-contracts-detail-name"]')).toHaveText("제공기록지");
     const userInfo = page.locator(".info-card", { hasText: "이용자 정보" });
