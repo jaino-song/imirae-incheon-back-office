@@ -10,6 +10,16 @@ import { expect, test } from '@playwright/test';
  */
 const BACKEND_URL = process.env.DEVELOPMENT_API_BASE_URL || 'http://127.0.0.1:3001';
 
+/**
+ * `POST /settings/message-sender-approval/:branchId/approve` is behind
+ * OwnerGuard (global role `owner`). The mobile suite signs in as
+ * `admin-a@auth-e2e.test` (global role `admin`), so the approve half of the
+ * lifecycle needs a separate owner token from the same e2e seed
+ * (backend/test/auth-e2e/seed-auth-e2e.ts).
+ */
+const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? 'owner@auth-e2e.test';
+const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? 'Password1!';
+
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Critical flows (real backend)', () => {
@@ -31,6 +41,20 @@ test.describe('Critical flows (real backend)', () => {
 
     const headers = { Authorization: `Bearer ${authToken}` };
 
+    // The owner login targets the backend host, so it never touches the
+    // localhost cookie jar the page session authenticates with.
+    const ownerLoginRes = await page.request.post(`${BACKEND_URL}/auth/login`, {
+      data: { email: OWNER_EMAIL, password: OWNER_PASSWORD },
+    });
+    expect(ownerLoginRes.ok()).toBeTruthy();
+    const ownerLogin = (await ownerLoginRes.json()) as {
+      success?: boolean;
+      accessToken?: string;
+    };
+    expect(ownerLogin.success).toBe(true);
+    expect(ownerLogin.accessToken).toBeTruthy();
+    const ownerHeaders = { Authorization: `Bearer ${ownerLogin.accessToken}` };
+
     // 1. Normalize the mutable CI fixture to approved, then verify the UI gate.
     const initialRequestRes = await page.request.post(
       `${BACKEND_URL}/settings/message-sender-approval/request`,
@@ -40,7 +64,7 @@ test.describe('Critical flows (real backend)', () => {
 
     const initialApproveRes = await page.request.post(
       `${BACKEND_URL}/settings/message-sender-approval/${branchId}/approve`,
-      { headers, data: {} },
+      { headers: ownerHeaders, data: {} },
     );
     expect(initialApproveRes.ok()).toBeTruthy();
 
@@ -65,7 +89,7 @@ test.describe('Critical flows (real backend)', () => {
 
     const approveRes = await page.request.post(
       `${BACKEND_URL}/settings/message-sender-approval/${branchId}/approve`,
-      { headers, data: {} },
+      { headers: ownerHeaders, data: {} },
     );
     expect(approveRes.ok()).toBeTruthy();
 

@@ -90,12 +90,16 @@ test.describe("mobile messages navigation", () => {
 
     await page.getByRole("button", { name: /인사 메시지/ }).click();
 
-    await expect(page.locator('[data-component="mobile-messages-detail-page"]')).toBeVisible();
+    await expect(
+      page.locator('[data-component="mobile-messages-history-detail-content"]'),
+    ).toBeVisible();
     await expect(page.getByText("발송 정보")).toBeVisible();
     await expect(page.getByText("01012345678")).toBeVisible();
     await expect(page.getByText("안녕하세요")).toBeVisible();
 
-    await page.locator('[data-component="mobile-messages-detail-page"] .sheet-close').click();
+    await page
+      .locator('[data-component="mobile_mobile-redesign_detail-sheet_stack_detail-page"] .sheet-close')
+      .click();
 
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
     await expect(page.getByText("01012345678")).not.toBeVisible();

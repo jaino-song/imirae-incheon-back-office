@@ -30,6 +30,10 @@ async function mockShellRequests(page: import("@playwright/test").Page) {
 async function signServiceRecord(page: import("@playwright/test").Page) {
   const signaturePad = page.getByLabel("산모 서명 입력");
   await expect(signaturePad).toBeVisible();
+  // page.mouse works in viewport coordinates and never auto-scrolls, so the pad
+  // has to be brought into view before its box is read — the confirm step is
+  // taller than the viewport and the pad sits below the fold.
+  await signaturePad.scrollIntoViewIfNeeded();
 
   const box = await signaturePad.boundingBox();
   if (!box) throw new Error("산모 서명 입력 영역을 찾을 수 없습니다.");

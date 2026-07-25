@@ -206,7 +206,10 @@ test.describe("Mobile prices skeletons", () => {
     expect(detailMetrics.scrim?.width).toBe(detailMetrics.viewportWidth);
     expect(detailMetrics.scrim?.height).toBe(detailMetrics.scrim?.viewportHeight);
 
-    await expect(page.locator('[data-component="mobile-prices-detail"]')).toHaveClass(/detail-body/);
-    await expect(page.locator('[data-component="mobile-prices-detail"]')).toHaveClass(/detail-column/);
+    const detailBody = page.locator(
+      '[data-component="mobile_prices_detail-sheet_stack_detail-page_body"]',
+    );
+    await expect(detailBody).toHaveClass(/detail-body/);
+    await expect(detailBody).toHaveClass(/detail-column/);
   });
 });

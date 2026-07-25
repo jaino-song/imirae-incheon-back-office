@@ -322,7 +322,8 @@ test.describe("clients/new wizard", () => {
     await page.locator('[data-component="clients-new-actions"] button').nth(1).click();
 
     await fillDeterministicVoucherFields(page);
-    await page.locator('[data-component="clients-new-bank-account-select"]').selectOption("area-incheon");
+    // The wizard no longer collects a service area — `areaId` is only hydrated
+    // from an existing client when editing, so a fresh create posts it as null.
     await page.locator('[data-component="clients-new-actions"] button').nth(1).click();
 
     await expect(page.locator('[data-component="clients-new-step-count"]')).toHaveText("3 / 3 단계");
@@ -347,7 +348,7 @@ test.describe("clients/new wizard", () => {
         voucherClient: true,
         breastPump: false,
         serviceStatus: "waiting",
-        areaId: "area-incheon",
+        areaId: null,
       })
     );
   });
