@@ -613,6 +613,7 @@ describe("AuthController (Integration)", () => {
                 expect(response.status).toBe(200);
                 expect(response.body).toEqual({
                     ...mockUser,
+                    branchId: null,
                     branchName: null,
                     branchSlug: null,
                 });
@@ -643,6 +644,7 @@ describe("AuthController (Integration)", () => {
                 // Assert
                 expect(response.status).toBe(200);
                 expect(response.body).toEqual({
+                    branchId: null,
                     branchName: null,
                     branchSlug: null,
                 });
