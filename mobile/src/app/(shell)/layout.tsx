@@ -55,21 +55,32 @@ export default async function RootLayout({
       <body className={`${Pretendard.variable} antialiased min-h-screen bg-v3-dim-white`}>
         <div
           data-component="app-root"
-          className="relative mx-auto h-[min(100dvh,844px)] w-[min(100vw,390px)] max-w-[390px] overflow-x-hidden overflow-y-auto [--mobile-shell-max-height:844px]"
+          data-slot="app-root"
+          className="relative h-[100dvh] w-[100vw] max-w-none overflow-hidden [--mobile-shell-max-height:100dvh]"
         >
-          <div data-component="app-providers" className="min-h-full">
+          <div
+            data-component="mobile_shell_app-shell"
+            data-slot="app-shell"
+            className="relative h-full min-h-0 w-full overflow-hidden"
+          >
             <QueryProvider>
               <LocaleProvider locale={locale}>
                 <UserProvider user={user}>
-                  <NotificationPermissionPrompt />
-                  <V3Sidebar />
-                  <V3MobileHeader />
-                  <V3MainContent>
-                    {children}
-                  </V3MainContent>
-                  <FloatingQuickActions />
-                  <Toaster />
-                  <MobileBottomNav />
+                  <div
+                    data-component="app-providers"
+                    data-slot="app-content"
+                    className="relative h-full min-h-0 w-full overflow-hidden"
+                  >
+                    <NotificationPermissionPrompt />
+                    <V3Sidebar />
+                    <V3MobileHeader />
+                    <V3MainContent>
+                      {children}
+                    </V3MainContent>
+                    <FloatingQuickActions />
+                    <Toaster />
+                    <MobileBottomNav />
+                  </div>
                 </UserProvider>
               </LocaleProvider>
             </QueryProvider>

@@ -512,7 +512,7 @@ test.describe("Mobile contracts list rows", () => {
     expect(Math.abs(beforeBox.height - afterBox.height)).toBeLessThanOrEqual(1);
   });
 
-  test("uses the clients viewport limit without a phone-frame gutter", async ({ page }) => {
+  test("uses the full viewport shell without a route-specific phone frame", async ({ page }) => {
     await page.setViewportSize({ width: 467, height: 852 });
 
     await page.route("**/api/access-token", async (route) => {
@@ -579,9 +579,9 @@ test.describe("Mobile contracts list rows", () => {
       throw new Error("Contracts shell geometry should be measurable");
     }
 
-    const expectedRootWidth = Math.min(geometry.viewportWidth, 390);
-    const expectedRootHeight = Math.min(geometry.viewportHeight, 844);
-    const expectedRootX = (geometry.viewportWidth - expectedRootWidth) / 2;
+    const expectedRootWidth = geometry.viewportWidth;
+    const expectedRootHeight = geometry.viewportHeight;
+    const expectedRootX = 0;
 
     expect(Math.abs(geometry.appRoot.x - expectedRootX)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.appRoot.width - expectedRootWidth)).toBeLessThanOrEqual(1);
