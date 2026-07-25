@@ -67,6 +67,78 @@ type EformsignListDoc = {
 } & Record<string, unknown>;
 
 type TemplateMatch = "include" | "exclude";
+type DocumentStatusCategory = "drafting" | "in-progress" | "completed" | "expired" | "unknown";
+
+const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
+const EXPIRED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080", "090"]);
+const DELETED_STATUS_CODES = new Set(["047", "049"]);
+const IN_PROGRESS_STATUS_CODES = new Set(["001", "002", "010", "020", "030", "043", "060", "063", "064", "070"]);
+const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
+const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
+const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
+const CUSTOMER_STEP_KEYWORDS = ["이용자", "고객", "산모"];
+const STATUS_NAME_TO_CODE: Record<string, string> = {
+    doc_tempsave: "001",
+    doc_create: "002",
+    doc_complete: "003",
+    doc_request_approval: "010",
+    doc_reject_approval: "011",
+    doc_accept_approval: "012",
+    doc_request_reception: "020",
+    doc_reject_reception: "021",
+    doc_accept_reception: "022",
+    doc_request_outsider: "030",
+    doc_reject_outsider: "031",
+    doc_accept_outsider: "032",
+    doc_request_revoke: "040",
+    doc_revoke: "042",
+    doc_update: "043",
+    doc_request_reject: "045",
+    doc_request_delete: "047",
+    doc_delete: "049",
+    doc_request_participant: "060",
+    doc_reject_participant: "061",
+    doc_accept_participant: "062",
+    doc_rerequest_participant: "063",
+    doc_open_participant: "064",
+    doc_request_reviewer: "070",
+    doc_reject_reviewer: "071",
+    doc_accept_reviewer: "072",
+    doc_expired: "080",
+    face_signature_complete: "092",
+};
+const CHOSUNG_LIST = [
+    "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ",
+    "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
+] as const;
+
+function parseStatusCategory(value: string | undefined): DocumentStatusCategory | undefined {
+    const normalized = value?.trim();
+    if (!normalized) {
+        return undefined;
+    }
+
+    const aliases: Record<string, DocumentStatusCategory> = {
+        drafting: "drafting",
+        "in-progress": "in-progress",
+        completed: "completed",
+        expired: "expired",
+        unknown: "unknown",
+        대기: "drafting",
+        검토필요: "in-progress",
+        완료: "completed",
+        기간만료: "expired",
+        상태확인: "unknown",
+    };
+    const category = aliases[normalized.toLowerCase().replace(/\s/g, "")];
+    if (category) {
+        return category;
+    }
+
+    throw new BadRequestException(
+        "statusCategory must be drafting, in-progress, completed, expired, or unknown",
+    );
+}
 
 function parseTemplateMatch(value: string | undefined): TemplateMatch {
     if (value === undefined || value === "" || value === "include") {
@@ -116,6 +188,105 @@ function filterDocumentsByTemplate(
         const documentTemplateId = getDocumentTemplateId(document);
         const matches = documentTemplateId !== null && templateIds.has(documentTemplateId);
         return templateMatch === "include" ? matches : !matches;
+    });
+}
+
+function normalizeStatusCode(code: string | null): string {
+    const normalized = code?.trim().toLowerCase();
+    if (!normalized) {
+        return "000";
+    }
+    return STATUS_NAME_TO_CODE[normalized] ?? normalized.padStart(3, "0");
+}
+
+function getCurrentStatus(document: EformsignListDoc): UnknownRecord | null {
+    return isRecord(document["current_status"]) ? document["current_status"] : null;
+}
+
+function isProviderReviewStep(document: EformsignListDoc): boolean {
+    const currentStatus = getCurrentStatus(document);
+    const stepType = stringFromUnknown(currentStatus?.["step_type"]) ?? "";
+    const stepName = stringFromUnknown(currentStatus?.["step_name"]) ?? "";
+
+    if (PROVIDER_REVIEW_STEP_TYPES.has(stepType)) {
+        return true;
+    }
+    if (!stepName || CUSTOMER_STEP_KEYWORDS.some((keyword) => stepName.includes(keyword))) {
+        return false;
+    }
+
+    const hasProviderOwner = PROVIDER_REVIEW_OWNER_KEYWORDS.some((keyword) => stepName.includes(keyword));
+    const hasReviewAction = PROVIDER_REVIEW_ACTION_KEYWORDS.some((keyword) => stepName.includes(keyword));
+    return hasProviderOwner && hasReviewAction;
+}
+
+function getDocumentStatusCategory(document: EformsignListDoc): DocumentStatusCategory {
+    const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
+    const normalized = normalizeStatusCode(statusType);
+    if (COMPLETED_STATUS_CODES.has(normalized)) {
+        return "completed";
+    }
+    if (EXPIRED_STATUS_CODES.has(normalized) && !DELETED_STATUS_CODES.has(normalized)) {
+        return "expired";
+    }
+    if (DELETED_STATUS_CODES.has(normalized)) {
+        return "unknown";
+    }
+    if (!IN_PROGRESS_STATUS_CODES.has(normalized)) {
+        return "unknown";
+    }
+    return isProviderReviewStep(document) ? "in-progress" : "drafting";
+}
+
+function filterDocumentsByStatusCategory(
+    documents: EformsignListDoc[],
+    statusCategory: DocumentStatusCategory | undefined,
+): EformsignListDoc[] {
+    if (!statusCategory) {
+        return documents;
+    }
+
+    return documents.filter((document) => {
+        const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
+        if (DELETED_STATUS_CODES.has(normalizeStatusCode(statusType))) {
+            return false;
+        }
+        return getDocumentStatusCategory(document) === statusCategory;
+    });
+}
+
+function getChosung(character: string): string {
+    const code = character.charCodeAt(0);
+    if (code >= 0xac00 && code <= 0xd7a3) {
+        return CHOSUNG_LIST[Math.floor((code - 0xac00) / 588)] ?? character;
+    }
+    return character;
+}
+
+function matchesKoreanSearch(target: string, query: string): boolean {
+    const normalizedTarget = target.normalize("NFC");
+    if (normalizedTarget.toLowerCase().includes(query.toLowerCase())) {
+        return true;
+    }
+
+    const hasChosung = query.split("").some((character) =>
+        CHOSUNG_LIST.includes(character as (typeof CHOSUNG_LIST)[number]),
+    );
+    if (!hasChosung) {
+        return false;
+    }
+
+    const targetChosung = normalizedTarget.split("").map(getChosung).join("").replace(/\s/g, "");
+    return targetChosung.startsWith(query);
+}
+
+function sortDocumentsByCreatedDate(documents: EformsignListDoc[]): EformsignListDoc[] {
+    return [...documents].sort((a, b) => {
+        const byCreated = getDocumentCreatedTimestamp(b) - getDocumentCreatedTimestamp(a);
+        if (byCreated !== 0) {
+            return byCreated;
+        }
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
 }
 
@@ -193,13 +364,14 @@ function valueFromFieldRecord(record: UnknownRecord): string | null {
     return null;
 }
 
-function documentHasCustomerNameField(doc: EformsignListDoc): boolean {
+function documentCustomerNameValue(doc: EformsignListDoc): string | null {
     for (const source of [doc.fields, doc.detail_template_info]) {
         for (const record of collectRecords(source)) {
             for (const [key, rawValue] of Object.entries(record)) {
                 if (!isCustomerNameKey(key)) continue;
-                if (stringFromUnknown(rawValue) || valueFromFieldRecord({ value: rawValue })) {
-                    return true;
+                const value = stringFromUnknown(rawValue) ?? valueFromFieldRecord({ value: rawValue });
+                if (value) {
+                    return value;
                 }
             }
         }
@@ -220,12 +392,35 @@ function documentHasCustomerNameField(doc: EformsignListDoc): boolean {
             stringFromUnknown(record["inputId"]),
         ].filter((value): value is string => Boolean(value));
 
-        if (idTokens.some(isCustomerNameKey) && valueFromFieldRecord(record)) {
-            return true;
+        if (idTokens.some(isCustomerNameKey)) {
+            const value = valueFromFieldRecord(record);
+            if (value) {
+                return value;
+            }
         }
     }
 
-    return false;
+    return null;
+}
+
+function documentHasCustomerNameField(doc: EformsignListDoc): boolean {
+    return documentCustomerNameValue(doc) !== null;
+}
+
+function documentSearchValues(document: EformsignListDoc, localValues: string[]): string[] {
+    const template = isRecord(document["template"]) ? document["template"] : null;
+    const templateName = (stringFromUnknown(template?.["name"]) ?? "").replace(/\s*계약서$/, "");
+    const documentNumber = (
+        stringFromUnknown(document["document_number"]) ?? document.id.slice(0, 16)
+    ) || "-";
+
+    return [
+        documentCustomerNameValue(document) ?? "",
+        ...localValues,
+        stringFromUnknown(document["document_name"]) ?? "",
+        templateName,
+        documentNumber,
+    ];
 }
 
 function hasCollectionValues(value: unknown): boolean {
@@ -378,13 +573,7 @@ export class EformsignController {
             );
         }
 
-        return Array.from(collected.values()).sort((a, b) => {
-            const byCreated = getDocumentCreatedTimestamp(b) - getDocumentCreatedTimestamp(a);
-            if (byCreated !== 0) {
-                return byCreated;
-            }
-            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-        });
+        return sortDocumentsByCreatedDate(Array.from(collected.values()));
     }
 
     private async collectBranchScopedDocuments(
@@ -419,6 +608,47 @@ export class EformsignController {
         );
     }
 
+    private async filterDocumentsBySearch(
+        documents: EformsignListDoc[],
+        branchId: string,
+        search: string | undefined,
+    ): Promise<EformsignListDoc[]> {
+        const query = search?.trim() ?? "";
+        if (!query) {
+            return documents;
+        }
+
+        const localDocuments = await this.eformsignDocService.findAll(branchId);
+        const localValuesByDocumentId = new Map<string, string[]>();
+        for (const localDocument of localDocuments) {
+            const values = [
+                stringFromUnknown(localDocument.stepRecipientName),
+            ].filter((value): value is string => Boolean(value));
+            localValuesByDocumentId.set(localDocument.documentId, values);
+        }
+
+        return documents.filter((document) =>
+            documentSearchValues(
+                document,
+                localValuesByDocumentId.get(document.id) ?? [],
+            ).some((value) => matchesKoreanSearch(value, query)),
+        );
+    }
+
+    private async filterAndSortDocuments(
+        documents: EformsignListDoc[],
+        branchId: string,
+        templateId: string | undefined,
+        templateMatch: TemplateMatch,
+        statusCategory: DocumentStatusCategory | undefined,
+        search: string | undefined,
+    ): Promise<EformsignListDoc[]> {
+        const templateFiltered = filterDocumentsByTemplate(documents, templateId, templateMatch);
+        const statusFiltered = filterDocumentsByStatusCategory(templateFiltered, statusCategory);
+        const searchFiltered = await this.filterDocumentsBySearch(statusFiltered, branchId, search);
+        return sortDocumentsByCreatedDate(searchFiltered);
+    }
+
     private async getBranchScopedStatusPage(
         accessToken: string,
         branchId: string,
@@ -427,15 +657,25 @@ export class EformsignController {
         fetchPage: (limit: number, skip: number) => Promise<{ documents?: EformsignListDoc[] }>,
         templateId?: string,
         templateMatch: TemplateMatch = "include",
+        statusCategory?: DocumentStatusCategory,
+        search?: string,
     ) {
         const documents = await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage);
-        const filteredDocuments = filterDocumentsByTemplate(documents, templateId, templateMatch);
+        const filteredDocuments = await this.filterAndSortDocuments(
+            documents,
+            branchId,
+            templateId,
+            templateMatch,
+            statusCategory,
+            search,
+        );
         const pageDocuments = filteredDocuments.slice(skip, skip + limit);
         return {
             documents: await this.enrichDocumentsWithDisplayFields(accessToken, pageDocuments),
             total_rows: filteredDocuments.length,
             limit,
             skip,
+            has_more: skip + limit < filteredDocuments.length,
         };
     }
 
@@ -621,6 +861,8 @@ export class EformsignController {
         @Query("skip") skip?: string,
         @Query("templateId") templateId?: string,
         @Query("templateMatch") templateMatchValue?: string,
+        @Query("statusCategory") statusCategoryValue?: string,
+        @Query("search") search?: string,
     ) {
         try {
             if (!accessToken) {
@@ -632,19 +874,28 @@ export class EformsignController {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
+            const statusCategory = parseStatusCategory(statusCategoryValue);
             const branchId = tenant.branchId ?? "";
 
             // 인천점(본사): 회사 전체에서 다른 지점 소유분만 빼고 모은 뒤 요청 구간만 잘라 반환.
             // (필터링 때문에 외부 페이지네이션을 그대로 흘리면 페이지 경계에 빈틈이 생긴다.)
             if (await this.isHeadquartersBranch(branchId)) {
                 const hqDocuments = await this.collectHeadquartersDocuments(accessToken, branchId);
-                const filteredDocuments = filterDocumentsByTemplate(hqDocuments, templateId, templateMatch);
+                const filteredDocuments = await this.filterAndSortDocuments(
+                    hqDocuments,
+                    branchId,
+                    templateId,
+                    templateMatch,
+                    statusCategory,
+                    search,
+                );
                 const pageDocuments = filteredDocuments.slice(parsedSkip, parsedSkip + parsedLimit);
                 return {
                     documents: await this.enrichDocumentsWithDisplayFields(accessToken, pageDocuments),
                     total_rows: filteredDocuments.length,
                     limit: parsedLimit,
                     skip: parsedSkip,
+                    has_more: parsedSkip + parsedLimit < filteredDocuments.length,
                 };
             }
 
@@ -652,13 +903,21 @@ export class EformsignController {
             // (회사 페이지를 그대로 필터하면 지점 문서가 뒤 페이지에 있을 때 무한스크롤이
             //  빈 페이지에서 멈춰 누락되므로, 지점 단위로 페이지네이션한다.)
             const branchDocuments = await this.collectBranchDocuments(accessToken, branchId);
-            const filteredDocuments = filterDocumentsByTemplate(branchDocuments, templateId, templateMatch);
+            const filteredDocuments = await this.filterAndSortDocuments(
+                branchDocuments,
+                branchId,
+                templateId,
+                templateMatch,
+                statusCategory,
+                search,
+            );
             const pageDocuments = filteredDocuments.slice(parsedSkip, parsedSkip + parsedLimit);
             return {
                 documents: await this.enrichDocumentsWithDisplayFields(accessToken, pageDocuments),
                 total_rows: filteredDocuments.length,
                 limit: parsedLimit,
                 skip: parsedSkip,
+                has_more: parsedSkip + parsedLimit < filteredDocuments.length,
             };
         } catch (error) {
             throwHttpOrInternalError(error);
@@ -705,6 +964,8 @@ export class EformsignController {
         @Query("skip") skip?: string,
         @Query("templateId") templateId?: string,
         @Query("templateMatch") templateMatchValue?: string,
+        @Query("statusCategory") statusCategoryValue?: string,
+        @Query("search") search?: string,
     ) {
         try {
             if (!accessToken) {
@@ -716,6 +977,7 @@ export class EformsignController {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
+            const statusCategory = parseStatusCategory(statusCategoryValue);
             return await this.getBranchScopedStatusPage(
                 accessToken,
                 tenant.branchId ?? "",
@@ -728,6 +990,8 @@ export class EformsignController {
                 ),
                 templateId,
                 templateMatch,
+                statusCategory,
+                search,
             );
         } catch (error) {
             throwHttpOrInternalError(error);
@@ -745,6 +1009,8 @@ export class EformsignController {
         @Query("skip") skip?: string,
         @Query("templateId") templateId?: string,
         @Query("templateMatch") templateMatchValue?: string,
+        @Query("statusCategory") statusCategoryValue?: string,
+        @Query("search") search?: string,
     ) {
         try {
             if (!accessToken) {
@@ -756,6 +1022,7 @@ export class EformsignController {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
+            const statusCategory = parseStatusCategory(statusCategoryValue);
             return await this.getBranchScopedStatusPage(
                 accessToken,
                 tenant.branchId ?? "",
@@ -768,6 +1035,8 @@ export class EformsignController {
                 ),
                 templateId,
                 templateMatch,
+                statusCategory,
+                search,
             );
         } catch (error) {
             throwHttpOrInternalError(error);
@@ -785,6 +1054,8 @@ export class EformsignController {
         @Query("skip") skip?: string,
         @Query("templateId") templateId?: string,
         @Query("templateMatch") templateMatchValue?: string,
+        @Query("statusCategory") statusCategoryValue?: string,
+        @Query("search") search?: string,
     ) {
         try {
             if (!accessToken) {
@@ -796,6 +1067,7 @@ export class EformsignController {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
+            const statusCategory = parseStatusCategory(statusCategoryValue);
             return await this.getBranchScopedStatusPage(
                 accessToken,
                 tenant.branchId ?? "",
@@ -808,6 +1080,8 @@ export class EformsignController {
                 ),
                 templateId,
                 templateMatch,
+                statusCategory,
+                search,
             );
         } catch (error) {
             throwHttpOrInternalError(error);
