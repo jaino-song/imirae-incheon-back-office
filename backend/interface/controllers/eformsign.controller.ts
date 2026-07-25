@@ -1049,10 +1049,16 @@ export class EformsignController {
             }
             const branchId = tenant.branchId ?? "";
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
-            const documents = (await this.isHeadquartersBranch(branchId))
-                ? await this.collectHeadquartersDocuments(accessToken, branchId)
-                : await this.collectBranchDocuments(accessToken, branchId);
-            return { documents: documents.map((doc) => toStatusSignal(doc)) };
+            // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
+            const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
+                { scope: "all", branchId, accessToken },
+                async () => this.toSnapshotEntries(
+                    (await this.isHeadquartersBranch(branchId))
+                        ? await this.collectHeadquartersDocuments(accessToken, branchId)
+                        : await this.collectBranchDocuments(accessToken, branchId),
+                ),
+            );
+            return { documents: snapshot.entries.map((entry) => toStatusSignal(entry.document)) };
         } catch (error) {
             throwHttpOrInternalError(error);
         }
