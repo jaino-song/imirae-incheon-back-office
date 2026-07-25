@@ -3,11 +3,10 @@ import { expect, test } from "@playwright/test";
 test.describe("Mobile messages route", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("renders the messages automation page at /messages", async ({ page }) => {
+  test("redirects /messages to the new message compose page", async ({ page }) => {
     await page.goto("/messages");
 
-    await expect(page).toHaveURL(/\/messages/);
-    await expect(page.locator('[data-component="message-trigger-card-title"]')).toContainText("메시지");
-    await expect(page.locator('[data-component="mobile-messages-new"]')).toBeVisible();
+    await expect(page).toHaveURL(/\/messages\/new$/);
+    await expect(page.locator('form[data-form="messages-new-form"]')).toBeVisible();
   });
 });

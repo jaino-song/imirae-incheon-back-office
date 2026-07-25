@@ -105,6 +105,13 @@ async function mockReadOnlyMessages(page: Page) {
         ]),
       });
     }
+    if (pathname === "/api/out-of-pocket-price-infos") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    }
     if (pathname === "/api/notifications/unread/count") {
       return route.fulfill({ status: 200, contentType: "application/json", body: '{"count":0}' });
     }
@@ -121,7 +128,7 @@ test.describe("Mobile message read-only status surfaces", () => {
   test("shows scheduled jobs before sender approval", async ({ page }) => {
     await page.goto("/messages/scheduled");
 
-    await expect(page.getByRole("heading", { name: "발송 예정" })).toBeVisible();
+    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 예정");
     await expect(page.getByText("대기 고객")).toBeVisible();
     await expect(page.getByText("발송 대기")).toBeVisible();
     await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
@@ -130,7 +137,7 @@ test.describe("Mobile message read-only status surfaces", () => {
   test("shows canceled history before sender approval", async ({ page }) => {
     await page.goto("/messages/history");
 
-    await expect(page.getByRole("heading", { name: "발송 기록" })).toBeVisible();
+    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
     await expect(page.getByText("취소 고객")).toBeVisible();
     await expect(page.getByText("발송 취소")).toBeVisible();
     await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();

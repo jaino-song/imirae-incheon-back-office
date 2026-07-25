@@ -62,7 +62,7 @@ test.describe('System Template Detail', () => {
   });
 
   test('shows the current mobile-only guidance instead of the old editor UI', async ({ page }) => {
-    await expect(page.getByRole('button', { name: '뒤로' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '상세 닫기' })).toBeVisible();
     await expect(page.getByRole('button', { name: '이 템플릿으로 보내기' })).toBeVisible();
     await expect(
       page.getByText('시스템 템플릿 본문 편집·버전 롤백은 데스크톱에서만 가능합니다.'),
