@@ -757,7 +757,7 @@ export class EformsignController {
         search?: string,
     ) {
         const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
-            { scope, branchId, accessToken },
+            { scope, branchId, accessToken, isHeadquarters: await this.isHeadquartersBranch(branchId) },
             async () => this.toSnapshotEntries(
                 await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage),
             ),
@@ -984,7 +984,7 @@ export class EformsignController {
             // (필터링 때문에 외부 페이지네이션을 그대로 흘리면 페이지 경계에 빈틈이 생긴다.)
             if (await this.isHeadquartersBranch(branchId)) {
                 const hqSnapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
-                    { scope: "all", branchId, accessToken },
+                    { scope: "all", branchId, accessToken, isHeadquarters: true },
                     async () => this.toSnapshotEntries(
                         await this.collectHeadquartersDocuments(accessToken, branchId),
                     ),
@@ -1056,10 +1056,11 @@ export class EformsignController {
             const branchId = tenant.branchId ?? "";
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
             // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
+            const isHeadquarters = await this.isHeadquartersBranch(branchId);
             const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
-                { scope: "all", branchId, accessToken },
+                { scope: "all", branchId, accessToken, isHeadquarters },
                 async () => this.toSnapshotEntries(
-                    (await this.isHeadquartersBranch(branchId))
+                    isHeadquarters
                         ? await this.collectHeadquartersDocuments(accessToken, branchId)
                         : await this.collectBranchDocuments(accessToken, branchId),
                 ),

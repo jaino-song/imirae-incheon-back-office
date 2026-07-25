@@ -335,6 +335,7 @@ describe("EformsignDocumentSnapshotService", () => {
         const service = new EformsignDocumentSnapshotService();
 
         await expect(service.bumpVersion("branch-a")).resolves.toBeNull();
-        expect(redis.incr).toHaveBeenCalledWith("eformsign:doclist-version:branch-a");
+        // 회사 epoch를 먼저 올린다(본사 뷰 무효화) — 이 첫 INCR에서 실패하면 조용히 null.
+        expect(redis.incr).toHaveBeenCalledWith("eformsign:doclist-epoch");
     });
 });

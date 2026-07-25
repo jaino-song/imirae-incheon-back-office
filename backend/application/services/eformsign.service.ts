@@ -750,6 +750,17 @@ export class EformsignService {
             branchIds.filter((branchId): branchId is string => Boolean(branchId)),
         );
 
+        // 지점 매핑이 없는 문서는 본사(HQ) 뷰에만 나타난다 — 지점 버전 대신 회사
+        // epoch를 올려 본사 스냅샷을 무효화한다.
+        if (mappedBranchIds.size === 0) {
+            try {
+                await this.documentSnapshotService?.bumpCompanyEpoch();
+            } catch {
+                // 캐시 무효화 실패가 삭제·재요청 성공을 되돌리면 안 된다.
+            }
+            return;
+        }
+
         await Promise.all(
             [...mappedBranchIds].map(async (branchId) => {
                 try {

@@ -32,11 +32,7 @@ import {
   useDeleteEformsignDocument,
   eformsignQueryKeys,
 } from "@/hooks/useEformsignDocuments";
-import {
-  CONTRACTS_NEXT_PAGE_SIZE,
-  infiniteContractsQueryKeys,
-  useInfiniteContracts,
-} from "@/hooks/useInfiniteContracts";
+import { CONTRACTS_NEXT_PAGE_SIZE, useInfiniteContracts } from "@/hooks/useInfiniteContracts";
 import { useEformsign } from "@/hooks/useEformsign";
 import { useEmployees, type Employee } from "@/hooks/useEmployees";
 import { useListInfiniteScroll } from "@/hooks/useListInfiniteScroll";
@@ -1216,7 +1212,7 @@ function ContractDetailContent({
         comment: "재요청입니다.",
       });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() }),
+        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() }),
         queryClient.invalidateQueries({ queryKey: ["eformsign-document-detail", doc.id] }),
         queryClient.invalidateQueries({ queryKey: ["messages", "logs", "all"] }),
       ]);
@@ -1559,10 +1555,10 @@ export default function ContractsPage() {
           setFinalizeDoc(null);
           setFinalizeEndDateInput("");
           setFinalizeFeedback("계약서가 완료 처리되었습니다.");
-          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           [2000, 5000].forEach((delay) => {
             setTimeout(() => {
-              queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+              queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
             }, delay);
           });
         },
@@ -1716,10 +1712,10 @@ export default function ContractsPage() {
       if (headless.ok) {
         headlessOk = true;
         setFinalizeProgress({ step: "sent", completed: true, failed: false });
-        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+        queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
         [2000, 5000].forEach((delay) => {
           setTimeout(() => {
-            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           }, delay);
         });
         setTimeout(() => {
@@ -1800,9 +1796,8 @@ export default function ContractsPage() {
   const { isAuthenticated, isLoading: isAuthLoading } = useEformsignAuth();
   const refreshContractsFromEvent = useCallback(
     (event: { documentId?: string }) => {
+      // documents() 광역 prefix가 all/paginated/status-counts 하위 키를 전부 덮는다.
       void queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
-      void queryClient.invalidateQueries({ queryKey: infiniteContractsQueryKeys.all() });
-      void queryClient.invalidateQueries({ queryKey: ["eformsign-status-counts"] });
       void queryClient.invalidateQueries({ queryKey: ["eformsign-doc-client-names"] });
       void queryClient.invalidateQueries({ queryKey: ["eformsign-document-detail"] });
 
@@ -1826,45 +1821,56 @@ export default function ContractsPage() {
   });
 
   // 섹션(산모 계약서/제공기록지)은 제공기록지 template id의 include/exclude로 서버에서 필터한다.
+  // template id가 미설정(null)인 설치에서는 모든 문서를 산모 계약서로 취급한다 —
+  // 산모 섹션은 템플릿 필터 없이 조회하고, 제공기록지 섹션만 비활성(빈 목록)으로 남긴다.
   const serviceRecordTemplateId = feedbackTemplateData?.templateId ?? null;
+  const isFeedbackTemplateResolved = feedbackTemplateData !== undefined;
   const sectionTemplateMatch = activeSection === "service-records" ? "include" : "exclude";
+  const sectionFilterReady =
+    isFeedbackTemplateResolved
+    && (activeSection === "maternal-contracts" || Boolean(serviceRecordTemplateId));
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
 
   const {
     documents: paginatedDocuments,
     totalRows,
+    branchId,
     isLoading: isDocumentsLoading,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
+    isLoadMoreError,
   } = useInfiniteContracts({
     statusCategory: statusCategoryParam,
     search: debouncedSearchQuery,
     templateId: serviceRecordTemplateId,
     templateMatch: sectionTemplateMatch,
-    // template id를 모르면 섹션 필터가 성립하지 않으므로 그때까지 요청하지 않는다.
-    enabled: isAuthenticated && Boolean(serviceRecordTemplateId),
+    enabled: isAuthenticated && sectionFilterReady,
   });
 
   // 필터 pill 카운터: 목록과 동일한 선(先)필터가 적용된 상태 신호를 받아 클라이언트에서 접는다.
   const { data: statusCountsData } = useQuery({
+    // "eformsign-documents" 아래에 중첩 — 문서 변이가 광역 prefix 무효화만 해도
+    // (삭제 훅, 생성 플로우, 지점 전환 removeQueries) 카운터가 함께 갱신된다.
     queryKey: [
-      "eformsign-status-counts",
+      "eformsign-documents",
+      "status-counts",
+      branchId ?? "unknown",
       activeSection,
       debouncedSearchQuery,
-      serviceRecordTemplateId ?? "pending-template",
+      serviceRecordTemplateId ?? "no-template",
     ],
     queryFn: () =>
       withEformsignReauth(() =>
         eformsignApi.getStatusCounts({
           templateId: serviceRecordTemplateId ?? undefined,
-          templateMatch: sectionTemplateMatch,
+          templateMatch: serviceRecordTemplateId ? sectionTemplateMatch : undefined,
           search: debouncedSearchQuery || undefined,
           excludeDeleted: true,
         }),
       ),
-    enabled: isAuthenticated && Boolean(serviceRecordTemplateId),
+    enabled: isAuthenticated && sectionFilterReady && Boolean(branchId),
     staleTime: 1000 * 60 * 5,
   });
 
@@ -2041,13 +2047,14 @@ export default function ContractsPage() {
     });
 
   // 노출 창(visibleCount)이 로드된 문서 끝에 다가서면 다음 서버 페이지(6건)를 미리 당겨온다.
-  // react-query가 동시 요청을 dedupe하므로 조건 재평가로 인한 중복 fetch는 없다.
+  // react-query가 동시 요청을 dedupe하고, 실패 후에는 자동 재시도하지 않는다(무한 루프 방지) —
+  // 필터/검색/지점 변경 또는 stale 재조회가 오류 상태를 자연스럽게 초기화한다.
   useEffect(() => {
-    if (!hasNextPage || isFetchingNextPage) return;
+    if (!hasNextPage || isFetchingNextPage || isLoadMoreError) return;
     if (visibleCount + CONTRACTS_NEXT_PAGE_SIZE > paginatedDocuments.length) {
       void fetchNextPage();
     }
-  }, [visibleCount, paginatedDocuments.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [visibleCount, paginatedDocuments.length, hasNextPage, isFetchingNextPage, isLoadMoreError, fetchNextPage]);
 
   const visibleSections = useMemo(
     () =>

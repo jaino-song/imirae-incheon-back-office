@@ -33,11 +33,12 @@ export function ContractsPrefetchCoordinator(): null {
   useEffect(() => {
     if (!branchId || attemptedBranchIdsRef.current.has(branchId)) return;
 
-    attemptedBranchIdsRef.current.add(branchId);
     let cancelled = false;
 
     const prefetchContracts = async () => {
       try {
+        // 인증 확인을 통과한 뒤에만 "시도함"으로 기록한다 — 신선한 세션에서 eformsign
+        // 인증보다 먼저 마운트돼 조기 반환한 경우, 다음 마운트/지점 변경에서 재시도된다.
         if (!isEformsignAuthenticated()) return;
 
         const authStatus = await eformsignApi.getAuthStatus();
@@ -48,6 +49,8 @@ export function ContractsPrefetchCoordinator(): null {
         ) {
           return;
         }
+
+        attemptedBranchIdsRef.current.add(branchId);
 
         // 계약 페이지의 기본 뷰(산모 계약서 섹션)와 완전히 같은 쿼리 키로 프리페치해야
         // 캐시가 재사용된다: 섹션은 제공기록지 template id의 exclude 필터로 표현되므로
