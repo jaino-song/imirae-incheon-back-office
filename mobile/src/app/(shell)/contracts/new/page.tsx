@@ -669,7 +669,7 @@ export default function ContractCreationPage() {
               console.error("Failed to create eformsign doc record:", docError);
             }
           }
-          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           startNavigation();
           setTimeout(() => {
             setIsEformsignModalOpen(false);
@@ -831,7 +831,7 @@ export default function ContractCreationPage() {
           headlessOk = true;
           startNavigation();
           setCreationProgress({ step: "sent", completed: true, failed: false });
-          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+          queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           setTimeout(() => {
             setIsProgressModalOpen(false);
             router.push("/contracts");
@@ -844,7 +844,7 @@ export default function ContractCreationPage() {
             await eformsignApi.adoptDocument(headless.remoteDocumentId, finalClientId);
             startNavigation();
             setCreationProgress({ step: "sent", completed: true, failed: false });
-            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
             setTimeout(() => { setIsProgressModalOpen(false); router.push("/contracts"); }, SUCCESS_REDIRECT_DELAY_MS);
           } catch {
             setProgressErrorHint("문서는 생성되었으나 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
@@ -862,7 +862,7 @@ export default function ContractCreationPage() {
             if (forced.ok) {
               startNavigation();
               setCreationProgress({ step: "sent", completed: true, failed: false });
-              queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.allDocuments() });
+              queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
               setTimeout(() => { setIsProgressModalOpen(false); router.push("/contracts"); }, SUCCESS_REDIRECT_DELAY_MS);
             }
           }

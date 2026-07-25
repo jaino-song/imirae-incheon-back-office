@@ -176,6 +176,8 @@ export interface EformsignDocumentsResponse {
   total_rows: number;
   limit: number;
   skip: number;
+  has_more?: boolean;
+  snapshot_version?: string;
 }
 
 export interface EformsignApiListResponse {

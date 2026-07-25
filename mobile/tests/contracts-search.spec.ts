@@ -1,8 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const SEARCH_PLACEHOLDER = '고객명, 계약서명, 계약 번호 검색';
+import {
+  routeContractsApi,
+  type ContractListRequest,
+  type ContractMockDocument,
+} from './helpers/contracts-api-mock';
 
-const MOCK_DOCUMENTS = {
+const SEARCH_PLACEHOLDER = '고객명, 문서명, 문서 번호 검색';
+
+const MOCK_DOCUMENTS: { documents: ContractMockDocument[] } = {
   documents: [
     {
       id: 'doc-1',
@@ -47,19 +53,17 @@ const MOCK_DOCUMENTS = {
       },
     },
   ],
-  total_rows: 3,
-  limit: 100,
-  skip: 0,
 };
 
-const MOCK_EMPTY_DOCUMENTS = {
+const MOCK_EMPTY_DOCUMENTS: { documents: ContractMockDocument[] } = {
   documents: [],
-  total_rows: 0,
-  limit: 100,
-  skip: 0,
 };
 
-async function routeContractsList(page: Page, payload = MOCK_DOCUMENTS): Promise<void> {
+async function routeContractsList(
+  page: Page,
+  payload = MOCK_DOCUMENTS,
+  onListRequest?: (request: ContractListRequest) => void,
+): Promise<void> {
   // Mock the auth identity so the run doesn't depend on the backend having
   // the storage-state user (local dev DBs lack it; the auth check otherwise
   // races the test and kills the page at a random point).
@@ -74,6 +78,8 @@ async function routeContractsList(page: Page, payload = MOCK_DOCUMENTS): Promise
           email: 'test@example.com',
           profile_image: '',
           role: 'admin',
+          branchId: 'e2e-branch',
+          branchName: 'E2E Branch',
         }),
       });
     });
@@ -87,14 +93,9 @@ async function routeContractsList(page: Page, payload = MOCK_DOCUMENTS): Promise
     });
   });
 
-  // Broad glob (no '?'): the page lists via /eformsign/documents AND the
-  // /in-progress + /completed subpaths — a query-requiring glob matches none.
-  await page.route('**/api/eformsign/documents**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(payload),
-    });
+  await routeContractsApi(page, {
+    getDocuments: () => payload.documents,
+    onListRequest,
   });
 
   await page.route('**/api/eformsign-docs/client-names**', async (route) => {
@@ -142,7 +143,10 @@ test.describe('Contracts Page Search Feature', () => {
   });
 
   test('filters contract rows by customer name as the query changes', async ({ page }) => {
-    await routeContractsList(page);
+    const listRequests: ContractListRequest[] = [];
+    await routeContractsList(page, MOCK_DOCUMENTS, (request) => {
+      listRequests.push(request);
+    });
 
     await page.goto('/contracts');
     const searchField = page.getByPlaceholder(SEARCH_PLACEHOLDER);
@@ -158,6 +162,17 @@ test.describe('Contracts Page Search Feature', () => {
 
     await searchField.fill('홍길');
 
+    await expect.poll(() =>
+      listRequests.some(
+        (request) =>
+          request.search === '홍길'
+          && request.limit === 9
+          && request.skip === 0
+          && request.excludeDeleted
+          && request.templateId === 'service-record-template'
+          && request.templateMatch === 'exclude',
+      ),
+    ).toBe(true);
     await expect(page.getByText('홍길동')).toBeVisible();
     await expect(page.getByText('홍길순')).toBeVisible();
     await expect(page.getByText('김철수')).not.toBeVisible();
@@ -195,6 +210,7 @@ test.describe('Contracts Page Search Feature', () => {
     const completedFilter = page
       .locator('[data-component="mobile-redesign-filter-pill"]')
       .filter({ hasText: '완료' });
+    await expect(completedFilter.locator('.count')).toHaveText('2');
     await completedFilter.click();
 
     await expect(completedFilter).toHaveAttribute('aria-pressed', 'true');
@@ -209,8 +225,9 @@ test.describe('Contracts Page Search Feature', () => {
     await page.goto('/contracts');
     await expect(page.getByPlaceholder(SEARCH_PLACEHOLDER)).toBeVisible({ timeout: 15000 });
 
+    // The empty copy is scoped to the active section label ("산모 계약서" by default).
     await expect(page.locator('[data-component="mobile-contracts-empty"]')).toContainText(
-      '등록된 계약서가 없습니다.',
+      '등록된 산모 계약서가 없습니다.',
     );
   });
 });

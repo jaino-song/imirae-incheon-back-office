@@ -155,6 +155,7 @@ export function MobileDetailSheet({
   onClose,
   list,
   detail,
+  detailDataComponent,
 }: {
   "data-component": string;
   name: string;
@@ -162,6 +163,12 @@ export function MobileDetailSheet({
   onClose: () => void;
   list: ReactNode;
   detail: ReactNode;
+  /**
+   * Explicit name for the sliding detail pane. Pass it when the page also
+   * annotates its own detail body, so the two elements do not end up sharing
+   * one generated `data-component` value.
+   */
+  detailDataComponent?: string;
 }) {
   return (
     <MobileDetailStack
@@ -171,6 +178,7 @@ export function MobileDetailSheet({
       isOpen={isOpen}
       onClose={onClose}
       list={list}
+      detailDataComponent={detailDataComponent}
       sectionClassName="mobile-detail-sheet relative flex flex-col flex-1 min-h-0 overflow-hidden -mx-4 -mb-24"
       sectionStyle={{ minHeight: "var(--mobile-detail-sheet-min-height, calc(100dvh - 80px))" }}
     >

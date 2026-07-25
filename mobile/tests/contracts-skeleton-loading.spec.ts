@@ -1,9 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import {
+  routeContractsApi,
+  type ContractMockDocument,
+} from './helpers/contracts-api-mock';
+
 const FILTER_SKELETON_COUNT = 6;
 const LOADING_ROW_COUNT = 9;
 
-const MOCK_DOCUMENTS = {
+const MOCK_DOCUMENTS: { documents: ContractMockDocument[] } = {
   documents: [
     {
       id: 'doc-1',
@@ -34,16 +39,10 @@ const MOCK_DOCUMENTS = {
       },
     },
   ],
-  total_rows: 2,
-  limit: 100,
-  skip: 0,
 };
 
-const MOCK_EMPTY_DOCUMENTS = {
+const MOCK_EMPTY_DOCUMENTS: { documents: ContractMockDocument[] } = {
   documents: [],
-  total_rows: 0,
-  limit: 100,
-  skip: 0,
 };
 
 async function routeSharedContractDependencies(page: Page): Promise<void> {
@@ -61,6 +60,8 @@ async function routeSharedContractDependencies(page: Page): Promise<void> {
           email: 'test@example.com',
           profile_image: '',
           role: 'admin',
+          branchId: 'e2e-branch',
+          branchName: 'E2E Branch',
         }),
       });
     });
@@ -123,14 +124,11 @@ test.describe('Contracts Page Skeleton Loading', () => {
       });
     });
 
-    // Broad glob: the page also lists via /in-progress and /completed subpaths.
-    await page.route('**/api/eformsign/documents**', async (route) => {
-      await documentsReady;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_DOCUMENTS),
-      });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      beforeListResponse: async () => {
+        await documentsReady;
+      },
     });
 
     await routeSharedContractDependencies(page);
@@ -170,13 +168,8 @@ test.describe('Contracts Page Skeleton Loading', () => {
       });
     });
 
-    // Broad glob: the page also lists via /in-progress and /completed subpaths.
-    await page.route('**/api/eformsign/documents**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_DOCUMENTS),
-      });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
     });
 
     await routeSharedContractDependencies(page);
@@ -206,20 +199,16 @@ test.describe('Contracts Page Skeleton Loading', () => {
       });
     });
 
-    // Broad glob: the page also lists via /in-progress and /completed subpaths.
-    await page.route('**/api/eformsign/documents**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_EMPTY_DOCUMENTS),
-      });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_EMPTY_DOCUMENTS.documents,
     });
 
     await routeSharedContractDependencies(page);
 
     await page.goto('/contracts');
+    // The empty copy is scoped to the active section label ("산모 계약서" by default).
     await expect(page.locator('[data-component="mobile-contracts-empty"]')).toContainText(
-      '등록된 계약서가 없습니다.',
+      '등록된 산모 계약서가 없습니다.',
       { timeout: 15000 },
     );
   });

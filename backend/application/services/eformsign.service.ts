@@ -1,6 +1,10 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as crypto from "crypto";
+import {
+    EFORMSIGN_DOC_REPOSITORY,
+    IEformsignDocRepository,
+} from "domain/repositories/eformsign-doc.repository.interface";
 import {
     EFORMSIGN_STUB_COMPANY_ID,
     EFORMSIGN_STUB_TEMPLATE_ID,
@@ -15,6 +19,7 @@ import {
 } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 import { ContractDataDto } from "../dto/contract.dto";
 import { EFORMSIGN_END_DATE_FIELD_IDS } from "../usecases/eformsign-doc/eformsign-end-date-field-ids";
+import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
 
 export interface EformsignTokenResponse {
     oauth_token: {
@@ -62,7 +67,14 @@ export class EformsignService {
     private readonly isConfigured: boolean;
     private readonly vendorStubsEnabled: boolean;
 
-    constructor(private configService: ConfigService) {
+    constructor(
+        private configService: ConfigService,
+        @Optional()
+        @Inject(EFORMSIGN_DOC_REPOSITORY)
+        private readonly eformsignDocRepository?: IEformsignDocRepository,
+        @Optional()
+        private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
+    ) {
         this.vendorStubsEnabled = areE2EVendorStubsEnabled(this.configService);
         this.USER_EMAIL = this.configService.get<string>("EFORMSIGN_USER_EMAIL") || (this.vendorStubsEnabled ? EFORMSIGN_STUB_USER_EMAIL : "");
         this.EFORMSIGN_API_URL = this.configService.get<string>("EFORMSIGN_API_URL") || "";
@@ -574,7 +586,9 @@ export class EformsignService {
         isPermanent: boolean = false
     ): Promise<any> {
         if (this.vendorStubsEnabled) {
-            return buildEformsignStubDeleteResponse(documentIds);
+            const result = buildEformsignStubDeleteResponse(documentIds);
+            await this.bumpDocumentSnapshotVersions(documentIds);
+            return result;
         }
 
         this.assertConfigured();
@@ -599,7 +613,9 @@ export class EformsignService {
             throw new Error(`Failed to delete documents: ${response.status} - ${errorData}`);
         }
 
-        return await response.json();
+        const result = await response.json();
+        await this.bumpDocumentSnapshotVersions(documentIds);
+        return result;
     }
 
     /**
@@ -618,7 +634,9 @@ export class EformsignService {
         }
     ): Promise<any> {
         if (this.vendorStubsEnabled) {
-            return buildEformsignStubReRequestResponse(documentId);
+            const result = buildEformsignStubReRequestResponse(documentId);
+            await this.bumpDocumentSnapshotVersions([documentId]);
+            return result;
         }
 
         this.assertConfigured();
@@ -711,7 +729,47 @@ export class EformsignService {
             throw new Error(`Failed to re-request document: ${response.status} - ${errorData}`);
         }
 
-        return await response.json();
+        const result = await response.json();
+        await this.bumpDocumentSnapshotVersions([documentId]);
+        return result;
+    }
+
+    private async bumpDocumentSnapshotVersions(documentIds: string[]): Promise<void> {
+        if (!this.eformsignDocRepository || !this.documentSnapshotService) return;
+
+        const branchIds = await Promise.all(
+            documentIds.map(async (documentId) => {
+                try {
+                    return await this.eformsignDocRepository?.findBranchIdByDocumentId(documentId) ?? null;
+                } catch {
+                    return null;
+                }
+            }),
+        );
+        const mappedBranchIds = new Set(
+            branchIds.filter((branchId): branchId is string => Boolean(branchId)),
+        );
+
+        // 지점 매핑이 없는 문서는 본사(HQ) 뷰에만 나타난다 — 지점 버전 대신 회사
+        // epoch를 올려 본사 스냅샷을 무효화한다.
+        if (mappedBranchIds.size === 0) {
+            try {
+                await this.documentSnapshotService?.bumpCompanyEpoch();
+            } catch {
+                // 캐시 무효화 실패가 삭제·재요청 성공을 되돌리면 안 된다.
+            }
+            return;
+        }
+
+        await Promise.all(
+            [...mappedBranchIds].map(async (branchId) => {
+                try {
+                    await this.documentSnapshotService?.bumpVersion(branchId);
+                } catch {
+                    // 캐시 무효화 실패가 삭제·재요청 성공을 되돌리면 안 된다.
+                }
+            }),
+        );
     }
 
     private async fetchStaffCompletionDocument(documentId: string, accessToken: string): Promise<any> {
