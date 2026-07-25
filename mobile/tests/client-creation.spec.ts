@@ -347,7 +347,9 @@ test.describe("clients/new wizard", () => {
         careCenter: false,
         voucherClient: true,
         breastPump: false,
-        serviceStatus: "waiting",
+        // The minimal payload never opens the 계약 상태 select, so this is the
+        // wizard store's untouched default (client-wizard-store.ts).
+        serviceStatus: "pre_booking",
         areaId: null,
       })
     );

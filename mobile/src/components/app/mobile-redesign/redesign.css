@@ -3254,10 +3254,18 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   height: 100%;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_list-page"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_detail-page"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_list-page"] {
   position: absolute;
   inset: 0;
+}
+
+/* The detail pane only needs to leave the flex flow — its offsets stay with the
+   shared `.nav-page.detail` primitive so the sheet keeps its `--mobile-detail-top-gap`
+   peek. Pinning `inset: 0` here would flush it to the top and flatten the
+   bottom-sheet look (the rounded top corners and shadow would have nothing to
+   sit against). */
+body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_detail-page"] {
+  position: absolute;
 }
 
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack"].show-detail .nav-page.list {
