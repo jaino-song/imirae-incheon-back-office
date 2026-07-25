@@ -8,6 +8,7 @@ import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant";
 import { EformsignController } from "interface/controllers/eformsign.controller";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import request from "supertest";
 
 // Known transport-level flake (~1/8 full-suite runs under parallel-worker
@@ -100,6 +101,9 @@ describe("EformsignController (Integration)", () => {
                         assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }),
                     },
                 },
+                // 실제 구현을 그대로 쓴다. VALKEY_URL이 없는 테스트 환경에서는 프로세스
+                // 로컬 in-memory 스토어로 동작하고, 인스턴스는 테스트마다 새로 만들어진다.
+                EformsignDocumentSnapshotService,
             ],
         })
             .overrideGuard(JwtGuard)
