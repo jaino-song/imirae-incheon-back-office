@@ -30,37 +30,8 @@ export type DetailAction = {
   className?: string;
 };
 
-export function MobileDetailStack({
-  "data-component": dataComponent,
-  "data-source-component": dataSourceComponent = "MobileDetailStack",
-  isOpen,
-  onClose,
-  list,
-  children,
-  sectionDataComponent,
-  sectionClassName,
-  sectionStyle,
-  sectionAriaHidden,
-  stackDataComponent,
-  stackClassName,
-  listDataComponent,
-  listClassName,
-  scrimDataComponent,
-  scrimClassName,
-  scrimDisabled,
-  detailDataComponent,
-  detailClassName,
-  detailRole,
-  detailAriaModal,
-  detailAriaLabelledBy,
-  detailAriaDescribedBy,
-  sheetHeaderDataComponent,
-  sheetHeaderClassName,
-  closeLabel = "상세 닫기",
-  closeDisabled,
-}: {
+type MobileDetailStackProps = {
   "data-component": string;
-  "data-source-component"?: string;
   name: string;
   isOpen: boolean;
   onClose: () => void;
@@ -87,11 +58,41 @@ export function MobileDetailStack({
   sheetHeaderClassName?: string;
   closeLabel?: string;
   closeDisabled?: boolean;
-}) {
+};
+
+function MobileDetailStackFrame({
+  "data-component": dataComponent,
+  sourceComponent,
+  isOpen,
+  onClose,
+  list,
+  children,
+  sectionDataComponent,
+  sectionClassName,
+  sectionStyle,
+  sectionAriaHidden,
+  stackDataComponent,
+  stackClassName,
+  listDataComponent,
+  listClassName,
+  scrimDataComponent,
+  scrimClassName,
+  scrimDisabled,
+  detailDataComponent,
+  detailClassName,
+  detailRole,
+  detailAriaModal,
+  detailAriaLabelledBy,
+  detailAriaDescribedBy,
+  sheetHeaderDataComponent,
+  sheetHeaderClassName,
+  closeLabel = "상세 닫기",
+  closeDisabled,
+}: MobileDetailStackProps & { sourceComponent: "MobileDetailSheet" | "MobileDetailStack" }) {
   return (
     <section
       data-component={sectionDataComponent ?? dataComponent}
-      data-source-component={dataSourceComponent}
+      data-source-component={sourceComponent}
       data-slot="mobile-detail-stack"
       className={sectionClassName}
       style={sectionStyle}
@@ -148,6 +149,10 @@ export function MobileDetailStack({
   );
 }
 
+export function MobileDetailStack(props: MobileDetailStackProps) {
+  return <MobileDetailStackFrame {...props} sourceComponent="MobileDetailStack" />;
+}
+
 export function MobileDetailSheet({
   "data-component": dataComponent,
   name,
@@ -164,9 +169,9 @@ export function MobileDetailSheet({
   detail: ReactNode;
 }) {
   return (
-    <MobileDetailStack
+    <MobileDetailStackFrame
       data-component={dataComponent}
-      data-source-component="MobileDetailSheet"
+      sourceComponent="MobileDetailSheet"
       name={name}
       isOpen={isOpen}
       onClose={onClose}
@@ -175,7 +180,7 @@ export function MobileDetailSheet({
       sectionStyle={{ minHeight: "var(--mobile-detail-sheet-min-height, calc(100dvh - 80px))" }}
     >
       {detail}
-    </MobileDetailStack>
+    </MobileDetailStackFrame>
   );
 }
 
