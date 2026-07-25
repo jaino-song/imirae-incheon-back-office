@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import {
+  routeContractsApi,
+  type ContractMockDocument,
+} from "./helpers/contracts-api-mock";
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     sessionStorage.clear();
@@ -11,7 +16,7 @@ test.describe("Contracts delete flow", () => {
   test("opens confirm modal, supports cancel, and deletes selected contract", async ({ page }) => {
     const targetId = "doc-delete-target";
 
-    let documents = [
+    let documents: ContractMockDocument[] = [
       {
         id: targetId,
         document_number: "DOC-DEL-001",
@@ -47,6 +52,9 @@ test.describe("Contracts delete flow", () => {
     let deleteRequestCount = 0;
 
     await routeContractsDependencies(page, () => documents);
+    await routeContractsApi(page, {
+      getDocuments: () => documents,
+    });
 
     await page.route("**/api/access-token", async (route) => {
       await route.fulfill({
@@ -94,7 +102,7 @@ test.describe("Contracts delete flow", () => {
 
       if (method === "GET") {
         const documentId = /^\/api\/eformsign\/documents\/([^/]+)$/.exec(url.pathname)?.[1];
-        if (documentId) {
+        if (documentId && documentId !== "status-counts") {
           const doc = documents.find((item) => item.id === documentId);
           await route.fulfill({
             status: doc ? 200 : 404,
@@ -105,16 +113,7 @@ test.describe("Contracts delete flow", () => {
         }
       }
 
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          documents,
-          total_rows: documents.length,
-          limit: 20,
-          skip: 0,
-        }),
-      });
+      await route.fallback();
     });
 
     await page.goto("/contracts");
@@ -161,6 +160,7 @@ async function routeContractsDependencies(
         name: "E2E Tester",
         email: "e2e@example.com",
         role: "admin",
+        branchId: "e2e-branch",
         branchName: "E2E Branch",
       }),
     });
