@@ -45,6 +45,13 @@ const VOUCHER_PRICE_INFOS = [
   },
 ];
 
+const OUT_OF_POCKET_PRICE_INFOS = [
+  { id: 1, duration: 5, fullPrice: "815000" },
+  { id: 2, duration: 10, fullPrice: "1620000" },
+  { id: 3, duration: 15, fullPrice: "2425000" },
+  { id: 4, duration: 20, fullPrice: "3240000" },
+];
+
 type CreateClientPayload = Record<string, unknown>;
 
 async function mockClientsWizardRoutes(page: Page, options?: { onCreate?: (payload: CreateClientPayload) => void }) {
@@ -91,6 +98,14 @@ async function mockClientsWizardRoutes(page: Page, options?: { onCreate?: (paylo
     });
   });
 
+  await page.route("**/api/out-of-pocket-price-infos**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(OUT_OF_POCKET_PRICE_INFOS),
+    });
+  });
+
   await page.route("**/api/clients", async (route) => {
     if (route.request().method() === "POST") {
       options?.onCreate?.(route.request().postDataJSON() as CreateClientPayload);
@@ -134,7 +149,11 @@ async function goToStepOne(page: Page) {
 }
 
 async function fillDeterministicVoucherFields(page: Page) {
-  const voucherTypeSelect = page.locator('[data-component="clients-new-voucher-card"] select').first();
+  const voucherToggle = page.locator('[data-component="clients-new-customer-type-toggle-voucher"]');
+  await voucherToggle.click();
+  await expect(voucherToggle).toHaveAttribute("aria-selected", "true");
+
+  const voucherTypeSelect = page.locator('[data-component="clients-new-voucher-select"]');
   await voucherTypeSelect.selectOption(VOUCHER_TYPE);
 
   const durationSelect = page.locator('[data-component="clients-new-duration-select-wrap"] select');
@@ -200,7 +219,6 @@ test.describe("clients/new wizard", () => {
   });
 
   test("opens the mobile employee creation modal from the provider assignment card", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 844 });
     await mockClientsWizardRoutes(page);
     await page.goto("/clients/new");
 
