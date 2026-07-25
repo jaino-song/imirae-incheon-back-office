@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth/cookies";
 import { UserProvider } from "@/providers/UserProvider";
 import { NotificationPermissionPrompt } from "@/components/app/notification-permission-prompt";
 import { Toaster } from "@/components/ui/toaster";
+import { ContractsPrefetchCoordinator } from "@/components/app/root/contracts-prefetch-coordinator";
 import { MobileBottomNav } from "@/components/app/root/mobile-bottom-nav";
 import { V3Sidebar } from "@/components/app/v3/V3Sidebar";
 import { V3MobileHeader } from "@/components/app/v3/V3MobileHeader";
@@ -71,6 +72,7 @@ export default async function RootLayout({
                     data-slot="app-content"
                     className="relative h-full min-h-0 w-full overflow-hidden"
                   >
+                    <ContractsPrefetchCoordinator />
                     <NotificationPermissionPrompt />
                     <V3Sidebar />
                     <V3MobileHeader />
