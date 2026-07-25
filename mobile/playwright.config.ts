@@ -27,10 +27,14 @@ export default defineConfig({
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* 2 workers on CI (matches the runner's cores): 266 tests at 1 worker
-     with retries exceed any sane job timeout against the real backend. */
-  workers: process.env.CI ? 2 : undefined,
+  /* 1 retry on CI: with the prod-build webServer the dominant failure mode is
+     a real bug, not dev-compile flake — a second identical retry mostly just
+     multiplied red-run wall-clock. */
+  retries: process.env.CI ? 1 : 0,
+  /* 3 workers on CI: the real backend held at 2; bumped after moving the
+     webServer to a production build (dev-compile contention was the reason
+     for the old conservative cap). Drop back to 2 if backend flake returns. */
+  workers: process.env.CI ? 3 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -54,12 +58,20 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: `pnpm exec next dev --port ${e2ePort}`,
+    // CI serves the production build (built in a prior workflow step with
+    // NEXT_PUBLIC_E2E_TEST inlined) — on-demand dev compilation was the single
+    // biggest cost of the e2e job. Local runs keep the dev server.
+    command: process.env.CI
+      ? `pnpm exec next start --port ${e2ePort}`
+      : `pnpm exec next dev --port ${e2ePort}`,
     url: baseURL,
     reuseExistingServer: false,
     timeout: 180 * 1000,
     env: {
       NEXT_PUBLIC_E2E_TEST: 'true',
+      // keep the prod-build server in production mode even when the CI job's
+      // ambient NODE_ENV is development (needed by the backend under test)
+      ...(process.env.CI ? { NODE_ENV: 'production' } : {}),
     },
   },
 });
