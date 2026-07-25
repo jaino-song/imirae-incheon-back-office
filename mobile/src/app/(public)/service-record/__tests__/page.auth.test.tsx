@@ -124,6 +124,34 @@ describe("ServiceRecordPage authentication restoration", () => {
         );
     });
 
+    it("shows completion when every service session has been submitted", async () => {
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ valid: true }))
+            .mockResolvedValueOnce(jsonResponse({
+                ...serviceRecordContext,
+                header: {
+                    momName: "김산모",
+                    momBirth: "900101",
+                    babyName: "김아기",
+                    babyBirth: "260714",
+                    babyWeight: "3.2",
+                    deliveryType: "자연분만",
+                },
+                sessions: [{
+                    sessionIndex: 1,
+                    serviceDate: "2026-07-17",
+                    locked: true,
+                    momApproval: "approved",
+                }],
+                recordStatus: "WAITING_FOR_END",
+            }));
+
+        render(<ServiceRecordPage />);
+
+        expect(await screen.findByText("제공기록지 제출이 완료되었습니다.")).toBeInTheDocument();
+        expect(screen.getByText("최종 제출 완료")).toBeInTheDocument();
+    });
+
     it("shows identity verification when no valid server cookie is available", async () => {
         fetchMock
             .mockResolvedValueOnce(jsonResponse({ valid: true }))
