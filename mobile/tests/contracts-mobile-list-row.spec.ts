@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import {
+  routeContractsApi,
+  type ContractListRequest,
+  type ContractMockDocument,
+} from "./helpers/contracts-api-mock";
+
 const MOCK_DOCUMENTS = {
   documents: [
     {
@@ -17,9 +23,6 @@ const MOCK_DOCUMENTS = {
       },
     },
   ],
-  total_rows: 1,
-  limit: 20,
-  skip: 0,
 };
 
 const SECTION_DOCUMENTS = {
@@ -37,9 +40,6 @@ const SECTION_DOCUMENTS = {
       },
     },
   ],
-  total_rows: 2,
-  limit: 20,
-  skip: 0,
 };
 
 const STAGE_DOCUMENTS = {
@@ -204,9 +204,6 @@ const STAGE_DOCUMENTS = {
       previous_status: [],
     },
   ],
-  total_rows: 8,
-  limit: 20,
-  skip: 0,
 };
 
 const SERVICE_RECORD_REVIEW_DOCUMENTS = {
@@ -217,9 +214,26 @@ const SERVICE_RECORD_REVIEW_DOCUMENTS = {
       template: { id: "service-record-template", name: "산모신생아 제공기록지" },
       document_name: "검토고객 제공기록지",
     })),
-  total_rows: 1,
-  limit: 20,
-  skip: 0,
+};
+
+const PAGINATED_DOCUMENTS: { documents: ContractMockDocument[] } = {
+  documents: Array.from({ length: 15 }, (_, index) => {
+    const sequence = index + 1;
+    return {
+      id: `paginated-doc-${sequence}`,
+      document_number: `PAGE-${String(sequence).padStart(3, "0")}`,
+      template: { id: "tpl-1", name: "Contract" },
+      document_name: `페이지고객 ${sequence} 계약서`,
+      creator: { recipient_type: "sender", id: "admin", name: "Admin" },
+      created_date: Date.now() - index * 1000,
+      last_editor: { recipient_type: "sender", id: "admin", name: "Admin" },
+      updated_date: Date.now() - index * 1000,
+      current_status: {
+        status_type: "003",
+        step_recipients: [{ recipient_type: "signer", name: `페이지고객 ${sequence}` }],
+      },
+    };
+  }),
 };
 
 const DOCUMENT_CLIENT_SUMMARIES = [
@@ -233,6 +247,16 @@ const DOCUMENT_CLIENT_SUMMARIES = [
   { documentId: "doc-provider-drafting", clientId: 107, clientName: "작성단계", clientPhone: "010-6666-1111", providerName: "강제공" },
   { documentId: "doc-completed", clientId: 108, clientName: "완료고객", clientPhone: "010-6666-7777", providerName: "오제공" },
 ];
+
+function createDocumentClientSummaries(documents: readonly ContractMockDocument[]) {
+  return documents.map((document, index) => ({
+    documentId: document.id,
+    clientId: 2000 + index,
+    clientName: document.current_status?.step_recipients?.[0]?.name ?? document.document_name ?? "고객",
+    clientPhone: "010-0000-0000",
+    providerName: "테스트 제공자",
+  }));
+}
 
 const NOTIFICATION_LOGS = [
   {
@@ -311,6 +335,20 @@ async function routeNotificationLogs(page: Page, logs = NOTIFICATION_LOGS) {
   });
 }
 
+async function routeContractsList(
+  page: Page,
+  payload: { documents: readonly ContractMockDocument[] },
+  options: {
+    beforeListResponse?: (request: ContractListRequest) => Promise<void> | void;
+    onListRequest?: (request: ContractListRequest) => Promise<void> | void;
+  } = {},
+) {
+  await routeContractsApi(page, {
+    getDocuments: () => payload.documents,
+    ...options,
+  });
+}
+
 async function routeDocumentDetails(page: Page, docs = [...MOCK_DOCUMENTS.documents, ...STAGE_DOCUMENTS.documents]) {
   await page.route("**/api/eformsign/documents/*", async (route) => {
     const request = route.request();
@@ -321,6 +359,10 @@ async function routeDocumentDetails(page: Page, docs = [...MOCK_DOCUMENTS.docume
     }
 
     const documentId = url.pathname.split("/").pop();
+    if (documentId === "status-counts") {
+      await route.fallback();
+      return;
+    }
     const doc = docs.find((item) => item.id === documentId);
     await route.fulfill({
       status: doc ? 200 : 404,
@@ -351,20 +393,7 @@ test.describe("Mobile contracts list rows", () => {
         body: JSON.stringify({ success: true }),
       });
     });
-    await page.route("**/api/eformsign-docs/feedback-template-id**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ templateId: "service-record-template" }),
-      });
-    });
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(SECTION_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, SECTION_DOCUMENTS);
     await routeDocumentClientSummaries(page, []);
     await routeNotificationLogs(page);
 
@@ -398,13 +427,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, MOCK_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -418,6 +441,97 @@ test.describe("Mobile contracts list rows", () => {
     await expect(row.locator(".list-name")).toContainText("홍길동");
   });
 
+  test("renders nine first-page rows and requests six more after tapping load more", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 1600 });
+    await page.route("**/api/access-token", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true }),
+      });
+    });
+
+    const listRequests: ContractListRequest[] = [];
+    await routeContractsList(page, PAGINATED_DOCUMENTS, {
+      onListRequest: (request) => {
+        listRequests.push(request);
+      },
+    });
+    await routeDocumentClientSummaries(
+      page,
+      createDocumentClientSummaries(PAGINATED_DOCUMENTS.documents),
+    );
+    await routeNotificationLogs(page);
+
+    await page.goto("/contracts");
+
+    await expect.poll(() =>
+      listRequests.some(
+        (request) =>
+          request.limit === 9
+          && request.skip === 0
+          && request.search === ""
+          && request.statusCategory === null
+          && request.templateId === "service-record-template"
+          && request.templateMatch === "exclude"
+          && request.excludeDeleted,
+      ),
+    ).toBe(true);
+    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(9, {
+      timeout: 15000,
+    });
+    const loadMoreButton = page.locator(
+      '[data-component="mobile-contracts-load-more-button"]',
+    );
+    await expect(loadMoreButton).toBeVisible();
+    await expect(loadMoreButton).toContainText("탭하여 더보기");
+
+    await loadMoreButton.click();
+
+    await expect.poll(() =>
+      listRequests.some(
+        (request) =>
+          request.limit === 6
+          && request.skip === 9
+          && request.search === ""
+          && request.statusCategory === null
+          && request.templateId === "service-record-template"
+          && request.templateMatch === "exclude"
+          && request.excludeDeleted,
+      ),
+    ).toBe(true);
+  });
+
+  test("hides load more when all nine documents fit in the first page", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 1600 });
+    await page.route("**/api/access-token", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true }),
+      });
+    });
+
+    const firstPageOnly = {
+      documents: PAGINATED_DOCUMENTS.documents.slice(0, 9),
+    };
+    await routeContractsList(page, firstPageOnly);
+    await routeDocumentClientSummaries(
+      page,
+      createDocumentClientSummaries(firstPageOnly.documents),
+    );
+    await routeNotificationLogs(page);
+
+    await page.goto("/contracts");
+
+    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(9, {
+      timeout: 15000,
+    });
+    await expect(
+      page.locator('[data-component="mobile-contracts-load-more-button"]'),
+    ).toHaveCount(0);
+  });
+
   test("uses six-stage progress labels for contract progress", async ({ page }) => {
     await page.route("**/api/access-token", async (route) => {
       await route.fulfill({
@@ -427,13 +541,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -476,13 +584,10 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await documentsReady;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
+    await routeContractsList(page, STAGE_DOCUMENTS, {
+      beforeListResponse: async () => {
+        await documentsReady;
+      },
     });
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
@@ -523,13 +628,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -606,13 +705,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -677,13 +770,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -713,20 +800,7 @@ test.describe("Mobile contracts list rows", () => {
         body: JSON.stringify({ success: true }),
       });
     });
-    await page.route("**/api/eformsign-docs/feedback-template-id**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ templateId: "service-record-template" }),
-      });
-    });
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(SERVICE_RECORD_REVIEW_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, SERVICE_RECORD_REVIEW_DOCUMENTS);
     await page.route("**/api/eformsign-docs/finalize-headless**", async (route) => {
       if (route.request().url().includes("/progress")) {
         await route.fulfill({
@@ -806,13 +880,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
     await routeDocumentPdfPreview(page);
@@ -907,13 +975,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -939,13 +1001,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentDetails(page, [
       ...MOCK_DOCUMENTS.documents,
       ...STAGE_DOCUMENTS.documents.map((document) => {
@@ -1020,13 +1076,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -1054,13 +1104,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -1095,13 +1139,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentDetails(page, [
       {
         ...STAGE_DOCUMENTS.documents[0],
@@ -1143,13 +1181,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 
@@ -1175,13 +1207,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(STAGE_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, STAGE_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page, []);
 
@@ -1204,13 +1230,7 @@ test.describe("Mobile contracts list rows", () => {
       });
     });
 
-    await page.route("**/api/eformsign/documents**", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_DOCUMENTS),
-      });
-    });
+    await routeContractsList(page, MOCK_DOCUMENTS);
     await routeDocumentClientSummaries(page);
     await routeNotificationLogs(page);
 

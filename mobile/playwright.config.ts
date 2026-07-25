@@ -1,7 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// E2E_PORT lets a local run pick a free port when a regular dev server already
+// occupies 3002 (webServer below binds the same port it health-checks).
+const e2ePort = process.env.E2E_PORT ?? '3002';
 const baseURL = process.env.BASE_URL
-  || (process.env.CI ? (() => { throw new Error('BASE_URL is required in CI'); })() : 'http://localhost:3002');
+  || (process.env.CI ? (() => { throw new Error('BASE_URL is required in CI'); })() : `http://localhost:${e2ePort}`);
 
 // Quarantined from CI until rewritten/unblocked — see tests/QUARANTINE.md
 const CI_QUARANTINE = [
@@ -51,7 +54,7 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm exec next dev --port 3002',
+    command: `pnpm exec next dev --port ${e2ePort}`,
     url: baseURL,
     reuseExistingServer: false,
     timeout: 180 * 1000,
