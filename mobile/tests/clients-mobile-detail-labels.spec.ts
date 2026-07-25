@@ -176,7 +176,7 @@ test.describe("Mobile clients detail labels", () => {
     await expect(notificationTabButton).toBeVisible();
     await notificationTabButton.dispatchEvent("click");
 
-    const messageTab = page.locator('[data-component="mobile-clients-message-tab"]');
+    const messageTab = page.locator('[data-component="mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_message"]');
     await expect(messageTab).toBeVisible();
     await expect(messageTab.locator(".info-card-title")).toHaveText("발송 내역");
     await expect(messageTab).toContainText("메시지 · 수동 메시지");
@@ -261,7 +261,7 @@ test.describe("Mobile clients detail labels", () => {
     await page.locator('[data-component="mobile-clients-row"]', { hasText: CLIENT.name }).click();
     await page.locator('[data-component="mobile-redesign-detail-tabs"] [data-tab="message"]').click();
 
-    const messageTab = page.locator('[data-component="mobile-clients-message-tab"]');
+    const messageTab = page.locator('[data-component="mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_message"]');
     await expect(messageTab).toContainText("발송 내역을 불러오지 못했습니다.");
     await expect(messageTab).not.toContainText("발송 내역이 없습니다.");
     await expect(messageTab.locator('[data-component="mobile-clients-message-retry"]')).toBeVisible();
