@@ -717,6 +717,7 @@ export class EformsignController {
         templateMatch: TemplateMatch,
         statusCategory: DocumentStatusCategory | undefined,
         search: string | undefined,
+        excludeDeleted = false,
     ) {
         const documents = snapshot.entries.map((entry) => entry.document);
         const searchIndexByDocumentId = new Map(
@@ -729,6 +730,7 @@ export class EformsignController {
             templateMatch,
             statusCategory,
             search,
+            excludeDeleted,
             searchIndexByDocumentId,
         );
         const pageDocuments = filteredDocuments.slice(skip, skip + limit);
