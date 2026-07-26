@@ -9,6 +9,8 @@ import {
   type QuickActionIcon,
 } from "./QuickActionButton";
 
+const SOURCE_COMPONENT = "FloatingQuickActions";
+
 interface FloatingAction {
   href: string;
   label: string;
@@ -22,10 +24,18 @@ const FLOATING_ACTIONS: FloatingAction[] = [
   { href: "/prices", label: "가격표", icon: Calculator },
 ];
 
-export function FloatingQuickActions() {
+interface FloatingQuickActionsProps {
+  "data-component": string;
+}
+
+export function FloatingQuickActions({
+  "data-component": dataComponent,
+}: FloatingQuickActionsProps) {
   return (
     <nav
-      data-component="floating-quick-actions"
+      data-component={dataComponent}
+      data-slot="floating-quick-actions"
+      data-source-component={SOURCE_COMPONENT}
       data-mode="desktop"
       className={cn(
         "hidden md:flex",

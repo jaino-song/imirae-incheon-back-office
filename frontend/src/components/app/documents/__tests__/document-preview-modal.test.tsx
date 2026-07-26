@@ -522,6 +522,7 @@ describe("ContractDocumentPreviewModal", () => {
 
     render(
       <ContractDocumentPreviewModal
+        data-component="desktop_contracts_tests_document-preview"
         open={true}
         onClose={jest.fn()}
         document={contractDocument}
@@ -532,12 +533,14 @@ describe("ContractDocumentPreviewModal", () => {
 
     await screen.findByTestId("pdf-page-1");
 
-    const footer = document.querySelector('[data-component="contracts-document-preview-footer"]');
+    const footer = document.querySelector(
+      '[data-component="desktop_contracts_tests_document-preview_footer"]',
+    );
     const fileActions = document.querySelector(
-      '[data-component="contracts-document-preview-file-actions"]',
+      '[data-component="desktop_contracts_tests_document-preview_footer_file-actions"]',
     );
     const reviewAction = document.querySelector(
-      '[data-component="contracts-document-preview-review-action"]',
+      '[data-component="desktop_contracts_tests_document-preview_footer_review-action"]',
     );
 
     expect(footer).toHaveClass("sm:justify-between");
@@ -563,6 +566,7 @@ describe("ContractDocumentPreviewModal", () => {
   it("disables the review confirmation while automatic processing is pending", async () => {
     render(
       <ContractDocumentPreviewModal
+        data-component="desktop_contracts_tests_document-preview"
         open={true}
         onClose={jest.fn()}
         document={contractDocument}

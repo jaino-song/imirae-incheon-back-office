@@ -179,7 +179,7 @@ export function SplitLayout({
 
   const setRelatedMode = useCallback((nextMode: SplitLayoutMode) => {
     const root = splitLayoutRef.current;
-    const mainContent = root?.closest<HTMLElement>('[data-component="main-content"]');
+    const mainContent = root?.closest<HTMLElement>('[data-slot="main-content"]');
 
     root?.setAttribute("data-mode", nextMode);
     root
@@ -190,16 +190,16 @@ export function SplitLayout({
       .forEach((element) => element.setAttribute("data-mode", nextMode));
     mainContent?.setAttribute("data-mode", nextMode);
     mainContent
-      ?.querySelector<HTMLElement>('[data-component="section-nav"]')
+      ?.querySelector<HTMLElement>('[data-slot="section-nav"]')
       ?.setAttribute("data-mode", nextMode);
     mainContent
-      ?.querySelector<HTMLElement>('[data-component="section-nav-desktop"]')
+      ?.querySelector<HTMLElement>('[data-slot="section-nav-desktop"]')
       ?.setAttribute("data-mode", nextMode);
     mainContent
-      ?.querySelector<HTMLElement>('[data-component="section-nav-mobile"]')
+      ?.querySelector<HTMLElement>('[data-slot="section-nav-mobile"]')
       ?.setAttribute("data-mode", nextMode);
     mainContent
-      ?.querySelector<HTMLElement>('[data-component="floating-quick-actions"]')
+      ?.querySelector<HTMLElement>('[data-slot="floating-quick-actions"]')
       ?.setAttribute("data-mode", nextMode);
   }, []);
 
@@ -220,8 +220,8 @@ export function SplitLayout({
     const track = root.querySelector<HTMLElement>('[data-slot="split-layout-track"]');
     const listPanel = root.querySelector<HTMLElement>('[data-slot="split-layout-panel"][data-panel="list"]');
     const detailPanel = root.querySelector<HTMLElement>('[data-slot="split-layout-panel"][data-panel="detail"]');
-    const mainContent = root.closest<HTMLElement>('[data-component="main-content"]');
-    const floatingActions = mainContent?.querySelector<HTMLElement>('[data-component="floating-quick-actions"]');
+    const mainContent = root.closest<HTMLElement>('[data-slot="main-content"]');
+    const floatingActions = mainContent?.querySelector<HTMLElement>('[data-slot="floating-quick-actions"]');
 
     if (!track || !listPanel || !detailPanel || !mainContent) return;
 
@@ -231,9 +231,9 @@ export function SplitLayout({
       listPanel,
       detailPanel,
       mainContent,
-      mainContent.querySelector<HTMLElement>('[data-component="section-nav"]'),
-      mainContent.querySelector<HTMLElement>('[data-component="section-nav-desktop"]'),
-      mainContent.querySelector<HTMLElement>('[data-component="section-nav-mobile"]'),
+      mainContent.querySelector<HTMLElement>('[data-slot="section-nav"]'),
+      mainContent.querySelector<HTMLElement>('[data-slot="section-nav-desktop"]'),
+      mainContent.querySelector<HTMLElement>('[data-slot="section-nav-mobile"]'),
       floatingActions,
     ].filter((element): element is HTMLElement => element !== null);
 

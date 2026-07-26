@@ -17,6 +17,8 @@ export interface DetailTabPanelsProps {
   className?: string;
   trackClassName?: string;
   panelClassName?: string;
+  "data-component"?: string;
+  "data-panel-component"?: string;
   dataComponent?: string;
   panelDataComponent?: string;
   durationMs?: number;
@@ -29,11 +31,21 @@ export function DetailTabPanels({
   className,
   trackClassName,
   panelClassName,
-  dataComponent = "detail-tab-panels",
-  panelDataComponent = "detail-tab-panel",
+  "data-component": canonicalDataComponent,
+  "data-panel-component": canonicalPanelDataComponent,
+  dataComponent: legacyDataComponent,
+  panelDataComponent: legacyPanelDataComponent,
   durationMs = DETAIL_TAB_PANEL_SLIDE_DURATION_MS,
   idPrefix,
 }: DetailTabPanelsProps) {
+  // TODO(data-component): Remove legacy fallbacks after all callers migrate.
+  const dataComponent =
+    canonicalDataComponent ?? legacyDataComponent ?? "detail-tab-panels";
+  const panelDataComponent =
+    canonicalPanelDataComponent ?? legacyPanelDataComponent ?? "detail-tab-panel";
+  const trackDataComponent = canonicalDataComponent
+    ? `${dataComponent}_track`
+    : `${dataComponent}-track`;
   const previousActiveTabRef = useRef(activeTab);
   const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [visiblePanelKeys, setVisiblePanelKeys] = useState<string[]>(() => [activeTab]);
@@ -74,7 +86,7 @@ export function DetailTabPanels({
       className={cn("overflow-hidden", className)}
     >
       <div
-        data-component={`${dataComponent}-track`}
+        data-component={trackDataComponent}
         className={cn(
           "flex transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transition-none",
           trackClassName

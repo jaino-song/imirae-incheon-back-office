@@ -9,6 +9,7 @@ describe("ContractReviewActionButton", () => {
 
     render(
       <ContractReviewActionButton
+        data-component="desktop_contracts_tests_review-action"
         action="preview"
         onFinalize={onFinalize}
         onPreview={onPreview}
@@ -27,6 +28,7 @@ describe("ContractReviewActionButton", () => {
 
     render(
       <ContractReviewActionButton
+        data-component="desktop_contracts_tests_review-action"
         action="finalize"
         onFinalize={onFinalize}
         onPreview={onPreview}

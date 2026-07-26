@@ -24,7 +24,7 @@ export default async function ProtectedLayout({
       <NotificationPermissionPrompt />
       <V3Sidebar />
       <V3MobileHeader />
-      <V3MainContent>{children}</V3MainContent>
+      <V3MainContent data-component="desktop_shell_main-content">{children}</V3MainContent>
       <MobileBottomNav />
     </UserProvider>
   );

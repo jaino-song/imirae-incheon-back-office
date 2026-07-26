@@ -20,6 +20,7 @@ export interface PreviewMetaItem {
 }
 
 interface SharedDocumentPreviewDialogProps {
+  "data-component"?: string;
   open: boolean;
   onClose: () => void;
   title: string;
@@ -128,6 +129,7 @@ function logGestureEvent(
 }
 
 export function SharedDocumentPreviewDialog({
+  "data-component": dataComponent,
   open,
   onClose,
   title,
@@ -501,7 +503,11 @@ export function SharedDocumentPreviewDialog({
         key="receipt"
         variant="positive-outline"
         size="sm"
-        data-component="contracts-document-preview-receipt-download"
+        data-component={
+          dataComponent
+            ? `${dataComponent}_footer_file-actions_receipt-download`
+            : "contracts-document-preview-receipt-download"
+        }
         onClick={() => triggerDownload(receiptDownloadUrl, receiptDownloadFileName)}
         className="min-w-[88px] border-v3-primary"
       >
@@ -527,12 +533,15 @@ export function SharedDocumentPreviewDialog({
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <DialogContent
         ref={previewDialogContentRef}
-        data-component="contracts-document-preview"
+        // TODO(data-component-migration): Remove the legacy fallback after every caller passes a canonical base.
+        data-component={dataComponent ?? "contracts-document-preview"}
         className={cn("!flex h-[90vh] max-h-[90vh] max-w-4xl flex-col !overflow-hidden p-0", contentClassName)}
         showCloseButton={false}
       >
         <DialogHeader
-          data-component="contracts-document-preview-header"
+          data-component={
+            dataComponent ? `${dataComponent}_header` : "contracts-document-preview-header"
+          }
           className="flex-row items-start justify-between border-b border-border px-6 py-4"
         >
           <div>
@@ -559,7 +568,9 @@ export function SharedDocumentPreviewDialog({
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <div
-            data-component="contracts-document-preview-meta"
+            data-component={
+              dataComponent ? `${dataComponent}_meta` : "contracts-document-preview-meta"
+            }
             className="border-b border-border bg-muted/30 px-6 py-4"
           >
             <div className="mb-2 flex flex-wrap gap-6">
@@ -575,7 +586,9 @@ export function SharedDocumentPreviewDialog({
           </div>
 
           <div
-            data-component="document-preview-canvas"
+            data-component={
+              dataComponent ? `${dataComponent}_canvas` : "document-preview-canvas"
+            }
             ref={previewCanvasRef}
             className="relative flex min-h-[400px] flex-1 flex-col overflow-hidden bg-muted/50"
           >
@@ -688,7 +701,9 @@ export function SharedDocumentPreviewDialog({
         </div>
 
         <DialogFooter
-          data-component="contracts-document-preview-footer"
+          data-component={
+            dataComponent ? `${dataComponent}_footer` : "contracts-document-preview-footer"
+          }
           className={cn(
             "border-t border-border px-6 py-4",
             footerAction ? "sm:justify-between" : "justify-end",
@@ -697,13 +712,21 @@ export function SharedDocumentPreviewDialog({
           {footerAction ? (
             <>
               <div
-                data-component="contracts-document-preview-file-actions"
+                data-component={
+                  dataComponent
+                    ? `${dataComponent}_footer_file-actions`
+                    : "contracts-document-preview-file-actions"
+                }
                 className="flex flex-wrap items-center gap-2"
               >
                 {fileActionButtons}
               </div>
               <div
-                data-component="contracts-document-preview-review-action"
+                data-component={
+                  dataComponent
+                    ? `${dataComponent}_footer_review-action`
+                    : "contracts-document-preview-review-action"
+                }
                 className="ml-auto flex items-center"
               >
                 {footerAction}
