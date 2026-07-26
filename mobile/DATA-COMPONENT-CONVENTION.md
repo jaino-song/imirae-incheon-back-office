@@ -27,6 +27,11 @@ ESLint 규칙은 migration 호환성을 위해 `banLegacyFormat`의 기본값을
 범위에서는 `{ banLegacyFormat: true }`를 사용하며, legacy 값은
 `{platform}_{route-or-surface}_{...}` 형식으로 옮긴다.
 
+`checkMissingAnnotations`의 기본값은 `true`이며, 구조 요소에 `data-component`가
+없는 경우를 현행대로 보고한다. `{ checkMissingAnnotations: false }`는 이 presence
+보고만 억제한다. `data-component`가 존재하면 canonical/legacy/full-parent-path 검사를
+그대로 수행하고, `data-slot`과 `data-source-component` 값 검사도 계속 수행한다.
+
 `data-slot` literal은 비어 있지 않은 kebab-case
 (`/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/`)여야 한다. slot은 route path가 아니므로
 `desktop_`/`mobile_` prefix나 `_` segment separator를 포함하지 않는다.

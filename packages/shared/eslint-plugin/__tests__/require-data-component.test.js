@@ -59,6 +59,10 @@ ruleTester.run(
         code: "<div>{children}</div>",
       },
       {
+        code: "<div><section /><nav /><main /><aside /><article /><header /><footer /></div>",
+        options: [{ checkMissingAnnotations: false }],
+      },
+      {
         code: "<next-route-announcer />",
       },
       {
@@ -119,6 +123,60 @@ ruleTester.run(
       {
         code: "<div hidden />",
         errors: [{ messageId: "missingDataComponent" }],
+      },
+      {
+        code: "<section />",
+        options: [{ checkMissingAnnotations: true }],
+        errors: [{ messageId: "missingDataComponent" }],
+      },
+      {
+        code: '<main data-component="legacy-page-shell" />',
+        options: [
+          { banLegacyFormat: true, checkMissingAnnotations: true },
+        ],
+        errors: [{ messageId: "legacyFormat" }],
+      },
+      {
+        code: '<main data-component="legacy-page-shell" />',
+        options: [
+          { banLegacyFormat: true, checkMissingAnnotations: false },
+        ],
+        errors: [{ messageId: "legacyFormat" }],
+      },
+      {
+        code: '<div data-component="Desktop_clients_detail" />',
+        options: [{ checkMissingAnnotations: true }],
+        errors: [{ messageId: "invalidFormat" }],
+      },
+      {
+        code: '<div data-component="Desktop_clients_detail" />',
+        options: [{ checkMissingAnnotations: false }],
+        errors: [{ messageId: "invalidFormat" }],
+      },
+      {
+        code: '<section data-component="desktop_clients_detail"><div data-component="desktop_clients_header" /></section>',
+        options: [{ checkMissingAnnotations: true }],
+        errors: [{ messageId: "brokenParentPath" }],
+      },
+      {
+        code: '<section data-component="desktop_clients_detail"><div data-component="desktop_clients_header" /></section>',
+        options: [{ checkMissingAnnotations: false }],
+        errors: [{ messageId: "brokenParentPath" }],
+      },
+      {
+        code: '<div data-component="desktop_clients_detail" data-slot="title_row" />',
+        options: [{ checkMissingAnnotations: true }],
+        errors: [{ messageId: "invalidDataSlot" }],
+      },
+      {
+        code: '<div data-component="desktop_clients_detail" data-slot="title_row" />',
+        options: [{ checkMissingAnnotations: false }],
+        errors: [{ messageId: "invalidDataSlot" }],
+      },
+      {
+        code: '<div data-source-component="client-detail-panel" />',
+        options: [{ checkMissingAnnotations: false }],
+        errors: [{ messageId: "invalidSourceComponent" }],
       },
     ],
   },
