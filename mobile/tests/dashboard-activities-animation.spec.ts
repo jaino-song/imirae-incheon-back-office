@@ -297,17 +297,17 @@ test.describe("Dashboard activities animations", () => {
     await expect(page.getByRole("button", { name: /종료 예정\s+1/ })).toBeVisible();
 
     const headerBox = await page.locator('[data-slot="mobile-header"]').boundingBox();
-    const analyticsBox = await page.locator('[data-component="mobile-dashboard-analytics-grid"]').boundingBox();
-    const contentBox = await page.locator('[data-component="mobile-dashboard-content"]').boundingBox();
+    const analyticsBox = await page.locator('[data-component="mobile_dashboard_page_analytics-grid"]').boundingBox();
+    const contentBox = await page.locator('[data-component="mobile_dashboard_page_content"]').boundingBox();
     expect(headerBox).not.toBeNull();
     expect(analyticsBox).not.toBeNull();
     expect(contentBox).not.toBeNull();
     expect(analyticsBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
     expect(contentBox!.y - (analyticsBox!.y + analyticsBox!.height)).toBeLessThanOrEqual(20);
 
-    const cardBox = await page.locator('[data-component="mobile-redesign-list-card"]').boundingBox();
+    const cardBox = await page.locator('[data-component="mobile_dashboard_page_content_list-card"]').boundingBox();
     expect(cardBox).not.toBeNull();
-    const pillBoxes = await page.locator('[data-component="mobile-redesign-filter-pill"]').evaluateAll((elements) =>
+    const pillBoxes = await page.locator('[data-component="mobile_dashboard_page_content_list-card_filters_pill"]').evaluateAll((elements) =>
       elements.map((element) => {
         const rect = element.getBoundingClientRect();
         return { left: rect.left, right: rect.right, width: rect.width };
@@ -328,11 +328,11 @@ test.describe("Dashboard activities animations", () => {
 
     await page.goto("/dashboard");
 
-    await expect(page.locator('[data-component="mobile-redesign-list-card"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-filter-pill"][data-loading="true"]')).toHaveCount(4);
-    await expect(page.locator('[data-component="mobile-dashboard-analytic-skeleton"]')).toHaveCount(4);
-    await expect(page.locator('[data-component="mobile-dashboard-loading-skeleton"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-dashboard-row-skeleton"]')).toHaveCount(4);
+    await expect(page.locator('[data-component="mobile_dashboard_page_content_list-card"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_dashboard_page_content_list-card_filters_pill"][data-loading="true"]')).toHaveCount(4);
+    await expect(page.locator('[data-component="mobile_dashboard_page_analytics-grid_stat-skeleton"]')).toHaveCount(4);
+    await expect(page.locator('[data-component="mobile_dashboard_page_content_list-card_body_loading-skeleton"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_dashboard_page_content_list-card_body_loading-skeleton_row"]')).toHaveCount(4);
   });
 
   test("renders dashboard analytics values after data loads", async ({ page }) => {
@@ -345,7 +345,7 @@ test.describe("Dashboard activities animations", () => {
 
     await page.goto("/dashboard");
 
-    const analyticsCards = page.locator('[data-component="mobile-dashboard-analytic"]');
+    const analyticsCards = page.locator('[data-component="mobile_dashboard_page_analytics-grid_stat"]');
     await expect(analyticsCards).toHaveCount(4);
     await expect(analyticsCards.nth(0)).toContainText("1");
     await expect(analyticsCards.nth(0)).toContainText("서비스 진행 중");
@@ -355,7 +355,7 @@ test.describe("Dashboard activities animations", () => {
     await expect(analyticsCards.nth(2)).toContainText("검토 필요 문서");
     await expect(analyticsCards.nth(3)).toContainText("2");
     await expect(analyticsCards.nth(3)).toContainText("계약서 미완료");
-    await expect(page.locator('[data-component="mobile-dashboard-analytic-skeleton"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_dashboard_page_analytics-grid_stat-skeleton"]')).toHaveCount(0);
   });
 
   test("keeps dashboard analytics height stable from skeleton to loaded cards", async ({ page }) => {
@@ -369,18 +369,18 @@ test.describe("Dashboard activities animations", () => {
 
     await page.goto("/dashboard");
 
-    const grid = page.locator('[data-component="mobile-dashboard-analytics-grid"]');
-    await expect(page.locator('[data-component="mobile-dashboard-analytic-skeleton"]')).toHaveCount(4);
+    const grid = page.locator('[data-component="mobile_dashboard_page_analytics-grid"]');
+    await expect(page.locator('[data-component="mobile_dashboard_page_analytics-grid_stat-skeleton"]')).toHaveCount(4);
     const skeletonBox = await grid.boundingBox();
     const firstSkeletonBox = await page
-      .locator('[data-component="mobile-dashboard-analytic-skeleton"]')
+      .locator('[data-component="mobile_dashboard_page_analytics-grid_stat-skeleton"]')
       .first()
       .boundingBox();
 
-    await expect(page.locator('[data-component="mobile-dashboard-analytic"]')).toHaveCount(4);
+    await expect(page.locator('[data-component="mobile_dashboard_page_analytics-grid_stat"]')).toHaveCount(4);
     const loadedBox = await grid.boundingBox();
     const firstLoadedBox = await page
-      .locator('[data-component="mobile-dashboard-analytic"]')
+      .locator('[data-component="mobile_dashboard_page_analytics-grid_stat"]')
       .first()
       .boundingBox();
 
@@ -401,7 +401,7 @@ test.describe("Dashboard activities animations", () => {
     await mockAnalyticsRoute(page);
 
     await page.goto("/dashboard");
-    await expect(page.locator('[data-component="mobile-dashboard-analytics-grid"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_dashboard_page_analytics-grid"]')).toBeVisible();
 
     const metrics = await page.evaluate(() => {
       const appRoot = document.querySelector('[data-slot="app-root"]');

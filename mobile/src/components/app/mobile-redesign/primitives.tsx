@@ -30,7 +30,6 @@ const CONTRACT_LIST_SOURCE_COMPONENT = "ContractList";
  * data-component="mobile-redesign-filter-pill"
  * data-component="mobile-redesign-filter-pill"
  * data-component="mobile-redesign-action-feedback"
- * data-component="mobile-redesign-list-section"
  * data-component="mobile-redesign-contract-section"
  * data-component="mobile-redesign-contract-row"
  */
@@ -564,7 +563,7 @@ export function SectionedList({
   sections,
   hideSectionHeader,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   sections: SectionRows[];
   hideSectionHeader?: (section: SectionRows) => boolean;
 }) {
@@ -574,12 +573,7 @@ export function SectionedList({
         <div
           className="section-block"
           key={section.title}
-          // TODO(data-component): Remove the legacy fallback after caller migration.
-          data-component={
-            dataComponent
-              ? `${dataComponent}_section-${sectionIndex + 1}`
-              : "mobile-redesign-list-section"
-          }
+          data-component={`${dataComponent}_section-${sectionIndex + 1}`}
           data-source-component={SECTIONED_LIST_SOURCE_COMPONENT}
         >
           {!hideSectionHeader?.(section) && <div className="section-header">{section.title}</div>}
