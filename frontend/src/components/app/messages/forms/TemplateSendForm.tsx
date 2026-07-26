@@ -671,7 +671,7 @@ export function TemplateSendForm({
       className={cn("flex min-h-0 flex-col gap-4 rounded-[20px] bg-v3-dim-white p-5", className)}
       onSubmit={handleSubmit}
     >
-      <div data-component="desktop_messages_sections_template-send-form-header" className="flex items-start justify-between gap-4">
+      <div data-component="desktop_messages_sections_template-send-form_header" className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="text-[calc(14.4px*var(--glint-ui-scale,1))] font-bold text-v3-dark">전송 정보</h3>
           <p className="mt-0.5 text-[calc(12px*var(--glint-ui-scale,1))] text-v3-text-muted">
@@ -699,7 +699,7 @@ export function TemplateSendForm({
       ) : shouldUseInlinePhoneRecipient ? (
         <>
           <div
-            data-component="desktop_messages_sections_template-send-form-phone-field"
+            data-component="desktop_messages_sections_template-send-form_phone-field"
             className="min-w-0 w-full"
           >
             {templateId === "builtin:greeting" ? (
@@ -718,9 +718,9 @@ export function TemplateSendForm({
         <TemplateFieldGrid layout="stack">
           {requiresRecipientName ? (
             <>
-              <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form-recipient-field">
+              <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form_recipient-field">
                 <ClientAutocomplete
-                  data-component="desktop_messages_sections_template-send-form-recipient-field_autocomplete"
+                  data-component="desktop_messages_sections_template-send-form_recipient-field_autocomplete"
                   value={selectedClientId}
                   onChange={handleRecipientChange}
                   label="산모님 성함"
@@ -731,7 +731,7 @@ export function TemplateSendForm({
                 />
               </TemplateFieldGridItem>
 
-              <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form-phone-field">
+              <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form_phone-field">
                 <ContactInput
                   phone={phone}
                   setPhone={handlePhoneChange}
@@ -742,7 +742,7 @@ export function TemplateSendForm({
               </TemplateFieldGridItem>
             </>
           ) : (
-            <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form-phone-field">
+            <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form_phone-field">
               {phoneAutocompleteField}
             </TemplateFieldGridItem>
           )}
@@ -755,7 +755,7 @@ export function TemplateSendForm({
 
       {feedback ? (
         <div
-          data-component="desktop_messages_sections_template-send-form-feedback"
+          data-component="desktop_messages_sections_template-send-form_feedback"
           className={cn(
             "mt-4 rounded-[14px] px-4 py-3 text-[calc(12.48px*var(--glint-ui-scale,1))] font-semibold",
             feedback.tone === "success"
@@ -794,13 +794,13 @@ export function TemplateSendForm({
       >
         {duplicateSendCandidates && duplicateSendCandidates.length > 0 ? (
           <div
-            data-component="desktop_messages_sections_duplicate-send-confirm-list"
+            data-component="desktop_messages_sections_template-send-form_duplicate-send-confirm-list"
             className="flex flex-col gap-2"
           >
             {duplicateSendCandidates.map((match) => (
               <div
                 key={match.recipient.phone}
-                data-component="desktop_messages_sections_duplicate-send-confirm-recent"
+                data-component="desktop_messages_sections_template-send-form_duplicate-send-confirm-list_recent"
                 className="rounded-[16px] bg-v3-dim-white px-4 py-3"
               >
                 {shouldShowRecipientNameInPill && match.recipient.name ? (

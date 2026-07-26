@@ -1017,7 +1017,7 @@ export function OwnerAdminConsole() {
                     if (slotLoading) {
                       return (
                         <div
-                          data-component="desktop_system-admin_sections_list-skeleton-row"
+                          data-component="desktop_system-admin_sections_split-layout_list-panel_skeleton-row"
                           className="flex min-h-11 items-center gap-3"
                         >
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-v3-dim-white">
@@ -1191,7 +1191,7 @@ export function OwnerAdminConsole() {
                 ) : (
                   <div className="space-y-5">
                     {activeSection.id === "branches" && selectedRecord.requests?.length ? (
-                      <section data-component="desktop_system-admin_sections_detail-section" className="space-y-4">
+                      <section data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section" className="space-y-4">
                         <InfoCard data-component="desktop_system-admin_sections_detail-panel_info-card-3"
                           title="지점 정보"
                           titleTrailing={
@@ -1262,7 +1262,7 @@ export function OwnerAdminConsole() {
                       return (
                         <section
                           key={`${request.category}-${index}`}
-                          data-component="desktop_system-admin_sections_detail-section"
+                          data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section"
                           className={cn("space-y-4", index > 0 && "border-t border-v3-border pt-5")}
                         >
                           {request.applicantRows ? (
@@ -1312,7 +1312,7 @@ export function OwnerAdminConsole() {
                                 </p>
                               ) : null}
                               <div
-                                data-component="desktop_system-admin_sections_account-edit-actions"
+                                data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section_account-edit-actions"
                                 className="flex flex-wrap items-center gap-2"
                               >
                                 <div className="relative">
@@ -1386,7 +1386,7 @@ export function OwnerAdminConsole() {
                           {pendingAccountApproval && selectedPendingRole ? (
                             <div className="space-y-2">
                               <div
-                                data-component="desktop_system-admin_sections_pending-approval-actions"
+                                data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section_pending-approval-actions"
                                 className="flex flex-wrap items-center gap-2"
                               >
                                 <div className="relative">
