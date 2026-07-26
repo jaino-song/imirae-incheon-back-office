@@ -19,6 +19,8 @@ fs.mkdirSync(path.join(SCREENSHOT_DIR, "phase-2-badge"), { recursive: true });
 fs.mkdirSync(path.join(SCREENSHOT_DIR, "reduced-motion"), { recursive: true });
 
 const MOBILE_VIEWPORT = { width: 375, height: 812 } as const;
+const CLIENT_DETAIL_TABS =
+  "mobile_clients_detail-sheet_stack_detail-page_content_tabs";
 
 type MockClient = {
   id: number;
@@ -286,7 +288,9 @@ test.describe("Animation plan — visual verification", () => {
     await page.waitForTimeout(500); // nav-page slide
 
     // Look for DetailTabPills
-    const detailTabs = page.locator('[data-component="mobile-redesign-detail-tabs"]');
+    const detailTabs = page.locator(
+      `[data-component="${CLIENT_DETAIL_TABS}"]`
+    );
     if (!(await detailTabs.count())) {
       console.log("[phase 2.3] no DetailTabPills present on /clients detail; skipping");
       return;
@@ -298,7 +302,9 @@ test.describe("Animation plan — visual verification", () => {
     });
 
     // Indicator should exist on the active tab
-    const indicator = page.locator('[data-component="mobile-redesign-detail-tabs-indicator"]');
+    const indicator = page.locator(
+      `[data-component="${CLIENT_DETAIL_TABS}_indicator"]`
+    );
     await expect(indicator).toHaveCount(1);
     const indicatorBox1 = await indicator.boundingBox();
     console.log(`[indicator initial position] ${JSON.stringify(indicatorBox1)}`);
