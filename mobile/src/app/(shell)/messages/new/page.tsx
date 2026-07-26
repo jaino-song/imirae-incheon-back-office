@@ -1460,6 +1460,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                       </button>
                     </div>
                     <MsgField
+                      data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body_row_field"
                       inputId="body"
                       ariaLabel="메시지 본문"
                       value={body}

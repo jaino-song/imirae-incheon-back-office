@@ -32,10 +32,13 @@ const tagPillVariants = cva(
 export interface TagPillProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof tagPillVariants> {
+  /** Caller-context canonical value for this pill. */
+  "data-component"?: string;
   children: React.ReactNode;
 }
 
 export function TagPill({
+  "data-component": dataComponent,
   className,
   variant,
   size,
@@ -43,7 +46,7 @@ export function TagPill({
   ...props
 }: TagPillProps) {
   return (
-    <span data-component="tag-pill" className={cn(tagPillVariants({ variant, size }), className)} {...props}>
+    <span data-component={dataComponent} data-slot="tag-pill" className={cn(tagPillVariants({ variant, size }), className)} {...props}>
       {children}
     </span>
   );

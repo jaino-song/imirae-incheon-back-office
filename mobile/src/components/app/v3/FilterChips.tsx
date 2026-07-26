@@ -1,14 +1,16 @@
 "use client";
 
 interface FilterChipsProps {
+  /** Caller-context canonical value for the chip row root. */
+  "data-component"?: string;
   items: { label: string; value: string }[];
   activeValue: string;
   onChange: (value: string) => void;
 }
 
-export function FilterChips({ items, activeValue, onChange }: FilterChipsProps) {
+export function FilterChips({ "data-component": dataComponent, items, activeValue, onChange }: FilterChipsProps) {
   return (
-    <div data-component="filter-chips" className="flex flex-wrap gap-2">
+    <div data-component={dataComponent} data-slot="filter-chips" className="flex flex-wrap gap-2">
       {items.map((item) => (
         <button
           key={item.value}

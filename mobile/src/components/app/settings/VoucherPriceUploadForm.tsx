@@ -49,6 +49,9 @@ const getStepIndex = (step: Step): number => {
   }
 };
 
+const VOUCHER_UPLOAD_BASE =
+  "mobile_prices_page_detail-sheet_stack_detail-page_upload_form";
+
 export function VoucherPriceUploadForm({ initialYear }: { initialYear?: number } = {}) {
   const [currentStep, setCurrentStep] = useState<Step>("upload");
   const [parsedData, setParsedData] = useState<ParsedVoucherPriceItem[]>([]);
@@ -128,7 +131,7 @@ export function VoucherPriceUploadForm({ initialYear }: { initialYear?: number }
   }, [parseImageMutation]);
 
   return (
-    <ContentPaper variant="v3" data-component="settings-voucher-upload-form">
+    <ContentPaper variant="v3" data-component={VOUCHER_UPLOAD_BASE}>
       {/* 헤더 */}
       <div className="mb-4">
         <h2 className="text-lg font-bold text-foreground">바우처 요금표 업데이트</h2>
@@ -180,6 +183,7 @@ export function VoucherPriceUploadForm({ initialYear }: { initialYear?: number }
       {currentStep === "upload" && (
         <div className="animate-fade-in" style={{ animationDelay: "100ms" }}>
           <ImageDropzone
+            data-component={`${VOUCHER_UPLOAD_BASE}_image-dropzone`}
             onFileSelect={handleFileSelect}
             isLoading={parseImageMutation.isPending}
             error={
@@ -219,6 +223,7 @@ export function VoucherPriceUploadForm({ initialYear }: { initialYear?: number }
           </div>
 
           <ParsedDataPreview
+            data-component={`${VOUCHER_UPLOAD_BASE}_parsed-data`}
             data={parsedData}
             warnings={warnings}
             onDataChange={handleDataChange}

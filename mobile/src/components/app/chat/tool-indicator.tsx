@@ -1,6 +1,9 @@
 "use client";
 
 interface ToolIndicatorProps {
+    /** Caller-context canonical value for this node. */
+    "data-component": string;
+
     toolName: string | null;
     isExecuting: boolean;
 }
@@ -46,12 +49,12 @@ function getToolLabel(toolName: string | null): string {
     return TOOL_LABELS[toolName] || `${toolName} 실행 중`;
 }
 
-export function ToolIndicator({ toolName, isExecuting }: ToolIndicatorProps) {
+export function ToolIndicator({ "data-component": dataComponent, toolName, isExecuting }: ToolIndicatorProps) {
     if (!isExecuting) return null;
 
     return (
         <div
-            data-component="chat-tool-indicator"
+            data-component={dataComponent}
             data-testid="tool-indicator"
             className="flex items-center gap-2 py-2 px-4 bg-muted/50 rounded-2xl mb-2"
         >

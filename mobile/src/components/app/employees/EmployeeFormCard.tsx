@@ -32,6 +32,8 @@ export interface EmployeeFormCardTouched {
 type PhoneHelperTone = "ok" | "err" | "pending";
 
 interface EmployeeFormCardProps {
+  /** Caller-context canonical base, e.g. `mobile_employees_form-dialog_card`. */
+  "data-component": string;
   formData: EmployeeFormCardData;
   touched: EmployeeFormCardTouched;
   isPhoneValid: boolean;
@@ -59,6 +61,7 @@ function parsePhoneNumber(value: string): string {
 }
 
 export function EmployeeFormCard({
+  "data-component": dataComponent,
   formData,
   touched,
   isPhoneValid,
@@ -73,6 +76,7 @@ export function EmployeeFormCard({
   onPhoneBlur,
   onWorkAreaTouched,
 }: EmployeeFormCardProps) {
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
   const locale = useLocale();
 
   const setField = <K extends keyof EmployeeFormCardData>(field: K, value: EmployeeFormCardData[K]) => {
@@ -91,9 +95,9 @@ export function EmployeeFormCard({
   const visiblePhoneHelperTone = phoneRequiredMessage ? "err" : phoneHelperTone;
 
   return (
-    <div className={styles.cardStack} data-component="employee-form-card">
+    <div className={styles.cardStack} data-component={dataComponent}>
       {assignmentLabel ? (
-        <div className={styles.contextStrip} data-component="employee-form-card-assignment">
+        <div className={styles.contextStrip} data-component={sub("assignment")}>
           <div>
             <strong className={styles.contextTitle}>{assignmentLabel}</strong>
             <span className={styles.contextDescription}>{assignmentDescription}</span>
@@ -102,12 +106,12 @@ export function EmployeeFormCard({
         </div>
       ) : null}
 
-      <section className={styles.formSection} data-component="employees-form-dialog-section-basic">
+      <section className={styles.formSection} data-component={sub("section-basic")}>
         <div className={styles.sectionHead}>
           <h2 className={styles.sectionTitle}>{t(locale, "employees.form.section-basic")}</h2>
         </div>
 
-        <div className={styles.field} data-component="employees-form-dialog-field-name">
+        <div className={styles.field} data-component={sub("section-basic_field-name")}>
           <label className={styles.label} htmlFor="employee-form-name">
             {t(locale, "employees.form.name")}
             <span className={styles.required}>*</span>
@@ -122,8 +126,8 @@ export function EmployeeFormCard({
           />
         </div>
 
-        <div className={styles.field} data-component="employees-form-dialog-field-phone">
-          <div className={styles.labelRow} data-component="employees-form-dialog-phone-label-row">
+        <div className={styles.field} data-component={sub("section-basic_field-phone")}>
+          <div className={styles.labelRow} data-component={sub("section-basic_field-phone_label-row")}>
             <label className={styles.label} htmlFor="employee-form-phone">
               {t(locale, "employees.form.phone")}
               <span className={styles.required}>*</span>
@@ -136,7 +140,7 @@ export function EmployeeFormCard({
                   visiblePhoneHelperTone === "err" && styles.inlineHelperErr,
                   visiblePhoneHelperTone === "pending" && styles.inlineHelperPending,
                 )}
-                data-component="employees-form-dialog-phone-helper"
+                data-component={sub("section-basic_field-phone_helper")}
               >
                 {visiblePhoneHelperTone === "ok" ? "✓ " : null}
                 {visiblePhoneHelperMessage}
@@ -157,7 +161,7 @@ export function EmployeeFormCard({
           />
         </div>
 
-        <div className={styles.field} data-component="employees-form-dialog-field-birthday">
+        <div className={styles.field} data-component={sub("section-basic_field-birthday")}>
           <label className={styles.label} htmlFor="employee-form-birthday">
             생년월일
           </label>
@@ -174,12 +178,12 @@ export function EmployeeFormCard({
         </div>
       </section>
 
-      <section className={styles.formSection} data-component="employees-form-dialog-section-work">
+      <section className={styles.formSection} data-component={sub("section-work")}>
         <div className={styles.sectionHead}>
           <h2 className={styles.sectionTitle}>{t(locale, "employees.form.section-work")}</h2>
         </div>
 
-        <div className={styles.field} data-component="employees-form-dialog-field-grade">
+        <div className={styles.field} data-component={sub("section-work_field-grade")}>
           <label className={styles.label} htmlFor="employee-form-grade">
             {t(locale, "employees.form.grade")}
             <span className={styles.required}>*</span>
@@ -209,7 +213,7 @@ export function EmployeeFormCard({
           </div>
           <div
             className={styles.chipGrid}
-            data-component="employees-form-dialog-field-work-area-options"
+            data-component={sub("section-work_field-work-area_options")}
             onBlur={onWorkAreaTouched}
           >
             {WORK_AREAS.map((area) => {
@@ -234,7 +238,7 @@ export function EmployeeFormCard({
           ) : null}
         </div>
 
-        <div className={styles.field} data-component="employees-form-dialog-field-open-status">
+        <div className={styles.field} data-component={sub("section-work_field-open-status")}>
           <div className={styles.label}>{t(locale, "employees.form.open-to-next-work")}</div>
           <div className={styles.switchRow}>
             <div>
@@ -242,7 +246,7 @@ export function EmployeeFormCard({
               <span className={styles.switchDescription}>고객 생성 완료 후 배정 후보에 표시합니다.</span>
             </div>
             <Switch
-              data-component="employees-form-dialog-open-status-switch"
+              data-component={sub("section-work_field-open-status_switch")}
               thumbDataComponent="employees-form-dialog-open-status-switch-thumb"
               checked={formData.openToNextWork}
               onCheckedChange={(checked) => setField("openToNextWork", checked)}

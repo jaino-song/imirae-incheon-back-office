@@ -2,6 +2,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 interface MsgFieldProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
   value: string;
   onChange?: (value: string) => void;
   inputId?: string;
@@ -13,6 +16,7 @@ interface MsgFieldProps {
 }
 
 export const MsgField = ({
+  "data-component": dataComponent,
   value,
   onChange,
   inputId,
@@ -31,7 +35,7 @@ export const MsgField = ({
     >
       <Textarea
         id={inputId}
-        data-component="messages-msg-field"
+        data-component={dataComponent}
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
         maxLength={maxLength}

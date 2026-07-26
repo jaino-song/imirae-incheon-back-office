@@ -145,7 +145,7 @@ test.describe('EmployeeAutocomplete', () => {
 
     const employeeDialog = page.locator('[data-component="employees-form-dialog"]');
     await expect(employeeDialog).toBeVisible({ timeout: 5000 });
-    await expect(employeeDialog.locator('[data-component="employees-form-dialog-field-name"] input')).toHaveValue(
+    await expect(employeeDialog.locator('[data-component="mobile_employees_form-dialog_card_section-basic_field-name"] input')).toHaveValue(
       typedName,
     );
   });

@@ -29,6 +29,8 @@ const ALLOWED_EXTENSIONS = ".png, .jpg, .jpeg, .pdf";
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 interface DocumentDropzoneProps {
+  /** Caller-context canonical base for this surface. */
+  "data-component": string;
   onUpload: (params: {
     file: File;
     name: string;
@@ -41,6 +43,7 @@ interface DocumentDropzoneProps {
 }
 
 export function DocumentDropzone({
+  "data-component": dataComponent,
   onUpload,
   isLoading = false,
   uploadProgress = 0,
@@ -204,7 +207,7 @@ export function DocumentDropzone({
   };
 
   return (
-    <div data-component="contracts-document-dropzone" className="w-full">
+    <div data-component={dataComponent} className="w-full">
       {validationError && (
         <Alert variant="destructive" className="mb-4">
           <AlertDescription>{validationError}</AlertDescription>

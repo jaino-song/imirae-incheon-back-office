@@ -140,7 +140,14 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
                       const codeString = String(children).replace(/\n$/, "");
 
                       if (language) {
-                        return <CodeBlock language={language}>{codeString}</CodeBlock>;
+                        return (
+                          <CodeBlock
+                            data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_markdown_code-block"
+                            language={language}
+                          >
+                            {codeString}
+                          </CodeBlock>
+                        );
                       }
 
                       return (

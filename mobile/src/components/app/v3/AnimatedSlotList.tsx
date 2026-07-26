@@ -8,6 +8,8 @@ import { TeaserOverlay } from "./TeaserOverlay";
 type SlotClassNameArgs<T> = { index: number; item: T | null; isLoading: boolean };
 
 export interface AnimatedSlotListProps<T> {
+  /** Caller-context canonical base for the list root. */
+  "data-component"?: string;
   /** Number of slots to render. If not provided, shows all items (unlimited). */
   count?: number;
   items?: readonly T[] | null;
@@ -37,12 +39,13 @@ export interface AnimatedSlotListProps<T> {
 }
 
 export function AnimatedSlotList<T>({
+  "data-component": dataComponent,
   count,
   items,
   isLoading,
   loadingCount = 4,
   className,
-  itemDataComponent = "animated-slot-list-item",
+  itemDataComponent,
   delayStepSeconds = 0.04,
   hideEmptySlots = true,
   slotClassName,
@@ -55,6 +58,8 @@ export function AnimatedSlotList<T>({
   isInitialLoad = false,
   animate = true,
 }: AnimatedSlotListProps<T>) {
+  const resolvedItemDataComponent =
+    itemDataComponent ?? (dataComponent ? `${dataComponent}_item` : undefined);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadMoreTriggeredRef = useRef(false);
   const onLoadMoreRef = useRef<(() => void) | undefined>(onLoadMore);
@@ -96,7 +101,7 @@ export function AnimatedSlotList<T>({
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
 
-    const panelContent = sentinel.closest('[data-component="list-panel-content"]');
+    const panelContent = sentinel.closest('[data-slot="list-panel-content"]');
     const panelRoot = panelContent instanceof HTMLElement ? panelContent : null;
     const hasScrollablePanel =
       panelRoot instanceof HTMLElement && panelRoot.scrollHeight > panelRoot.clientHeight + 1;
@@ -138,7 +143,7 @@ export function AnimatedSlotList<T>({
     !isLoading;
 
   return (
-    <div data-component="animated-slot-list" className={cn("-mx-2 px-2", className)}>
+    <div data-component={dataComponent} data-slot="animated-slot-list" className={cn("-mx-2 px-2", className)}>
       {Array.from({ length: slotCount }, (_, index) => {
         const item = !isLoading ? (items?.[index] ?? null) : null;
 
@@ -153,7 +158,7 @@ export function AnimatedSlotList<T>({
         return (
           <div
             key={`slot-${index}`}
-            data-component={itemDataComponent}
+            data-component={resolvedItemDataComponent}
             className={cn(
               animate && "animate-v3-pop-up",
               computedSlotClassName,
@@ -174,7 +179,10 @@ export function AnimatedSlotList<T>({
 
       {/* Teaser overlay - entire area is clickable to load more */}
       {showTeaserOverlay && onLoadMore && (
-        <TeaserOverlay onClick={onLoadMore} />
+        <TeaserOverlay
+          data-component={dataComponent ? `${dataComponent}_teaser-overlay` : undefined}
+          onClick={onLoadMore}
+        />
       )}
 
       {/* Loading spinner when fetching more */}

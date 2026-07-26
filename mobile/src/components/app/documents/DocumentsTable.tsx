@@ -64,6 +64,8 @@ function getContrastColor(hexColor: string): string {
     return luminance > 0.5 ? "#000000" : "#ffffff";
 }
 
+const DOCUMENTS_TABLE_BASE = "mobile_contracts_documents-table";
+
 export function DocumentsTable() {
     const locale = useLocale();
     const isMobile = useIsMobile();
@@ -296,8 +298,9 @@ export function DocumentsTable() {
             subtitle="문서 및 파일을 관리합니다"
             sx={{ minHeight: "70vh", flexGrow: 1, width: "100%" }}
         >
-            <div data-component="contracts-documents-table">
+            <div data-component={DOCUMENTS_TABLE_BASE}>
                 <DataTable
+                    data-component={`${DOCUMENTS_TABLE_BASE}_data-table`}
                     data={tableData}
                     columns={columns}
                     isLoading={false}
@@ -344,6 +347,7 @@ export function DocumentsTable() {
                     </DialogHeader>
                     <div className="mt-2">
                         <DocumentDropzone
+                            data-component={`${DOCUMENTS_TABLE_BASE}_upload-dialog_dropzone`}
                             onUpload={handleUpload}
                             isLoading={uploadMutation.isPending}
                             uploadProgress={uploadProgress}
@@ -363,6 +367,7 @@ export function DocumentsTable() {
 
             {/* Preview Modal */}
             <DocumentPreviewModal
+                data-component={`${DOCUMENTS_TABLE_BASE}_preview-modal`}
                 open={!!previewDoc}
                 onClose={() => setPreviewDoc(null)}
                 doc={previewDoc}
@@ -378,6 +383,7 @@ export function DocumentsTable() {
 
             {/* Edit Modal */}
             <DocumentEditModal
+                data-component={`${DOCUMENTS_TABLE_BASE}_edit-modal`}
                 key={editDoc?.id ?? "doc-edit-closed"}
                 open={!!editDoc}
                 onClose={() => setEditDoc(null)}
@@ -388,6 +394,7 @@ export function DocumentsTable() {
 
             {/* Add Category Modal */}
             <AddCategoryModal
+                data-component={`${DOCUMENTS_TABLE_BASE}_add-category-modal`}
                 open={isAddCategoryOpen}
                 onClose={() => setIsAddCategoryOpen(false)}
                 onAdd={handleAddCategory}

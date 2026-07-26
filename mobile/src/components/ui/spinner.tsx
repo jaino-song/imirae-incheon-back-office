@@ -3,6 +3,8 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface SpinnerProps extends React.SVGAttributes<SVGSVGElement> {
+  /** Caller-context canonical value. Omitted when the caller does not name the node. */
+  "data-component"?: string;
   size?: "sm" | "default" | "lg";
 }
 
@@ -13,11 +15,12 @@ const sizeClasses = {
 };
 
 const Spinner = React.forwardRef<SVGSVGElement, SpinnerProps>(
-  ({ className, size = "default", ...props }, ref) => {
+  ({ "data-component": dataComponent, className, size = "default", ...props }, ref) => {
     return (
       <Loader2
         ref={ref}
-        data-component="spinner"
+        data-component={dataComponent}
+        data-slot="spinner"
         className={cn("animate-spin", sizeClasses[size], className)}
         {...props}
       />

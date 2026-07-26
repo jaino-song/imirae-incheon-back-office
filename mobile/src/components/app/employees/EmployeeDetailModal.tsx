@@ -28,6 +28,8 @@ interface EmployeeDetailModalProps {
     onDelete: (id: number) => void;
 }
 
+const EMPLOYEE_DETAIL_MODAL_BASE = "mobile_employees_table_detail-modal";
+
 const formatDate = (dateStr: string | null | undefined): string => {
     return formatDateForDisplay(dateStr);
 };
@@ -77,11 +79,11 @@ export function EmployeeDetailModal({
 
     return (
         <Dialog
-            data-component="employees-detail-modal"
+            data-component={EMPLOYEE_DETAIL_MODAL_BASE}
             open={open}
             onOpenChange={(isOpen) => !isOpen && onClose()}
         >
-            <DialogContent data-component="employees-detail-modal-content" className="max-w-lg rounded-2xl shadow-xl">
+            <DialogContent data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content`} className="max-w-lg rounded-2xl shadow-xl">
                 <DialogHeader className="flex flex-row items-center justify-between pr-8">
                     <DialogTitle className="text-xl font-semibold">
                         {employee.name}
@@ -100,9 +102,9 @@ export function EmployeeDetailModal({
                     </Button>
                 </DialogHeader>
 
-                <div data-component="employees-detail-modal-body" className="space-y-4 py-2">
+                <div data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content_body`} className="space-y-4 py-2">
                     {/* Basic Info */}
-                    <div data-component="employees-detail-modal-basic">
+                    <div data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content_body_basic`}>
                         <h4 className="text-sm font-medium text-primary mb-2">
                             {t(locale, "employees.form.section-basic")}
                         </h4>
@@ -113,7 +115,7 @@ export function EmployeeDetailModal({
                     <Separator />
 
                     {/* Work Info */}
-                    <div data-component="employees-detail-modal-work">
+                    <div data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content_body_work`}>
                         <h4 className="text-sm font-medium text-primary mb-2">
                             {t(locale, "employees.form.section-work")}
                         </h4>
@@ -139,7 +141,7 @@ export function EmployeeDetailModal({
                     <Separator />
 
                     {/* Registration Info */}
-                    <div data-component="employees-detail-modal-reg">
+                    <div data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content_body_reg`}>
                         <h4 className="text-sm font-medium text-primary mb-2">
                             {t(locale, "employees.form.section-registration")}
                         </h4>
@@ -147,9 +149,9 @@ export function EmployeeDetailModal({
                     </div>
                 </div>
 
-                <DialogFooter data-component="employees-detail-modal-actions" className="gap-2 sm:gap-0">
+                <DialogFooter data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content_actions`} className="gap-2 sm:gap-0">
                     <Button
-                        data-component="employees-detail-modal-delete"
+                        data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content_actions_delete`}
                         variant="destructive"
                         onClick={handleDelete}
                         className="gap-2"
@@ -158,7 +160,7 @@ export function EmployeeDetailModal({
                         {t(locale, "common.delete")}
                     </Button>
                     <Button
-                        data-component="employees-detail-modal-edit"
+                        data-component={`${EMPLOYEE_DETAIL_MODAL_BASE}_content_actions_edit`}
                         onClick={handleEdit}
                         className="gap-2"
                     >
