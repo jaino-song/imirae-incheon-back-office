@@ -1,13 +1,13 @@
-:global([data-component="app-root"]:has([data-component="files-upload-page"])) {
+:global([data-slot="app-root"]:has([data-component="files-upload-page"])) {
   overflow: hidden;
   background: hsl(var(--v3-dim-white));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", var(--font-pretendard), -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: normal;
 }
 
-:global([data-component="app-root"]:has([data-component="files-upload-page"]) [data-component="mobile-header"]),
-:global([data-component="app-root"]:has([data-component="files-upload-page"]) [data-component="mobile-bottom-nav"]),
-:global([data-component="app-root"]:has([data-component="files-upload-page"]) [data-component="floating-quick-actions"]) {
+:global([data-slot="app-root"]:has([data-component="files-upload-page"]) [data-slot="mobile-header"]),
+:global([data-slot="app-root"]:has([data-component="files-upload-page"]) [data-slot="mobile-bottom-nav"]),
+:global([data-slot="app-root"]:has([data-component="files-upload-page"]) [data-slot="floating-quick-actions"]) {
   display: none !important;
 }
 
@@ -15,7 +15,7 @@
   display: none !important;
 }
 
-:global(main[data-component="main-content"]:has([data-component="files-upload-page"])) {
+:global(main[data-slot="main-content"]:has([data-component="files-upload-page"])) {
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
   min-height: 0;
   overflow: hidden;

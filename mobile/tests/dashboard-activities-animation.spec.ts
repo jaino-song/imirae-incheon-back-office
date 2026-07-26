@@ -296,7 +296,7 @@ test.describe("Dashboard activities animations", () => {
     await expect(page.getByRole("button", { name: /조치 필요\s+1/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /종료 예정\s+1/ })).toBeVisible();
 
-    const headerBox = await page.locator('[data-component="mobile-header"]').boundingBox();
+    const headerBox = await page.locator('[data-slot="mobile-header"]').boundingBox();
     const analyticsBox = await page.locator('[data-component="mobile-dashboard-analytics-grid"]').boundingBox();
     const contentBox = await page.locator('[data-component="mobile-dashboard-content"]').boundingBox();
     expect(headerBox).not.toBeNull();
@@ -404,7 +404,7 @@ test.describe("Dashboard activities animations", () => {
     await expect(page.locator('[data-component="mobile-dashboard-analytics-grid"]')).toBeVisible();
 
     const metrics = await page.evaluate(() => {
-      const appRoot = document.querySelector('[data-component="app-root"]');
+      const appRoot = document.querySelector('[data-slot="app-root"]');
       const appRootRect = appRoot?.getBoundingClientRect();
       return {
         innerHeight: window.innerHeight,

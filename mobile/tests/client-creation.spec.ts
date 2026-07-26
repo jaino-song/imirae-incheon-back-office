@@ -281,7 +281,7 @@ test.describe("clients/new wizard", () => {
 
     const box = await dialog.boundingBox();
     const shellBox = await page.locator('[data-component="employees-form-dialog-shell"]').boundingBox();
-    const appProvidersBox = await page.locator('[data-component="app-providers"]').boundingBox();
+    const appProvidersBox = await page.locator('[data-slot="app-content"]').boundingBox();
     expect(Math.round(shellBox?.x ?? 0)).toBe(Math.round(appProvidersBox?.x ?? 0));
     expect(Math.round(shellBox?.width ?? 0)).toBe(Math.round(appProvidersBox?.width ?? 0));
     expect(Math.round(box?.x ?? 0)).toBe(Math.round(appProvidersBox?.x ?? 0));

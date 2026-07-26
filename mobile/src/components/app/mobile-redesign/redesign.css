@@ -13,7 +13,7 @@
 }
 
 /* ===== Mobile messages navigation + data pages ===== */
-body:has([data-component="messages"]) [data-component="floating-quick-actions"] {
+body:has([data-component="messages"]) [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
@@ -452,7 +452,7 @@ body:has([data-component="dashboard"]) {
 }
 
 /* Mobile: app-root fills viewport (no phone-frame bezel) */
-[data-component="app-root"]:has([data-component="dashboard"]) {
+[data-slot="app-root"]:has([data-component="dashboard"]) {
   position: relative;
   width: 100%;
   height: 100dvh;
@@ -466,7 +466,7 @@ body:has([data-component="dashboard"]) {
 
 /* Desktop: render inside a fake iPhone phone-frame for preview */
 @media (min-width: 768px) {
-  [data-component="app-root"]:has([data-component="dashboard"]) {
+  [data-slot="app-root"]:has([data-component="dashboard"]) {
     width: 390px !important;
     max-width: 390px !important;
     height: min(100dvh, 844px) !important;
@@ -479,7 +479,7 @@ body:has([data-component="dashboard"]) {
       0 0 0 1px rgba(0, 0, 0, 0.6) inset;
   }
 
-  [data-component="app-root"]:has([data-component="dashboard"])::before {
+  [data-slot="app-root"]:has([data-component="dashboard"])::before {
     content: "";
     position: absolute;
     top: 12px;
@@ -494,7 +494,7 @@ body:has([data-component="dashboard"]) {
   }
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="app-providers"] {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -503,7 +503,7 @@ body:has([data-component="dashboard"]) {
   border-radius: 38px;
 }
 
-main[data-component="main-content"]:has([data-component="dashboard"]) {
+main[data-slot="main-content"]:has([data-component="dashboard"]) {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -516,7 +516,7 @@ main[data-component="main-content"]:has([data-component="dashboard"]) {
   padding: 64px 0 0 !important;
 }
 
-main[data-component="main-content"]:has([data-component="dashboard"]) > [data-component="dashboard"] {
+main[data-slot="main-content"]:has([data-component="dashboard"]) > [data-component="dashboard"] {
   height: 100%;
 }
 
@@ -525,7 +525,7 @@ main[data-component="main-content"]:has([data-component="dashboard"]) > [data-co
   padding: 12px 14px 76px;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-header"] {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -538,7 +538,7 @@ main[data-component="main-content"]:has([data-component="dashboard"]) > [data-co
   z-index: 20;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   left: 14px !important;
@@ -559,21 +559,21 @@ main[data-component="main-content"]:has([data-component="dashboard"]) > [data-co
   z-index: var(--mobile-z-nav);
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   inset-block: 5px !important;
   border-radius: 14px !important;
   width: calc((100% - 10px) / 5) !important;
   left: 5px !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component^="mobile-bottom-nav-"],
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav-chat"] {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot^="mobile-bottom-nav-"],
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav-chat"] {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] svg {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
@@ -1215,8 +1215,8 @@ body:has([data-component="all-page"]) {
 }
 
 /* Mobile: keep the shared 390x844 shell limit without the phone-frame bezel. */
-body.mobile-all-route [data-component="app-root"],
-body:has([data-component="all-page"]) [data-component="app-root"] {
+body.mobile-all-route [data-slot="app-root"],
+body:has([data-component="all-page"]) [data-slot="app-root"] {
   width: min(100vw, 390px);
   max-width: 390px;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
@@ -1230,8 +1230,8 @@ body:has([data-component="all-page"]) [data-component="app-root"] {
 /* Wide viewports still use the same app shell; never show the old phone-frame
    preview on route refresh. */
 @media (min-width: 768px) {
-  body.mobile-all-route [data-component="app-root"],
-  body:has([data-component="all-page"]) [data-component="app-root"] {
+  body.mobile-all-route [data-slot="app-root"],
+  body:has([data-component="all-page"]) [data-slot="app-root"] {
     width: min(100vw, 390px) !important;
     max-width: 390px !important;
     height: min(100dvh, var(--mobile-shell-max-height, 844px)) !important;
@@ -1243,15 +1243,15 @@ body:has([data-component="all-page"]) [data-component="app-root"] {
     box-shadow: none !important;
   }
 
-  body.mobile-all-route [data-component="app-root"]::before,
-  body:has([data-component="all-page"]) [data-component="app-root"]::before {
+  body.mobile-all-route [data-slot="app-root"]::before,
+  body:has([data-component="all-page"]) [data-slot="app-root"]::before {
     display: none !important;
     content: none !important;
   }
 }
 
-body.mobile-all-route [data-component="app-providers"],
-body:has([data-component="all-page"]) [data-component="app-providers"] {
+body.mobile-all-route [data-slot="app-content"],
+body:has([data-component="all-page"]) [data-slot="app-content"] {
   position: relative;
   width: 100%;
   height: 100%;
@@ -1270,8 +1270,8 @@ body:has([data-component="all-page"]) [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body.mobile-all-route [data-component="main-content"],
-body:has([data-component="all-page"]) [data-component="main-content"] {
+body.mobile-all-route [data-slot="main-content"],
+body:has([data-component="all-page"]) [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -1462,8 +1462,8 @@ body.mobile-all-route .notification-action-pill {
   font-weight: 800;
 }
 
-body.mobile-all-route [data-component="mobile-header"],
-body:has([data-component="all-page"]) [data-component="mobile-header"] {
+body.mobile-all-route [data-slot="mobile-header"],
+body:has([data-component="all-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   left: 0 !important;
@@ -1478,14 +1478,14 @@ body:has([data-component="all-page"]) [data-component="mobile-header"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-all-route [data-component="floating-quick-actions"],
-body:has([data-component="all-page"]) [data-component="floating-quick-actions"] {
+body.mobile-all-route [data-slot="floating-quick-actions"],
+body:has([data-component="all-page"]) [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
-body.mobile-all-route [data-component="mobile-bottom-nav"],
-body:has([data-component="all-page"]) [data-component="mobile-bottom-nav"],
-body:has([data-component="notification-settings"]) [data-component="mobile-bottom-nav"] {
+body.mobile-all-route [data-slot="mobile-bottom-nav"],
+body:has([data-component="all-page"]) [data-slot="mobile-bottom-nav"],
+body:has([data-component="notification-settings"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -1511,15 +1511,15 @@ body:has([data-component="notification-settings"]) [data-component="mobile-botto
   z-index: var(--mobile-z-nav);
 }
 
-body.mobile-all-route [data-component="mobile-bottom-nav"] > [aria-hidden="true"],
-body:has([data-component="all-page"]) [data-component="mobile-bottom-nav"] > [aria-hidden="true"],
-body:has([data-component="notification-settings"]) [data-component="mobile-bottom-nav"] > [aria-hidden="true"] {
+body.mobile-all-route [data-slot="mobile-bottom-nav"] > [aria-hidden="true"],
+body:has([data-component="all-page"]) [data-slot="mobile-bottom-nav"] > [aria-hidden="true"],
+body:has([data-component="notification-settings"]) [data-slot="mobile-bottom-nav"] > [aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-all-route [data-component^="mobile-bottom-nav-"],
-body:has([data-component="all-page"]) [data-component^="mobile-bottom-nav-"],
-body:has([data-component="notification-settings"]) [data-component^="mobile-bottom-nav-"] {
+body.mobile-all-route [data-slot^="mobile-bottom-nav-"],
+body:has([data-component="all-page"]) [data-slot^="mobile-bottom-nav-"],
+body:has([data-component="notification-settings"]) [data-slot^="mobile-bottom-nav-"] {
   position: static !important;
   display: flex;
   flex-direction: column;
@@ -1532,20 +1532,20 @@ body:has([data-component="notification-settings"]) [data-component^="mobile-bott
   text-decoration: none;
 }
 
-body:has([data-component="all-page"]) [data-component="mobile-bottom-nav-all"] {
+body:has([data-component="all-page"]) [data-slot="mobile-bottom-nav-all"] {
   background: transparent !important;
 }
 
-body.mobile-all-route [data-component^="mobile-bottom-nav-"] svg,
-body:has([data-component="all-page"]) [data-component^="mobile-bottom-nav-"] svg,
-body:has([data-component="notification-settings"]) [data-component^="mobile-bottom-nav-"] svg {
+body.mobile-all-route [data-slot^="mobile-bottom-nav-"] svg,
+body:has([data-component="all-page"]) [data-slot^="mobile-bottom-nav-"] svg,
+body:has([data-component="notification-settings"]) [data-slot^="mobile-bottom-nav-"] svg {
   width: 18px !important;
   height: 18px !important;
 }
 
-body.mobile-all-route [data-component^="mobile-bottom-nav-"] span,
-body:has([data-component="all-page"]) [data-component^="mobile-bottom-nav-"] span,
-body:has([data-component="notification-settings"]) [data-component^="mobile-bottom-nav-"] span {
+body.mobile-all-route [data-slot^="mobile-bottom-nav-"] span,
+body:has([data-component="all-page"]) [data-slot^="mobile-bottom-nav-"] span,
+body:has([data-component="notification-settings"]) [data-slot^="mobile-bottom-nav-"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -2402,7 +2402,7 @@ body.mobile-all-route .menu-row {
   }
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -2419,39 +2419,39 @@ body.mobile-clients-route [data-component="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] a {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] svg {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] span {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav-clients"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav-clients"] {
   background: transparent;
 }
 
-body.mobile-clients-route:has(.nav-stack.show-detail) [data-component="mobile-bottom-nav"] {
+body.mobile-clients-route:has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
 
-body.mobile-clients-route [data-component="mobile-header"] {
+body.mobile-clients-route [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2504,7 +2504,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) {
   overflow: hidden;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   background: #000;
@@ -2513,7 +2513,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-
   overflow: hidden;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"]::before {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -2527,7 +2527,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-
   pointer-events: none;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-providers"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -2536,7 +2536,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-
   border-radius: 38px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main-content"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -2556,7 +2556,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   margin: 0 !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-header"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2659,7 +2659,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   transform: translateX(0) !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]):has([data-component="mobile_employees_detail-sheet_stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body:has([data-component="mobile_employees_detail-sheet"]):has([data-component="mobile_employees_detail-sheet_stack"].show-detail) [data-slot="mobile-bottom-nav"] {
   opacity: 0;
   pointer-events: none;
   translate: 0 calc(100% + 32px) !important;
@@ -2680,7 +2680,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) .detail-body .detail-
   padding: 14px 16px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -2698,18 +2698,18 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   transform: none !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) nav[data-component="mobile-bottom-nav"] a {
+body:has([data-component="mobile_employees_detail-sheet"]) nav[data-slot="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] svg {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] span {
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -2723,7 +2723,7 @@ body:has([data-component="messages"]) {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) [data-component="app-root"] {
+body:has([data-component="messages"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -2734,7 +2734,7 @@ body:has([data-component="messages"]) [data-component="app-root"] {
     0 0 0 1px rgba(0, 0, 0, 0.6) inset;
 }
 
-body:has([data-component="messages"]) [data-component="app-root"]::before {
+body:has([data-component="messages"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -2748,7 +2748,7 @@ body:has([data-component="messages"]) [data-component="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="messages"]) [data-component="app-providers"] {
+body:has([data-component="messages"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -2763,7 +2763,7 @@ body:has([data-component="messages"]) nextjs-portal {
   display: none !important;
 }
 
-body:has([data-component="messages"]) [data-component="main-content"] {
+body:has([data-component="messages"]) [data-slot="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -2773,7 +2773,7 @@ body:has([data-component="messages"]) [data-component="main-content"] {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-header"] {
+body:has([data-component="messages"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2976,13 +2976,13 @@ body:has([data-component="messages"]) [data-component="mobile-messages-detail-sc
   border-radius: 38px;
 }
 
-body:has([data-component="messages"]):has([data-component="mobile-messages-stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body:has([data-component="messages"]):has([data-component="mobile-messages-stack"].show-detail) [data-slot="mobile-bottom-nav"] {
   opacity: 0;
   pointer-events: none;
   translate: 0 calc(100% + 32px) !important;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] {
+body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -3000,23 +3000,23 @@ body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] {
   transform: none !important;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body:has([data-component="messages"]) nav[data-component="mobile-bottom-nav"] a {
+body:has([data-component="messages"]) nav[data-slot="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] svg {
+body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] span {
+body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -3030,7 +3030,7 @@ body:has([data-component="messages-shell"]) {
   line-height: normal;
 }
 
-body:has([data-component="messages-shell"]) [data-component="app-root"] {
+body:has([data-component="messages-shell"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -3041,7 +3041,7 @@ body:has([data-component="messages-shell"]) [data-component="app-root"] {
     0 0 0 1px rgba(0, 0, 0, 0.6) inset;
 }
 
-body:has([data-component="messages-shell"]) [data-component="app-root"]::before {
+body:has([data-component="messages-shell"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -3055,7 +3055,7 @@ body:has([data-component="messages-shell"]) [data-component="app-root"]::before 
   pointer-events: none;
 }
 
-body:has([data-component="messages-shell"]) [data-component="app-providers"] {
+body:has([data-component="messages-shell"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -3066,7 +3066,7 @@ body:has([data-component="messages-shell"]) [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body:has([data-component="messages-shell"]) [data-component="main-content"] {
+body:has([data-component="messages-shell"]) [data-slot="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -3076,7 +3076,7 @@ body:has([data-component="messages-shell"]) [data-component="main-content"] {
   line-height: normal;
 }
 
-body:has([data-component="messages-shell"]) [data-component="mobile-header"] {
+body:has([data-component="messages-shell"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -3089,11 +3089,11 @@ body:has([data-component="messages-shell"]) [data-component="mobile-header"] {
   z-index: 20;
 }
 
-body:has([data-component="messages-shell"]) [data-component="floating-quick-actions"] {
+body:has([data-component="messages-shell"]) [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
-body:has([data-component="messages-shell"]) [data-component="app-providers"] > .fixed.left-4.right-4.z-50 {
+body:has([data-component="messages-shell"]) [data-slot="app-content"] > .fixed.left-4.right-4.z-50 {
   display: none !important;
 }
 
@@ -3279,7 +3279,7 @@ body:has([data-component="messages-shell"]) .toggle.on::after {
   left: 18px;
 }
 
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] {
+body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -3297,23 +3297,23 @@ body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"]
   transform: none !important;
 }
 
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body:has([data-component="messages-shell"]) nav[data-component="mobile-bottom-nav"] a {
+body:has([data-component="messages-shell"]) nav[data-slot="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] svg {
+body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] span {
+body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -3531,7 +3531,7 @@ body:has([data-component="auth-login"]) {
   line-height: normal;
 }
 
-body:has([data-component="auth-login"]) [data-component="app-root"] {
+body:has([data-component="auth-login"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -3542,7 +3542,7 @@ body:has([data-component="auth-login"]) [data-component="app-root"] {
   line-height: normal;
 }
 
-body:has([data-component="auth-login"]) [data-component="app-root"]::before {
+body:has([data-component="auth-login"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -3556,7 +3556,7 @@ body:has([data-component="auth-login"]) [data-component="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="auth-login"]) [data-component="app-providers"] {
+body:has([data-component="auth-login"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -3565,7 +3565,7 @@ body:has([data-component="auth-login"]) [data-component="app-providers"] {
   border-radius: 38px;
 }
 
-body:has([data-component="auth-login"]) main[data-component="main-content"] {
+body:has([data-component="auth-login"]) main[data-slot="main-content"] {
   display: block;
   height: 100%;
   min-height: 0;
@@ -3587,7 +3587,7 @@ body:has([data-component="auth-forgot-password"]) {
   line-height: normal;
 }
 
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"] {
+body:has([data-component="auth-forgot-password"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -3598,7 +3598,7 @@ body:has([data-component="auth-forgot-password"]) [data-component="app-root"] {
   line-height: normal;
 }
 
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"]::before {
+body:has([data-component="auth-forgot-password"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -3612,7 +3612,7 @@ body:has([data-component="auth-forgot-password"]) [data-component="app-root"]::b
   pointer-events: none;
 }
 
-body:has([data-component="auth-forgot-password"]) [data-component="app-providers"] {
+body:has([data-component="auth-forgot-password"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -3621,7 +3621,7 @@ body:has([data-component="auth-forgot-password"]) [data-component="app-providers
   border-radius: 38px;
 }
 
-body:has([data-component="auth-forgot-password"]) main[data-component="main-content"] {
+body:has([data-component="auth-forgot-password"]) main[data-slot="main-content"] {
   display: block;
   height: 100%;
   min-height: 0;
@@ -3779,7 +3779,7 @@ body:has([data-component="select-branch"]) {
 }
 
 /* Mobile: app-root fills viewport */
-[data-component="app-root"]:has([data-component="select-branch"]) {
+[data-slot="app-root"]:has([data-component="select-branch"]) {
   width: 100%;
   height: 100dvh;
   max-height: 100dvh;
@@ -3793,7 +3793,7 @@ body:has([data-component="select-branch"]) {
 
 /* Desktop: render inside a fake phone-frame for preview */
 @media (min-width: 768px) {
-  [data-component="app-root"]:has([data-component="select-branch"]) {
+  [data-slot="app-root"]:has([data-component="select-branch"]) {
     width: 390px !important;
     max-width: 390px !important;
     height: 844px !important;
@@ -3806,7 +3806,7 @@ body:has([data-component="select-branch"]) {
     background: #000;
   }
 
-  [data-component="app-root"]:has([data-component="select-branch"])::before {
+  [data-slot="app-root"]:has([data-component="select-branch"])::before {
     content: "";
     position: absolute;
     top: 12px;
@@ -3821,7 +3821,7 @@ body:has([data-component="select-branch"]) {
   }
 }
 
-[data-component="app-root"]:has([data-component="select-branch"]) [data-component="app-providers"] {
+[data-slot="app-root"]:has([data-component="select-branch"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -3836,7 +3836,7 @@ body:has([data-component="select-branch"]) nextjs-portal {
   display: none !important;
 }
 
-main[data-component="main-content"]:has([data-component="select-branch"]) {
+main[data-slot="main-content"]:has([data-component="select-branch"]) {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -3844,7 +3844,7 @@ main[data-component="main-content"]:has([data-component="select-branch"]) {
   background: hsl(var(--v3-dim-white));
 }
 
-main[data-component="main-content"]:has([data-component="select-branch"]) > [data-component="select-branch"] {
+main[data-slot="main-content"]:has([data-component="select-branch"]) > [data-component="select-branch"] {
   flex: 1 1 auto;
   height: 100%;
   min-height: 0;
@@ -4037,7 +4037,7 @@ body:has([data-component="auth-register"]) {
   line-height: normal;
 }
 
-body:has([data-component="auth-register"]) [data-component="app-root"] {
+body:has([data-component="auth-register"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -4048,7 +4048,7 @@ body:has([data-component="auth-register"]) [data-component="app-root"] {
   line-height: normal;
 }
 
-body:has([data-component="auth-register"]) [data-component="app-root"]::before {
+body:has([data-component="auth-register"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -4062,7 +4062,7 @@ body:has([data-component="auth-register"]) [data-component="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="auth-register"]) [data-component="app-providers"] {
+body:has([data-component="auth-register"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -4071,7 +4071,7 @@ body:has([data-component="auth-register"]) [data-component="app-providers"] {
   border-radius: 38px;
 }
 
-body:has([data-component="auth-register"]) main[data-component="main-content"] {
+body:has([data-component="auth-register"]) main[data-slot="main-content"] {
   display: block;
   height: 100%;
   min-height: 0;
@@ -4378,7 +4378,7 @@ body.mobile-contracts-route {
   line-height: normal;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -4395,33 +4395,33 @@ body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] a {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] svg {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] span {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav-contracts"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav-contracts"] {
   background: transparent;
 }
 
 /* Mobile: app-root keeps the shared 390px viewport limit without the phone-frame bezel. */
-body.mobile-contracts-route [data-component="app-root"] {
+body.mobile-contracts-route [data-slot="app-root"] {
   width: min(100vw, 390px);
   max-width: 390px;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
@@ -4434,7 +4434,7 @@ body.mobile-contracts-route [data-component="app-root"] {
 
 /* Desktop: render inside a fake phone-frame for preview */
 @media (min-width: 768px) {
-  body.mobile-contracts-route [data-component="app-root"] {
+  body.mobile-contracts-route [data-slot="app-root"] {
     width: 390px !important;
     max-width: 390px !important;
     height: 844px !important;
@@ -4447,7 +4447,7 @@ body.mobile-contracts-route [data-component="app-root"] {
       0 0 0 1px rgba(0, 0, 0, 0.6) inset;
   }
 
-  body.mobile-contracts-route [data-component="app-root"]::before {
+  body.mobile-contracts-route [data-slot="app-root"]::before {
     content: "";
     position: absolute;
     top: 12px;
@@ -4462,7 +4462,7 @@ body.mobile-contracts-route [data-component="app-root"] {
   }
 }
 
-body.mobile-contracts-route [data-component="app-providers"] {
+body.mobile-contracts-route [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -4480,7 +4480,7 @@ body.mobile-contracts-route [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body.mobile-contracts-route [data-component="main-content"] {
+body.mobile-contracts-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -4529,27 +4529,27 @@ body.mobile-clients-route {
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-component="app-root"] {
+body.mobile-clients-route [data-slot="app-root"] {
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  body.mobile-clients-route [data-component="app-root"] {
+  body.mobile-clients-route [data-slot="app-root"] {
     height: min(100dvh, 844px);
     max-height: 844px;
   }
 }
 
-body.mobile-clients-route [data-component="app-root"] [data-component="app-providers"] {
+body.mobile-clients-route [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-component="main-content"] {
+body.mobile-clients-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -4813,7 +4813,7 @@ body.mobile-contracts-route .contract-doc-icon-muted {
   color: hsl(var(--v3-text-muted));
 }
 
-body.mobile-contracts-route [data-component="mobile-header"] {
+body.mobile-contracts-route [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   left: 0 !important;
@@ -4828,11 +4828,11 @@ body.mobile-contracts-route [data-component="mobile-header"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-contracts-route [data-component="floating-quick-actions"] {
+body.mobile-contracts-route [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -4858,11 +4858,11 @@ body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
   z-index: var(--mobile-z-nav);
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] > [aria-hidden="true"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] > [aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] {
+body.mobile-contracts-route [data-slot^="mobile-bottom-nav-"] {
   position: static !important;
   display: flex;
   flex-direction: column;
@@ -4875,22 +4875,22 @@ body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] {
   text-decoration: none;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav-contracts"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav-contracts"] {
   background: transparent !important;
 }
 
-body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] svg {
+body.mobile-contracts-route [data-slot^="mobile-bottom-nav-"] svg {
   width: 18px !important;
   height: 18px !important;
 }
 
-body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] span {
+body.mobile-contracts-route [data-slot^="mobile-bottom-nav-"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translateY(calc(100% + 32px)) !important;
   opacity: 0;
   pointer-events: none;
@@ -4901,7 +4901,7 @@ body.mobile-contracts-route nextjs-portal {
 }
 
 /* Dashboard frame-removal correction: anchor nav to the shell and let the card scroll internally. */
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] {
   bottom: 12px !important;
   z-index: var(--mobile-z-nav) !important;
 }
@@ -4944,7 +4944,7 @@ body.mobile-contracts-route nextjs-portal {
 }
 
 /* ===== Dashboard viewport-fit chain (mirrors clients/prices/contracts pattern) ===== */
-body.mobile-dashboard-route [data-component="main-content"] {
+body.mobile-dashboard-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -4979,12 +4979,12 @@ body.mobile-dashboard-route .mobile-detail-sheet {
 }
 
 /* ===== Dashboard detail sheet — parity with clients/messages/etc. ===== */
-body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
-body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-component="mobile-header"] {
+body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
 }
 body.mobile-dashboard-route [data-component="mobile-dashboard-detail-page"] {
@@ -5045,9 +5045,9 @@ body.mobile-prices-route [data-component$="-detail-scrim"] {
   border-radius: 0 !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="messages"] .nav-stack.show-detail) [data-component="mobile-header"],
-body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-component="mobile-header"] {
+body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-slot="mobile-header"],
+body:has([data-component="messages"] .nav-stack.show-detail) [data-slot="mobile-header"],
+body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
 }
 
@@ -5090,64 +5090,64 @@ body.mobile-contracts-route {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]),
-body.mobile-all-route [data-component="app-root"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
-body:has([data-component="messages"]) [data-component="app-root"],
-body:has([data-component="messages-new-page"]) [data-component="app-root"],
-body:has([data-component="messages-templates"]) [data-component="app-root"],
-body:has([data-component="messages-shell"]) [data-component="app-root"],
-body:has([data-component="auth-login"]) [data-component="app-root"],
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"],
-body:has([data-component="auth-register"]) [data-component="app-root"],
-[data-component="app-root"]:has([data-component="select-branch"]),
-body:has([data-component="clients-new-page-shell"]) [data-component="app-root"],
-body:has([data-component="chat"]) [data-component="app-root"],
-body:has([data-component="employees-new-redesign"]) [data-component="app-root"],
-body:has([data-component="files-upload-page"]) [data-component="app-root"],
-body.mobile-contracts-route [data-component="app-root"] {
+[data-slot="app-root"]:has([data-component="dashboard"]),
+body.mobile-all-route [data-slot="app-root"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"],
+body:has([data-component="messages"]) [data-slot="app-root"],
+body:has([data-component="messages-new-page"]) [data-slot="app-root"],
+body:has([data-component="messages-templates"]) [data-slot="app-root"],
+body:has([data-component="messages-shell"]) [data-slot="app-root"],
+body:has([data-component="auth-login"]) [data-slot="app-root"],
+body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
+body:has([data-component="auth-register"]) [data-slot="app-root"],
+[data-slot="app-root"]:has([data-component="select-branch"]),
+body:has([data-component="clients-new-page-shell"]) [data-slot="app-root"],
+body:has([data-component="chat"]) [data-slot="app-root"],
+body:has([data-component="employees-new-redesign"]) [data-slot="app-root"],
+body:has([data-component="files-upload-page"]) [data-slot="app-root"],
+body.mobile-contracts-route [data-slot="app-root"] {
   padding: 0 !important;
   background: hsl(var(--v3-dim-white)) !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"])::before,
-body.mobile-all-route [data-component="app-root"]::before,
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"]::before,
-body:has([data-component="messages"]) [data-component="app-root"]::before,
-body:has([data-component="messages-new-page"]) [data-component="app-root"]::before,
-body:has([data-component="messages-templates"]) [data-component="app-root"]::before,
-body:has([data-component="messages-shell"]) [data-component="app-root"]::before,
-body:has([data-component="auth-login"]) [data-component="app-root"]::before,
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"]::before,
-body:has([data-component="auth-register"]) [data-component="app-root"]::before,
-[data-component="app-root"]:has([data-component="select-branch"])::before,
-body:has([data-component="clients-new-page-shell"]) [data-component="app-root"]::before,
-body:has([data-component="chat"]) [data-component="app-root"]::before,
-body:has([data-component="employees-new-redesign"]) [data-component="app-root"]::before,
-body:has([data-component="files-upload-page"]) [data-component="app-root"]::before,
-body.mobile-contracts-route [data-component="app-root"]::before {
+[data-slot="app-root"]:has([data-component="dashboard"])::before,
+body.mobile-all-route [data-slot="app-root"]::before,
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"]::before,
+body:has([data-component="messages"]) [data-slot="app-root"]::before,
+body:has([data-component="messages-new-page"]) [data-slot="app-root"]::before,
+body:has([data-component="messages-templates"]) [data-slot="app-root"]::before,
+body:has([data-component="messages-shell"]) [data-slot="app-root"]::before,
+body:has([data-component="auth-login"]) [data-slot="app-root"]::before,
+body:has([data-component="auth-forgot-password"]) [data-slot="app-root"]::before,
+body:has([data-component="auth-register"]) [data-slot="app-root"]::before,
+[data-slot="app-root"]:has([data-component="select-branch"])::before,
+body:has([data-component="clients-new-page-shell"]) [data-slot="app-root"]::before,
+body:has([data-component="chat"]) [data-slot="app-root"]::before,
+body:has([data-component="employees-new-redesign"]) [data-slot="app-root"]::before,
+body:has([data-component="files-upload-page"]) [data-slot="app-root"]::before,
+body.mobile-contracts-route [data-slot="app-root"]::before {
   display: none !important;
   content: none !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="app-providers"],
-body.mobile-all-route [data-component="app-providers"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-providers"],
-body:has([data-component="messages"]) [data-component="app-providers"],
-body:has([data-component="messages-new-page"]) [data-component="app-providers"],
-body:has([data-component="messages-templates"]) [data-component="app-providers"],
-body:has([data-component="messages-shell"]) [data-component="app-providers"],
-body:has([data-component="auth-login"]) [data-component="app-providers"],
-body:has([data-component="auth-forgot-password"]) [data-component="app-providers"],
-body:has([data-component="auth-register"]) [data-component="app-providers"],
-[data-component="app-root"]:has([data-component="select-branch"]) [data-component="app-providers"],
-body:has([data-component="clients-new-page-shell"]) [data-component="app-providers"],
-body:has([data-component="chat"]) [data-component="app-providers"],
-body:has([data-component="employees-new-redesign"]) [data-component="app-providers"],
-body:has([data-component="files-upload-page"]) [data-component="app-providers"],
-body.mobile-contracts-route [data-component="app-providers"] {
+[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="app-content"],
+body.mobile-all-route [data-slot="app-content"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-content"],
+body:has([data-component="messages"]) [data-slot="app-content"],
+body:has([data-component="messages-new-page"]) [data-slot="app-content"],
+body:has([data-component="messages-templates"]) [data-slot="app-content"],
+body:has([data-component="messages-shell"]) [data-slot="app-content"],
+body:has([data-component="auth-login"]) [data-slot="app-content"],
+body:has([data-component="auth-forgot-password"]) [data-slot="app-content"],
+body:has([data-component="auth-register"]) [data-slot="app-content"],
+[data-slot="app-root"]:has([data-component="select-branch"]) [data-slot="app-content"],
+body:has([data-component="clients-new-page-shell"]) [data-slot="app-content"],
+body:has([data-component="chat"]) [data-slot="app-content"],
+body:has([data-component="employees-new-redesign"]) [data-slot="app-content"],
+body:has([data-component="files-upload-page"]) [data-slot="app-content"],
+body.mobile-contracts-route [data-slot="app-content"] {
   border-radius: 0 !important;
 }
 
@@ -5172,8 +5172,8 @@ body.mobile-prices-route nextjs-portal {
 }
 
 /* ===== /prices route ===== */
-body.mobile-prices-route [data-component="mobile-header"],
-body:has([data-component="prices-page"]) [data-component="mobile-header"] {
+body.mobile-prices-route [data-slot="mobile-header"],
+body:has([data-component="prices-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -5300,7 +5300,7 @@ body.mobile-prices-route .list-card-scroll::after {
   flex-shrink: 0;
 }
 
-body.mobile-prices-route [data-component="app-providers"] {
+body.mobile-prices-route [data-slot="app-content"] {
   border-radius: 0 !important;
   position: relative;
   height: 100%;
@@ -5318,7 +5318,7 @@ body.mobile-prices-route [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body.mobile-prices-route [data-component="main-content"] {
+body.mobile-prices-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -5392,7 +5392,7 @@ body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-s
   transform: translateX(0) !important;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -5409,22 +5409,22 @@ body.mobile-prices-route [data-component="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] a {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] svg {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] span {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -5606,13 +5606,13 @@ body.mobile-prices-route [data-component="mobile-bottom-nav"] span {
 /* ===== Mobile detail-sheet sizing normalization =====
    Keep the shell full-viewport for every MobileDetailSheet route. Header spacing
    belongs to the list content only, so detail pages share one height model. */
-body:has([data-component="dashboard"]) [data-component="main-content"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main-content"],
-body:has([data-component="messages"]) [data-component="main-content"],
-body:has([data-component="prices-page"]) [data-component="main-content"],
-body.mobile-contracts-route [data-component="main-content"],
-body.mobile-dashboard-route [data-component="main-content"],
-body.mobile-prices-route [data-component="main-content"] {
+body:has([data-component="dashboard"]) [data-slot="main-content"],
+body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="main-content"],
+body:has([data-component="messages"]) [data-slot="main-content"],
+body:has([data-component="prices-page"]) [data-slot="main-content"],
+body.mobile-contracts-route [data-slot="main-content"],
+body.mobile-dashboard-route [data-slot="main-content"],
+body.mobile-prices-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -5649,8 +5649,8 @@ body.mobile-prices-route .mobile-detail-sheet {
 /* Dashboard has the analytics grid above its list card, so only the page shell
    should reserve header space. The list content itself must not get the shared
    76px top padding, otherwise refresh pushes the card down and clips analytics. */
-body:has([data-component="dashboard"]) [data-component="main-content"],
-body.mobile-dashboard-route [data-component="main-content"] {
+body:has([data-component="dashboard"]) [data-slot="main-content"],
+body.mobile-dashboard-route [data-slot="main-content"] {
   padding: 64px 0 0 !important;
 }
 
@@ -5732,20 +5732,20 @@ body.mobile-dashboard-route [data-component="mobile-dashboard-content"] {
 
 /* The shared sliding indicator owns the active background. Route-specific
    overrides may still normalize nav sizing, but active links must stay clear. */
-nav[data-component="mobile-bottom-nav"] [data-component="mobile-bottom-indicator"] {
+nav[data-slot="mobile-bottom-nav"] [data-slot="mobile-bottom-indicator"] {
   display: block !important;
 }
 
-nav[data-component="mobile-bottom-nav"],
-nav[data-component="mobile-bottom-nav"] a {
+nav[data-slot="mobile-bottom-nav"],
+nav[data-slot="mobile-bottom-nav"] a {
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body.mobile-contracts-route nav[data-component="mobile-bottom-nav"] [data-component="mobile-bottom-indicator"] {
+body.mobile-contracts-route nav[data-slot="mobile-bottom-nav"] [data-slot="mobile-bottom-indicator"] {
   display: block !important;
 }
 
-nav[data-component="mobile-bottom-nav"] a[aria-current="page"][data-component^="mobile-bottom-nav-"] {
+nav[data-slot="mobile-bottom-nav"] a[aria-current="page"][data-slot^="mobile-bottom-nav-"] {
   background: transparent !important;
 }
 
@@ -5759,7 +5759,7 @@ body.mobile-contracts-route {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-body.mobile-contracts-route [data-component="app-root"] {
+body.mobile-contracts-route [data-slot="app-root"] {
   width: min(100vw, 390px) !important;
   max-width: 390px !important;
   height: min(100dvh, var(--mobile-shell-max-height, 844px)) !important;
@@ -5772,12 +5772,12 @@ body.mobile-contracts-route [data-component="app-root"] {
   box-shadow: none !important;
 }
 
-body.mobile-contracts-route [data-component="app-root"]::before {
+body.mobile-contracts-route [data-slot="app-root"]::before {
   display: none !important;
   content: none !important;
 }
 
-body.mobile-contracts-route [data-component="app-providers"] {
+body.mobile-contracts-route [data-slot="app-content"] {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -5789,22 +5789,22 @@ body.mobile-contracts-route [data-component="app-providers"] {
    The redesign was built against a 390x844 reference frame. Keep that preview on
    wider screens, but let real mobile viewports drive the shell and card width. */
 @media (max-width: 767px) {
-  [data-component="app-root"],
-  body.mobile-all-route [data-component="app-root"],
-  body:has([data-component="all-page"]) [data-component="app-root"],
-  body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
-  body:has([data-component="messages"]) [data-component="app-root"],
-  body:has([data-component="messages-new-page"]) [data-component="app-root"],
-  body:has([data-component="messages-templates"]) [data-component="app-root"],
-  body:has([data-component="messages-shell"]) [data-component="app-root"],
-  body:has([data-component="auth-login"]) [data-component="app-root"],
-  body:has([data-component="auth-forgot-password"]) [data-component="app-root"],
-  body:has([data-component="auth-register"]) [data-component="app-root"],
-  [data-component="app-root"]:has([data-component="select-branch"]),
-  body:has([data-component="clients-new-page-shell"]) [data-component="app-root"],
-  body:has([data-component="chat"]) [data-component="app-root"],
-  body:has([data-component="employees-new-redesign"]) [data-component="app-root"],
-  body:has([data-component="files-upload-page"]) [data-component="app-root"] {
+  [data-slot="app-root"],
+  body.mobile-all-route [data-slot="app-root"],
+  body:has([data-component="all-page"]) [data-slot="app-root"],
+  body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"],
+  body:has([data-component="messages"]) [data-slot="app-root"],
+  body:has([data-component="messages-new-page"]) [data-slot="app-root"],
+  body:has([data-component="messages-templates"]) [data-slot="app-root"],
+  body:has([data-component="messages-shell"]) [data-slot="app-root"],
+  body:has([data-component="auth-login"]) [data-slot="app-root"],
+  body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
+  body:has([data-component="auth-register"]) [data-slot="app-root"],
+  [data-slot="app-root"]:has([data-component="select-branch"]),
+  body:has([data-component="clients-new-page-shell"]) [data-slot="app-root"],
+  body:has([data-component="chat"]) [data-slot="app-root"],
+  body:has([data-component="employees-new-redesign"]) [data-slot="app-root"],
+  body:has([data-component="files-upload-page"]) [data-slot="app-root"] {
     width: 100vw !important;
     max-width: none !important;
     height: 100dvh !important;
@@ -5812,7 +5812,7 @@ body.mobile-contracts-route [data-component="app-providers"] {
     margin: 0 !important;
   }
 
-  [data-component="app-providers"] {
+  [data-slot="app-content"] {
     width: 100% !important;
     height: 100% !important;
     min-height: 100% !important;
@@ -5838,16 +5838,16 @@ body.mobile-contracts-route [data-component="app-providers"] {
   }
 }
 
-body nav[data-component="mobile-bottom-nav"] a[data-component^="mobile-bottom-nav-"]:not([data-visual-active="true"]) {
+body nav[data-slot="mobile-bottom-nav"] a[data-slot^="mobile-bottom-nav-"]:not([data-visual-active="true"]) {
   background: transparent !important;
   color: var(--color-gray-500, #6b7280) !important;
 }
 
-body nav[data-component="mobile-bottom-nav"] [data-component^="mobile-bottom-nav-"][data-disabled="true"] {
+body nav[data-slot="mobile-bottom-nav"] [data-slot^="mobile-bottom-nav-"][data-disabled="true"] {
   color: var(--color-gray-300, #d1d5db) !important;
 }
 
-body nav[data-component="mobile-bottom-nav"] a[data-visual-active="true"] {
+body nav[data-slot="mobile-bottom-nav"] a[data-visual-active="true"] {
   background: transparent !important;
   color: #fff !important;
 }
@@ -5864,13 +5864,13 @@ body:has([data-component="prices-page"]) {
   overflow: hidden;
 }
 
-body:has([data-component="messages"]) [data-component="app-root"],
-body:has([data-component="prices-page"]) [data-component="app-root"] {
+body:has([data-component="messages"]) [data-slot="app-root"],
+body:has([data-component="prices-page"]) [data-slot="app-root"] {
   overflow: hidden;
 }
 
-body:has([data-component="messages"]) [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="prices-page"]) [data-component="app-root"] [data-component="app-providers"] {
+body:has([data-component="messages"]) [data-slot="app-root"] [data-slot="app-content"],
+body:has([data-component="prices-page"]) [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;

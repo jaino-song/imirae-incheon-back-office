@@ -87,7 +87,7 @@ test("dense nav slide capture: 25 frames @ 8ms across tab change", async ({ page
   await page.waitForURL("**/dashboard");
   await page.waitForTimeout(600);
 
-  const nav = page.locator('[data-component="mobile-bottom-nav"]');
+  const nav = page.locator('[data-slot="mobile-bottom-nav"]');
   await expect(nav).toBeVisible();
   // Give framer-motion a beat to settle the initial indicator layoutId.
   await page.waitForTimeout(200);
@@ -106,7 +106,7 @@ test("dense nav slide capture: 25 frames @ 8ms across tab change", async ({ page
   };
 
   // --- Click the 고객 tab and start the dense capture loop immediately ---
-  const clientsTab = page.locator('[data-component="mobile-bottom-nav-clients"]');
+  const clientsTab = page.locator('[data-slot="mobile-bottom-nav-clients"]');
 
   // Prime the page-side position tracker BEFORE clicking so the first samples
   // come as soon as possible after the click.
@@ -126,7 +126,7 @@ test("dense nav slide capture: 25 frames @ 8ms across tab change", async ({ page
       const tick = () => {
         const t = performance.now() - start;
         const el = document.querySelector(
-          '[data-component="mobile-bottom-nav-indicator"]'
+          '[data-slot="mobile-bottom-indicator"]'
         ) as HTMLElement | null;
         if (el) {
           const r = el.getBoundingClientRect();

@@ -58,10 +58,10 @@ test("diagnose: bottom-nav indicator transition + position over time", async ({ 
   await page.waitForURL("**/dashboard");
   await page.waitForTimeout(500);
 
-  const nav = page.locator('[data-component="mobile-bottom-nav"]');
+  const nav = page.locator('[data-slot="mobile-bottom-nav"]');
   await expect(nav).toBeVisible();
 
-  const indicator = nav.locator('[data-component="mobile-bottom-nav-indicator"]').first();
+  const indicator = nav.locator('[data-slot="mobile-bottom-indicator"]').first();
   await expect(indicator).toBeVisible();
 
   // ---- Capture the computed style on the user's server ----
@@ -141,7 +141,7 @@ test("diagnose: is the indicator the SAME DOM node before/after click?", async (
 
   // Tag the current indicator with a unique marker via JS
   const markerExisted = await page.evaluate(() => {
-    const nav = document.querySelector('[data-component="mobile-bottom-nav"]');
+    const nav = document.querySelector('[data-slot="mobile-bottom-nav"]');
     if (!nav) return { error: "no nav" };
     const indicator = nav.querySelector('div[aria-hidden="true"]');
     if (!indicator) return { error: "no indicator" };
@@ -153,7 +153,7 @@ test("diagnose: is the indicator the SAME DOM node before/after click?", async (
 
   // Also collect ALL inline transform values during a polling window
   await page.evaluate(() => {
-    const nav = document.querySelector('[data-component="mobile-bottom-nav"]');
+    const nav = document.querySelector('[data-slot="mobile-bottom-nav"]');
     const indicator = nav?.querySelector('div[aria-hidden="true"]') as HTMLElement | null;
     if (!indicator) return;
     const diagnosticWindow = window as DiagnosticWindow;
@@ -162,7 +162,7 @@ test("diagnose: is the indicator the SAME DOM node before/after click?", async (
     const tick = () => {
       const t = performance.now() - start;
       if (t > 800) return;
-      const el = document.querySelector('[data-component="mobile-bottom-nav-indicator"]') as HTMLElement | null;
+      const el = document.querySelector('[data-slot="mobile-bottom-indicator"]') as HTMLElement | null;
       diagnosticWindow.__indicatorFrames?.push({
         t: Math.round(t),
         transform: el ? getComputedStyle(el).transform : null,
@@ -177,7 +177,7 @@ test("diagnose: is the indicator the SAME DOM node before/after click?", async (
   });
 
   // Click 고객 tab
-  await page.locator('[data-component="mobile-bottom-nav"] a[href="/clients"]').click();
+  await page.locator('[data-slot="mobile-bottom-nav"] a[href="/clients"]').click();
   // Let polling collect ~800ms of frames
   await page.waitForTimeout(900);
 

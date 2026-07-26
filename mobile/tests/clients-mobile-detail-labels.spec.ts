@@ -111,15 +111,15 @@ test.describe("Mobile clients detail labels", () => {
             }
           : null;
       };
-      const nav = document.querySelector('[data-component="mobile-bottom-nav"]');
+      const nav = document.querySelector('[data-slot="mobile-bottom-nav"]');
 
       return {
         viewport: { width: window.innerWidth, height: window.innerHeight },
-        appRoot: rect('[data-component="app-root"]'),
+        appRoot: rect('[data-slot="app-root"]'),
         appShell: rect('[data-slot="app-shell"]'),
         appContent: rect('[data-slot="app-content"]'),
         card: rect('[data-component="mobile-redesign-list-card"]'),
-        nav: rect('[data-component="mobile-bottom-nav"]'),
+        nav: rect('[data-slot="mobile-bottom-nav"]'),
         navPosition: nav ? getComputedStyle(nav).position : null,
       };
     });
