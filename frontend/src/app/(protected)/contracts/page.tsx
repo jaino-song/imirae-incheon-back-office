@@ -751,12 +751,14 @@ export default function ContractsPage() {
             ) : undefined}
           >
             <AnimatedSlotList<EformsignDocument>
+                data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_list"
                 items={documents}
                 isLoading={isInitialLoading || isContentLoading}
                 loadingCount={3}
                 className="space-y-2"
                 getItemKey={(doc) => doc.id}
                 itemVariant="card"
+                itemDataComponent="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_list_item"
                 getSlotState={({ item, isLoading }) => {
                   const isActive = !isLoading && item && selectedDocument?.id === item.id;
                   return {
@@ -876,12 +878,14 @@ export default function ContractsPage() {
                   }
                 >
                   <AnimatedSlotList<EformsignDocument>
+                    data-component="desktop_contracts_sections_section-content_service-records-section_split-layout_list-panel_list"
                     items={serviceRecordDocuments}
                     isLoading={isServiceRecordListLoading || isContentLoading}
                     loadingCount={3}
                     className="space-y-2"
                     getItemKey={(doc) => doc.id}
                     itemVariant="card"
+                    itemDataComponent="desktop_contracts_sections_section-content_service-records-section_split-layout_list-panel_list_item"
                     getSlotState={({ item, isLoading }) => {
                       const isActive =
                         !isLoading && item && selectedServiceRecordDocument?.id === item.id;

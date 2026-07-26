@@ -254,7 +254,7 @@ export function RecentActivitiesPanel({
       return;
     }
 
-    const scrollContainer = sentinel.closest('[data-component="list-panel-content"]');
+    const scrollContainer = sentinel.closest('[data-slot="list-panel-content"]');
     const root = scrollContainer instanceof HTMLElement ? scrollContainer : null;
 
     const observer = new IntersectionObserver(
@@ -281,7 +281,7 @@ export function RecentActivitiesPanel({
   const isListEmpty = !isLoading && !isError && (isEmpty || listItems.length === 0);
 
   return (
-    <ListPanel data-component="desktop_v3_split-layout_list-panel"
+    <ListPanel data-component="desktop_dashboard_split_activities-panel_list-panel"
       title={title}
       tabs={tabs}
       activeTab={activeTab}
@@ -299,11 +299,12 @@ export function RecentActivitiesPanel({
       ) : isListEmpty ? null : (
           <>
             <AnimatedSlotList<RecentActivityListItem>
+              data-component="desktop_dashboard_split_activities-panel_list-panel_list"
               items={listItems}
               isLoading={isLoading}
               loadingCount={activeTab === "all" ? 6 : 4}
               className="space-y-2"
-              itemDataComponent="dashboard-split-list-item"
+              itemDataComponent="desktop_dashboard_split_activities-panel_list-panel_list_item"
               getItemKey={(item) => item.key}
               onSlotClick={(item) => onSelect(item.client)}
               itemVariant="card"
@@ -351,7 +352,7 @@ export function RecentActivitiesPanel({
 
                 return (
                   <AnimatedSlotListItemContent
-                    dataComponent="dashboard-split-list-item-content"
+                    dataComponent="desktop_dashboard_split_activities-panel_list-panel_list_item_content"
                     icon={Users}
                     iconContainerClassName={getClientBadgeAvatarClassName(primaryClientBadge)}
                     title={item.client.name}

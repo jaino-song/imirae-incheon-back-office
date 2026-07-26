@@ -232,7 +232,6 @@ export default function EmployeesPage() {
                     }
                     emptyState={!isLoading && employees.length === 0 ? (
                         <ListEmptyState
-                            name="employees-empty"
                             message={search || filter !== "all" ? "검색 결과가 없습니다" : "등록된 직원이 없습니다"}
                         />
                     ) : undefined}
@@ -320,7 +319,7 @@ export default function EmployeesPage() {
                         onDelete={handleDeleteRequest}
                     />
                 ) : (
-                    <EmptyState name="employees-empty-detail" icon={Users} message="직원을 선택하면 상세 정보가 표시됩니다" />
+                    <EmptyState icon={Users} message="직원을 선택하면 상세 정보가 표시됩니다" />
                 )}
             </SplitLayout>
 

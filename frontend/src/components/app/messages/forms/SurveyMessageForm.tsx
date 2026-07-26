@@ -83,7 +83,7 @@ export const SurveyMessageForm = ({
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-survey-form"
+      dataComponent="desktop_messages_sections_survey-form"
       fields={fields}
       messageCard={messageCard}
       requiresRecipientName

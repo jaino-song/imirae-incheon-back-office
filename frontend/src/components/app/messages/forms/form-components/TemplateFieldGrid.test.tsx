@@ -17,8 +17,8 @@ describe("TemplateFieldGrid", () => {
       </TemplateFieldGrid>
     );
 
-    const grid = screen.getByText("Field one").closest("[data-component='messages-template-field-grid']");
-    const item = screen.getByText("Field two").closest("[data-component='messages-template-field-grid-item']");
+    const grid = screen.getByText("Field one").closest("[data-component='desktop_messages_sections_template-field-grid']");
+    const item = screen.getByText("Field two").closest("[data-component='desktop_messages_sections_template-field-grid-item']");
 
     expect(grid?.getAttribute("class")).toContain("grid-cols-[repeat(auto-fill");
     expect(grid).toHaveClass("items-center");

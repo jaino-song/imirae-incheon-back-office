@@ -83,7 +83,7 @@ export const ThanksMessageForm = ({
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-thanks-form"
+      dataComponent="desktop_messages_sections_thanks-form"
       fields={fields}
       messageCard={messageCard}
       requiresRecipientName

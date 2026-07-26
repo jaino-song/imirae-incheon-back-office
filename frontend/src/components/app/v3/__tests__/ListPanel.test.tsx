@@ -10,7 +10,6 @@ describe("ListPanel", () => {
         subtitle="설명"
         overlay={
           <ListEmptyState
-            name="list-panel-empty"
             message="항목이 없습니다."
             className="flex-none min-h-0"
           />

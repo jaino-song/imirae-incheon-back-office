@@ -158,7 +158,7 @@ export default function AdminFeedbackPage() {
         ) : selectedFeedback ? (
           <FeedbackDetail feedback={selectedFeedback} formatDate={formatDate} />
         ) : (
-          <EmptyState name="admin-empty" icon={MessageSquare} message="피드백을 선택하면 상세 정보가 표시됩니다" />
+          <EmptyState icon={MessageSquare} message="피드백을 선택하면 상세 정보가 표시됩니다" />
         )}
       </SplitLayout>
     </PageSection>

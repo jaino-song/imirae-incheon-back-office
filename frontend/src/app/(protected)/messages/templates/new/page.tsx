@@ -12,9 +12,9 @@ export default function NewTemplatePage() {
     const locale = useLocale();
 
     return (
-        <div data-component="messages-templates-new" className="bg-background">
-            <section data-component="messages-templates-new-content" className="px-4 sm:px-6 md:px-12 py-6 sm:py-8 mx-auto">
-                <div data-component="messages-templates-new-nav" className="mb-4">
+        <div data-component="desktop_messages_sections_templates-new" className="bg-background">
+            <section data-component="desktop_messages_sections_templates-new_templates-new-content" className="px-4 sm:px-6 md:px-12 py-6 sm:py-8 mx-auto">
+                <div data-component="desktop_messages_sections_templates-new_templates-new-content_templates-new-nav" className="mb-4">
                     <Button variant="ghost" size="icon" asChild>
                         <Link href="/messages/templates">
                             <ArrowLeft className="h-6 w-6" />

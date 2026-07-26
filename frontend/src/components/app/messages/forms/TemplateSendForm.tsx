@@ -426,13 +426,13 @@ export function TemplateSendForm({
 
   const recipientPills = recipientQueue.length > 0 ? (
     <div
-      data-component="messages-template-send-form-recipient-queue"
+      data-component="desktop_messages_sections_template-send-form-recipient-queue"
       className="flex flex-wrap gap-2"
     >
       {recipientQueue.map((item) => (
         <StatusBadge
           key={item.id}
-          data-component="messages-template-send-form-recipient"
+          data-component="desktop_messages_sections_template-send-form-recipient"
           variant="primary"
           size="sm"
           className="w-fit max-w-none justify-start"
@@ -665,12 +665,12 @@ export function TemplateSendForm({
   return (
     <form
       id={resolvedFormId}
-      data-component="messages-template-send-form"
+      data-component="desktop_messages_sections_template-send-form"
       data-template-id={templateId}
       className={cn("flex min-h-0 flex-col gap-4 rounded-[20px] bg-v3-dim-white p-5", className)}
       onSubmit={handleSubmit}
     >
-      <div data-component="messages-template-send-form-header" className="flex items-start justify-between gap-4">
+      <div data-component="desktop_messages_sections_template-send-form-header" className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="text-[calc(14.4px*var(--glint-ui-scale,1))] font-bold text-v3-dark">전송 정보</h3>
           <p className="mt-0.5 text-[calc(12px*var(--glint-ui-scale,1))] text-v3-text-muted">
@@ -698,7 +698,7 @@ export function TemplateSendForm({
       ) : shouldUseInlinePhoneRecipient ? (
         <>
           <div
-            data-component="messages-template-send-form-phone-field"
+            data-component="desktop_messages_sections_template-send-form-phone-field"
             className="min-w-0 w-full"
           >
             {templateId === "builtin:greeting" ? (
@@ -717,7 +717,7 @@ export function TemplateSendForm({
         <TemplateFieldGrid layout="stack">
           {requiresRecipientName ? (
             <>
-              <TemplateFieldGridItem dataComponent="messages-template-send-form-recipient-field">
+              <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form-recipient-field">
                 <ClientAutocomplete
                   value={selectedClientId}
                   onChange={handleRecipientChange}
@@ -729,7 +729,7 @@ export function TemplateSendForm({
                 />
               </TemplateFieldGridItem>
 
-              <TemplateFieldGridItem dataComponent="messages-template-send-form-phone-field">
+              <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form-phone-field">
                 <ContactInput
                   phone={phone}
                   setPhone={handlePhoneChange}
@@ -740,7 +740,7 @@ export function TemplateSendForm({
               </TemplateFieldGridItem>
             </>
           ) : (
-            <TemplateFieldGridItem dataComponent="messages-template-send-form-phone-field">
+            <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form-phone-field">
               {phoneAutocompleteField}
             </TemplateFieldGridItem>
           )}
@@ -753,7 +753,7 @@ export function TemplateSendForm({
 
       {feedback ? (
         <div
-          data-component="messages-template-send-form-feedback"
+          data-component="desktop_messages_sections_template-send-form-feedback"
           className={cn(
             "mt-4 rounded-[14px] px-4 py-3 text-[calc(12.48px*var(--glint-ui-scale,1))] font-semibold",
             feedback.tone === "success"
@@ -774,10 +774,10 @@ export function TemplateSendForm({
             setDuplicateSendCandidates(null);
           }
         }}
-        dataComponent="messages-duplicate-send-confirm-dialog"
-        headerDataComponent="messages-duplicate-send-confirm-header"
-        bodyDataComponent="messages-duplicate-send-confirm-main"
-        footerDataComponent="messages-duplicate-send-confirm-footer"
+        dataComponent="desktop_messages_sections_duplicate-send-confirm-dialog"
+        headerDataComponent="desktop_messages_sections_duplicate-send-confirm-dialog_header"
+        bodyDataComponent="desktop_messages_sections_duplicate-send-confirm-dialog_main"
+        footerDataComponent="desktop_messages_sections_duplicate-send-confirm-dialog_footer"
         title="중복 전송 확인"
         description={
           duplicateSendCandidates && duplicateSendCandidates.length > 1
@@ -792,13 +792,13 @@ export function TemplateSendForm({
       >
         {duplicateSendCandidates && duplicateSendCandidates.length > 0 ? (
           <div
-            data-component="messages-duplicate-send-confirm-list"
+            data-component="desktop_messages_sections_duplicate-send-confirm-list"
             className="flex flex-col gap-2"
           >
             {duplicateSendCandidates.map((match) => (
               <div
                 key={match.recipient.phone}
-                data-component="messages-duplicate-send-confirm-recent"
+                data-component="desktop_messages_sections_duplicate-send-confirm-recent"
                 className="rounded-[16px] bg-v3-dim-white px-4 py-3"
               >
                 {shouldShowRecipientNameInPill && match.recipient.name ? (

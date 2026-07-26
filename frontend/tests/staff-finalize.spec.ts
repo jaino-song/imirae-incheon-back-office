@@ -217,7 +217,7 @@ test.describe("Staff finalize iframe + prefill flow", () => {
     await gotoContractsPage(page);
 
     // Locate the 검토 필요 list item and select it.
-    const reviewItem = page.locator('[data-component="animated-slot-list-item"]').filter({ hasText: "검토 필요" }).first();
+    const reviewItem = page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_list_item"]').filter({ hasText: "검토 필요" }).first();
     await expect(reviewItem).toBeVisible();
     await reviewItem.click();
 
@@ -281,7 +281,7 @@ test.describe("Staff finalize iframe + prefill flow", () => {
     );
 
     await gotoContractsPage(page);
-    const reviewItem = page.locator('[data-component="animated-slot-list-item"]').filter({ hasText: "검토 필요" }).first();
+    const reviewItem = page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_list_item"]').filter({ hasText: "검토 필요" }).first();
     await expect(reviewItem).toBeVisible();
     await reviewItem.click();
     await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_header_review-trigger"]').click();
@@ -302,7 +302,7 @@ test.describe("Staff finalize iframe + prefill flow", () => {
     );
 
     await gotoContractsPage(page);
-    const reviewItem = page.locator('[data-component="animated-slot-list-item"]').filter({ hasText: "검토 필요" }).first();
+    const reviewItem = page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_list_item"]').filter({ hasText: "검토 필요" }).first();
     await expect(reviewItem).toBeVisible();
     await reviewItem.click();
     await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_header_review-trigger"]').click();

@@ -487,7 +487,7 @@ export const PriceInfoMessageForm = ({
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-price-info-form"
+      dataComponent="desktop_messages_sections_price-info-form"
       fields={fields}
       messageCard={messageCard}
       requiresRecipientName

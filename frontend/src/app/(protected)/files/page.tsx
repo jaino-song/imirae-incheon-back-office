@@ -246,7 +246,7 @@ export default function FilesPage() {
             onDelete={() => setDeleteDoc(selectedDocument)}
           />
         ) : (
-          <EmptyState name="files-empty" icon={FolderOpen} message="파일을 선택하면 상세 정보가 표시됩니다" />
+          <EmptyState icon={FolderOpen} message="파일을 선택하면 상세 정보가 표시됩니다" />
         )}
       </SplitLayout>
 

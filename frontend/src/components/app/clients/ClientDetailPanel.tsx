@@ -172,7 +172,6 @@ function ClientMessageHistoryList({
     if (!canLookupMessages) {
         return (
             <DetailEmptyState
-                name={`${dataComponentPrefix}-messages-empty`}
                 message="고객 정보가 없어 메시지 발송 내역을 조회할 수 없습니다"
             />
         );
@@ -214,7 +213,6 @@ function ClientMessageHistoryList({
     if (records.length === 0) {
         return (
             <DetailEmptyState
-                name={`${dataComponentPrefix}-messages-empty`}
                 message="메시지 발송 내역이 없습니다"
             />
         );
@@ -326,7 +324,6 @@ function ClientContractsList({
     if (docs.length === 0) {
         return (
             <DetailEmptyState
-                name={`${dataComponentPrefix}-contracts-empty`}
                 message="계약서 정보가 없습니다"
             />
         );

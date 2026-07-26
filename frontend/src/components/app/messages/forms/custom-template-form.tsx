@@ -158,7 +158,7 @@ export const CustomTemplateForm = ({
 
     return (
         <TemplateMessageFormFrame
-            dataComponent="messages-custom-template-form"
+            dataComponent="desktop_messages_sections_custom-template-form"
             fields={fields}
             messageCard={messageCard}
             requiresRecipientName={requiresRecipientName}

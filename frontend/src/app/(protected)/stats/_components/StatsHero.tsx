@@ -11,7 +11,7 @@ interface StatsHeroProps {
   backHref?: string;
   backLabel?: string;
   ariaLabel?: string;
-  dataComponent?: string;
+  dataComponent: string;
 }
 
 export function StatsHero({
@@ -23,7 +23,7 @@ export function StatsHero({
   backHref,
   backLabel,
   ariaLabel,
-  dataComponent = "stats-hero",
+  dataComponent,
 }: StatsHeroProps) {
   return (
     <div
@@ -33,7 +33,7 @@ export function StatsHero({
       {backHref && backLabel ? (
         <Link
           href={backHref}
-          data-component={`${dataComponent}-back-link`}
+          data-component={`${dataComponent}_back-link`}
           className="inline-flex items-center gap-1 text-[0.78rem] font-medium text-v3-text-muted hover:text-v3-primary transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -41,7 +41,7 @@ export function StatsHero({
         </Link>
       ) : null}
       <div
-        data-component={`${dataComponent}-banner`}
+        data-component={`${dataComponent}_banner`}
         aria-label={ariaLabel}
         className={cn(
           "relative overflow-hidden rounded-[24px] p-7",
@@ -54,14 +54,14 @@ export function StatsHero({
         <div className="relative z-10 flex items-center justify-between gap-6">
           <div className="space-y-1.5">
             <h1
-              data-component={`${dataComponent}-title`}
+              data-component={`${dataComponent}_banner_title`}
               className="text-[1.4rem] font-bold tracking-tight text-white"
             >
               {title}
             </h1>
             {subtitle ? (
               <p
-                data-component={`${dataComponent}-subtitle`}
+                data-component={`${dataComponent}_banner_subtitle`}
                 className="text-[0.85rem] text-white/75 leading-relaxed"
               >
                 {subtitle}
@@ -70,7 +70,7 @@ export function StatsHero({
           </div>
           {rightLabel || rightValue ? (
             <div
-              data-component={`${dataComponent}-meta`}
+              data-component={`${dataComponent}_banner_meta`}
               className="text-right shrink-0"
             >
               {rightLabel ? (

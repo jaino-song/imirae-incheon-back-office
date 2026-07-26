@@ -15,7 +15,7 @@ export const DateInput = ({
   required,
 }: DateInputProps) => {
   return (
-    <div className="space-y-2" data-component="messages-form-date-input">
+    <div className="space-y-2" data-component="desktop_messages_sections_form-date-input">
       <Label>
         {label}
         {required && <span className="text-destructive ml-1">*</span>}

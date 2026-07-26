@@ -255,12 +255,12 @@ function getRuleIcon(eventType: TriggerEventType) {
 }
 
 export function TriggerRulesManager({
-  dataComponentPrefix = "message",
+  dataComponent,
   channel = "sms",
 }: {
-  dataComponentPrefix?: string;
+  dataComponent: string;
   channel?: TriggerMessageChannel;
-} = {}) {
+}) {
   const { toast } = useToast();
   const [selectedRuleId, setSelectedRuleId] = useState<RuleSelection>(null);
   const [isRuleDetailDismissed, setIsRuleDetailDismissed] = useState(false);
@@ -268,7 +268,7 @@ export function TriggerRulesManager({
   const [statusFilter, setStatusFilter] = useState<RuleStatusFilter>("active");
   const [activeDetailTab, setActiveDetailTab] = useState<TriggerRuleDetailTab>("settings");
   const [formState, setFormState] = useState<RuleFormState>(() => getDefaultFormState());
-  const component = (suffix: string) => `${dataComponentPrefix}-${suffix}`;
+  const component = (suffix: string) => `${dataComponent}_${suffix}`;
   const isCompactSplitLayout = splitLayoutMode === "compact";
   const copy = CHANNEL_COPY[channel];
 
@@ -537,16 +537,21 @@ export function TriggerRulesManager({
   };
   return (
     <section
-      data-component={component("trigger-rules")}
+      data-component={dataComponent}
+      data-slot="trigger-rules"
       className="flex h-full min-h-0 flex-1 flex-col"
     >
-      <div data-component={component("trigger-rules-layout")} className="flex h-full min-h-0 flex-1 flex-col">
-        <SplitLayout data-component="desktop_messages_split-layout"
+      <div
+        data-component={component("layout")}
+        data-slot="trigger-rules-layout"
+        className="flex h-full min-h-0 flex-1 flex-col"
+      >
+        <SplitLayout data-component="desktop_messages_sections_split-layout"
           hasSelection={hasVisibleDetailPanel}
           onBack={handleBackToRuleList}
           onModeChange={setSplitLayoutMode}
         >
-          <ListPanel data-component="desktop_messages_split-layout_list-panel"
+          <ListPanel data-component="desktop_messages_sections_split-layout_list-panel"
             title={copy.listTitle}
             subtitle={copy.listSubtitle}
             tabs={RULE_STATUS_TABS.map((tab) => ({ ...tab }))}
@@ -630,10 +635,9 @@ export function TriggerRulesManager({
           </ListPanel>
 
           {isTriggerRulesLocked ? (
-            <DetailPanel data-component="desktop_messages_split-layout_detail-panel"
+            <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel"
               overlay={(
                 <ListEmptyState
-                  name={component("trigger-rules-locked")}
                   icon={BellRing}
                   message={TRIGGER_RULE_APPROVAL_MESSAGE}
                   className="flex-none min-h-0"
@@ -643,10 +647,9 @@ export function TriggerRulesManager({
               {null}
             </DetailPanel>
           ) : effectiveSelectedRuleId === null && !isDetailLoading ? (
-            <DetailPanel data-component="desktop_messages_split-layout_detail-panel-2"
+            <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-2"
               overlay={(
                 <ListEmptyState
-                  name={component("trigger-rules-detail-empty")}
                   icon={BellRing}
                   message={copy.emptySelection}
                   className="flex-none min-h-0"
@@ -656,7 +659,7 @@ export function TriggerRulesManager({
               {null}
             </DetailPanel>
           ) : (
-            <DetailPanel data-component="desktop_messages_split-layout_detail-panel-3"
+            <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-3"
               isLoading={isDetailLoading}
               title={effectiveSelectedRuleId === "new" ? "새 발송 규칙" : selectedRule?.name ?? "발송 규칙"}
               subtitle={copy.detailSubtitle}
@@ -701,9 +704,7 @@ export function TriggerRulesManager({
               <DetailTabPanels
                 activeTab={activeDetailTab}
                 dataComponent={component("trigger-rules-detail-tabpanes")}
-                panelDataComponent={
-                  dataComponentPrefix === "message" ? "messages-template-detail-pane" : component("template-detail-pane")
-                }
+                panelDataComponent={component("template-detail-pane")}
                 className="flex min-h-0 flex-1"
                 trackClassName="min-h-0 flex-1"
                 panelClassName="h-full min-h-0"
@@ -842,12 +843,8 @@ export function TriggerRulesManager({
                           selectedSystemTemplate?.description ??
                           "선택한 발송 템플릿 미리보기입니다."
                         }
-                        dataComponentPrefix={dataComponentPrefix === "message" ? "message" : dataComponentPrefix}
-                        panelDataComponent={
-                          dataComponentPrefix === "message"
-                            ? "messages-template-preview-phone-panel"
-                            : component("template-preview-phone-panel")
-                        }
+                        dataComponentPrefix={component("phone-preview")}
+                        panelDataComponent={component("template-preview-phone-panel")}
                       />
                     ),
                   },

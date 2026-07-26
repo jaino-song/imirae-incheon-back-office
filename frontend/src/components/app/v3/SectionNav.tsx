@@ -13,7 +13,7 @@ export interface SectionNavItem {
 }
 
 interface SectionNavProps {
-  "data-component"?: string;
+  "data-component": string;
   items: readonly SectionNavItem[];
   activeId: string;
   onSelect: (id: string) => void;
@@ -29,22 +29,17 @@ export function SectionNav({
   footer,
   ariaLabel = "페이지 섹션",
 }: SectionNavProps) {
-  // TODO(data-component): Remove legacy fallbacks after messages/settings/system-admin caller slices migrate.
-  const rootComponent = dataComponent ?? "section-nav";
-  const desktopComponent = dataComponent ? `${dataComponent}_desktop` : "section-nav-desktop";
-  const mobileComponent = dataComponent ? `${dataComponent}_mobile` : "section-nav-mobile";
-
   return (
     <nav
       aria-label={ariaLabel}
-      data-component={rootComponent}
+      data-component={dataComponent}
       data-slot="section-nav"
       data-source-component={SOURCE_COMPONENT}
       data-mode="desktop"
       className="w-full shrink-0 self-start animate-v3-slide-up lg:w-max"
     >
       <div
-        data-component={desktopComponent}
+        data-component={`${dataComponent}_desktop`}
         data-slot="section-nav-desktop"
         data-mode="desktop"
         className="sticky top-[calc(96px*var(--glint-ui-scale,1))] hidden lg:block"
@@ -78,7 +73,7 @@ export function SectionNav({
       </div>
 
       <div
-        data-component={mobileComponent}
+        data-component={`${dataComponent}_mobile`}
         data-slot="section-nav-mobile"
         data-mode="desktop"
         className="-mx-[calc(16px*var(--glint-ui-scale,1))] overflow-x-auto px-[calc(16px*var(--glint-ui-scale,1))] scrollbar-hide lg:hidden"

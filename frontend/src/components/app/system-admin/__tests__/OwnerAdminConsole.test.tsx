@@ -257,7 +257,7 @@ describe("OwnerAdminConsole", () => {
 
     expect(container.querySelector('[data-slot="split-layout"]')).toBeInTheDocument();
     expect(
-      container.querySelector('[data-component="system-admin-pending-approvals"]'),
+      container.querySelector('[data-component="desktop_system-admin_sections_pending-approvals"]'),
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "가입 대기" }));

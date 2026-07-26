@@ -1476,13 +1476,13 @@ export const ContractCreationForm = ({
       feedback={
         <>
           {(submitError || eformsignError) && (
-            <Alert variant="destructive" data-component="messages-contract-form-error">
+            <Alert variant="destructive" data-component="desktop_messages_sections_contract-form-error">
               <AlertDescription>{submitError || eformsignError}</AlertDescription>
             </Alert>
           )}
 
           {isEformsignLoading && (
-            <Alert data-component="messages-contract-form-loading">
+            <Alert data-component="desktop_messages_sections_contract-form-loading">
               <AlertDescription>eformsign SDK를 로드하는 중입니다...</AlertDescription>
             </Alert>
           )}
@@ -1601,7 +1601,7 @@ export const ContractCreationForm = ({
 
       <Dialog open={isDialogOpen} onOpenChange={(open: boolean) => !open && handleDialogClose()}>
         <DialogContent
-          data-component="messages-contract-form-dialog"
+          data-component="desktop_messages_sections_contract-form-dialog"
           // Mobile: full-screen. Desktop (lg+): keep the manual eformsign canvas near A4 portrait.
           className="max-w-full w-screen h-screen p-0 gap-0 flex flex-col lg:w-[820px] lg:max-w-[95vw] lg:h-[1102px] lg:max-h-[95vh] lg:rounded-lg"
         >
