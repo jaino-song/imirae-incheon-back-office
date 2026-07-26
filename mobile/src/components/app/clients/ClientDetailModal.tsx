@@ -21,10 +21,8 @@ import { Separator } from "@/components/ui/separator";
 import { InfoRow } from "@/components/app/ui/info-row";
 import { Badge } from "@/components/ui/badge";
 
-const LEGACY_DATA_COMPONENT = "clients-detail-modal";
-
 interface ClientDetailModalProps {
-    "data-component"?: string;
+    "data-component": string;
     open: boolean;
     onClose: () => void;
     client: Client | null;
@@ -99,7 +97,7 @@ const getDocStatusBadge = (status: DocumentStatus, locale: Locale) => {
 };
 
 export function ClientDetailModal({
-    "data-component": canonicalDataComponent,
+    "data-component": dataComponent,
     open,
     onClose,
     client,
@@ -107,12 +105,7 @@ export function ClientDetailModal({
     onDelete
 }: ClientDetailModalProps) {
     const locale = useLocale();
-    // TODO(data-component): Remove the legacy fallbacks after caller migration.
-    const dataComponent = canonicalDataComponent ?? LEGACY_DATA_COMPONENT;
-    const sub = (suffix: string) =>
-        canonicalDataComponent
-            ? `${canonicalDataComponent}_${suffix}`
-            : `${LEGACY_DATA_COMPONENT}-${suffix}`;
+    const sub = (suffix: string) => `${dataComponent}_${suffix}`;
 
     if (!client) return null;
 

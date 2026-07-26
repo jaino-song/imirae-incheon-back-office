@@ -1423,7 +1423,7 @@ export default function ContractCreationPage() {
         steps={CONTRACT_CREATION_PROGRESS_STEPS}
         progress={creationProgress}
         errorHint={progressErrorHint}
-        dataComponentPrefix="mobile_contracts-new_progress_modal"
+        data-component="mobile_contracts-new_progress_modal"
       />
 
       <MobileTwoButtonModal

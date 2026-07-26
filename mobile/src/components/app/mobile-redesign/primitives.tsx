@@ -22,34 +22,19 @@ const LIST_CARD_SOURCE_COMPONENT = "ListCard";
 const SECTIONED_LIST_SOURCE_COMPONENT = "SectionedList";
 const LIST_ITEM_ROW_SOURCE_COMPONENT = "ListItemRow";
 const CONTRACT_LIST_SOURCE_COMPONENT = "ContractList";
-/**
- * TODO(data-component): Remove these legacy fallbacks after caller migration.
- * data-component="section-nav-mobile"
- * data-component="mobile-redesign-list-card"
- * data-component="mobile-redesign-filter-row"
- * data-component="mobile-redesign-filter-pill"
- * data-component="mobile-redesign-filter-pill"
- * data-component="mobile-redesign-action-feedback"
- * data-component="mobile-redesign-contract-section"
- * data-component="mobile-redesign-contract-row"
- */
-
 export function ListLoadMoreButton({
   "data-component": dataComponent,
   onLoadMore,
-  dataComponentPrefix,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   onLoadMore: () => void;
-  dataComponentPrefix: string;
 }) {
   return (
     <button
       type="button"
       onClick={onLoadMore}
       className="peek-bounce flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-v3-primary"
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? `${dataComponentPrefix}-load-more-button`}
+      data-component={dataComponent}
       data-source-component={LIST_LOAD_MORE_BUTTON_SOURCE_COMPONENT}
       aria-label="더 많은 항목 불러오기"
     >
@@ -62,19 +47,16 @@ export function ListLoadMoreButton({
 export function ListLoadMoreSentinel({
   "data-component": dataComponent,
   sentinelRef,
-  dataComponentPrefix,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   sentinelRef: RefObject<HTMLDivElement | null>;
-  dataComponentPrefix: string;
 }) {
   return (
     <div
       ref={sentinelRef}
       className="h-1"
       aria-hidden="true"
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? `${dataComponentPrefix}-load-sentinel`}
+      data-component={dataComponent}
       data-source-component={LIST_LOAD_MORE_SENTINEL_SOURCE_COMPONENT}
     />
   );
@@ -82,16 +64,13 @@ export function ListLoadMoreSentinel({
 
 export function ListCountSkeleton({
   "data-component": dataComponent,
-  dataComponentPrefix,
 }: {
-  "data-component"?: string;
-  dataComponentPrefix: string;
+  "data-component": string;
 }) {
   return (
     <span
       className="inline-block h-[0.7rem] w-7 animate-pulse rounded-full bg-v3-dim-white align-middle"
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? `${dataComponentPrefix}-count-skeleton`}
+      data-component={dataComponent}
       data-source-component={LIST_COUNT_SKELETON_SOURCE_COMPONENT}
     />
   );
@@ -99,45 +78,36 @@ export function ListCountSkeleton({
 
 export function ListRowsSkeleton({
   "data-component": dataComponent,
-  dataComponentPrefix,
   rowCount = 6,
 }: {
-  "data-component"?: string;
-  dataComponentPrefix: string;
+  "data-component": string;
   rowCount?: number;
 }) {
   return (
     <div
       className="section-block"
-      // TODO(data-component): Remove the legacy fallbacks after caller migration.
-      data-component={dataComponent ?? `${dataComponentPrefix}-loading-skeleton`}
+      data-component={dataComponent}
       data-source-component={LIST_ROWS_SKELETON_SOURCE_COMPONENT}
     >
       {Array.from({ length: rowCount }).map((_, index) => (
         <div
-          key={`${dataComponentPrefix}-skeleton-${index}`}
+          key={`${dataComponent}-skeleton-${index}`}
           className="list-item"
-          data-component={
-            dataComponent ? `${dataComponent}_row` : `${dataComponentPrefix}-row-skeleton`
-          }
+          data-component={`${dataComponent}_row`}
           aria-hidden="true"
           style={{ animationDelay: `${Math.min(index, 4) * 40}ms` }}
         >
           <Skeleton className="list-avatar rounded-full bg-v3-dim-white animate-pulse" />
           <div
             className="list-info flex flex-col"
-            data-component={
-              dataComponent ? `${dataComponent}_row_info` : `${dataComponentPrefix}-row-skeleton-info`
-            }
+            data-component={`${dataComponent}_row_info`}
           >
             <Skeleton className="h-4 w-20 bg-v3-dim-white animate-pulse" />
             <Skeleton className="mt-1.5 h-3 w-32 bg-v3-dim-white animate-pulse" />
           </div>
           <div
             className="list-right"
-            data-component={
-              dataComponent ? `${dataComponent}_row_right` : `${dataComponentPrefix}-row-skeleton-right`
-            }
+            data-component={`${dataComponent}_row_right`}
           >
             <Skeleton className="h-6 w-14 rounded-full bg-v3-dim-white animate-pulse" />
           </div>
@@ -314,7 +284,13 @@ export function Badge({
   );
 }
 
-export function ListRowBadges({ badges }: { badges: Array<{ label: string; tone: ListRow["badgeTone"] }> }) {
+export function ListRowBadges({
+  "data-component": dataComponent,
+  badges,
+}: {
+  "data-component": string;
+  badges: Array<{ label: string; tone: ListRow["badgeTone"] }>;
+}) {
   const [primaryBadge, ...hiddenBadges] = badges;
 
   if (!primaryBadge) return null;
@@ -322,13 +298,13 @@ export function ListRowBadges({ badges }: { badges: Array<{ label: string; tone:
   return (
     <span
       className="list-row-badges"
-      data-component="mobile-redesign-list-row-badges"
+      data-component={dataComponent}
     >
-      <Badge label={primaryBadge.label} tone={primaryBadge.tone} />
+      <Badge data-component={`${dataComponent}_primary`} label={primaryBadge.label} tone={primaryBadge.tone} />
       {hiddenBadges.length > 0 && (
         <span
           className="list-row-badges-more"
-          data-component="mobile-redesign-list-row-badges-more"
+          data-component={`${dataComponent}_more`}
         >
           +{hiddenBadges.length}
         </span>
@@ -350,7 +326,7 @@ export function FilterPills({
   activeLabel: controlledActive,
   onChange,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   items: FilterPillItem[];
   activeLabel?: string;
   onChange?: (label: string) => void;
@@ -366,8 +342,7 @@ export function FilterPills({
   return (
     <div
       className="filter-row"
-      // TODO(data-component): Remove the legacy fallbacks after caller migration.
-      data-component={dataComponent ?? "mobile-redesign-filter-row"}
+      data-component={dataComponent}
       data-source-component={FILTER_PILLS_SOURCE_COMPONENT}
     >
       {items.map((item) => (
@@ -376,9 +351,7 @@ export function FilterPills({
             key={item.label}
             type="button"
             className="filter-pill filter-pill-skeleton"
-            data-component={
-              dataComponent ? `${dataComponent}_pill` : "mobile-redesign-filter-pill"
-            }
+            data-component={`${dataComponent}_pill`}
             data-loading="true"
             aria-hidden="true"
             disabled
@@ -394,9 +367,7 @@ export function FilterPills({
             key={item.label}
             type="button"
             className={`filter-pill ${item.label === activeLabel ? "active" : ""}`}
-            data-component={
-              dataComponent ? `${dataComponent}_pill` : "mobile-redesign-filter-pill"
-            }
+            data-component={`${dataComponent}_pill`}
             aria-pressed={item.label === activeLabel}
             onClick={() => handleClick(item.label)}
           >
@@ -423,7 +394,7 @@ export function MobileSectionNav<TId extends string>({
   onSelect,
   ariaLabel = "페이지 섹션",
 }: {
-  "data-component"?: string;
+  "data-component": string;
   /** @internal Zero-DOM wrapper identity; route callers must not override this. */
   sourceComponent?: typeof MOBILE_SECTION_NAV_SOURCE_COMPONENT | "MessageSectionNav";
   items: readonly MobileSectionNavItem<TId>[];
@@ -434,8 +405,7 @@ export function MobileSectionNav<TId extends string>({
   return (
     <nav
       aria-label={ariaLabel}
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? "section-nav-mobile"}
+      data-component={dataComponent}
       data-source-component={sourceComponent}
       data-mode="compact"
       className="-mx-[calc(14px*var(--glint-ui-scale,1))] shrink-0 overflow-x-auto px-[calc(14px*var(--glint-ui-scale,1))] scrollbar-hide"
@@ -493,7 +463,7 @@ export function ListCard({
   loadMore,
   children,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   title: string;
   count?: ReactNode;
   actionLabel?: string;
@@ -519,12 +489,11 @@ export function ListCard({
   return (
     <div
       className="list-card flex flex-col gap-4"
-      // TODO(data-component): Remove the legacy fallbacks after caller migration.
-      data-component={dataComponent ?? "mobile-redesign-list-card"}
+      data-component={dataComponent}
       data-source-component={LIST_CARD_SOURCE_COMPONENT}
     >
       <ListCardHeader
-        data-component={dataComponent ? `${dataComponent}_header` : undefined}
+        data-component={`${dataComponent}_header`}
         title={title}
         count={count}
         actionLabel={actionLabel}
@@ -537,7 +506,7 @@ export function ListCard({
       {beforeFilters}
       {filters.length > 0 && (
         <FilterPills
-          data-component={dataComponent ? `${dataComponent}_filters` : undefined}
+          data-component={`${dataComponent}_filters`}
           items={filters}
           activeLabel={activeFilter}
           onChange={onFilterChange}
@@ -547,22 +516,20 @@ export function ListCard({
         <div
           className="action-feedback"
           role="status"
-          data-component={
-            dataComponent ? `${dataComponent}_action-feedback` : "mobile-redesign-action-feedback"
-          }
+          data-component={`${dataComponent}_action-feedback`}
         >
           {actionFeedback}
         </div>
       )}
       {beforeScroll}
       <ListCardBody
-        data-component={dataComponent ? `${dataComponent}_body` : undefined}
+        data-component={`${dataComponent}_body`}
         scrollRef={scrollRef}
       >
         {children}
       </ListCardBody>
       {loadMore && (
-        <ListCardLoadMore data-component={dataComponent ? `${dataComponent}_load-more` : undefined}>
+        <ListCardLoadMore data-component={`${dataComponent}_load-more`}>
           {loadMore}
         </ListCardLoadMore>
       )}
@@ -589,8 +556,12 @@ export function SectionedList({
           data-source-component={SECTIONED_LIST_SOURCE_COMPONENT}
         >
           {!hideSectionHeader?.(section) && <div className="section-header">{section.title}</div>}
-          {section.rows.map((row) => (
-            <ClientLikeRow key={`${section.title}-${row.name}`} row={row} />
+          {section.rows.map((row, rowIndex) => (
+            <ClientLikeRow
+              key={`${section.title}-${row.name}`}
+              data-component={`${dataComponent}_section-${sectionIndex + 1}_row-${rowIndex + 1}`}
+              row={row}
+            />
           ))}
         </div>
       ))}
@@ -599,9 +570,7 @@ export function SectionedList({
 }
 
 type ListItemRowProps = {
-  "data-component"?: string;
-  /** @deprecated Use the `data-component` prop. */
-  dataComponent?: string;
+  "data-component": string;
   left: ReactNode;
   name: ReactNode;
   meta?: ReactNode;
@@ -613,8 +582,7 @@ type ListItemRowProps = {
 };
 
 export function ListItemRow({
-  "data-component": canonicalDataComponent,
-  dataComponent: legacyDataComponent,
+  "data-component": dataComponent,
   left,
   name,
   meta,
@@ -629,7 +597,7 @@ export function ListItemRow({
     <button
       type="button"
       className={rootClass}
-      data-component={canonicalDataComponent ?? legacyDataComponent}
+      data-component={dataComponent}
       data-source-component={LIST_ITEM_ROW_SOURCE_COMPONENT}
       onClick={onClick}
       style={style}
@@ -644,7 +612,13 @@ export function ListItemRow({
   );
 }
 
-export function ClientLikeRow({ row }: { row: ListRow }) {
+export function ClientLikeRow({
+  "data-component": dataComponent,
+  row,
+}: {
+  "data-component": string;
+  row: ListRow;
+}) {
   const hasDue = Boolean(row.due || row.dueSub);
   const interactive = typeof row.onClick === "function";
   const badges = row.badges?.length
@@ -663,7 +637,7 @@ export function ClientLikeRow({ row }: { row: ListRow }) {
   return (
     <div
       className="list-item"
-      data-component="mobile-redesign-list-row"
+      data-component={dataComponent}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
       onClick={row.onClick}
@@ -684,7 +658,7 @@ export function ClientLikeRow({ row }: { row: ListRow }) {
         </div>
       </div>
       <div className="list-right">
-        <ListRowBadges badges={badges} />
+        <ListRowBadges data-component={`${dataComponent}_badges`} badges={badges} />
       </div>
     </div>
   );
@@ -695,7 +669,7 @@ export function ContractList({
   sections,
   rowStyle,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   sections: Array<{ title: string; rows: ContractRow[] }>;
   rowStyle?: (index: number) => CSSProperties;
 }) {
@@ -705,12 +679,7 @@ export function ContractList({
         <div
           className="section-block"
           key={section.title}
-          // TODO(data-component): Remove the legacy fallbacks after caller migration.
-          data-component={
-            dataComponent
-              ? `${dataComponent}_section-${sectionIndex + 1}`
-              : "mobile-redesign-contract-section"
-          }
+          data-component={`${dataComponent}_section-${sectionIndex + 1}`}
           data-source-component={CONTRACT_LIST_SOURCE_COMPONENT}
         >
           <div className="section-header">{section.title}</div>
@@ -720,11 +689,7 @@ export function ContractList({
               <div
                 className="contract-item"
                 key={`${section.title}-${row.id ?? row.name}`}
-                data-component={
-                  dataComponent
-                    ? `${dataComponent}_section-${sectionIndex + 1}_row-${idx + 1}`
-                    : "mobile-redesign-contract-row"
-                }
+                data-component={`${dataComponent}_section-${sectionIndex + 1}_row-${idx + 1}`}
                 data-progress={row.badge}
                 role={interactive ? "button" : undefined}
                 tabIndex={interactive ? 0 : undefined}

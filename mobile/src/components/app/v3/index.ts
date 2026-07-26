@@ -19,7 +19,6 @@ export { ExpandableSearch } from './ExpandableSearch';
 export { PanelTitleGroup } from './PanelTitleGroup';
 export { ListPanel } from './ListPanel';
 export { DetailPanel } from './DetailPanel';
-export { SplitLayout, useSplitLayoutNav } from './SplitLayout';
 export { AnimatedSlotList } from './AnimatedSlotList';
 export { TeaserOverlay } from './TeaserOverlay';
 export { HeaderActionButton } from './HeaderActionButton';

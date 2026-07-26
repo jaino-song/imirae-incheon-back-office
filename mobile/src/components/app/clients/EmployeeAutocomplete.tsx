@@ -22,7 +22,7 @@ function formatPhone(phone: string): string {
 }
 
 interface EmployeeAutocompleteProps {
-    "data-component"?: string;
+    "data-component": string;
     "data-testid"?: string;
     value: number | null;
     onChange: (employeeId: number | null, employee: Employee | null) => void;

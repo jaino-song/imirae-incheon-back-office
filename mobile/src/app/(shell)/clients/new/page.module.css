@@ -434,15 +434,11 @@
   box-shadow: none;
 }
 
-/* TODO(data-component): these keys are emitted by the shared Autocomplete primitive
-   (src/components/app/ui/Autocomplete.tsx), which has no data-slot hook yet. Re-key to
-   data-slot together with the shared-primitives migration; the same rules exist in
-   contracts/new/page.module.css. */
-.pageRoot [data-component="employee-autocomplete"] {
+.pageRoot [data-slot="autocomplete"] {
   margin: 0;
 }
 
-.pageRoot [data-component="employee-autocomplete-input"] {
+.pageRoot [data-slot="autocomplete-input"] {
   box-sizing: border-box;
   width: 100%;
   padding: 13px 14px;
@@ -457,7 +453,7 @@
   box-shadow: none;
 }
 
-.pageRoot [data-component="employee-autocomplete-input"]:focus {
+.pageRoot [data-slot="autocomplete-input"]:focus {
   border-color: hsl(var(--v3-primary));
   box-shadow: none;
 }

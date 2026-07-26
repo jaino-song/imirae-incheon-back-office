@@ -66,6 +66,7 @@ export default function ContractSendWizard({ onComplete }: ContractSendWizardPro
 
             <div data-component="chat-wizard-contract-send-body" className="flex flex-col gap-6 flex-1">
                 <ClientAutocomplete
+                    data-component="mobile_chat_contract-send-wizard_body_client-autocomplete"
                     value={selectedClientId}
                     onChange={handleClientChange}
                     label="산모 선택"

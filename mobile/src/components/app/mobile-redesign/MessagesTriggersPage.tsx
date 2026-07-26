@@ -61,7 +61,10 @@ export function MessagesTriggersPage() {
               filters={[]}
               beforeScroll={<ClientRegistrationPolicySettings />}
             >
-              <MessageTriggerList onEdit={openEditor} />
+              <MessageTriggerList
+                data-component={`${TRIGGERS_LIST_BASE}_content_list-card_body_trigger-list`}
+                onEdit={openEditor}
+              />
             </ListCard>
           </div>
         </section>

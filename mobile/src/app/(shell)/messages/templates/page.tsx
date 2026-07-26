@@ -197,7 +197,6 @@ export default function TemplatesPage() {
             <ListLoadMoreButton
               data-component="mobile_messages_templates_page_content_list-card_load-more_button"
               onLoadMore={loadMore}
-              dataComponentPrefix="messages-templates"
             />
           ) : null}
         >
@@ -231,7 +230,6 @@ export default function TemplatesPage() {
               <ListLoadMoreSentinel
                 data-component="mobile_messages_templates_page_content_list-card_body_sentinel"
                 sentinelRef={sentinelRef}
-                dataComponentPrefix="messages-templates"
               />
             )}
         </ListCard>

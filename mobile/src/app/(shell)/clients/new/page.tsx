@@ -984,15 +984,13 @@ export default function NewClientPage() {
                     </div>
                     {store.voucherClient ? <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field" label="바우처 유형">
                       <FormNativeSelect
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field_select-wrap"
                         value={store.type}
                         onValueChange={handleTypeChange}
                         options={[
                           { value: "", label: "선택하세요" },
                           ...VOUCHER_TYPE_SELECT_OPTIONS,
                         ]}
-                        wrapDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field_select-wrap"
-                        selectDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field_select-wrap_select"
-                        iconDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field_select-wrap_icon"
                       />
                     </Field> : null}
                     <Field
@@ -1001,6 +999,7 @@ export default function NewClientPage() {
                       helper={store.voucherClient ? "바우처 유형에 따라 선택 가능한 기간이 달라집니다." : undefined}
                     >
                       <FormNativeSelect
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_duration-field_select-wrap"
                         value={effectiveDuration?.toString() || ""}
                         onValueChange={(value) => {
                           setField("duration", value ? Number(value) : null);
@@ -1020,9 +1019,6 @@ export default function NewClientPage() {
                           { value: "", label: "선택하세요" },
                           ...durationOptions,
                         ]}
-                        wrapDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_duration-field_select-wrap"
-                        selectDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_duration-field_select-wrap_select"
-                        iconDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_duration-field_select-wrap_icon"
                       />
                     </Field>
                     {!store.voucherClient && isOutOfPocketPriceError ? (
@@ -1039,6 +1035,7 @@ export default function NewClientPage() {
                     <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_card-title">제공인력 배정</div>
                     <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_primary-field" label="제공인력 1">
                       <EmployeeAutocomplete
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_primary-field_autocomplete"
                         value={store.primaryEmployeeId}
                         onChange={(id) => setField("primaryEmployeeId", id)}
                         label=""
@@ -1052,6 +1049,7 @@ export default function NewClientPage() {
                     </Field>
                     <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_secondary-field" label="제공인력 2">
                       <EmployeeAutocomplete
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_secondary-field_autocomplete"
                         value={store.secondaryEmployeeId}
                         onChange={(id) => setField("secondaryEmployeeId", id)}
                         label=""
@@ -1137,12 +1135,10 @@ export default function NewClientPage() {
                   <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card">
                     <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card_card-title">계약 상태</div>
                     <FormNativeSelect
+                      data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card_select-wrap"
                       value={store.serviceStatus}
                       onValueChange={(value) => setField("serviceStatus", value as ServiceStatus)}
                       options={SERVICE_STATUS_OPTIONS}
-                      wrapDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card_select-wrap"
-                      selectDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card_select-wrap_select"
-                      iconDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card_select-wrap_icon"
                     />
                   </div>
 

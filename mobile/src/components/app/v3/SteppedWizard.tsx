@@ -7,38 +7,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const SOURCE_COMPONENT = "SteppedWizard";
-/**
- * TODO(data-component): Remove these legacy fallbacks after caller migration.
- * data-component="stepped-wizard-root"
- * data-component="stepped-wizard-back-button"
- * data-component="stepped-wizard"
- * data-component="stepped-wizard-header"
- * data-component="stepped-wizard-title"
- * data-component="stepped-wizard-subtitle"
- * data-component="stepped-wizard-stepper-desktop"
- * data-component="stepped-wizard-stepper-desktop-item"
- * data-component="stepped-wizard-stepper-desktop-index"
- * data-component="stepped-wizard-stepper-desktop-label"
- * data-component="stepped-wizard-stepper-desktop-connector"
- * data-component="stepped-wizard-stepper-mobile"
- * data-component="stepped-wizard-stepper-mobile-header"
- * data-component="stepped-wizard-stepper-mobile-current-label"
- * data-component="stepped-wizard-stepper-mobile-progress-label"
- * data-component="stepped-wizard-stepper-mobile-progress-track"
- * data-component="stepped-wizard-stepper-mobile-progress-bar"
- * data-component="stepped-wizard-content"
- * data-component="stepped-wizard-children"
- * data-component="stepped-wizard-completed-summary"
- * data-component="stepped-wizard-completed-summary-title"
- * data-component="stepped-wizard-completed-summary-content"
- * data-component="stepped-wizard-step-content"
- * data-component="stepped-wizard-footer"
- * data-component="stepped-wizard-prev-button"
- * data-component="stepped-wizard-footer-progress"
- * data-component="stepped-wizard-next-button"
- * data-component="stepped-wizard-next-spinner"
- */
-
 export interface WizardStep {
   label: string;
   content: React.ReactNode;
@@ -46,7 +14,7 @@ export interface WizardStep {
 }
 
 export interface SteppedWizardProps {
-  "data-component"?: string;
+  "data-component": string;
   title: string;
   subtitle?: string;
   steps: WizardStep[];
@@ -76,17 +44,19 @@ function DesktopStepIndicator({
   currentStep,
   className,
 }: {
-  dataComponent?: string;
+  dataComponent: string;
   steps: WizardStep[];
   currentStep: number;
   className?: string;
 }) {
-  const sub = (suffix: string, legacyValue: string) =>
-    dataComponent ? `${dataComponent}_${suffix}` : legacyValue;
+  const sub = (suffix: string, legacyValue: string) => {
+    void legacyValue;
+    return `${dataComponent}_${suffix}`;
+  };
 
   return (
     <div
-      data-component={dataComponent ?? "stepped-wizard-stepper-desktop"}
+      data-component={dataComponent}
       className={cn("hidden md:flex items-center justify-center gap-0 pb-7", className)}
     >
       {steps.map((step, idx) => {
@@ -157,17 +127,19 @@ function MobileStepIndicator({
   currentStep,
   className,
 }: {
-  dataComponent?: string;
+  dataComponent: string;
   steps: WizardStep[];
   currentStep: number;
   className?: string;
 }) {
   const progress = ((currentStep + 1) / steps.length) * 100;
-  const sub = (suffix: string, legacyValue: string) =>
-    dataComponent ? `${dataComponent}_${suffix}` : legacyValue;
+  const sub = (suffix: string, legacyValue: string) => {
+    void legacyValue;
+    return `${dataComponent}_${suffix}`;
+  };
 
   return (
-    <div data-component={dataComponent ?? "stepped-wizard-stepper-mobile"} className={cn("md:hidden pb-5", className)}>
+    <div data-component={dataComponent} className={cn("md:hidden pb-5", className)}>
       <div data-component={sub("header", "stepped-wizard-stepper-mobile-header")} className="flex items-center justify-between mb-2.5">
         <span data-component={sub("current-label", "stepped-wizard-stepper-mobile-current-label")} className="text-xs font-bold text-v3-primary">
           {steps[currentStep]?.label}
@@ -195,17 +167,19 @@ function CompletedStepSummary({
   step,
   stepIndex,
 }: {
-  dataComponent?: string;
+  dataComponent: string;
   step: WizardStep;
   stepIndex: number;
 }) {
   if (!step.summary) return null;
-  const sub = (suffix: string, legacyValue: string) =>
-    dataComponent ? `${dataComponent}_${suffix}` : legacyValue;
+  const sub = (suffix: string, legacyValue: string) => {
+    void legacyValue;
+    return `${dataComponent}_${suffix}`;
+  };
 
   return (
     <>
-      <div data-component={dataComponent ?? "stepped-wizard-completed-summary"} className="hidden md:block bg-v3-green-light rounded-2xl p-4 mb-6">
+      <div data-component={dataComponent} className="hidden md:block bg-v3-green-light rounded-2xl p-4 mb-6">
         <div data-component={sub("title", "stepped-wizard-completed-summary-title")} className="text-[0.7rem] uppercase tracking-[0.1em] text-v3-green font-semibold mb-3">
           ✓ {stepIndex + 1}단계 완료 — {step.label}
         </div>
@@ -241,8 +215,10 @@ export function SteppedWizard({
   const currentStepData = steps[currentStep];
   const showDesktopStepper = stepperProps?.showDesktop ?? true;
   const showMobileStepper = stepperProps?.showMobile ?? true;
-  const sub = (suffix: string, legacyValue: string) =>
-    dataComponent ? `${dataComponent}_${suffix}` : legacyValue;
+  const sub = (suffix: string, legacyValue: string) => {
+    void legacyValue;
+    return `${dataComponent}_${suffix}`;
+  };
 
   const handleNext = () => {
     if (isLastStep) {
@@ -260,8 +236,7 @@ export function SteppedWizard({
 
   return (
     <div
-      // TODO(data-component): Remove the legacy fallbacks after caller migration.
-      data-component={dataComponent ?? "stepped-wizard-root"}
+      data-component={dataComponent}
       data-source-component={SOURCE_COMPONENT}
       className={cn(
         "flex w-full flex-col",
@@ -301,7 +276,7 @@ export function SteppedWizard({
 
         {showDesktopStepper && (
           <DesktopStepIndicator
-            dataComponent={dataComponent ? `${dataComponent}_panel_stepper-desktop` : undefined}
+            dataComponent={`${dataComponent}_panel_stepper-desktop`}
             steps={steps}
             currentStep={currentStep}
             className={stepperProps?.desktopClassName}
@@ -309,7 +284,7 @@ export function SteppedWizard({
         )}
         {showMobileStepper && (
           <MobileStepIndicator
-            dataComponent={dataComponent ? `${dataComponent}_panel_stepper-mobile` : undefined}
+            dataComponent={`${dataComponent}_panel_stepper-mobile`}
             steps={steps}
             currentStep={currentStep}
             className={stepperProps?.mobileClassName}
@@ -322,11 +297,7 @@ export function SteppedWizard({
             (step, idx) =>
               idx < currentStep && (
                 <CompletedStepSummary
-                  dataComponent={
-                    dataComponent
-                      ? `${dataComponent}_panel_content_completed-${idx + 1}`
-                      : undefined
-                  }
+                  dataComponent={`${dataComponent}_panel_content_completed-${idx + 1}`}
                   key={idx}
                   step={step}
                   stepIndex={idx}

@@ -527,7 +527,6 @@ export default function ClientsPage() {
                   ? (
                     <ListCountSkeleton
                       data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"
-                      dataComponentPrefix="mobile-clients"
                     />
                   )
                   : `${total ?? allClients.length}명`
@@ -543,12 +542,12 @@ export default function ClientsPage() {
                   <ListLoadMoreButton
                     data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_load-more_button"
                     onLoadMore={loadMore}
-                    dataComponentPrefix="mobile-clients"
                   />
                 ) : null
               }
               beforeFilters={
                 <MobileSearchBar
+                  data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_search"
                   placeholder="고객 이름, 매니저 검색"
                   label="clients"
                   value={searchQuery}
@@ -559,7 +558,6 @@ export default function ClientsPage() {
               {isClientsFetching ? (
                 <ListRowsSkeleton
                   data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"
-                  dataComponentPrefix="mobile-clients"
                 />
               ) : visibleSections.length === 0 ? (
                 <div
@@ -602,7 +600,12 @@ export default function ClientsPage() {
                         }
                         name={c.name}
                         meta={clientMeta(c)}
-                        right={<ListRowBadges badges={badges} />}
+                        right={
+                          <ListRowBadges
+                            data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row_badges"
+                            badges={badges}
+                          />
+                        }
                         onClick={() => handleSelectClient(c)}
                       />
                       );
@@ -613,7 +616,6 @@ export default function ClientsPage() {
                   <ListLoadMoreSentinel
                     data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                     sentinelRef={sentinelRef}
-                    dataComponentPrefix="mobile-clients"
                   />
                 )}
                 </>

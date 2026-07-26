@@ -444,7 +444,7 @@ export function DetailTabPills({
   activeTab,
   onTabChange,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   tabs: DetailTab[];
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -502,8 +502,7 @@ export function DetailTabPills({
     <div
       ref={tabsRef}
       className="filter-row detail-tabs"
-      // TODO(data-component): Remove the legacy fallbacks after caller migration.
-      data-component={dataComponent ?? "mobile-redesign-detail-tabs"}
+      data-component={dataComponent}
     >
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
@@ -526,7 +525,7 @@ export function DetailTabPills({
       <span
         ref={indicatorRef}
         className="detail-tabs-indicator"
-        data-component={dataComponent ? `${dataComponent}_indicator` : "mobile-redesign-detail-tabs-indicator"}
+        data-component={`${dataComponent}_indicator`}
       />
     </div>
   );
@@ -571,7 +570,7 @@ export function MobileSearchBar({
   value,
   onChange,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   placeholder: string;
   label: string;
   value?: string;
@@ -579,9 +578,9 @@ export function MobileSearchBar({
 }) {
   return (
     <div
+      data-component={dataComponent}
+      data-slot="search-bar"
       className="search-bar"
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? `mobile-${label}-search`}
     >
       <Search size={14} strokeWidth={2.5} />
       <input

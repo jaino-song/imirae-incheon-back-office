@@ -437,7 +437,11 @@ describe("NewMessagePage", () => {
 
     fireEvent.click(screen.getByLabelText(/휴대 전화번호/));
 
-    expect(screen.getByTestId("clients-autocomplete-dropdown")).toBeInTheDocument();
+    expect(
+      screen.getByTestId(
+        "mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_row_autocomplete_dropdown",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText("박서연")).toBeInTheDocument();
   });
 
@@ -615,7 +619,10 @@ describe("NewMessagePage", () => {
     const recipientNameInput = screen.getByLabelText(/산모님 성함/);
     const receiverInput = screen.getByLabelText(/휴대 전화번호/);
 
-    expect(recipientNameInput).toHaveAttribute("data-component", "clients-autocomplete-input");
+    expect(recipientNameInput).toHaveAttribute(
+      "data-component",
+      "mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_name-row_autocomplete_input",
+    );
     expect(receiverInput).toHaveAttribute("data-component", `${FORM_CARD_CONTENT}_recipient_row_input`);
 
     fireEvent.focus(recipientNameInput);

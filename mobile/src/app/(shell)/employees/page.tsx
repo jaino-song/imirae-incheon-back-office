@@ -464,7 +464,6 @@ export default function EmployeesPage() {
                 isEmployeesFetching
                   ? <ListCountSkeleton
                       data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"
-                      dataComponentPrefix="mobile-employees"
                     />
                   : `${allEmployees.length}명`
               }
@@ -479,7 +478,6 @@ export default function EmployeesPage() {
                   <ListLoadMoreButton
                     data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_load-more_button"
                     onLoadMore={loadMore}
-                    dataComponentPrefix="mobile-employees"
                   />
                 ) : null
               }
@@ -496,7 +494,6 @@ export default function EmployeesPage() {
               {isEmployeesFetching ? (
                 <ListRowsSkeleton
                   data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"
-                  dataComponentPrefix="mobile-employees"
                 />
               ) : visibleSections.length === 0 ? (
                 <div
@@ -556,7 +553,6 @@ export default function EmployeesPage() {
                   <ListLoadMoreSentinel
                     data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                     sentinelRef={sentinelRef}
-                    dataComponentPrefix="mobile-employees"
                   />
                 )}
                 </>
@@ -580,6 +576,7 @@ export default function EmployeesPage() {
       />
 
       <MobileTwoButtonModal
+        data-component="mobile_employees_detail-sheet_delete-modal"
         open={deleteTarget != null}
         title={t(locale, "employees.delete-confirm.title")}
         description={t(locale, "employees.delete-confirm.message")}

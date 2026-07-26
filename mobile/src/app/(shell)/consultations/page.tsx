@@ -415,7 +415,6 @@ export default function ConsultationsPage() {
                 <ListLoadMoreButton
                   data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_load-more_button"
                   onLoadMore={loadMore}
-                  dataComponentPrefix="mobile-consultations"
                 />
               ) : null
             }
@@ -494,7 +493,6 @@ export default function ConsultationsPage() {
                 <ListLoadMoreSentinel
                   data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                   sentinelRef={sentinelRef}
-                  dataComponentPrefix="mobile-consultations"
                 />
               )}
               </>

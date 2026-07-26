@@ -3,8 +3,6 @@ import { cn } from "@/lib/utils";
 import { Input, type InputProps } from "./Input";
 
 const SOURCE_COMPONENT = "InputField";
-// TODO(data-component): Remove legacy fallback data-component="input-field" after caller migration.
-
 type InputFieldProps = {
   "data-component"?: string;
   title: React.ReactNode;
@@ -46,8 +44,7 @@ export function InputField({
 
   return (
     <div
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? "input-field"}
+      data-component={dataComponent}
       data-source-component={SOURCE_COMPONENT}
       className={cn("m-0.5 flex flex-col gap-1.5", className)}
     >

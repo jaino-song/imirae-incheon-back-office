@@ -15,7 +15,7 @@ interface HeadlessProgressModalProps {
     steps: readonly HeadlessProgressStep[];
     progress: HeadlessProgressState;
     errorHint?: string | null;
-    dataComponentPrefix?: string;
+    "data-component": string;
 }
 
 export function HeadlessProgressModal({
@@ -25,16 +25,11 @@ export function HeadlessProgressModal({
     steps,
     progress,
     errorHint,
-    dataComponentPrefix,
+    "data-component": dataComponent,
 }: HeadlessProgressModalProps) {
     if (!open) return null;
 
-    const legacyBase = "headless-progress";
-    const rootDataComponent = dataComponentPrefix
-        ? `${dataComponentPrefix}_root`
-        : `${legacyBase}-modal`;
-    const sub = (suffix: string) =>
-        dataComponentPrefix ? `${dataComponentPrefix}_${suffix}` : `${legacyBase}-${suffix}`;
+    const sub = (suffix: string) => `${dataComponent}_${suffix}`;
     const currentIdx = progress.step
         ? steps.findIndex((s) => s.key === progress.step)
         : -1;
@@ -49,7 +44,7 @@ export function HeadlessProgressModal({
     return (
         <div
             className={styles.progressModal}
-            data-component={rootDataComponent}
+            data-component={dataComponent}
             data-source-component="HeadlessProgressModal"
         >
             <div className={styles.progressCard} data-component={sub("card")}>

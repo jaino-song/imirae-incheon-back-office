@@ -130,7 +130,7 @@ describe("CallReviewSheet — NEW_CLIENT PENDING", () => {
 
     // dueDate evidence text rendered in EvidenceChip (also appears in transcript turn,
     // so we scope to the chip's data-component attribute)
-    const chips = document.querySelectorAll("[data-component='call-inbox-evidence-chip']");
+    const chips = document.querySelectorAll("[data-component='mobile_call-inbox_detail-sheet_stack_detail-page_review_evidence-chip']");
     const chipTexts = Array.from(chips).map((el) => el.textContent ?? "");
     expect(chipTexts.some((t) => t.includes("7월 15일이 예정일이에요"))).toBe(true);
   });
@@ -264,7 +264,7 @@ describe("CallReviewSheet — non-PENDING (CONFIRMED)", () => {
 
     // ReadOnlyBanner rendered with label "검토 완료"
     expect(
-      screen.getByText(/검토 완료/, { selector: "[data-component='call-inbox-review-readonly-banner']" }),
+      screen.getByText(/검토 완료/, { selector: "[data-component='mobile_call-inbox_detail-sheet_stack_detail-page_review_readonly-banner']" }),
     ).toBeInTheDocument();
 
     // No action buttons (고객 등록 / 폐기) for a CONFIRMED draft

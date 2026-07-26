@@ -14,7 +14,7 @@ import { Autocomplete } from "@/components/app/ui/Autocomplete";
 import { StatusBadge } from "@/components/app/ui/status-badge";
 
 interface ClientAutocompleteProps {
-    "data-component"?: string;
+    "data-component": string;
     inputId?: string;
     value: number | null;
     onChange: (clientId: number | null, client: Client | null) => void;
