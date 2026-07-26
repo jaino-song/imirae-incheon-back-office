@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/app/v3";
 
+const SOURCE_COMPONENT = "Autocomplete";
+
 export interface AutocompleteManualEntry {
     label: ReactNode;
     description?: ReactNode;
@@ -205,6 +207,7 @@ export function Autocomplete<T>({
     };
 
     const legacyBase = `${name}-autocomplete`;
+    // TODO(data-component): Remove the legacy fallback after caller migration.
     const containerDc = dataComponent ?? legacyBase;
     const sub = (suffix: string) =>
         dataComponent ? `${dataComponent}_${suffix}` : `${legacyBase}-${suffix}`;
@@ -218,7 +221,7 @@ export function Autocomplete<T>({
     return (
         <div
             data-component={containerDc}
-            data-source-component="Autocomplete"
+            data-source-component={SOURCE_COMPONENT}
             data-testid={containerDc}
             data-disabled={disabled ? "true" : undefined}
             className={cn("space-y-2", className)}

@@ -4,6 +4,8 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "ToggleRow";
+
 export interface ToggleRowProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "title"> {
   title: ReactNode;
   description?: ReactNode;
@@ -30,7 +32,7 @@ export function ToggleRow({
       aria-checked={checked}
       disabled={disabled}
       data-component={dataComponent}
-      data-source-component="ToggleRow"
+      data-source-component={SOURCE_COMPONENT}
       className={cn(
         "flex w-full items-center justify-between gap-3 rounded-2xl border border-v3-border bg-white px-3.5 py-3 text-left transition-colors",
         "disabled:cursor-not-allowed disabled:opacity-50",

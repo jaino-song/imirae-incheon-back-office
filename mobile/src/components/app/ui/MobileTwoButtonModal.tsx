@@ -43,6 +43,7 @@ export function MobileTwoButtonModal({
   onConfirm,
 }: MobileTwoButtonModalProps) {
   const legacyBase = "mobile-two-button-modal";
+  // TODO(data-component): Remove the legacy fallback after caller migration.
   const rootDataComponent = dataComponent ?? legacyBase;
   const sub = (suffix: string) =>
     dataComponent ? `${dataComponent}_${suffix}` : `${legacyBase}-${suffix}`;

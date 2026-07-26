@@ -2,7 +2,11 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Input, type InputProps } from "./Input";
 
+const SOURCE_COMPONENT = "InputField";
+// TODO(data-component): Remove legacy fallback data-component="input-field" after caller migration.
+
 type InputFieldProps = {
+  "data-component"?: string;
   title: React.ReactNode;
   message?: React.ReactNode;
   messageTone?: "muted" | "error";
@@ -17,6 +21,7 @@ type InputFieldProps = {
 };
 
 export function InputField({
+  "data-component": dataComponent,
   title,
   message,
   messageTone = "muted",
@@ -40,7 +45,12 @@ export function InputField({
   };
 
   return (
-    <div data-component="input-field" className={cn("m-0.5 flex flex-col gap-1.5", className)}>
+    <div
+      // TODO(data-component): Remove the legacy fallback after caller migration.
+      data-component={dataComponent ?? "input-field"}
+      data-source-component={SOURCE_COMPONENT}
+      className={cn("m-0.5 flex flex-col gap-1.5", className)}
+    >
       <div className={cn("flex items-center justify-between gap-2", headerClassName)}>
         <label
           htmlFor={typeof inputProps.id === "string" ? inputProps.id : undefined}
