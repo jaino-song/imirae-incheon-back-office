@@ -197,7 +197,7 @@ function ContractListLoadingRows() {
       {Array.from({ length: CONTRACT_LIST_INITIAL_VISIBLE_COUNT }).map((_, index) => (
         <div
           className="contracts-loading-row"
-          data-component="mobile-contracts-loading-row"
+          data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"
           aria-hidden="true"
           key={`contracts-loading-row-${index}`}
         >
@@ -1277,8 +1277,8 @@ function ContractDetailContent({
   };
 
   return (
-    <MobileDetailPage data-component="mobile-contracts-detail" name="contracts">
-      <MobileDetailHeader data-component="mobile-contracts-detail-header"
+    <MobileDetailPage data-component="mobile_contracts_detail-sheet_stack_detail-page_content" name="contracts">
+      <MobileDetailHeader data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header"
         name="contracts"
         avatar={<FileCheck2 size={24} strokeWidth={2.5} />}
         avatarTone="primary"
@@ -1291,7 +1291,7 @@ function ContractDetailContent({
                 type="button"
                 className="flex h-[44px] w-[44px] flex-shrink-0 items-center justify-center rounded-xl text-v3-text-muted transition-colors hover:bg-v3-dim-white [&_svg]:pointer-events-none"
                 aria-label="계약 옵션"
-                data-component="mobile-contracts-detail-menu-trigger"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu-trigger"
               >
                 <MoreVertical size={20} strokeWidth={2} />
               </button>
@@ -1300,12 +1300,12 @@ function ContractDetailContent({
               align="end"
               sideOffset={4}
               className="z-[200] w-max min-w-[5.5rem] rounded-md p-0"
-              data-component="mobile-contracts-detail-menu"
+              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu"
             >
               <DropdownMenuItem
                 onClick={() => onOpenClient(doc, metadata)}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-contracts-detail-menu-client"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu_client"
               >
                 <UserPlus className="size-[15px]" strokeWidth={2} />
                 {metadata?.clientId ? "고객 수정" : "고객 등록"}
@@ -1313,7 +1313,7 @@ function ContractDetailContent({
               <DropdownMenuItem
                 onClick={() => onEditSend(doc, metadata)}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-contracts-detail-menu-edit-send"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu_edit-send"
               >
                 <Send className="size-[15px]" strokeWidth={2} />
                 수정 전송
@@ -1325,7 +1325,7 @@ function ContractDetailContent({
                   setTimeout(() => onDeleteRequest(doc), DROPDOWN_DIALOG_HANDOFF_DELAY_MS);
                 }}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-contracts-detail-menu-delete"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu_delete"
               >
                 <Trash2 className="size-[15px]" strokeWidth={2} />
                 삭제
@@ -1345,7 +1345,7 @@ function ContractDetailContent({
                     label: "미리보기",
                     variant: "secondary" as const,
                     onClick: () => setPreviewDocumentId(doc.id),
-                    dataComponent: "mobile-contracts-preview",
+                    dataComponent: "mobile_contracts_detail-sheet_stack_detail-page_actions_preview",
                   },
                   ...(shouldReRequest || shouldShareReceipt
                     ? [
@@ -1360,8 +1360,8 @@ function ContractDetailContent({
                           disabled: shouldReRequest ? isReRequesting : false,
                           busy: shouldReRequest ? isReRequesting : false,
                           dataComponent: shouldReRequest
-                            ? "mobile-contracts-rerequest"
-                            : "mobile-contracts-receipt-share",
+                            ? "mobile_contracts_detail-sheet_stack_detail-page_actions_rerequest"
+                            : "mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-share",
                         },
                       ]
                     : []),
@@ -1373,7 +1373,7 @@ function ContractDetailContent({
                     label: "검토하기",
                     variant: "primary" as const,
                     onClick: () => onFinalize(doc, metadata),
-                    dataComponent: "mobile-contracts-sign",
+                    dataComponent: "mobile_contracts_detail-sheet_stack_detail-page_actions_sign",
                   },
                 ]
               : []),
@@ -1383,14 +1383,14 @@ function ContractDetailContent({
       {isPreviewOpen ? (
         <section
           className="contract-preview-panel"
-          data-component="mobile-contracts-pdf-preview"
+          data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview"
           aria-label="계약서 PDF 미리보기"
         >
           <div className="contract-preview-header">
             <button
               type="button"
               className="contract-preview-back"
-              data-component="mobile-contracts-pdf-preview-back"
+              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_back"
               aria-label="계약 상세로 돌아가기"
               onClick={() => setPreviewDocumentId(null)}
             >
@@ -1399,7 +1399,7 @@ function ContractDetailContent({
             </button>
             <a
               className="contract-preview-receipt"
-              data-component="mobile-contracts-receipt-download"
+              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_receipt-download"
               href={receiptDownloadUrl}
               download={receiptFilename}
               aria-label={`${name} 영수증 PDF 다운로드`}
@@ -1409,7 +1409,7 @@ function ContractDetailContent({
             </a>
             <a
               className="contract-preview-download"
-              data-component="mobile-contracts-pdf-download"
+              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_pdf-download"
               href={downloadUrl}
               download={`${name}.pdf`}
               aria-label={`${name} PDF 다운로드`}
@@ -1420,7 +1420,7 @@ function ContractDetailContent({
           </div>
           <iframe
             className="contract-preview-frame"
-            data-component="mobile-contracts-pdf-preview-frame"
+            data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_frame"
             title={`${name} PDF 미리보기`}
             src={previewUrl}
           />
@@ -1428,6 +1428,7 @@ function ContractDetailContent({
       ) : (
         <>
           <DetailTabPills
+            data-component="mobile_contracts_detail-sheet_stack_detail-page_content_tabs"
             tabs={[
               { id: "basic", label: "기본 정보" },
               { id: "signers", label: "서명 진행" },
@@ -1462,7 +1463,11 @@ function ContractDetailContent({
 
           <MobileDetailTabPanel data-component="mobile_contracts_detail-sheet_stack_detail-page_tab-panel-2" name="contracts" tabId="signers" activeTab={activeTab}>
             <InfoCard data-component="mobile_contracts_detail-panel_info-card-3" title="계약서 단계">
-              <ActivityTimeline items={stageItems} maxHeight="360px" />
+              <ActivityTimeline
+                data-component="mobile_contracts_detail-panel_info-card-3_activity-timeline"
+                items={stageItems}
+                maxHeight="360px"
+              />
             </InfoCard>
           </MobileDetailTabPanel>
 
@@ -2075,15 +2080,17 @@ export default function ContractsPage() {
   const mainSheet = (
     <MobileDetailSheet data-component="mobile_contracts_detail-sheet"
       name="contracts"
-      detailDataComponent="mobile-contracts-detail-page"
+      detailDataComponent="mobile_contracts_detail-sheet_stack_detail-page"
       isOpen={Boolean(selectedDoc)}
       onClose={() => setSelectedDoc(null)}
       list={
         <div
           className="shell-content flex-col gap-[calc(8px*var(--glint-ui-scale,1))]"
-          data-component="mobile-contracts-content"
+          data-component="mobile_contracts_detail-sheet_stack_list-page_content"
+          data-slot="list-content"
         >
           <MobileSectionNav
+            data-component="mobile_contracts_detail-sheet_stack_list-page_content_section-nav"
             ariaLabel="계약 문서 섹션"
             items={CONTRACT_SECTIONS}
             activeId={activeSection}
@@ -2093,6 +2100,7 @@ export default function ContractsPage() {
             }}
           />
           <ListCard
+            data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card"
             title={activeSectionLabel}
             count={listCount}
             actionLabel={activeSection === "maternal-contracts" ? "계약 작성" : undefined}
@@ -2105,18 +2113,19 @@ export default function ContractsPage() {
               isContractsLoading ? (
                 <div
                   className="contracts-load-more-placeholder"
-                  data-component="mobile-contracts-load-more-placeholder"
+                  data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"
                   aria-hidden="true"
                 />
               ) : isInitialLoad && hasMore ? (
                 <ListLoadMoreButton
                   onLoadMore={loadMore}
-                  dataComponentPrefix="mobile-contracts"
+                  data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_button"
                 />
               ) : null
             }
             beforeFilters={
               <MobileSearchBar
+                data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"
                 placeholder="고객명, 문서명, 문서 번호 검색"
                 label="contracts"
                 value={searchQuery}
@@ -2134,7 +2143,7 @@ export default function ContractsPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-text-muted))",
                 }}
-                data-component="mobile-contracts-empty"
+                data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"
               >
                 {searchQuery.trim() || activeFilter !== "전체"
                   ? `조건에 맞는 ${activeSectionLabel}가 없습니다.`
@@ -2163,11 +2172,11 @@ export default function ContractsPage() {
                     return (
                       <ListItemRow
                         key={doc.id}
-                        dataComponent="mobile-contracts-row"
+                        data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"
                         left={
                           <div
                             className={`list-avatar av-${tones.badgeTone}`}
-                            data-component="mobile-contracts-row-avatar"
+                            data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_avatar"
                           >
                             {cat === "completed" ? (
                               <FileCheck2 size={16} strokeWidth={2.25} />
@@ -2183,14 +2192,14 @@ export default function ContractsPage() {
                         meta={
                           isServiceRecordRow ? (
                             <>
-                              <span data-component="mobile-contracts-row-subtitle">제공기록지</span>
+                              <span data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_subtitle">제공기록지</span>
                               <span
                                 className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
-                                data-component="mobile-contracts-row-dates"
+                                data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_dates"
                               >
                                 <span
                                   className="inline-flex items-center gap-1 whitespace-nowrap"
-                                  data-component="mobile-contracts-row-sent-date"
+                                  data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_dates_sent-date"
                                 >
                                   <Calendar className="size-3 shrink-0" />
                                   발송 {formatDate(doc.created_date)}
@@ -2198,7 +2207,7 @@ export default function ContractsPage() {
                                 {cat === "completed" ? (
                                   <span
                                     className="inline-flex items-center gap-1 whitespace-nowrap"
-                                    data-component="mobile-contracts-row-completed-date"
+                                    data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_dates_completed-date"
                                   >
                                     <CheckCircle2 className="size-3 shrink-0" />
                                     완료 {formatDate(doc.updated_date)}
@@ -2219,7 +2228,13 @@ export default function ContractsPage() {
                           )
                         }
                         metaClassName={isServiceRecordRow ? "list-meta flex flex-col items-start gap-0.5" : undefined}
-                        right={<Badge label={badgeLabel} tone={tones.badgeTone} />}
+                        right={
+                          <Badge
+                            data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_right_status"
+                            label={badgeLabel}
+                            tone={tones.badgeTone}
+                          />
+                        }
                         onClick={() => {
                           setSelectedDoc(doc);
                           setActiveTab("basic");
@@ -2232,7 +2247,7 @@ export default function ContractsPage() {
                 {!isInitialLoad && hasMore && (
                   <ListLoadMoreSentinel
                     sentinelRef={sentinelRef}
-                    dataComponentPrefix="mobile-contracts"
+                    data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                   />
                 )}
               </>
@@ -2269,6 +2284,7 @@ export default function ContractsPage() {
       {mainSheet}
 
       <MobileTwoButtonModal
+        data-component="mobile_contracts_delete-confirmation_modal"
         open={deleteTargetDoc !== null}
         title="계약서 삭제"
         description="선택한 계약서를 삭제할까요?"
@@ -2285,6 +2301,7 @@ export default function ContractsPage() {
       />
 
       <MobileTwoButtonModal
+        data-component="mobile_contracts_finalize-confirmation_modal"
         open={isServiceRecordFinalizeConfirmOpen}
         title="완료할까요?"
         cancelLabel="취소"
@@ -2306,7 +2323,7 @@ export default function ContractsPage() {
       />
 
       {isFinalizeDialogOpen && finalizeDoc ? (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 p-6" data-component="mobile-contracts-finalize-dialog">
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 p-6" data-component="mobile_contracts_finalize-dialog">
           <div className="w-full max-w-[360px] rounded-2xl bg-white p-5 shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
             <h2 className="mb-1 text-base font-extrabold text-v3-dark">최종 확인</h2>
             <p className="mb-4 text-[0.72rem] text-v3-text-muted">
@@ -2361,11 +2378,11 @@ export default function ContractsPage() {
         }
         progress={finalizeProgress}
         errorHint={finalizeErrorHint}
-        dataComponentPrefix="mobile-contracts-finalize-progress"
+        data-component="mobile_contracts_finalize-progress"
       />
 
       {isStaffIframeOpen ? (
-        <div className="fixed inset-0 z-[200] flex flex-col bg-[hsl(var(--v3-dim-white))]" data-component="mobile-contracts-staff-iframe-modal">
+        <div className="fixed inset-0 z-[200] flex flex-col bg-[hsl(var(--v3-dim-white))]" data-component="mobile_contracts_staff-iframe-modal">
           <div className="flex h-14 items-center justify-between border-b border-v3-border bg-white px-4 text-base font-bold text-v3-dark">
             <span>계약서 최종 확인</span>
             <button
@@ -2389,7 +2406,7 @@ export default function ContractsPage() {
         <div
           className="fixed right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[1001] max-w-[320px] overflow-hidden rounded-2xl bg-v3-primary px-4 py-3 text-[0.8rem] font-semibold text-white shadow-[0_8px_24px_rgba(20,50,100,0.25)]"
           role="status"
-          data-component="mobile-contracts-finalize-feedback"
+          data-component="mobile_contracts_finalize-feedback"
         >
           {finalizeFeedback}
         </div>

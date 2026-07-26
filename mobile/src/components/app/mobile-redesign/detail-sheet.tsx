@@ -30,9 +30,18 @@ export type DetailAction = {
   className?: string;
 };
 
+const MOBILE_DETAIL_STACK_SOURCE_COMPONENT = "MobileDetailStack";
+const MOBILE_DETAIL_SHEET_SOURCE_COMPONENT = "MobileDetailSheet";
+const MOBILE_DETAIL_PAGE_SOURCE_COMPONENT = "MobileDetailPage";
+const MOBILE_DETAIL_HEADER_SOURCE_COMPONENT = "MobileDetailHeader";
+const MOBILE_DETAIL_ACTIONS_SOURCE_COMPONENT = "MobileDetailActions";
+const MOBILE_DETAIL_TAB_PANEL_SOURCE_COMPONENT = "MobileDetailTabPanel";
+const INFO_CARD_SOURCE_COMPONENT = "InfoCard";
+const INFO_ROW_SOURCE_COMPONENT = "InfoRow";
+
 export function MobileDetailStack({
   "data-component": dataComponent,
-  "data-source-component": dataSourceComponent = "MobileDetailStack",
+  sourceComponent = MOBILE_DETAIL_STACK_SOURCE_COMPONENT,
   isOpen,
   onClose,
   list,
@@ -60,7 +69,8 @@ export function MobileDetailStack({
   closeDisabled,
 }: {
   "data-component": string;
-  "data-source-component"?: string;
+  /** @internal Zero-DOM wrapper identity; route callers must not override this. */
+  sourceComponent?: typeof MOBILE_DETAIL_STACK_SOURCE_COMPONENT | typeof MOBILE_DETAIL_SHEET_SOURCE_COMPONENT;
   name: string;
   isOpen: boolean;
   onClose: () => void;
@@ -91,8 +101,8 @@ export function MobileDetailStack({
   return (
     <section
       data-component={sectionDataComponent ?? dataComponent}
-      data-source-component={dataSourceComponent}
       data-slot="mobile-detail-stack"
+      data-source-component={sourceComponent}
       className={sectionClassName}
       style={sectionStyle}
       aria-hidden={sectionAriaHidden}
@@ -105,6 +115,7 @@ export function MobileDetailStack({
         <div
           className={cn("nav-page list", listClassName)}
           data-component={listDataComponent ?? `${dataComponent}_stack_list-page`}
+          data-slot="mobile-detail-stack-list-page"
           aria-hidden={list == null}
         >
           {list}
@@ -114,6 +125,7 @@ export function MobileDetailStack({
           aria-label={closeLabel}
           className={cn("scrim", scrimClassName)}
           data-component={scrimDataComponent ?? `${dataComponent}_stack_scrim`}
+          data-slot="mobile-detail-stack-scrim"
           onClick={onClose}
           disabled={scrimDisabled}
         />
@@ -173,7 +185,7 @@ export function MobileDetailSheet({
   return (
     <MobileDetailStack
       data-component={dataComponent}
-      data-source-component="MobileDetailSheet"
+      sourceComponent={MOBILE_DETAIL_SHEET_SOURCE_COMPONENT}
       name={name}
       isOpen={isOpen}
       onClose={onClose}
@@ -189,13 +201,11 @@ export function MobileDetailSheet({
 
 export function MobileDetailPage({
   "data-component": dataComponent,
-  "data-source-component": dataSourceComponent = "MobileDetailPage",
   children,
   className,
   style,
 }: {
   "data-component": string;
-  "data-source-component"?: string;
   name: string;
   children: ReactNode;
   className?: string;
@@ -205,7 +215,7 @@ export function MobileDetailPage({
     <div
       className={cn("detail-body detail-column", className)}
       data-component={dataComponent}
-      data-source-component={dataSourceComponent}
+      data-source-component={MOBILE_DETAIL_PAGE_SOURCE_COMPONENT}
       style={style}
     >
       {children}
@@ -238,7 +248,11 @@ export function MobileDetailHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("client-detail-header pop-up", className)} data-component={dataComponent} data-source-component="MobileDetailHeader">
+    <div
+      className={cn("client-detail-header pop-up", className)}
+      data-component={dataComponent}
+      data-source-component={MOBILE_DETAIL_HEADER_SOURCE_COMPONENT}
+    >
       <div
         className={cn("client-detail-avatar-lg", `av-${avatarTone}`, avatarClassName)}
         data-component={`${dataComponent}_avatar`}
@@ -286,7 +300,11 @@ export function MobileDetailActions({
   className?: string;
 }) {
   return (
-    <div className={cn("detail-actions", className)} data-component={dataComponent} data-source-component="MobileDetailActions">
+    <div
+      className={cn("detail-actions", className)}
+      data-component={dataComponent}
+      data-source-component={MOBILE_DETAIL_ACTIONS_SOURCE_COMPONENT}
+    >
       {actions?.map((action, index) => {
         const actionClassName = cn("btn", `btn-${action.variant ?? "secondary"}`, action.className);
         const key = action.dataComponent ?? `${name}-action-${index}`;
@@ -345,7 +363,7 @@ export function MobileDetailTabPanel({
       className={cn("tab-content", activeTab === tabId && "active", className)}
       data-tab-content={tabId}
       data-component={dataComponent}
-      data-source-component="MobileDetailTabPanel"
+      data-source-component={MOBILE_DETAIL_TAB_PANEL_SOURCE_COMPONENT}
     >
       {children}
     </div>
@@ -371,7 +389,7 @@ export function InfoCard({
     <InfoCardDataComponentContext.Provider value={dataComponent}>
       <div
         data-component={dataComponent}
-        data-source-component="InfoCard"
+        data-source-component={INFO_CARD_SOURCE_COMPONENT}
         className={cn("info-card pop-up", padded && "info-card-padded")}
         style={delay ? { animationDelay: `${delay}ms` } : undefined}
       >
@@ -397,7 +415,11 @@ export function InfoRow({
   const dataComponent =
     explicitDataComponent ?? (ownerDataComponent ? `${ownerDataComponent}_row` : undefined);
   return (
-    <div data-component={dataComponent} data-source-component="InfoRow" className={cn("info-row", !label && "info-row-no-label")}>
+    <div
+      data-component={dataComponent}
+      data-source-component={INFO_ROW_SOURCE_COMPONENT}
+      className={cn("info-row", !label && "info-row-no-label")}
+    >
       {label ? <span data-component={dataComponent ? `${dataComponent}_label` : undefined} className="info-row-label">{label}</span> : null}
       <span data-component={dataComponent ? `${dataComponent}_value` : undefined} className={cn("info-row-value", tone && `info-row-value-${tone}`)}>{value}</span>
     </div>
@@ -417,10 +439,12 @@ export function Avatar({
 }
 
 export function DetailTabPills({
+  "data-component": dataComponent,
   tabs,
   activeTab,
   onTabChange,
 }: {
+  "data-component": string;
   tabs: DetailTab[];
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -475,7 +499,11 @@ export function DetailTabPills({
   };
 
   return (
-    <div ref={tabsRef} className="filter-row detail-tabs" data-component="mobile-redesign-detail-tabs">
+    <div
+      ref={tabsRef}
+      className="filter-row detail-tabs"
+      data-component={dataComponent}
+    >
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         return (
@@ -497,7 +525,7 @@ export function DetailTabPills({
       <span
         ref={indicatorRef}
         className="detail-tabs-indicator"
-        data-component="mobile-redesign-detail-tabs-indicator"
+        data-component={`${dataComponent}_indicator`}
       />
     </div>
   );
@@ -536,18 +564,24 @@ export function DocRow({
 }
 
 export function MobileSearchBar({
+  "data-component": dataComponent,
   placeholder,
   label,
   value,
   onChange,
 }: {
+  "data-component": string;
   placeholder: string;
   label: string;
   value?: string;
   onChange?: (value: string) => void;
 }) {
   return (
-    <div className="search-bar" data-component={`mobile-${label}-search`}>
+    <div
+      data-component={dataComponent}
+      data-slot="search-bar"
+      className="search-bar"
+    >
       <Search size={14} strokeWidth={2.5} />
       <input
         name={`${label}Search`}

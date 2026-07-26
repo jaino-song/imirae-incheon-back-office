@@ -22,7 +22,7 @@ export function ServiceRecordLinkResetResultModal({
             onOpenChange={(nextOpen) => {
                 if (!nextOpen) onClose();
             }}
-            dataComponent="clients-detail-reset-service-record-link-result"
+            dataComponent="desktop_clients-detail_reset-service-record-link_result"
             title="제공기록지 링크가 재설정되었습니다"
             description="메시지는 발송되지 않았습니다. 아래 링크를 복사해 직접 전달해 주세요."
             isDescriptionVisuallyHidden={false}
@@ -40,7 +40,7 @@ export function ServiceRecordLinkResetResultModal({
                 </label>
                 <Input
                     id="reset-service-record-link-url"
-                    data-component="clients-detail-reset-service-record-link-url"
+                    data-component="desktop_clients-detail_reset-service-record-link_url"
                     value={serviceRecordUrl}
                     readOnly
                 />

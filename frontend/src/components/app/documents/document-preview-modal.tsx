@@ -19,6 +19,8 @@ import {
 } from "./shared-document-preview-dialog";
 
 interface DocumentPreviewModalProps {
+  /** Canonical caller-context data-component base for the preview dialog. */
+  "data-component": string;
   open: boolean;
   onClose: () => void;
   doc: Document | null;
@@ -33,6 +35,7 @@ function getCategoryLabel(categoryId: string, categories: DocumentCategory[]): s
 }
 
 export default function DocumentPreviewModal({
+  "data-component": dataComponent,
   open,
   onClose,
   doc,
@@ -123,6 +126,7 @@ export default function DocumentPreviewModal({
 
   return (
     <SharedDocumentPreviewDialog
+      data-component={dataComponent}
       open={open}
       onClose={onClose}
       title={doc.name}

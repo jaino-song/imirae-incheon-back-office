@@ -50,7 +50,7 @@ export const NameInput = ({
       required={required}
       error={error}
       helperText={error ? "숫자나 특수문자는 입력할 수 없습니다" : undefined}
-      dataComponent="messages-form-name-input"
+      dataComponent="desktop_messages_sections_form-name-input"
     />
   );
 };

@@ -35,9 +35,9 @@ test.describe("Chat live stream smoke", () => {
     });
 
     await page.goto("/chat");
-    await expect(page.locator('[data-component="chat"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-slot="chat-page"]')).toBeVisible({ timeout: 15000 });
 
-    const input = page.locator('[data-component="chat-input"]');
+    const input = page.locator('[data-component="mobile_chat_page_input-area_input"]');
     await expect(input).toBeVisible({ timeout: 10000 });
 
     const start = Date.now();
@@ -46,7 +46,7 @@ test.describe("Chat live stream smoke", () => {
 
     await expect(page.getByLabel("응답 작성 중")).toBeVisible({ timeout: 5000 });
 
-    const assistantMessages = page.locator('[data-component="chat-message-assistant"]');
+    const assistantMessages = page.locator('[data-component="mobile_chat_page_content_messages_message-assistant"]');
     await expect(assistantMessages.last()).toContainText("[e2e-stub]", { timeout: 15000 });
     await expect(assistantMessages.last()).toContainText("안녕하세요", { timeout: 15000 });
 
@@ -69,19 +69,19 @@ test.describe("Chat live stream smoke", () => {
     });
 
     await page.goto("/chat");
-    await expect(page.locator('[data-component="chat"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-slot="chat-page"]')).toBeVisible({ timeout: 15000 });
 
-    const input = page.locator('[data-component="chat-input"]');
+    const input = page.locator('[data-component="mobile_chat_page_input-area_input"]');
     await expect(input).toBeVisible({ timeout: 10000 });
 
     await input.fill("산모 등록");
     await input.press("Enter");
 
-    await expect(page.locator('[data-component="chat-wizard-registration"]').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-component="mobile_chat_registration-wizard"]').first()).toBeVisible({ timeout: 5000 });
     // "산모 등록" also appears inside the rendered wizard — scope to the
     // user's message bubble to avoid a strict-mode violation.
     await expect(
-      page.locator('[data-component="chat-message-user-bubble"]', { hasText: "산모 등록" }),
+      page.locator('[data-component="mobile_chat_page_content_messages_message-user_body_bubble"]', { hasText: "산모 등록" }),
     ).toBeVisible({ timeout: 5000 });
 
     expect(sseCalled).toBe(0);

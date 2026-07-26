@@ -1095,14 +1095,14 @@ export const ContractCreationForm = ({
             value={birthday}
             onValueChange={setBirthday}
             placeholder="YYMMDD"
-            dataComponent="contract-creation-client-birthday-input"
+            dataComponent="desktop_contracts_creation_client-birthday-input"
           />
           <TitleTextInputMolecule
             label={t(locale, "contract-msg.address-label")}
             value={address}
             onValueChange={setAddress}
             placeholder={t(locale, "contract-msg.address-placeholder")}
-            dataComponent="contract-creation-client-address-input"
+            dataComponent="desktop_contracts_creation_client-address-input"
           />
           <TitleTextInputMolecule
             type="text"
@@ -1113,11 +1113,11 @@ export const ContractCreationForm = ({
             value={dueDateInput}
             onValueChange={handleDueDateInputChange}
             placeholder="YYMMDD"
-            dataComponent="contract-creation-client-due-date-input"
+            dataComponent="desktop_contracts_creation_client-due-date-input"
           />
 
-          <div className="grid gap-[calc(7px*var(--glint-ui-scale,1))]" data-component="contract-creation-doc-type-field">
-            <Label className={LABEL_CLS} data-component="contract-creation-doc-type-label">
+          <div className="grid gap-[calc(7px*var(--glint-ui-scale,1))]" data-component="desktop_contracts_creation_doc-type-field">
+            <Label className={LABEL_CLS} data-component="desktop_contracts_creation_doc-type-field_label">
               {t(locale, "contract-msg.doc-type-label")}
               <span className="text-destructive ml-1">*</span>
             </Label>
@@ -1125,21 +1125,21 @@ export const ContractCreationForm = ({
               value={area}
               onValueChange={setArea}
               disabled={isAreaTemplatesLoading}
-              data-component="contract-creation-doc-type-select"
+              data-component="desktop_contracts_creation_doc-type-field_select"
             >
               <SelectTrigger
                 aria-label={t(locale, "contract-msg.doc-type-label")}
                 className="w-full"
-                data-component="contract-creation-doc-type-trigger"
+                data-component="desktop_contracts_creation_doc-type-field_select_trigger"
               >
                 <SelectValue placeholder={t(locale, "contract-msg.doc-type-label")} />
               </SelectTrigger>
-              <SelectContent data-component="contract-creation-doc-type-dropdown">
+              <SelectContent data-component="desktop_contracts_creation_doc-type-field_select_dropdown">
                 {areaTemplates.map((template) => (
                   <SelectItem
                     key={template.areaId}
                     value={template.areaId}
-                    data-component="contract-creation-doc-type-option"
+                    data-component="desktop_contracts_creation_doc-type-field_select_dropdown_option"
                   >
                     {getAreaTemplateDisplayLabel(template.areaId, template.templateName)}
                   </SelectItem>
@@ -1298,7 +1298,7 @@ export const ContractCreationForm = ({
           </div>
 
           <div
-            data-component="contract-creation-price-fields"
+            data-component="desktop_contracts_creation_price-fields"
             className={cn(PANEL_THREE_COLUMN_GRID_CLASS_NAME, "animate-v3-slide-up")}
           >
             <div className="space-y-2">
@@ -1470,19 +1470,19 @@ export const ContractCreationForm = ({
 
   const content = (
     <SteppedWizardPanelContent
-      dataComponent="contract-creation-form"
+      dataComponent="desktop_contracts_creation_form"
       className={contentClassName}
       stepContentClassName={cn(stepContentClassName, isProcessingStep && "flex min-h-0 flex-1")}
       feedback={
         <>
           {(submitError || eformsignError) && (
-            <Alert variant="destructive" data-component="messages-contract-form-error">
+            <Alert variant="destructive" data-component="desktop_messages_sections_contract-form-error">
               <AlertDescription>{submitError || eformsignError}</AlertDescription>
             </Alert>
           )}
 
           {isEformsignLoading && (
-            <Alert data-component="messages-contract-form-loading">
+            <Alert data-component="desktop_messages_sections_contract-form-loading">
               <AlertDescription>eformsign SDK를 로드하는 중입니다...</AlertDescription>
             </Alert>
           )}
@@ -1550,7 +1550,7 @@ export const ContractCreationForm = ({
             type="button"
             size="sm"
             data-testid="contract-creation-new-send"
-            data-component="contract-creation-new-send"
+            data-component="desktop_contracts_creation_new-send"
             onClick={handleStartNewContractCreation}
             className="min-w-[calc(132px*var(--glint-ui-scale,1))]"
           >
@@ -1591,7 +1591,8 @@ export const ContractCreationForm = ({
         <>
           {content}
           <footer
-            data-component="detail-panel-footer"
+            data-component="desktop_contracts_creation_form_footer"
+            data-slot="detail-panel-footer"
             className={cn(DETAIL_PANEL_FOOTER_CLASS_NAME, footerClassName)}
           >
             {footer}
@@ -1601,7 +1602,7 @@ export const ContractCreationForm = ({
 
       <Dialog open={isDialogOpen} onOpenChange={(open: boolean) => !open && handleDialogClose()}>
         <DialogContent
-          data-component="messages-contract-form-dialog"
+          data-component="desktop_messages_sections_contract-form-dialog"
           // Mobile: full-screen. Desktop (lg+): keep the manual eformsign canvas near A4 portrait.
           className="max-w-full w-screen h-screen p-0 gap-0 flex flex-col lg:w-[820px] lg:max-w-[95vw] lg:h-[1102px] lg:max-h-[95vh] lg:rounded-lg"
         >
@@ -1625,7 +1626,7 @@ export const ContractCreationForm = ({
         onOpenChange={(open) => {
           if (!open) handleCreationSuccessAcknowledged();
         }}
-        dataComponent="contract-creation-success-notification"
+        dataComponent="desktop_contracts_creation_success-notification"
         title="계약서가 성공적으로 생성되었습니다."
         description="전자문서 생성과 전송이 완료되었습니다."
         onAcknowledge={handleCreationSuccessAcknowledged}
@@ -1635,7 +1636,7 @@ export const ContractCreationForm = ({
         onOpenChange={(open) => {
           if (!open) resolveConfirmation(false);
         }}
-        dataComponent="contract-creation-confirmation"
+        dataComponent="desktop_contracts_creation_confirmation"
         title="계약서 생성 확인"
         description={confirmationMessage ?? ""}
         isDescriptionVisuallyHidden={false}

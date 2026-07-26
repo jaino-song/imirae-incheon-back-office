@@ -197,7 +197,7 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
     };
 
     return (
-        <div data-component="chat-wizard-registration" className="flex flex-col" style={{ minHeight: WIZARD_MIN_HEIGHT_PX }}>
+        <div data-component="mobile_chat_registration-wizard" className="flex flex-col" style={{ minHeight: WIZARD_MIN_HEIGHT_PX }}>
             <div className="mb-4">
                 <h3 className="text-base font-bold mb-1">
                     산모 등록
@@ -215,7 +215,7 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
                 ))}
             </Stepper>
 
-            <div data-component="chat-wizard-registration-steps" className="flex-1 min-h-0">
+            <div data-component="mobile_chat_registration-wizard_steps" className="flex-1 min-h-0">
                 {/* Step 1: Basic Info */}
                 {activeStep === 0 && (
                     <div className="grid gap-4">
@@ -408,7 +408,7 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
                 </Alert>
             )}
 
-            <div data-component="chat-wizard-registration-actions" className="flex justify-between mt-4">
+            <div data-component="mobile_chat_registration-wizard_actions" className="flex justify-between mt-4">
                 <Button
                     variant="outline"
                     onClick={handleBack}

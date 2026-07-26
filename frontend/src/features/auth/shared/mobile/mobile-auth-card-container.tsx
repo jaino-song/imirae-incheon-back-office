@@ -32,14 +32,14 @@ export function MobileAuthCardContainer({
   dataComponents,
 }: MobileAuthCardContainerProps) {
   const hasHeader = Boolean(title || subtitle);
-  const componentName = dataComponent ?? "card-container";
+  const componentName = dataComponent ?? "desktop_auth_card-container";
   const componentSlots = {
-    container: dataComponents?.container ?? `${componentName}-container`,
-    card: dataComponents?.card ?? `${componentName}-card`,
-    header: dataComponents?.header ?? `${componentName}-header`,
-    title: dataComponents?.title ?? `${componentName}-title`,
-    subtitle: dataComponents?.subtitle ?? `${componentName}-subtitle`,
-    content: dataComponents?.content ?? `${componentName}-content`,
+    container: dataComponents?.container ?? `${componentName}_container`,
+    card: dataComponents?.card ?? `${componentName}_card`,
+    header: dataComponents?.header ?? `${componentName}_header`,
+    title: dataComponents?.title ?? `${componentName}_title`,
+    subtitle: dataComponents?.subtitle ?? `${componentName}_subtitle`,
+    content: dataComponents?.content ?? `${componentName}_content`,
   };
 
   return (

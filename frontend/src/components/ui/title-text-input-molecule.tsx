@@ -49,7 +49,7 @@ export const TitleTextInputMolecule = React.forwardRef<
       labelTrailing,
       variant = "v3",
       className,
-      dataComponent = "messages-form-title-text-input-molecule",
+      dataComponent = "desktop_v3_title-text-input-molecule",
       inputDataComponent,
       labelRowDataComponent,
       labelTrailingDataComponent,

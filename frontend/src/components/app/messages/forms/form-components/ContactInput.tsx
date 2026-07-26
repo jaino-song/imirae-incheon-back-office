@@ -28,7 +28,7 @@ export const ContactInput = ({
   placeholder,
   required = false,
   disabled = false,
-  dataComponent = "messages-form-contact-input",
+  dataComponent = "desktop_messages_form_contact-input",
   containerClassName,
   inputClassName,
   labelClassName,

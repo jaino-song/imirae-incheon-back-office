@@ -19,6 +19,8 @@ type StepperSize = "sm" | "md" | "lg";
 type StepState = "done" | "active" | "pending";
 
 export interface StepperProps {
+  /** Caller-context canonical base, e.g. `mobile_chat_page_wizard-registration_stepper`. */
+  "data-component"?: string;
   /** Step definitions — length determines how many steps are shown. */
   steps: StepperStep[];
   /**
@@ -60,6 +62,7 @@ const STATE_CIRCLE: Record<StepState, string> = {
 };
 
 export function Stepper({
+  "data-component": dataComponent,
   steps,
   activeStep,
   size = "md",
@@ -67,9 +70,10 @@ export function Stepper({
   className,
 }: StepperProps) {
   const tokens = SIZE_MAP[size];
+  const sub = (suffix: string) => (dataComponent ? `${dataComponent}_${suffix}` : undefined);
 
   return (
-    <div data-component="stepper" className={cn("flex items-center", className)}>
+    <div data-component={dataComponent} data-slot="stepper" className={cn("flex items-center", className)}>
       {steps.map((step, idx) => {
         const state = resolveState(step, idx, activeStep);
         const nextState = idx < steps.length - 1 ? resolveState(steps[idx + 1], idx + 1, activeStep) : null;
@@ -85,9 +89,9 @@ export function Stepper({
 
         return (
           <React.Fragment key={step.label}>
-            <div data-component="stepper-step" className="flex flex-1 flex-col items-center">
+            <div data-component={sub("step")} className="flex flex-1 flex-col items-center">
               <div
-                data-component="stepper-circle"
+                data-component={sub("step_circle")}
                 className={cn(
                   "rounded-full flex items-center justify-center font-bold",
                   tokens.circle,
@@ -98,7 +102,7 @@ export function Stepper({
                 {indicator}
               </div>
               <span
-                data-component="stepper-label"
+                data-component={sub("step_label")}
                 className={cn(
                   "mt-1 whitespace-nowrap",
                   tokens.label,
@@ -111,7 +115,7 @@ export function Stepper({
 
             {idx < steps.length - 1 && (
               <div
-                data-component="stepper-connector"
+                data-component={sub("connector")}
                 className={cn(
                   "shrink-0 select-none font-semibold leading-none",
                   tokens.connector,

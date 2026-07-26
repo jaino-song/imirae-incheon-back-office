@@ -12,6 +12,7 @@ describe("ServiceRecordLinkResetResultModal", () => {
 
         render(
             <ServiceRecordLinkResetResultModal
+                data-component="mobile_clients_detail-sheet_stack_detail-page_content_reset-link-result-modal"
                 open
                 serviceRecordUrl={serviceRecordUrl}
                 onClose={onClose}

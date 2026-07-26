@@ -23,10 +23,10 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
         onClose={handleClose}
         title="시스템 템플릿"
       >
-        <div className="detail-empty-state" data-component="messages-system-template-detail-loading">
+        <div className="detail-empty-state" data-component="mobile_messages_system-templates_template-key-detail_loading">
           <div
             className="flex items-center justify-center"
-            data-component="messages-system-template-detail-loading-spinner"
+            data-component="mobile_messages_system-templates_template-key-detail_loading_spinner"
           >
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
@@ -43,7 +43,7 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
         onClose={handleClose}
         title="시스템 템플릿"
       >
-        <div className="detail-empty-state" data-component="messages-system-template-detail-error">
+        <div className="detail-empty-state" data-component="mobile_messages_system-templates_template-key-detail_error">
           템플릿을 찾을 수 없습니다.
         </div>
       </MobileDetailSlideUp>
@@ -69,45 +69,45 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
           </>
         ),
         onClick: handleSend,
-        dataComponent: 'messages-system-template-send-cta',
+        dataComponent: 'mobile_messages_system-templates_template-key-detail_send-cta',
       }}
     >
-      <div className="message-detail pop-up" data-component="messages-system-template-detail-body">
-        <div className="message-detail-head" data-component="messages-system-template-detail-summary">
-          <div className="doc-icon doc-icon-primary" data-component="messages-system-template-detail-icon">
+      <div className="message-detail pop-up" data-component="mobile_messages_system-templates_template-key-detail_detail-panel">
+        <div className="message-detail-head" data-component="mobile_messages_system-templates_template-key-detail_detail-panel_summary">
+          <div className="doc-icon doc-icon-primary" data-component="mobile_messages_system-templates_template-key-detail_detail-panel_summary_icon">
             <FileText size={16} strokeWidth={2.5} />
           </div>
           <div
             className="message-detail-head-text"
-            data-component="messages-system-template-detail-summary-text"
+            data-component="mobile_messages_system-templates_template-key-detail_detail-panel_summary_text"
           >
             <div
               className="message-detail-title"
-              data-component="messages-system-template-detail-description"
+              data-component="mobile_messages_system-templates_template-key-detail_detail-panel_summary_text_description"
             >
               {template.description}
             </div>
             <div
               className="message-detail-subtitle"
-              data-component="messages-system-template-detail-type"
+              data-component="mobile_messages_system-templates_template-key-detail_detail-panel_summary_text_type"
             >
               메시지 템플릿
             </div>
           </div>
-          <span className="badge-mini primary" data-component="messages-system-template-detail-badge">
+          <span className="badge-mini primary" data-component="mobile_messages_system-templates_template-key-detail_detail-panel_summary_badge">
             시스템
           </span>
         </div>
 
         <InfoCard data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card" title="메시지 내용">
-          <p className="message-detail-body" data-component="messages-system-template-content">
+          <p className="message-detail-body" data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card_content">
             {template.content}
           </p>
         </InfoCard>
 
         {template.requiredVariables && template.requiredVariables.length > 0 ? (
           <InfoCard data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card-2" title="필수 변수">
-            <div className="flex flex-wrap gap-2" data-component="messages-system-template-variables">
+            <div className="flex flex-wrap gap-2" data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card-2_variables">
               {template.requiredVariables.map((variable) => (
                 <span
                   key={variable.key}
@@ -123,7 +123,7 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
         ) : null}
 
         <div
-          data-component="messages-system-template-desktop-only"
+          data-component="mobile_messages_system-templates_template-key-detail_detail-panel_desktop-only"
           className="info-card pop-up flex items-start gap-3 border border-dashed border-v3-border"
         >
           <Monitor className="mt-0.5 h-5 w-5 shrink-0 text-v3-primary" />
@@ -136,11 +136,11 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
 
         <Link
           href="/messages/automation"
-          data-component="messages-system-template-trigger-link"
+          data-component="mobile_messages_system-templates_template-key-detail_detail-panel_trigger-link"
           className="info-card pop-up flex items-start gap-3 hover:bg-v3-dim-white"
         >
           <Workflow className="mt-0.5 h-5 w-5 shrink-0 text-v3-primary" />
-          <div className="flex-1" data-component="messages-system-template-trigger-copy">
+          <div className="flex-1" data-component="mobile_messages_system-templates_template-key-detail_detail-panel_trigger-link_copy">
             <p className="text-[0.85rem] font-semibold text-v3-dark">자동 발송 규칙 설정</p>
             <p className="text-[0.72rem] text-v3-text-muted">
               이 템플릿의 자동 발송 ON/OFF·발송 시점은 메시지 → 자동 전송에서 관리합니다.

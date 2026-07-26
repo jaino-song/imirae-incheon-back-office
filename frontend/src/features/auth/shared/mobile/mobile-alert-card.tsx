@@ -21,7 +21,7 @@ export function MobileAlertCard({
   "data-component": dataComponent,
   ...alertProps
 }: MobileAlertCardProps) {
-  const componentName = dataComponent ?? "alert-card";
+  const componentName = dataComponent ?? "desktop_auth_alert-card";
 
   return (
     <Alert {...alertProps} data-component={componentName}>

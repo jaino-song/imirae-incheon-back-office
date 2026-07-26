@@ -15,17 +15,17 @@ interface StatsBarProps {
   items: readonly StatsBarItem[];
   isLoading?: boolean;
   density?: StatMiniDensity;
-  name?: string;
+  name: string;
 }
 
 export function StatsBar({
   items,
   isLoading = false,
   density = "default",
-  name = "stats",
+  name,
 }: StatsBarProps) {
   return (
-    <div data-component={`${name}-stats`} className="flex flex-wrap gap-[calc(16px*var(--glint-ui-scale,1))]">
+    <div data-component={`${name}_stats`} className="flex flex-wrap gap-[calc(16px*var(--glint-ui-scale,1))]">
       {items.map((item, idx) => (
         <StatMini
           key={item.label}

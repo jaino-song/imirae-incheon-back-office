@@ -10,7 +10,7 @@ import { ContentPaper } from "@/components/app/root/content-paper";
 
 function BackButton() {
   return (
-    <div data-component="messages-template-edit-nav" className="mb-4">
+    <div data-component="mobile_messages_templates_edit_page_nav" className="mb-4">
       <Button variant="ghost" size="icon" asChild>
         <Link href="/messages/templates">
           <ArrowLeft className="h-6 w-6" />
@@ -29,8 +29,8 @@ export default function EditTemplatePage() {
 
   if (isLoading) {
     return (
-      <div data-component="messages-template-edit" className="bg-background">
-        <div data-component="messages-template-edit-loading-content" className="mx-auto px-4 py-6 sm:px-6 sm:py-8 md:px-12">
+      <div data-component="mobile_messages_templates_edit_page" className="bg-background">
+        <div data-component="mobile_messages_templates_edit_page_loading" className="mx-auto px-4 py-6 sm:px-6 sm:py-8 md:px-12">
           <BackButton />
           <ContentPaper title="템플릿" className="flex min-h-[70vh] items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -42,8 +42,8 @@ export default function EditTemplatePage() {
 
   if (error || !template) {
     return (
-      <div data-component="messages-template-edit" className="bg-background">
-        <div data-component="messages-template-edit-error-content" className="mx-auto px-4 py-6 sm:px-6 sm:py-8 md:px-12">
+      <div data-component="mobile_messages_templates_edit_page" className="bg-background">
+        <div data-component="mobile_messages_templates_edit_page_error" className="mx-auto px-4 py-6 sm:px-6 sm:py-8 md:px-12">
           <BackButton />
           <ContentPaper title="템플릿" className="min-h-[70vh]">
             <Alert variant="destructive">
@@ -56,23 +56,23 @@ export default function EditTemplatePage() {
   }
 
   return (
-    <div data-component="messages-template-edit" className="bg-background">
+    <div data-component="mobile_messages_templates_edit_page" className="bg-background">
       <section
-        data-component="messages-template-edit-content"
+        data-component="mobile_messages_templates_edit_page_content"
         className="mx-auto px-4 py-6 sm:px-6 md:px-12 sm:py-8"
       >
         <BackButton />
         <ContentPaper title={template.name} subtitle="모바일에서는 보기와 발송만 지원합니다">
-          <div data-component="messages-template-edit-body" className="space-y-4">
+          <div data-component="mobile_messages_templates_edit_page_content_body" className="space-y-4">
             <div
-              data-component="messages-template-content"
+              data-component="mobile_messages_templates_edit_page_content_body_text"
               className="whitespace-pre-wrap rounded-2xl border border-v3-border/60 bg-white p-4 text-[0.85rem] leading-relaxed text-v3-dark"
             >
               {template.content}
             </div>
 
             <div
-              data-component="messages-template-edit-desktop-only"
+              data-component="mobile_messages_templates_edit_page_content_body_desktop-only"
               className="flex items-start gap-3 rounded-2xl border border-dashed border-v3-border bg-v3-dim-white px-4 py-3"
             >
               <Monitor className="mt-0.5 h-5 w-5 shrink-0 text-v3-primary" />
@@ -84,7 +84,7 @@ export default function EditTemplatePage() {
             </div>
 
             <Button
-              data-component="messages-template-send-cta"
+              data-component="mobile_messages_templates_edit_page_content_body_send-cta"
               className="w-full gap-2"
               onClick={() =>
                 router.push(`/messages/new?template=${encodeURIComponent(String(template.id))}`)

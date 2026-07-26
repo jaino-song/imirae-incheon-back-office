@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/app/v3";
 
+const SOURCE_COMPONENT = "Autocomplete";
+
 export interface AutocompleteManualEntry {
     label: ReactNode;
     description?: ReactNode;
@@ -27,7 +29,7 @@ export interface AutocompleteItemContext {
 
 export interface AutocompleteProps<T> {
     name: string;
-    "data-component"?: string;
+    "data-component": string;
     inputId?: string;
     value: T | null;
     onChange: (item: T | null) => void;
@@ -204,10 +206,7 @@ export function Autocomplete<T>({
         }
     };
 
-    const legacyBase = `${name}-autocomplete`;
-    const containerDc = dataComponent ?? legacyBase;
-    const sub = (suffix: string) =>
-        dataComponent ? `${dataComponent}_${suffix}` : `${legacyBase}-${suffix}`;
+    const sub = (suffix: string) => `${dataComponent}_${suffix}`;
     const inputDc = sub("input");
     const toggleDc = sub("toggle");
     const dropdownDc = sub("dropdown");
@@ -217,9 +216,10 @@ export function Autocomplete<T>({
 
     return (
         <div
-            data-component={containerDc}
-            data-source-component="Autocomplete"
-            data-testid={containerDc}
+            data-component={dataComponent}
+            data-slot="autocomplete"
+            data-source-component={SOURCE_COMPONENT}
+            data-testid={dataComponent}
             data-disabled={disabled ? "true" : undefined}
             className={cn("space-y-2", className)}
         >
@@ -258,6 +258,7 @@ export function Autocomplete<T>({
                     placeholder={placeholder}
                     disabled={disabled}
                     data-component={inputDc}
+                    data-slot="autocomplete-input"
                     data-state={showDropdown ? "open" : "closed"}
                     className={cn(
                         "h-[44px] pr-24 data-[state=open]:!rounded-b-none data-[state=open]:!shadow-none",
@@ -302,6 +303,7 @@ export function Autocomplete<T>({
                             className="flex h-[44px] w-[44px] items-center justify-center rounded-2xl"
                             aria-label="목록 열기"
                             data-component={toggleDc}
+                            data-slot="autocomplete-toggle"
                         >
                             <ChevronDown className="size-4 translate-x-[9px] text-muted-foreground opacity-50" />
                         </button>
@@ -311,6 +313,7 @@ export function Autocomplete<T>({
                 {showDropdown && (
                     <div
                         data-component={dropdownDc}
+                        data-slot="autocomplete-dropdown"
                         data-testid={dropdownDc}
                         data-state="open"
                         className="absolute top-full left-0 right-0 z-50 overflow-hidden rounded-2xl !rounded-t-none border !border-v3-border bg-white shadow-[0_4px_16px_rgba(0,0,0,0.06)] animate-in fade-in-0 zoom-in-95"

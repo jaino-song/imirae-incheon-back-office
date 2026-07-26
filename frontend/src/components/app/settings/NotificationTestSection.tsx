@@ -33,7 +33,7 @@ export function NotificationTestSection() {
   };
 
   return (
-    <div data-component="settings-notification-test" className="space-y-4">
+    <div data-component="desktop_settings_sections_notification-test" className="space-y-4">
       <div className="flex flex-col gap-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-v3-primary-light text-v3-primary">

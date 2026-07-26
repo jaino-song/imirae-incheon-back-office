@@ -21,7 +21,7 @@ export const ConditionalHeader = () => {
   }
 
   return (
-    <div data-component="conditional-header">
+    <div data-component="mobile_shell_app-header">
       <Header initialUser={initialUser} />
     </div>
   );

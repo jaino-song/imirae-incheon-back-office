@@ -10,6 +10,7 @@ interface ActivityItem {
 }
 
 interface ActivityTimelineProps {
+  "data-component": string;
   items: ActivityItem[];
   maxHeight?: string;
 }
@@ -25,11 +26,12 @@ const variantStyles: Record<
 };
 
 export function ActivityTimeline({
+  "data-component": dataComponent,
   items,
   maxHeight = "400px",
 }: ActivityTimelineProps) {
   return (
-    <div data-component="activity-timeline" className="overflow-y-auto" style={{ maxHeight }}>
+    <div data-component={dataComponent} className="overflow-y-auto" style={{ maxHeight }}>
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
         const Icon = item.icon;

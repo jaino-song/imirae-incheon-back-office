@@ -14,6 +14,14 @@ import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 
+/**
+ * Canonical data-component base for the /reset-password route. CardContainer
+ * derives its own `_card` / `_card_content` levels from this base, so children
+ * rendered into the card body hang off RESET_PASSWORD_CARD_CONTENT.
+ */
+const RESET_PASSWORD_BASE = "mobile_auth_reset-password";
+const RESET_PASSWORD_CARD_CONTENT = `${RESET_PASSWORD_BASE}_card_content`;
+
 export default function ResetPasswordPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -94,16 +102,11 @@ export default function ResetPasswordPage() {
     if (!token) {
         return (
             <CardContainer
-                data-component="auth-reset-password"
-                dataComponents={{
-                    container: "auth-reset-password",
-                    card: "auth-reset-password-card",
-                    content: "auth-reset-password-content",
-                }}
+                data-component={RESET_PASSWORD_BASE}
                 className="max-w-[400px] border bg-card text-card-foreground shadow-lg"
             >
-                <div data-component="auth-reset-password-invalid" className="flex flex-col items-center gap-4 text-center">
-                    <div data-component="auth-reset-password-invalid-icon" className="rounded-full bg-destructive/10 p-3">
+                <div data-component={`${RESET_PASSWORD_CARD_CONTENT}_invalid`} className="flex flex-col items-center gap-4 text-center">
+                    <div data-component={`${RESET_PASSWORD_CARD_CONTENT}_invalid_icon`} className="rounded-full bg-destructive/10 p-3">
                         <AlertTriangle className="h-12 w-12 text-destructive" />
                     </div>
                     <h2 className="text-2xl font-bold">유효하지 않은 링크</h2>
@@ -113,7 +116,7 @@ export default function ResetPasswordPage() {
                         이메일의 링크를 다시 확인해 주세요.
                     </p>
                     <Button
-                        data-component="auth-reset-password-retry-btn"
+                        data-component={`${RESET_PASSWORD_CARD_CONTENT}_invalid_retry-button`}
                         size="lg"
                         className="w-full rounded-2xl"
                         onClick={() => router.push("/forgot-password")}
@@ -121,7 +124,7 @@ export default function ResetPasswordPage() {
                         비밀번호 재설정 다시 요청
                     </Button>
                     <AuthInlineLink
-                        dataComponent="auth-reset-password-login-link"
+                        dataComponent={`${RESET_PASSWORD_CARD_CONTENT}_invalid_login-link`}
                         href="/login"
                         linkLabel="로그인 페이지로 돌아가기"
                     />
@@ -134,16 +137,11 @@ export default function ResetPasswordPage() {
     if (isSuccess) {
         return (
             <CardContainer
-                data-component="auth-reset-password"
-                dataComponents={{
-                    container: "auth-reset-password",
-                    card: "auth-reset-password-card",
-                    content: "auth-reset-password-content",
-                }}
+                data-component={RESET_PASSWORD_BASE}
                 className="max-w-[400px] border bg-card text-card-foreground shadow-lg"
             >
-                <div data-component="auth-reset-password-success" className="flex flex-col items-center gap-4 text-center">
-                    <div data-component="auth-reset-password-success-icon" className="rounded-full bg-success/10 p-3">
+                <div data-component={`${RESET_PASSWORD_CARD_CONTENT}_success`} className="flex flex-col items-center gap-4 text-center">
+                    <div data-component={`${RESET_PASSWORD_CARD_CONTENT}_success_icon`} className="rounded-full bg-success/10 p-3">
                         <CheckCircle className="h-12 w-12 text-success" />
                     </div>
                     <h2 className="text-2xl font-bold">비밀번호 변경 완료!</h2>
@@ -151,7 +149,7 @@ export default function ResetPasswordPage() {
                         새 비밀번호로 로그인할 수 있습니다.
                     </p>
                     <Button
-                        data-component="auth-reset-password-login-btn"
+                        data-component={`${RESET_PASSWORD_CARD_CONTENT}_success_login-button`}
                         size="lg"
                         className="w-full rounded-2xl"
                         onClick={() => router.push("/login")}
@@ -165,15 +163,7 @@ export default function ResetPasswordPage() {
 
     return (
         <CardContainer
-            data-component="auth-reset-password"
-            dataComponents={{
-                container: "auth-reset-password",
-                card: "auth-reset-password-card",
-                header: "auth-reset-password-header",
-                title: "auth-reset-password-title",
-                subtitle: "auth-reset-password-subtitle",
-                content: "auth-reset-password-content",
-            }}
+            data-component={RESET_PASSWORD_BASE}
             className="max-w-[400px] border bg-card text-card-foreground shadow-lg"
             contentClassName="flex flex-col gap-6"
             title="새 비밀번호 설정"
@@ -185,7 +175,7 @@ export default function ResetPasswordPage() {
                 </Alert>
             )}
 
-            <form onSubmit={handleSubmit} data-component="auth-reset-password-form" className="flex flex-col gap-4">
+            <form onSubmit={handleSubmit} data-component={`${RESET_PASSWORD_CARD_CONTENT}_form`} className="flex flex-col gap-4">
                 <FormField
                     label="새 비밀번호"
                     type="password"
@@ -195,7 +185,7 @@ export default function ResetPasswordPage() {
                     disabled={isLoading}
                     autoComplete="new-password"
                     autoFocus
-                    data-component="auth-reset-password-new-field"
+                    data-component={`${RESET_PASSWORD_CARD_CONTENT}_form_new-password-field`}
                 />
 
                 {/* Password Requirements */}
@@ -214,11 +204,11 @@ export default function ResetPasswordPage() {
                     error={fieldErrors.confirmPassword}
                     disabled={isLoading}
                     autoComplete="new-password"
-                    data-component="auth-reset-password-confirm-field"
+                    data-component={`${RESET_PASSWORD_CARD_CONTENT}_form_confirm-password-field`}
                 />
 
                 <Button
-                    data-component="auth-reset-password-submit-btn"
+                    data-component={`${RESET_PASSWORD_CARD_CONTENT}_form_submit-button`}
                     type="submit"
                     size="lg"
                     className="w-full rounded-2xl"
@@ -229,7 +219,7 @@ export default function ResetPasswordPage() {
             </form>
 
             <AuthInlineLink
-                dataComponent="auth-reset-password-login-link"
+                dataComponent={`${RESET_PASSWORD_CARD_CONTENT}_login-link`}
                 href="/login"
                 linkLabel="로그인 페이지로 돌아가기"
             />

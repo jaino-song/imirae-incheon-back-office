@@ -407,20 +407,24 @@ test.describe("Mobile contracts list rows", () => {
     const maternalContractsButton = page.getByRole("button", { name: "산모 계약서", exact: true });
     const serviceRecordsButton = page.getByRole("button", { name: "제공기록지", exact: true });
     await expect(maternalContractsButton).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(1);
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toContainText("홍길동");
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(1);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toContainText("홍길동");
 
     await serviceRecordsButton.click();
 
     await expect(serviceRecordsButton).toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator('[data-component="mobile-redesign-list-title"]')).toContainText("제공기록지");
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(1);
-    const serviceRecordRow = page.locator('[data-component="mobile-contracts-row"]');
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header"]')).toContainText("제공기록지");
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(1);
+    const serviceRecordRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]');
     await expect(serviceRecordRow.locator(".list-name")).toHaveText("김산모");
-    await expect(serviceRecordRow.locator('[data-component="mobile-contracts-row-subtitle"]')).toHaveText("제공기록지");
-    await expect(serviceRecordRow.locator('[data-component="mobile-contracts-row-sent-date"]')).toContainText("발송 ");
-    await expect(serviceRecordRow.locator('[data-component="mobile-contracts-row-completed-date"]')).toContainText("완료 ");
-    await expect(serviceRecordRow.locator('[data-component="status-badge"]')).toHaveText("완료");
+    await expect(serviceRecordRow.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_subtitle"]')).toHaveText("제공기록지");
+    await expect(serviceRecordRow.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_dates_sent-date"]')).toContainText("발송 ");
+    await expect(serviceRecordRow.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_dates_completed-date"]')).toContainText("완료 ");
+    await expect(
+      serviceRecordRow.locator(
+        '[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_right_status"]',
+      ),
+    ).toHaveText("완료");
   });
 
   test("renders contract rows with the shared list item structure", async ({ page }) => {
@@ -438,7 +442,7 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    const row = page.locator('[data-component="mobile-contracts-row"]').first();
+    const row = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]').first();
     await expect(row).toBeVisible();
     await expect(row).toHaveClass(/(^|\s)list-item(\s|$)/);
     await expect(row).not.toHaveClass(/(^|\s)contract-item(\s|$)/);
@@ -485,9 +489,9 @@ test.describe("Mobile contracts list rows", () => {
           && request.excludeDeleted,
       ),
     ).toBe(true);
-    const rows = page.locator('[data-component="mobile-contracts-row"]');
+    const rows = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]');
     const loadMoreButton = page.locator(
-      '[data-component="mobile-contracts-load-more-button"]',
+      '[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_button"]',
     );
     await expect(loadMoreButton).toBeVisible({ timeout: 15000 });
     await expect(loadMoreButton).toContainText("탭하여 더보기");
@@ -540,11 +544,11 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(9, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(9, {
       timeout: 15000,
     });
     await expect(
-      page.locator('[data-component="mobile-contracts-load-more-button"]'),
+      page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_button"]'),
     ).toHaveCount(0);
   });
 
@@ -563,18 +567,18 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
     // Anchor: wait for the mocked rows to land before child assertions.
-    await expect(page.locator('[data-component="mobile-contracts-row"]').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]').first()).toBeVisible({ timeout: 15000 });
 
-    const waitingRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" });
-    const openedRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "열람고객" });
-    const staleStepRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "구문서" });
-    const sendFailedRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "전송실패" });
+    const waitingRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" });
+    const openedRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "열람고객" });
+    const staleStepRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "구문서" });
+    const sendFailedRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "전송실패" });
     // Row name comes from DOCUMENT_CLIENT_SUMMARIES.clientName ("검토고객"),
     // not the step recipient name.
-    const reviewRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "검토고객" });
-    const userParticipantRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "이용자단계" });
-    const providerDraftingRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "작성단계" });
-    const completedRow = page.locator('[data-component="mobile-contracts-row"]', { hasText: "완료고객" });
+    const reviewRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "검토고객" });
+    const userParticipantRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "이용자단계" });
+    const providerDraftingRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "작성단계" });
+    const completedRow = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "완료고객" });
 
     await expect(waitingRow.locator(".step-label")).toHaveText("3/6 - 이용자 문서 열람 대기");
     await expect(openedRow.locator(".step-label")).toHaveText("4/6 - 이용자 서명 대기");
@@ -610,19 +614,19 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    const listCard = page.locator('[data-component="mobile-redesign-list-card"]');
-    await expect(page.locator('[data-component="mobile-contracts-loading-row"]')).toHaveCount(9);
-    await expect(page.locator('[data-component="mobile-contracts-load-more-placeholder"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-contracts-empty"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-redesign-list-title"]')).not.toContainText("0건");
+    const listCard = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card"]');
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(9);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header"]')).not.toContainText("0건");
     const beforeBox = await listCard.boundingBox();
     expect(beforeBox).not.toBeNull();
 
     resolveDocuments();
-    await expect(page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" })).toBeVisible();
-    await expect(page.locator('[data-component="mobile-contracts-loading-row"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-contracts-empty"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-redesign-list-title"]')).toContainText("8건");
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" })).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header"]')).toContainText("8건");
 
     const afterBox = await listCard.boundingBox();
     expect(afterBox).not.toBeNull();
@@ -649,7 +653,7 @@ test.describe("Mobile contracts list rows", () => {
     await routeNotificationLogs(page);
 
     await page.goto("/contracts");
-    await expect(page.locator('[data-component="mobile-redesign-list-card"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card"]')).toBeVisible();
     // The route body class is added by a client effect, so measuring before it
     // lands races the hydrated shell styles (body background in particular).
     await page.waitForFunction(() =>
@@ -657,12 +661,12 @@ test.describe("Mobile contracts list rows", () => {
     );
 
     const geometry = await page.evaluate(() => {
-      const appRoot = document.querySelector('[data-component="app-root"]')?.getBoundingClientRect();
-      const appProviders = document.querySelector('[data-component="app-providers"]')?.getBoundingClientRect();
-      const card = document.querySelector('[data-component="mobile-redesign-list-card"]')?.getBoundingClientRect();
+      const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
+      const appProviders = document.querySelector('[data-slot="app-content"]')?.getBoundingClientRect();
+      const card = document.querySelector('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card"]')?.getBoundingClientRect();
       const bodyBackground = getComputedStyle(document.body).backgroundColor;
-      const rootElement = document.querySelector('[data-component="app-root"]') as HTMLElement | null;
-      const providersElement = document.querySelector('[data-component="app-providers"]') as HTMLElement | null;
+      const rootElement = document.querySelector('[data-slot="app-root"]') as HTMLElement | null;
+      const providersElement = document.querySelector('[data-slot="app-content"]') as HTMLElement | null;
       const rootStyles = rootElement ? getComputedStyle(rootElement) : null;
       const providerStyles = providersElement ? getComputedStyle(providersElement) : null;
 
@@ -731,7 +735,7 @@ test.describe("Mobile contracts list rows", () => {
     await routeNotificationLogs(page);
 
     await page.goto("/contracts");
-    await expect(page.locator('[data-component="mobile-redesign-list-card"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card"]')).toBeVisible();
     // The route body class is added by a client effect, so measuring before it
     // lands races the hydrated shell styles (body background in particular).
     await page.waitForFunction(() =>
@@ -742,8 +746,8 @@ test.describe("Mobile contracts list rows", () => {
       document.body.classList.remove("mobile-contracts-route");
     });
 
-    const contractsTab = page.locator('[data-component="mobile-bottom-nav-contracts"]');
-    const indicator = page.locator('[data-component="mobile-bottom-indicator"]');
+    const contractsTab = page.locator('[data-slot="mobile-bottom-nav-contracts"]');
+    const indicator = page.locator('[data-slot="mobile-bottom-indicator"]');
     await expect(indicator).toHaveCSS("display", "block");
     await expect(indicator).toHaveCSS("opacity", "1");
     await expect(contractsTab).toHaveAttribute("aria-current", "page");
@@ -751,8 +755,8 @@ test.describe("Mobile contracts list rows", () => {
     await expect(contractsTab).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
     const beforeHydrationClass = await page.evaluate(() => {
-      const header = document.querySelector('[data-component="mobile-header"]')?.getBoundingClientRect();
-      const card = document.querySelector('[data-component="mobile-redesign-list-card"]')?.getBoundingClientRect();
+      const header = document.querySelector('[data-slot="mobile-header"]')?.getBoundingClientRect();
+      const card = document.querySelector('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card"]')?.getBoundingClientRect();
       return {
         header: header ? { x: header.x, y: header.y, width: header.width } : null,
         card: card ? { x: card.x, y: card.y, height: card.height } : null,
@@ -764,8 +768,8 @@ test.describe("Mobile contracts list rows", () => {
     });
 
     const afterHydrationClass = await page.evaluate(() => {
-      const header = document.querySelector('[data-component="mobile-header"]')?.getBoundingClientRect();
-      const card = document.querySelector('[data-component="mobile-redesign-list-card"]')?.getBoundingClientRect();
+      const header = document.querySelector('[data-slot="mobile-header"]')?.getBoundingClientRect();
+      const card = document.querySelector('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card"]')?.getBoundingClientRect();
       return {
         header: header ? { x: header.x, y: header.y, width: header.width } : null,
         card: card ? { x: card.x, y: card.y, height: card.height } : null,
@@ -814,20 +818,20 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
     // Anchor: wait for the mocked rows to land before child assertions.
-    await expect(page.locator('[data-component="mobile-contracts-row"]').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]').first()).toBeVisible({ timeout: 15000 });
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" }).click();
-    await expect(page.locator('[data-component="mobile-contracts-preview"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-contracts-sign"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-contracts-receipt-share"]')).toHaveCount(0);
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" }).click();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_preview"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_sign"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-share"]')).toHaveCount(0);
 
     await page.locator(".sheet-close").click();
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "검토고객" }).click();
-    const signAction = page.locator('[data-component="mobile-contracts-sign"]');
-    await expect(page.locator('[data-component="mobile-contracts-preview"]')).toBeVisible();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "검토고객" }).click();
+    const signAction = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_sign"]');
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_preview"]')).toBeVisible();
     await expect(signAction).toBeVisible();
     await expect(signAction).toHaveText("검토하기");
-    await expect(page.locator('[data-component="mobile-contracts-receipt-share"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-share"]')).toHaveCount(0);
   });
 
   test("confirms a service record review without requesting an end date", async ({ page }) => {
@@ -860,20 +864,22 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
     await page.getByRole("button", { name: "제공기록지", exact: true }).click();
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "검토고객" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "검토고객" }).click();
     await expect(
-      page.locator('[data-component="mobile-contracts-detail-header_title-group_name"]'),
+      page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_title-group_name"]'),
     ).toHaveText("제공기록지");
     const userInfo = page.locator(".info-card", { hasText: "이용자 정보" });
     await expect(userInfo).toContainText("검토고객");
     await expect(userInfo).toContainText("010-5555-6666");
     await expect(userInfo).toContainText("한제공");
-    await page.locator('[data-component="mobile-contracts-sign"]').click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_sign"]').click();
 
-    const confirmModal = page.locator('[data-component="mobile-two-button-modal"]');
+    const confirmModal = page.locator('[data-component="mobile_contracts_finalize-confirmation_modal"]');
     await expect(confirmModal).toBeVisible();
-    await expect(confirmModal.locator('[data-component="mobile-two-button-modal-title"]')).toHaveText("완료할까요?");
-    await expect(page.locator('[data-component="mobile-contracts-finalize-dialog"]')).toHaveCount(0);
+    await expect(
+      confirmModal.locator('[data-component="mobile_contracts_finalize-confirmation_modal_title"]'),
+    ).toHaveText("완료할까요?");
+    await expect(page.locator('[data-component="mobile_contracts_finalize-dialog"]')).toHaveCount(0);
 
     const finalizeRequestPromise = page.waitForRequest((request) =>
       request.url().includes("/api/eformsign-docs/finalize-headless")
@@ -927,10 +933,10 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "완료고객" }).click();
-    await expect(page.locator('[data-component="mobile-contracts-pdf-preview"]')).toHaveCount(0);
-    const receiptShareButton = page.locator('[data-component="mobile-contracts-receipt-share"]');
-    await expect(page.locator('[data-component="mobile-contracts-preview"]')).toBeVisible();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "완료고객" }).click();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview"]')).toHaveCount(0);
+    const receiptShareButton = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_receipt-share"]');
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_preview"]')).toBeVisible();
     await expect(receiptShareButton).toHaveText("영수증 공유");
     await receiptShareButton.click();
     const sharedReceipt = await page.waitForFunction(() => {
@@ -944,24 +950,24 @@ test.describe("Mobile contracts list rows", () => {
       type: "application/pdf",
     });
 
-    await page.locator('[data-component="mobile-contracts-preview"]').click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_preview"]').click();
 
-    const preview = page.locator('[data-component="mobile-contracts-pdf-preview"]');
+    const preview = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview"]');
     await expect(preview).toBeVisible();
-    await expect(page.locator('[data-component="mobile-contracts-preview"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_preview"]')).toHaveCount(0);
     await expect(preview).toHaveCSS("animation-name", "none");
     await expect(preview).toHaveCSS("border-top-width", "0px");
     await expect(preview).toHaveCSS("border-radius", "0px");
     await expect(preview).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(preview).toHaveCSS("min-height", "0px");
-    await expect(page.locator('[data-component="mobile-contracts-detail"]')).toHaveCSS("overflow-y", "hidden");
-    await expect(page.locator('[data-component="mobile-redesign-detail-tabs"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content"]')).toHaveCSS("overflow-y", "hidden");
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_tabs"]')).toHaveCount(0);
 
     const previewHeader = preview.locator(".contract-preview-header");
     await expect(previewHeader).toHaveCSS("animation-name", "mobile-redesign-pop-up");
     await expect(previewHeader).toHaveCSS("animation-duration", "0.4s");
 
-    const frame = page.locator('[data-component="mobile-contracts-pdf-preview-frame"]');
+    const frame = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_frame"]');
     await expect(frame).toHaveAttribute("src", /\/api\/eformsign\/documents\/doc-completed\/download_files\?fileType=document#toolbar=0/);
     await expect(frame).toHaveCSS("min-height", "0px");
     const frameBox = await frame.boundingBox();
@@ -971,9 +977,9 @@ test.describe("Mobile contracts list rows", () => {
     }
     expect(frameBox.y + frameBox.height).toBeLessThanOrEqual(845);
 
-    const backButton = page.locator('[data-component="mobile-contracts-pdf-preview-back"]');
-    const receiptButton = page.locator('[data-component="mobile-contracts-receipt-download"]');
-    const downloadButton = page.locator('[data-component="mobile-contracts-pdf-download"]');
+    const backButton = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_back"]');
+    const receiptButton = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_receipt-download"]');
+    const downloadButton = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_pdf-download"]');
     await expect(backButton).toHaveText("돌아가기");
     await expect(receiptButton).toHaveText("영수증");
     await expect(downloadButton).toHaveText("다운로드");
@@ -1002,8 +1008,8 @@ test.describe("Mobile contracts list rows", () => {
     await expect(downloadButton.locator("svg")).toHaveCSS("transform", "none");
     await page.getByLabel("계약 상세로 돌아가기").click();
     await expect(preview).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-contracts-preview"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-detail-tabs"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_actions_preview"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_tabs"]')).toBeVisible();
   });
 
   test("does not infer open or signed stages from step index alone", async ({ page }) => {
@@ -1021,10 +1027,12 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "구문서" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "구문서" }).click();
     await page.getByRole("button", { name: "서명 진행" }).click();
 
-    const timeline = page.locator('[data-component="activity-timeline"]');
+    const timeline = page.locator(
+      '[data-component="mobile_contracts_detail-panel_info-card-3_activity-timeline"]',
+    );
     await expect(timeline).toContainText("문서가 생성되었습니다");
     await expect(timeline).toContainText("이용자에게 문서가 발송되었습니다.");
     await expect(timeline).toContainText("이용자 문서 열람 대기중입니다");
@@ -1077,7 +1085,7 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" }).click();
 
     await expect(page.getByRole("button", { name: "재알림 보내기" })).toBeVisible();
     await expect(page.getByRole("button", { name: "영수증 공유" })).toHaveCount(0);
@@ -1089,11 +1097,11 @@ test.describe("Mobile contracts list rows", () => {
       stepSeq: "1",
       comment: "재요청입니다.",
     });
-    await expect(page.locator('[data-component="toast"]')).toContainText("대기고객님에게 전자문서 작성을 재요청했습니다.");
+    await expect(page.locator('[data-component="mobile_shell_toaster_toast"]')).toContainText("대기고객님에게 전자문서 작성을 재요청했습니다.");
 
     reRequestPayload = null;
     await page.locator(".sheet-close").click();
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "열람고객" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "열람고객" }).click();
 
     await expect(page.getByRole("button", { name: "재알림 보내기" })).toBeVisible();
     await expect(page.getByRole("button", { name: "영수증 공유" })).toHaveCount(0);
@@ -1122,10 +1130,12 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "전송실패" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "전송실패" }).click();
     await page.getByRole("button", { name: "서명 진행" }).click();
 
-    const timeline = page.locator('[data-component="activity-timeline"]');
+    const timeline = page.locator(
+      '[data-component="mobile_contracts_detail-panel_info-card-3_activity-timeline"]',
+    );
     const failedStage = timeline.locator(".relative.flex.gap-3", {
       hasText: "이용자에게 문서 전송에 실패했습니다.",
     });
@@ -1150,9 +1160,9 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
     // Anchor: wait for the mocked rows to land before child assertions.
-    await expect(page.locator('[data-component="mobile-contracts-row"]').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]').first()).toBeVisible({ timeout: 15000 });
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" }).click();
 
     const contractInfo = page.locator(".info-card", { hasText: "계약 정보" });
     await expect(contractInfo).toContainText("계약서 종류");
@@ -1202,9 +1212,9 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
     // Anchor: wait for the mocked rows to land before child assertions.
-    await expect(page.locator('[data-component="mobile-contracts-row"]').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]').first()).toBeVisible({ timeout: 15000 });
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" }).click();
 
     // Provider fields render in the 이용자 정보 card (no "관련 정보" card).
     const userInfo = page.locator(".info-card", { hasText: "이용자 정보" });
@@ -1227,7 +1237,7 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" }).click();
     await page.getByRole("button", { name: "알림 발송" }).click();
 
     const notificationInfo = page.locator(".info-card", { hasText: "발송 내역" });
@@ -1253,7 +1263,7 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    await page.locator('[data-component="mobile-contracts-row"]', { hasText: "대기고객" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]', { hasText: "대기고객" }).click();
     await page.getByRole("button", { name: "알림 발송" }).click();
 
     const notificationInfo = page.locator(".info-card", { hasText: "발송 내역" });
@@ -1276,7 +1286,7 @@ test.describe("Mobile contracts list rows", () => {
 
     await page.goto("/contracts");
 
-    const search = page.locator('[data-component="mobile-contracts-search"]');
+    const search = page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"]');
     await expect(search).toBeVisible();
     await expect(search).toHaveCSS("margin-top", "4px");
     await expect(search).toHaveCSS("margin-right", "12px");

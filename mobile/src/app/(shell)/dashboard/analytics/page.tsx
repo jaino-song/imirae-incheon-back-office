@@ -29,9 +29,9 @@ export default function DashboardAnalyticsPage() {
   ];
 
   return (
-    <section className="shell-content flex flex-col" data-component="dashboard-analytics-page">
-      <div className="list-card" data-component="dashboard-analytics-card">
-        <div className="list-title" data-component="dashboard-analytics-title">
+    <section className="shell-content flex flex-col" data-component="mobile_dashboard_analytics-page">
+      <div className="list-card" data-component="mobile_dashboard_analytics-page_card">
+        <div className="list-title" data-component="mobile_dashboard_analytics-page_card_title">
           <span className="list-title-text">
             통계 보고서
             <span className="list-count">이번 달</span>
@@ -41,19 +41,33 @@ export default function DashboardAnalyticsPage() {
           <div
             className="action-feedback"
             role="alert"
-            data-component="dashboard-analytics-error"
+            data-component="mobile_dashboard_analytics-page_card_error"
           >
             통계를 불러오지 못했습니다.
           </div>
         ) : (
-          <div className="stats-grid" style={{ padding: "8px" }} data-component="dashboard-analytics-grid">
+          <div
+            className="stats-grid"
+            style={{ padding: "8px" }}
+            data-component="mobile_dashboard_analytics-page_card_grid"
+          >
             {cards.map(([value, label]) => (
-              <div className="mini-stat" data-component="dashboard-analytics-stat" key={label}>
-                <div data-component="dashboard-analytics-stat-content">
-                  <div className="mini-stat-num" data-component="dashboard-analytics-stat-value">
+              <div
+                className="mini-stat"
+                data-component="mobile_dashboard_analytics-page_card_grid_stat"
+                key={label}
+              >
+                <div data-component="mobile_dashboard_analytics-page_card_grid_stat_content">
+                  <div
+                    className="mini-stat-num"
+                    data-component="mobile_dashboard_analytics-page_card_grid_stat_content_value"
+                  >
                     {isLoading ? "—" : value}
                   </div>
-                  <div className="mini-stat-label" data-component="dashboard-analytics-stat-label">
+                  <div
+                    className="mini-stat-label"
+                    data-component="mobile_dashboard_analytics-page_card_grid_stat_content_label"
+                  >
                     {label}
                   </div>
                 </div>
@@ -62,7 +76,11 @@ export default function DashboardAnalyticsPage() {
           </div>
         )}
         {hasData && (
-          <div className="action-feedback" role="status" data-component="dashboard-analytics-feedback">
+          <div
+            className="action-feedback"
+            role="status"
+            data-component="mobile_dashboard_analytics-page_card_feedback"
+          >
             상세 차트는 다음 iteration에서 연결됩니다.
           </div>
         )}

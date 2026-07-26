@@ -54,7 +54,7 @@ export default function ContractSendWizard({ onComplete }: ContractSendWizardPro
     }, [selectedClient, setClientId, setName, setPhone, setBirthday, setAddress, setDueDate, setIsManualEntry, router, onComplete]);
 
     return (
-        <div data-component="chat-wizard-contract-send" className="min-h-[300px] flex flex-col">
+        <div data-component="mobile_chat_contract-send-wizard" className="min-h-[300px] flex flex-col">
             <div className="mb-4">
                 <h3 className="text-base font-bold mb-1">
                     계약서 전송
@@ -64,8 +64,9 @@ export default function ContractSendWizard({ onComplete }: ContractSendWizardPro
                 </p>
             </div>
 
-            <div data-component="chat-wizard-contract-send-body" className="flex flex-col gap-6 flex-1">
+            <div data-component="mobile_chat_contract-send-wizard_body" className="flex flex-col gap-6 flex-1">
                 <ClientAutocomplete
+                    data-component="mobile_chat_contract-send-wizard_body_client-autocomplete"
                     value={selectedClientId}
                     onChange={handleClientChange}
                     label="산모 선택"

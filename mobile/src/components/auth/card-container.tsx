@@ -11,7 +11,12 @@ interface CardContainerProps {
   disableAnimation?: boolean;
   headerActionsLeft?: React.ReactNode;
   headerActionsRight?: React.ReactNode;
-  "data-component"?: string;
+  /**
+   * Canonical data-component base for the surface that renders this card. The
+   * internal levels below are derived from it with `${base}_${suffix}` so the
+   * rendered DOM keeps the full-parent-path contract.
+   */
+  "data-component": string;
   dataComponents?: {
     container?: string;
     card?: string;
@@ -37,15 +42,15 @@ export function CardContainer({
 }: CardContainerProps) {
   const hasHeader = Boolean(title || subtitle);
   const hasHeaderActions = Boolean(headerActionsLeft || headerActionsRight);
-  const componentName = dataComponent ?? "card-container";
+  const componentName = dataComponent;
   const componentSlots = {
-    container: dataComponents?.container ?? `${componentName}-container`,
-    card: dataComponents?.card ?? `${componentName}-card`,
-    headerActions: dataComponents?.headerActions ?? `${componentName}-header-actions`,
-    header: dataComponents?.header ?? `${componentName}-header`,
-    title: dataComponents?.title ?? `${componentName}-title`,
-    subtitle: dataComponents?.subtitle ?? `${componentName}-subtitle`,
-    content: dataComponents?.content ?? `${componentName}-content`,
+    container: dataComponents?.container ?? componentName,
+    card: dataComponents?.card ?? `${componentName}_card`,
+    headerActions: dataComponents?.headerActions ?? `${componentName}_card_header-actions`,
+    header: dataComponents?.header ?? `${componentName}_card_header`,
+    title: dataComponents?.title ?? `${componentName}_card_header_title`,
+    subtitle: dataComponents?.subtitle ?? `${componentName}_card_header_subtitle`,
+    content: dataComponents?.content ?? `${componentName}_card_content`,
   };
 
   return (

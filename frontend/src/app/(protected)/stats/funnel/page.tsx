@@ -46,8 +46,8 @@ export default async function FunnelDetailPage() {
   const maxTransition = Math.max(1, ...transitions.map((t) => t.count));
 
   return (
-    <section data-component="stats-funnel" className="flex flex-col gap-6 pb-10">
-      <Block name="stats-funnel-hero" className="shrink-0">
+    <section data-component="desktop_stats-funnel_page" className="flex flex-col gap-6 pb-10">
+      <Block name="desktop_stats-funnel_page_hero" className="shrink-0">
         <StatsHero
           title="페이지 이동 통계"
           subtitle="PostHog · 각 페이지의 트래픽 + 페이지 간 이동 경로"
@@ -55,13 +55,13 @@ export default async function FunnelDetailPage() {
           rightValue="최근 7일"
           backHref="/stats"
           backLabel="통계 overview로"
-          dataComponent="stats-funnel-hero"
+          dataComponent="desktop_stats-funnel_page_hero_content"
         />
       </Block>
 
-      <Block name="stats-funnel-kpi" className="shrink-0">
+      <Block name="desktop_stats-funnel_page_kpi" className="shrink-0">
         <div
-          data-component="stats-funnel-kpi-grid"
+          data-component="desktop_stats-funnel_page_kpi_grid"
           className="grid grid-cols-2 lg:grid-cols-4 gap-3"
         >
           <KpiCard
@@ -69,7 +69,7 @@ export default async function FunnelDetailPage() {
             label="활성 페이지"
             value={navSummary.activePages}
             unit="개"
-            dataComponent="stats-funnel-kpi-pages"
+            dataComponent="desktop_stats-funnel_page_kpi_grid_card-pages"
             infoText={
               "지난 7일 동안 조회수가 1회 이상 기록된 페이지 수."
             }
@@ -78,7 +78,7 @@ export default async function FunnelDetailPage() {
             iconEmoji="👁"
             label="총 조회수 (7일)"
             value={navSummary.totalPv.toLocaleString("ko-KR")}
-            dataComponent="stats-funnel-kpi-pv"
+            dataComponent="desktop_stats-funnel_page_kpi_grid_card-pv"
             infoText={
               "지난 7일간 발생한 전체 페이지 조회 횟수.\n같은 사용자의 반복 방문도 모두 포함."
             }
@@ -87,7 +87,7 @@ export default async function FunnelDetailPage() {
             iconEmoji="∅"
             label="평균 조회수/페이지"
             value={navSummary.avgPvPerPage.toFixed(1)}
-            dataComponent="stats-funnel-kpi-avg"
+            dataComponent="desktop_stats-funnel_page_kpi_grid_card-avg"
             infoText={
               "총 조회수 ÷ 활성 페이지 수.\n페이지당 평균 방문 빈도를 나타냅니다."
             }
@@ -98,7 +98,7 @@ export default async function FunnelDetailPage() {
             value={navSummary.avgBouncePct.toFixed(1)}
             unit="%"
             tone={navSummary.avgBouncePct > 60 ? "warn" : "default"}
-            dataComponent="stats-funnel-kpi-bounce"
+            dataComponent="desktop_stats-funnel_page_kpi_grid_card-bounce"
             infoText={
               "한 방문에서 한 페이지만 보고 떠난 비율.\n다른 페이지로 이동하지 않고 나간 사용자의 비중을 나타냅니다."
             }
@@ -107,9 +107,9 @@ export default async function FunnelDetailPage() {
       </Block>
 
       {/* Main: per-page detail table */}
-      <Block name="stats-funnel-pages">
+      <Block name="desktop_stats-funnel_page_pages">
         <div
-          data-component="stats-funnel-pages-card"
+          data-component="desktop_stats-funnel_page_pages_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6 overflow-hidden"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -118,7 +118,7 @@ export default async function FunnelDetailPage() {
               text={
                 "각 페이지의 조회수, 방문자, 시작 페이지로 쓰인 횟수, 종료 페이지로 쓰인 횟수, 그 페이지에서 시작한 세션 중 한 페이지만 보고 나간 비율(이탈률)을 보여줍니다."
               }
-              dataComponent="stats-funnel-pages-info"
+              dataComponent="desktop_stats-funnel_page_pages_card_head_info"
             />
             <span className="text-[0.6rem] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 bg-purple-100 text-purple-700">
               PostHog
@@ -148,7 +148,7 @@ export default async function FunnelDetailPage() {
                 {pages.map((p, i) => (
                   <tr
                     key={`${p.path}-${i}`}
-                    data-component="stats-funnel-page-row"
+                    data-component="desktop_stats-funnel_page_pages_card_body_row"
                     className="border-b border-v3-border last:border-0 hover:bg-v3-dim-white"
                   >
                     <td className="px-3 py-3 font-mono text-v3-text">{p.path}</td>
@@ -181,11 +181,11 @@ export default async function FunnelDetailPage() {
 
       {/* Entry & Exit pages */}
       <Block
-        name="stats-funnel-entry-exit"
+        name="desktop_stats-funnel_page_entry-exit"
         className="grid grid-cols-1 lg:grid-cols-2 gap-4"
       >
         <div
-          data-component="stats-funnel-entry-card"
+          data-component="desktop_stats-funnel_page_entry-exit_entry-card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -194,7 +194,7 @@ export default async function FunnelDetailPage() {
               text={
                 "각 세션의 첫 페이지뷰(entry page) 통계.\n사용자가 사이트에 들어왔을 때 가장 자주 보는 페이지를 표시합니다."
               }
-              dataComponent="stats-funnel-entry-info"
+              dataComponent="desktop_stats-funnel_page_entry-exit_entry-card_head_info"
             />
             <span className="text-[0.6rem] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 bg-purple-100 text-purple-700">
               PostHog
@@ -230,7 +230,7 @@ export default async function FunnelDetailPage() {
         </div>
 
         <div
-          data-component="stats-funnel-exit-card"
+          data-component="desktop_stats-funnel_page_entry-exit_exit-card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -239,7 +239,7 @@ export default async function FunnelDetailPage() {
               text={
                 "각 세션의 마지막 페이지뷰(exit page) 통계.\n사용자가 사이트를 떠나기 직전에 가장 자주 본 페이지를 표시합니다."
               }
-              dataComponent="stats-funnel-exit-info"
+              dataComponent="desktop_stats-funnel_page_entry-exit_exit-card_head_info"
             />
             <span className="text-[0.6rem] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 bg-purple-100 text-purple-700">
               PostHog
@@ -276,9 +276,9 @@ export default async function FunnelDetailPage() {
       </Block>
 
       {/* Page transitions */}
-      <Block name="stats-funnel-transitions">
+      <Block name="desktop_stats-funnel_page_transitions">
         <div
-          data-component="stats-funnel-transitions-card"
+          data-component="desktop_stats-funnel_page_transitions_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -287,7 +287,7 @@ export default async function FunnelDetailPage() {
               text={
                 "한 세션 안에서 사용자가 페이지 A를 본 직후 페이지 B로 이동한 횟수.\n가장 자주 발생한 이동 경로를 통해 자연스러운 네비게이션 흐름을 파악합니다."
               }
-              dataComponent="stats-funnel-transitions-info"
+              dataComponent="desktop_stats-funnel_page_transitions_card_head_info"
             />
             <span className="text-[0.6rem] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 bg-purple-100 text-purple-700">
               PostHog
@@ -305,7 +305,7 @@ export default async function FunnelDetailPage() {
               {transitions.map((t, i) => (
                 <div
                   key={`${t.fromPath}-${t.toPath}-${i}`}
-                  data-component="stats-funnel-transition-row"
+                  data-component="desktop_stats-funnel_page_transitions_card_transition-row"
                   className="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-v3-dim-white"
                 >
                   <span className="font-mono text-[0.78rem] text-v3-text shrink-0 max-w-[180px] truncate">
@@ -335,9 +335,9 @@ export default async function FunnelDetailPage() {
       </Block>
 
       {/* Conversion funnel (kept as a featured "주요 전환 펀널") */}
-      <Block name="stats-funnel-conversion">
+      <Block name="desktop_stats-funnel_page_conversion">
         <div
-          data-component="stats-funnel-conversion-card"
+          data-component="desktop_stats-funnel_page_conversion_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-4">
@@ -348,7 +348,7 @@ export default async function FunnelDetailPage() {
               text={
                 "가격 페이지 진입부터 상담 신청 제출까지 5단계의 사용자 흐름 (지난 7일).\n사이트의 핵심 비즈니스 전환 경로를 별도로 추적합니다."
               }
-              dataComponent="stats-funnel-conversion-info"
+              dataComponent="desktop_stats-funnel_page_conversion_card_head_info"
             />
             <span className="text-[0.6rem] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 bg-purple-100 text-purple-700">
               PostHog
@@ -361,6 +361,7 @@ export default async function FunnelDetailPage() {
             </span>
           </header>
           <FunnelBars
+            dataComponent="desktop_stats-funnel_page_conversion_card_body_bars"
             steps={conversionFunnel.steps}
             biggestDropStep={conversionFunnel.biggestDropStep}
             variant="verbose"

@@ -49,10 +49,12 @@ const statusBadgeVariants = cva(
 export interface StatusBadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof statusBadgeVariants> {
+  "data-component"?: string;
   children: React.ReactNode;
 }
 
 function StatusBadge({
+  "data-component": dataComponent,
   className,
   variant,
   size,
@@ -61,7 +63,7 @@ function StatusBadge({
 }: StatusBadgeProps) {
   return (
     <span
-      data-component="status-badge"
+      data-component={dataComponent}
       className={cn(statusBadgeVariants({ variant, size }), className)}
       {...props}
     >

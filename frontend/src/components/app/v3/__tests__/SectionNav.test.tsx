@@ -7,6 +7,7 @@ describe("SectionNav", () => {
   it("labels the navigation and exposes the selected section state", () => {
     render(
       <SectionNav
+        data-component="desktop_v3_tests_section-nav"
         ariaLabel="메시지 기능"
         items={[
           { id: "send", label: "전송하기", icon: Send },
@@ -31,6 +32,7 @@ describe("SectionNav", () => {
     const onSelect = jest.fn();
     const { container } = render(
       <SectionNav
+        data-component="desktop_v3_tests_section-nav"
         items={[
           { id: "send", label: "전송하기", icon: Send },
           { id: "scheduled", label: "발송 예정", icon: Clock3, disabled: true },
@@ -40,11 +42,12 @@ describe("SectionNav", () => {
       />,
     );
 
-    const mobileNav = container.querySelector('[data-component="section-nav-mobile"]');
+    const mobileNav = container.querySelector('[data-component="desktop_v3_tests_section-nav_mobile"]');
     const mobileSendButton = mobileNav?.querySelector("button");
     const disabledButton = mobileNav?.querySelector("button:disabled");
 
     expect(mobileSendButton).toHaveClass("transition-colors");
+    expect(mobileNav).toHaveAttribute("data-slot", "section-nav-mobile");
     fireEvent.click(mobileSendButton as HTMLButtonElement);
     fireEvent.click(disabledButton as HTMLButtonElement);
     expect(onSelect).toHaveBeenCalledTimes(1);

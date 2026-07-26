@@ -14,7 +14,7 @@ describe("TemplatePreview", () => {
             />
         );
 
-        expect(container.querySelector('[data-component="messages-generated-msg-panel"]')).toBeInTheDocument();
+        expect(container.querySelector('[data-component="desktop_messages_sections_generated-msg-panel"]')).toBeInTheDocument();
         expect(screen.getByRole("textbox")).toHaveValue("Hello [Name]\nTotal [Price]");
         expect(screen.getByText("{{name}}")).toBeInTheDocument();
         expect(screen.getByText("[Price]")).toBeInTheDocument();

@@ -42,7 +42,7 @@ export function UserTemplateForm({ template }: UserTemplateFormProps) {
     };
 
     return (
-        <div className="flex flex-col gap-5" data-component="messages-user-template-form">
+        <div className="flex flex-col gap-5" data-component="mobile_messages_user-template-form">
             <div className="flex flex-col gap-4">
                 {template.variables.map((variable) => (
                     <div key={variable.key} className="flex flex-col gap-2">
@@ -75,6 +75,7 @@ export function UserTemplateForm({ template }: UserTemplateFormProps) {
 
             {generatedMessage && (
                 <GeneratedMsg
+                    data-component="mobile_messages_user-template-form_generated"
                     title={t(locale, "common.generated-message-title")}
                     copyButtonText={t(locale, "common.copy-button")}
                     message={generatedMessage}

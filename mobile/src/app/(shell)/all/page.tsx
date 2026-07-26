@@ -22,6 +22,9 @@ import { AllSettingsRedesign } from "@/components/app/mobile-redesign/AllSetting
 import type { MenuGroup } from "@/components/app/mobile-redesign/mockup-data";
 import { useMessageTriggerRules } from "@/features/message-triggers/hooks/use-message-triggers";
 
+/** Canonical data-component base for the /all route. */
+const ALL_PAGE_BASE = "mobile_all_page";
+
 export default function AllMenuPage() {
   const clientsQuery = useAllClients();
   const employeesQuery = useEmployees();
@@ -153,7 +156,7 @@ export default function AllMenuPage() {
   ]);
 
   return (
-    <div data-component="all-page" className="md:hidden">
+    <div data-component={ALL_PAGE_BASE} data-slot="all-page" className="md:hidden">
       <AllSettingsRedesign menuGroups={menuGroups} />
     </div>
   );

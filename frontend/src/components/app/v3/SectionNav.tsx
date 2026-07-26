@@ -3,6 +3,8 @@
 import React from "react";
 import type { LucideIcon } from "lucide-react";
 
+const SOURCE_COMPONENT = "SectionNav";
+
 export interface SectionNavItem {
   id: string;
   label: string;
@@ -11,6 +13,7 @@ export interface SectionNavItem {
 }
 
 interface SectionNavProps {
+  "data-component": string;
   items: readonly SectionNavItem[];
   activeId: string;
   onSelect: (id: string) => void;
@@ -19,6 +22,7 @@ interface SectionNavProps {
 }
 
 export function SectionNav({
+  "data-component": dataComponent,
   items,
   activeId,
   onSelect,
@@ -28,12 +32,15 @@ export function SectionNav({
   return (
     <nav
       aria-label={ariaLabel}
-      data-component="section-nav"
+      data-component={dataComponent}
+      data-slot="section-nav"
+      data-source-component={SOURCE_COMPONENT}
       data-mode="desktop"
       className="w-full shrink-0 self-start animate-v3-slide-up lg:w-max"
     >
       <div
-        data-component="section-nav-desktop"
+        data-component={`${dataComponent}_desktop`}
+        data-slot="section-nav-desktop"
         data-mode="desktop"
         className="sticky top-[calc(96px*var(--glint-ui-scale,1))] hidden lg:block"
       >
@@ -66,7 +73,8 @@ export function SectionNav({
       </div>
 
       <div
-        data-component="section-nav-mobile"
+        data-component={`${dataComponent}_mobile`}
+        data-slot="section-nav-mobile"
         data-mode="desktop"
         className="-mx-[calc(16px*var(--glint-ui-scale,1))] overflow-x-auto px-[calc(16px*var(--glint-ui-scale,1))] scrollbar-hide lg:hidden"
       >

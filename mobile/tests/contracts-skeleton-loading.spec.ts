@@ -99,7 +99,7 @@ async function routeSharedContractDependencies(page: Page): Promise<void> {
   });
 }
 
-// The contract list rows ([data-component="mobile-contracts-row"]) only mount
+// The contract list rows ([data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]) only mount
 // in the mobile layout — at the default desktop viewport the row tree is
 // absent (run #7 evidence: page renders, row count stays 0).
 test.use({ viewport: { width: 390, height: 844 } });
@@ -135,28 +135,28 @@ test.describe('Contracts Page Skeleton Loading', () => {
 
     await page.goto('/contracts');
 
-    await expect(page.locator('[data-component="mobile-contracts-search"]')).toBeVisible({
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"]')).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.locator('[data-component="mobile-redesign-filter-pill"][data-loading="true"]')).toHaveCount(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters_pill"][data-loading="true"]')).toHaveCount(
       FILTER_SKELETON_COUNT,
     );
-    await expect(page.locator('[data-component="mobile-contracts-loading-row"]')).toHaveCount(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(
       LOADING_ROW_COUNT,
     );
-    await expect(page.locator('[data-component="mobile-contracts-load-more-placeholder"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"]')).toBeVisible();
 
     releaseAuth();
     releaseDocuments();
 
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(2, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
       timeout: 15000,
     });
-    await expect(page.locator('[data-component="mobile-contracts-loading-row"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-redesign-filter-pill"][data-loading="true"]')).toHaveCount(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters_pill"][data-loading="true"]')).toHaveCount(
       0,
     );
-    await expect(page.locator('[data-component="mobile-contracts-load-more-placeholder"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"]')).toHaveCount(0);
   });
 
   test('keeps the search and filter chrome visible after loading completes', async ({ page }) => {
@@ -175,13 +175,13 @@ test.describe('Contracts Page Skeleton Loading', () => {
     await routeSharedContractDependencies(page);
 
     await page.goto('/contracts');
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(2, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
       timeout: 15000,
     });
 
-    await expect(page.locator('[data-component="mobile-contracts-search"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-filter-row"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-list-title"]')).toContainText('2건');
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header"]')).toContainText('2건');
   });
 
   // NOTE (review follow-up, 2026-06-08): a dedicated documents-API error
@@ -207,7 +207,7 @@ test.describe('Contracts Page Skeleton Loading', () => {
 
     await page.goto('/contracts');
     // The empty copy is scoped to the active section label ("산모 계약서" by default).
-    await expect(page.locator('[data-component="mobile-contracts-empty"]')).toContainText(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"]')).toContainText(
       '등록된 산모 계약서가 없습니다.',
       { timeout: 15000 },
     );

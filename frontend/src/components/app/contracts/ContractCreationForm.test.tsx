@@ -13,7 +13,7 @@ describe("ContractCreationForm compensation flows", () => {
   it("should request approval and retry with reuseExistingClient for a phone conflict", () => {
     expect(source).toContain('requestConfirmation("이미 같은 전화번호의 고객이 있습니다. 기존 고객으로 계약을 진행할까요?")');
     expect(source).toContain("reuseExistingClient: true");
-    expect(source).toContain('dataComponent="contract-creation-confirmation"');
+    expect(source).toContain('dataComponent="desktop_contracts_creation_confirmation"');
   });
 
   it("should adopt a remotely created document without opening the iframe after local persistence fails", () => {

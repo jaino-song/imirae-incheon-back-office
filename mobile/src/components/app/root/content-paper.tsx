@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 export interface ContentPaperProps extends React.HTMLAttributes<HTMLDivElement> {
+    /** Caller-context canonical value for this paper surface. */
+    "data-component"?: string;
     children: React.ReactNode;
     title?: string;
     subtitle?: string;
@@ -22,6 +24,7 @@ export interface ContentPaperProps extends React.HTMLAttributes<HTMLDivElement> 
 export const ContentPaper = React.forwardRef<HTMLDivElement, ContentPaperProps>(
     (
         {
+            "data-component": dataComponent,
             children,
             title,
             subtitle,
@@ -87,7 +90,8 @@ export const ContentPaper = React.forwardRef<HTMLDivElement, ContentPaperProps>(
             <Card
                 ref={ref}
                 variant={variant}
-                data-component="content-paper"
+                data-component={dataComponent}
+                data-slot="content-paper"
                 data-testid="ContentPaper"
                 className={cn(
                     variant !== "v3" && "rounded-2xl", // 28px radius - unified border radius (only for default)

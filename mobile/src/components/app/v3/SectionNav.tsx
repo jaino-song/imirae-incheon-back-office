@@ -10,15 +10,17 @@ export interface SectionNavItem {
 }
 
 interface SectionNavProps {
+  /** Caller-context canonical value for the nav root. */
+  "data-component"?: string;
   items: readonly SectionNavItem[];
   activeId: string;
   onSelect: (id: string) => void;
   footer?: React.ReactNode;
 }
 
-export function SectionNav({ items, activeId, onSelect, footer }: SectionNavProps) {
+export function SectionNav({ "data-component": dataComponent, items, activeId, onSelect, footer }: SectionNavProps) {
   return (
-    <nav data-component="section-nav" className="lg:w-[220px] shrink-0 self-start">
+    <nav data-component={dataComponent} data-slot="section-nav" className="lg:w-[220px] shrink-0 self-start">
       <div className="hidden lg:block sticky top-24">
         <div className="flex flex-col gap-1">
           {items.map((item) => {

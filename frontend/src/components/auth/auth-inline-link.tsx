@@ -14,7 +14,7 @@ export function AuthInlineLink({
   href,
   linkLabel,
   prefixText,
-  dataComponent = "auth-inline-link",
+  dataComponent = "desktop_auth_inline-link",
   paragraphClassName,
   linkClassName,
 }: AuthInlineLinkProps) {

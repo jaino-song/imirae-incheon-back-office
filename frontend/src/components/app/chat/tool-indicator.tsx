@@ -51,7 +51,7 @@ export function ToolIndicator({ toolName, isExecuting }: ToolIndicatorProps) {
 
     return (
         <div
-            data-component="chat-tool-indicator"
+            data-component="desktop_chat_page_tool-indicator"
             data-testid="tool-indicator"
             className="flex items-center gap-2 py-2 px-4 bg-muted/50 rounded mb-2"
         >

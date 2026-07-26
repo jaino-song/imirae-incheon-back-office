@@ -92,7 +92,7 @@ export function NotificationSettings() {
     const loading = isLoading || actionLoading;
 
     return (
-        <Card data-component="admin-notification-settings" className="p-4 mt-4">
+        <Card data-component="desktop_admin_notification-settings" className="p-4 mt-4">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     {isSubscribed ? (

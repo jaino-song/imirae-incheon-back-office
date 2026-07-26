@@ -25,5 +25,5 @@ function VerifyEmailContent() {
 }
 
 function VerifyEmailLoading() {
-  return <div data-component="auth-verify-email-loading" className="min-h-screen" />;
+  return <div data-component="desktop_auth_verify-email_loading" className="min-h-screen" />;
 }

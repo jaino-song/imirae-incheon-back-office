@@ -48,6 +48,16 @@ jobs:
       - name: Lint
         run: pnpm --filter ./frontend run lint
 
+      - name: data-component re-entry guard
+        run: |
+          if grep -rln '\[data-component' frontend/src --include='*.css'; then
+            echo '::error::CSS must not select on data-component — use data-slot or a semantic class'; exit 1
+          fi
+          if grep -rln 'querySelector([^)]*\[data-component' frontend/src --include='*.ts' --include='*.tsx' \
+            | grep -v -e '\.test\.' -e '__tests__'; then
+            echo '::error::Imperative DOM hooks must not target data-component — use data-slot'; exit 1
+          fi
+
       - name: UI architecture gate
         run: pnpm lint:ui-architecture --platform frontend
 

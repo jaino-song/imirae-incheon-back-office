@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 
 interface ExpandableSearchProps {
+  /** Caller-context canonical value. Composites pass `${base}_search`. */
+  "data-component"?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -14,6 +16,7 @@ interface ExpandableSearchProps {
 }
 
 export function ExpandableSearch({
+  "data-component": dataComponent,
   value,
   onChange,
   placeholder = "검색...",
@@ -36,7 +39,7 @@ export function ExpandableSearch({
   };
 
   return (
-    <div data-component="expandable-search" className={cn("flex items-center gap-1.5", className)}>
+    <div data-component={dataComponent} data-slot="expandable-search" className={cn("flex items-center gap-1.5", className)}>
       <button
         onClick={handleToggle}
         className="flex h-[44px] w-[44px] items-center justify-center rounded-2xl hover:bg-v3-dim-white"

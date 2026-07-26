@@ -15,7 +15,7 @@ export default function ContractSendWizard({ onComplete }: ContractSendWizardPro
   const [activeStep, setActiveStep] = useState(0);
 
   return (
-    <div data-component="chat-wizard-contract-send" className="flex min-h-[560px] flex-col">
+    <div data-component="desktop_chat_page_wizard-contract-send" className="flex min-h-[560px] flex-col">
       <div className="mb-4">
         <h3 className="mb-1 text-base font-bold">
           계약서 전송
@@ -25,7 +25,7 @@ export default function ContractSendWizard({ onComplete }: ContractSendWizardPro
         </p>
       </div>
 
-      <div data-component="chat-wizard-contract-send-body" className="flex min-h-0 flex-1 flex-col">
+      <div data-component="desktop_chat_page_wizard-contract-send_body" className="flex min-h-0 flex-1 flex-col">
         <ContractCreationForm
           activeStep={activeStep}
           onActiveStepChange={setActiveStep}

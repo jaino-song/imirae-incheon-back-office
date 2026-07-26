@@ -30,6 +30,10 @@ type InboxTab = "queue" | "log";
 
 const TAB_QUEUE = "검토 대기";
 const TAB_LOG = "통화 기록";
+const SHEET_BASE = "mobile_call-inbox_detail-sheet";
+const LIST_CONTENT_BASE = `${SHEET_BASE}_stack_list-page_content`;
+const LIST_CARD_BASE = `${LIST_CONTENT_BASE}_list-card`;
+const LIST_BODY_BASE = `${LIST_CARD_BASE}_body`;
 
 const ALL_CATEGORY = "전체";
 const CATEGORY_FILTERS: { label: string; value: CallCategory | undefined }[] = [
@@ -58,7 +62,15 @@ function callerLine(name: string | null, phone: string | null): string {
   return name ?? formattedPhone ?? "발신자 미확인";
 }
 
-function DraftCard({ draft, onClick }: { draft: ClientDraftListItem; onClick: () => void }) {
+function DraftCard({
+  draft,
+  onClick,
+  "data-component": dataComponent,
+}: {
+  draft: ClientDraftListItem;
+  onClick: () => void;
+  "data-component": string;
+}) {
   const badge =
     draft.type === "NEW_CLIENT"
       ? { label: "신규 상담", tone: "green" as const }
@@ -70,7 +82,7 @@ function DraftCard({ draft, onClick }: { draft: ClientDraftListItem; onClick: ()
       type="button"
       onClick={onClick}
       className="flex w-full flex-col gap-1.5 rounded-xl border border-v3-border bg-white p-3 text-left transition-colors active:bg-gray-50"
-      data-component="call-inbox-draft-card"
+      data-component={dataComponent}
     >
       <div className="flex items-center justify-between">
         <Badge label={badge.label} tone={badge.tone} />
@@ -98,7 +110,15 @@ function DraftCard({ draft, onClick }: { draft: ClientDraftListItem; onClick: ()
   );
 }
 
-function RecordRow({ record, onClick }: { record: CallRecordListItem; onClick: () => void }) {
+function RecordRow({
+  record,
+  onClick,
+  "data-component": dataComponent,
+}: {
+  record: CallRecordListItem;
+  onClick: () => void;
+  "data-component": string;
+}) {
   const badge = record.category ? CATEGORY_BADGE[record.category] : null;
   const processingSuffix =
     record.processingStatus === "RECEIVED"
@@ -113,7 +133,7 @@ function RecordRow({ record, onClick }: { record: CallRecordListItem; onClick: (
       type="button"
       onClick={onClick}
       className="flex w-full flex-col gap-1.5 rounded-xl border border-v3-border bg-white p-3 text-left transition-colors active:bg-gray-50"
-      data-component="call-inbox-record-row"
+      data-component={dataComponent}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
@@ -188,13 +208,14 @@ export function CallInboxPage() {
   return (
     <>
       <MobileDetailSheet
-        data-component="mobile_call-inbox_detail-sheet"
+        data-component={SHEET_BASE}
         name="call-inbox"
         isOpen={Boolean(reviewDraftId || logRecordId)}
         onClose={closeSheets}
         list={
-          <div className="shell-content" data-component="call-inbox-content">
+          <div className="shell-content" data-component={LIST_CONTENT_BASE}>
             <ListCard
+              data-component={LIST_CARD_BASE}
               title="통화 인박스"
               filters={tabFilters}
               activeFilter={tab === "queue" ? TAB_QUEUE : TAB_LOG}
@@ -202,7 +223,7 @@ export function CallInboxPage() {
               beforeScroll={
                 tab === "log" ? (
                   <>
-                    <div className="filter-row" data-component="call-inbox-category-filters">
+                    <div className="filter-row" data-component={`${LIST_CARD_BASE}_filters_category`}>
                       {CATEGORY_FILTERS.map((c) => (
                         <button
                           key={c.label}
@@ -219,6 +240,7 @@ export function CallInboxPage() {
                       ))}
                     </div>
                     <MobileSearchBar
+                      data-component={`${LIST_CARD_BASE}_search`}
                       placeholder="이름, 전화번호 검색"
                       label="call-inbox"
                       value={search}
@@ -233,14 +255,15 @@ export function CallInboxPage() {
             >
               {tab === "queue" ? (
                 draftsQuery.isLoading ? (
-                  <ListRowsSkeleton dataComponentPrefix="call-inbox-queue" />
+                  <ListRowsSkeleton data-component={`${LIST_BODY_BASE}_queue-skeleton`} />
                 ) : drafts.length === 0 ? (
-                  <EmptyState message="검토할 통화가 없습니다" component="call-inbox-queue-empty" />
+                  <EmptyState message="검토할 통화가 없습니다" component={`${LIST_BODY_BASE}_queue-empty`} />
                 ) : (
-                  <div className="flex flex-col gap-2 px-3 pb-3" data-component="call-inbox-queue-list">
+                  <div className="flex flex-col gap-2 px-3 pb-3" data-component={`${LIST_BODY_BASE}_queue-list`}>
                     {drafts.map((draft) => (
                       <DraftCard
                         key={draft.id}
+                        data-component={`${LIST_BODY_BASE}_queue-list_draft-card`}
                         draft={draft}
                         onClick={() => {
                           setSelectedDraft(draft);
@@ -252,19 +275,20 @@ export function CallInboxPage() {
                       page={draftPage}
                       totalPages={draftTotalPages}
                       onChange={setDraftPage}
-                      component="call-inbox-queue-pager"
+                      component={`${LIST_BODY_BASE}_queue-list_pager`}
                     />
                   </div>
                 )
               ) : recordsQuery.isLoading ? (
-                <ListRowsSkeleton dataComponentPrefix="call-inbox-log" />
+                <ListRowsSkeleton data-component={`${LIST_BODY_BASE}_log-skeleton`} />
               ) : records.length === 0 ? (
-                <EmptyState message="통화 기록이 없습니다" component="call-inbox-log-empty" />
+                <EmptyState message="통화 기록이 없습니다" component={`${LIST_BODY_BASE}_log-empty`} />
               ) : (
-                <div className="flex flex-col gap-2 px-3 pb-3" data-component="call-inbox-log-list">
+                <div className="flex flex-col gap-2 px-3 pb-3" data-component={`${LIST_BODY_BASE}_log-list`}>
                   {records.map((record) => (
                     <RecordRow
                       key={record.id}
+                      data-component={`${LIST_BODY_BASE}_log-list_record-row`}
                       record={record}
                       onClick={() => setLogRecordId(record.id)}
                     />
@@ -273,7 +297,7 @@ export function CallInboxPage() {
                     page={recordPage}
                     totalPages={recordTotalPages}
                     onChange={setRecordPage}
-                    component="call-inbox-log-pager"
+                    component={`${LIST_BODY_BASE}_log-list_pager`}
                   />
                 </div>
               )}
@@ -290,7 +314,7 @@ export function CallInboxPage() {
           ) : logRecordId ? (
             <CallLogSheet recordId={logRecordId} />
           ) : (
-            <div className="detail-body" data-component="call-inbox-detail-empty" />
+            <div className="detail-body" data-component={`${SHEET_BASE}_stack_detail-page_empty`} />
           )
         }
       />

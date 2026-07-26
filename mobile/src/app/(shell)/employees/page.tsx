@@ -172,7 +172,7 @@ function EmployeeDetailContent({
                 type="button"
                 className="flex h-[44px] w-[44px] flex-shrink-0 items-center justify-center rounded-xl text-v3-text-muted transition-colors hover:bg-v3-dim-white"
                 aria-label="제공인력 옵션"
-                data-component="mobile-employees-detail-menu-trigger"
+                data-component="mobile_employees_detail-sheet_stack_detail-page_body_header_menu-trigger"
               >
                 <MoreVertical size={20} strokeWidth={2} />
               </button>
@@ -181,12 +181,12 @@ function EmployeeDetailContent({
               align="end"
               sideOffset={4}
               className="z-[200] w-max min-w-[5.5rem] rounded-md p-0"
-              data-component="mobile-employees-detail-menu"
+              data-component="mobile_employees_detail-sheet_stack_detail-page_body_header_menu"
             >
               <DropdownMenuItem
                 onClick={onEdit}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-employees-detail-menu-edit"
+                data-component="mobile_employees_detail-sheet_stack_detail-page_body_header_menu_edit"
               >
                 <SquarePen className="size-[15px]" strokeWidth={2} />
                 수정
@@ -195,7 +195,7 @@ function EmployeeDetailContent({
                 variant="destructive"
                 onClick={onDelete}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-employees-detail-menu-delete"
+                data-component="mobile_employees_detail-sheet_stack_detail-page_body_header_menu_delete"
               >
                 <Trash2 className="size-[15px]" strokeWidth={2} />
                 삭제
@@ -206,6 +206,7 @@ function EmployeeDetailContent({
       />
 
       <DetailTabPills
+        data-component="mobile_employees_detail-sheet_stack_detail-page_body_tabs"
         tabs={[
           { id: "basic", label: "제공인력 정보" },
           { id: "clients", label: "담당 고객" },
@@ -219,7 +220,7 @@ function EmployeeDetailContent({
         name="employees"
         tabId="basic"
         activeTab={activeTab}
-        data-component="mobile-employees-detail-basic"
+        data-component="mobile_employees_detail-sheet_stack_detail-page_body_tab-panel"
       >
         <InfoCard data-component="mobile_employees_detail-panel_info-card" title="제공인력 정보">
           <InfoRow label="이름" value={employee.name} />
@@ -244,11 +245,11 @@ function EmployeeDetailContent({
         name="employees"
         tabId="clients"
         activeTab={activeTab}
-        data-component="mobile-employees-detail-clients"
+        data-component="mobile_employees_detail-sheet_stack_detail-page_body_tab-panel-2"
       >
         <InfoCard data-component="mobile_employees_detail-panel_info-card-3" title="현재 담당">
           {isActiveClientsLoading ? (
-            <div className="space-y-3" data-component="mobile-employees-clients-loading">
+            <div className="space-y-3" data-component="mobile_employees_detail-panel_info-card-3_clients-loading">
               <Skeleton className="h-14 w-full rounded-xl" />
               <Skeleton className="h-14 w-full rounded-xl" />
             </div>
@@ -266,7 +267,7 @@ function EmployeeDetailContent({
           ) : (
             <div
               className="detail-empty-state"
-              data-component="mobile-employees-clients-empty"
+              data-component="mobile_employees_detail-panel_info-card-3_empty"
             >
               현재 담당 고객이 없습니다.
             </div>
@@ -279,12 +280,12 @@ function EmployeeDetailContent({
         name="employees"
         tabId="history"
         activeTab={activeTab}
-        data-component="mobile-employees-detail-history"
+        data-component="mobile_employees_detail-sheet_stack_detail-page_body_tab-panel-3"
       >
         <InfoCard data-component="mobile_employees_detail-panel_info-card-4" title="이전 담당">
           <div
             className="detail-empty-state"
-            data-component="mobile-employees-history-empty"
+            data-component="mobile_employees_detail-panel_info-card-4_empty"
           >
             근무 내역이 없습니다.
           </div>
@@ -453,12 +454,17 @@ export default function EmployeesPage() {
         isOpen={Boolean(selected)}
         onClose={handleCloseDetailSheet}
         list={
-          <div className="shell-content" data-component="mobile-employees-content">
+          <div className="shell-content"
+            data-component="mobile_employees_detail-sheet_stack_list-page_content"
+            data-slot="employees-content">
             <ListCard
+              data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card"
               title="제공인력"
               count={
                 isEmployeesFetching
-                  ? <ListCountSkeleton dataComponentPrefix="mobile-employees" />
+                  ? <ListCountSkeleton
+                      data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"
+                    />
                   : `${allEmployees.length}명`
               }
               actionLabel="+ 추가"
@@ -470,13 +476,14 @@ export default function EmployeesPage() {
               loadMore={
                 isInitialLoad && hasMore ? (
                   <ListLoadMoreButton
+                    data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_load-more_button"
                     onLoadMore={loadMore}
-                    dataComponentPrefix="mobile-employees"
                   />
                 ) : null
               }
               beforeFilters={
                 <MobileSearchBar
+                  data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_search"
                   placeholder="이름, 근무 지역 검색"
                   label="employees"
                   value={searchQuery}
@@ -485,7 +492,9 @@ export default function EmployeesPage() {
               }
             >
               {isEmployeesFetching ? (
-                <ListRowsSkeleton dataComponentPrefix="mobile-employees" />
+                <ListRowsSkeleton
+                  data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"
+                />
               ) : visibleSections.length === 0 ? (
                 <div
                   style={{
@@ -494,7 +503,7 @@ export default function EmployeesPage() {
                     fontSize: "0.82rem",
                     color: "hsl(var(--v3-text-muted))",
                   }}
-                  data-component="mobile-employees-empty"
+                  data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_empty"
                 >
                   {searchQuery.trim() || activeFilter !== ALL_FILTER
                     ? "조건에 맞는 제공인력이 없습니다."
@@ -503,9 +512,9 @@ export default function EmployeesPage() {
               ) : (
                 <>
                 {visibleSections.map((section) => (
-                  <div className="section-block" data-component="mobile-employees-section" key={section.key}>
+                  <div className="section-block" data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section" key={section.key}>
                     {section.title && (
-                      <div className="section-header" data-component="mobile-employees-section-header">
+                      <div className="section-header" data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_header">
                         {section.title}
                       </div>
                     )}
@@ -514,12 +523,12 @@ export default function EmployeesPage() {
                       return (
                         <ListItemRow
                           key={e.id}
-                          dataComponent="mobile-employees-row"
+                          data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row"
                           style={{ animationDelay: `${Math.min(idx, 4) * 40}ms` }}
                           left={
                             <div
                               className={`list-avatar av-${g.badgeTone}`}
-                              data-component="mobile-employees-row-avatar"
+                              data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row_avatar"
                             >
                               {employeeInitial(e.name)}
                             </div>
@@ -529,7 +538,7 @@ export default function EmployeesPage() {
                           right={
                             <span
                               className="list-row-badges mobile-employees-row-badges"
-                              data-component="mobile-employees-row-badges"
+                              data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row_badges"
                             >
                               <Badge label={g.badge} tone={g.badgeTone} />
                             </span>
@@ -542,8 +551,8 @@ export default function EmployeesPage() {
                 ))}
                 {!isInitialLoad && hasMore && (
                   <ListLoadMoreSentinel
+                    data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                     sentinelRef={sentinelRef}
-                    dataComponentPrefix="mobile-employees"
                   />
                 )}
                 </>
@@ -561,12 +570,13 @@ export default function EmployeesPage() {
               onDelete={() => handleDeleteRequest(selected.id)}
             />
           ) : (
-            <div className="detail-body" data-component="mobile-employees-detail-empty" />
+            <div className="detail-body" data-component="mobile_employees_detail-sheet_stack_detail-page_empty" />
           )
         }
       />
 
       <MobileTwoButtonModal
+        data-component="mobile_employees_detail-sheet_delete-modal"
         open={deleteTarget != null}
         title={t(locale, "employees.delete-confirm.title")}
         description={t(locale, "employees.delete-confirm.message")}

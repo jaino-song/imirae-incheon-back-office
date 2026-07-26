@@ -55,7 +55,7 @@ export function ContractClientSelector({
         onOpenChange={(open) => {
           if (!open) setPendingSelection(null);
         }}
-        dataComponent="contract-existing-document-confirmation"
+        dataComponent="desktop_contracts_existing-document-confirmation"
         titleAriaLabel="이미 계약서를 전송한 기록이 있습니다. 새로 생성하시겠어요?"
         title={(
           <>

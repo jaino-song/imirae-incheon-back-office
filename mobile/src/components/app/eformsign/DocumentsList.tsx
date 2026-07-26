@@ -60,6 +60,8 @@ const formatDate = (timestamp: number): string => {
   return formatDateForDisplay(timestamp);
 };
 
+const EFORMSIGN_LIST_BASE = "mobile_contracts_eformsign-list";
+
 export function DocumentsList() {
   const locale = useLocale();
   const [selectedFilter, setSelectedFilter] = useState<DocumentFilterType>(null);
@@ -140,8 +142,9 @@ export function DocumentsList() {
       subtitle={t(locale, "documents-list.subtitle")}
       className="min-h-[70vh] flex-grow w-full"
     >
-      <div data-component="contracts-eformsign-list">
+      <div data-component={EFORMSIGN_LIST_BASE}>
         <DataTable
+          data-component={`${EFORMSIGN_LIST_BASE}_data-table`}
           data={documents}
           columns={columns}
           isLoading={isInitialLoading}

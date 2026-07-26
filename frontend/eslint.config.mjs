@@ -15,13 +15,23 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
   {
-    files: ["src/app/**/*.tsx", "src/app/**/*.ts"],
-    ignores: ["src/components/ui/**"],
+    files: ["src/**/*.tsx", "src/**/*.ts"],
+    ignores: [
+      "src/**/*.test.tsx",
+      "src/**/*.test.ts",
+      "src/**/__tests__/**",
+    ],
     plugins: {
       "data-component": dataComponentPlugin,
     },
     rules: {
-      "data-component/require-data-component": "warn",
+      // Migration lock: value format, legacy ban, parent-path, slot/source checks.
+      // Annotation coverage (missing data-component on structural elements) is
+      // intentionally not enforced here — anonymous wrappers are exempt by convention.
+      "data-component/require-data-component": [
+        "error",
+        { banLegacyFormat: true, checkMissingAnnotations: false },
+      ],
     },
   },
   {

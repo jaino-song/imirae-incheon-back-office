@@ -103,7 +103,7 @@ function AnimatedHeight({
 function DesktopRegisterStepIndicator({ currentStep }: { currentStep: RegisterStep }) {
   return (
     <div
-      data-component="auth-register-stepper-desktop"
+      data-component="desktop_auth_register_stepper-desktop"
       className="flex min-h-[2.4rem] items-center justify-center gap-0 overflow-visible py-1"
     >
       {Array.from({ length: REGISTER_STEP_TOTAL }, (_, idx) => {
@@ -112,13 +112,13 @@ function DesktopRegisterStepIndicator({ currentStep }: { currentStep: RegisterSt
         const isCurrent = idx === currentStep;
 
         return (
-          <div key={step} data-component="auth-register-stepper-desktop-item" className="contents">
+          <div key={step} data-component="desktop_auth_register_stepper-desktop_item" className="contents">
             <div
-              data-component="auth-register-stepper-desktop-step"
+              data-component="desktop_auth_register_stepper-desktop_item_step"
               className={cn("flex items-center overflow-visible py-0.5", isCurrent && "text-v3-primary", isCompleted && "text-v3-dark")}
             >
               <div
-                data-component="auth-register-stepper-desktop-circle"
+                data-component="desktop_auth_register_stepper-desktop_item_step_circle"
                 className={cn(
                   "flex h-7 w-7 items-center justify-center rounded-full text-[0.68rem] font-bold transition-all duration-300 will-change-transform",
                   isCompleted && "bg-v3-primary text-white shadow-[0_2px_8px_hsla(214,100%,34%,0.2)]",
@@ -132,7 +132,7 @@ function DesktopRegisterStepIndicator({ currentStep }: { currentStep: RegisterSt
 
             {idx < REGISTER_STEP_TOTAL - 1 ? (
               <div
-                data-component="auth-register-stepper-desktop-connector"
+                data-component="desktop_auth_register_stepper-desktop_item_connector"
                 className={cn(
                   "mx-1.5 h-0.5 w-10 rounded-full",
                   idx < currentStep ? "bg-v3-primary" : "bg-v3-border",
@@ -150,15 +150,15 @@ function MobileRegisterStepIndicator({ currentStep }: { currentStep: RegisterSte
   const progress = ((currentStep + 1) / REGISTER_STEP_TOTAL) * 100;
 
   return (
-    <div data-component="auth-register-stepper-mobile">
-      <div data-component="auth-register-stepper-mobile-header" className="mb-2 flex items-center justify-end">
+    <div data-component="desktop_auth_register_stepper-mobile">
+      <div data-component="desktop_auth_register_stepper-mobile_header" className="mb-2 flex items-center justify-end">
         <span className="text-[0.64rem] font-semibold text-v3-text-muted">
           {currentStep + 1} / {REGISTER_STEP_TOTAL} 단계
         </span>
       </div>
-      <div data-component="auth-register-stepper-mobile-track" className="h-1.5 w-full overflow-hidden rounded-full bg-v3-border">
+      <div data-component="desktop_auth_register_stepper-mobile_track" className="h-1.5 w-full overflow-hidden rounded-full bg-v3-border">
         <div
-          data-component="auth-register-stepper-mobile-progress"
+          data-component="desktop_auth_register_stepper-mobile_track_progress"
           className="h-full rounded-full bg-gradient-to-r from-v3-primary to-blue-500 transition-all duration-400"
           style={{
             width: `${progress}%`,
@@ -227,7 +227,7 @@ function RegisterStepFields({
     (hasPhoneStatusError ? phoneInlineMessage ?? undefined : undefined);
 
   return (
-    <div data-component="auth-register-step-fields" className="flex flex-col gap-[14px]">
+    <div data-component="desktop_auth_register_step-fields" className="flex flex-col gap-[14px]">
       {currentStep === 0 ? (
         <>
           <FormField
@@ -245,7 +245,7 @@ function RegisterStepFields({
             errorDisplay="inline"
             disabled={isLoading}
             autoComplete="email"
-            data-component="auth-register-email-field"
+            data-component="desktop_auth_register_step-fields_email-field"
           />
 
           <FormField
@@ -257,7 +257,7 @@ function RegisterStepFields({
             errorDisplay="inline"
             disabled={isLoading}
             autoComplete="name"
-            data-component="auth-register-name-field"
+            data-component="desktop_auth_register_step-fields_name-field"
           />
 
           <FormField
@@ -269,17 +269,17 @@ function RegisterStepFields({
             errorDisplay="inline"
             disabled={isLoading}
             autoComplete="new-password"
-            data-component="auth-register-password-field"
+            data-component="desktop_auth_register_step-fields_password-field"
           />
 
           <div
-            data-component="auth-register-password-requirements-wrap"
+            data-component="desktop_auth_register_step-fields_password-requirements-wrap"
             className={cn(
               "grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
               formData.password ? "mt-0 grid-rows-[1fr] opacity-100" : "mt-[-6px] grid-rows-[0fr] opacity-0",
             )}
           >
-            <div data-component="auth-register-password-requirements-inner" className="overflow-hidden">
+            <div data-component="desktop_auth_register_step-fields_password-requirements-wrap_inner" className="overflow-hidden">
               <PasswordRequirements
                 requirements={passwordStrength.requirements}
                 orientation="horizontal"
@@ -297,7 +297,7 @@ function RegisterStepFields({
             errorDisplay="inline"
             disabled={isLoading}
             autoComplete="new-password"
-            data-component="auth-register-confirm-field"
+            data-component="desktop_auth_register_step-fields_confirm-field"
           />
         </>
       ) : (
@@ -327,7 +327,7 @@ function RegisterStepFields({
             inputMode="numeric"
             maxLength={13}
             placeholder="010-1234-5678"
-            data-component="auth-register-phone-field"
+            data-component="desktop_auth_register_step-fields_phone-field"
           />
 
           <FormField
@@ -342,7 +342,7 @@ function RegisterStepFields({
             inputMode="numeric"
             maxLength={10}
             placeholder="1990-01-01"
-            data-component="auth-register-birthdate-field"
+            data-component="desktop_auth_register_step-fields_birthdate-field"
           />
         </>
       )}
@@ -379,14 +379,14 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
   return (
     <AuthSurface
       variant={variant}
-      data-component="auth-register"
+      data-component="desktop_auth_register"
       dataComponents={{
-        container: "auth-register-container",
-        card: "auth-register-card",
-        header: "auth-register-header",
-        title: "auth-register-title",
-        subtitle: "auth-register-subtitle",
-        content: "auth-register-content",
+        container: "desktop_auth_register_container",
+        card: "desktop_auth_register_card",
+        header: "desktop_auth_register_header",
+        title: "desktop_auth_register_title",
+        subtitle: "desktop_auth_register_subtitle",
+        content: "desktop_auth_register_content",
       }}
       title={isSuccess ? (accountsLinked ? "계정이 연결되었습니다!" : "회원가입 완료!") : "회원가입"}
       subtitle={
@@ -400,9 +400,9 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
       contentClassName="gap-0"
       mobileWrapperClassName="px-4 py-6"
     >
-      <AnimatedHeight dataComponent="auth-register-body-viewport">
+      <AnimatedHeight dataComponent="desktop_auth_register_body-viewport">
         <div
-          data-component="auth-register-body"
+          data-component="desktop_auth_register_body"
           className={cn(
             "flex flex-col",
             isSuccess ? "items-center gap-6 text-center" : "gap-[18px]",
@@ -412,10 +412,10 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
             <>
               {accountsLinked ? (
                 <>
-                  <div data-component="auth-register-success-icon" className="rounded-full bg-primary/10 p-3">
+                  <div data-component="desktop_auth_register_body_success-icon" className="rounded-full bg-primary/10 p-3">
                     <Link2 className="h-12 w-12 text-primary" />
                   </div>
-                  <p data-component="auth-register-success-message" className="text-muted-foreground">
+                  <p data-component="desktop_auth_register_body_success-message" className="text-muted-foreground">
                     기존 카카오 계정에 비밀번호가 추가되었습니다.
                     <br />
                     이메일을 확인하여 계정을 활성화하면
@@ -425,10 +425,10 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
                 </>
               ) : (
                 <>
-                  <div data-component="auth-register-success-icon" className="rounded-full bg-success/10 p-3">
+                  <div data-component="desktop_auth_register_body_success-icon" className="rounded-full bg-success/10 p-3">
                     <CheckCircle className="h-12 w-12 text-success" />
                   </div>
-                  <p data-component="auth-register-success-message" className="text-muted-foreground">
+                  <p data-component="desktop_auth_register_body_success-message" className="text-muted-foreground">
                     인증 이메일이 발송되었습니다.
                     <br />
                     이메일 인증을 완료해 주세요.
@@ -439,7 +439,7 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
               )}
 
               <Button
-                data-component="auth-register-success-login-btn"
+                data-component="desktop_auth_register_body_success-login-btn"
                 variant="positive"
                 size="md"
                 className={cn("w-full", primaryButtonClassName)}
@@ -457,7 +457,7 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
               )}
 
               {serverError ? (
-                <div data-component="auth-register-alert">
+                <div data-component="desktop_auth_register_body_alert">
                   <Alert variant="destructive" onClose={clearServerError}>
                     {serverError}
                   </Alert>
@@ -466,7 +466,7 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
 
             <form
               onSubmit={handleSubmit}
-              data-component="auth-register-form"
+              data-component="desktop_auth_register_body_form"
               className="flex flex-col gap-[18px] [&_label]:text-[0.82rem] [&_p]:leading-[1.45]"
             >
               <motion.div
@@ -480,11 +480,11 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
               </motion.div>
 
                 <div
-                  data-component="auth-register-actions"
+                  data-component="desktop_auth_register_body_form_actions"
                   className="mt-1 flex items-center justify-between border-t border-v3-border pt-3"
                 >
                 <Button
-                  data-component="auth-register-prev-btn"
+                  data-component="desktop_auth_register_body_form_actions_prev-btn"
                   type="button"
                   variant="neutral"
                   size="sm"
@@ -499,7 +499,7 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
                   </Button>
 
                 <Button
-                  data-component={currentStep < REGISTER_STEP_TOTAL - 1 ? "auth-register-next-btn" : "auth-register-submit-btn"}
+                  data-component={currentStep < REGISTER_STEP_TOTAL - 1 ? "desktop_auth_register_body_form_actions_next-btn" : "desktop_auth_register_body_form_actions_submit-btn"}
                   type="submit"
                   variant="positive"
                   size="sm"
@@ -523,7 +523,7 @@ export function RegisterPageContent({ variant }: RegisterPageContentProps) {
             </form>
 
               <AuthInlineLink
-                dataComponent="auth-register-login-link"
+                dataComponent="desktop_auth_register_body_login-link"
                 href="/login"
                 prefixText="이미 계정이 있으신가요?"
                 linkLabel="로그인"

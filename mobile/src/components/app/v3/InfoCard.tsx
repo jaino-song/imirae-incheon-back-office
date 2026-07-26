@@ -2,15 +2,28 @@
 
 import React from "react";
 
+const SOURCE_COMPONENT = "InfoCard";
 interface InfoCardProps {
+  "data-component"?: string;
   title: string;
   children: React.ReactNode;
 }
 
-export function InfoCard({ title, children }: InfoCardProps) {
+export function InfoCard({
+  "data-component": dataComponent,
+  title,
+  children,
+}: InfoCardProps) {
   return (
-    <div data-component="info-card" className="bg-v3-dim-white rounded-2xl p-4">
-      <h3 data-component="info-card-title" className="text-[0.7rem] uppercase tracking-[0.1em] text-v3-text-muted font-semibold mb-3">
+    <div
+      data-component={dataComponent}
+      data-source-component={SOURCE_COMPONENT}
+      className="bg-v3-dim-white rounded-2xl p-4"
+    >
+      <h3
+        data-component={dataComponent ? `${dataComponent}_title` : undefined}
+        className="text-[0.7rem] uppercase tracking-[0.1em] text-v3-text-muted font-semibold mb-3"
+      >
         {title}
       </h3>
       {children}

@@ -6,6 +6,8 @@ import { useRouter, useParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const FEEDBACK_DETAIL_BASE = 'mobile_admin_feedback-detail';
+
 export default function FeedbackDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -67,17 +69,17 @@ export default function FeedbackDetailPage() {
   }
 
   return (
-    <div data-component="admin-feedback-detail" className="min-h-[100dvh] bg-muted/50 p-4 sm:p-6">
-      <div data-component="admin-feedback-detail-content" className="max-w-4xl mx-auto">
+    <div data-component={FEEDBACK_DETAIL_BASE} className="min-h-[100dvh] bg-muted/50 p-4 sm:p-6">
+      <div data-component={`${FEEDBACK_DETAIL_BASE}_content`} className="max-w-4xl mx-auto">
         <button
           onClick={() => router.push('/admin/feedback')}
-          data-component="admin-feedback-detail-back"
+          data-component={`${FEEDBACK_DETAIL_BASE}_content_back`}
           className="mb-8 text-primary hover:text-primary/80 font-medium flex items-center gap-2 transition-colors"
         >
           ←
         </button>
 
-        <div data-component="admin-feedback-detail-info" className="mb-6 rounded-2xl bg-card p-4 shadow sm:p-6">
+        <div data-component={`${FEEDBACK_DETAIL_BASE}_content_info`} className="mb-6 rounded-2xl bg-card p-4 shadow sm:p-6">
           <h2 className="text-xl font-bold text-foreground mb-4">피드백 정보</h2>
           <div className="space-y-3">
             <div className="flex items-center gap-3">
@@ -113,7 +115,7 @@ export default function FeedbackDetailPage() {
           </div>
         </div>
 
-        <div data-component="admin-feedback-detail-chat" className="rounded-2xl bg-card p-4 shadow sm:p-6">
+        <div data-component={`${FEEDBACK_DETAIL_BASE}_content_chat`} className="rounded-2xl bg-card p-4 shadow sm:p-6">
           <h2 className="text-xl font-bold text-foreground mb-6">대화 내역</h2>
           <div className="space-y-4">
             {feedback.session.messages.map((message: SessionMessage) => {

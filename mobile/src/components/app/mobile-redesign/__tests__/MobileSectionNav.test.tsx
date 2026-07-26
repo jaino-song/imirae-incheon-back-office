@@ -8,6 +8,7 @@ describe("MobileSectionNav", () => {
     const onSelect = jest.fn();
     const { container } = render(
       <MobileSectionNav
+        data-component="mobile_tests_section-nav_primary"
         ariaLabel="고객 섹션"
         items={[
           { id: "list", label: "고객 목록", icon: Users },
@@ -19,7 +20,7 @@ describe("MobileSectionNav", () => {
     );
 
     const nav = screen.getByRole("navigation", { name: "고객 섹션" });
-    expect(nav).toHaveAttribute("data-component", "section-nav-mobile");
+    expect(nav).toHaveAttribute("data-component", "mobile_tests_section-nav_primary");
     expect(nav).toHaveAttribute("data-mode", "compact");
     const activeButton = screen.getByRole("button", { name: "고객 목록" });
     const inactiveButton = screen.getByRole("button", { name: "자동화" });
@@ -49,6 +50,7 @@ describe("MobileSectionNav", () => {
     const onSelect = jest.fn();
     render(
       <MobileSectionNav
+        data-component="mobile_tests_section-nav_secondary"
         ariaLabel="메시지 섹션"
         items={[
           { id: "list", label: "발송 기록", icon: Users },

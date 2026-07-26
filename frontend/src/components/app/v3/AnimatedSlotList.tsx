@@ -13,6 +13,7 @@ type SlotState = {
 };
 
 export interface AnimatedSlotListProps<T> {
+  "data-component"?: string;
   /** Number of slots to render. If not provided, shows all items (unlimited). */
   count?: number;
   items?: readonly T[] | null;
@@ -42,13 +43,14 @@ export interface AnimatedSlotListProps<T> {
 }
 
 export function AnimatedSlotList<T>({
+  "data-component": dataComponent,
   count,
   items,
   isLoading,
   loadingCount = 4,
   fetchingMoreCount,
   className,
-  itemDataComponent = "animated-slot-list-item",
+  itemDataComponent,
   itemVariant = "card",
   delayStepSeconds = 0.04,
   hideEmptySlots = true,
@@ -109,7 +111,8 @@ export function AnimatedSlotList<T>({
   return (
     <div
       ref={listRef}
-      data-component="animated-slot-list"
+      data-component={dataComponent}
+      data-slot="animated-slot-list"
       className={cn("relative -mx-2 flex flex-col gap-2 px-2", className)}
     >
       {Array.from({ length: slotCount }, (_, index) => {
@@ -160,7 +163,9 @@ export function AnimatedSlotList<T>({
               style={shouldAnimateSlot ? { animationDelay } : undefined}
             >
               <div
-                data-component={`${itemDataComponent}-text-skeleton`}
+                data-component={
+                  itemDataComponent ? `${itemDataComponent}_text-skeleton` : undefined
+                }
                 className="ml-[calc(56px*var(--glint-ui-scale,1))] max-w-[calc(220px*var(--glint-ui-scale,1))] space-y-[calc(8px*var(--glint-ui-scale,1))]"
               >
                 <Skeleton className="h-[calc(16px*var(--glint-ui-scale,1))] w-[calc(112px*var(--glint-ui-scale,1))] bg-v3-dim-white" />

@@ -28,7 +28,7 @@ export function MobileBottomNav() {
 
   return (
     <nav
-      data-component="mobile-bottom-nav"
+      data-component="desktop_chrome_mobile-bottom-nav"
       className={cn(
         "fixed bottom-4 left-4 right-4 z-[1000]",
         "grid grid-cols-5 items-end gap-1 p-2",
@@ -53,7 +53,7 @@ export function MobileBottomNav() {
             prefetch={false}
             data-component={
               item.kind === "chat"
-                ? "mobile-bottom-nav-chat"
+                ? "desktop_chrome_mobile-bottom-nav_chat"
                 : `mobile-bottom-nav-${item.href.replace("/", "")}`
             }
             className={cn(

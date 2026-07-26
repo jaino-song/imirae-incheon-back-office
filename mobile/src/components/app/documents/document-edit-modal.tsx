@@ -25,6 +25,8 @@ import { Document } from "@/hooks/use-documents";
 import { useDocumentCategories } from "@/hooks/use-document-categories";
 
 interface DocumentEditModalProps {
+  /** Caller-context canonical base for this surface. */
+  "data-component": string;
   open: boolean;
   onClose: () => void;
   doc: Document | null;
@@ -50,6 +52,7 @@ function getDocumentFormDefaults(doc: Document | null) {
 }
 
 export function DocumentEditModal({
+  "data-component": dataComponent,
   open,
   onClose,
   doc,
@@ -93,8 +96,8 @@ export function DocumentEditModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen: boolean) => !isOpen && onClose()}>
-        <DialogContent data-component="contracts-document-edit" className="sm:max-w-md" showCloseButton={false}>
-        <DialogHeader data-component="contracts-document-edit-header" className="flex-row justify-between items-center">
+        <DialogContent data-component={dataComponent} className="sm:max-w-md" showCloseButton={false}>
+        <DialogHeader data-component={`${dataComponent}_header`} className="flex-row justify-between items-center">
           <DialogTitle>문서 정보 수정</DialogTitle>
           <Button
             variant="ghost"
@@ -107,7 +110,7 @@ export function DocumentEditModal({
           </Button>
         </DialogHeader>
 
-        <div data-component="contracts-document-edit-form" className="flex flex-col gap-4 py-4">
+        <div data-component={`${dataComponent}_form`} className="flex flex-col gap-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="doc-name">문서명</Label>
             <Input
@@ -181,7 +184,7 @@ export function DocumentEditModal({
           </div>
         </div>
 
-        <DialogFooter data-component="contracts-document-edit-footer">
+        <DialogFooter data-component={`${dataComponent}_footer`}>
           <Button variant="outline" onClick={onClose} disabled={isLoading}>
             취소
           </Button>

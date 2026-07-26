@@ -120,25 +120,25 @@ test.describe("Contracts delete flow", () => {
     await expect(page.getByText("삭제대상 고객").first()).toBeVisible({ timeout: 15000 });
 
     await page.getByText("삭제대상 고객").first().click();
-    await expect(page.locator('[data-component="mobile-contracts-detail"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content"]')).toBeVisible();
 
-    await page.locator('[data-component="mobile-contracts-detail-menu-trigger"]').click();
-    await page.locator('[data-component="mobile-contracts-detail-menu-delete"]').click();
-    await expect(page.locator('[data-component="mobile-two-button-modal"]')).toBeVisible();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu-trigger"]').click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu_delete"]').click();
+    await expect(page.locator('[data-component="mobile_contracts_delete-confirmation_modal"]')).toBeVisible();
     await expect(page.getByText("선택한 계약서를 삭제할까요?")).toBeVisible();
 
-    await page.locator('[data-component="mobile-two-button-modal-actions"]').getByRole("button", { name: "취소" }).click();
-    await expect(page.locator('[data-component="mobile-two-button-modal"]')).not.toBeVisible();
+    await page.locator('[data-component="mobile_contracts_delete-confirmation_modal_actions"]').getByRole("button", { name: "취소" }).click();
+    await expect(page.locator('[data-component="mobile_contracts_delete-confirmation_modal"]')).not.toBeVisible();
     expect(deleteRequestCount).toBe(0);
 
-    await page.locator('[data-component="mobile-contracts-detail-menu-trigger"]').click();
-    await page.locator('[data-component="mobile-contracts-detail-menu-delete"]').click();
-    await page.locator('[data-component="mobile-two-button-modal-actions"]').getByRole("button", { name: "삭제" }).click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu-trigger"]').click();
+    await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu_delete"]').click();
+    await page.locator('[data-component="mobile_contracts_delete-confirmation_modal_actions"]').getByRole("button", { name: "삭제" }).click();
 
     await expect.poll(() => deleteRequestCount).toBe(1);
-    await expect(page.locator('[data-component="toast"]')).toContainText("삭제대상 고객 계약서를 삭제했습니다.");
+    await expect(page.locator('[data-component="mobile_shell_toaster_toast"]')).toContainText("삭제대상 고객 계약서를 삭제했습니다.");
     await expect(page.getByText("삭제대상 고객")).not.toBeVisible();
-    await expect(page.locator('[data-component="mobile-contracts-detail-page"]')).toHaveAttribute("aria-hidden", "true");
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page"]')).toHaveAttribute("aria-hidden", "true");
   });
 });
 

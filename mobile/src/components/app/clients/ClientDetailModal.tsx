@@ -22,6 +22,7 @@ import { InfoRow } from "@/components/app/ui/info-row";
 import { Badge } from "@/components/ui/badge";
 
 interface ClientDetailModalProps {
+    "data-component": string;
     open: boolean;
     onClose: () => void;
     client: Client | null;
@@ -96,6 +97,7 @@ const getDocStatusBadge = (status: DocumentStatus, locale: Locale) => {
 };
 
 export function ClientDetailModal({
+    "data-component": dataComponent,
     open,
     onClose,
     client,
@@ -103,6 +105,7 @@ export function ClientDetailModal({
     onDelete
 }: ClientDetailModalProps) {
     const locale = useLocale();
+    const sub = (suffix: string) => `${dataComponent}_${suffix}`;
 
     if (!client) return null;
 
@@ -117,9 +120,9 @@ export function ClientDetailModal({
     };
 
     return (
-        <Dialog data-component="clients-detail-modal" open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+        <Dialog data-component={dataComponent} open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
             <DialogContent className="max-w-lg rounded-2xl shadow-[0_20px_60px_hsla(214,50%,20%,0.15)] border-none bg-white p-0 overflow-hidden gap-0">
-                <DialogHeader data-component="clients-detail-modal-header" className="p-6 text-center border-b border-border bg-gradient-to-br from-[hsl(214,80%,98%)] to-white relative">
+                <DialogHeader data-component={sub("header")} className="p-6 text-center border-b border-border bg-gradient-to-br from-[hsl(214,80%,98%)] to-white relative">
                     <div className="mx-auto w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white mb-4 shadow-[0_12px_32px_hsla(214,100%,34%,0.3)] bg-gradient-to-br from-[hsl(214,100%,34%)] to-[hsl(214,100%,28%)]">
                         {client.name.charAt(0)}
                     </div>
@@ -162,7 +165,7 @@ export function ClientDetailModal({
                      </Button>
                 </div>
 
-                <div data-component="clients-detail-modal-content" className="p-6 space-y-6 max-h-[400px] overflow-y-auto">
+                <div data-component={sub("content")} className="p-6 space-y-6 max-h-[400px] overflow-y-auto">
                     <div>
                         <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
                             {t(locale, "clients.form.section-basic")}

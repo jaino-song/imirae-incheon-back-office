@@ -14,6 +14,12 @@ import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safe-storage";
 import { useInitialUser } from "@/providers/UserProvider";
 import "@/components/app/mobile-redesign/redesign.css";
 
+/** Canonical data-component base for the /notification settings route. */
+const NOTIFICATION_SETTINGS_BASE = "mobile_notification_settings";
+const NOTIFICATION_SETTINGS_SCROLL = `${NOTIFICATION_SETTINGS_BASE}_content_card_scroll`;
+const NOTIFICATION_SETTINGS_CHANNEL_SECTION = `${NOTIFICATION_SETTINGS_SCROLL}_channel-section`;
+const NOTIFICATION_SETTINGS_ADMIN_SECTION = `${NOTIFICATION_SETTINGS_SCROLL}_admin-section`;
+
 const EMAIL_NOTIFICATION_STORAGE_PREFIX = "settings:email-notifications";
 const NOTIFICATION_ROUTE_BODY_CLASS = "mobile-all-route";
 
@@ -23,6 +29,8 @@ interface BroadcastResult {
 }
 
 interface NotificationSettingsRowProps {
+  /** Canonical data-component value for this row. */
+  dataComponent: string;
   label: string;
   icon: LucideIcon;
   tone: "primary" | "orange" | "green" | "purple" | "muted" | "burgundy";
@@ -36,6 +44,7 @@ function emailNotificationStorageKey(userId: string) {
 }
 
 function NotificationSettingsRow({
+  dataComponent,
   label,
   icon: Icon,
   tone,
@@ -46,26 +55,27 @@ function NotificationSettingsRow({
   return (
     <div
       className={`list-item notification-settings-row ${className ?? ""}`}
-      data-component="notification-settings-row"
+      data-component={dataComponent}
+      data-slot="notification-settings-row"
     >
       <div
         className={`trigger-icon trigger-icon-${tone}`}
-        data-component="notification-settings-row-icon"
+        data-component={`${dataComponent}_icon`}
       >
         <Icon size={18} strokeWidth={2.5} />
       </div>
 
-      <div className="trigger-info" data-component="notification-settings-row-info">
-        <div className="trigger-title" data-component="notification-settings-row-title">
+      <div className="trigger-info" data-component={`${dataComponent}_info`}>
+        <div className="trigger-title" data-component={`${dataComponent}_info_title`}>
           {label}
         </div>
-        <div className="trigger-meta" data-component="notification-settings-row-meta">
+        <div className="trigger-meta" data-component={`${dataComponent}_info_meta`}>
           {description}
         </div>
       </div>
 
       {rightContent ? (
-        <div className="notification-row-control" data-component="notification-settings-row-control">
+        <div className="notification-row-control" data-component={`${dataComponent}_control`}>
           {rightContent}
         </div>
       ) : null}
@@ -179,20 +189,33 @@ export default function NotificationPage() {
   }, [emailNotificationStorageId]);
 
   return (
-    <section data-component="notification-settings" className="messages-page notification-settings-page">
-      <div className="shell-content" data-component="notification-settings-content">
-        <div className="list-card pop-up notification-settings-card" data-component="notification-settings-card">
-          <div className="list-title" data-component="notification-settings-card-title">
+    <section
+      data-component={NOTIFICATION_SETTINGS_BASE}
+      data-slot="notification-settings-page"
+      className="messages-page notification-settings-page"
+    >
+      <div
+        className="shell-content"
+        data-component={`${NOTIFICATION_SETTINGS_BASE}_content`}
+        data-slot="notification-settings-content"
+      >
+        <div
+          className="list-card pop-up notification-settings-card"
+          data-component={`${NOTIFICATION_SETTINGS_BASE}_content_card`}
+          data-slot="notification-settings-card"
+        >
+          <div className="list-title" data-component={`${NOTIFICATION_SETTINGS_BASE}_content_card_title`}>
             <span className="list-title-text">알림 설정</span>
           </div>
 
-          <div className="list-card-scroll" data-component="notification-settings-scroll">
-            <div className="section-block" data-component="notification-settings-channel-section">
-              <div className="section-header" data-component="notification-settings-section-header">
+          <div className="list-card-scroll" data-component={NOTIFICATION_SETTINGS_SCROLL}>
+            <div className="section-block" data-component={NOTIFICATION_SETTINGS_CHANNEL_SECTION}>
+              <div className="section-header" data-component={`${NOTIFICATION_SETTINGS_CHANNEL_SECTION}_header`}>
                 수신 채널
               </div>
 
               <NotificationSettingsRow
+                dataComponent={`${NOTIFICATION_SETTINGS_CHANNEL_SECTION}_app-row`}
                 label="앱 알림"
                 icon={BellRing}
                 tone={isAppNotificationEnabled ? "primary" : "muted"}
@@ -218,6 +241,7 @@ export default function NotificationPage() {
               />
 
               <NotificationSettingsRow
+                dataComponent={`${NOTIFICATION_SETTINGS_CHANNEL_SECTION}_email-row`}
                 label="이메일 알림"
                 icon={Mail}
                 tone="orange"
@@ -237,12 +261,13 @@ export default function NotificationPage() {
             </div>
 
             {isOwner ? (
-              <div className="section-block" data-component="notification-settings-admin-section">
-                <div className="section-header" data-component="notification-settings-section-header">
+              <div className="section-block" data-component={NOTIFICATION_SETTINGS_ADMIN_SECTION}>
+                <div className="section-header" data-component={`${NOTIFICATION_SETTINGS_ADMIN_SECTION}_header`}>
                   관리자
                 </div>
 
                 <NotificationSettingsRow
+                  dataComponent={`${NOTIFICATION_SETTINGS_ADMIN_SECTION}_test-row`}
                   label="테스트 알림"
                   icon={Send}
                   tone="primary"
@@ -250,7 +275,7 @@ export default function NotificationPage() {
                   rightContent={(
                     <button
                       type="button"
-                      data-component="notification-test-send-button"
+                      data-component={`${NOTIFICATION_SETTINGS_ADMIN_SECTION}_test-row_control_send-button`}
                       className="notification-action-pill"
                       onClick={() => testNotificationMutation.mutate()}
                       disabled={testNotificationMutation.isPending}

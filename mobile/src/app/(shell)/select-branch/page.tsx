@@ -30,6 +30,10 @@ const BRANCH_ICON_COLORS = [
   "hsl(var(--v3-burgundy))",
 ];
 
+/** Canonical data-component base for the /select-branch route. */
+const SELECT_BRANCH_BASE = "mobile_select-branch_page";
+const SELECT_BRANCH_ROW = `${SELECT_BRANCH_BASE}_list_row`;
+
 export default function SelectBranchPage() {
   const router = useRouter();
   const locale = useLocale();
@@ -118,11 +122,12 @@ export default function SelectBranchPage() {
     return (
       <div
         className="branch-page"
-        data-component="select-branch"
+        data-component={SELECT_BRANCH_BASE}
+        data-slot="select-branch-page"
         style={{ alignItems: "center", justifyContent: "center" }}
       >
         <div
-          data-component="select-branch-loading"
+          data-component={`${SELECT_BRANCH_BASE}_loading`}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -141,11 +146,11 @@ export default function SelectBranchPage() {
 
   if (error) {
     return (
-      <div className="branch-page" data-component="select-branch">
-        <div className="branch-header" data-component="select-branch-header">
-          <div className="branch-title" data-component="select-branch-title">지점 선택</div>
+      <div className="branch-page" data-component={SELECT_BRANCH_BASE} data-slot="select-branch-page">
+        <div className="branch-header" data-component={`${SELECT_BRANCH_BASE}_header`}>
+          <div className="branch-title" data-component={`${SELECT_BRANCH_BASE}_header_title`}>지점 선택</div>
         </div>
-        <div className="auth-server-error" role="alert" data-component="select-branch-error">
+        <div className="auth-server-error" role="alert" data-component={`${SELECT_BRANCH_BASE}_error`}>
           {error}
         </div>
         <button
@@ -162,12 +167,12 @@ export default function SelectBranchPage() {
 
   if (branches.length === 0) {
     return (
-      <div className="branch-page" data-component="select-branch">
-        <div className="branch-header" data-component="select-branch-header">
-          <div className="branch-title" data-component="select-branch-title">접근 가능한 지점이 없습니다</div>
+      <div className="branch-page" data-component={SELECT_BRANCH_BASE} data-slot="select-branch-page">
+        <div className="branch-header" data-component={`${SELECT_BRANCH_BASE}_header`}>
+          <div className="branch-title" data-component={`${SELECT_BRANCH_BASE}_header_title`}>접근 가능한 지점이 없습니다</div>
         </div>
         <div
-          data-component="select-branch-empty"
+          data-component={`${SELECT_BRANCH_BASE}_empty`}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -184,7 +189,7 @@ export default function SelectBranchPage() {
           </p>
           <p style={{ fontSize: "0.74rem" }}>권한이 부여되면 이 페이지를 새로고침하세요.</p>
         </div>
-        <div className="branch-actions" data-component="select-branch-actions">
+        <div className="branch-actions" data-component={`${SELECT_BRANCH_BASE}_actions`}>
           <button type="button" className="branch-btn" onClick={() => window.location.reload()}>
             새로고침
           </button>
@@ -199,22 +204,22 @@ export default function SelectBranchPage() {
   const selectedBranch = branches.find((b) => b.id === selectedId);
 
   return (
-    <div className="branch-page" data-component="select-branch">
-      <div className="branch-header" data-component="select-branch-header">
-        <div className="branch-title" data-component="select-branch-title">지점 선택</div>
+    <div className="branch-page" data-component={SELECT_BRANCH_BASE} data-slot="select-branch-page">
+      <div className="branch-header" data-component={`${SELECT_BRANCH_BASE}_header`}>
+        <div className="branch-title" data-component={`${SELECT_BRANCH_BASE}_header_title`}>지점 선택</div>
       </div>
 
       {user && (
-        <div className="branch-user" data-component="select-branch-user">
-          <div className="branch-user-avatar" data-component="select-branch-user-avatar">
+        <div className="branch-user" data-component={`${SELECT_BRANCH_BASE}_user`}>
+          <div className="branch-user-avatar" data-component={`${SELECT_BRANCH_BASE}_user_avatar`}>
             {user.name?.charAt(0) || "?"}
           </div>
-          <div className="branch-user-info" data-component="select-branch-user-info">
-            <div className="branch-user-name" data-component="select-branch-user-name">
+          <div className="branch-user-info" data-component={`${SELECT_BRANCH_BASE}_user_info`}>
+            <div className="branch-user-name" data-component={`${SELECT_BRANCH_BASE}_user_info_name`}>
               {user.name || "사용자"}
             </div>
             {user.email && (
-              <div className="branch-user-email" data-component="select-branch-user-email">
+              <div className="branch-user-email" data-component={`${SELECT_BRANCH_BASE}_user_info_email`}>
                 {user.email}
               </div>
             )}
@@ -222,7 +227,7 @@ export default function SelectBranchPage() {
         </div>
       )}
 
-      <div className="branch-list" data-component="select-branch-list">
+      <div className="branch-list" data-component={`${SELECT_BRANCH_BASE}_list`}>
         {branches.map((branch, idx) => {
           const iconColor = BRANCH_ICON_COLORS[idx % BRANCH_ICON_COLORS.length];
           const isSelected = branch.id === selectedId;
@@ -233,17 +238,17 @@ export default function SelectBranchPage() {
               className={`branch-card ${isSelected ? "selected" : ""}`}
               onClick={() => setSelectedId(branch.id)}
               disabled={submitting}
-              data-component="select-branch-row"
+              data-component={`${SELECT_BRANCH_ROW}`}
             >
               <div
                 className="branch-card-icon"
-                data-component="select-branch-row-icon"
+                data-component={`${SELECT_BRANCH_ROW}_icon`}
                 style={{ background: iconColor }}
               >
                 <Building2 size={20} strokeWidth={2.5} />
               </div>
-              <div className="branch-card-info" data-component="select-branch-row-info">
-                <div className="branch-card-name" data-component="select-branch-row-name">
+              <div className="branch-card-info" data-component={`${SELECT_BRANCH_ROW}_info`}>
+                <div className="branch-card-name" data-component={`${SELECT_BRANCH_ROW}_info_name`}>
                   {branch.name}
                   <span className="role-pill">{getRoleLabel(branch.role)}</span>
                 </div>
@@ -256,7 +261,7 @@ export default function SelectBranchPage() {
         })}
       </div>
 
-      <div className="branch-actions" data-component="select-branch-actions">
+      <div className="branch-actions" data-component={`${SELECT_BRANCH_BASE}_actions`}>
         <button
           type="button"
           className="branch-btn"

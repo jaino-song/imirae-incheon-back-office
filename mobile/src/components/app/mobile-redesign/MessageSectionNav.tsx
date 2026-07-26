@@ -17,6 +17,8 @@ import {
 
 import { MobileSectionNav } from "@/components/app/mobile-redesign/primitives";
 
+const SOURCE_COMPONENT = "MessageSectionNav";
+
 interface MessageNavigationItem {
   id: MessageSectionId;
   title: string;
@@ -48,7 +50,13 @@ const MESSAGE_SECTION_NAV_ITEMS = MESSAGE_NAVIGATION_ITEMS.map((item) => ({
   disabled: item.id === "templates",
 }));
 
-export function MessageSectionNav({ activeId }: { activeId: MessageSectionId }) {
+export function MessageSectionNav({
+  "data-component": dataComponent,
+  activeId,
+}: {
+  "data-component": string;
+  activeId: MessageSectionId;
+}) {
   const router = useRouter();
 
   const handleSectionSelect = (sectionId: MessageSectionId) => {
@@ -58,6 +66,8 @@ export function MessageSectionNav({ activeId }: { activeId: MessageSectionId }) 
 
   return (
     <MobileSectionNav
+      data-component={dataComponent}
+      sourceComponent={SOURCE_COMPONENT}
       ariaLabel="메시지 기능"
       items={MESSAGE_SECTION_NAV_ITEMS}
       activeId={activeId}

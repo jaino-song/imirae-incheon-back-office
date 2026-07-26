@@ -33,7 +33,7 @@ export function NotificationPermissionPrompt() {
 
     return (
         <div
-            data-component="notification-permission-prompt"
+            data-component="desktop_chrome_notification-permission-prompt"
             role="dialog"
             aria-labelledby={titleId}
             aria-describedby={descriptionId}

@@ -13,12 +13,16 @@ const ALLOWED_EXTENSIONS = ".png, .jpg, .jpeg, .pdf";
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 interface ImageDropzoneProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
   onFileSelect: (file: File) => void;
   isLoading?: boolean;
   error?: string | null;
 }
 
 export function ImageDropzone({
+  "data-component": dataComponent,
   onFileSelect,
   isLoading = false,
   error,
@@ -101,7 +105,7 @@ export function ImageDropzone({
   };
 
   return (
-    <div data-component="settings-image-dropzone">
+    <div data-component={dataComponent}>
       {/* 에러 표시 */}
       {(validationError || error) && (
         <Alert variant="destructive" className="mb-4">
@@ -111,7 +115,7 @@ export function ImageDropzone({
 
       {/* 드롭존 */}
       <div
-        data-component="settings-image-dropzone-paper"
+        data-component={`${dataComponent}_paper`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

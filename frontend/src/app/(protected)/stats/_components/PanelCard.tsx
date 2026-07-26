@@ -41,7 +41,7 @@ export function PanelCard({
       )}
     >
       <header
-        data-component={`${dataComponent}-head`}
+        data-component={`${dataComponent}_head`}
         className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border"
       >
         <h3 className="text-[0.95rem] font-bold text-v3-text tracking-tight">
@@ -60,14 +60,14 @@ export function PanelCard({
         ) : null}
         <Link
           href={detailHref}
-          data-component={`${dataComponent}-detail-link`}
+          data-component={`${dataComponent}_head_detail-link`}
           className="ml-auto inline-flex items-center gap-1 rounded-lg bg-v3-primary-light px-3 py-1.5 text-[0.72rem] font-semibold text-v3-primary hover:bg-v3-primary hover:text-white transition-colors"
         >
           <span>{detailLabel}</span>
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </header>
-      <div data-component={`${dataComponent}-body`} className="flex-1 min-h-0 flex flex-col gap-3">
+      <div data-component={`${dataComponent}_body`} className="flex-1 min-h-0 flex flex-col gap-3">
         {children}
       </div>
     </section>

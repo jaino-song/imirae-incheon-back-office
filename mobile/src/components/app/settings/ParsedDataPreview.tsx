@@ -24,6 +24,9 @@ import { PriceEditModal } from "./PriceEditModal";
 import { cn } from "@/lib/utils";
 
 interface ParsedDataPreviewProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
   data: ParsedVoucherPriceItem[];
   warnings: string[];
   onDataChange?: (updatedData: ParsedVoucherPriceItem[]) => void;
@@ -49,6 +52,7 @@ function validateRow(item: ParsedVoucherPriceItem): boolean {
 }
 
 export function ParsedDataPreview({
+  "data-component": dataComponent,
   data,
   warnings,
   onDataChange,
@@ -87,7 +91,7 @@ export function ParsedDataPreview({
 
   return (
     <TooltipProvider>
-      <div data-component="settings-parsed-data-preview">
+      <div data-component={dataComponent}>
         {/* 경고 메시지 */}
         {warnings.length > 0 && (
           <Alert className="mb-4 bg-warning/10 border-warning/30 text-warning">
@@ -123,7 +127,7 @@ export function ParsedDataPreview({
         </div>
 
         {/* 데이터 테이블 */}
-        <div className="border rounded-2xl overflow-hidden" data-component="settings-parsed-data-table">
+        <div className="border rounded-2xl overflow-hidden" data-component={`${dataComponent}_table`}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -231,6 +235,7 @@ export function ParsedDataPreview({
 
         {/* 가격 수정 모달 */}
         <PriceEditModal
+          data-component={`${dataComponent}_edit-modal`}
           key={modalOpen && editingIndex !== null ? `price-edit-${editingIndex}` : "price-edit-closed"}
           open={modalOpen}
           item={editingIndex !== null ? data[editingIndex] : null}

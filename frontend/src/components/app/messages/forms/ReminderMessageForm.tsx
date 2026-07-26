@@ -83,7 +83,7 @@ export const ReminderMessageForm = ({
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-reminder-form"
+      dataComponent="desktop_messages_sections_reminder-form"
       fields={fields}
       messageCard={messageCard}
       requiresRecipientName

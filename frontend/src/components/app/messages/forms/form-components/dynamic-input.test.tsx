@@ -15,12 +15,12 @@ describe("DynamicInput", () => {
     );
 
     // The field's own annotated element renders…
-    const field = container.querySelector('[data-component="messages-form-date-input"]');
+    const field = container.querySelector('[data-component="desktop_messages_sections_form-date-input"]');
     expect(field).toBeInTheDocument();
     expect(screen.getByText("시작일")).toBeInTheDocument();
 
     // …and is the rendered root: the removed `messages-form-dynamic-input` wrapper is gone.
-    expect(container.querySelector('[data-component="messages-form-dynamic-input"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_messages_sections_form-dynamic-input"]')).not.toBeInTheDocument();
     expect(container.firstChild).toBe(field);
   });
 
@@ -28,13 +28,13 @@ describe("DynamicInput", () => {
     const number = render(
       <DynamicInput variable={variable({ type: "number" })} value="" onChange={() => {}} />,
     );
-    expect(number.container.querySelector('[data-component="messages-form-number-input"]')).toBeInTheDocument();
-    expect(number.container.querySelector('[data-component="messages-form-dynamic-input"]')).not.toBeInTheDocument();
+    expect(number.container.querySelector('[data-component="desktop_messages_sections_form-number-input"]')).toBeInTheDocument();
+    expect(number.container.querySelector('[data-component="desktop_messages_sections_form-dynamic-input"]')).not.toBeInTheDocument();
 
     const textarea = render(
       <DynamicInput variable={variable({ type: "textarea" })} value="" onChange={() => {}} />,
     );
-    expect(textarea.container.querySelector('[data-component="messages-form-textarea"]')).toBeInTheDocument();
-    expect(textarea.container.querySelector('[data-component="messages-form-dynamic-input"]')).not.toBeInTheDocument();
+    expect(textarea.container.querySelector('[data-component="desktop_messages_sections_form-textarea"]')).toBeInTheDocument();
+    expect(textarea.container.querySelector('[data-component="desktop_messages_sections_form-dynamic-input"]')).not.toBeInTheDocument();
   });
 });

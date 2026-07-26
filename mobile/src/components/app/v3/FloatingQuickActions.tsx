@@ -30,7 +30,8 @@ export function FloatingQuickActions() {
 
   return (
     <nav
-      data-component="floating-quick-actions"
+      data-component="mobile_shell_quick-actions"
+      data-slot="floating-quick-actions"
       className={cn(
         "fixed bottom-8 right-6 z-40",
         "hidden flex-col items-center gap-4",

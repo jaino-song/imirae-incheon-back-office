@@ -51,7 +51,7 @@ export function UserTemplateForm({ template }: UserTemplateFormProps) {
         .filter((variable) => variable.value.trim().length > 0);
 
     return (
-        <div className="flex flex-col gap-5" data-component="messages-user-template-form">
+        <div className="flex flex-col gap-5" data-component="desktop_messages_sections_user-template-form">
             <TemplateFieldGrid>
                 {template.variables.map((variable) => (
                     <TemplateFieldGridItem key={variable.key}>

@@ -10,6 +10,7 @@ interface ActivityItem {
 }
 
 interface ActivityTimelineProps {
+  "data-component": string;
   items: ActivityItem[];
   maxHeight?: string;
 }
@@ -25,12 +26,14 @@ const variantStyles: Record<
 };
 
 export function ActivityTimeline({
+  "data-component": dataComponent,
   items,
   maxHeight = "400px",
 }: ActivityTimelineProps) {
   return (
     <div
-      data-component="activity-timeline"
+      data-component={dataComponent}
+      data-slot="activity-timeline"
       className="flex flex-col gap-4 overflow-y-auto"
       style={{ maxHeight }}
     >

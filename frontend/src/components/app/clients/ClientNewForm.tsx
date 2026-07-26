@@ -418,8 +418,8 @@ export function ClientNewForm() {
               />
             </FormField>
             {error ? (
-              <div data-component="desktop_clients-new_basic_error" className="sm:col-span-2">
-                <FormHelperText data-component="desktop_clients-new_basic_error-message" tone="error">
+              <div data-component="desktop_clients-new_basic_grid_error" className="sm:col-span-2">
+                <FormHelperText data-component="desktop_clients-new_basic_grid_error_message" tone="error">
                   {error}
                 </FormHelperText>
               </div>
@@ -458,8 +458,8 @@ export function ClientNewForm() {
                   iconDataComponent="desktop_clients-new_service_duration-select-icon"
                 />
                 {isPriceLoading ? (
-                  <div data-component="desktop_clients-new_service_duration-loading" className="flex items-center gap-2">
-                    <Spinner data-component="desktop_clients-new_service_duration-spinner" size="sm" />
+                  <div data-component="desktop_clients-new_service_duration-field_loading" className="flex items-center gap-2">
+                    <Spinner data-component="desktop_clients-new_service_duration-field_loading_spinner" size="sm" />
                   </div>
                 ) : null}
               </FormField>
@@ -473,6 +473,7 @@ export function ClientNewForm() {
                 label={t(locale, "clients.form.primary-employee")}
               >
                 <EmployeeAutocomplete
+                    data-component="desktop_clients-new_service_employee-grid_primary-employee-field_autocomplete"
                   value={store.primaryEmployeeId}
                   onChange={(id) => setField("primaryEmployeeId", id)}
                   label=""
@@ -489,6 +490,7 @@ export function ClientNewForm() {
                 label={t(locale, "clients.form.secondary-employee")}
               >
                 <EmployeeAutocomplete
+                    data-component="desktop_clients-new_service_employee-grid_secondary-employee-field_autocomplete"
                   value={store.secondaryEmployeeId}
                   onChange={(id) => setField("secondaryEmployeeId", id)}
                   label=""
@@ -556,11 +558,11 @@ export function ClientNewForm() {
           </FormSection>
 
           <FormSection data-component="desktop_clients-new_service_flags-field" title={t(locale, "clients.form.section-flags")}>
-            <div data-component="desktop_clients-new_service_flags-options" className="flex flex-wrap gap-3">
+            <div data-component="desktop_clients-new_service_flags-field_options" className="flex flex-wrap gap-3">
               {flagOptions.map(({ key, label }) => (
                 <FormChip
                   key={key}
-                  data-component={`desktop_clients-new_service_flags-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}-chip`}
+                  data-component={`desktop_clients-new_service_flags-field_options_${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}-chip`}
                   selected={store[key]}
                   onClick={() => setField(key, !store[key])}
                 >
@@ -616,7 +618,7 @@ export function ClientNewForm() {
                 iconDataComponent="desktop_clients-new_contract_status-select-icon"
               />
             </FormField>
-            <div data-component="desktop_clients-new_contract_spacer" />
+            <div data-component="desktop_clients-new_contract_grid_spacer" />
             <FormField data-component="desktop_clients-new_contract_start-date-field" label={t(locale, "clients.form.start-date")}>
               <FormTextInput
                 data-component="desktop_clients-new_contract_start-date-input"
@@ -634,8 +636,8 @@ export function ClientNewForm() {
               />
             </FormField>
             {error ? (
-              <div data-component="desktop_clients-new_contract_error" className="sm:col-span-2">
-                <FormHelperText data-component="desktop_clients-new_contract_error-message" tone="error">
+              <div data-component="desktop_clients-new_contract_grid_error" className="sm:col-span-2">
+                <FormHelperText data-component="desktop_clients-new_contract_grid_error_message" tone="error">
                   {error}
                 </FormHelperText>
               </div>
@@ -653,9 +655,9 @@ export function ClientNewForm() {
         data-source-component="ClientNewForm"
         className="flex min-h-[calc(100dvh-6rem)] items-start justify-center py-6 md:py-8"
       >
-        <div data-component="desktop_clients-new_main_content-inner" className="flex w-full flex-col">
+        <div data-component="desktop_clients-new_main_content_inner" className="flex w-full flex-col">
           <Button
-            data-component="desktop_clients-new_back_button"
+            data-component="desktop_clients-new_main_content_inner_back-button"
             type="button"
             variant="ghost"
             size="sm"
@@ -666,7 +668,7 @@ export function ClientNewForm() {
             고객 목록으로 돌아가기
           </Button>
 
-          <div data-component="desktop_clients-new_stepper_shell">
+          <div data-component="desktop_clients-new_main_content_inner_stepper-shell">
             <SteppedWizard
               title={t(locale, "clients.form.add-title")}
               subtitle="고객 정보를 단계별로 입력해 주세요"

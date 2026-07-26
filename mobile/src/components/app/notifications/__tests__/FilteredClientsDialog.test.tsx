@@ -160,7 +160,7 @@ describe('FilteredClientsDialog', () => {
                 />
             );
 
-            expect(document.querySelector('[data-component="spinner"]')).toBeInTheDocument();
+            expect(document.querySelector('[data-slot="spinner"]')).toBeInTheDocument();
         });
     });
 

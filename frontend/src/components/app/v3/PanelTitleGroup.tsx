@@ -3,6 +3,8 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "PanelTitleGroup";
+
 interface PanelTitleGroupProps {
   "data-component": string;
   title: React.ReactNode;
@@ -32,7 +34,7 @@ export function PanelTitleGroup({
   return (
     <div
       data-component={dataComponent}
-      data-source-component="PanelTitleGroup"
+      data-source-component={SOURCE_COMPONENT}
       className={cn("flex min-w-0 flex-col gap-[calc(2px*var(--glint-ui-scale,1))]", className)}
     >
       <div data-component={`${dataComponent}_title-row`} className="flex flex-wrap items-center gap-[calc(6px*var(--glint-ui-scale,1))]">
@@ -51,7 +53,7 @@ export function PanelTitleGroup({
         ) : null}
       </div>
       {subtitle ? (
-        <p data-component={`${dataComponent}_subtitle`} className={cn("text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-text-muted", subtitleClassName)}>
+        <p data-component={`${dataComponent}_subtitle`} data-slot="panel-subtitle" className={cn("text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-text-muted", subtitleClassName)}>
           {subtitle}
         </p>
       ) : null}

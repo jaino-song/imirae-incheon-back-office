@@ -35,11 +35,11 @@ function documentFixture(): EformsignDocument {
 }
 
 function title(container: HTMLElement): Element | null {
-  return container.querySelector('[data-component="contracts-list-item-title"]');
+  return container.querySelector('[data-component="desktop_contracts_tests_list-item_title"]');
 }
 
 function subtitle(container: HTMLElement): Element | null {
-  return container.querySelector('[data-component="contracts-list-item-subtitle"]');
+  return container.querySelector('[data-component="desktop_contracts_tests_list-item_subtitle"]');
 }
 
 describe("ContractsListItem", () => {
@@ -48,6 +48,7 @@ describe("ContractsListItem", () => {
     (customerName) => {
       const { container } = render(
         <ContractsListItem
+          data-component="desktop_contracts_tests_list-item"
           document={documentFixture()}
           customerName={customerName}
           isLoading={false}
@@ -61,6 +62,7 @@ describe("ContractsListItem", () => {
   it("keeps an API-derived recipient name", () => {
     const { container } = render(
       <ContractsListItem
+        data-component="desktop_contracts_tests_list-item"
         document={documentFixture()}
         customerName="  송진호  "
         isLoading={false}
@@ -73,6 +75,7 @@ describe("ContractsListItem", () => {
   it("uses the supplied subtitle label instead of the stored document name", () => {
     const { container } = render(
       <ContractsListItem
+        data-component="desktop_contracts_tests_list-item"
         document={documentFixture()}
         customerName="송진호"
         subtitle="제공기록지"

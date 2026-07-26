@@ -19,7 +19,7 @@ interface TemplateFieldGridItemProps extends ComponentPropsWithoutRef<"div"> {
 export function TemplateFieldGrid({
   children,
   className,
-  dataComponent = "messages-template-field-grid",
+  dataComponent = "desktop_messages_sections_template-field-grid",
   layout = "grid",
   ...props
 }: TemplateFieldGridProps) {
@@ -40,7 +40,7 @@ export function TemplateFieldGrid({
 export function TemplateFieldGridItem({
   children,
   className,
-  dataComponent = "messages-template-field-grid-item",
+  dataComponent = "desktop_messages_sections_template-field-grid-item",
   ...props
 }: TemplateFieldGridItemProps) {
   return (

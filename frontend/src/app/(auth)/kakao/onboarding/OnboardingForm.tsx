@@ -151,14 +151,14 @@ export function OnboardingForm({
 
     return (
         <AuthPanel
-            data-component="auth-kakao-onboarding"
+            data-component="desktop_auth_kakao-onboarding"
             dataComponents={{
-                container: "auth-kakao-onboarding-container",
-                card: "auth-kakao-onboarding-card",
-                header: "auth-kakao-onboarding-header",
-                title: "auth-kakao-onboarding-title",
-                subtitle: "auth-kakao-onboarding-subtitle",
-                content: "auth-kakao-onboarding-content",
+                container: "desktop_auth_kakao-onboarding_container",
+                card: "desktop_auth_kakao-onboarding_card",
+                header: "desktop_auth_kakao-onboarding_header",
+                title: "desktop_auth_kakao-onboarding_title",
+                subtitle: "desktop_auth_kakao-onboarding_subtitle",
+                content: "desktop_auth_kakao-onboarding_content",
             }}
             title={title}
             subtitle={subtitle}
@@ -166,14 +166,14 @@ export function OnboardingForm({
             contentClassName="gap-[18px]"
         >
             {serverError && (
-                <div data-component="auth-kakao-onboarding-alert">
+                <div data-component="desktop_auth_kakao-onboarding_alert">
                     <Alert variant="destructive" onClose={() => setServerError(null)}>
                         {serverError}
                     </Alert>
                 </div>
             )}
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]" data-component="auth-kakao-onboarding-form">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]" data-component="desktop_auth_kakao-onboarding_form">
                 <FormField
                     label="이메일"
                     type="email"
@@ -181,7 +181,7 @@ export function OnboardingForm({
                     readOnly
                     disabled
                     className="bg-v3-dim-white/80"
-                    data-component="auth-kakao-onboarding-email-field"
+                    data-component="desktop_auth_kakao-onboarding_form_email-field"
                 />
                 <FormField
                     label="이름"
@@ -190,7 +190,7 @@ export function OnboardingForm({
                     readOnly
                     disabled
                     className="bg-v3-dim-white/80"
-                    data-component="auth-kakao-onboarding-name-field"
+                    data-component="desktop_auth_kakao-onboarding_form_name-field"
                 />
                 <FormField
                     label="전화번호"
@@ -202,7 +202,7 @@ export function OnboardingForm({
                     maxLength={13}
                     placeholder="010-1234-5678"
                     disabled={isPending}
-                    data-component="auth-kakao-onboarding-phone-field"
+                    data-component="desktop_auth_kakao-onboarding_form_phone-field"
                 />
                 <FormField
                     label="생년월일"
@@ -214,7 +214,7 @@ export function OnboardingForm({
                     maxLength={10}
                     placeholder="1990-01-01"
                     disabled={isPending}
-                    data-component="auth-kakao-onboarding-birthdate-field"
+                    data-component="desktop_auth_kakao-onboarding_form_birthdate-field"
                 />
                 <SelectField
                     label="요청 권한"
@@ -224,7 +224,7 @@ export function OnboardingForm({
                     placeholder="요청할 권한을 선택해주세요"
                     error={errors.role}
                     disabled={isPending}
-                    data-component="auth-kakao-onboarding-role-field"
+                    data-component="desktop_auth_kakao-onboarding_form_role-field"
                 />
 
                 <Button
@@ -233,7 +233,7 @@ export function OnboardingForm({
                     size="md"
                     className={PRIMARY_BUTTON_CLASS_NAME}
                     disabled={isDisabled}
-                    data-component="auth-kakao-onboarding-submit-btn"
+                    data-component="desktop_auth_kakao-onboarding_form_submit-btn"
                 >
                     {isPending ? <Spinner size="sm" /> : (
                         <>

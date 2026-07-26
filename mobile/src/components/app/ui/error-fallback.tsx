@@ -34,7 +34,7 @@ export function ErrorFallback({
     >
       <section
         aria-live="assertive"
-        data-component="mobile_error_fallback_card"
+        data-component="mobile_error_fallback_container_card"
         className="w-full max-w-md rounded-[28px] bg-white px-6 py-8 text-center shadow-v3 ring-1 ring-[hsla(214,30%,20%,0.08)]"
         role="alert"
       >
@@ -48,7 +48,7 @@ export function ErrorFallback({
 
         {debugMessage || debugDigest ? (
           <div
-            data-component="mobile_error_fallback_debug"
+            data-component="mobile_error_fallback_container_card_debug"
             className="mt-5 rounded-2xl border border-border bg-muted/40 p-4 text-left"
           >
             <p className="text-xs font-semibold text-foreground">
@@ -69,7 +69,7 @@ export function ErrorFallback({
 
         <Button
           className="mt-6 w-full"
-          data-component="mobile_error_fallback_retry"
+          data-component="mobile_error_fallback_container_card_retry"
           onClick={onReset}
           type="button"
           variant="v3"

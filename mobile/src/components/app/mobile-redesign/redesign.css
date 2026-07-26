@@ -13,11 +13,11 @@
 }
 
 /* ===== Mobile messages navigation + data pages ===== */
-body:has([data-component="messages"]) [data-component="floating-quick-actions"] {
+body:has([data-slot="messages-page"]) [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
-body:has([data-component="messages"]) [data-component="messages"],
+body:has([data-slot="messages-page"]) [data-slot="messages-page"],
 .message-page-shell {
   display: flex;
   width: 100%;
@@ -26,7 +26,7 @@ body:has([data-component="messages"]) [data-component="messages"],
   flex-direction: column;
 }
 
-body:has([data-component="messages"]) [data-component="messages-content"] {
+body:has([data-slot="messages-page"]) [data-slot="messages-content"] {
   padding: 76px 14px;
   overflow-y: auto;
 }
@@ -440,11 +440,11 @@ body:has([data-component="messages"]) [data-component="messages-content"] {
 }
 
 /* ===== Dashboard route shell parity with variant-D2 ===== */
-html:has(body [data-component="dashboard"]) {
+html:has(body [data-slot="dashboard-page"]) {
   background: hsl(220, 15%, 88%) !important;
 }
 
-body:has([data-component="dashboard"]) {
+body:has([data-slot="dashboard-page"]) {
   background: hsl(220, 15%, 88%) !important;
   color: hsl(var(--v3-text));
   overflow: hidden;
@@ -452,7 +452,7 @@ body:has([data-component="dashboard"]) {
 }
 
 /* Mobile: app-root fills viewport (no phone-frame bezel) */
-[data-component="app-root"]:has([data-component="dashboard"]) {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) {
   position: relative;
   width: 100%;
   height: 100dvh;
@@ -466,7 +466,7 @@ body:has([data-component="dashboard"]) {
 
 /* Desktop: render inside a fake iPhone phone-frame for preview */
 @media (min-width: 768px) {
-  [data-component="app-root"]:has([data-component="dashboard"]) {
+  [data-slot="app-root"]:has([data-slot="dashboard-page"]) {
     width: 390px !important;
     max-width: 390px !important;
     height: min(100dvh, 844px) !important;
@@ -479,7 +479,7 @@ body:has([data-component="dashboard"]) {
       0 0 0 1px rgba(0, 0, 0, 0.6) inset;
   }
 
-  [data-component="app-root"]:has([data-component="dashboard"])::before {
+  [data-slot="app-root"]:has([data-slot="dashboard-page"])::before {
     content: "";
     position: absolute;
     top: 12px;
@@ -494,7 +494,7 @@ body:has([data-component="dashboard"]) {
   }
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="app-providers"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -503,7 +503,7 @@ body:has([data-component="dashboard"]) {
   border-radius: 38px;
 }
 
-main[data-component="main-content"]:has([data-component="dashboard"]) {
+main[data-slot="main-content"]:has([data-slot="dashboard-page"]) {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -516,16 +516,16 @@ main[data-component="main-content"]:has([data-component="dashboard"]) {
   padding: 64px 0 0 !important;
 }
 
-main[data-component="main-content"]:has([data-component="dashboard"]) > [data-component="dashboard"] {
+main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="dashboard-page"] {
   height: 100%;
 }
 
-[data-component="dashboard"] .shell-content {
+[data-slot="dashboard-page"] .shell-content {
   overflow-y: auto;
   padding: 12px 14px 76px;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-header"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -538,7 +538,7 @@ main[data-component="main-content"]:has([data-component="dashboard"]) > [data-co
   z-index: 20;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   left: 14px !important;
@@ -559,21 +559,21 @@ main[data-component="main-content"]:has([data-component="dashboard"]) > [data-co
   z-index: var(--mobile-z-nav);
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   inset-block: 5px !important;
   border-radius: 14px !important;
   width: calc((100% - 10px) / 5) !important;
   left: 5px !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component^="mobile-bottom-nav-"],
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav-chat"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot^="mobile-bottom-nav-"],
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-chat"] {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] svg {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
@@ -1209,14 +1209,14 @@ main[data-component="main-content"]:has([data-component="dashboard"]) > [data-co
 
 /* ===== /all route shell — scoped to match page-all.html phone preview ===== */
 body.mobile-all-route,
-body:has([data-component="all-page"]) {
+body:has([data-slot="all-page"]) {
   background: hsl(220, 15%, 88%);
   overflow: hidden;
 }
 
 /* Mobile: keep the shared 390x844 shell limit without the phone-frame bezel. */
-body.mobile-all-route [data-component="app-root"],
-body:has([data-component="all-page"]) [data-component="app-root"] {
+body.mobile-all-route [data-slot="app-root"],
+body:has([data-slot="all-page"]) [data-slot="app-root"] {
   width: min(100vw, 390px);
   max-width: 390px;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
@@ -1230,8 +1230,8 @@ body:has([data-component="all-page"]) [data-component="app-root"] {
 /* Wide viewports still use the same app shell; never show the old phone-frame
    preview on route refresh. */
 @media (min-width: 768px) {
-  body.mobile-all-route [data-component="app-root"],
-  body:has([data-component="all-page"]) [data-component="app-root"] {
+  body.mobile-all-route [data-slot="app-root"],
+  body:has([data-slot="all-page"]) [data-slot="app-root"] {
     width: min(100vw, 390px) !important;
     max-width: 390px !important;
     height: min(100dvh, var(--mobile-shell-max-height, 844px)) !important;
@@ -1243,15 +1243,15 @@ body:has([data-component="all-page"]) [data-component="app-root"] {
     box-shadow: none !important;
   }
 
-  body.mobile-all-route [data-component="app-root"]::before,
-  body:has([data-component="all-page"]) [data-component="app-root"]::before {
+  body.mobile-all-route [data-slot="app-root"]::before,
+  body:has([data-slot="all-page"]) [data-slot="app-root"]::before {
     display: none !important;
     content: none !important;
   }
 }
 
-body.mobile-all-route [data-component="app-providers"],
-body:has([data-component="all-page"]) [data-component="app-providers"] {
+body.mobile-all-route [data-slot="app-content"],
+body:has([data-slot="all-page"]) [data-slot="app-content"] {
   position: relative;
   width: 100%;
   height: 100%;
@@ -1270,8 +1270,8 @@ body:has([data-component="all-page"]) [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body.mobile-all-route [data-component="main-content"],
-body:has([data-component="all-page"]) [data-component="main-content"] {
+body.mobile-all-route [data-slot="main-content"],
+body:has([data-slot="all-page"]) [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -1285,22 +1285,17 @@ body:has([data-component="all-page"]) [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-all-route [data-component="all-page"],
-body:has([data-component="all-page"]) [data-component="all-page"] {
+body.mobile-all-route [data-slot="all-page"],
+body:has([data-slot="all-page"]) [data-slot="all-page"] {
   flex: 1;
   min-height: 0;
   display: flex;
 }
 
-body.mobile-all-route [data-component="notifications-page"],
-body.mobile-all-route [data-component="notification-settings"] {
+body.mobile-all-route [data-slot="notification-settings-page"] {
   flex: 1;
   min-height: 0;
   display: flex;
-}
-
-body.mobile-all-route [data-component="notification-content"] .menu-row {
-  min-height: 61px;
 }
 
 .notification-row-error {
@@ -1328,12 +1323,12 @@ body.mobile-all-route [data-component="notification-content"] .menu-row {
   cursor: wait;
 }
 
-body.mobile-all-route [data-component="notification-settings-content"] {
+body.mobile-all-route [data-slot="notification-settings-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body.mobile-all-route [data-component="notification-settings-card"] {
+body.mobile-all-route [data-slot="notification-settings-card"] {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -1374,7 +1369,7 @@ body.mobile-all-route .notification-provider-group {
   gap: 0.5rem;
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-icon {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-icon {
   display: flex;
   width: 38px;
   height: 38px;
@@ -1384,39 +1379,39 @@ body.mobile-all-route [data-component="notification-settings"] .trigger-icon {
   border-radius: 11px;
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-icon-primary {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-icon-primary {
   color: hsl(var(--v3-primary));
   background: hsl(var(--v3-primary-light));
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-icon-orange {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-icon-orange {
   color: hsl(var(--v3-orange));
   background: hsl(var(--v3-orange-light));
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-icon-muted {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-icon-muted {
   color: hsl(var(--v3-text-muted));
   background: hsl(220, 20%, 94%);
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-icon-burgundy {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-icon-burgundy {
   color: hsl(var(--v3-burgundy));
   background: hsl(var(--v3-burgundy-light));
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-info {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-info {
   flex: 1;
   min-width: 0;
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-title {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-title {
   color: hsl(var(--v3-dark));
   font-size: 0.86rem;
   font-weight: 700;
   line-height: normal;
 }
 
-body.mobile-all-route [data-component="notification-settings"] .trigger-meta {
+body.mobile-all-route [data-slot="notification-settings-page"] .trigger-meta {
   display: block;
   margin-top: 3px;
   color: hsl(var(--v3-text-muted));
@@ -1462,8 +1457,8 @@ body.mobile-all-route .notification-action-pill {
   font-weight: 800;
 }
 
-body.mobile-all-route [data-component="mobile-header"],
-body:has([data-component="all-page"]) [data-component="mobile-header"] {
+body.mobile-all-route [data-slot="mobile-header"],
+body:has([data-slot="all-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   left: 0 !important;
@@ -1478,14 +1473,14 @@ body:has([data-component="all-page"]) [data-component="mobile-header"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-all-route [data-component="floating-quick-actions"],
-body:has([data-component="all-page"]) [data-component="floating-quick-actions"] {
+body.mobile-all-route [data-slot="floating-quick-actions"],
+body:has([data-slot="all-page"]) [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
-body.mobile-all-route [data-component="mobile-bottom-nav"],
-body:has([data-component="all-page"]) [data-component="mobile-bottom-nav"],
-body:has([data-component="notification-settings"]) [data-component="mobile-bottom-nav"] {
+body.mobile-all-route [data-slot="mobile-bottom-nav"],
+body:has([data-slot="all-page"]) [data-slot="mobile-bottom-nav"],
+body:has([data-slot="notification-settings-page"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -1511,15 +1506,15 @@ body:has([data-component="notification-settings"]) [data-component="mobile-botto
   z-index: var(--mobile-z-nav);
 }
 
-body.mobile-all-route [data-component="mobile-bottom-nav"] > [aria-hidden="true"],
-body:has([data-component="all-page"]) [data-component="mobile-bottom-nav"] > [aria-hidden="true"],
-body:has([data-component="notification-settings"]) [data-component="mobile-bottom-nav"] > [aria-hidden="true"] {
+body.mobile-all-route [data-slot="mobile-bottom-nav"] > [aria-hidden="true"],
+body:has([data-slot="all-page"]) [data-slot="mobile-bottom-nav"] > [aria-hidden="true"],
+body:has([data-slot="notification-settings-page"]) [data-slot="mobile-bottom-nav"] > [aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-all-route [data-component^="mobile-bottom-nav-"],
-body:has([data-component="all-page"]) [data-component^="mobile-bottom-nav-"],
-body:has([data-component="notification-settings"]) [data-component^="mobile-bottom-nav-"] {
+body.mobile-all-route [data-slot^="mobile-bottom-nav-"],
+body:has([data-slot="all-page"]) [data-slot^="mobile-bottom-nav-"],
+body:has([data-slot="notification-settings-page"]) [data-slot^="mobile-bottom-nav-"] {
   position: static !important;
   display: flex;
   flex-direction: column;
@@ -1532,20 +1527,20 @@ body:has([data-component="notification-settings"]) [data-component^="mobile-bott
   text-decoration: none;
 }
 
-body:has([data-component="all-page"]) [data-component="mobile-bottom-nav-all"] {
+body:has([data-slot="all-page"]) [data-slot="mobile-bottom-nav-all"] {
   background: transparent !important;
 }
 
-body.mobile-all-route [data-component^="mobile-bottom-nav-"] svg,
-body:has([data-component="all-page"]) [data-component^="mobile-bottom-nav-"] svg,
-body:has([data-component="notification-settings"]) [data-component^="mobile-bottom-nav-"] svg {
+body.mobile-all-route [data-slot^="mobile-bottom-nav-"] svg,
+body:has([data-slot="all-page"]) [data-slot^="mobile-bottom-nav-"] svg,
+body:has([data-slot="notification-settings-page"]) [data-slot^="mobile-bottom-nav-"] svg {
   width: 18px !important;
   height: 18px !important;
 }
 
-body.mobile-all-route [data-component^="mobile-bottom-nav-"] span,
-body:has([data-component="all-page"]) [data-component^="mobile-bottom-nav-"] span,
-body:has([data-component="notification-settings"]) [data-component^="mobile-bottom-nav-"] span {
+body.mobile-all-route [data-slot^="mobile-bottom-nav-"] span,
+body:has([data-slot="all-page"]) [data-slot^="mobile-bottom-nav-"] span,
+body:has([data-slot="notification-settings-page"]) [data-slot^="mobile-bottom-nav-"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -2288,249 +2283,7 @@ body.mobile-all-route .menu-row {
 }
 
 /* ===== Files page — page-files.html fidelity overrides ===== */
-[data-component="files"] {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: min(100vw, 390px);
-  height: min(100dvh, 844px);
-  min-height: 0 !important;
-  margin: 0 auto !important;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-  line-height: normal;
-}
-
-[data-component="files"] .nav-stack {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-[data-component="files"] .nav-page {
-  position: absolute;
-  inset: 0;
-}
-
-[data-component="files"] .nav-page.detail {
-  top: 62px;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
-}
-
-[data-component="files"] .nav-stack.show-detail .nav-page.list {
-  transform: translateX(0);
-}
-
-[data-component="files"] [data-component="mobile-files-content"] {
-  padding: 76px 26px 100px;
-  overflow-y: auto;
-}
-
-[data-component="files"] .list-title,
-[data-component="files"] .search-bar,
-[data-component="files"] .search-bar input,
-[data-component="files"] .filter-pill,
-[data-component="files"] .list-name,
-[data-component="files"] .file-meta,
-[data-component="files"] .section-header,
-[data-component="files"] .dday-sub {
-  line-height: normal;
-}
-
-[data-component="files"] .search-bar {
-  margin: 4px 12px 8px;
-}
-
-[data-component="files"] [data-component="mobile-files-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  text-align: left;
-}
-
-[data-component="files"] [data-component="mobile-files-row"] .list-name {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-[data-component="files"] .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
-}
-
-[data-component="files"] .pdf-page {
-  transform-origin: 0 0;
-  touch-action: pan-x pan-y;
-  will-change: transform;
-}
-
-[data-component="files"] .pdf-table {
-  margin-top: 6px;
-  overflow: hidden;
-  border: 1px solid hsl(var(--v3-border));
-  border-radius: 6px;
-}
-
-[data-component="files"] .pdf-table-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  padding: 5px 8px;
-  border-top: 1px solid hsl(var(--v3-border));
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.55rem;
-}
-
-[data-component="files"] .pdf-table-row:first-child {
-  border-top: 0;
-}
-
-[data-component="files"] .pdf-table-head {
-  padding: 6px 8px;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  font-weight: 700;
-}
-
-[data-component="files"] .pdf-final-note {
-  margin-top: 18px;
-  padding: 10px;
-  border-radius: 6px;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.55rem;
-  text-align: center;
-}
-
-body:has([data-component="files"]) {
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-  line-height: normal;
-}
-
-body:has([data-component="files"]) nextjs-portal {
-  display: none !important;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] {
-  width: calc(min(100vw, 390px) - 52px);
-  max-width: 338px;
-  gap: 2px;
-  padding: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px;
-  bottom: max(calc(24px + env(safe-area-inset-bottom)), calc(100dvh - var(--mobile-shell-max-height, 844px) + 24px)) !important;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
-  display: none;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] a {
-  gap: 2px;
-  padding: 5px 4px;
-  border-radius: 14px;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] svg {
-  width: 18px;
-  height: 18px;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobile-bottom-nav"] {
-  transform: translate(-50%, calc(100% + 32px));
-  opacity: 0;
-  pointer-events: none;
-}
-
 /* ===== Clients page — page-clients.html fidelity overrides ===== */
-[data-component="clients"] {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: min(100vw, 390px);
-  height: min(100dvh, 844px);
-  min-height: 0 !important;
-  margin: 0 auto !important;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-}
-
-[data-component="clients"] .nav-stack {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-[data-component="clients"] .nav-page {
-  position: absolute;
-  inset: 0;
-}
-
-[data-component="clients"] .nav-page.detail {
-  top: 62px;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
-}
-
-[data-component="clients"] .nav-stack.show-detail .nav-page.list {
-  transform: translateX(0);
-}
-
-[data-component="clients"] [data-component="mobile-clients-content"] {
-  padding: 12px 14px 76px;
-  overflow-y: auto;
-}
-
-[data-component="clients"] .list-title {
-  line-height: normal;
-}
-
-[data-component="clients"] .search-bar {
-  margin: 4px 12px 8px;
-  line-height: normal;
-}
-
-[data-component="clients"] .search-bar input {
-  line-height: normal;
-}
-
-[data-component="clients"] .filter-pill {
-  line-height: normal;
-}
-
-[data-component="clients"] [data-component="mobile-clients-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  line-height: normal;
-  text-align: left;
-}
-
-[data-component="clients"] .list-name,
-[data-component="clients"] .list-meta,
-[data-component="clients"] .section-header {
-  line-height: normal;
-}
-
 .mobile-clients-row-badges {
   display: flex;
   align-items: center;
@@ -2539,105 +2292,12 @@ body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobil
   white-space: nowrap;
 }
 
-[data-component="clients"] .badge-mini {
-  height: 28px;
-  font-size: 0.68rem;
-  border-color: currentColor;
-}
-
-[data-component="clients"] .badge-mini.muted {
-  background: hsl(220, 20%, 97%);
-  color: hsl(214, 10%, 55%);
-  border-color: hsl(220, 20%, 90%);
-}
-
-[data-component="clients"] .badge-mini.gray {
-  background: hsl(220, 20%, 97%);
-  color: hsl(214, 10%, 55%);
-  border-color: hsl(220, 20%, 90%);
-}
-
-[data-component="clients"] .badge-mini.primary {
-  border-color: hsl(214, 70%, 85%);
-}
-
-[data-component="clients"] .badge-mini.blue {
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-  border-color: hsl(214, 70%, 85%);
-}
-
-[data-component="clients"] .badge-mini.green {
-  border-color: hsl(137, 34%, 84%);
-}
-
-[data-component="clients"] .badge-mini.orange {
-  border-color: hsla(38, 92%, 35%, 0.18);
-}
-
-[data-component="clients"] .badge-mini.burgundy {
-  border-color: hsla(355, 36%, 45%, 0.2);
-}
-
-[data-component="clients"] .badge-mini.purple {
-  background: hsl(267, 50%, 92%);
-  color: hsl(267, 50%, 46%);
-  border-color: hsla(267, 50%, 46%, 0.2);
-}
-
-[data-component="clients"] .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
-}
-
-[data-component="clients"] .btn,
-[data-component="clients"] .info-row,
-[data-component="clients"] .info-card-title,
-[data-component="clients"] .doc-title,
-[data-component="clients"] .doc-meta {
-  line-height: normal;
-}
-
-[data-component="clients"] .info-row-value-orange {
-  color: hsl(var(--v3-orange));
-}
-
-[data-component="clients"] .doc-icon-primary {
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-}
-
-[data-component="clients"] .doc-icon-green {
-  background: hsl(var(--v3-green-light));
-  color: hsl(var(--v3-green));
-}
-
-[data-component="clients"] .doc-icon-orange {
-  background: hsl(var(--v3-orange-light));
-  color: hsl(var(--v3-orange));
-}
-
-[data-component="clients"] .doc-icon-burgundy {
-  background: hsl(var(--v3-burgundy-light));
-  color: hsl(var(--v3-burgundy));
-}
-
-[data-component="clients"] .doc-icon-muted {
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text-muted));
-}
-
-[data-component="clients"] .doc-icon-purple {
-  background: hsl(267, 50%, 92%);
-  color: hsl(267, 50%, 46%);
-}
-
-[data-component="mobile-clients-service-records"] .detail-actions.card-actions {
+[data-slot="client-service-records"] .detail-actions.card-actions {
   margin-top: 10px;
   padding: 0;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-card-title-row {
+[data-slot="client-service-records"] .service-record-card-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2645,23 +2305,23 @@ body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobil
   margin-bottom: 8px;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-card-title-row .info-card-title {
+[data-slot="client-service-records"] .service-record-card-title-row .info-card-title {
   flex-shrink: 0;
   margin-bottom: 0;
 }
 
-[data-component="mobile-clients-service-records-assignment"] > .info-card:first-child > .info-card-title {
+[data-slot="client-service-records-assignment"] > .info-card:first-child > .info-card-title {
   font-size: 0.7rem;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-card-title-row .service-record-progress-row {
+[data-slot="client-service-records"] .service-record-card-title-row .service-record-progress-row {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-refresh-button {
+[data-slot="client-service-records"] .service-record-refresh-button {
   display: inline-flex;
   width: 24px;
   height: 24px;
@@ -2676,38 +2336,27 @@ body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobil
   cursor: pointer;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-refresh-button:disabled {
+[data-slot="client-service-records"] .service-record-refresh-button:disabled {
   cursor: wait;
   opacity: 0.5;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-card-title-row .info-row {
-  border-bottom: 0;
-  padding: 0;
-}
-
-[data-component="mobile-clients-service-records"] .service-record-card-title-row .info-row-no-label .info-row-value {
-  margin-left: auto;
-  text-align: right;
-}
-
-[data-component="mobile-clients-service-records"] .service-record-progress-row .info-row-label,
-[data-component="mobile-clients-service-records"] .service-record-progress-row .info-row-value {
+[data-slot="client-service-records"] .service-record-progress-row .info-row-value {
   font-size: 0.6rem;
   font-weight: 700;
   color: hsl(var(--v3-text-muted));
 }
 
-[data-component="mobile-clients-service-records"] .service-record-text-row {
+[data-slot="client-service-records"] .service-record-text-row {
   flex-direction: column;
   gap: 4px;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-text-row .message-detail-body {
+[data-slot="client-service-records"] .service-record-text-row .message-detail-body {
   width: 100%;
 }
 
-[data-component="mobile-clients-service-records"] .service-record-snapshot-note {
+[data-slot="client-service-records"] .service-record-snapshot-note {
   padding: 12px 4px;
   font-size: 0.6875rem;
   font-weight: 500;
@@ -2737,8 +2386,7 @@ body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobil
   }
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"],
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -2755,46 +2403,39 @@ body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"],
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] a,
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] a {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] svg,
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] svg {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] span,
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] span {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav-clients"],
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav-clients"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav-clients"] {
   background: transparent;
 }
 
-body.mobile-clients-route:has(.nav-stack.show-detail) [data-component="mobile-bottom-nav"],
-body:has([data-component="clients"] .nav-stack.show-detail) [data-component="mobile-bottom-nav"] {
+body.mobile-clients-route:has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
 
-body.mobile-clients-route [data-component="mobile-header"],
-body:has([data-component="clients"]) [data-component="mobile-header"] {
+body.mobile-clients-route [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2821,160 +2462,6 @@ body:has([data-component="clients"]) [data-component="mobile-header"] {
 }
 
 /* ===== Consultations-specific ===== */
-body:has([data-component="consultations"]) {
-  background: hsl(220, 15%, 88%);
-  color: hsl(var(--v3-text));
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-  line-height: normal;
-  overflow: hidden;
-}
-
-body:has([data-component="consultations"]) [data-component="app-root"] {
-  position: relative;
-  padding: 12px;
-  overflow: hidden;
-  background: #000;
-  border-radius: 48px;
-  box-shadow:
-    0 30px 80px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(0, 0, 0, 0.6) inset;
-}
-
-body:has([data-component="consultations"]) [data-component="app-root"]::before {
-  content: "";
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  z-index: 100;
-  width: 110px;
-  height: 28px;
-  border-radius: 999px;
-  background: #000;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-body:has([data-component="consultations"]) [data-component="app-providers"] {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  background: hsl(var(--v3-dim-white));
-  border-radius: 38px;
-}
-
-body:has([data-component="consultations"]) [data-component="main-content"] {
-  position: absolute !important;
-  inset: 0 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  width: auto !important;
-  height: auto !important;
-  min-height: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  line-height: normal;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-header"] {
-  position: absolute !important;
-  top: 0 !important;
-  right: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  max-width: none !important;
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-  z-index: 20;
-  color: hsl(var(--v3-text));
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-}
-
-[data-component="consultations"] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  min-height: 0 !important;
-  margin: 0 !important;
-  overflow: hidden;
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-  line-height: normal;
-}
-
-[data-component="consultations"]:has(.nav-stack.show-detail) {
-  z-index: 50;
-}
-
-[data-component="consultations"] .nav-stack {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-[data-component="consultations"] .nav-page {
-  position: absolute;
-  inset: 0;
-}
-
-[data-component="consultations"] .nav-page.detail {
-  top: 50px;
-}
-
-[data-component="consultations"] .nav-stack.show-detail .nav-page.list {
-  transform: translateX(0);
-}
-
-[data-component="consultations"] [data-component="mobile-consultations-content"] {
-  padding: 76px 14px 76px;
-  overflow-y: auto;
-}
-
-[data-component="consultations"] .list-title,
-[data-component="consultations"] .filter-pill,
-[data-component="consultations"] .section-header,
-[data-component="consultations"] .list-name,
-[data-component="consultations"] .consult-snippet,
-[data-component="consultations"] .dday-sub,
-[data-component="consultations"] .info-card-title,
-[data-component="consultations"] .info-row,
-[data-component="consultations"] .btn,
-[data-component="consultations"] .badge-mini {
-  line-height: normal;
-}
-
-[data-component="consultations"] [data-component="mobile-consultations-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  text-align: left;
-}
-
 .consult-snippet {
   font-size: 0.7rem;
   color: hsl(var(--v3-text-muted));
@@ -2988,136 +2475,20 @@ body:has([data-component="consultations"]) [data-component="mobile-header"] {
 .voucher-tag.govt { color: hsl(var(--v3-primary)); }
 .voucher-tag.self { color: hsl(var(--v3-dark)); }
 .snippet-sep { opacity: 0.4; }
-[data-component="consultations"] .list-item.unread-row {
-  background: hsla(214, 80%, 95%, 0.5);
-  position: relative;
-  padding-left: 18px;
-}
-[data-component="consultations"] .list-item.unread-row::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 6px;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: hsl(var(--v3-primary));
-}
-[data-component="consultations"] .filter-pill:nth-child(2):not(.active) .count,
-[data-component="consultations"] .filter-pill .count.burgundy-count {
-  background: hsl(var(--v3-burgundy-light));
-  color: hsl(var(--v3-burgundy));
-}
-
-[data-component="consultations"] .detail-body .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
-}
-
-[data-component="consultations"] .badge-mini {
-  height: 28px;
-  font-size: 0.68rem;
-  border: 1px solid;
-}
-
-[data-component="consultations"] .badge-mini.muted {
-  border-color: hsl(var(--v3-border));
-}
-
-[data-component="consultations"] .badge-mini.burgundy {
-  border-color: hsla(355, 36%, 45%, 0.2);
-}
-
-[data-component="consultations"] .badge-mini.green {
-  border-color: hsl(137, 34%, 84%);
-}
-
-[data-component="consultations"] .info-card-padded {
-  padding: 16px;
-}
-
-[data-component="consultations"] .consultation-body-copy {
-  white-space: pre-wrap;
-  color: hsl(var(--v3-dark));
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] {
-  position: absolute !important;
-  right: 14px !important;
-  bottom: 12px !important;
-  left: 14px !important;
-  width: auto !important;
-  max-width: none !important;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  align-items: end;
-  gap: 2px !important;
-  padding: 5px !important;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px !important;
-  background: rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 8px 32px hsla(214, 50%, 20%, 0.1) !important;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  color: hsl(var(--v3-text));
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-  z-index: var(--mobile-z-nav);
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] > [aria-hidden="true"] {
-  display: none;
-}
-
-body:has([data-component="consultations"]) nav[data-component="mobile-bottom-nav"] a {
-  gap: 2px !important;
-  height: 40px;
-  padding: 5px 4px !important;
-  border-radius: 14px !important;
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] svg {
-  width: 18px;
-  height: 18px;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-body:has([data-component="consultations"]):has([data-component="mobile-consultations-stack"].show-detail) [data-component="mobile-bottom-nav"] {
-  opacity: 0;
-  pointer-events: none;
-  translate: 0 calc(100% + 32px) !important;
-}
-
 /* ===== /employees pixel shell — scoped to this route only ===== */
-body:has([data-component="mobile_employees_detail-sheet"]) {
+body:has([data-slot="employees-content"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
   /* Lock the shell to the viewport so the page itself never scrolls — only the
-     inner [data-component="mobile-employees-content"] list scrolls (parity with
+     inner [data-slot="employees-content"] list scrolls (parity with
      the dashboard, redesign.css:155). The app-root/app-providers/main locks
      below already exist; the body overflow lock was the missing piece. */
   overflow: hidden;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"] {
+body:has([data-slot="employees-content"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   background: #000;
@@ -3126,7 +2497,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-
   overflow: hidden;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"]::before {
+body:has([data-slot="employees-content"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -3140,7 +2511,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-
   pointer-events: none;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-providers"] {
+body:has([data-slot="employees-content"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -3149,7 +2520,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-
   border-radius: 38px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main-content"] {
+body:has([data-slot="employees-content"]) [data-slot="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -3157,7 +2528,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet"] {
+body:has([data-slot="employees-content"]) .mobile-detail-sheet {
   position: relative !important;
   inset: auto !important;
   width: auto !important;
@@ -3169,7 +2540,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   margin: 0 !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-header"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -3181,34 +2552,28 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   transform: none !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet"].mobile-detail-sheet {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-employees-content"] {
+body:has([data-slot="employees-content"]) [data-slot="employees-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-title {
+body:has([data-slot="employees-content"]) .list-title {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-employees-content"] .search-bar {
+body:has([data-slot="employees-content"]) [data-slot="employees-content"] .search-bar {
   margin: 4px 12px 8px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .search-bar input {
+body:has([data-slot="employees-content"]) .search-bar input {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .filter-pill {
+body:has([data-slot="employees-content"]) .filter-pill {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) button.list-item {
+body:has([data-slot="employees-content"]) button.list-item {
   width: 100%;
   border: 0;
   background: transparent;
@@ -3217,44 +2582,44 @@ body:has([data-component="mobile_employees_detail-sheet"]) button.list-item {
   text-align: left;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-name,
-body:has([data-component="mobile_employees_detail-sheet"]) .list-meta,
-body:has([data-component="mobile_employees_detail-sheet"]) .section-header {
+body:has([data-slot="employees-content"]) .list-name,
+body:has([data-slot="employees-content"]) .list-meta,
+body:has([data-slot="employees-content"]) .section-header {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-primary {
+body:has([data-slot="employees-content"]) .list-avatar.av-primary {
   background: linear-gradient(135deg, hsl(var(--v3-primary)), hsl(214, 100%, 28%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-green {
+body:has([data-slot="employees-content"]) .list-avatar.av-green {
   background: linear-gradient(135deg, hsl(var(--v3-green)), hsl(137, 34%, 25%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-orange {
+body:has([data-slot="employees-content"]) .list-avatar.av-orange {
   background: linear-gradient(135deg, hsl(var(--v3-orange)), hsl(34, 100%, 45%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-burgundy {
+body:has([data-slot="employees-content"]) .list-avatar.av-burgundy {
   background: hsl(var(--v3-burgundy));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-purple {
+body:has([data-slot="employees-content"]) .list-avatar.av-purple {
   background: linear-gradient(135deg, hsl(var(--v3-purple)), hsl(267, 50%, 38%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-muted {
+body:has([data-slot="employees-content"]) .list-avatar.av-muted {
   background: linear-gradient(135deg, hsl(var(--v3-text-muted)), hsl(220, 8%, 35%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_list-page"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-list-page"] {
   position: absolute;
   inset: 0;
 }
@@ -3264,36 +2629,36 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
    peek. Pinning `inset: 0` here would flush it to the top and flatten the
    bottom-sheet look (the rounded top corners and shadow would have nothing to
    sit against). */
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_detail-page"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack"].show-detail .nav-page.list {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]):has([data-component="mobile_employees_detail-sheet_stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body:has([data-slot="employees-content"]):has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-bottom-nav"] {
   opacity: 0;
   pointer-events: none;
   translate: 0 calc(100% + 32px) !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .badge-mini {
+body:has([data-slot="employees-content"]) .badge-mini {
   height: 28px;
   font-size: 0.68rem;
   border: 1px solid;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .info-row-value-orange {
+body:has([data-slot="employees-content"]) .info-row-value-orange {
   color: hsl(38, 92%, 35%);
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .detail-body .detail-actions {
+body:has([data-slot="employees-content"]) .detail-body .detail-actions {
   margin-top: 0;
   padding: 14px 16px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -3311,32 +2676,32 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   transform: none !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) nav[data-component="mobile-bottom-nav"] a {
+body:has([data-slot="employees-content"]) nav[data-slot="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] svg {
+body:has([data-slot="employees-content"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-bottom-nav"] span {
+body:has([data-slot="employees-content"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
 /* ===== /messages pixel shell — scoped to page-messages.html parity ===== */
-body:has([data-component="messages"]) {
+body:has([data-slot="messages-page"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
 }
 
-body:has([data-component="messages"]) [data-component="app-root"] {
+body:has([data-slot="messages-page"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -3347,7 +2712,7 @@ body:has([data-component="messages"]) [data-component="app-root"] {
     0 0 0 1px rgba(0, 0, 0, 0.6) inset;
 }
 
-body:has([data-component="messages"]) [data-component="app-root"]::before {
+body:has([data-slot="messages-page"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -3361,7 +2726,7 @@ body:has([data-component="messages"]) [data-component="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="messages"]) [data-component="app-providers"] {
+body:has([data-slot="messages-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -3372,11 +2737,11 @@ body:has([data-component="messages"]) [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body:has([data-component="messages"]) nextjs-portal {
+body:has([data-slot="messages-page"]) nextjs-portal {
   display: none !important;
 }
 
-body:has([data-component="messages"]) [data-component="main-content"] {
+body:has([data-slot="messages-page"]) [data-slot="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -3386,7 +2751,7 @@ body:has([data-component="messages"]) [data-component="main-content"] {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-header"] {
+body:has([data-slot="messages-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -3399,36 +2764,23 @@ body:has([data-component="messages"]) [data-component="mobile-header"] {
   z-index: 20;
 }
 
-body:has([data-component="messages"]) [data-component="messages"].mobile-detail-sheet {
+body:has([data-slot="messages-page"]) [data-slot="messages-page"].mobile-detail-sheet {
   --mobile-detail-sheet-min-height: calc(min(100dvh, 844px) - 88px);
   height: calc(min(100dvh, 844px) - 88px);
 }
 
-body:has([data-component="messages"]) [data-component="mobile-messages-content"] {
-  padding: 12px 14px 76px;
-  overflow-y: auto;
-}
-
-body:has([data-component="messages"]) [data-component="mobile-messages-list-card"] {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-body:has([data-component="messages"]) .messages-hub-wrap {
+body:has([data-slot="messages-page"]) .messages-hub-wrap {
   padding: 0 12px 4px;
 }
 
-body:has([data-component="messages"]) .hub-tiles {
+body:has([data-slot="messages-page"]) .hub-tiles {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 0 4px 12px;
 }
 
-body:has([data-component="messages"]) .hub-tile {
+body:has([data-slot="messages-page"]) .hub-tile {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3445,7 +2797,7 @@ body:has([data-component="messages"]) .hub-tile {
   font: inherit;
 }
 
-body:has([data-component="messages"]) .hub-tile-icon {
+body:has([data-slot="messages-page"]) .hub-tile-icon {
   display: flex;
   width: 32px;
   height: 32px;
@@ -3455,17 +2807,17 @@ body:has([data-component="messages"]) .hub-tile-icon {
   border-radius: 10px;
 }
 
-body:has([data-component="messages"]) .hub-tile-icon-kakao {
+body:has([data-slot="messages-page"]) .hub-tile-icon-kakao {
   color: hsl(45, 70%, 30%);
   background: hsl(50, 100%, 88%);
 }
 
-body:has([data-component="messages"]) .hub-tile-icon-primary {
+body:has([data-slot="messages-page"]) .hub-tile-icon-primary {
   color: hsl(214, 100%, 34%);
   background: hsl(var(--v3-primary-light));
 }
 
-body:has([data-component="messages"]) .hub-tile-text {
+body:has([data-slot="messages-page"]) .hub-tile-text {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -3473,19 +2825,19 @@ body:has([data-component="messages"]) .hub-tile-text {
   line-height: 1.2;
 }
 
-body:has([data-component="messages"]) .hub-tile-label {
+body:has([data-slot="messages-page"]) .hub-tile-label {
   font-size: 0.75rem;
   font-weight: 700;
   color: hsl(var(--v3-dark));
 }
 
-body:has([data-component="messages"]) .hub-tile-sub {
+body:has([data-slot="messages-page"]) .hub-tile-sub {
   margin-top: 2px;
   font-size: 0.6rem;
   color: hsl(var(--v3-text-muted));
 }
 
-body:has([data-component="messages"]) button.list-item {
+body:has([data-slot="messages-page"]) button.list-item {
   width: 100%;
   appearance: none;
   border: 0;
@@ -3496,18 +2848,18 @@ body:has([data-component="messages"]) button.list-item {
   text-align: left;
 }
 
-body:has([data-component="messages"]) .list-info {
+body:has([data-slot="messages-page"]) .list-info {
   display: block;
 }
 
-body:has([data-component="messages"]) .list-name,
-body:has([data-component="messages"]) .list-meta,
-body:has([data-component="messages"]) .section-header,
-body:has([data-component="messages"]) .filter-pill {
+body:has([data-slot="messages-page"]) .list-name,
+body:has([data-slot="messages-page"]) .list-meta,
+body:has([data-slot="messages-page"]) .section-header,
+body:has([data-slot="messages-page"]) .filter-pill {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) .thread-channel {
+body:has([data-slot="messages-page"]) .thread-channel {
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 0.55rem;
@@ -3517,17 +2869,17 @@ body:has([data-component="messages"]) .thread-channel {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) .thread-channel.kakao {
+body:has([data-slot="messages-page"]) .thread-channel.kakao {
   color: hsl(45, 70%, 30%);
   background: hsl(50, 100%, 88%);
 }
 
-body:has([data-component="messages"]) .thread-channel.sms {
+body:has([data-slot="messages-page"]) .thread-channel.sms {
   color: hsl(var(--v3-primary));
   background: hsl(var(--v3-primary-light));
 }
 
-body:has([data-component="messages"]) .message-row-status {
+body:has([data-slot="messages-page"]) .message-row-status {
   display: inline-flex;
   min-width: max-content;
   flex-direction: column;
@@ -3536,66 +2888,50 @@ body:has([data-component="messages"]) .message-row-status {
   text-align: center;
 }
 
-body:has([data-component="messages"]) .message-row-status .dday-sub {
+body:has([data-slot="messages-page"]) .message-row-status .dday-sub {
   line-height: 1;
 }
 
-body:has([data-component="messages"]) .filter-pill .messages-filter-count-danger {
+body:has([data-slot="messages-page"]) .filter-pill .messages-filter-count-danger {
   color: hsl(var(--v3-burgundy));
   background: hsl(var(--v3-burgundy-light));
 }
 
-body:has([data-component="messages"]) .filter-pill.active .messages-filter-count-danger {
+body:has([data-slot="messages-page"]) .filter-pill.active .messages-filter-count-danger {
   color: white;
   background: rgba(255, 255, 255, 0.25);
 }
 
-body:has([data-component="messages"]) .messages-body-text {
+body:has([data-slot="messages-page"]) .messages-body-text {
   white-space: pre-wrap;
   color: hsl(var(--v3-dark));
   font-size: 0.84rem;
   line-height: 1.55;
 }
 
-body:has([data-component="messages"]) .messages-detail-link {
+body:has([data-slot="messages-page"]) .messages-detail-link {
   display: flex;
   align-items: center;
   justify-content: center;
   text-decoration: none;
 }
 
-body:has([data-component="messages"]) .detail-body .detail-actions {
+body:has([data-slot="messages-page"]) .detail-body .detail-actions {
   margin-top: 0;
   padding: 14px 16px;
 }
 
-body:has([data-component="messages"]) .badge-mini {
+body:has([data-slot="messages-page"]) .badge-mini {
   height: 28px;
   font-size: 0.68rem;
   border: 1px solid;
 }
 
-body:has([data-component="messages"]) .nav-stack.show-detail .nav-page.list {
+body:has([data-slot="messages-page"]) .nav-stack.show-detail .nav-page.list {
   transform: translateX(0);
 }
 
-body:has([data-component="messages"]) [data-component="mobile-messages-detail-scrim"] {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
-  z-index: 50;
-  border-radius: 38px;
-}
-
-body:has([data-component="messages"]):has([data-component="mobile-messages-stack"].show-detail) [data-component="mobile-bottom-nav"] {
-  opacity: 0;
-  pointer-events: none;
-  translate: 0 calc(100% + 32px) !important;
-}
-
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -3613,320 +2949,23 @@ body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] {
   transform: none !important;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body:has([data-component="messages"]) nav[data-component="mobile-bottom-nav"] a {
+body:has([data-slot="messages-page"]) nav[data-slot="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] svg {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="messages"]) [data-component="mobile-bottom-nav"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-/* ===== Message automation shell ===== */
-body:has([data-component="messages-shell"]) {
-  background: hsl(220, 15%, 88%);
-  color: hsl(var(--v3-text));
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) [data-component="app-root"] {
-  position: relative;
-  padding: 12px;
-  overflow: hidden;
-  background: #000;
-  border-radius: 48px;
-  box-shadow:
-    0 30px 80px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(0, 0, 0, 0.6) inset;
-}
-
-body:has([data-component="messages-shell"]) [data-component="app-root"]::before {
-  content: "";
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  z-index: 100;
-  width: 110px;
-  height: 28px;
-  border-radius: 999px;
-  background: #000;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-body:has([data-component="messages-shell"]) [data-component="app-providers"] {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  color: hsl(var(--v3-text));
-  background: hsl(var(--v3-dim-white));
-  border-radius: 38px;
-  -webkit-font-smoothing: antialiased;
-}
-
-body:has([data-component="messages-shell"]) [data-component="main-content"] {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 64px 0 0 !important;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) [data-component="mobile-header"] {
-  position: absolute !important;
-  top: 0 !important;
-  right: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  max-width: none !important;
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-  z-index: 20;
-}
-
-body:has([data-component="messages-shell"]) [data-component="floating-quick-actions"] {
-  display: none !important;
-}
-
-body:has([data-component="messages-shell"]) [data-component="app-providers"] > .fixed.left-4.right-4.z-50 {
-  display: none !important;
-}
-
-body:has([data-component="messages-shell"]) [data-component="messages-shell"] {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-  font-family: inherit;
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) [data-component="messages-content"] {
-  padding: 12px 14px 76px;
-  overflow-y: auto;
-}
-
-body:has([data-component="messages-shell"]) [data-component="message-trigger-card"] {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-body:has([data-component="messages-shell"]) .list-action {
-  text-decoration: none;
-}
-
-body:has([data-component="messages-shell"]) .list-title,
-body:has([data-component="messages-shell"]) .list-title-text,
-body:has([data-component="messages-shell"]) .list-action,
-body:has([data-component="messages-shell"]) .section-header,
-body:has([data-component="messages-shell"]) .trigger-title,
-body:has([data-component="messages-shell"]) .trigger-meta,
-body:has([data-component="messages-shell"]) .send-stat {
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) button.message-trigger-row {
-  width: 100%;
-  appearance: none;
-  border: 0;
-  padding: 12px 10px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-body:has([data-component="messages-shell"]) button.message-trigger-row:disabled {
-  cursor: wait;
-  opacity: 0.72;
-}
-
-body:has([data-component="messages-shell"]) .message-trigger-row-skeleton {
-  padding: 12px 10px;
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon {
-  display: flex;
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 11px;
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-primary {
-  color: hsl(var(--v3-primary));
-  background: hsl(var(--v3-primary-light));
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-orange {
-  color: hsl(var(--v3-orange));
-  background: hsl(var(--v3-orange-light));
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-green {
-  color: hsl(var(--v3-green));
-  background: hsl(var(--v3-green-light));
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-purple {
-  color: hsl(267, 50%, 46%);
-  background: hsl(267, 50%, 92%);
-}
-
-body:has([data-component="messages-shell"]) .trigger-info {
-  flex: 1;
-  min-width: 0;
-}
-
-body:has([data-component="messages-shell"]) .trigger-title {
-  color: hsl(var(--v3-dark));
-  font-size: 0.86rem;
-  font-weight: 700;
-}
-
-body:has([data-component="messages-shell"]) .trigger-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 3px;
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.66rem;
-}
-
-body:has([data-component="messages-shell"]) .trigger-meta .sep {
-  color: hsl(var(--v3-border));
-}
-
-body:has([data-component="messages-shell"]) .send-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-  font-size: 0.6rem;
-  font-weight: 700;
-}
-
-body:has([data-component="messages-shell"]) .message-count-skeleton {
-  display: inline-block;
-  width: 36px;
-  height: 0.6rem;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.18;
-  animation: pulse 0.8s ease-in-out infinite;
-}
-
-body:has([data-component="messages-shell"]) .send-stat.fail {
-  color: hsl(var(--v3-burgundy));
-  background: hsl(var(--v3-burgundy-light));
-}
-
-body:has([data-component="messages-shell"]) .message-empty-state {
-  display: flex;
-  min-height: 120px;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed hsl(var(--v3-border));
-  border-radius: 18px;
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-align: center;
-}
-
-body:has([data-component="messages-shell"]) .toggle {
-  position: relative;
-  width: 38px;
-  height: 22px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: hsl(var(--v3-border));
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-body:has([data-component="messages-shell"]) .toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: left 0.2s ease;
-}
-
-body:has([data-component="messages-shell"]) .toggle.on {
-  background: hsl(var(--v3-green));
-}
-
-body:has([data-component="messages-shell"]) .toggle.on::after {
-  left: 18px;
-}
-
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] {
-  position: absolute !important;
-  right: 14px !important;
-  bottom: 12px !important;
-  left: 14px !important;
-  width: auto !important;
-  max-width: none !important;
-  gap: 2px !important;
-  padding: 5px !important;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px !important;
-  background: rgba(255, 255, 255, 0.8);
-  box-shadow: 0 8px 32px hsla(214, 50%, 20%, 0.1);
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-}
-
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
-  display: none;
-}
-
-body:has([data-component="messages-shell"]) nav[data-component="mobile-bottom-nav"] a {
-  gap: 2px !important;
-  padding: 5px 4px !important;
-  border-radius: 14px !important;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-}
-
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] svg {
-  width: 18px;
-  height: 18px;
-}
-
-body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"] span {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -3935,11 +2974,6 @@ body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"]
 /* ===== Detail action button row spacing (override default for nested in sheet) ===== */
 .detail-body .detail-actions {
   padding: 0 4px;
-}
-
-[data-component="clients"] .detail-body .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
 }
 
 /* ===== Auth pages (login / register / forgot-password) ===== */
@@ -4142,14 +3176,14 @@ body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"]
 }
 
 /* ===== Login page (/login) ===== */
-body:has([data-component="auth-login"]) {
+body:has([data-slot="auth-login-page"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
 }
 
-body:has([data-component="auth-login"]) [data-component="app-root"] {
+body:has([data-slot="auth-login-page"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -4160,7 +3194,7 @@ body:has([data-component="auth-login"]) [data-component="app-root"] {
   line-height: normal;
 }
 
-body:has([data-component="auth-login"]) [data-component="app-root"]::before {
+body:has([data-slot="auth-login-page"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -4174,7 +3208,7 @@ body:has([data-component="auth-login"]) [data-component="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="auth-login"]) [data-component="app-providers"] {
+body:has([data-slot="auth-login-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -4183,7 +3217,7 @@ body:has([data-component="auth-login"]) [data-component="app-providers"] {
   border-radius: 38px;
 }
 
-body:has([data-component="auth-login"]) main[data-component="main-content"] {
+body:has([data-slot="auth-login-page"]) main[data-slot="main-content"] {
   display: block;
   height: 100%;
   min-height: 0;
@@ -4192,20 +3226,20 @@ body:has([data-component="auth-login"]) main[data-component="main-content"] {
   background: hsl(var(--v3-dim-white));
 }
 
-[data-component="auth-login"].auth-page {
+[data-slot="auth-login-page"].auth-page {
   min-height: 100%;
   padding: 24px;
 }
 
 /* ===== Forgot password page (/forgot-password) ===== */
-body:has([data-component="auth-forgot-password"]) {
+body:has([data-slot="auth-forgot-password-page"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
 }
 
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"] {
+body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -4216,7 +3250,7 @@ body:has([data-component="auth-forgot-password"]) [data-component="app-root"] {
   line-height: normal;
 }
 
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"]::before {
+body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -4230,7 +3264,7 @@ body:has([data-component="auth-forgot-password"]) [data-component="app-root"]::b
   pointer-events: none;
 }
 
-body:has([data-component="auth-forgot-password"]) [data-component="app-providers"] {
+body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -4239,7 +3273,7 @@ body:has([data-component="auth-forgot-password"]) [data-component="app-providers
   border-radius: 38px;
 }
 
-body:has([data-component="auth-forgot-password"]) main[data-component="main-content"] {
+body:has([data-slot="auth-forgot-password-page"]) main[data-slot="main-content"] {
   display: block;
   height: 100%;
   min-height: 0;
@@ -4248,7 +3282,7 @@ body:has([data-component="auth-forgot-password"]) main[data-component="main-cont
   background: hsl(var(--v3-dim-white));
 }
 
-[data-component="auth-forgot-password"].auth-page {
+[data-slot="auth-forgot-password-page"].auth-page {
   min-height: 100%;
   padding: 24px;
   background: linear-gradient(180deg, #fff 0%, hsl(var(--v3-dim-white)) 60%);
@@ -4256,42 +3290,42 @@ body:has([data-component="auth-forgot-password"]) main[data-component="main-cont
   flex-direction: column;
 }
 
-[data-component="auth-forgot-password"] .auth-brand {
+[data-slot="auth-forgot-password-page"] .auth-brand {
   padding: 24px 0;
 }
 
-[data-component="auth-forgot-password"] .auth-title {
+[data-slot="auth-forgot-password-page"] .auth-title {
   text-align: center;
 }
 
-[data-component="auth-forgot-password"] .auth-sub-stack {
+[data-slot="auth-forgot-password-page"] .auth-sub-stack {
   text-align: center;
   line-height: 1.5;
 }
 
-[data-component="auth-forgot-password"] .sub-variant {
+[data-slot="auth-forgot-password-page"] .sub-variant {
   display: none;
 }
 
-[data-component="auth-forgot-password"] .sub-variant.active {
+[data-slot="auth-forgot-password-page"] .sub-variant.active {
   display: block;
 }
 
-[data-component="auth-forgot-password"] .auth-step-view {
+[data-slot="auth-forgot-password-page"] .auth-step-view {
   display: none;
 }
 
-[data-component="auth-forgot-password"] .auth-step-view.active {
+[data-slot="auth-forgot-password-page"] .auth-step-view.active {
   display: block;
 }
 
-[data-component="auth-forgot-password"] .auth-input-group {
+[data-slot="auth-forgot-password-page"] .auth-input-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-[data-component="auth-forgot-password"] .auth-label {
+[data-slot="auth-forgot-password-page"] .auth-label {
   color: hsl(var(--v3-text-muted));
   font-size: 0.7rem;
   font-weight: 700;
@@ -4299,31 +3333,31 @@ body:has([data-component="auth-forgot-password"]) main[data-component="main-cont
   text-transform: uppercase;
 }
 
-[data-component="auth-forgot-password"] .auth-helper {
+[data-slot="auth-forgot-password-page"] .auth-helper {
   color: hsl(var(--v3-text-muted));
   font-size: 0.66rem;
   line-height: normal;
 }
 
-[data-component="auth-forgot-password"] .auth-helper.error {
+[data-slot="auth-forgot-password-page"] .auth-helper.error {
   color: hsl(var(--v3-burgundy));
   font-weight: 600;
 }
 
-[data-component="auth-forgot-password"] .auth-footer-link {
+[data-slot="auth-forgot-password-page"] .auth-footer-link {
   margin-top: 20px;
   text-align: center;
   color: hsl(var(--v3-text-muted));
   font-size: 0.78rem;
 }
 
-[data-component="auth-forgot-password"] .auth-footer-link a {
+[data-slot="auth-forgot-password-page"] .auth-footer-link a {
   color: hsl(var(--v3-primary));
   font-weight: 700;
   text-decoration: none;
 }
 
-[data-component="auth-forgot-password"] .auth-status {
+[data-slot="auth-forgot-password-page"] .auth-status {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4331,7 +3365,7 @@ body:has([data-component="auth-forgot-password"]) main[data-component="main-cont
   padding-top: 14px;
 }
 
-[data-component="auth-forgot-password"] .status-icon {
+[data-slot="auth-forgot-password-page"] .status-icon {
   width: 64px;
   height: 64px;
   border-radius: 50%;
@@ -4341,33 +3375,33 @@ body:has([data-component="auth-forgot-password"]) main[data-component="main-cont
   margin-bottom: 18px;
 }
 
-[data-component="auth-forgot-password"] .status-icon.success {
+[data-slot="auth-forgot-password-page"] .status-icon.success {
   background: hsl(var(--v3-green-light));
   color: hsl(var(--v3-green));
 }
 
-[data-component="auth-forgot-password"] .status-icon.error {
+[data-slot="auth-forgot-password-page"] .status-icon.error {
   background: hsl(var(--v3-burgundy-light));
   color: hsl(var(--v3-burgundy));
 }
 
-[data-component="auth-forgot-password"] .status-message {
+[data-slot="auth-forgot-password-page"] .status-message {
   color: hsl(var(--v3-dark));
   font-size: 0.88rem;
   line-height: 1.55;
   margin-bottom: 6px;
 }
 
-[data-component="auth-forgot-password"] .status-message strong {
+[data-slot="auth-forgot-password-page"] .status-message strong {
   color: hsl(var(--v3-primary));
 }
 
-[data-component="auth-forgot-password"] .status-message-muted {
+[data-slot="auth-forgot-password-page"] .status-message-muted {
   color: hsl(var(--v3-text-muted));
   font-size: 0.74rem;
 }
 
-[data-component="auth-forgot-password"] .status-info {
+[data-slot="auth-forgot-password-page"] .status-info {
   margin-top: 18px;
   border-radius: 12px;
   background: hsl(var(--v3-primary-light));
@@ -4377,11 +3411,11 @@ body:has([data-component="auth-forgot-password"]) main[data-component="main-cont
   line-height: 1.45;
 }
 
-[data-component="auth-forgot-password"] .auth-success-actions {
+[data-slot="auth-forgot-password-page"] .auth-success-actions {
   margin-top: 24px;
 }
 
-[data-component="auth-forgot-password"] .auth-btn.secondary {
+[data-slot="auth-forgot-password-page"] .auth-btn.secondary {
   border: 1px solid hsl(var(--v3-border));
   background: hsl(var(--v3-dim-white));
   color: hsl(var(--v3-text));
@@ -4389,7 +3423,7 @@ body:has([data-component="auth-forgot-password"]) main[data-component="main-cont
 }
 
 /* ===== Branch select page ===== */
-body:has([data-component="select-branch"]) {
+body:has([data-slot="select-branch-page"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   overflow: hidden;
@@ -4397,7 +3431,7 @@ body:has([data-component="select-branch"]) {
 }
 
 /* Mobile: app-root fills viewport */
-[data-component="app-root"]:has([data-component="select-branch"]) {
+[data-slot="app-root"]:has([data-slot="select-branch-page"]) {
   width: 100%;
   height: 100dvh;
   max-height: 100dvh;
@@ -4411,7 +3445,7 @@ body:has([data-component="select-branch"]) {
 
 /* Desktop: render inside a fake phone-frame for preview */
 @media (min-width: 768px) {
-  [data-component="app-root"]:has([data-component="select-branch"]) {
+  [data-slot="app-root"]:has([data-slot="select-branch-page"]) {
     width: 390px !important;
     max-width: 390px !important;
     height: 844px !important;
@@ -4424,7 +3458,7 @@ body:has([data-component="select-branch"]) {
     background: #000;
   }
 
-  [data-component="app-root"]:has([data-component="select-branch"])::before {
+  [data-slot="app-root"]:has([data-slot="select-branch-page"])::before {
     content: "";
     position: absolute;
     top: 12px;
@@ -4439,7 +3473,7 @@ body:has([data-component="select-branch"]) {
   }
 }
 
-[data-component="app-root"]:has([data-component="select-branch"]) [data-component="app-providers"] {
+[data-slot="app-root"]:has([data-slot="select-branch-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -4450,11 +3484,11 @@ body:has([data-component="select-branch"]) {
   line-height: normal;
 }
 
-body:has([data-component="select-branch"]) nextjs-portal {
+body:has([data-slot="select-branch-page"]) nextjs-portal {
   display: none !important;
 }
 
-main[data-component="main-content"]:has([data-component="select-branch"]) {
+main[data-slot="main-content"]:has([data-slot="select-branch-page"]) {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -4462,7 +3496,7 @@ main[data-component="main-content"]:has([data-component="select-branch"]) {
   background: hsl(var(--v3-dim-white));
 }
 
-main[data-component="main-content"]:has([data-component="select-branch"]) > [data-component="select-branch"] {
+main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slot="select-branch-page"] {
   flex: 1 1 auto;
   height: 100%;
   min-height: 0;
@@ -4648,14 +3682,14 @@ main[data-component="main-content"]:has([data-component="select-branch"]) > [dat
 }
 
 /* ===== Register page wizard (/register) ===== */
-body:has([data-component="auth-register"]) {
+body:has([data-slot="auth-register-page"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
 }
 
-body:has([data-component="auth-register"]) [data-component="app-root"] {
+body:has([data-slot="auth-register-page"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -4666,7 +3700,7 @@ body:has([data-component="auth-register"]) [data-component="app-root"] {
   line-height: normal;
 }
 
-body:has([data-component="auth-register"]) [data-component="app-root"]::before {
+body:has([data-slot="auth-register-page"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -4680,7 +3714,7 @@ body:has([data-component="auth-register"]) [data-component="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="auth-register"]) [data-component="app-providers"] {
+body:has([data-slot="auth-register-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -4689,7 +3723,7 @@ body:has([data-component="auth-register"]) [data-component="app-providers"] {
   border-radius: 38px;
 }
 
-body:has([data-component="auth-register"]) main[data-component="main-content"] {
+body:has([data-slot="auth-register-page"]) main[data-slot="main-content"] {
   display: block;
   height: 100%;
   min-height: 0;
@@ -4698,7 +3732,7 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   background: hsl(var(--v3-dim-white));
 }
 
-[data-component="auth-register"].auth-page {
+[data-slot="auth-register-page"].auth-page {
   min-height: 100%;
   padding: 24px;
   background: linear-gradient(180deg, #fff 0%, hsl(var(--v3-dim-white)) 60%);
@@ -4706,21 +3740,21 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   flex-direction: column;
 }
 
-[data-component="auth-register"] .auth-brand {
+[data-slot="auth-register-page"] .auth-brand {
   padding: 24px 0;
 }
 
-[data-component="auth-register"] .auth-title {
+[data-slot="auth-register-page"] .auth-title {
   text-align: center;
 }
 
-[data-component="auth-register"] .auth-sub {
+[data-slot="auth-register-page"] .auth-sub {
   text-align: center;
   line-height: 1.5;
   margin-bottom: 6px;
 }
 
-[data-component="auth-register"] .step-indicator {
+[data-slot="auth-register-page"] .step-indicator {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4728,23 +3762,23 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   margin-bottom: 18px;
 }
 
-[data-component="auth-register"] .step-dot {
+[data-slot="auth-register-page"] .step-dot {
   width: 18px;
   height: 4px;
   border-radius: 999px;
   background: hsl(var(--v3-border));
 }
 
-[data-component="auth-register"] .step-dot.active {
+[data-slot="auth-register-page"] .step-dot.active {
   width: 26px;
   background: hsl(var(--v3-primary));
 }
 
-[data-component="auth-register"] .step-dot.done {
+[data-slot="auth-register-page"] .step-dot.done {
   background: hsl(var(--v3-primary));
 }
 
-[data-component="auth-register"] .step-count {
+[data-slot="auth-register-page"] .step-count {
   margin-left: 4px;
   color: hsl(var(--v3-text-muted));
   font-size: 0.62rem;
@@ -4752,26 +3786,26 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   letter-spacing: 0.04em;
 }
 
-[data-component="auth-register"] .auth-step-view {
+[data-slot="auth-register-page"] .auth-step-view {
   display: block;
 }
 
-[data-component="auth-register"] .auth-form.auth-step-view {
+[data-slot="auth-register-page"] .auth-form.auth-step-view {
   display: flex;
   flex-direction: column;
 }
 
-[data-component="auth-register"] .auth-form {
+[data-slot="auth-register-page"] .auth-form {
   gap: 12px;
 }
 
-[data-component="auth-register"] .auth-input-group {
+[data-slot="auth-register-page"] .auth-input-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-[data-component="auth-register"] .auth-label {
+[data-slot="auth-register-page"] .auth-label {
   color: hsl(var(--v3-text-muted));
   font-size: 0.7rem;
   font-weight: 700;
@@ -4779,21 +3813,21 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   text-transform: uppercase;
 }
 
-[data-component="auth-register"] .auth-input-wrap,
-[data-component="auth-register"] .auth-select-wrap {
+[data-slot="auth-register-page"] .auth-input-wrap,
+[data-slot="auth-register-page"] .auth-select-wrap {
   position: relative;
 }
 
-[data-component="auth-register"] .auth-input {
+[data-slot="auth-register-page"] .auth-input {
   padding: 13px 16px;
   font-size: 0.9rem;
 }
 
-[data-component="auth-register"] .auth-input.has-trailing {
+[data-slot="auth-register-page"] .auth-input.has-trailing {
   padding-right: 90px;
 }
 
-[data-component="auth-register"] .auth-input-trailing {
+[data-slot="auth-register-page"] .auth-input-trailing {
   position: absolute;
   top: 50%;
   right: 12px;
@@ -4808,27 +3842,27 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   white-space: nowrap;
 }
 
-[data-component="auth-register"] .auth-helper {
+[data-slot="auth-register-page"] .auth-helper {
   color: hsl(var(--v3-text-muted));
   font-size: 0.66rem;
   line-height: normal;
 }
 
-[data-component="auth-register"] .auth-helper.error {
+[data-slot="auth-register-page"] .auth-helper.error {
   color: hsl(var(--v3-burgundy));
   font-weight: 600;
 }
 
-[data-component="auth-register"] .auth-helper.ok {
+[data-slot="auth-register-page"] .auth-helper.ok {
   color: hsl(var(--v3-green));
   font-weight: 600;
 }
 
-[data-component="auth-register"] .auth-helper.placeholder {
+[data-slot="auth-register-page"] .auth-helper.placeholder {
   visibility: hidden;
 }
 
-[data-component="auth-register"] .auth-select {
+[data-slot="auth-register-page"] .auth-select {
   width: 100%;
   padding: 13px 40px 13px 16px;
   border: 1px solid hsl(var(--v3-border));
@@ -4844,11 +3878,11 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   cursor: pointer;
 }
 
-[data-component="auth-register"] .auth-select:focus {
+[data-slot="auth-register-page"] .auth-select:focus {
   border-color: hsl(var(--v3-primary));
 }
 
-[data-component="auth-register"] .auth-select-chev {
+[data-slot="auth-register-page"] .auth-select-chev {
   position: absolute;
   top: 50%;
   right: 14px;
@@ -4859,7 +3893,7 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   color: hsl(var(--v3-text-muted));
 }
 
-[data-component="auth-register"] .pw-strength {
+[data-slot="auth-register-page"] .pw-strength {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -4870,34 +3904,34 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   font-size: 0.66rem;
 }
 
-[data-component="auth-register"] .pw-strength-row {
+[data-slot="auth-register-page"] .pw-strength-row {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-[data-component="auth-register"] .pw-strength-row.ok {
+[data-slot="auth-register-page"] .pw-strength-row.ok {
   color: hsl(var(--v3-green));
 }
 
-[data-component="auth-register"] .pw-strength-row .dot {
+[data-slot="auth-register-page"] .pw-strength-row .dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: hsl(var(--v3-border));
 }
 
-[data-component="auth-register"] .pw-strength-row.ok .dot {
+[data-slot="auth-register-page"] .pw-strength-row.ok .dot {
   background: hsl(var(--v3-green));
 }
 
-[data-component="auth-register"] .auth-actions {
+[data-slot="auth-register-page"] .auth-actions {
   display: flex;
   gap: 8px;
   margin-top: 16px;
 }
 
-[data-component="auth-register"] .auth-btn {
+[data-slot="auth-register-page"] .auth-btn {
   width: auto;
   flex: 2;
   display: inline-flex;
@@ -4910,37 +3944,37 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   box-shadow: none;
 }
 
-[data-component="auth-register"] .auth-btn.secondary {
+[data-slot="auth-register-page"] .auth-btn.secondary {
   flex: 1;
   border: 1px solid hsl(var(--v3-border));
   background: hsl(var(--v3-dim-white));
   color: hsl(var(--v3-text));
 }
 
-[data-component="auth-register"] .auth-btn.full {
+[data-slot="auth-register-page"] .auth-btn.full {
   flex: 1;
   box-shadow: 0 6px 20px rgba(20, 50, 100, 0.18);
 }
 
-[data-component="auth-register"] .auth-btn:disabled {
+[data-slot="auth-register-page"] .auth-btn:disabled {
   opacity: 0.45;
   box-shadow: none;
 }
 
-[data-component="auth-register"] .auth-footer-link {
+[data-slot="auth-register-page"] .auth-footer-link {
   margin-top: 18px;
   text-align: center;
   color: hsl(var(--v3-text-muted));
   font-size: 0.78rem;
 }
 
-[data-component="auth-register"] .auth-footer-link a {
+[data-slot="auth-register-page"] .auth-footer-link a {
   color: hsl(var(--v3-primary));
   font-weight: 700;
   text-decoration: none;
 }
 
-[data-component="auth-register"] .auth-status {
+[data-slot="auth-register-page"] .auth-status {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4948,7 +3982,7 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   padding-top: 8px;
 }
 
-[data-component="auth-register"] .status-icon {
+[data-slot="auth-register-page"] .status-icon {
   width: 64px;
   height: 64px;
   border-radius: 50%;
@@ -4958,33 +3992,33 @@ body:has([data-component="auth-register"]) main[data-component="main-content"] {
   margin-bottom: 18px;
 }
 
-[data-component="auth-register"] .status-icon.success {
+[data-slot="auth-register-page"] .status-icon.success {
   background: hsl(var(--v3-green-light));
   color: hsl(var(--v3-green));
 }
 
-[data-component="auth-register"] .status-icon.success.linked {
+[data-slot="auth-register-page"] .status-icon.success.linked {
   background: hsl(var(--v3-primary-light));
   color: hsl(var(--v3-primary));
 }
 
-[data-component="auth-register"] .status-message {
+[data-slot="auth-register-page"] .status-message {
   color: hsl(var(--v3-dark));
   font-size: 0.86rem;
   line-height: 1.55;
 }
 
-[data-component="auth-register"] .status-message strong {
+[data-slot="auth-register-page"] .status-message strong {
   color: hsl(var(--v3-primary));
 }
 
-[data-component="auth-register"] .status-message + .status-message {
+[data-slot="auth-register-page"] .status-message + .status-message {
   margin-top: 6px;
   color: hsl(var(--v3-text-muted));
   font-size: 0.74rem;
 }
 
-[data-component="auth-register"] .auth-success-actions {
+[data-slot="auth-register-page"] .auth-success-actions {
   margin-top: 28px;
 }
 
@@ -4996,7 +4030,7 @@ body.mobile-contracts-route {
   line-height: normal;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -5013,33 +4047,33 @@ body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] a {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] svg {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] span {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav-contracts"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav-contracts"] {
   background: transparent;
 }
 
 /* Mobile: app-root keeps the shared 390px viewport limit without the phone-frame bezel. */
-body.mobile-contracts-route [data-component="app-root"] {
+body.mobile-contracts-route [data-slot="app-root"] {
   width: min(100vw, 390px);
   max-width: 390px;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
@@ -5052,7 +4086,7 @@ body.mobile-contracts-route [data-component="app-root"] {
 
 /* Desktop: render inside a fake phone-frame for preview */
 @media (min-width: 768px) {
-  body.mobile-contracts-route [data-component="app-root"] {
+  body.mobile-contracts-route [data-slot="app-root"] {
     width: 390px !important;
     max-width: 390px !important;
     height: 844px !important;
@@ -5065,7 +4099,7 @@ body.mobile-contracts-route [data-component="app-root"] {
       0 0 0 1px rgba(0, 0, 0, 0.6) inset;
   }
 
-  body.mobile-contracts-route [data-component="app-root"]::before {
+  body.mobile-contracts-route [data-slot="app-root"]::before {
     content: "";
     position: absolute;
     top: 12px;
@@ -5080,7 +4114,7 @@ body.mobile-contracts-route [data-component="app-root"] {
   }
 }
 
-body.mobile-contracts-route [data-component="app-providers"] {
+body.mobile-contracts-route [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -5098,7 +4132,7 @@ body.mobile-contracts-route [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body.mobile-contracts-route [data-component="main-content"] {
+body.mobile-contracts-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -5110,13 +4144,6 @@ body.mobile-contracts-route [data-component="main-content"] {
   overflow: hidden !important;
   background: hsl(var(--v3-dim-white));
   color: hsl(var(--v3-text));
-}
-
-body.mobile-contracts-route [data-component="contracts"] {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 !important;
 }
 
 body.mobile-contracts-route .mobile-detail-sheet {
@@ -5126,60 +4153,55 @@ body.mobile-contracts-route .mobile-detail-sheet {
   margin: 0 !important;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-stack"] {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-list-page"],
-body.mobile-contracts-route [data-component="mobile-contracts-detail-page"] {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-list-page"],
+body.mobile-contracts-route [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-detail-page"] {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-detail-page"] {
   top: 50px;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-stack"].show-detail .nav-page.list {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
 /* Lock the app shell to the viewport on the clients route (parity with the
    dashboard, redesign.css:155-212) so the page itself never scrolls — only the
-   inner [data-component="mobile-clients-content"] list scrolls. */
-body.mobile-clients-route,
-body:has([data-component="clients"]) {
+   inner [data-slot="clients-content"] list scrolls. */
+body.mobile-clients-route {
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-component="app-root"],
-body:has([data-component="clients"]) [data-component="app-root"] {
+body.mobile-clients-route [data-slot="app-root"] {
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  body.mobile-clients-route [data-component="app-root"],
-  body:has([data-component="clients"]) [data-component="app-root"] {
+  body.mobile-clients-route [data-slot="app-root"] {
     height: min(100dvh, 844px);
     max-height: 844px;
   }
 }
 
-body.mobile-clients-route [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="clients"]) [data-component="app-root"] [data-component="app-providers"] {
+body.mobile-clients-route [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-component="main-content"],
-body:has([data-component="clients"]) [data-component="main-content"] {
+body.mobile-clients-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -5193,65 +4215,45 @@ body:has([data-component="clients"]) [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-clients-route [data-component="clients"],
-body:has([data-component="clients"]) [data-component="clients"] {
-  position: relative !important;
-  inset: auto !important;
-  width: auto !important;
-  height: auto !important;
-  transform: none !important;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 !important;
-}
-
-body.mobile-clients-route .mobile-detail-sheet,
-body:has([data-component="clients"]) .mobile-detail-sheet {
+body.mobile-clients-route .mobile-detail-sheet {
   flex: 1;
   height: 100%;
   min-height: 0 !important;
   margin: 0 !important;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-content"],
-body:has([data-component="clients"]) [data-component="mobile-clients-content"] {
+body.mobile-clients-route [data-slot="clients-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-stack"],
-body:has([data-component="clients"]) [data-component="mobile-clients-stack"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-list-page"],
-body.mobile-clients-route [data-component="mobile-clients-detail-page"],
-body:has([data-component="clients"]) [data-component="mobile-clients-list-page"],
-body:has([data-component="clients"]) [data-component="mobile-clients-detail-page"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-list-page"],
+body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-detail-page"],
-body:has([data-component="clients"]) [data-component="mobile-clients-detail-page"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"] {
   top: 50px;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-stack"].show-detail .nav-page.list,
-body:has([data-component="clients"]) [data-component="mobile-clients-stack"].show-detail .nav-page.list {
+body.mobile-clients-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-content"] {
+body.mobile-contracts-route [data-slot="list-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-row"] {
+body.mobile-contracts-route .list-item {
   width: 100%;
   border: 0;
   appearance: none;
@@ -5262,12 +4264,12 @@ body.mobile-contracts-route [data-component="mobile-contracts-row"] {
   text-align: left;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-search"] {
+body.mobile-contracts-route .search-bar {
   margin: 4px 12px 8px;
   line-height: normal;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-search"] input {
+body.mobile-contracts-route .search-bar input {
   line-height: normal;
 }
 
@@ -5345,8 +4347,7 @@ body.mobile-contracts-route .doc-meta {
   line-height: normal;
 }
 
-body.mobile-contracts-route .client-detail-badges .badge-mini,
-[data-component="mobile-contracts-detail-badges"] .badge-mini {
+body.mobile-contracts-route .client-detail-badges .badge-mini {
   height: 28px;
   font-size: 0.68rem;
   line-height: 1;
@@ -5463,7 +4464,7 @@ body.mobile-contracts-route .contract-doc-icon-muted {
   color: hsl(var(--v3-text-muted));
 }
 
-body.mobile-contracts-route [data-component="mobile-header"] {
+body.mobile-contracts-route [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   left: 0 !important;
@@ -5478,11 +4479,11 @@ body.mobile-contracts-route [data-component="mobile-header"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-contracts-route [data-component="floating-quick-actions"] {
+body.mobile-contracts-route [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -5508,11 +4509,11 @@ body.mobile-contracts-route [data-component="mobile-bottom-nav"] {
   z-index: var(--mobile-z-nav);
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav"] > [aria-hidden="true"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav"] > [aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] {
+body.mobile-contracts-route [data-slot^="mobile-bottom-nav-"] {
   position: static !important;
   display: flex;
   flex-direction: column;
@@ -5525,22 +4526,22 @@ body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] {
   text-decoration: none;
 }
 
-body.mobile-contracts-route [data-component="mobile-bottom-nav-contracts"] {
+body.mobile-contracts-route [data-slot="mobile-bottom-nav-contracts"] {
   background: transparent !important;
 }
 
-body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] svg {
+body.mobile-contracts-route [data-slot^="mobile-bottom-nav-"] svg {
   width: 18px !important;
   height: 18px !important;
 }
 
-body.mobile-contracts-route [data-component^="mobile-bottom-nav-"] span {
+body.mobile-contracts-route [data-slot^="mobile-bottom-nav-"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body.mobile-contracts-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translateY(calc(100% + 32px)) !important;
   opacity: 0;
   pointer-events: none;
@@ -5551,18 +4552,18 @@ body.mobile-contracts-route nextjs-portal {
 }
 
 /* Dashboard frame-removal correction: anchor nav to the shell and let the card scroll internally. */
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="mobile-bottom-nav"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] {
   bottom: 12px !important;
   z-index: var(--mobile-z-nav) !important;
 }
 
-[data-component="dashboard"] [data-component="mobile-dashboard-content"] {
+[data-slot="dashboard-page"] [data-slot="dashboard-content"] {
   min-height: 0 !important;
   overflow: hidden !important;
   padding: 12px 14px 76px !important;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"] > [data-component="mobile-redesign-filter-row"] {
+[data-slot="dashboard-page"] .list-card > .filter-row {
   display: flex;
   gap: 6px;
   padding: 6px 8px;
@@ -5571,7 +4572,7 @@ body.mobile-contracts-route nextjs-portal {
   scroll-padding-inline: 8px;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"] > [data-component="mobile-redesign-filter-row"] [data-component="mobile-redesign-filter-pill"] {
+[data-slot="dashboard-page"] .list-card > .filter-row .filter-pill {
   flex: 0 0 auto;
   min-width: max-content;
   gap: 6px;
@@ -5579,12 +4580,12 @@ body.mobile-contracts-route nextjs-portal {
   white-space: nowrap;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"] > [data-component="mobile-redesign-filter-row"] .count {
+[data-slot="dashboard-page"] .list-card > .filter-row .count {
   flex-shrink: 0;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"],
-[data-component="dashboard"] [data-component="mobile-redesign-list-scroll"] {
+[data-slot="dashboard-page"] .list-card,
+[data-slot="dashboard-page"] .list-card-scroll {
   min-height: 0 !important;
 }
 
@@ -5594,7 +4595,7 @@ body.mobile-contracts-route nextjs-portal {
 }
 
 /* ===== Dashboard viewport-fit chain (mirrors clients/prices/contracts pattern) ===== */
-body.mobile-dashboard-route [data-component="main-content"] {
+body.mobile-dashboard-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -5608,7 +4609,7 @@ body.mobile-dashboard-route [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-dashboard-route [data-component="dashboard"] {
+body.mobile-dashboard-route [data-slot="dashboard-page"] {
   position: relative !important;
   inset: auto !important;
   width: auto !important;
@@ -5629,15 +4630,15 @@ body.mobile-dashboard-route .mobile-detail-sheet {
 }
 
 /* ===== Dashboard detail sheet — parity with clients/messages/etc. ===== */
-body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-component="mobile-bottom-nav"] {
+body.mobile-dashboard-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
-body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-component="mobile-header"] {
+body.mobile-dashboard-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
 }
-body.mobile-dashboard-route [data-component="mobile-dashboard-detail-page"] {
+body.mobile-dashboard-route [data-slot="mobile-detail-stack-detail-page"] {
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
   bottom: 0 !important;
@@ -5651,7 +4652,7 @@ body.mobile-dashboard-route [data-component="mobile-dashboard-detail-page"] {
   background: hsl(var(--v3-dim-white)) !important;
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.22) !important;
 }
-body.mobile-dashboard-route [data-component="mobile-dashboard-detail-scrim"] {
+body.mobile-dashboard-route .scrim {
   position: fixed;
   top: 0 !important;
   right: 0 !important;
@@ -5662,14 +4663,11 @@ body.mobile-dashboard-route [data-component="mobile-dashboard-detail-scrim"] {
 }
 
 /* Detail pages should run edge-to-edge after removing the device frame. */
-body:has([data-component="consultations"]) [data-component$="-detail-page"],
-body:has([data-component="clients"]) [data-component$="-detail-page"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-page"],
-body:has([data-component="files"]) [data-component$="-detail-page"],
-body:has([data-component="messages"]) [data-component$="-detail-page"],
-body:has([data-component="prices-page"]) [data-component$="-detail-page"],
-body.mobile-contracts-route [data-component$="-detail-page"],
-body.mobile-prices-route [data-component$="-detail-page"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="messages-page"]) [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-detail-page"],
+body.mobile-contracts-route [data-slot="mobile-detail-stack-detail-page"],
+body.mobile-prices-route [data-slot="mobile-detail-stack-detail-page"] {
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
   bottom: 0 !important;
@@ -5684,14 +4682,8 @@ body.mobile-prices-route [data-component$="-detail-page"] {
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.22) !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-scrim"],
-body:has([data-component="messages"]) [data-component$="-detail-scrim"],
-body:has([data-component="prices-page"]) [data-component$="-detail-scrim"],
-body.mobile-contracts-route [data-component$="-detail-scrim"],
-body.mobile-prices-route [data-component$="-detail-scrim"],
-body:has([data-component="consultations"]) [data-component$="-detail-scrim"],
-body:has([data-component="clients"]) [data-component$="-detail-scrim"],
-body:has([data-component="files"]) [data-component$="-detail-scrim"] {
+body:has([data-slot="messages-page"]) [data-slot="mobile-detail-stack-scrim"],
+body.mobile-contracts-route [data-slot="mobile-detail-stack-scrim"] {
   position: fixed;
   top: 0 !important;
   right: 0 !important;
@@ -5701,156 +4693,117 @@ body:has([data-component="files"]) [data-component$="-detail-scrim"] {
   border-radius: 0 !important;
 }
 
-body:has([data-component="consultations"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="clients"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="messages"] .nav-stack.show-detail) [data-component="mobile-header"],
-body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-component="mobile-header"] {
+body:has([data-slot="employees-content"]):has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-header"],
+body:has([data-slot="messages-page"] .nav-stack.show-detail) [data-slot="mobile-header"],
+body.mobile-contracts-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
 }
 
 /* ===== Mobile redesign frame removal ===== */
-html:has(body [data-component="dashboard"]),
+html:has(body [data-slot="dashboard-page"]),
 html:has(body.mobile-all-route),
-html:has(body [data-component="consultations"]),
-html:has(body [data-component="clients"]),
-html:has(body [data-component="mobile_employees_detail-sheet"]),
-html:has(body [data-component="files"]),
-html:has(body [data-component="messages"]),
-html:has(body [data-component="messages-new-page"]),
-html:has(body [data-component="messages-templates"]),
-html:has(body [data-component="messages-shell"]),
-html:has(body [data-component="auth-login"]),
-html:has(body [data-component="auth-forgot-password"]),
-html:has(body [data-component="auth-register"]),
-html:has(body [data-component="select-branch"]),
-html:has(body [data-component="clients-new-page-shell"]),
-html:has(body [data-component="chat"]),
-html:has(body [data-component="employees-new-redesign"]),
-html:has(body [data-component="files-upload-page"]),
+html:has(body [data-slot="employees-content"]),
+html:has(body [data-slot="messages-page"]),
+html:has(body [data-slot="auth-login-page"]),
+html:has(body [data-slot="auth-forgot-password-page"]),
+html:has(body [data-slot="auth-register-page"]),
+html:has(body [data-slot="select-branch-page"]),
+html:has(body [data-slot="clients-new-page-shell"]),
+html:has(body [data-slot="chat-page"]),
+html:has(body [data-slot="employees-new-page-shell"]),
+html:has(body [data-slot="files-upload-page-shell"]),
 html:has(body.mobile-contracts-route) {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-body:has([data-component="dashboard"]),
+body:has([data-slot="dashboard-page"]),
 body.mobile-all-route,
-body:has([data-component="consultations"]),
-body:has([data-component="clients"]),
-body:has([data-component="mobile_employees_detail-sheet"]),
-body:has([data-component="files"]),
-body:has([data-component="messages"]),
-body:has([data-component="messages-new-page"]),
-body:has([data-component="messages-templates"]),
-body:has([data-component="messages-shell"]),
-body:has([data-component="auth-login"]),
-body:has([data-component="auth-forgot-password"]),
-body:has([data-component="auth-register"]),
-body:has([data-component="select-branch"]),
-body:has([data-component="clients-new-page-shell"]),
-body:has([data-component="chat"]),
-body:has([data-component="employees-new-redesign"]),
-body:has([data-component="files-upload-page"]),
+body:has([data-slot="employees-content"]),
+body:has([data-slot="messages-page"]),
+body:has([data-slot="auth-login-page"]),
+body:has([data-slot="auth-forgot-password-page"]),
+body:has([data-slot="auth-register-page"]),
+body:has([data-slot="select-branch-page"]),
+body:has([data-slot="clients-new-page-shell"]),
+body:has([data-slot="chat-page"]),
+body:has([data-slot="employees-new-page-shell"]),
+body:has([data-slot="files-upload-page-shell"]),
 body.mobile-contracts-route {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]),
-body.mobile-all-route [data-component="app-root"],
-body:has([data-component="consultations"]) [data-component="app-root"],
-body:has([data-component="clients"]) [data-component="app-root"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
-body:has([data-component="files"]) [data-component="app-root"],
-body:has([data-component="messages"]) [data-component="app-root"],
-body:has([data-component="messages-new-page"]) [data-component="app-root"],
-body:has([data-component="messages-templates"]) [data-component="app-root"],
-body:has([data-component="messages-shell"]) [data-component="app-root"],
-body:has([data-component="auth-login"]) [data-component="app-root"],
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"],
-body:has([data-component="auth-register"]) [data-component="app-root"],
-[data-component="app-root"]:has([data-component="select-branch"]),
-body:has([data-component="clients-new-page-shell"]) [data-component="app-root"],
-body:has([data-component="chat"]) [data-component="app-root"],
-body:has([data-component="employees-new-redesign"]) [data-component="app-root"],
-body:has([data-component="files-upload-page"]) [data-component="app-root"],
-body.mobile-contracts-route [data-component="app-root"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]),
+body.mobile-all-route [data-slot="app-root"],
+body:has([data-slot="employees-content"]) [data-slot="app-root"],
+body:has([data-slot="messages-page"]) [data-slot="app-root"],
+body:has([data-slot="auth-login-page"]) [data-slot="app-root"],
+body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"],
+body:has([data-slot="auth-register-page"]) [data-slot="app-root"],
+[data-slot="app-root"]:has([data-slot="select-branch-page"]),
+body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
+body:has([data-slot="chat-page"]) [data-slot="app-root"],
+body:has([data-slot="employees-new-page-shell"]) [data-slot="app-root"],
+body:has([data-slot="files-upload-page-shell"]) [data-slot="app-root"],
+body.mobile-contracts-route [data-slot="app-root"] {
   padding: 0 !important;
   background: hsl(var(--v3-dim-white)) !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"])::before,
-body.mobile-all-route [data-component="app-root"]::before,
-body:has([data-component="consultations"]) [data-component="app-root"]::before,
-body:has([data-component="clients"]) [data-component="app-root"]::before,
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"]::before,
-body:has([data-component="files"]) [data-component="app-root"]::before,
-body:has([data-component="messages"]) [data-component="app-root"]::before,
-body:has([data-component="messages-new-page"]) [data-component="app-root"]::before,
-body:has([data-component="messages-templates"]) [data-component="app-root"]::before,
-body:has([data-component="messages-shell"]) [data-component="app-root"]::before,
-body:has([data-component="auth-login"]) [data-component="app-root"]::before,
-body:has([data-component="auth-forgot-password"]) [data-component="app-root"]::before,
-body:has([data-component="auth-register"]) [data-component="app-root"]::before,
-[data-component="app-root"]:has([data-component="select-branch"])::before,
-body:has([data-component="clients-new-page-shell"]) [data-component="app-root"]::before,
-body:has([data-component="chat"]) [data-component="app-root"]::before,
-body:has([data-component="employees-new-redesign"]) [data-component="app-root"]::before,
-body:has([data-component="files-upload-page"]) [data-component="app-root"]::before,
-body.mobile-contracts-route [data-component="app-root"]::before {
+[data-slot="app-root"]:has([data-slot="dashboard-page"])::before,
+body.mobile-all-route [data-slot="app-root"]::before,
+body:has([data-slot="employees-content"]) [data-slot="app-root"]::before,
+body:has([data-slot="messages-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="auth-login-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="auth-register-page"]) [data-slot="app-root"]::before,
+[data-slot="app-root"]:has([data-slot="select-branch-page"])::before,
+body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"]::before,
+body:has([data-slot="chat-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="employees-new-page-shell"]) [data-slot="app-root"]::before,
+body:has([data-slot="files-upload-page-shell"]) [data-slot="app-root"]::before,
+body.mobile-contracts-route [data-slot="app-root"]::before {
   display: none !important;
   content: none !important;
 }
 
-[data-component="app-root"]:has([data-component="dashboard"]) [data-component="app-providers"],
-body.mobile-all-route [data-component="app-providers"],
-body:has([data-component="consultations"]) [data-component="app-providers"],
-body:has([data-component="clients"]) [data-component="app-providers"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-providers"],
-body:has([data-component="files"]) [data-component="app-providers"],
-body:has([data-component="messages"]) [data-component="app-providers"],
-body:has([data-component="messages-new-page"]) [data-component="app-providers"],
-body:has([data-component="messages-templates"]) [data-component="app-providers"],
-body:has([data-component="messages-shell"]) [data-component="app-providers"],
-body:has([data-component="auth-login"]) [data-component="app-providers"],
-body:has([data-component="auth-forgot-password"]) [data-component="app-providers"],
-body:has([data-component="auth-register"]) [data-component="app-providers"],
-[data-component="app-root"]:has([data-component="select-branch"]) [data-component="app-providers"],
-body:has([data-component="clients-new-page-shell"]) [data-component="app-providers"],
-body:has([data-component="chat"]) [data-component="app-providers"],
-body:has([data-component="employees-new-redesign"]) [data-component="app-providers"],
-body:has([data-component="files-upload-page"]) [data-component="app-providers"],
-body.mobile-contracts-route [data-component="app-providers"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="app-content"],
+body.mobile-all-route [data-slot="app-content"],
+body:has([data-slot="employees-content"]) [data-slot="app-content"],
+body:has([data-slot="messages-page"]) [data-slot="app-content"],
+body:has([data-slot="auth-login-page"]) [data-slot="app-content"],
+body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-content"],
+body:has([data-slot="auth-register-page"]) [data-slot="app-content"],
+[data-slot="app-root"]:has([data-slot="select-branch-page"]) [data-slot="app-content"],
+body:has([data-slot="clients-new-page-shell"]) [data-slot="app-content"],
+body:has([data-slot="chat-page"]) [data-slot="app-content"],
+body:has([data-slot="employees-new-page-shell"]) [data-slot="app-content"],
+body:has([data-slot="files-upload-page-shell"]) [data-slot="app-content"],
+body.mobile-contracts-route [data-slot="app-content"] {
   border-radius: 0 !important;
 }
 
-body:has([data-component="dashboard"]) nextjs-portal,
+body:has([data-slot="dashboard-page"]) nextjs-portal,
 body.mobile-all-route nextjs-portal,
-body:has([data-component="consultations"]) nextjs-portal,
-body:has([data-component="clients"]) nextjs-portal,
-body:has([data-component="mobile_employees_detail-sheet"]) nextjs-portal,
-body:has([data-component="files"]) nextjs-portal,
-body:has([data-component="messages"]) nextjs-portal,
-body:has([data-component="messages-new-page"]) nextjs-portal,
-body:has([data-component="messages-templates"]) nextjs-portal,
-body:has([data-component="messages-shell"]) nextjs-portal,
-body:has([data-component="auth-login"]) nextjs-portal,
-body:has([data-component="auth-forgot-password"]) nextjs-portal,
-body:has([data-component="auth-register"]) nextjs-portal,
-body:has([data-component="select-branch"]) nextjs-portal,
-body:has([data-component="clients-new-page-shell"]) nextjs-portal,
-body:has([data-component="chat"]) nextjs-portal,
-body:has([data-component="employees-new-redesign"]) nextjs-portal,
-body:has([data-component="files-upload-page"]) nextjs-portal,
+body:has([data-slot="employees-content"]) nextjs-portal,
+body:has([data-slot="messages-page"]) nextjs-portal,
+body:has([data-slot="auth-login-page"]) nextjs-portal,
+body:has([data-slot="auth-forgot-password-page"]) nextjs-portal,
+body:has([data-slot="auth-register-page"]) nextjs-portal,
+body:has([data-slot="select-branch-page"]) nextjs-portal,
+body:has([data-slot="clients-new-page-shell"]) nextjs-portal,
+body:has([data-slot="chat-page"]) nextjs-portal,
+body:has([data-slot="employees-new-page-shell"]) nextjs-portal,
+body:has([data-slot="files-upload-page-shell"]) nextjs-portal,
 body.mobile-contracts-route nextjs-portal,
 body.mobile-prices-route nextjs-portal {
   display: none !important;
 }
 
 /* ===== /prices route ===== */
-body.mobile-prices-route [data-component="mobile-header"],
-body:has([data-component="prices-page"]) [data-component="mobile-header"] {
+body.mobile-prices-route [data-slot="mobile-header"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -5977,7 +4930,7 @@ body.mobile-prices-route .list-card-scroll::after {
   flex-shrink: 0;
 }
 
-body.mobile-prices-route [data-component="app-providers"] {
+body.mobile-prices-route [data-slot="app-content"] {
   border-radius: 0 !important;
   position: relative;
   height: 100%;
@@ -5995,7 +4948,7 @@ body.mobile-prices-route [data-component="app-providers"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body.mobile-prices-route [data-component="main-content"] {
+body.mobile-prices-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -6009,7 +4962,7 @@ body.mobile-prices-route [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-prices-route [data-component="prices-page"] {
+body.mobile-prices-route [data-slot="prices-page"] {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -6017,31 +4970,31 @@ body.mobile-prices-route [data-component="prices-page"] {
 }
 
 body.mobile-prices-route .mobile-detail-sheet,
-body:has([data-component="prices-page"]) .mobile-detail-sheet {
+body:has([data-slot="prices-page"]) .mobile-detail-sheet {
   flex: 1;
   height: 100%;
   min-height: 0 !important;
   margin: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-track"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_list-page"],
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_detail-page"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_list-page"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_detail-page"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-list-page"],
+body.mobile-prices-route [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-list-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_detail-page"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_detail-page"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-detail-page"] {
   position: fixed !important;
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
@@ -6054,8 +5007,8 @@ body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-s
   padding-top: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_scrim"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_scrim"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-scrim"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-scrim"] {
   position: fixed !important;
   inset: 0 !important;
   width: 100vw !important;
@@ -6064,12 +5017,12 @@ body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-s
   border-radius: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack"].show-detail .nav-page.list,
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack"].show-detail .nav-page.list {
+body.mobile-prices-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list,
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -6086,28 +5039,28 @@ body.mobile-prices-route [data-component="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] a {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] svg {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-prices-route [data-component="mobile-bottom-nav"] span {
+body.mobile-prices-route [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-[data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
+.mobile-detail-sheet [data-slot="prices-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
@@ -6283,17 +5236,13 @@ body.mobile-prices-route [data-component="mobile-bottom-nav"] span {
 /* ===== Mobile detail-sheet sizing normalization =====
    Keep the shell full-viewport for every MobileDetailSheet route. Header spacing
    belongs to the list content only, so detail pages share one height model. */
-body:has([data-component="clients"]) [data-component="main-content"],
-body:has([data-component="consultations"]) [data-component="main-content"],
-body:has([data-component="contracts"]) [data-component="main-content"],
-body:has([data-component="dashboard"]) [data-component="main-content"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main-content"],
-body:has([data-component="files"]) [data-component="main-content"],
-body:has([data-component="messages"]) [data-component="main-content"],
-body:has([data-component="prices-page"]) [data-component="main-content"],
-body.mobile-contracts-route [data-component="main-content"],
-body.mobile-dashboard-route [data-component="main-content"],
-body.mobile-prices-route [data-component="main-content"] {
+body:has([data-slot="dashboard-page"]) [data-slot="main-content"],
+body:has([data-slot="employees-content"]) [data-slot="main-content"],
+body:has([data-slot="messages-page"]) [data-slot="main-content"],
+body:has([data-slot="prices-page"]) [data-slot="main-content"],
+body.mobile-contracts-route [data-slot="main-content"],
+body.mobile-dashboard-route [data-slot="main-content"],
+body.mobile-prices-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -6307,14 +5256,10 @@ body.mobile-prices-route [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body:has([data-component="clients"]) .mobile-detail-sheet,
-body:has([data-component="consultations"]) .mobile-detail-sheet,
-body:has([data-component="contracts"]) .mobile-detail-sheet,
-body:has([data-component="dashboard"]) .mobile-detail-sheet,
-body:has([data-component="mobile_employees_detail-sheet"]) .mobile-detail-sheet,
-body:has([data-component="files"]) .mobile-detail-sheet,
-body:has([data-component="messages"]) .mobile-detail-sheet,
-body:has([data-component="prices-page"]) .mobile-detail-sheet,
+body:has([data-slot="dashboard-page"]) .mobile-detail-sheet,
+body:has([data-slot="employees-content"]) .mobile-detail-sheet,
+body:has([data-slot="messages-page"]) .mobile-detail-sheet,
+body:has([data-slot="prices-page"]) .mobile-detail-sheet,
 body.mobile-contracts-route .mobile-detail-sheet,
 body.mobile-dashboard-route .mobile-detail-sheet,
 body.mobile-prices-route .mobile-detail-sheet {
@@ -6324,232 +5269,30 @@ body.mobile-prices-route .mobile-detail-sheet {
   margin: 0 !important;
 }
 
-[data-component="clients"] [data-component="mobile-clients-content"],
-[data-component="consultations"] [data-component="mobile-consultations-content"],
-[data-component="contracts"] [data-component="mobile-contracts-content"],
-[data-component="dashboard"] [data-component="mobile-dashboard-content"],
-[data-component="mobile_employees_detail-sheet"] [data-component="mobile-employees-content"],
-[data-component="files"] [data-component="mobile-files-content"],
-[data-component="messages"] [data-component="mobile-messages-content"],
-[data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
+[data-slot="dashboard-page"] [data-slot="dashboard-content"],
+.mobile-detail-sheet [data-slot="employees-content"],
+.mobile-detail-sheet [data-slot="prices-content"] {
   padding-top: 76px !important;
 }
 
 /* Dashboard has the analytics grid above its list card, so only the page shell
    should reserve header space. The list content itself must not get the shared
    76px top padding, otherwise refresh pushes the card down and clips analytics. */
-body:has([data-component="dashboard"]) [data-component="main-content"],
-body.mobile-dashboard-route [data-component="main-content"] {
+body:has([data-slot="dashboard-page"]) [data-slot="main-content"],
+body.mobile-dashboard-route [data-slot="main-content"] {
   padding: 64px 0 0 !important;
 }
 
-body:has([data-component="dashboard"]) [data-component="mobile-dashboard-content"],
-body.mobile-dashboard-route [data-component="mobile-dashboard-content"] {
+body:has([data-slot="dashboard-page"]) [data-slot="dashboard-content"],
+body.mobile-dashboard-route [data-slot="dashboard-content"] {
   padding: 12px 14px 76px !important;
 }
 
 /* Contracts must look active on the first paint, before the route body class is
    added on hydration. This prevents the bottom nav from sliding in after reload. */
-body:has([data-component="contracts"]) [data-component="mobile-bottom-nav"] {
-  position: absolute !important;
-  left: 14px !important;
-  right: 14px !important;
-  bottom: 12px !important;
-  width: auto !important;
-  max-width: none !important;
-  --tw-translate-x: 0 !important;
-  --tw-translate-y: 0 !important;
-  transform: none !important;
-  translate: none !important;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  align-items: end;
-  gap: 2px !important;
-  padding: 5px !important;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px !important;
-  background: rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 8px 32px hsla(214, 50%, 20%, 0.1) !important;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  color: hsl(var(--v3-text));
-  z-index: var(--mobile-z-nav);
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-bottom-indicator"] {
-  display: block !important;
-}
-
-body:has([data-component="contracts"]) [data-component^="mobile-bottom-nav-"] {
-  position: static !important;
-  display: flex;
-  height: 40px;
-  align-items: center;
-  flex-direction: column;
-  gap: 2px !important;
-  padding: 5px 4px !important;
-  border-radius: 14px !important;
-  color: hsl(var(--v3-text-muted)) !important;
-  text-decoration: none;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-bottom-nav-contracts"] {
-  background: transparent !important;
-}
-
-body:has([data-component="contracts"]) [data-component^="mobile-bottom-nav-"] svg {
-  width: 18px !important;
-  height: 18px !important;
-}
-
-body:has([data-component="contracts"]) [data-component^="mobile-bottom-nav-"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
 /* Contracts first paint must match the hydrated route state. The route body
    class is added by React after hydration, so keep the shell geometry keyed to
    the rendered contracts component as well. */
-html:has(body [data-component="contracts"]) {
-  background: hsl(var(--v3-dim-white)) !important;
-}
-
-body:has([data-component="contracts"]) {
-  background: hsl(var(--v3-dim-white)) !important;
-  color: hsl(var(--v3-text));
-  overflow: hidden;
-  line-height: normal;
-}
-
-body:has([data-component="contracts"]) [data-component="app-root"] {
-  width: min(100vw, 390px) !important;
-  max-width: 390px !important;
-  height: min(100dvh, var(--mobile-shell-max-height, 844px)) !important;
-  max-height: var(--mobile-shell-max-height, 844px) !important;
-  margin: 0 auto !important;
-  padding: 0 !important;
-  overflow: hidden;
-  border-radius: 0 !important;
-  background: hsl(var(--v3-dim-white)) !important;
-  box-shadow: none !important;
-}
-
-body:has([data-component="contracts"]) [data-component="app-root"]::before {
-  display: none !important;
-  content: none !important;
-}
-
-body:has([data-component="contracts"]) [data-component="app-providers"] {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border-radius: 38px;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-header"] {
-  position: absolute !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  width: auto !important;
-  max-width: none !important;
-  --tw-translate-x: 0 !important;
-  --tw-translate-y: 0 !important;
-  transform: none !important;
-  translate: none !important;
-  z-index: 20;
-  color: hsl(var(--v3-text));
-}
-
-body:has([data-component="contracts"]) [data-component="floating-quick-actions"] {
-  display: none !important;
-}
-
-body:has([data-component="contracts"]) [data-component="contracts"] {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 !important;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-stack"] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-list-page"],
-body:has([data-component="contracts"]) [data-component="mobile-contracts-detail-page"] {
-  position: absolute;
-  inset: 0;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-detail-page"] {
-  top: 50px;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-stack"].show-detail .nav-page.list {
-  transform: translateX(0) !important;
-}
-
-body:has([data-component="contracts"]) .list-count {
-  display: inline-flex;
-  min-width: 4ch;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-search"] {
-  margin: 4px 12px 8px;
-  line-height: normal;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-search"] input {
-  line-height: normal;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  line-height: normal;
-  text-align: left;
-  animation: none !important;
-}
-
-body:has([data-component="contracts"]) .filter-pill:nth-child(3):not(.active) .count {
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-}
-
-body:has([data-component="contracts"]) .section-header,
-body:has([data-component="contracts"]) .list-title,
-body:has([data-component="contracts"]) .filter-pill,
-body:has([data-component="contracts"]) .badge,
-body:has([data-component="contracts"]) .badge-mini,
-body:has([data-component="contracts"]) .btn,
-body:has([data-component="contracts"]) .info-row,
-body:has([data-component="contracts"]) .info-card-title,
-body:has([data-component="contracts"]) .doc-title,
-body:has([data-component="contracts"]) .doc-meta {
-  line-height: normal;
-}
-
 .contracts-count-placeholder {
   display: inline-block;
   width: 4ch;
@@ -6618,39 +5361,34 @@ body:has([data-component="contracts"]) .doc-meta {
 
 /* The shared sliding indicator owns the active background. Route-specific
    overrides may still normalize nav sizing, but active links must stay clear. */
-nav[data-component="mobile-bottom-nav"] [data-component="mobile-bottom-indicator"] {
+nav[data-slot="mobile-bottom-nav"] [data-slot="mobile-bottom-indicator"] {
   display: block !important;
 }
 
-nav[data-component="mobile-bottom-nav"],
-nav[data-component="mobile-bottom-nav"] a {
+nav[data-slot="mobile-bottom-nav"],
+nav[data-slot="mobile-bottom-nav"] a {
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body:has([data-component="contracts"]) nav[data-component="mobile-bottom-nav"] [data-component="mobile-bottom-indicator"],
-body.mobile-contracts-route nav[data-component="mobile-bottom-nav"] [data-component="mobile-bottom-indicator"] {
+body.mobile-contracts-route nav[data-slot="mobile-bottom-nav"] [data-slot="mobile-bottom-indicator"] {
   display: block !important;
 }
 
-nav[data-component="mobile-bottom-nav"] a[aria-current="page"][data-component^="mobile-bottom-nav-"] {
+nav[data-slot="mobile-bottom-nav"] a[aria-current="page"][data-slot^="mobile-bottom-nav-"] {
   background: transparent !important;
 }
 
-body:has([data-component="contracts"]) [data-component="mobile-contracts-content"],
-body.mobile-contracts-route [data-component="mobile-contracts-content"] {
+body.mobile-contracts-route [data-slot="list-content"] {
   padding: 76px 14px 76px !important;
   overflow-y: auto;
 }
 
 html:has(body.mobile-contracts-route),
-html:has(body [data-component="contracts"]),
-body.mobile-contracts-route,
-body:has([data-component="contracts"]) {
+body.mobile-contracts-route {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-body.mobile-contracts-route [data-component="app-root"],
-body:has([data-component="contracts"]) [data-component="app-root"] {
+body.mobile-contracts-route [data-slot="app-root"] {
   width: min(100vw, 390px) !important;
   max-width: 390px !important;
   height: min(100dvh, var(--mobile-shell-max-height, 844px)) !important;
@@ -6663,14 +5401,12 @@ body:has([data-component="contracts"]) [data-component="app-root"] {
   box-shadow: none !important;
 }
 
-body.mobile-contracts-route [data-component="app-root"]::before,
-body:has([data-component="contracts"]) [data-component="app-root"]::before {
+body.mobile-contracts-route [data-slot="app-root"]::before {
   display: none !important;
   content: none !important;
 }
 
-body.mobile-contracts-route [data-component="app-providers"],
-body:has([data-component="contracts"]) [data-component="app-providers"] {
+body.mobile-contracts-route [data-slot="app-content"] {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -6682,25 +5418,19 @@ body:has([data-component="contracts"]) [data-component="app-providers"] {
    The redesign was built against a 390x844 reference frame. Keep that preview on
    wider screens, but let real mobile viewports drive the shell and card width. */
 @media (max-width: 767px) {
-  [data-component="app-root"],
-  body.mobile-all-route [data-component="app-root"],
-  body:has([data-component="all-page"]) [data-component="app-root"],
-  body:has([data-component="consultations"]) [data-component="app-root"],
-  body:has([data-component="clients"]) [data-component="app-root"],
-  body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
-  body:has([data-component="files"]) [data-component="app-root"],
-  body:has([data-component="messages"]) [data-component="app-root"],
-  body:has([data-component="messages-new-page"]) [data-component="app-root"],
-  body:has([data-component="messages-templates"]) [data-component="app-root"],
-  body:has([data-component="messages-shell"]) [data-component="app-root"],
-  body:has([data-component="auth-login"]) [data-component="app-root"],
-  body:has([data-component="auth-forgot-password"]) [data-component="app-root"],
-  body:has([data-component="auth-register"]) [data-component="app-root"],
-  [data-component="app-root"]:has([data-component="select-branch"]),
-  body:has([data-component="clients-new-page-shell"]) [data-component="app-root"],
-  body:has([data-component="chat"]) [data-component="app-root"],
-  body:has([data-component="employees-new-redesign"]) [data-component="app-root"],
-  body:has([data-component="files-upload-page"]) [data-component="app-root"] {
+  [data-slot="app-root"],
+  body.mobile-all-route [data-slot="app-root"],
+  body:has([data-slot="all-page"]) [data-slot="app-root"],
+  body:has([data-slot="employees-content"]) [data-slot="app-root"],
+  body:has([data-slot="messages-page"]) [data-slot="app-root"],
+  body:has([data-slot="auth-login-page"]) [data-slot="app-root"],
+  body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"],
+  body:has([data-slot="auth-register-page"]) [data-slot="app-root"],
+  [data-slot="app-root"]:has([data-slot="select-branch-page"]),
+  body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
+  body:has([data-slot="chat-page"]) [data-slot="app-root"],
+  body:has([data-slot="employees-new-page-shell"]) [data-slot="app-root"],
+  body:has([data-slot="files-upload-page-shell"]) [data-slot="app-root"] {
     width: 100vw !important;
     max-width: none !important;
     height: 100dvh !important;
@@ -6708,18 +5438,10 @@ body:has([data-component="contracts"]) [data-component="app-providers"] {
     margin: 0 !important;
   }
 
-  [data-component="app-providers"] {
+  [data-slot="app-content"] {
     width: 100% !important;
     height: 100% !important;
     min-height: 100% !important;
-  }
-
-  [data-component="clients"],
-  [data-component="files"] {
-    width: 100vw !important;
-    max-width: none !important;
-    height: 100dvh !important;
-    max-height: none !important;
   }
 
   .shell-content,
@@ -6742,16 +5464,16 @@ body:has([data-component="contracts"]) [data-component="app-providers"] {
   }
 }
 
-body nav[data-component="mobile-bottom-nav"] a[data-component^="mobile-bottom-nav-"]:not([data-visual-active="true"]) {
+body nav[data-slot="mobile-bottom-nav"] a[data-slot^="mobile-bottom-nav-"]:not([data-visual-active="true"]) {
   background: transparent !important;
   color: var(--color-gray-500, #6b7280) !important;
 }
 
-body nav[data-component="mobile-bottom-nav"] [data-component^="mobile-bottom-nav-"][data-disabled="true"] {
+body nav[data-slot="mobile-bottom-nav"] [data-slot^="mobile-bottom-nav-"][data-disabled="true"] {
   color: var(--color-gray-300, #d1d5db) !important;
 }
 
-body nav[data-component="mobile-bottom-nav"] a[data-visual-active="true"] {
+body nav[data-slot="mobile-bottom-nav"] a[data-visual-active="true"] {
   background: transparent !important;
   color: #fff !important;
 }
@@ -6763,27 +5485,18 @@ body nav[data-component="mobile-bottom-nav"] a[data-visual-active="true"] {
    Without them the page itself scrolls. Completing the locks fixes the page to
    the viewport while only the inner list scrolls — parity with /dashboard,
    /clients, /employees. */
-body:has([data-component="consultations"]),
-body:has([data-component="contracts"]),
-body:has([data-component="files"]),
-body:has([data-component="messages"]),
-body:has([data-component="prices-page"]) {
+body:has([data-slot="messages-page"]),
+body:has([data-slot="prices-page"]) {
   overflow: hidden;
 }
 
-body:has([data-component="consultations"]) [data-component="app-root"],
-body:has([data-component="contracts"]) [data-component="app-root"],
-body:has([data-component="files"]) [data-component="app-root"],
-body:has([data-component="messages"]) [data-component="app-root"],
-body:has([data-component="prices-page"]) [data-component="app-root"] {
+body:has([data-slot="messages-page"]) [data-slot="app-root"],
+body:has([data-slot="prices-page"]) [data-slot="app-root"] {
   overflow: hidden;
 }
 
-body:has([data-component="consultations"]) [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="contracts"]) [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="files"]) [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="messages"]) [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="prices-page"]) [data-component="app-root"] [data-component="app-providers"] {
+body:has([data-slot="messages-page"]) [data-slot="app-root"] [data-slot="app-content"],
+body:has([data-slot="prices-page"]) [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
