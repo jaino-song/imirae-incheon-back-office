@@ -14,6 +14,8 @@ import ContractSendWizard from "./ContractSendWizard";
 import ContractStatusWizard, { type ContractStatusResult } from "./ContractStatusWizard";
 
 interface AssistantMessageProps {
+    /** Caller-context canonical value for this node. */
+    "data-component": string;
     message: ChatMessage;
     messageIndex: number;
     sessionId: string | null;
@@ -23,6 +25,7 @@ interface AssistantMessageProps {
 }
 
 export function AssistantMessage({
+    "data-component": dataComponent,
     message,
     messageIndex,
     sessionId,
@@ -30,6 +33,7 @@ export function AssistantMessage({
     currentTool,
     onSubmitFeedback
 }: AssistantMessageProps) {
+    const sub = (suffix: string) => `${dataComponent}_${suffix}`;
     const wizardType = message.ui?.type;
     const [createdClient, setCreatedClient] = useState<CreatedClient | null>(null);
     const [contractStatus, setContractStatus] = useState<ContractStatusResult | null>(null);
@@ -42,7 +46,7 @@ export function AssistantMessage({
             case "clientRegistrationWizard":
                 if (createdClient) {
                     return (
-                        <div data-component="chat-wizard-registration-success" className="py-1">
+                        <div data-component={`${dataComponent}_markdown_wizard-registration-success`} className="py-1">
                             산모 등록 완료: {createdClient.name} (ID: {createdClient.id})
                         </div>
                     );
@@ -56,7 +60,7 @@ export function AssistantMessage({
             case "contractSendWizard":
                 if (contractSendDone) {
                     return (
-                        <div data-component="chat-wizard-contract-send-success" className="py-1">
+                        <div data-component={`${dataComponent}_markdown_wizard-contract-send-success`} className="py-1">
                             계약서 전송 화면으로 이동했습니다.
                         </div>
                     );
@@ -70,7 +74,7 @@ export function AssistantMessage({
             case "contractStatusWizard":
                 if (contractStatus) {
                     return (
-                        <div data-component="chat-wizard-contract-status-result" className="space-y-1 py-1">
+                        <div data-component={`${dataComponent}_markdown_wizard-contract-status-result`} className="space-y-1 py-1">
                             <div>
                                 계약서 상태: <strong>{String(contractStatus.documentStatus)}</strong>
                             </div>
@@ -94,10 +98,10 @@ export function AssistantMessage({
             default:
                 return null;
         }
-    }, [wizardType, createdClient, contractSendDone, contractStatus]);
+    }, [dataComponent, wizardType, createdClient, contractSendDone, contractStatus]);
 
     return (
-        <div data-component="chat-message-assistant" className="flex gap-4 mb-6 w-full">
+        <div data-component={dataComponent} className="flex gap-4 mb-6 w-full">
             <Avatar className="w-8 h-8 shrink-0 mt-1">
                 <AvatarImage src="/assets/icon-72.png" alt="AI" />
                 <AvatarFallback>AI</AvatarFallback>
@@ -105,9 +109,9 @@ export function AssistantMessage({
 
             <div className="flex-1 min-w-0">
                 {isToolExecuting && message.isStreaming && (
-                    <ToolIndicator toolName={currentTool || null} isExecuting={true} />
+                    <ToolIndicator data-component={sub("tool-indicator")} toolName={currentTool || null} isExecuting={true} />
                 )}
-                <MarkdownContent>
+                <MarkdownContent data-component={sub("markdown")}>
                     {wizardContent ? (
                         wizardContent
                     ) : (
@@ -122,7 +126,7 @@ export function AssistantMessage({
                                         const isCodeBlock = Boolean(language);
 
                                         if (isCodeBlock) {
-                                            return <CodeBlock language={language}>{codeString}</CodeBlock>;
+                                            return <CodeBlock data-component={sub("markdown_code-block")} language={language}>{codeString}</CodeBlock>;
                                         }
 
                                         return (
@@ -149,6 +153,7 @@ export function AssistantMessage({
                 </MarkdownContent>
                 {!wizardContent && !message.isStreaming && (
                     <MessageFeedback
+                        data-component={sub("feedback")}
                         messageId={String(messageIndex)}
                         sessionId={sessionId}
                         onSubmitFeedback={(type, comment) => onSubmitFeedback(messageIndex, type, comment)}

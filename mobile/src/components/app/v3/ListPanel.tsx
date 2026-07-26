@@ -12,6 +12,8 @@ interface TabItem {
 }
 
 interface ListPanelProps {
+  /** Caller-context canonical base, e.g. `mobile_admin_feedback_split-layout_list-panel`. */
+  "data-component": string;
   title: string;
   subtitle?: string;
   tabs?: TabItem[];
@@ -30,6 +32,7 @@ interface ListPanelProps {
 }
 
 export function ListPanel({
+  "data-component": dataComponent,
   title,
   subtitle,
   tabs,
@@ -46,6 +49,7 @@ export function ListPanel({
   isContentLoading = false,
   contentSkeleton,
 }: ListPanelProps) {
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
   const showTabs = tabs && tabs.length > 0;
   const showContentSkeleton = (isLoading || isContentLoading) && contentSkeleton;
   const hasSearch = searchValue !== undefined && !!onSearchChange;
@@ -75,19 +79,19 @@ export function ListPanel({
   const activeTabLabel = tabs?.find(t => t.value === activeTab)?.label ?? tabs?.[0]?.label ?? "";
 
   return (
-    <div data-component="list-panel" className="bg-white rounded-2xl shadow-v3 flex flex-col overflow-hidden h-full min-h-0">
-      <div data-component="list-panel-header" className={headerClassName}>
+    <div data-component={dataComponent} className="bg-white rounded-2xl shadow-v3 flex flex-col overflow-hidden h-full min-h-0">
+      <div data-component={sub("header")} className={headerClassName}>
         <PanelTitleGroup
           component="list-panel"
           title={title}
           subtitle={subtitle}
           titleClassName="text-lg"
         />
-        {headerActions && <div data-component="list-panel-header-actions">{headerActions}</div>}
+        {headerActions && <div data-component={sub("header_actions")}>{headerActions}</div>}
       </div>
 
       {showTabs && (
-        <div data-component="list-panel-tabs" className="flex items-center justify-between px-6 pt-4 shrink-0">
+        <div data-component={sub("tabs")} className="flex items-center justify-between px-6 pt-4 shrink-0">
           {tabsVariant === "dropdown" ? (
             <div ref={dropdownRef} className="relative">
               <button
@@ -120,7 +124,7 @@ export function ListPanel({
             <div className="flex gap-1">
               {(tabs ?? []).map((tab) => (
                 <button
-                  data-component="list-panel-tab-button"
+                  data-component={sub("tabs_tab-button")}
                   type="button"
                   key={tab.value}
                   onClick={() => onTabChange?.(tab.value)}
@@ -134,7 +138,7 @@ export function ListPanel({
                   {tab.label}
                   {activeTab === tab.value ? (
                     <span
-                      data-component="list-panel-tab-indicator"
+                      data-component={sub("tabs_tab-button_indicator")}
                       className="absolute bottom-0 left-0 h-0.5 w-full bg-primary"
                     />
                   ) : null}
@@ -144,6 +148,7 @@ export function ListPanel({
           )}
           {hasSearch && (
             <ExpandableSearch
+              data-component={sub("tabs_search")}
               value={searchValue!}
               onChange={onSearchChange!}
               placeholder={searchPlaceholder}
@@ -153,7 +158,7 @@ export function ListPanel({
         </div>
       )}
 
-      <div data-component="list-panel-content" className="relative overflow-y-auto scrollbar-hide min-h-0 flex-1 p-6">
+      <div data-component={sub("content")} data-slot="list-panel-content" className="relative overflow-y-auto scrollbar-hide min-h-0 flex-1 p-6">
         <div
           key={showContentSkeleton ? "skeleton" : "content"}
           style={{ transition: "opacity var(--duration-feedback) var(--ease-standard)" }}

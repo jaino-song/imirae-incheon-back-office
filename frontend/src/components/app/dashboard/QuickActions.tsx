@@ -40,14 +40,14 @@ const actions: QuickAction[] = [
 
 export function QuickActions() {
   return (
-    <div data-component="dashboard-quick-actions" className="opacity-0 animate-fade-in" style={{ animationDelay: "400ms" }}>
-      <div data-component="dashboard-quick-actions-grid" className="grid grid-cols-4 gap-2">
+    <div data-component="desktop_dashboard_quick-actions" className="opacity-0 animate-fade-in" style={{ animationDelay: "400ms" }}>
+      <div data-component="desktop_dashboard_quick-actions_grid" className="grid grid-cols-4 gap-2">
         {actions.map((action, index) => {
           const Icon = action.icon;
           return (
             <div
               key={action.label}
-              data-component="dashboard-quick-actions-card"
+              data-component="desktop_dashboard_quick-actions_grid_card"
               className={cn(
                 "aspect-square flex flex-col items-center justify-center rounded-xl border bg-card",
                 "transition-all active:scale-[0.95] cursor-pointer hover:shadow-md",

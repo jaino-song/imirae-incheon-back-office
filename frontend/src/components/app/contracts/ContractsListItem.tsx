@@ -10,6 +10,7 @@ import type { EformsignDocument } from "@/lib/eformsign/types";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
 
 interface ContractsListItemProps {
+  "data-component": string;
   document: EformsignDocument | null;
   customerName: string | null;
   subtitle?: string;
@@ -34,6 +35,7 @@ function formatDate(timestamp: number): string {
 }
 
 function ContractsListItemComponent({
+  "data-component": dataComponent,
   document,
   customerName,
   subtitle,
@@ -43,13 +45,13 @@ function ContractsListItemComponent({
     return (
       <>
         <div
-          data-component="contracts-list-item-skeleton-icon"
+          data-component={`${dataComponent}_skeleton-icon`}
           className="flex h-[calc(44px*var(--glint-ui-scale,1))] w-[calc(44px*var(--glint-ui-scale,1))] shrink-0 items-center justify-center rounded-[14px] bg-v3-dim-white shadow-md"
         >
           <Skeleton className="h-[calc(20px*var(--glint-ui-scale,1))] w-[calc(20px*var(--glint-ui-scale,1))] rounded-md bg-white/70" />
         </div>
         <div
-          data-component="contracts-list-item-skeleton-content"
+          data-component={`${dataComponent}_skeleton-content`}
           className="flex-1 min-w-0"
         >
           <Skeleton className="mb-[calc(6px*var(--glint-ui-scale,1))] h-[calc(16px*var(--glint-ui-scale,1))] w-[calc(96px*var(--glint-ui-scale,1))] bg-v3-dim-white" />
@@ -76,7 +78,7 @@ function ContractsListItemComponent({
 
   return (
     <AnimatedSlotListItemContent
-      dataComponent="contracts-list-item"
+      data-component={dataComponent}
       icon={FileSignature}
       iconContainerClassName={cn(
         category === "completed"
@@ -120,6 +122,7 @@ function ContractsListItemComponent({
 export const ContractsListItem = memo(
   ContractsListItemComponent,
   (previousProps, nextProps) =>
+    previousProps["data-component"] === nextProps["data-component"] &&
     previousProps.document === nextProps.document &&
     previousProps.customerName === nextProps.customerName &&
     previousProps.subtitle === nextProps.subtitle &&

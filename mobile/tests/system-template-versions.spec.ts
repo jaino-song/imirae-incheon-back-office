@@ -83,9 +83,9 @@ test.describe('System Template Detail Secondary Actions', () => {
       page.getByText('시스템 템플릿 본문 편집·버전 롤백은 데스크톱에서만 가능합니다.'),
     ).toBeVisible();
 
-    await page.locator('[data-component="messages-system-template-trigger-link"]').click();
+    await page.locator('[data-component="mobile_messages_system-templates_template-key-detail_detail-panel_trigger-link"]').click();
 
     await expect(page).toHaveURL('/messages/automation');
-    await expect(page.locator('[data-component="messages"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-slot="messages-page"]')).toBeVisible({ timeout: 15000 });
   });
 });

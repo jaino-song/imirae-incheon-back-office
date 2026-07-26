@@ -11,8 +11,9 @@ export function ChatWidget() {
     };
 
     return (
-        <div data-component="chat-widget" className="mt-6">
+        <div data-component="mobile_chat_widget" className="mt-6">
             <ChatInput
+                data-component="mobile_chat_widget_input"
                 onSubmit={handleOpenChat}
                 onClick={handleOpenChat}
                 placeholder="무엇을 도와드릴까요?"

@@ -54,13 +54,18 @@ export default async function RootLayout({
   return (
     <html lang={locale}>
       <body className={`${Pretendard.variable} antialiased min-h-screen bg-v3-dim-white`}>
+        {/*
+          `mobile-app-root` is a styling hook paired with data-slot="app-root" so
+          globals.css's shell-geometry guard keeps its (0,2,2) specificity over
+          redesign.css's (0,2,0) phone-frame rules. Do not drop it.
+        */}
         <div
-          data-component="app-root"
+          data-component="mobile_shell_root"
           data-slot="app-root"
-          className="relative h-[100dvh] w-[100vw] max-w-none overflow-hidden [--mobile-shell-max-height:100dvh]"
+          className="mobile-app-root relative h-[100dvh] w-[100vw] max-w-none overflow-hidden [--mobile-shell-max-height:100dvh]"
         >
           <div
-            data-component="mobile_shell_app-shell"
+            data-component="mobile_shell_root_app-shell"
             data-slot="app-shell"
             className="relative h-full min-h-0 w-full overflow-hidden"
           >
@@ -68,15 +73,15 @@ export default async function RootLayout({
               <LocaleProvider locale={locale}>
                 <UserProvider user={user}>
                   <div
-                    data-component="app-providers"
+                    data-component="mobile_shell_root_app-shell_providers"
                     data-slot="app-content"
                     className="relative h-full min-h-0 w-full overflow-hidden"
                   >
                     <ContractsPrefetchCoordinator />
                     <NotificationPermissionPrompt />
-                    <V3Sidebar />
-                    <V3MobileHeader />
-                    <V3MainContent>
+                    <V3Sidebar data-component="mobile_shell_sidebar" />
+                    <V3MobileHeader data-component="mobile_shell_header" />
+                    <V3MainContent data-component="mobile_shell_main-content">
                       {children}
                     </V3MainContent>
                     <FloatingQuickActions />

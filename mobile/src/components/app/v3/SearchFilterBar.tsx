@@ -10,6 +10,8 @@ interface FilterOption {
 }
 
 interface SearchFilterBarProps {
+  /** Caller-context canonical value for the bar root. */
+  "data-component"?: string;
   searchPlaceholder: string;
   searchValue: string;
   onSearchChange: (value: string) => void;
@@ -20,6 +22,7 @@ interface SearchFilterBarProps {
 }
 
 export function SearchFilterBar({
+  "data-component": dataComponent,
   searchPlaceholder,
   searchValue,
   onSearchChange,
@@ -44,7 +47,7 @@ export function SearchFilterBar({
   }, []);
 
   return (
-    <div data-component="search-filter-bar" className="flex items-center gap-3 rounded-2xl bg-white px-5 py-3 shadow-v3 border border-v3-border transition-all duration-200 focus-within:shadow-v3-hover animate-v3-slide-up">
+    <div data-component={dataComponent} data-slot="search-filter-bar" className="flex items-center gap-3 rounded-2xl bg-white px-5 py-3 shadow-v3 border border-v3-border transition-all duration-200 focus-within:shadow-v3-hover animate-v3-slide-up">
       <Search size={18} className="text-v3-text-muted shrink-0" />
       <Input
         type="text"

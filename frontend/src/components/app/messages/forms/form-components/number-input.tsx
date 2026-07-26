@@ -21,7 +21,7 @@ export const NumberInput = ({
   max,
 }: NumberInputProps) => {
   return (
-    <div className="space-y-2" data-component="messages-form-number-input">
+    <div className="space-y-2" data-component="desktop_messages_sections_form-number-input">
       <Label>
         {label}
         {required && <span className="text-destructive ml-1">*</span>}

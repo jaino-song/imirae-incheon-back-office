@@ -22,6 +22,8 @@ import { NotificationOneButtonModal } from "@/components/app/ui/NotificationOneB
 import { EMPLOYEE_STATUS_LABELS } from "@babyjamjam/shared/constants/employee-status";
 import { getApiErrorMessage } from "@babyjamjam/shared";
 
+const EMPLOYEES_TABLE_BASE = "mobile_employees_table";
+
 const formatPhoneNumber = (phone: string | null | undefined): string => {
     if (!phone) return "-";
     const numbers = phone.replace(/[^\d]/g, "");
@@ -153,7 +155,7 @@ export function EmployeesTable() {
 
     const toolbarActions = (
         <Button
-            data-component="employees-table-add"
+            data-component={`${EMPLOYEES_TABLE_BASE}_data-table_toolbar_add`}
             className="gap-2 w-[100px]"
             onClick={handleAddNew}
         >
@@ -170,7 +172,7 @@ export function EmployeesTable() {
                 subtitle={t(locale, "employees.subtitle")}
                 className="min-h-[70vh] flex-grow w-full"
             >
-                <div data-component="employees-table-error" className="p-3">
+                <div data-component={`${EMPLOYEES_TABLE_BASE}_error`} className="p-3">
                     <Alert variant="destructive">
                         <AlertDescription>
                             직원 목록을 불러오는데 실패했습니다: {errorMessage}
@@ -187,8 +189,9 @@ export function EmployeesTable() {
             subtitle={t(locale, "employees.subtitle")}
             className="min-h-[70vh] flex-grow w-full"
         >
-            <div data-component="employees-table">
+            <div data-component={EMPLOYEES_TABLE_BASE}>
                 <DataTable<EmployeeRow>
+                    data-component={`${EMPLOYEES_TABLE_BASE}_data-table`}
                     data={tableData}
                     columns={columns}
                     isLoading={isLoading}
@@ -226,7 +229,7 @@ export function EmployeesTable() {
                     onOpenChange={(open) => {
                         if (!open) setDeleteTargetEmployeeId(null);
                     }}
-                    dataComponent="employees-delete-approval"
+                    data-component="mobile_employees_table_delete-approval"
                     title={t(locale, "employees.delete-confirm.title")}
                     description={t(locale, "employees.delete-confirm.message")}
                     approvalLabel={t(locale, "common.delete")}
@@ -241,7 +244,7 @@ export function EmployeesTable() {
                     onOpenChange={(open) => {
                         if (!open) setDeleteErrorMessage(null);
                     }}
-                    dataComponent="employees-delete-error-notification"
+                    data-component="mobile_employees_table_delete-error-notification"
                     title="직원을 삭제하지 못했습니다."
                     description={deleteErrorMessage ?? ""}
                     isDescriptionVisuallyHidden={false}

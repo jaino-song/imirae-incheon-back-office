@@ -9,11 +9,11 @@ describe("FormCheckboxField", () => {
         name="isActive"
         label="운영 중인 지점"
         defaultChecked
-        data-component="system-admin-branch-form-active"
+        data-component="desktop_system-admin_sections_branch-form-active"
       />,
     );
 
-    const field = container.querySelector('[data-component="system-admin-branch-form-active"]');
+    const field = container.querySelector('[data-component="desktop_system-admin_sections_branch-form-active"]');
     const checkbox = screen.getByRole("checkbox", { name: "운영 중인 지점" });
 
     expect(field).toHaveClass(
@@ -24,7 +24,7 @@ describe("FormCheckboxField", () => {
     expect(checkbox).toBeChecked();
     expect(checkbox).toHaveAttribute(
       "data-component",
-      "system-admin-branch-form-active-input",
+      "desktop_system-admin_sections_branch-form-active-input",
     );
   });
 });

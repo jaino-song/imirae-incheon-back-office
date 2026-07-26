@@ -5,6 +5,9 @@ import { HeaderActionButton } from "@/components/app/v3/HeaderActionButton";
 import { MsgField } from "./MsgField";
 
 interface GeneratedMsgProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
   title: string;
   copyButtonText: string;
   message: string;
@@ -13,6 +16,7 @@ interface GeneratedMsgProps {
 }
 
 export const GeneratedMsg = memo(function GeneratedMsg({
+  "data-component": dataComponent,
   title,
   copyButtonText,
   message,
@@ -31,10 +35,10 @@ export const GeneratedMsg = memo(function GeneratedMsg({
           icon={Copy}
           label={copyButtonText}
           onClick={handleCopy}
-          data-component="messages-generated-msg-copy"
+          data-component={`${dataComponent}_copy`}
         />
       </div>
-      <MsgField value={message} onChange={onMessageChange} />
+      <MsgField data-component={`${dataComponent}_field`} value={message} onChange={onMessageChange} />
     </motion.div>
   );
 });

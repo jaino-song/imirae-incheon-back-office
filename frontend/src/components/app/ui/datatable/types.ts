@@ -20,6 +20,7 @@ export interface FilterOption {
 export type PaginationMode = "client" | "server" | "none";
 
 export interface DataTableProps<T> {
+  "data-component"?: string;
   data: T[];
   columns: DataTableColumn<T>[];
   isLoading?: boolean;
@@ -74,6 +75,7 @@ export interface DataTableToolbarProps {
 }
 
 export interface DataTablePaginationProps {
+  "data-component"?: string;
   count: number;
   page: number;
   rowsPerPage: number;

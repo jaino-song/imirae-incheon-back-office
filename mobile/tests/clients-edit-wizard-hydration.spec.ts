@@ -110,7 +110,7 @@ test.describe("clients edit wizard hydration", () => {
     await page.goto(`/clients/new?clientId=${CLIENT_ID}`);
 
     // 네브바 타이틀이 편집 모드 텍스트로 바뀌어야 함
-    await expect(page.locator('[data-component="clients-new-navbar-title"]')).toHaveText("고객 정보 수정");
+    await expect(page.locator('[data-component="mobile_clients-new_screen_root_page_navbar_title"]')).toHaveText("고객 정보 수정");
 
     // ── Step 1 (기본 정보) ──
     const nameInput = page.locator('input[placeholder="홍길동"]');
@@ -131,18 +131,18 @@ test.describe("clients edit wizard hydration", () => {
     });
 
     // 다음 단계 — 1차 "다음" 버튼
-    const primaryBtn = page.locator('[data-component="clients-new-actions"] button').nth(1);
+    const primaryBtn = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_actions"] button').nth(1);
     await expect(primaryBtn).toHaveText("다음");
     await primaryBtn.click();
 
     // ── Step 2 (서비스 설정 — 바우처/제공인력/요금/옵션) ──
-    await expect(page.locator('[data-component="clients-new-voucher-card"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card"]')).toBeVisible();
     // 가격 hydrate (1000s 단위 콤마 포매팅)
-    const fullPriceInput = page.locator('[data-component="clients-new-full-price-input-wrap"] input');
+    const fullPriceInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_full-price-field_input-wrap"] input');
     await expect(fullPriceInput).toHaveValue("2,848,000");
-    const grantInput = page.locator('[data-component="clients-new-grant-input-wrap"] input');
+    const grantInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_grant-field_input-wrap"] input');
     await expect(grantInput).toHaveValue("1,766,000");
-    const actualPriceInput = page.locator('[data-component="clients-new-actual-price-input-wrap"] input');
+    const actualPriceInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_actual-price-field_input-wrap"] input');
     await expect(actualPriceInput).toHaveValue("1,082,000");
 
     await page.screenshot({
@@ -153,10 +153,10 @@ test.describe("clients edit wizard hydration", () => {
     await primaryBtn.click();
 
     // ── Step 3 (계약 정보) ──
-    await expect(page.locator('[data-component="clients-new-contract-status-card"]')).toBeVisible();
-    const startDateInput = page.locator('[data-component="clients-new-service-period-card"] input').nth(0);
+    await expect(page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card"]')).toBeVisible();
+    const startDateInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card"] input').nth(0);
     await expect(startDateInput).toHaveValue("260530");
-    const endDateInput = page.locator('[data-component="clients-new-service-period-card"] input').nth(1);
+    const endDateInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card"] input').nth(1);
     // hydrate "260626" (ISO 2026-06-26 → YYMMDD). business-days 재계산이 덮어쓸 수 있는데,
     // 정확한 결과는 휴일 캘린더 의존이므로 6자리 YYMMDD 모양만 확인.
     await expect(endDateInput).toHaveValue(/^\d{6}$/);
@@ -193,27 +193,27 @@ test.describe("clients edit wizard hydration", () => {
     });
 
     await page.goto("/clients/new");
-    await page.locator('[data-component="clients-new-name-input"]').fill("자부담 신규 고객");
+    await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_name-field_name-input"]').fill("자부담 신규 고객");
     const compactDateInputs = page.locator('input[placeholder="YYMMDD"]');
     await compactDateInputs.nth(0).fill("900101");
     await compactDateInputs.nth(1).fill("260901");
-    await page.locator('[data-component="clients-new-phone-input"]').fill("01012345678");
+    await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_phone-field_phone-input"]').fill("01012345678");
 
-    const nextButton = page.locator('[data-component="clients-new-actions"] button').nth(1);
+    const nextButton = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_actions"] button').nth(1);
     await expect(nextButton).toBeEnabled();
     await nextButton.click();
 
-    await expect(page.locator('[data-component="clients-new-customer-type-toggle-self-pay"]')).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator('[data-component="clients-new-voucher-select"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_customer-type-field_toggle_self-pay-button"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field_select-wrap_select"]')).toHaveCount(0);
     await expect(page.getByText("정부지원금", { exact: true })).toHaveCount(0);
     await expect(page.getByText("본인부담금", { exact: true })).toHaveCount(0);
 
-    const durationSelect = page.locator('[data-component="clients-new-duration-select"]');
+    const durationSelect = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_duration-field_select-wrap_select"]');
     await expect(durationSelect).toBeEnabled();
     await expect(durationSelect.locator('option[value="5"]')).toHaveText("1주 (5일)");
     await durationSelect.selectOption("5");
 
-    const fullPriceInput = page.locator('[data-component="clients-new-full-price-input"]');
+    const fullPriceInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_full-price-field_input-wrap_input"]');
     await expect(fullPriceInput).toHaveValue("815,000");
     await fullPriceInput.fill("820000");
     await expect(fullPriceInput).toHaveValue("820,000");

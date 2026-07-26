@@ -13,7 +13,7 @@ export function AdminGuard({ children, fallback }: AdminGuardProps) {
   const { data: user, isLoading } = useGetAuthUser();
   
   if (isLoading) {
-    return <div data-component="admin-guard" className="flex items-center justify-center min-h-screen">Loading...</div>;
+    return <div data-component="mobile_auth_admin-guard" className="flex items-center justify-center min-h-screen">Loading...</div>;
   }
   
   const isAdmin = user?.role === 'admin' || user?.role === 'owner';

@@ -3,6 +3,17 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+type DataComponentProps = {
+  "data-component"?: string
+}
+
+type CardSourceComponent = "Card" | "SurfaceCard"
+
+const CARD_SOURCE_COMPONENT = "Card"
+const CARD_HEADER_SOURCE_COMPONENT = "CardHeader"
+const CARD_TITLE_SOURCE_COMPONENT = "CardTitle"
+const CARD_CONTENT_SOURCE_COMPONENT = "CardContent"
+
 const cardVariants = cva(
   "rounded-lg border bg-card text-card-foreground shadow-sm",
   {
@@ -18,11 +29,24 @@ const cardVariants = cva(
   }
 )
 
+type CardProps = React.HTMLAttributes<HTMLDivElement> &
+  VariantProps<typeof cardVariants> &
+  DataComponentProps & {
+    /** @internal Zero-DOM wrapper ownership only. */
+    sourceComponent?: CardSourceComponent
+  }
+
 const Card = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof cardVariants>
->(({ className, variant, ...props }, ref) => (
-  <div ref={ref} className={cn(cardVariants({ variant, className }))} {...props} />
+  CardProps
+>(({ className, variant, sourceComponent = CARD_SOURCE_COMPONENT, "data-component": dataComponent, ...props }, ref) => (
+  <div
+    ref={ref}
+    {...props}
+    data-component={dataComponent}
+    data-source-component={sourceComponent}
+    className={cn(cardVariants({ variant, className }))}
+  />
 ))
 Card.displayName = "Card"
 
@@ -40,15 +64,30 @@ const cardHeaderVariants = cva("flex flex-col p-6", {
 
 const CardHeader = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof cardHeaderVariants>
->(({ className, variant, ...props }, ref) => (
-  <div ref={ref} className={cn(cardHeaderVariants({ variant, className }))} {...props} />
+  React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof cardHeaderVariants> & DataComponentProps
+>(({ className, variant, "data-component": dataComponent, ...props }, ref) => (
+  <div
+    ref={ref}
+    {...props}
+    data-component={dataComponent}
+    data-source-component={CARD_HEADER_SOURCE_COMPONENT}
+    className={cn(cardHeaderVariants({ variant, className }))}
+  />
 ))
 CardHeader.displayName = "CardHeader"
 
-const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn("text-2xl font-semibold leading-none tracking-tight", className)} {...props} />
+const CardTitle = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLHeadingElement> & DataComponentProps
+>(
+  ({ className, "data-component": dataComponent, ...props }, ref) => (
+    <h3
+      ref={ref}
+      {...props}
+      data-component={dataComponent}
+      data-source-component={CARD_TITLE_SOURCE_COMPONENT}
+      className={cn("text-2xl font-semibold leading-none tracking-tight", className)}
+    />
   ),
 );
 CardTitle.displayName = "CardTitle";
@@ -60,8 +99,19 @@ const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttribu
 );
 CardDescription.displayName = "CardDescription";
 
-const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />,
+const CardContent = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & DataComponentProps
+>(
+  ({ className, "data-component": dataComponent, ...props }, ref) => (
+    <div
+      ref={ref}
+      {...props}
+      data-component={dataComponent}
+      data-source-component={CARD_CONTENT_SOURCE_COMPONENT}
+      className={cn("p-6 pt-0", className)}
+    />
+  ),
 );
 CardContent.displayName = "CardContent";
 

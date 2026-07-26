@@ -36,14 +36,14 @@ export function ForgotPasswordPageContent({ variant }: ForgotPasswordPageContent
   return (
     <AuthSurface
       variant={variant}
-      data-component="auth-forgot-password"
+      data-component="desktop_auth_forgot-password"
       dataComponents={{
-        container: "auth-forgot-password",
-        card: "auth-forgot-password-card",
-        header: "auth-forgot-password-header",
-        title: "auth-forgot-password-title",
-        subtitle: "auth-forgot-password-subtitle",
-        content: "auth-forgot-password-content",
+        container: "desktop_auth_forgot-password",
+        card: "desktop_auth_forgot-password_card",
+        header: "desktop_auth_forgot-password_header",
+        title: "desktop_auth_forgot-password_title",
+        subtitle: "desktop_auth_forgot-password_subtitle",
+        content: "desktop_auth_forgot-password_content",
       }}
       title={cardTitle}
       subtitle={cardSubtitle}
@@ -51,12 +51,12 @@ export function ForgotPasswordPageContent({ variant }: ForgotPasswordPageContent
       mobileWrapperClassName="px-4 py-6"
     >
       {isSuccess ? (
-        <div data-component="auth-forgot-password-success" className="flex flex-col items-center gap-6 text-center">
-          <div data-component="auth-forgot-password-success-icon" className="rounded-full bg-success/10 p-3">
+        <div data-component="desktop_auth_forgot-password_success" className="flex flex-col items-center gap-6 text-center">
+          <div data-component="desktop_auth_forgot-password_success_icon" className="rounded-full bg-success/10 p-3">
             <CheckCircle className="h-12 w-12 text-success" />
           </div>
-          <div data-component="auth-forgot-password-success-message" className="flex flex-col text-center text-muted-foreground">
-            <div data-component="auth-forgot-password-success-message-lines" className="flex flex-col">
+          <div data-component="desktop_auth_forgot-password_success_message" className="flex flex-col text-center text-muted-foreground">
+            <div data-component="desktop_auth_forgot-password_success_message_lines" className="flex flex-col">
               <p>
                 <strong className="text-foreground">{email}</strong>로
               </p>
@@ -68,7 +68,7 @@ export function ForgotPasswordPageContent({ variant }: ForgotPasswordPageContent
             이메일이 도착하지 않았다면 스팸 폴더를 확인해 주세요.
           </Alert>
           <Button
-            data-component="auth-forgot-password-login-btn"
+            data-component="desktop_auth_forgot-password_success_login-btn"
             variant="positive"
             size="lg"
             className={actionButtonClassName}
@@ -85,7 +85,7 @@ export function ForgotPasswordPageContent({ variant }: ForgotPasswordPageContent
             </Alert>
           ) : null}
 
-          <form onSubmit={handleSubmit} data-component="auth-forgot-password-form" className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} data-component="desktop_auth_forgot-password_form" className="flex flex-col gap-4">
             {variant === "mobile" ? (
               <MobileInputField
                 title="이메일"
@@ -103,7 +103,7 @@ export function ForgotPasswordPageContent({ variant }: ForgotPasswordPageContent
                 renderInput={(resolvedInputProps) => (
                   <MobileInput
                     {...resolvedInputProps}
-                    data-component="auth-forgot-password-email-field"
+                    data-component="desktop_auth_forgot-password_form_email-field"
                   />
                 )}
               />
@@ -116,12 +116,12 @@ export function ForgotPasswordPageContent({ variant }: ForgotPasswordPageContent
                 disabled={isLoading}
                 autoComplete="email"
                 autoFocus
-                data-component="auth-forgot-password-email-field"
+                data-component="desktop_auth_forgot-password_form_email-field"
               />
             )}
 
             <Button
-              data-component="auth-forgot-password-submit-btn"
+              data-component="desktop_auth_forgot-password_form_submit-btn"
               type="submit"
               variant="positive"
               size="lg"
@@ -133,7 +133,7 @@ export function ForgotPasswordPageContent({ variant }: ForgotPasswordPageContent
           </form>
 
           <AuthInlineLink
-            dataComponent="auth-forgot-password-login-link"
+            dataComponent="desktop_auth_forgot-password_login-link"
             href="/login"
             prefixText="비밀번호가 기억나셨나요?"
             linkLabel="로그인"

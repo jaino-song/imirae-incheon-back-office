@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle, ChevronLeft, ChevronRight, Link2 } from "lucide-react";
+import { CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Link2 } from "lucide-react";
+import { REGISTERABLE_ROLE_OPTIONS } from "@babyjamjam/shared";
 
 import { authApi } from "@/services/api";
 import {
@@ -24,9 +25,16 @@ interface AxiosLikeError {
 }
 
 const EMAIL_DUPLICATE_ERROR = "이미 등록된 이메일입니다.";
-const REGISTER_TOTAL_STEPS = 2;
+const REGISTER_TOTAL_STEPS = 3;
 const ACCOUNT_FIELDS = ["email", "name", "password", "confirmPassword"] as const;
 const PROFILE_FIELDS = ["phone", "birthDate"] as const;
+const APPROVAL_FIELDS = ["role"] as const;
+
+/** Canonical data-component base for the /register route. */
+const REGISTER_BASE = "mobile_auth_register";
+const REGISTER_ACCOUNT_FORM = `${REGISTER_BASE}_form`;
+const REGISTER_PROFILE_FORM = `${REGISTER_BASE}_profile-form`;
+const REGISTER_SUBMIT_FORM = `${REGISTER_BASE}_submit-form`;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -39,6 +47,7 @@ export default function RegisterPage() {
   const [profileData, setProfileData] = useState({
     phone: "",
     birthDate: "",
+    role: "",
   });
   const [currentStep, setCurrentStep] = useState(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -153,7 +162,7 @@ export default function RegisterPage() {
 
   const handleProfileChange =
     (field: keyof typeof profileData) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setProfileData((prev) => ({ ...prev, [field]: e.target.value }));
       setErrors((prev) => {
         if (!prev[field]) return prev;
@@ -214,6 +223,25 @@ export default function RegisterPage() {
     setCurrentStep(2);
   };
 
+  const handleProfileStepNext = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setServerError(null);
+    const result = registerSchema.safeParse(getCombinedFormData());
+    if (!result.success) {
+      const fieldErrors = collectFieldErrors(result.error.issues, PROFILE_FIELDS);
+      if (Object.keys(fieldErrors).length > 0) {
+        setErrors((prev) => ({ ...prev, ...fieldErrors }));
+        return;
+      }
+    }
+    setErrors((prev) => {
+      const next = { ...prev };
+      PROFILE_FIELDS.forEach((field) => delete next[field]);
+      return next;
+    });
+    setCurrentStep(3);
+  };
+
   const handlePreviousStep = () => {
     setServerError(null);
     setCurrentStep((step) => Math.max(1, step - 1));
@@ -241,6 +269,7 @@ export default function RegisterPage() {
       const fieldErrors = collectFieldErrors(result.error.issues, [
         ...ACCOUNT_FIELDS,
         ...PROFILE_FIELDS,
+        ...APPROVAL_FIELDS,
       ]);
       setErrors(fieldErrors);
       if (ACCOUNT_FIELDS.some((field) => fieldErrors[field])) setCurrentStep(1);
@@ -279,23 +308,23 @@ export default function RegisterPage() {
 
   if (isSuccess) {
     return (
-      <div className="auth-page" data-component="auth-register">
-        <div className="auth-brand" data-component="auth-register-brand">
-          <div className="auth-logo" data-component="auth-register-logo">
+      <div className="auth-page" data-component={REGISTER_BASE} data-slot="auth-register-page">
+        <div className="auth-brand" data-component={`${REGISTER_BASE}_brand`}>
+          <div className="auth-logo" data-component={`${REGISTER_BASE}_brand_logo`}>
             <Image src="/assets/logo.svg" alt="아가잼잼 로고" width={80} height={80} priority />
           </div>
-          <div className="auth-title" data-component="auth-register-title">회원가입</div>
-          <div className="auth-sub" data-component="auth-register-subtitle">필수 정보를 단계별로 입력해 주세요.</div>
+          <div className="auth-title" data-component={`${REGISTER_BASE}_brand_title`}>회원가입</div>
+          <div className="auth-sub" data-component={`${REGISTER_BASE}_brand_subtitle`}>필수 정보를 단계별로 입력해 주세요.</div>
         </div>
 
-        <div className="auth-status" data-component="auth-register-success">
-          <div className={`status-icon success ${accountsLinked ? "linked" : ""}`} data-component="auth-register-success-icon">
+        <div className="auth-status" data-component={`${REGISTER_BASE}_success`}>
+          <div className={`status-icon success ${accountsLinked ? "linked" : ""}`} data-component={`${REGISTER_BASE}_success_icon`}>
             {accountsLinked ? <Link2 size={32} strokeWidth={2.5} /> : <CheckCircle size={32} strokeWidth={2.5} />}
           </div>
-          <div className="status-message" data-component="auth-register-success-title">
+          <div className="status-message" data-component={`${REGISTER_BASE}_success_title`}>
             <strong>{accountsLinked ? "계정이 연결되었습니다!" : "회원가입 완료!"}</strong>
           </div>
-          <div className="status-message" data-component="auth-register-success-message">
+          <div className="status-message" data-component={`${REGISTER_BASE}_success_message`}>
             {accountsLinked ? (
               <span>
                 기존 카카오 계정에 비밀번호가 추가되었습니다.
@@ -314,12 +343,12 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        <div className="auth-actions auth-success-actions" data-component="auth-register-success-actions">
+        <div className="auth-actions auth-success-actions" data-component={`${REGISTER_BASE}_success-actions`}>
           <button
             type="button"
             className="auth-btn full"
             onClick={() => router.push("/login")}
-            data-component="auth-register-success-login-btn"
+            data-component={`${REGISTER_BASE}_success-actions_login-button`}
           >
             로그인 페이지로 이동
           </button>
@@ -329,19 +358,19 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="auth-page" data-component="auth-register">
-      <div className="auth-brand" data-component="auth-register-brand">
-        <div className="auth-logo" data-component="auth-register-logo">
+    <div className="auth-page" data-component={REGISTER_BASE} data-slot="auth-register-page">
+      <div className="auth-brand" data-component={`${REGISTER_BASE}_brand`}>
+        <div className="auth-logo" data-component={`${REGISTER_BASE}_brand_logo`}>
           <Image src="/assets/logo.svg" alt="아가잼잼 로고" width={80} height={80} priority />
         </div>
-        <div className="auth-title" data-component="auth-register-title">회원가입</div>
-        <div className="auth-sub" data-component="auth-register-subtitle">필수 정보를 단계별로 입력해 주세요.</div>
+        <div className="auth-title" data-component={`${REGISTER_BASE}_brand_title`}>회원가입</div>
+        <div className="auth-sub" data-component={`${REGISTER_BASE}_brand_subtitle`}>필수 정보를 단계별로 입력해 주세요.</div>
       </div>
 
       <div
         className="step-indicator"
         aria-label={`회원가입 ${currentStep}단계 / ${REGISTER_TOTAL_STEPS}단계`}
-        data-component="auth-register-step-indicator"
+        data-component={`${REGISTER_BASE}_step-indicator`}
       >
         {Array.from({ length: REGISTER_TOTAL_STEPS }, (_, index) => {
           const step = index + 1;
@@ -359,16 +388,16 @@ export default function RegisterPage() {
       </div>
 
       {serverError && (
-        <div className="auth-server-error" role="alert" data-component="auth-register-server-error">
+        <div className="auth-server-error" role="alert" data-component={`${REGISTER_BASE}_server-error`}>
           {serverError}
         </div>
       )}
 
       {currentStep === 1 && (
-        <form className="auth-form auth-step-view active" onSubmit={handleAccountStepNext} data-component="auth-register-form">
-          <div className="auth-input-group" data-component="auth-register-email-field">
+        <form className="auth-form auth-step-view active" onSubmit={handleAccountStepNext} data-component={`${REGISTER_ACCOUNT_FORM}`}>
+          <div className="auth-input-group" data-component={`${REGISTER_ACCOUNT_FORM}_email-field`}>
             <label className="auth-label" htmlFor="register-email">이메일</label>
-            <div className="auth-input-wrap" data-component="auth-register-email-input-wrap">
+            <div className="auth-input-wrap" data-component={`${REGISTER_ACCOUNT_FORM}_email-field_input-wrap`}>
               <input
                 id="register-email"
                 className={`auth-input has-trailing ${errors.email ? "error" : ""}`}
@@ -383,10 +412,10 @@ export default function RegisterPage() {
               />
               {canShowEmailTrailing && <span className="auth-input-trailing">{emailTrailingLabel}</span>}
             </div>
-            {errors.email && <div className="auth-helper error" data-component="auth-register-email-error">{errors.email}</div>}
+            {errors.email && <div className="auth-helper error" data-component={`${REGISTER_ACCOUNT_FORM}_email-field_error`}>{errors.email}</div>}
           </div>
 
-          <div className="auth-input-group" data-component="auth-register-name-field">
+          <div className="auth-input-group" data-component={`${REGISTER_ACCOUNT_FORM}_name-field`}>
             <label className="auth-label" htmlFor="register-name">이름</label>
             <input
               id="register-name"
@@ -399,10 +428,10 @@ export default function RegisterPage() {
               disabled={isLoading}
               aria-invalid={!!errors.name}
             />
-            {errors.name && <div className="auth-helper error" data-component="auth-register-name-error">{errors.name}</div>}
+            {errors.name && <div className="auth-helper error" data-component={`${REGISTER_ACCOUNT_FORM}_name-field_error`}>{errors.name}</div>}
           </div>
 
-          <div className="auth-input-group" data-component="auth-register-password-field">
+          <div className="auth-input-group" data-component={`${REGISTER_ACCOUNT_FORM}_password-field`}>
             <label className="auth-label" htmlFor="register-password">비밀번호</label>
             <input
               id="register-password"
@@ -415,10 +444,10 @@ export default function RegisterPage() {
               disabled={isLoading}
               aria-invalid={!!errors.password}
             />
-            {errors.password && <div className="auth-helper error" data-component="auth-register-password-error">{errors.password}</div>}
-            <div className="pw-strength" data-component="auth-register-password-strength">
+            {errors.password && <div className="auth-helper error" data-component={`${REGISTER_ACCOUNT_FORM}_password-field_error`}>{errors.password}</div>}
+            <div className="pw-strength" data-component={`${REGISTER_ACCOUNT_FORM}_password-field_strength`}>
               {passwordStrengthRows.map((rule) => (
-                <div key={rule.label} className={`pw-strength-row ${rule.met ? "ok" : ""}`} data-component="auth-register-password-strength-row">
+                <div key={rule.label} className={`pw-strength-row ${rule.met ? "ok" : ""}`} data-component={`${REGISTER_ACCOUNT_FORM}_password-field_strength_row`}>
                   <span className="dot" />
                   {rule.label}
                 </div>
@@ -426,7 +455,7 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <div className="auth-input-group" data-component="auth-register-password-confirm-field">
+          <div className="auth-input-group" data-component={`${REGISTER_ACCOUNT_FORM}_password-confirm-field`}>
             <label className="auth-label" htmlFor="register-password-confirm">비밀번호 확인</label>
             <input
               id="register-password-confirm"
@@ -440,23 +469,23 @@ export default function RegisterPage() {
               aria-invalid={!!errors.confirmPassword}
             />
             {errors.confirmPassword ? (
-              <div className="auth-helper error" data-component="auth-register-password-confirm-error">{errors.confirmPassword}</div>
+              <div className="auth-helper error" data-component={`${REGISTER_ACCOUNT_FORM}_password-confirm-field_error`}>{errors.confirmPassword}</div>
             ) : (
               <div
                 className={`auth-helper ${passwordsMatch ? "ok" : "placeholder"}`}
-                data-component="auth-register-password-confirm-ok"
+                data-component={`${REGISTER_ACCOUNT_FORM}_password-confirm-field_match`}
               >
                 ✓ 비밀번호가 일치합니다.
               </div>
             )}
           </div>
 
-          <div className="auth-actions" data-component="auth-register-step-actions">
+          <div className="auth-actions" data-component={`${REGISTER_ACCOUNT_FORM}_actions`}>
             <button
               type="submit"
               className="auth-btn full"
               disabled={isLoading || isCheckingEmailDuplicate}
-              data-component="auth-register-step-next"
+              data-component={`${REGISTER_ACCOUNT_FORM}_actions_next-button`}
             >
               다음
               <ChevronRight size={14} strokeWidth={2.5} />
@@ -466,8 +495,8 @@ export default function RegisterPage() {
       )}
 
       {currentStep === 2 && (
-        <form className="auth-form auth-step-view active" onSubmit={handleSubmit} data-component="auth-register-profile-form">
-          <div className="auth-input-group" data-component="auth-register-phone-field">
+        <form className="auth-form auth-step-view active" onSubmit={handleProfileStepNext} data-component={`${REGISTER_PROFILE_FORM}`}>
+          <div className="auth-input-group" data-component={`${REGISTER_PROFILE_FORM}_phone-field`}>
             <label className="auth-label" htmlFor="register-phone">전화번호</label>
             <input
               id="register-phone"
@@ -483,13 +512,13 @@ export default function RegisterPage() {
               aria-invalid={!!errors.phone}
             />
             {errors.phone ? (
-              <div className="auth-helper error" data-component="auth-register-phone-error">{errors.phone}</div>
+              <div className="auth-helper error" data-component={`${REGISTER_PROFILE_FORM}_phone-field_error`}>{errors.phone}</div>
             ) : (
-              profileData.phone && <div className="auth-helper ok" data-component="auth-register-phone-ok">✓ 등록 가능한 번호입니다.</div>
+              profileData.phone && <div className="auth-helper ok" data-component={`${REGISTER_PROFILE_FORM}_phone-field_ok`}>✓ 등록 가능한 번호입니다.</div>
             )}
           </div>
 
-          <div className="auth-input-group" data-component="auth-register-birth-field">
+          <div className="auth-input-group" data-component={`${REGISTER_PROFILE_FORM}_birth-field`}>
             <label className="auth-label" htmlFor="register-birth">생년월일</label>
             <input
               id="register-birth"
@@ -505,13 +534,52 @@ export default function RegisterPage() {
               aria-invalid={!!errors.birthDate}
             />
             {errors.birthDate ? (
-              <div className="auth-helper error" data-component="auth-register-birth-error">{errors.birthDate}</div>
+              <div className="auth-helper error" data-component={`${REGISTER_PROFILE_FORM}_birth-field_error`}>{errors.birthDate}</div>
             ) : (
-              <div className="auth-helper" data-component="auth-register-birth-helper">YYYY-MM-DD 형식으로 입력해 주세요.</div>
+              <div className="auth-helper" data-component={`${REGISTER_PROFILE_FORM}_birth-field_helper`}>YYYY-MM-DD 형식으로 입력해 주세요.</div>
             )}
           </div>
 
-          <div className="auth-actions" data-component="auth-register-step-actions">
+          <div className="auth-actions" data-component={`${REGISTER_PROFILE_FORM}_actions`}>
+            <button type="button" className="auth-btn secondary" onClick={handlePreviousStep} disabled={isLoading}>
+              <ChevronLeft size={14} strokeWidth={2.5} />
+              이전
+            </button>
+            <button type="submit" className="auth-btn" disabled={isLoading}>
+              다음
+              <ChevronRight size={14} strokeWidth={2.5} />
+            </button>
+          </div>
+        </form>
+      )}
+
+      {currentStep === 3 && (
+        <form className="auth-form auth-step-view active" onSubmit={handleSubmit} data-component={`${REGISTER_SUBMIT_FORM}`}>
+          <div className="auth-input-group" data-component={`${REGISTER_SUBMIT_FORM}_role-field`}>
+            <label className="auth-label" htmlFor="register-role">요청 권한</label>
+            <div className="auth-select-wrap" data-component={`${REGISTER_SUBMIT_FORM}_role-field_select-wrap`}>
+              <select
+                id="register-role"
+                className="auth-select"
+                value={profileData.role}
+                onChange={handleProfileChange("role")}
+                disabled={isLoading}
+                aria-invalid={!!errors.role}
+              >
+                <option value="">역할을 선택해주세요</option>
+                {REGISTERABLE_ROLE_OPTIONS.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="auth-select-chev" size={16} strokeWidth={2.5} aria-hidden="true" />
+            </div>
+            {errors.role && <div className="auth-helper error" data-component={`${REGISTER_SUBMIT_FORM}_role-field_error`}>{errors.role}</div>}
+            <div className="auth-helper" data-component={`${REGISTER_SUBMIT_FORM}_role-field_helper`}>오너가 지점과 최종 권한을 배정합니다.</div>
+          </div>
+
+          <div className="auth-actions" data-component={`${REGISTER_SUBMIT_FORM}_actions`}>
             <button type="button" className="auth-btn secondary" onClick={handlePreviousStep} disabled={isLoading}>
               <ChevronLeft size={14} strokeWidth={2.5} />
               이전
@@ -519,9 +587,9 @@ export default function RegisterPage() {
             <button
               type="submit"
               className="auth-btn"
-              disabled={isLoading || isCheckingEmailDuplicate || isEmailDuplicate}
+              disabled={isLoading || isCheckingEmailDuplicate}
               aria-label={isLoading ? "회원가입 처리 중" : "회원가입"}
-              data-component="auth-register-submit"
+              data-component={`${REGISTER_SUBMIT_FORM}_actions_submit-button`}
             >
               {isLoading ? "처리 중…" : "회원가입"}
             </button>
@@ -529,7 +597,7 @@ export default function RegisterPage() {
         </form>
       )}
 
-      <div className="auth-footer-link" data-component="auth-register-footer-link">
+      <div className="auth-footer-link" data-component={`${REGISTER_BASE}_footer-link`}>
         <span>이미 계정이 있으신가요?&nbsp;</span>
         <Link href="/login">로그인</Link>
       </div>

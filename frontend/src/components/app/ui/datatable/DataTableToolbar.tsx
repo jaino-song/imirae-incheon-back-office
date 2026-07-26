@@ -31,7 +31,7 @@ export function DataTableToolbar({
 
   return (
     <div
-      data-component="data-table-toolbar"
+      data-component="desktop_v3_data-table_toolbar"
       className="flex items-center justify-end gap-2 py-2"
     >
       {/* Search */}

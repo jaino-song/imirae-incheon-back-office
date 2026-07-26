@@ -31,7 +31,7 @@ export function KakaoLinkResultModal() {
       description={dialog.description}
       isDescriptionVisuallyHidden={false}
       onAcknowledge={dismiss}
-      dataComponent="settings-kakao-link-result-modal"
+      dataComponent="desktop_settings_sections_kakao-link-result-modal"
     />
   );
 }

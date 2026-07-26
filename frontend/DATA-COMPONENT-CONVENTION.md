@@ -27,6 +27,16 @@ desktop_clients-detail_panel_service-records_overview-grid_header-card
 desktop_clients-detail_panel_service-records_overview-grid_header-card_head_title-row_title
 ```
 
+ESLint 규칙은 migration 호환성을 위해 `banLegacyFormat`의 기본값을 `false`로 둔다.
+이 상태에서는 기존 dash-only kebab-case 값도 임시로 허용한다. canonical 전환을
+강제하는 범위에서는 `{ banLegacyFormat: true }`를 사용하며, 이때 legacy 값은
+`{platform}_{route-or-surface}_{...}` 형식으로 옮겨야 한다.
+
+`checkMissingAnnotations`의 기본값은 `true`이며, 구조 요소에 `data-component`가
+없는 경우를 현행대로 보고한다. `{ checkMissingAnnotations: false }`는 이 presence
+보고만 억제한다. `data-component`가 존재하면 canonical/legacy/full-parent-path 검사를
+그대로 수행하고, `data-slot`과 `data-source-component` 값 검사도 계속 수행한다.
+
 ## Full-parent-path rule
 
 모든 annotated child는 route/surface root부터 현재 component boundary까지의 의미 있는
@@ -73,6 +83,15 @@ desktop_clients-detail_panel_service-records_overview-grid_header-card_head_titl
 공용 컴포넌트 내부 동작과 CSS는 `data-slot`, class, ref를 사용한다. 기존
 `[data-component="..."]` consumer가 있는 값을 변경할 때 producer와 consumer를 같은
 변경에서 함께 옮긴다.
+
+`data-slot` literal은 비어 있지 않은 kebab-case여야 한다.
+
+```regex
+/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/
+```
+
+slot은 구조/style/imperative hook이지 route path가 아니므로 `desktop_`/`mobile_`
+prefix나 `_` segment separator를 포함하지 않는다.
 
 ## Annotation scope
 

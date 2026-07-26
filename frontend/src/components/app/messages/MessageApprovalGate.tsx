@@ -5,7 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { settingsApi } from "@/services/api";
 import { MessageApprovalRequiredNotice } from "@/components/app/messages/MessageApprovalRequiredNotice";
 
-export function MessageApprovalGate({ children }: { children: ReactNode }) {
+export function MessageApprovalGate({
+  children,
+  dataComponent,
+}: {
+  children: ReactNode;
+  dataComponent: string;
+}) {
   const { data: senderApproval, isLoading } = useQuery({
     queryKey: ["settings", "message-sender-approval"],
     queryFn: settingsApi.getMessageSenderApproval,
@@ -17,10 +23,10 @@ export function MessageApprovalGate({ children }: { children: ReactNode }) {
 
   return (
     <div
-      data-component="messages-approval-gate"
+      data-component={dataComponent}
       className="flex h-full min-h-0 flex-1 items-center justify-center"
     >
-      <MessageApprovalRequiredNotice />
+      <MessageApprovalRequiredNotice dataComponent={`${dataComponent}_notice`} />
     </div>
   );
 }

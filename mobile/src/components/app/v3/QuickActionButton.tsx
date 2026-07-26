@@ -24,6 +24,8 @@ export const DEFAULT_QUICK_ACTION_COLORS: readonly QuickActionColor[] = [
 ] as const;
 
 interface QuickActionButtonProps {
+    /** Caller-context canonical value. Grids pass `${base}_item-N`. */
+    "data-component"?: string;
     href: string;
     label: string;
     icon: QuickActionIcon;
@@ -34,6 +36,7 @@ interface QuickActionButtonProps {
 }
 
 export function QuickActionButton({
+    "data-component": dataComponent,
     href,
     label,
     icon: Icon,
@@ -50,7 +53,8 @@ export function QuickActionButton({
     return (
         <Link
             href={href}
-            data-component="quick-action-button"
+            data-component={dataComponent}
+            data-slot="quick-action-button"
             className={cn(
                 "p-3 rounded-2xl w-full",
                 "flex flex-col items-center gap-2",

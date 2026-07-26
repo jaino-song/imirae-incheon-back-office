@@ -13,12 +13,16 @@ import { cn } from "@/lib/utils";
 import { FeedbackModal } from "./feedback-modal";
 
 interface MessageFeedbackProps {
+    /** Caller-context canonical value for this node. */
+    "data-component": string;
+
     messageId: string;
     sessionId: string | null;
     onSubmitFeedback: (type: "positive" | "negative", comment?: string) => Promise<void>;
 }
 
 export function MessageFeedback({
+    "data-component": dataComponent,
     messageId: _messageId,
     sessionId: _sessionId,
     onSubmitFeedback
@@ -56,7 +60,7 @@ export function MessageFeedback({
     return (
         <>
             <div
-                data-component="chat-message-feedback"
+                data-component={dataComponent}
                 data-testid="message-feedback"
                 className={cn(
                     "flex gap-1 mt-2",

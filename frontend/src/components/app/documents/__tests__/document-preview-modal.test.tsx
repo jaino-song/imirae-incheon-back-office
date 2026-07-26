@@ -206,6 +206,7 @@ describe("DocumentPreviewModal", () => {
   it("names the preview dialog actions", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -222,6 +223,7 @@ describe("DocumentPreviewModal", () => {
   it("keeps the print frame mounted until the print preview closes", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -271,6 +273,7 @@ describe("DocumentPreviewModal", () => {
   it("renders a zoom slider for pdf previews and updates the page width", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -296,6 +299,7 @@ describe("DocumentPreviewModal", () => {
   it("zooms when document-targeted pinch wheel hit-tests inside the canvas", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -359,6 +363,7 @@ describe("DocumentPreviewModal", () => {
   it("suppresses ambiguous first pinch wheel while dialog is open", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -395,6 +400,7 @@ describe("DocumentPreviewModal", () => {
   it("does not zoom when pinch wheel hit-tests inside dialog but outside canvas", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -407,7 +413,7 @@ describe("DocumentPreviewModal", () => {
       window.requestAnimationFrame(() => resolve());
     });
 
-    const dialogContent = document.querySelector('[data-component="contracts-document-preview"]');
+    const dialogContent = document.querySelector('[data-component="desktop_contracts_document-preview"]');
     expect(dialogContent).not.toBeNull();
     if (!dialogContent) throw new Error("dialog not rendered");
 
@@ -435,6 +441,7 @@ describe("DocumentPreviewModal", () => {
   it("uses the same zoom slider pattern for image previews", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={{
@@ -462,6 +469,7 @@ describe("DocumentPreviewModal", () => {
   it("renders a Hangul document preview from an HWP storage extension", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={{
@@ -522,6 +530,7 @@ describe("ContractDocumentPreviewModal", () => {
 
     render(
       <ContractDocumentPreviewModal
+        data-component="desktop_contracts_tests_document-preview"
         open={true}
         onClose={jest.fn()}
         document={contractDocument}
@@ -532,12 +541,14 @@ describe("ContractDocumentPreviewModal", () => {
 
     await screen.findByTestId("pdf-page-1");
 
-    const footer = document.querySelector('[data-component="contracts-document-preview-footer"]');
+    const footer = document.querySelector(
+      '[data-component="desktop_contracts_tests_document-preview_footer"]',
+    );
     const fileActions = document.querySelector(
-      '[data-component="contracts-document-preview-file-actions"]',
+      '[data-component="desktop_contracts_tests_document-preview_footer_file-actions"]',
     );
     const reviewAction = document.querySelector(
-      '[data-component="contracts-document-preview-review-action"]',
+      '[data-component="desktop_contracts_tests_document-preview_footer_review-action"]',
     );
 
     expect(footer).toHaveClass("sm:justify-between");
@@ -563,6 +574,7 @@ describe("ContractDocumentPreviewModal", () => {
   it("disables the review confirmation while automatic processing is pending", async () => {
     render(
       <ContractDocumentPreviewModal
+        data-component="desktop_contracts_tests_document-preview"
         open={true}
         onClose={jest.fn()}
         document={contractDocument}

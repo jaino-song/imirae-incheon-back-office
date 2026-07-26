@@ -19,9 +19,9 @@ export function AuthPanelHeader({
   className,
   titleClassName,
   subtitleClassName,
-  dataComponent = "auth-panel-header",
-  titleDataComponent = "auth-panel-title",
-  subtitleDataComponent = "auth-panel-subtitle",
+  dataComponent = "desktop_auth_panel_header",
+  titleDataComponent = "desktop_auth_panel_header_title",
+  subtitleDataComponent = "desktop_auth_panel_header_subtitle",
 }: AuthPanelHeaderProps) {
   if (!title && !subtitle) {
     return null;

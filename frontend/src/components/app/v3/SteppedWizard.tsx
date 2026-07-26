@@ -65,15 +65,15 @@ function MobileStepIndicator({
   const progress = ((currentStep + 1) / steps.length) * 100;
 
   return (
-    <div data-component="stepped-wizard-stepper-mobile" className="md:hidden">
-      <div data-component="stepped-wizard-stepper-mobile-header" className="mb-2 flex items-center justify-end">
+    <div data-component="desktop_v3_stepped-wizard_stepper-mobile" className="md:hidden">
+      <div data-component="desktop_v3_stepped-wizard_stepper-mobile_header" className="mb-2 flex items-center justify-end">
         <span className="text-[0.7rem] font-semibold text-v3-text-muted">
           {currentStep + 1} / {steps.length} 단계
         </span>
       </div>
-      <div data-component="stepped-wizard-stepper-mobile-track" className="h-1.5 w-full overflow-hidden rounded-full bg-v3-border">
+      <div data-component="desktop_v3_stepped-wizard_stepper-mobile_track" className="h-1.5 w-full overflow-hidden rounded-full bg-v3-border">
         <div
-          data-component="stepped-wizard-stepper-mobile-progress"
+          data-component="desktop_v3_stepped-wizard_stepper-mobile_track_progress"
           className="h-full rounded-full bg-gradient-to-r from-v3-primary to-blue-500 transition-all duration-400"
           style={{
             width: `${progress}%`,
@@ -185,11 +185,11 @@ export function SteppedWizard({
       )}
 
       <SurfaceFrame
-        data-component="stepped-wizard-frame"
+        data-component="desktop_v3_stepped-wizard_frame"
         dataComponents={{
-          container: "stepped-wizard-frame",
-          glow: "stepped-wizard-frame-glow",
-          inner: "stepped-wizard-frame-inner",
+          container: "desktop_v3_stepped-wizard_frame",
+          glow: "desktop_v3_stepped-wizard_frame-glow",
+          inner: "desktop_v3_stepped-wizard_frame-inner",
         }}
         className={cn(
           "!h-full min-h-0 items-center !overflow-visible py-0 md:py-0",
@@ -197,20 +197,20 @@ export function SteppedWizard({
         )}
       >
         <SurfaceCard
-          data-component="stepped-wizard"
+          data-component="desktop_v3_stepped-wizard"
           dataComponents={{
-            card: "stepped-wizard",
-            header: "stepped-wizard-header",
-            title: "stepped-wizard-title",
-            subtitle: "stepped-wizard-subtitle",
-            content: "stepped-wizard-content",
+            card: "desktop_v3_stepped-wizard",
+            header: "desktop_v3_stepped-wizard_header",
+            title: "desktop_v3_stepped-wizard_title",
+            subtitle: "desktop_v3_stepped-wizard_subtitle",
+            content: "desktop_v3_stepped-wizard_content",
           }}
           className={cn("h-full min-h-[70vh] max-h-[85%]", STEPPED_WIZARD_CARD_CLASS_NAME)}
           contentClassName="flex flex-1 min-h-0 overflow-hidden gap-0"
           title={title}
           subtitle={subtitle}
         >
-        <div data-component="stepped-wizard-body" className="flex min-h-0 flex-1 flex-col gap-[18px]">
+        <div data-component="desktop_v3_stepped-wizard_body" className="flex min-h-0 flex-1 flex-col gap-[18px]">
           {showStepper ? (
             <>
               <DesktopStepIndicator steps={steps} currentStep={currentStep} />
@@ -232,16 +232,16 @@ export function SteppedWizard({
             )}
 
             {currentStepData && (
-              <div data-component="stepped-wizard-step-content">
+              <div data-component="desktop_v3_stepped-wizard_body_step-content">
                 {currentStepData.content}
               </div>
             )}
           </div>
 
           <FooterNavigation
-            dataComponent="stepped-wizard-actions"
-            prevDataComponent="stepped-wizard-prev-btn"
-            nextDataComponent={isLastStep ? "stepped-wizard-complete-btn" : "stepped-wizard-next-btn"}
+            dataComponent="desktop_v3_stepped-wizard_body_actions"
+            prevDataComponent="desktop_v3_stepped-wizard_body_prev-btn"
+            nextDataComponent={isLastStep ? "desktop_v3_stepped-wizard_body_complete-btn" : "desktop_v3_stepped-wizard_body_next-btn"}
             prevVariant="neutral"
             nextVariant="positive"
             prevSize="sm"

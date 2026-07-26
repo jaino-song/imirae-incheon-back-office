@@ -4,6 +4,7 @@ import { ApprovalTwoButtonModal } from "@/components/app/ui/ApprovalTwoButtonMod
 import { Textarea } from "@/components/ui/textarea";
 
 interface ServiceRecordLinkResetResultModalProps {
+    "data-component": string;
     open: boolean;
     serviceRecordUrl: string;
     onClose: () => void;
@@ -11,6 +12,7 @@ interface ServiceRecordLinkResetResultModalProps {
 }
 
 export function ServiceRecordLinkResetResultModal({
+    "data-component": dataComponent,
     open,
     serviceRecordUrl,
     onClose,
@@ -19,7 +21,7 @@ export function ServiceRecordLinkResetResultModal({
     return (
         <ApprovalTwoButtonModal
             open={open}
-            dataComponent="clients-detail-reset-service-record-link-result"
+            data-component={dataComponent}
             title="제공기록지 링크가 재설정되었습니다"
             description="메시지는 발송되지 않았습니다. 아래 링크를 복사해 직접 전달해 주세요."
             isDescriptionVisuallyHidden={false}
@@ -37,7 +39,7 @@ export function ServiceRecordLinkResetResultModal({
                 </label>
                 <Textarea
                     id="reset-service-record-link-url"
-                    data-component="mobile-clients-reset-service-record-link-url"
+                    data-component={`${dataComponent}_url`}
                     value={serviceRecordUrl}
                     readOnly
                     rows={3}

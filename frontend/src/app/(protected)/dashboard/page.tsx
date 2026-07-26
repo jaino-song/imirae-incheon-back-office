@@ -241,13 +241,13 @@ export default function DashboardPage() {
 
   return (
     <section
-      data-component="dashboard"
+      data-component="desktop_dashboard_page"
       className="flex flex-col gap-4 h-[calc(100dvh-11rem)] md:h-[calc(100dvh-4rem)]"
     >
       <h1 className="sr-only">대시보드</h1>
-      <Block name="dashboard-stats" className="shrink-0">
+      <Block name="desktop_dashboard_stats" className="shrink-0">
         <StatsBar
-          name="dashboard"
+          name="desktop_dashboard"
           isLoading={overviewLoading}
           density="responsive-square"
           items={DASHBOARD_STAT_KEYS.map((s) => ({
@@ -261,14 +261,18 @@ export default function DashboardPage() {
       </Block>
 
       <Block
-        name="dashboard-split"
+        name="desktop_dashboard_split"
         className="flex-1 min-h-0"
       >
         <SplitLayout data-component="desktop_dashboard_split-layout"
           hasSelection={!!selectedClientData}
           onBack={handleClearSelectedClient}
         >
-          <Block name="dashboard-activities-panel" className="h-full min-h-0">
+          <Block
+            name="desktop_dashboard_split_activities-panel"
+            data-slot="activities-panel"
+            className="h-full min-h-0"
+          >
             <RecentActivitiesPanel
               actionRequiredItems={actionRequiredClients}
               upcomingItems={visibleUpcomingClients}
@@ -317,7 +321,6 @@ export default function DashboardPage() {
             <DetailPanel data-component="desktop_dashboard_split-layout_detail-panel"
               emptyState={
                 <DetailEmptyState
-                  name="dashboard-detail-empty"
                   message="항목을 선택하면 상세 정보가 표시됩니다"
                 />
               }

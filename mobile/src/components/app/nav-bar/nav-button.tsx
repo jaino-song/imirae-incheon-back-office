@@ -22,7 +22,7 @@ export const NavButton = ({
 }: NavButtonProps) => {
     return (
         <Link
-            data-component="nav-bar-button"
+            data-component="mobile_shell_app-header_drawer-nav_content_nav_button"
             href={href}
             onClick={disabled ? (e) => e.preventDefault() : onClick}
             className={cn(

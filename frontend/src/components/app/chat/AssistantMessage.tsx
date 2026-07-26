@@ -42,7 +42,7 @@ export function AssistantMessage({
             case "clientRegistrationWizard":
                 if (createdClient) {
                     return (
-                        <div data-component="chat-wizard-registration-success" className="py-1">
+                        <div data-component="desktop_chat_page_wizard-registration-success" className="py-1">
                             산모 등록 완료: {createdClient.name} (ID: {createdClient.id})
                         </div>
                     );
@@ -56,7 +56,7 @@ export function AssistantMessage({
             case "contractSendWizard":
                 if (contractSendDone) {
                     return (
-                        <div data-component="chat-wizard-contract-send-success" className="py-1">
+                        <div data-component="desktop_chat_page_wizard-contract-send-success" className="py-1">
                             계약서 전송이 완료되었습니다.
                         </div>
                     );
@@ -70,7 +70,7 @@ export function AssistantMessage({
             case "contractStatusWizard":
                 if (contractStatus) {
                     return (
-                        <div data-component="chat-wizard-contract-status-result" className="space-y-1 py-1">
+                        <div data-component="desktop_chat_page_wizard-contract-status-result" className="space-y-1 py-1">
                             <div>
                                 계약서 상태: <strong>{String(contractStatus.documentStatus)}</strong>
                             </div>
@@ -97,7 +97,7 @@ export function AssistantMessage({
     }, [wizardType, createdClient, contractSendDone, contractStatus]);
 
     return (
-        <div data-component="chat-message-assistant" className="flex gap-4 mb-6 w-full">
+        <div data-component="desktop_chat_page_message-assistant" className="flex gap-4 mb-6 w-full">
             <Avatar className="w-8 h-8 shrink-0 mt-1">
                 <AvatarImage src="/assets/icon-72.png" alt="AI" />
                 <AvatarFallback>AI</AvatarFallback>

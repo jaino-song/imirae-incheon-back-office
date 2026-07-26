@@ -29,7 +29,7 @@ export const VariableInserter = ({ onInsert }: VariableInserterProps) => {
     };
 
     return (
-        <div data-component="my-templates-variable-inserter" className="flex flex-row flex-wrap gap-2">
+        <div data-component="desktop_my-templates_variable-inserter" className="flex flex-row flex-wrap gap-2">
             {PRESET_VARIABLES.map((v) => (
                 <Badge
                     key={v.key}

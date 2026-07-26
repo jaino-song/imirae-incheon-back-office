@@ -9,19 +9,22 @@ export interface DetailTab {
 }
 
 export interface DetailTabsProps {
+  /** Caller-context canonical base, e.g. `mobile_clients_detail-panel_tabs`. */
+  "data-component"?: string;
   tabs: DetailTab[];
   activeTab: string;
   onTabChange: (key: string) => void;
 }
 
-export function DetailTabs({ tabs, activeTab, onTabChange }: DetailTabsProps) {
+export function DetailTabs({ "data-component": dataComponent, tabs, activeTab, onTabChange }: DetailTabsProps) {
   const prefersReducedMotion = useReducedMotion();
+  const sub = (suffix: string) => (dataComponent ? `${dataComponent}_${suffix}` : undefined);
 
   return (
-    <div data-component="detail-tabs" className="relative flex gap-1 border-b border-v3-border">
+    <div data-component={dataComponent} data-slot="detail-tabs" className="relative flex gap-1 border-b border-v3-border">
       {tabs.map((tab) => (
         <button
-          data-component="detail-tabs-button"
+          data-component={sub("tab-button")}
           key={tab.key}
           onClick={() => onTabChange(tab.key)}
           className={cn(
@@ -33,12 +36,12 @@ export function DetailTabs({ tabs, activeTab, onTabChange }: DetailTabsProps) {
           {activeTab === tab.key ? (
             prefersReducedMotion ? (
               <div
-                data-component="detail-tabs-indicator"
+                data-component={sub("tab-button_indicator")}
                 className="absolute bottom-0 left-0 h-0.5 w-full bg-primary"
               />
             ) : (
               <motion.div
-                data-component="detail-tabs-indicator"
+                data-component={sub("tab-button_indicator")}
                 layoutId="detail-tabs-indicator"
                 transition={{ type: "spring", stiffness: 400, damping: 30 }}
                 className="absolute bottom-0 left-0 h-0.5 w-full bg-primary"

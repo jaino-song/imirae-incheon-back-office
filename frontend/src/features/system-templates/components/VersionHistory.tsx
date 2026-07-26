@@ -199,7 +199,7 @@ export function VersionHistory({ templateKey, onRollback }: Props) {
         onOpenChange={(nextOpen) => {
           if (!nextOpen) setConfirmDialog(null);
         }}
-        dataComponent="system-template-version-approval"
+        dataComponent="desktop_system-templates_version-approval"
         title={confirmDialog?.type === 'rollback' ? '버전 복원' : '기본값 초기화'}
         description={
           confirmDialog?.type === 'rollback'

@@ -24,8 +24,8 @@ export const SteppedWizardPanelContent = React.forwardRef<
   {
     children,
     feedback,
-    dataComponent = "stepped-wizard-panel-content",
-    stepContentDataComponent = "stepped-wizard-step-content",
+    dataComponent = "desktop_v3_stepped-wizard_panel-content",
+    stepContentDataComponent = "desktop_v3_stepped-wizard_step-content",
     flattenStepContent = false,
     className,
     stepContentClassName,

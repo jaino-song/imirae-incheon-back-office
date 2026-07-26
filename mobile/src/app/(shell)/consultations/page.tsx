@@ -184,8 +184,8 @@ function ConsultationDetail({
   previousConsultationDates: string[];
 }) {
   return (
-    <MobileDetailPage data-component="mobile_consultations_detail-sheet_stack_detail-page" name="consultations">
-      <MobileDetailHeader data-component="mobile_consultations_detail-sheet_stack_detail-page_header"
+    <MobileDetailPage data-component="mobile_consultations_detail-sheet_stack_detail-page_body" name="consultations">
+      <MobileDetailHeader data-component="mobile_consultations_detail-sheet_stack_detail-page_body_header"
         name="consultations"
         avatar={row.initial}
         avatarTone={row.status === "unread" ? "burgundy" : "green"}
@@ -200,6 +200,7 @@ function ConsultationDetail({
       />
 
       <DetailTabPills
+        data-component="mobile_consultations_detail-sheet_stack_detail-page_body_tabs"
         tabs={[
           { id: "info", label: "고객 정보" },
           { id: "inquiry", label: "상담 내용" },
@@ -208,7 +209,7 @@ function ConsultationDetail({
         onTabChange={(id) => onTabChange(id as DetailTabId)}
       />
 
-      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_tab-panel" name="consultations" tabId="inquiry" activeTab={activeTab}>
+      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_body_tab-panel" name="consultations" tabId="inquiry" activeTab={activeTab}>
         <InfoCard data-component="mobile_consultations_detail-panel_info-card" title="문의 정보">
           <InfoRow label="근무 지역" value={row.region} />
           <InfoRow label="담당 지점" value={row.branchName} />
@@ -260,7 +261,7 @@ function ConsultationDetail({
         </InfoCard>
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_tab-panel-2" name="consultations" tabId="info" activeTab={activeTab}>
+      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_body_tab-panel-2" name="consultations" tabId="info" activeTab={activeTab}>
         <InfoCard data-component="mobile_consultations_detail-panel_info-card-2" title="기본 정보">
           <InfoRow label="이름" value={row.name} />
           <InfoRow label="연락처" value={row.contact} />
@@ -391,8 +392,9 @@ export default function ConsultationsPage() {
       isOpen={selectedRow !== null}
       onClose={() => setSelectedId(null)}
       list={
-        <div className="shell-content" data-component="mobile-consultations-content">
+        <div className="shell-content" data-component="mobile_consultations_detail-sheet_stack_list-page_content">
           <ListCard
+            data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card"
             title="상담 조회"
             count={`${rows.length}건`}
             filters={filterItems}
@@ -400,6 +402,7 @@ export default function ConsultationsPage() {
             onFilterChange={setActiveFilter}
             beforeFilters={(
               <MobileSearchBar
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_search"
                 label="consultations"
                 placeholder="이름, 연락처, 주소 검색"
                 value={search}
@@ -410,8 +413,8 @@ export default function ConsultationsPage() {
             loadMore={
               isInitialLoad && hasMore ? (
                 <ListLoadMoreButton
+                  data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_load-more_button"
                   onLoadMore={loadMore}
-                  dataComponentPrefix="mobile-consultations"
                 />
               ) : null
             }
@@ -424,7 +427,7 @@ export default function ConsultationsPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-text-muted))",
                 }}
-                data-component="mobile-consultations-loading"
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_loading"
               >
                 불러오는 중...
               </div>
@@ -436,7 +439,7 @@ export default function ConsultationsPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-burgundy))",
                 }}
-                data-component="mobile-consultations-error"
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_error"
               >
                 상담 문의를 불러오지 못했습니다.
               </div>
@@ -448,25 +451,25 @@ export default function ConsultationsPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-text-muted))",
                 }}
-                data-component="mobile-consultations-empty"
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_empty"
               >
                 상담 문의가 없습니다.
               </div>
             ) : (
               <>
               {visibleSections.map((section) => (
-                <div className="section-block" key={section.title || "all"} data-component="mobile-consultations-section">
-                  {section.title && <div className="section-header" data-component="mobile-consultations-section-header">{section.title}</div>}
+                <div className="section-block" key={section.title || "all"} data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section">
+                  {section.title && <div className="section-header" data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section_header">{section.title}</div>}
                   {section.rows.map((row, idx) => (
                     <ListItemRow
                       key={row.id}
-                      dataComponent="mobile-consultations-row"
+                      data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section_row"
                       style={{ animationDelay: `${Math.min(idx, 4) * 40}ms` }}
                       className={row.status === "unread" ? "unread-row" : undefined}
                       left={
                         <div
                           className={`list-avatar av-${row.status === "unread" ? "burgundy" : "green"}`}
-                          data-component="mobile-consultations-row-avatar"
+                          data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section_row_avatar"
                         >
                           {row.initial}
                         </div>
@@ -488,8 +491,8 @@ export default function ConsultationsPage() {
               ))}
               {!isInitialLoad && hasMore && (
                 <ListLoadMoreSentinel
+                  data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                   sentinelRef={sentinelRef}
-                  dataComponentPrefix="mobile-consultations"
                 />
               )}
               </>
@@ -506,7 +509,7 @@ export default function ConsultationsPage() {
             previousConsultationDates={previousConsultationDates}
           />
         ) : (
-          <div className="detail-body" data-component="mobile-consultations-detail-empty" />
+          <div className="detail-body" data-component="mobile_consultations_detail-sheet_stack_detail-page_empty" />
         )
       }
     />

@@ -6,6 +6,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { exchangeToken } from "./actions";
 import { getSafeCallbackError } from "@/lib/auth/auth-errors";
 
+/** Canonical data-component base for the /callback route. */
+const CALLBACK_BASE = "mobile_auth_callback";
+
 export default function AuthCallbackPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -69,10 +72,10 @@ export default function AuthCallbackPage() {
 
     if (error) {
         return (
-            <div data-component="auth-callback" className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-6 text-center">
+            <div data-component={CALLBACK_BASE} className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-6 text-center">
                 <p className="text-destructive">{error}</p>
                 <button
-                    data-component="auth-callback-login-btn"
+                    data-component={`${CALLBACK_BASE}_login-button`}
                     className="text-sm text-muted-foreground cursor-pointer hover:underline"
                     onClick={() => router.push("/login")}
                 >
@@ -83,7 +86,7 @@ export default function AuthCallbackPage() {
     }
 
     return (
-        <div data-component="auth-callback" className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-6 text-center">
+        <div data-component={CALLBACK_BASE} className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-6 text-center">
             <Spinner size="lg" />
             <p className="text-foreground">로그인 중...</p>
         </div>

@@ -13,11 +13,14 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 interface CodeBlockProps {
+    /** Caller-context canonical value for this node. */
+    "data-component": string;
+
     children: string;
     language?: string;
 }
 
-export function CodeBlock({ children, language = "text" }: CodeBlockProps) {
+export function CodeBlock({ "data-component": dataComponent, children, language = "text" }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = async () => {
@@ -27,7 +30,7 @@ export function CodeBlock({ children, language = "text" }: CodeBlockProps) {
     };
 
     return (
-        <div data-component="chat-code-block" className="relative my-4">
+        <div data-component={dataComponent} className="relative my-4">
             <div className="flex justify-between items-center bg-zinc-800 px-4 py-1 rounded-t-2xl">
                 <span className="text-xs text-zinc-400">
                     {language}

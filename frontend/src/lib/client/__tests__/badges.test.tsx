@@ -80,7 +80,7 @@ describe("schedule-change badge priority", () => {
   it("shows schedule change and folds contract required into the dashboard count", () => {
     render(
       <AnimatedSlotListItemContent
-        dataComponent="dashboard-split-list-item-content"
+        dataComponent="desktop_dashboard_split-list-item-content"
         icon={<span>고객</span>}
         title="송진호"
         status={orderedBadges.map((badge) => (

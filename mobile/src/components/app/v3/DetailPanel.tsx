@@ -6,6 +6,8 @@ import { PanelTitleGroup } from "./PanelTitleGroup";
 import { useSplitLayoutNavOptional } from "./SplitLayoutContext";
 
 interface DetailPanelProps {
+  /** Caller-context canonical base, e.g. `mobile_clients_split-layout_detail-panel`. */
+  "data-component"?: string;
   header?: React.ReactNode;
   avatar?: React.ReactNode;
   title?: React.ReactNode;
@@ -24,6 +26,7 @@ interface DetailPanelProps {
 }
 
 export function DetailPanel({
+  "data-component": dataComponent,
   header = null,
   avatar,
   title,
@@ -37,6 +40,7 @@ export function DetailPanel({
   actions,
   children,
 }: DetailPanelProps) {
+  const sub = (suffix: string) => (dataComponent ? `${dataComponent}_${suffix}` : undefined);
   const nav = useSplitLayoutNavOptional();
   const showBackButton = nav?.isMobile;
 
@@ -61,31 +65,31 @@ export function DetailPanel({
   ) : header;
 
   return (
-    <div data-component="detail-panel" className={`bg-white rounded-2xl shadow-v3 flex flex-col gap-4 overflow-hidden h-full min-h-0 ${nav?.isMobile ? "" : "animate-v3-slide-up"}`}>
+    <div data-component={dataComponent} data-slot="detail-panel" className={`bg-white rounded-2xl shadow-v3 flex flex-col gap-4 overflow-hidden h-full min-h-0 ${nav?.isMobile ? "" : "animate-v3-slide-up"}`}>
       {showBackButton && (
         <div
-          data-component="detail-panel-mobile-nav"
+          data-component={sub("mobile-nav")}
           className="flex items-center justify-between px-4 pt-4"
         >
           <button
-            data-component="detail-panel-mobile-nav-back"
+            data-component={sub("mobile-nav_back")}
             onClick={nav?.goToList}
             className="flex items-center gap-1 text-[0.8rem] text-v3-text-muted hover:text-v3-primary transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           {mobileActions && (
-            <div data-component="detail-panel-mobile-nav-actions" className="flex items-center">
+            <div data-component={sub("mobile-nav_actions")} className="flex items-center">
               {mobileActions}
             </div>
           )}
         </div>
       )}
 
-      {renderedHeader && <div data-component="detail-panel-header" className={showBackButton ? "px-6 pt-2" : "p-6"}>
+      {renderedHeader && <div data-component={sub("header")} className={showBackButton ? "px-6 pt-2" : "p-6"}>
         {renderedHeader}
       </div>}
-      {actions && <div data-component="detail-panel-actions" className="px-6">{actions}</div>}
+      {actions && <div data-component={sub("actions")} className="px-6">{actions}</div>}
       {tabs && <div className="px-6">{tabs}</div>}
       <div className="relative flex-1 min-h-0">
         <div className="overflow-y-auto h-full px-6 py-4">

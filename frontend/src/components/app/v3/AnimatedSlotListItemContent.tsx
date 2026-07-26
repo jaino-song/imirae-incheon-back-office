@@ -24,6 +24,7 @@ export interface AnimatedSlotListItemContentProps {
   subtitle?: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
+  "data-component"?: string;
   dataComponent?: string;
   iconContainerClassName?: string;
   iconClassName?: string;
@@ -40,7 +41,8 @@ export function AnimatedSlotListItemContent({
   subtitle,
   meta,
   status,
-  dataComponent = "animated-slot-list-item-content",
+  "data-component": canonicalDataComponent,
+  dataComponent: legacyDataComponent,
   iconContainerClassName,
   iconClassName,
   contentClassName,
@@ -49,6 +51,13 @@ export function AnimatedSlotListItemContent({
   metaClassName,
   statusClassName,
 }: AnimatedSlotListItemContentProps) {
+  // TODO(data-component): Remove the legacy fallback after all callers migrate.
+  const dataComponent =
+    canonicalDataComponent ?? legacyDataComponent ?? "desktop_v3_animated-slot-list_item-content";
+  const sub = (suffix: string) =>
+    canonicalDataComponent
+      ? `${dataComponent}_${suffix}`
+      : `${dataComponent}-${suffix}`;
   const hasSupportingContent = Boolean(subtitle || meta);
   const iconClassNames = cn(
     "h-[calc(20px*var(--glint-ui-scale,1))] w-[calc(20px*var(--glint-ui-scale,1))]",
@@ -76,7 +85,7 @@ export function AnimatedSlotListItemContent({
     <>
       {statusChildren[0]}
       <span
-        data-component={`${dataComponent}-status-more`}
+        data-component={sub("status-more")}
         className="shrink-0 text-[calc(10.4px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted"
       >
         +{statusChildren.length - 1}
@@ -89,7 +98,7 @@ export function AnimatedSlotListItemContent({
   return (
     <>
       <div
-        data-component={`${dataComponent}-icon`}
+        data-component={sub("icon")}
         className={cn(
           "flex h-[calc(44px*var(--glint-ui-scale,1))] w-[calc(44px*var(--glint-ui-scale,1))] shrink-0 items-center justify-center rounded-[14px] bg-v3-dim-white text-v3-text-muted shadow-md",
           iconContainerClassName
@@ -99,18 +108,18 @@ export function AnimatedSlotListItemContent({
       </div>
 
       <div
-        data-component={`${dataComponent}-content`}
+        data-component={sub("content")}
         className={cn("min-w-0 flex-1", contentClassName)}
       >
         <div
-          data-component={`${dataComponent}-title-row`}
+          data-component={sub("title-row")}
           className={cn(
             "flex items-center gap-[calc(8px*var(--glint-ui-scale,1))]",
             hasSupportingContent && "mb-[calc(2px*var(--glint-ui-scale,1))]"
           )}
         >
           <span
-            data-component={`${dataComponent}-title`}
+            data-component={sub("title")}
             className={cn(
               "truncate text-[calc(13.6px*var(--glint-ui-scale,1))] font-bold text-v3-dark",
               titleClassName
@@ -122,7 +131,7 @@ export function AnimatedSlotListItemContent({
 
         {subtitle ? (
           <div
-            data-component={`${dataComponent}-subtitle`}
+            data-component={sub("subtitle")}
             className={cn(
               "flex items-center gap-[calc(8px*var(--glint-ui-scale,1))] truncate text-[calc(11.2px*var(--glint-ui-scale,1))] text-v3-text-muted",
               subtitleClassName
@@ -134,7 +143,7 @@ export function AnimatedSlotListItemContent({
 
         {meta ? (
           <div
-            data-component={`${dataComponent}-meta`}
+            data-component={sub("meta")}
             className={cn(
               "mt-[calc(6px*var(--glint-ui-scale,1))] flex items-center gap-[calc(12px*var(--glint-ui-scale,1))] overflow-hidden whitespace-nowrap text-[calc(10.4px*var(--glint-ui-scale,1))] leading-none text-v3-text-muted",
               metaClassName
@@ -147,7 +156,7 @@ export function AnimatedSlotListItemContent({
 
       {status ? (
         <div
-          data-component={`${dataComponent}-status`}
+          data-component={sub("status")}
           className={cn(
             "shrink-0",
             shouldCompactStatus && "flex items-center justify-end gap-1",

@@ -227,7 +227,6 @@ export default function ConsultationsPage() {
                     isLoading={isListLoading}
                     emptyState={!isListLoading && visibleInquiries.length === 0 ? (
                         <ListEmptyState
-                            name="consultations-empty"
                             message={search ? "검색 결과가 없습니다" : "상담 문의가 없습니다"}
                         />
                     ) : undefined}
@@ -262,7 +261,7 @@ export default function ConsultationsPage() {
                                 return (
                                     <>
                                         <Skeleton className="h-11 w-11 shrink-0 rounded-[14px] bg-v3-dim-white" />
-                                        <div data-component="consultations-list-item-skeleton-content" className="min-w-0 flex-1">
+                                        <div data-component="desktop_consultations_split-layout_list-panel_consultations-list-item-skeleton-content" className="min-w-0 flex-1">
                                             <Skeleton className="mb-2 h-4 w-28 bg-v3-dim-white" />
                                             <Skeleton className="h-3 w-44 bg-v3-dim-white" />
                                         </div>
@@ -275,7 +274,7 @@ export default function ConsultationsPage() {
 
                             return (
                                 <AnimatedSlotListItemContent
-                                    dataComponent="consultations-list-item"
+                                    dataComponent="desktop_consultations_split-layout_list-panel_consultations-list-item"
                                     icon={Headset}
                                     iconContainerClassName={getConsultationAvatarClassName(item.readAt)}
                                     title={item.motherName}
@@ -300,7 +299,7 @@ export default function ConsultationsPage() {
                 {activeInquiry ? (
                     <DetailPanel data-component="desktop_consultations_split-layout_detail-panel"
                         avatar={
-                            <div data-component="consultations-detail-avatar" className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-[20px] shadow-lg", getConsultationAvatarClassName(activeInquiry.readAt))}>
+                            <div data-component="desktop_consultations_split-layout_detail-panel_consultations-detail-avatar" className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-[20px] shadow-lg", getConsultationAvatarClassName(activeInquiry.readAt))}>
                                 <UserRound className="h-7 w-7" />
                             </div>
                         }
@@ -321,13 +320,13 @@ export default function ConsultationsPage() {
                     >
                         <DetailTabPanels
                             activeTab={activeDetailTab}
-                            dataComponent="consultations-detail"
-                            panelDataComponent="consultations-detail-panel"
+                            dataComponent="desktop_consultations_split-layout_detail-panel_consultations-detail"
+                            panelDataComponent="desktop_consultations_split-layout_detail-panel_consultations-detail-panel"
                             panels={[
                                 {
                                     key: "customer",
                                     children: (
-                                        <div data-component="consultations-detail-basic-grid" className="grid grid-cols-1 gap-4">
+                                        <div data-component="desktop_consultations_split-layout_detail-panel_consultations-detail-basic-grid" className="grid grid-cols-1 gap-4">
                                             <InfoCard data-component="desktop_consultations_detail-panel_info-card" title="고객 정보">
                                                 <InfoRow label="이름" value={activeInquiry.motherName} />
                                                 <InfoRow label="연락처" value={activeInquiry.phone} />
@@ -342,7 +341,7 @@ export default function ConsultationsPage() {
                                 {
                                     key: "inquiry",
                                     children: (
-                                        <div data-component="consultations-detail-inquiry-grid" className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-4">
+                                        <div data-component="desktop_consultations_split-layout_detail-panel_consultations-detail-inquiry-grid" className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-4">
                                             <InfoCard data-component="desktop_consultations_detail-panel_info-card-2" title="문의 정보" className="min-w-0 content-start">
                                                 <InfoRow label="근무 지역" value={getInquiryRegion(activeInquiry.address)} />
                                                 <InfoRow label="추천 경로" value={activeInquiry.referralSource || "-"} />
@@ -362,9 +361,9 @@ export default function ConsultationsPage() {
                                                     }
                                                 />
                                                 {previousConsultationDates.length > 0 ? (
-                                                    <div data-component="consultations-phone-history" className="flex items-start gap-4 py-2.5 border-b border-v3-border last:border-b-0">
+                                                    <div data-component="desktop_consultations_detail-panel_info-card-2_consultations-phone-history" className="flex items-start gap-4 py-2.5 border-b border-v3-border last:border-b-0">
                                                         <span className="shrink-0 text-[0.8rem] text-v3-text-muted">이전 상담</span>
-                                                        <span data-component="consultations-phone-history-values" className="ml-auto min-w-0 flex-1 text-[0.8rem] font-semibold text-v3-dark text-right">
+                                                        <span data-component="desktop_consultations_detail-panel_info-card-2_consultations-phone-history_values" className="ml-auto min-w-0 flex-1 text-[0.8rem] font-semibold text-v3-dark text-right">
                                                             {previousConsultationDates.map((date) => (
                                                                 <span key={date} className="block">
                                                                     {date}
@@ -397,7 +396,6 @@ export default function ConsultationsPage() {
                     </DetailPanel>
                 ) : (
                     <EmptyState
-                        name="consultations-empty-detail"
                         icon={MapPin}
                         message="상담 문의를 선택하면 상세 정보가 표시됩니다"
                     />

@@ -15,7 +15,7 @@ interface StatusBadgeProps {
 export function StatusBadge({ status, label }: StatusBadgeProps) {
   const config = getDefaultClientBadgeStatusToken(status);
   return (
-    <StatusPill data-component="status-badge" variant={config.variant} size="sm">
+    <StatusPill variant={config.variant} size="sm">
       {label || config.defaultLabel}
     </StatusPill>
   );

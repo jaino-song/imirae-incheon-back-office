@@ -78,7 +78,7 @@ test.describe('chat auto-retry', () => {
     // Navigate directly to chat page
     await page.goto('/chat');
 
-    const chatInput = page.locator('[data-component="chat-input"]');
+    const chatInput = page.locator('[data-component="mobile_chat_page_input-area_input"]');
     await expect(chatInput).toBeVisible({ timeout: 10000 });
     await chatInput.fill('테스트 메시지');
     await chatInput.press('Enter');
@@ -100,7 +100,7 @@ test.describe('chat auto-retry', () => {
     // Navigate directly to chat page
     await page.goto('/chat');
 
-    const chatInput = page.locator('[data-component="chat-input"]');
+    const chatInput = page.locator('[data-component="mobile_chat_page_input-area_input"]');
     await expect(chatInput).toBeVisible({ timeout: 10000 });
     await chatInput.fill('테스트 메시지');
     await chatInput.press('Enter');

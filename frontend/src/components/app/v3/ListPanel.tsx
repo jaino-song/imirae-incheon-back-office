@@ -7,6 +7,8 @@ import { ExpandableSearch } from "./ExpandableSearch";
 import { PanelTitleGroup } from "./PanelTitleGroup";
 import { useScrollActivity } from "./useScrollActivity";
 
+const SOURCE_COMPONENT = "ListPanel";
+
 interface TabItem {
   label: string;
   value: string;
@@ -182,8 +184,8 @@ export function ListPanel({
   return (
     <div
       data-component={dataComponent}
-      data-source-component="ListPanel"
       data-slot="list-panel"
+      data-source-component={SOURCE_COMPONENT}
       className={cn(
         "relative flex h-full min-h-0 flex-1 self-stretch flex-col overflow-hidden rounded-[28px] bg-white shadow-v3",
         className,

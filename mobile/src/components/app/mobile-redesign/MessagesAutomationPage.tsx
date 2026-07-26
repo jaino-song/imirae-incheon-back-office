@@ -7,16 +7,27 @@ export { MESSAGE_NAVIGATION_ITEMS } from "@/components/app/mobile-redesign/Messa
 
 import "@/components/app/mobile-redesign/redesign.css";
 
+const AUTOMATION_BASE = "mobile_messages_automation_page";
+
 export function MessagesAutomationPage() {
   return (
-    <section data-component="messages" className="messages-page">
+    <section
+      data-component={AUTOMATION_BASE}
+      data-slot="messages-page"
+      className="messages-page"
+    >
       <div
         className="shell-content flex-col gap-[calc(8px*var(--glint-ui-scale,1))]"
-        data-component="messages-content"
+        data-component={`${AUTOMATION_BASE}_content`}
+        data-slot="messages-content"
       >
-        <MessageSectionNav activeId="send" />
+        <MessageSectionNav
+          data-component={`${AUTOMATION_BASE}_content_section-nav`}
+          activeId="send"
+        />
 
         <ListCard
+          data-component={`${AUTOMATION_BASE}_content_list-card`}
           title="메시지"
           actionLabel="+ 새 메시지"
           actionHref="/messages/new"

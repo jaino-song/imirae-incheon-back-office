@@ -35,7 +35,7 @@ describe("MessageApprovalGate", () => {
     mockSenderApproval(true);
 
     render(
-      <MessageApprovalGate>
+      <MessageApprovalGate dataComponent="desktop_test_message-approval-gate">
         <div>approved content</div>
       </MessageApprovalGate>,
     );
@@ -48,7 +48,7 @@ describe("MessageApprovalGate", () => {
     mockSenderApproval(false);
 
     const { container } = render(
-      <MessageApprovalGate>
+      <MessageApprovalGate dataComponent="desktop_test_message-approval-gate">
         <div>approved content</div>
       </MessageApprovalGate>,
     );
@@ -56,7 +56,7 @@ describe("MessageApprovalGate", () => {
     expect(screen.queryByText("approved content")).not.toBeInTheDocument();
     expect(screen.getByText(APPROVAL_MESSAGE)).toBeInTheDocument();
     expect(
-      container.querySelector('[data-component="message-trigger-rules-disabled-copy"]'),
+      container.querySelector('[data-component="desktop_test_message-approval-gate_notice"]'),
     ).toBeInTheDocument();
   });
 
@@ -64,7 +64,7 @@ describe("MessageApprovalGate", () => {
     mockSenderApproval(false, true);
 
     render(
-      <MessageApprovalGate>
+      <MessageApprovalGate dataComponent="desktop_test_message-approval-gate">
         <div>approved content</div>
       </MessageApprovalGate>,
     );

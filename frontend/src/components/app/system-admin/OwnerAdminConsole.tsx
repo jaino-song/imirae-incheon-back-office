@@ -883,18 +883,19 @@ export function OwnerAdminConsole() {
   };
 
   return (
-    <PageSection name="system-admin">
+    <PageSection name="desktop_system-admin_sections_sections">
       <h1 className="sr-only">관리자</h1>
 
       {activeSection.stats.length > 0 ? (
-        <StatsBar name="system-admin" items={activeSection.stats} />
+        <StatsBar name="desktop_system-admin_sections_sections" items={activeSection.stats} />
       ) : null}
 
       <div
-        data-component="system-admin-sections"
+        data-slot="page-sections"
         className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row"
       >
         <SectionNav
+          data-component="desktop_system-admin_sections_section-nav"
           items={sections.map((section) => ({
             id: section.id,
             label: section.label,
@@ -906,7 +907,7 @@ export function OwnerAdminConsole() {
         />
 
         <div className="min-h-0 flex-1">
-          <SplitLayout data-component="desktop_system-admin_split-layout"
+          <SplitLayout data-component="desktop_system-admin_sections_split-layout"
             hasSelection={Boolean(selectedRecord || branchFormMode)}
             onModeChange={setSplitLayoutMode}
             onBack={() => {
@@ -920,7 +921,7 @@ export function OwnerAdminConsole() {
               }));
             }}
           >
-            <ListPanel data-component="desktop_system-admin_split-layout_list-panel"
+            <ListPanel data-component="desktop_system-admin_sections_split-layout_list-panel"
               title={activeSection.listTitle}
               subtitle={activeSection.listSubtitle}
               tabs={activeSection.tabs ? [...activeSection.tabs] : undefined}
@@ -996,7 +997,7 @@ export function OwnerAdminConsole() {
                   isLoading={isActiveSectionLoading}
                   loadingCount={5}
                   className="space-y-2"
-                  itemDataComponent="system-admin-list-item"
+                  itemDataComponent="desktop_system-admin_sections_split-layout_list-panel_item"
                   getItemKey={(record) => record.id}
                   getSlotState={({ item, isLoading: slotLoading }) => ({
                     isActive: !slotLoading && item?.id === selectedRecord?.id,
@@ -1016,7 +1017,7 @@ export function OwnerAdminConsole() {
                     if (slotLoading) {
                       return (
                         <div
-                          data-component="system-admin-list-skeleton-row"
+                          data-component="desktop_system-admin_sections_split-layout_list-panel_skeleton-row"
                           className="flex min-h-11 items-center gap-3"
                         >
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-v3-dim-white">
@@ -1052,7 +1053,7 @@ export function OwnerAdminConsole() {
 
                     return (
                       <AnimatedSlotListItemContent
-                        dataComponent="system-admin-list-item"
+                        dataComponent="desktop_system-admin_sections_list-item"
                         icon={ListIcon}
                         iconContainerClassName={cn(
                           CATEGORY_BADGE_STYLE[record.category]?.icon ??
@@ -1094,7 +1095,7 @@ export function OwnerAdminConsole() {
             </ListPanel>
 
             {branchFormMode ? (
-              <DetailPanel data-component="desktop_system-admin_split-layout_detail-panel"
+              <DetailPanel data-component="desktop_system-admin_sections_split-layout_detail-panel"
                 avatar={
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-green-light text-v3-green">
                     <Building2 className="h-5 w-5" aria-hidden="true" />
@@ -1132,7 +1133,7 @@ export function OwnerAdminConsole() {
               </DetailPanel>
             ) : isActiveSectionLoading ? (
               <DetailSkeleton
-                name="system-admin-detail-skeleton"
+                name="desktop_system-admin_sections_split-layout_detail-panel_skeleton"
                 headerBadge
                 sections={[
                   { titleWidth: "w-24", rows: ["w-full", "w-4/5", "w-2/3"] },
@@ -1140,7 +1141,7 @@ export function OwnerAdminConsole() {
                 ]}
               />
             ) : selectedRecord ? (
-              <DetailPanel data-component="desktop_system-admin_split-layout_detail-panel-2"
+              <DetailPanel data-component="desktop_system-admin_sections_split-layout_detail-panel-2"
                 avatar={
                   <div
                     className={cn(
@@ -1178,20 +1179,20 @@ export function OwnerAdminConsole() {
               >
                 {activeSection.id === "notifications" ? (
                   <div className="space-y-5">
-                    <InfoCard data-component="desktop_system-admin_detail-panel_info-card" title="테스트 정보">
+                    <InfoCard data-component="desktop_system-admin_sections_detail-panel_info-card" title="테스트 정보">
                       {selectedRecord.detailRows.map((row) => (
                         <InfoRow key={row.label} label={row.label} value={row.value} />
                       ))}
                     </InfoCard>
-                    <InfoCard data-component="desktop_system-admin_detail-panel_info-card-2" title="알림 실행">
+                    <InfoCard data-component="desktop_system-admin_sections_detail-panel_info-card-2" title="알림 실행">
                       <NotificationTestSection />
                     </InfoCard>
                   </div>
                 ) : (
                   <div className="space-y-5">
                     {activeSection.id === "branches" && selectedRecord.requests?.length ? (
-                      <section data-component="system-admin-detail-section" className="space-y-4">
-                        <InfoCard data-component="desktop_system-admin_detail-panel_info-card-3"
+                      <section data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section" className="space-y-4">
+                        <InfoCard data-component="desktop_system-admin_sections_detail-panel_info-card-3"
                           title="지점 정보"
                           titleTrailing={
                             <HeaderActionButton
@@ -1261,17 +1262,17 @@ export function OwnerAdminConsole() {
                       return (
                         <section
                           key={`${request.category}-${index}`}
-                          data-component="system-admin-detail-section"
+                          data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section"
                           className={cn("space-y-4", index > 0 && "border-t border-v3-border pt-5")}
                         >
                           {request.applicantRows ? (
-                            <InfoCard data-component="desktop_system-admin_detail-panel_info-card-4" title="신청인 정보">
+                            <InfoCard data-component="desktop_system-admin_sections_detail-panel_info-card-4" title="신청인 정보">
                               {request.applicantRows.map((row) => (
                                 <InfoRow key={row.label} label={row.label} value={row.value} />
                               ))}
                             </InfoCard>
                           ) : null}
-                          <InfoCard data-component="desktop_system-admin_detail-panel_info-card-5"
+                          <InfoCard data-component="desktop_system-admin_sections_detail-panel_info-card-5"
                             title={infoTitle}
                             titleTrailing={
                               activeSection.id === "branches" && infoTitle === "지점 정보" ? (
@@ -1311,13 +1312,13 @@ export function OwnerAdminConsole() {
                                 </p>
                               ) : null}
                               <div
-                                data-component="system-admin-account-edit-actions"
+                                data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section_account-edit-actions"
                                 className="flex flex-wrap items-center gap-2"
                               >
                                 <div className="relative">
                                   <select
                                     aria-label={`${selectedRecord.listTitle} 권한 선택`}
-                                    data-component="system-admin-account-edit-role-select"
+                                    data-component="desktop_system-admin_sections_account-edit-role-select"
                                     value={selectedAccountRoleDraft}
                                     disabled={updateUserRoleMutation.isPending}
                                     onChange={(event) =>
@@ -1385,13 +1386,13 @@ export function OwnerAdminConsole() {
                           {pendingAccountApproval && selectedPendingRole ? (
                             <div className="space-y-2">
                               <div
-                                data-component="system-admin-pending-approval-actions"
+                                data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section_pending-approval-actions"
                                 className="flex flex-wrap items-center gap-2"
                               >
                                 <div className="relative">
                                   <select
                                     aria-label={`${selectedRecord.listTitle} 승인 지점 선택`}
-                                    data-component="system-admin-pending-approval-branch-select"
+                                    data-component="desktop_system-admin_sections_pending-approval-branch-select"
                                     value={selectedPendingBranchId}
                                     disabled={isPendingApprovalActionRunning}
                                     onChange={(event) =>
@@ -1421,7 +1422,7 @@ export function OwnerAdminConsole() {
                                 <div className="relative">
                                   <select
                                     aria-label={`${selectedRecord.listTitle} 승인 권한 선택`}
-                                    data-component="system-admin-pending-approval-role-select"
+                                    data-component="desktop_system-admin_sections_pending-approval-role-select"
                                     value={selectedPendingRole}
                                     disabled={isPendingApprovalActionRunning}
                                     onChange={(event) =>
@@ -1449,7 +1450,7 @@ export function OwnerAdminConsole() {
                                   <div className="relative">
                                     <select
                                       aria-label={`${selectedRecord.listTitle} 임명 지점 선택`}
-                                      data-component="system-admin-pending-approval-owner-branch-select"
+                                      data-component="desktop_system-admin_sections_pending-approval-owner-branch-select"
                                       value={selectedPendingOwnerBranchId}
                                       disabled={isPendingApprovalActionRunning}
                                       onChange={(event) =>
@@ -1563,7 +1564,7 @@ export function OwnerAdminConsole() {
                 )}
               </DetailPanel>
             ) : (
-              <DetailPanel data-component="desktop_system-admin_split-layout_detail-panel-3"
+              <DetailPanel data-component="desktop_system-admin_sections_split-layout_detail-panel-3"
                 avatar={
                   <div
                     className={cn(
@@ -1578,7 +1579,6 @@ export function OwnerAdminConsole() {
                 subtitle={activeSection.detailEmptyMessage}
                 overlay={
                   <DetailEmptyState
-                    name="system-admin-detail-empty"
                     icon={activeSection.icon}
                     message={activeSection.detailEmptyMessage}
                     className="min-h-0 flex-none"

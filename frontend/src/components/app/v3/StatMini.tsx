@@ -40,7 +40,7 @@ export function StatMini({
 
   return (
     <div
-      data-component="stat-mini"
+      data-component="desktop_v3_stat-mini"
       className={cn(
         isResponsiveSquare
           ? "flex aspect-square w-[calc(96px*var(--glint-ui-scale,1))] items-center justify-center rounded-[20px] bg-white p-[calc(12px*var(--glint-ui-scale,1))] text-center shadow-v3 min-[961px]:aspect-auto min-[961px]:w-[calc(176px*var(--glint-ui-scale,1))] min-[961px]:justify-start min-[961px]:gap-[calc(16px*var(--glint-ui-scale,1))] min-[961px]:p-[calc(16px*var(--glint-ui-scale,1))] min-[961px]:text-left"
@@ -51,7 +51,7 @@ export function StatMini({
       style={animationStyle}
     >
       <div
-        data-component="stat-mini-icon"
+        data-component="desktop_v3_stat-mini_icon"
         className={cn(
           "h-[calc(48px*var(--glint-ui-scale,1))] w-[calc(48px*var(--glint-ui-scale,1))] items-center justify-center rounded-[14px]",
           isResponsiveSquare ? "hidden min-[961px]:flex" : "flex",

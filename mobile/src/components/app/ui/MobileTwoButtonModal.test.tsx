@@ -6,6 +6,7 @@ describe("MobileTwoButtonModal", () => {
   it("uses the shared left-aligned 16px/14px header and renders form content", () => {
     render(
       <MobileTwoButtonModal
+        data-component="mobile_tests_two-button-modal_default"
         open
         title="서비스 일정 변경"
         description="3회차 서비스 제공 날짜를 조정합니다."

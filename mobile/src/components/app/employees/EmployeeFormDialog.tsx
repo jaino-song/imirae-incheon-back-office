@@ -36,6 +36,8 @@ type FormData = EmployeeFormCardData;
 const PHONE_DUPLICATE_CHECK_MAX_RETRIES = 3;
 const PHONE_DUPLICATE_CHECK_RETRY_DELAY_MS = 1000;
 
+const EMPLOYEE_FORM_DIALOG_BASE = "mobile_employees_form-dialog";
+
 const normalizePhoneNumber = (value: string): string => value.replace(/[^\d]/g, "");
 
 const getPhoneDuplicateCheckFailedMessage = (locale: "ko" | "en"): string =>
@@ -376,7 +378,7 @@ export function EmployeeFormDialog({
             {error && (
                 <Alert
                     variant="destructive"
-                    data-component="employees-form-dialog-error"
+                    data-component={`${EMPLOYEE_FORM_DIALOG_BASE}_error`}
                     className={styles.error}
                 >
                     <AlertDescription>{error}</AlertDescription>
@@ -384,6 +386,7 @@ export function EmployeeFormDialog({
             )}
 
             <EmployeeFormCard
+                data-component={`${EMPLOYEE_FORM_DIALOG_BASE}_card`}
                 formData={formData}
                 touched={touched}
                 isPhoneValid={isPhoneValid}

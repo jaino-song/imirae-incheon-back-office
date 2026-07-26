@@ -56,13 +56,13 @@ describe("AutoFillMsgCard", () => {
     );
 
     expect(
-      container.querySelector('[data-component="messages-generated-msg-detail-grid"]'),
+      container.querySelector('[data-component="desktop_messages_sections_generated-msg-panel_detail-grid"]'),
     ).not.toBeInTheDocument();
     expect(
-      container.querySelector('[data-component="messages-generated-msg-detail-content"]'),
+      container.querySelector('[data-component="desktop_messages_sections_generated-msg-detail-content"]'),
     ).toBeInTheDocument();
     expect(
-      container.querySelector('[data-component="messages-generated-msg-detail-side"]'),
+      container.querySelector('[data-component="desktop_messages_sections_generated-msg-detail-side"]'),
     ).toBeInTheDocument();
   });
 
@@ -78,10 +78,10 @@ describe("AutoFillMsgCard", () => {
     );
 
     expect(
-      container.querySelector('[data-component="messages-generated-msg-detail-content"]'),
+      container.querySelector('[data-component="desktop_messages_sections_generated-msg-detail-content"]'),
     ).toBeInTheDocument();
     expect(
-      container.querySelector('[data-component="messages-generated-msg-detail-side"]'),
+      container.querySelector('[data-component="desktop_messages_sections_generated-msg-detail-side"]'),
     ).not.toBeInTheDocument();
   });
 
@@ -101,7 +101,10 @@ describe("AutoFillMsgCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "복사" }));
 
     const dialog = await screen.findByRole("dialog", { name: "메시지가 복사되었습니다." });
-    expect(dialog).toHaveAttribute("data-component", "messages-copy-success-notification");
+    expect(dialog).toHaveAttribute(
+      "data-component",
+      "desktop_messages_sections_copy-success-notification",
+    );
     expect(handleCopy).toHaveBeenCalledTimes(1);
     expect(screen.getAllByRole("button")).toHaveLength(1);
 

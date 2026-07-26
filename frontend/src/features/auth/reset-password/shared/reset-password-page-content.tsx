@@ -39,14 +39,14 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
   return (
     <AuthSurface
       variant={variant}
-      data-component="auth-reset-password"
+      data-component="desktop_auth_reset-password"
       dataComponents={{
-        container: "auth-reset-password",
-        card: "auth-reset-password-card",
-        header: "auth-reset-password-header",
-        title: "auth-reset-password-title",
-        subtitle: "auth-reset-password-subtitle",
-        content: "auth-reset-password-content",
+        container: "desktop_auth_reset-password",
+        card: "desktop_auth_reset-password_card",
+        header: "desktop_auth_reset-password_header",
+        title: "desktop_auth_reset-password_title",
+        subtitle: "desktop_auth_reset-password_subtitle",
+        content: "desktop_auth_reset-password_content",
       }}
       title={cardTitle}
       subtitle={cardSubtitle}
@@ -54,8 +54,8 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
       mobileWrapperClassName="px-4 py-6"
     >
       {status === "invalid" ? (
-        <div data-component="auth-reset-password-invalid" className="flex flex-col items-center gap-6 text-center">
-          <div data-component="auth-reset-password-invalid-icon" className="rounded-full bg-destructive/10 p-3">
+        <div data-component="desktop_auth_reset-password_invalid" className="flex flex-col items-center gap-6 text-center">
+          <div data-component="desktop_auth_reset-password_invalid_icon" className="rounded-full bg-destructive/10 p-3">
             <AlertTriangle className="h-12 w-12 text-destructive" />
           </div>
           <p className="text-muted-foreground">
@@ -64,7 +64,7 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
             이메일의 링크를 다시 확인해 주세요.
           </p>
           <Button
-            data-component="auth-reset-password-retry-btn"
+            data-component="desktop_auth_reset-password_invalid_retry-btn"
             variant="positive"
             size="lg"
             className={actionButtonClassName}
@@ -73,19 +73,19 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
             비밀번호 재설정 다시 요청
           </Button>
           <AuthInlineLink
-            dataComponent="auth-reset-password-login-link"
+            dataComponent="desktop_auth_reset-password_invalid_login-link"
             href="/login"
             linkLabel="로그인 페이지로 돌아가기"
           />
         </div>
       ) : status === "success" ? (
-        <div data-component="auth-reset-password-success" className="flex flex-col items-center gap-6 text-center">
-          <div data-component="auth-reset-password-success-icon" className="rounded-full bg-success/10 p-3">
+        <div data-component="desktop_auth_reset-password_success" className="flex flex-col items-center gap-6 text-center">
+          <div data-component="desktop_auth_reset-password_success_icon" className="rounded-full bg-success/10 p-3">
             <CheckCircle className="h-12 w-12 text-success" />
           </div>
           <p className="text-muted-foreground">새 비밀번호로 로그인할 수 있습니다.</p>
           <Button
-            data-component="auth-reset-password-login-btn"
+            data-component="desktop_auth_reset-password_success_login-btn"
             variant="positive"
             size="lg"
             className={actionButtonClassName}
@@ -102,7 +102,7 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
             </Alert>
           ) : null}
 
-          <form onSubmit={handleSubmit} data-component="auth-reset-password-form" className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} data-component="desktop_auth_reset-password_form" className="flex flex-col gap-4">
             {variant === "mobile" ? (
               <MobileInputField
                 title="새 비밀번호"
@@ -133,7 +133,7 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
                 disabled={isLoading}
                 autoComplete="new-password"
                 autoFocus
-                data-component="auth-reset-password-new-field"
+                data-component="desktop_auth_reset-password_form_new-field"
               />
             )}
 
@@ -172,12 +172,12 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
                 error={fieldErrors.confirmPassword}
                 disabled={isLoading}
                 autoComplete="new-password"
-                data-component="auth-reset-password-confirm-field"
+                data-component="desktop_auth_reset-password_form_confirm-field"
               />
             )}
 
             <Button
-              data-component="auth-reset-password-submit-btn"
+              data-component="desktop_auth_reset-password_form_submit-btn"
               type="submit"
               variant="positive"
               size="lg"
@@ -189,7 +189,7 @@ export function ResetPasswordPageContent({ variant }: ResetPasswordPageContentPr
           </form>
 
           <AuthInlineLink
-            dataComponent="auth-reset-password-login-link"
+            dataComponent="desktop_auth_reset-password_login-link"
             href="/login"
             linkLabel="로그인 페이지로 돌아가기"
           />

@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+// Canonical data-component values rendered by the clients detail sheet.
+// Producers: mobile/src/app/(shell)/clients/page.tsx:605 (list-row badges base),
+// :638 (ClientDetailContent base) → mobile/src/components/app/clients/client-detail.tsx:1166
+// (DetailTabPills base) → mobile/src/components/app/mobile-redesign/detail-sheet.tsx:505
+// (tab-bar container) and :517 (per-tab `data-tab` on the buttons).
+const LIST_ROW =
+  "mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row";
+const DETAIL_TABS = "mobile_clients_detail-sheet_stack_detail-page_content_tabs";
+const MESSAGE_TAB_BUTTON = `[data-component="${DETAIL_TABS}"] [data-tab="message"]`;
+
 const CLIENT = {
   id: 101,
   name: "테스트 고객",
@@ -94,7 +104,7 @@ test.describe("Mobile clients detail labels", () => {
     });
 
     await page.goto("/clients");
-    await expect(page.locator('[data-component="mobile-clients-row"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]')).toBeVisible({ timeout: 15000 });
 
     const geometry = await page.evaluate(() => {
       const rect = (selector: string) => {
@@ -111,15 +121,15 @@ test.describe("Mobile clients detail labels", () => {
             }
           : null;
       };
-      const nav = document.querySelector('[data-component="mobile-bottom-nav"]');
+      const nav = document.querySelector('[data-slot="mobile-bottom-nav"]');
 
       return {
         viewport: { width: window.innerWidth, height: window.innerHeight },
-        appRoot: rect('[data-component="app-root"]'),
+        appRoot: rect('[data-slot="app-root"]'),
         appShell: rect('[data-slot="app-shell"]'),
         appContent: rect('[data-slot="app-content"]'),
-        card: rect('[data-component="mobile-redesign-list-card"]'),
-        nav: rect('[data-component="mobile-bottom-nav"]'),
+        card: rect('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card"]'),
+        nav: rect('[data-slot="mobile-bottom-nav"]'),
         navPosition: nav ? getComputedStyle(nav).position : null,
       };
     });
@@ -169,10 +179,10 @@ test.describe("Mobile clients detail labels", () => {
     });
 
     await page.goto("/clients");
-    await expect(page.locator('[data-component="mobile-clients-row"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]')).toBeVisible({ timeout: 15000 });
 
-    await page.locator('[data-component="mobile-clients-row"]', { hasText: CLIENT.name }).click();
-    const notificationTabButton = page.locator('[data-component="mobile-redesign-detail-tabs"] [data-tab="message"]');
+    await page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]', { hasText: CLIENT.name }).click();
+    const notificationTabButton = page.locator(MESSAGE_TAB_BUTTON);
     await expect(notificationTabButton).toBeVisible();
     await notificationTabButton.dispatchEvent("click");
 
@@ -210,22 +220,26 @@ test.describe("Mobile clients detail labels", () => {
     });
 
     await page.goto("/clients");
-    await expect(page.locator('[data-component="mobile-clients-row"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]')).toBeVisible({ timeout: 15000 });
 
-    const filterPills = page.locator('[data-component="mobile-redesign-filter-pill"]');
+    const filterPills = page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_filters_pill"]');
     await expect(filterPills.nth(0)).toContainText("전체");
     await expect(filterPills.nth(0)).toContainText("1");
     await expect(filterPills.nth(1)).toContainText("계약서 필요");
     await expect(filterPills.nth(1)).toContainText("1");
     await filterPills.nth(1).click();
 
-    const row = page.locator('[data-component="mobile-clients-row"]', {
+    const row = page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]', {
       hasText: ACTIVE_CLIENT_WITHOUT_CONTRACT.name,
     });
-    const badges = row.locator('[data-component="mobile-redesign-list-row-badges"] [data-component="status-badge"]');
+    // ListRowBadges renders the first badge as a pill and collapses the rest into "+N".
+    // Producer: mobile/src/components/app/mobile-redesign/primitives.tsx:300-307.
+    const badges = row.locator(
+      `[data-component="${LIST_ROW}_badges"] [data-component="${LIST_ROW}_badges_primary"]`
+    );
 
     await expect(badges).toHaveText(["계약서 필요"]);
-    await expect(row.locator('[data-component="mobile-redesign-list-row-badges-more"]')).toHaveText("+1");
+    await expect(row.locator(`[data-component="${LIST_ROW}_badges_more"]`)).toHaveText("+1");
   });
 
   test("shows a request error instead of a false empty message history", async ({ page }) => {
@@ -258,12 +272,12 @@ test.describe("Mobile clients detail labels", () => {
     });
 
     await page.goto("/clients");
-    await page.locator('[data-component="mobile-clients-row"]', { hasText: CLIENT.name }).click();
-    await page.locator('[data-component="mobile-redesign-detail-tabs"] [data-tab="message"]').click();
+    await page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]', { hasText: CLIENT.name }).click();
+    await page.locator(MESSAGE_TAB_BUTTON).click();
 
     const messageTab = page.locator('[data-component="mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_message"]');
     await expect(messageTab).toContainText("발송 내역을 불러오지 못했습니다.");
     await expect(messageTab).not.toContainText("발송 내역이 없습니다.");
-    await expect(messageTab.locator('[data-component="mobile-clients-message-retry"]')).toBeVisible();
+    await expect(messageTab.locator('[data-component="mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_message_history-card_error_retry"]')).toBeVisible();
   });
 });

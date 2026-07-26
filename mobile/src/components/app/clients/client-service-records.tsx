@@ -125,7 +125,11 @@ function ClientServiceRecordsContent({
 
     if (isError) {
         return (
-            <div className="detail-empty-state" data-component={`${dataComponent}_error`}>
+            <div
+                data-component={`${dataComponent}_error`}
+                data-slot="client-service-records"
+                className="detail-empty-state"
+            >
                 제공기록지 정보를 불러오지 못했습니다.
             </div>
         );
@@ -133,7 +137,11 @@ function ClientServiceRecordsContent({
 
     if (assignments.length === 0 && !record) {
         return (
-            <div className="detail-empty-state" data-component={`${dataComponent}_empty`}>
+            <div
+                data-component={`${dataComponent}_empty`}
+                data-slot="client-service-records"
+                className="detail-empty-state"
+            >
                 제공기록지 배정 정보가 없습니다.
             </div>
         );
@@ -143,7 +151,11 @@ function ClientServiceRecordsContent({
         const selectedSlot = buildSessionSlots(selectedAssignment)
             .find((slot) => slot.sessionIndex === selectedEntry.sessionIndex) ?? null;
         return (
-            <div data-component={dataComponent} data-source-component="ClientServiceRecords">
+            <div
+                data-component={dataComponent}
+                data-slot="client-service-records"
+                data-source-component="ClientServiceRecords"
+            >
                 <ServiceRecordSessionDetail
                     record={selectedSession ?? null}
                     sessionIndex={selectedEntry.sessionIndex}
@@ -155,13 +167,19 @@ function ClientServiceRecordsContent({
     }
 
     return (
-        <div className="detail-column" data-component={dataComponent} data-source-component="ClientServiceRecords">
+        <div
+            data-component={dataComponent}
+            data-slot="client-service-records"
+            data-source-component="ClientServiceRecords"
+            className="detail-column"
+        >
             {record ? <RecordStatusCard record={record} /> : null}
             {assignments.map((assignment, assignmentIndex) => (
                 <div
                     key={assignment.scheduleId}
                     className="detail-column"
                     data-component={`${dataComponent}_assignment`}
+                    data-slot="client-service-records-assignment"
                 >
                     <LinkCard
                         assignment={assignment}
@@ -363,7 +381,7 @@ function LinkCard({
                         setResendModalOpen(open);
                     }
                 }}
-                dataComponent={`${dataComponent}_resend-approval`}
+                data-component={`${dataComponent}_resend-approval`}
                 title="제공기록지 메시지를 재전송하시겠습니까?"
                 description="기존 링크가 그대로 포함된 메시지를 다시 전송합니다."
                 isDescriptionVisuallyHidden={false}
@@ -846,7 +864,12 @@ function SkeletonInfoRow({
 function ServiceRecordsSkeleton() {
     const dataComponent = useClientServiceRecordsDataComponent("skeleton");
     return (
-        <div className="detail-column" data-component={dataComponent} aria-hidden>
+        <div
+            data-component={dataComponent}
+            data-slot="client-service-records"
+            className="detail-column"
+            aria-hidden
+        >
             <div className="info-card pop-up" data-component={`${dataComponent}_link-card`}>
                 <Skeleton className={cn(SERVICE_RECORD_SKELETON_CLASS, "info-card-title h-3 w-32 rounded-md")} />
                 <SkeletonInfoRow labelClassName="w-8" valueClassName="w-14" />

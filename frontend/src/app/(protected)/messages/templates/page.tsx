@@ -64,13 +64,12 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
   }
 
   if (isLoading) {
-    return <TemplateEditorLoadingSkeleton name="messages-templates-user-loading" />;
+    return <TemplateEditorLoadingSkeleton name="desktop_messages_sections_templates_user-loading" />;
   }
 
   if (!template) {
     return (
       <DetailEmptyState
-        name="messages-templates-user-error"
         message="지점 템플릿을 불러올 수 없습니다."
       />
     );
@@ -89,8 +88,8 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
   };
 
   return (
-    <div data-component="messages-templates-user-detail" className="flex flex-col gap-6">
-      <div data-component="messages-templates-user-name-field">
+    <div data-component="desktop_messages_sections_templates-user-detail" className="flex flex-col gap-6">
+      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-name-field">
         <p className="mb-2 text-[0.8rem] font-semibold text-v3-dark">
           지점 템플릿 이름 <span className="text-red-500">*</span>
         </p>
@@ -102,7 +101,7 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
         />
       </div>
 
-      <div data-component="messages-templates-user-content-field">
+      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-content-field">
         <p className="mb-2 text-[0.8rem] font-semibold text-v3-dark">
           템플릿 내용 <span className="text-red-500">*</span>
         </p>
@@ -115,7 +114,7 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
         />
       </div>
 
-      <div data-component="messages-templates-user-actions" className="flex justify-end">
+      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-actions" className="flex justify-end">
         <button
           type="button"
           onClick={handleSave}
@@ -168,13 +167,13 @@ export default function TemplatesPage() {
     activeTemplateId?.startsWith("user:") ? activeTemplateId.replace("user:", "") : null;
 
   return (
-    <section data-component="messages-templates">
-      <SplitLayout data-component="desktop_messages_templates_split-layout" hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
-        <ListPanel data-component="desktop_messages_templates_split-layout_list-panel"
+    <section data-component="desktop_messages_sections_templates">
+      <SplitLayout data-component="desktop_messages_sections_templates_split-layout" hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
+        <ListPanel data-component="desktop_messages_sections_templates_split-layout_list-panel"
           title="지점 템플릿 수정"
           subtitle="새로 만든 템플릿은 모두 지점 템플릿으로 저장됩니다."
           headerActions={
-            <div data-component="messages-templates-header-actions" className="flex items-center gap-1.5">
+            <div data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-header-actions" className="flex items-center gap-1.5">
               <HeaderActionButton icon={Plus} label="새 템플릿" href="/messages/templates/new" />
               <HeaderActionButton icon={ArrowLeft} label="돌아가기" href="/messages" variant="muted" />
             </div>
@@ -183,7 +182,7 @@ export default function TemplatesPage() {
             <ListEmptyState message="등록된 지점 템플릿이 없습니다." />
           ) : undefined}
         >
-          <div data-component="messages-templates-list" className="space-y-2 pb-2">
+          <div data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-list" className="space-y-2 pb-2">
             <AnimatedSlotList<TemplateListItem>
                 items={branchItems}
                 isLoading={isLoadingBranchTemplates}
@@ -198,13 +197,13 @@ export default function TemplatesPage() {
                     return (
                       <>
                         <div
-                          data-component="messages-templates-list-skeleton-icon"
+                          data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-list_templates-list-skeleton-icon"
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-v3-dim-white"
                         >
                           <Skeleton className="h-4 w-4 rounded-md bg-white/70" />
                         </div>
                         <div
-                          data-component="messages-templates-list-skeleton-text"
+                          data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-list_templates-list-skeleton-text"
                           className="min-w-0 flex-1 space-y-1.5"
                         >
                           <Skeleton className="h-4 w-32 bg-v3-dim-white" />
@@ -218,7 +217,7 @@ export default function TemplatesPage() {
 
                   return (
                     <AnimatedSlotListItemContent
-                      dataComponent="messages-templates-list-item"
+                      dataComponent="desktop_messages_sections_templates-list-item"
                       icon={item.icon}
                       title={item.label}
                       subtitle={item.subtitle}
@@ -229,10 +228,9 @@ export default function TemplatesPage() {
             </div>
         </ListPanel>
 
-        <DetailPanel data-component="desktop_messages_templates_split-layout_detail-panel">
+        <DetailPanel data-component="desktop_messages_sections_templates_split-layout_detail-panel">
           {!activeTemplateId ? (
             <DetailEmptyState
-              name="messages-templates-detail-empty"
               message="지점 템플릿을 선택하면 상세 정보가 표시됩니다."
             />
           ) : null}

@@ -20,7 +20,7 @@ interface CreateDocRecordBody {
 
 const REAL_TENANT_SKIP_MESSAGE = "Set RUN_SMOKE_TESTS=1 to run real-tenant smoke tests";
 const REAL_SEND_SUCCESS_TITLE = "계약서가 성공적으로 생성되었습니다.";
-const CONTRACT_ROW_CONTENT = '[data-component="contracts-list-item-content"]';
+const CONTRACT_ROW_CONTENT = '[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_item_content"]';
 const EFORMSIGN_GATE_TIMEOUT_MS = 60_000;
 const EFORMSIGN_GATE_POLL_MS = 500;
 const EFORMSIGN_READY_TEXT = "필수 입력 항목을 모두 작성했습니다.";
@@ -194,7 +194,7 @@ async function fillContractDates(page: Page): Promise<void> {
 async function waitForContractsListReady(page: Page): Promise<void> {
   await page.waitForFunction(
     () =>
-      Boolean(document.querySelector('[data-component="contracts-list-item-content"]')) ||
+      Boolean(document.querySelector('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_item_content"]')) ||
       document.body.innerText.includes("계약 문서가 없습니다"),
     null,
     { timeout: 30_000 }
@@ -370,7 +370,7 @@ test.describe.serial("contract creation smoke (real tenant)", () => {
       throw new Error("expected /contracts with globalSetup auth, but the app redirected to /login");
     }
 
-    await expect(page.locator('[data-component="contracts-header-send-contract"]')).toBeVisible();
+    await expect(page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_header_send-contract"]')).toBeVisible();
     await waitForContractsListReady(page);
 
     const clients = await fetchJson<SmokeClient[]>(page, "/api/clients");
@@ -384,7 +384,7 @@ test.describe.serial("contract creation smoke (real tenant)", () => {
 
     const initialDocumentCount = await page.locator(CONTRACT_ROW_CONTENT).count();
 
-    await page.locator('[data-component="contracts-header-send-contract"]').click();
+    await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_header_send-contract"]').click();
     await expect(page.locator('[data-component="contract-creation-form"]')).toBeVisible();
 
     await selectClient(page, selectedClient);

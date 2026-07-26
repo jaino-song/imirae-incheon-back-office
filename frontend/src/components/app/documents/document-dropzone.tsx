@@ -284,7 +284,7 @@ export function DocumentDropzone({
 
   return (
     <div
-      data-component="contracts-document-dropzone"
+      data-component="desktop_contracts_document-dropzone"
       className="w-full space-y-5"
     >
       {validationError && (
@@ -298,7 +298,7 @@ export function DocumentDropzone({
 
       {!selectedFile ? (
         <label
-          data-component="contracts-document-dropzone-empty"
+          data-component="desktop_contracts_document-dropzone_empty"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -409,7 +409,7 @@ export function DocumentDropzone({
           <form
             id={formId}
             className="contents"
-            data-component="contracts-document-upload-form"
+            data-component="desktop_contracts_document-dropzone_upload-form"
             onSubmit={handleSubmit}
           >
             <TitleDescChildrenMolecule
@@ -417,13 +417,13 @@ export function DocumentDropzone({
               description="문서 제목, 카테고리, 태그, 설명을 입력해 업로드 기준 정보를 함께 저장합니다."
               className={DOCUMENT_UPLOAD_CARD_CLASS_NAME}
               bodyClassName="space-y-5"
-              data-component="contracts-document-upload-details"
+              data-component="desktop_contracts_document-dropzone_upload-form_details"
             >
               <TemplateFieldGrid
-                dataComponent="contracts-document-upload-details-grid"
+                dataComponent="desktop_contracts_document-dropzone_upload-form_details_grid"
                 layout="stack"
               >
-                <TemplateFieldGridItem dataComponent="contracts-document-upload-name-field">
+                <TemplateFieldGridItem dataComponent="desktop_contracts_document-dropzone_upload-form_details_name-field">
                   <TitleTextInputMolecule
                     id="doc-name"
                     label="문서 제목"
@@ -432,12 +432,12 @@ export function DocumentDropzone({
                     disabled={isLoading}
                     required
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
-                    dataComponent="contracts-document-upload-name-molecule"
-                    inputDataComponent="contracts-document-upload-name-input"
+                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_name-molecule"
+                    inputDataComponent="desktop_contracts_document-dropzone_upload-form_details_name-input"
                   />
                 </TemplateFieldGridItem>
 
-                <TemplateFieldGridItem dataComponent="contracts-document-upload-category-field">
+                <TemplateFieldGridItem dataComponent="desktop_contracts_document-dropzone_upload-form_details_category-field">
                   <TitleSelectMolecule
                     id="doc-category"
                     label="카테고리"
@@ -451,16 +451,16 @@ export function DocumentDropzone({
                     disabled={isLoading}
                     required
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
-                    dataComponent="contracts-document-upload-category-molecule"
-                    triggerDataComponent="contracts-document-upload-category-trigger"
-                    contentDataComponent="contracts-document-upload-category-options"
-                    optionDataComponent="contracts-document-upload-category-option"
+                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_category-molecule"
+                    triggerDataComponent="desktop_contracts_document-dropzone_upload-form_details_category-trigger"
+                    contentDataComponent="desktop_contracts_document-dropzone_upload-form_details_category-options"
+                    optionDataComponent="desktop_contracts_document-dropzone_upload-form_details_category-option"
                   />
                 </TemplateFieldGridItem>
 
                 <TemplateFieldGridItem
                   className="sm:col-span-2"
-                  dataComponent="contracts-document-upload-tags-field"
+                  dataComponent="desktop_contracts_document-dropzone_upload-form_details_tags-field"
                 >
                   <TitleTextInputMolecule
                     id="doc-tags"
@@ -473,13 +473,13 @@ export function DocumentDropzone({
                     helperText="검색에 자주 쓰는 키워드를 등록해 두면 문서를 더 빨리 찾을 수 있습니다."
                     helperTextClassName="text-[0.75rem] leading-5 text-v3-text-muted"
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
-                    dataComponent="contracts-document-upload-tags-molecule"
-                    inputDataComponent="contracts-document-upload-tags-input"
+                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_tags-molecule"
+                    inputDataComponent="desktop_contracts_document-dropzone_upload-form_details_tags-input"
                   />
                   {tags.length > 0 && (
                     <div
                       className="flex flex-wrap gap-2"
-                      data-component="contracts-document-upload-tags-list"
+                      data-component="desktop_contracts_document-dropzone_upload-form_details_tags-list"
                     >
                       {tags.map((tag) => (
                         <button
@@ -498,7 +498,7 @@ export function DocumentDropzone({
 
                 <TemplateFieldGridItem
                   className="sm:col-span-2"
-                  dataComponent="contracts-document-upload-description-field"
+                  dataComponent="desktop_contracts_document-dropzone_upload-form_details_description-field"
                 >
                   <TitleTextareaMolecule
                     id="doc-description"
@@ -509,8 +509,8 @@ export function DocumentDropzone({
                   disabled={isLoading}
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
                     textareaClassName={DOCUMENT_TEXTAREA_CLASS_NAME}
-                    dataComponent="contracts-document-upload-description-molecule"
-                    textareaDataComponent="contracts-document-upload-description-textarea"
+                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_description-molecule"
+                    textareaDataComponent="desktop_contracts_document-dropzone_upload-form_details_description-textarea"
                   />
                 </TemplateFieldGridItem>
               </TemplateFieldGrid>

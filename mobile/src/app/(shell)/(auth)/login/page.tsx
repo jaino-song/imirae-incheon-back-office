@@ -13,6 +13,9 @@ import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from "@
 import "@/components/app/mobile-redesign/redesign.css";
 import { LoginAuthErrorModal } from "@/components/auth/login-auth-error-modal";
 
+/** Canonical data-component base for the /login route. */
+const LOGIN_BASE = "mobile_auth_login";
+
 const LoginPage = () => {
   const router = useRouter();
   const { isNavigationPending, startNavigation } = useNavigationPending();
@@ -150,7 +153,7 @@ const LoginPage = () => {
   const isBusy = isLoading || isNavigationPending;
 
   return (
-    <div className="auth-page" data-component="auth-login">
+    <div className="auth-page" data-component={LOGIN_BASE} data-slot="auth-login-page">
       <Suspense fallback={null}>
         <LoginAuthErrorModal />
       </Suspense>
@@ -163,7 +166,7 @@ const LoginPage = () => {
       </div>
 
       {serverError && (
-        <div className="auth-server-error" role="alert" data-component="login-error">
+        <div className="auth-server-error" role="alert" data-component={`${LOGIN_BASE}_server-error`}>
           {serverError}
           {emailVerificationRequired && (
             <button
@@ -171,7 +174,7 @@ const LoginPage = () => {
               className="auth-resend-link"
               onClick={handleResendVerification}
               disabled={isResendingVerification}
-              data-component="login-error-verify-email-link"
+              data-component={`${LOGIN_BASE}_server-error_verify-email-link`}
             >
               {isResendingVerification ? "재발송 중…" : "인증 이메일 재발송"}
             </button>
@@ -179,7 +182,7 @@ const LoginPage = () => {
         </div>
       )}
 
-      <form className="auth-form" onSubmit={handleSubmit} data-component="login-form">
+      <form className="auth-form" onSubmit={handleSubmit} data-component={`${LOGIN_BASE}_form`}>
         <input
           className={`auth-input ${errors.email ? "error" : ""}`}
           type="email"
@@ -230,7 +233,7 @@ const LoginPage = () => {
           type="submit"
           className="auth-btn"
           disabled={isBusy}
-          data-component="login-submit-button"
+          data-component={`${LOGIN_BASE}_form_submit-button`}
         >
           {isBusy ? "로그인 중…" : "로그인"}
         </button>
@@ -243,7 +246,7 @@ const LoginPage = () => {
         className="auth-oauth"
         onClick={handleKakao}
         disabled={isBusy}
-        data-component="login-kakao"
+        data-component={`${LOGIN_BASE}_kakao-button`}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="rgba(0,0,0,0.85)">
           <path d="M12 3C6.5 3 2 6.5 2 11c0 2.8 1.8 5.3 4.5 6.7L5.4 21l3.5-2.3c1 .2 2 .3 3.1.3 5.5 0 10-3.5 10-8s-4.5-8-10-8z" />
@@ -252,10 +255,10 @@ const LoginPage = () => {
       </button>
 
       <div className="auth-links">
-        <Link href="/forgot-password" data-component="login-forgot">
+        <Link href="/forgot-password" data-component={`${LOGIN_BASE}_forgot-password-link`}>
           비밀번호 찾기
         </Link>
-        <Link href="/register" data-component="login-register-link">
+        <Link href="/register" data-component={`${LOGIN_BASE}_register-link`}>
           회원가입
         </Link>
       </div>

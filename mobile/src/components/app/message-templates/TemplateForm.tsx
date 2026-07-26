@@ -120,6 +120,7 @@ export function TemplateForm({ mode, initialData, onSubmit, isPending }: Templat
         <div className="bg-background">
             <div className="px-4 sm:px-6 md:px-12 py-6 sm:py-8 mx-auto">
                 <ContentPaper
+                    data-component="mobile_messages_template-form"
                     className="min-h-[70vh] flex-grow w-full"
                     header={
                         <div className="mb-6 flex justify-between items-center">
@@ -208,7 +209,7 @@ export function TemplateForm({ mode, initialData, onSubmit, isPending }: Templat
                         </div>
 
                         <Card
-                            data-component="messages-template-form-variables"
+                            data-component="mobile_messages_template-form_variables"
                             className="flex-1 p-4 max-h-[500px] overflow-y-auto bg-muted/50"
                         >
                             <p className="text-sm font-semibold mb-4">

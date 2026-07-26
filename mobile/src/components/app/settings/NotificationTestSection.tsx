@@ -34,7 +34,7 @@ export function NotificationTestSection() {
 
   return (
     <div
-      data-component="settings-notification-test"
+      data-component="mobile_notification_settings_test-section"
       className="space-y-4"
     >
       <div className="flex items-center gap-2 mb-2">

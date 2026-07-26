@@ -50,7 +50,7 @@ export function QuickActionButton({
     return (
         <Link
             href={href}
-            data-component="quick-action-button"
+            data-component="desktop_v3_quick-action-button"
             className={cn(
                 "p-3 bg-white rounded-[20px] w-1/2 shadow-v3",
                 "flex flex-col items-center gap-2",

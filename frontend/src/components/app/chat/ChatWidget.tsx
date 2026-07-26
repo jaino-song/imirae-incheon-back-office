@@ -11,7 +11,7 @@ export function ChatWidget() {
     };
 
     return (
-        <div data-component="chat-widget" className="mt-6">
+        <div data-component="desktop_chat_page_widget" className="mt-6">
             <ChatInput
                 onSubmit={handleOpenChat}
                 onClick={handleOpenChat}

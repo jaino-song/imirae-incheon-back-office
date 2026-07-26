@@ -65,8 +65,8 @@ export default function AdminFeedbackPage() {
 
   if (error) {
     return (
-      <div data-component="admin-error-state" className="p-6">
-        <div data-component="admin-error" className="bg-v3-burgundy-light text-v3-burgundy rounded-[18px] p-6 text-center">
+      <div data-component="desktop_admin_error_state" className="p-6">
+        <div data-component="desktop_admin_error_state_message" className="bg-v3-burgundy-light text-v3-burgundy rounded-[18px] p-6 text-center">
           피드백을 불러오는데 실패했습니다.
         </div>
       </div>
@@ -115,10 +115,10 @@ export default function AdminFeedbackPage() {
                 if (slotLoading) {
                   return (
                     <>
-                      <div data-component="admin-list-item-skeleton-icon" className="w-9 h-9 rounded-[10px] shrink-0 bg-v3-dim-white flex items-center justify-center">
+                      <div data-component="desktop_admin_split-layout_list-panel_admin-list-item-skeleton-icon" className="w-9 h-9 rounded-[10px] shrink-0 bg-v3-dim-white flex items-center justify-center">
                         <Skeleton className="w-4 h-4 rounded-md bg-white/70" />
                       </div>
-                      <div data-component="admin-list-item-skeleton-content" className="flex-1 min-w-0">
+                      <div data-component="desktop_admin_split-layout_list-panel_admin-list-item-skeleton-content" className="flex-1 min-w-0">
                         <Skeleton className="h-4 w-24 mb-1.5 bg-v3-dim-white" />
                         <Skeleton className="h-3 w-32 bg-v3-dim-white" />
                       </div>
@@ -129,7 +129,7 @@ export default function AdminFeedbackPage() {
                 if (!feedback) return null;
                 return (
                   <AnimatedSlotListItemContent
-                    dataComponent="admin-list-item"
+                    dataComponent="desktop_admin_split-layout_list-panel_admin-list-item"
                     icon={feedback.type === 'positive' ? ThumbsUp : ThumbsDown}
                     iconContainerClassName={feedback.type === 'positive' ? 'bg-emerald-50' : 'bg-red-50'}
                     iconClassName={feedback.type === 'positive' ? 'text-emerald-500' : 'text-red-500'}
@@ -158,7 +158,7 @@ export default function AdminFeedbackPage() {
         ) : selectedFeedback ? (
           <FeedbackDetail feedback={selectedFeedback} formatDate={formatDate} />
         ) : (
-          <EmptyState name="admin-empty" icon={MessageSquare} message="피드백을 선택하면 상세 정보가 표시됩니다" />
+          <EmptyState icon={MessageSquare} message="피드백을 선택하면 상세 정보가 표시됩니다" />
         )}
       </SplitLayout>
     </PageSection>
@@ -186,7 +186,7 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
       }
       subtitle={<>작성일: {formatDate(feedback.createdAt)}</>}
     >
-      <div data-component="admin-detail-content" className="space-y-5">
+      <div data-component="desktop_admin_split-layout_detail-panel_admin-detail-content" className="space-y-5">
         <InfoCard data-component="desktop_admin_detail-panel_info-card" title="피드백 정보">
           <InfoRow label="유형" value={feedback.type === 'positive' ? '긍정적' : '부정적'} />
           <InfoRow label="사용자" value={feedback.user.name || feedback.user.email || '익명'} />
@@ -196,9 +196,9 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
 
         {detailLoading ? (
           <InfoCard data-component="desktop_admin_detail-panel_info-card-2" title="대화 내역">
-            <div data-component="admin-detail-loading-messages" className="space-y-3">
+            <div data-component="desktop_admin_detail-panel_info-card-2_loading-messages" className="space-y-3">
               {[1, 2, 3].map(i => (
-                <div key={i} data-component="admin-detail-loading-message" className="space-y-2">
+                <div key={i} data-component="desktop_admin_detail-panel_info-card-2_loading-messages_message" className="space-y-2">
                   <Skeleton className="h-3 w-20 bg-v3-dim-white" />
                   <Skeleton className="h-12 w-full bg-v3-dim-white rounded-[14px]" />
                 </div>
@@ -207,14 +207,14 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
           </InfoCard>
         ) : detail?.session?.messages && detail.session.messages.length > 0 ? (
           <InfoCard data-component="desktop_admin_detail-panel_info-card-3" title="대화 내역">
-            <div data-component="admin-detail-messages" className="space-y-3">
+            <div data-component="desktop_admin_detail-panel_info-card-3_messages" className="space-y-3">
               {detail.session.messages.map((message: SessionMessage) => {
                 const isHighlighted = message.id === detail.message.id;
                 const isUser = message.role === 'user';
 
                 return (
                   <div
-                    data-component="admin-detail-message-card"
+                    data-component="desktop_admin_detail-panel_info-card-3_messages_card"
                     key={message.id}
                     className={cn(
                       'rounded-[14px] p-3 text-[0.8rem]',
@@ -225,7 +225,7 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
                           : 'bg-v3-dim-white'
                     )}
                   >
-                     <div data-component="admin-detail-message-meta" className="flex items-center gap-2 mb-1.5">
+                     <div data-component="desktop_admin_detail-panel_info-card-3_messages_card_meta" className="flex items-center gap-2 mb-1.5">
                       <span className={cn(
                         'text-[0.7rem] font-semibold',
                         isHighlighted ? 'text-amber-600' : isUser ? 'text-v3-primary' : 'text-v3-text-muted'
@@ -242,7 +242,7 @@ function FeedbackDetail({ feedback, formatDate }: { feedback: FeedbackItem; form
                     {isUser ? (
                       <p className="text-v3-text whitespace-pre-wrap break-words">{message.content}</p>
                     ) : (
-                       <div data-component="admin-detail-message-content" className="prose prose-sm max-w-none text-v3-text">
+                       <div data-component="desktop_admin_detail-panel_info-card-3_messages_card_content" className="prose prose-sm max-w-none text-v3-text">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           components={{

@@ -117,7 +117,7 @@ export function VoucherPriceUploadForm() {
   }, [parseImageMutation]);
 
   return (
-    <ContentPaper variant="v3" data-component="settings-voucher-upload-form">
+    <ContentPaper variant="v3" data-component="desktop_settings_sections_voucher-upload-form">
       {/* 헤더 */}
       <div className="mb-4">
         <h2 className="text-lg font-bold text-foreground">바우처 요금표 업데이트</h2>

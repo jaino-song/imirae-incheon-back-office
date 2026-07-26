@@ -12,19 +12,21 @@ export interface StatsBarItem {
 }
 
 interface StatsBarProps {
+  /** Caller-context canonical base, e.g. `mobile_admin_feedback_stats`. */
+  "data-component": string;
   items: readonly StatsBarItem[];
   isLoading?: boolean;
-  name?: string;
 }
 
-export function StatsBar({ items, isLoading = false, name = "stats" }: StatsBarProps) {
+export function StatsBar({ "data-component": dataComponent, items, isLoading = false }: StatsBarProps) {
   return (
     <div
-      data-component={`${name}-stats`}
+      data-component={dataComponent}
       className="grid grid-cols-2 gap-4 [&>*:last-child:nth-child(odd)]:col-span-2"
     >
       {items.map((item, idx) => (
         <StatMini
+          data-component={`${dataComponent}_stat-mini-${idx + 1}`}
           key={item.label}
           icon={item.icon}
           value={item.value}

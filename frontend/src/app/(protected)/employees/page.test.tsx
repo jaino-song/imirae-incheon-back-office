@@ -11,6 +11,6 @@ describe("EmployeesPage deletion conflicts", () => {
 
     expect(handler).toContain("setDeleteTargetEmployeeId(null)");
     expect(handler).toContain("getApiErrorMessage");
-    expect(source).toContain('dataComponent="employees-delete-error-notification"');
+    expect(source).toContain('dataComponent="desktop_employees_delete-error-notification"');
   });
 });

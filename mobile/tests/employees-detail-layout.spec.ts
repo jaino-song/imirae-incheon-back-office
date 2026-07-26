@@ -69,13 +69,13 @@ test.describe("employees mobile detail layout", () => {
     await mockEmployeesApi(page);
 
     await page.goto("/employees");
-    await expect(page.locator('[data-component="mobile-employees-row"]')).toHaveCount(2, {
+    await expect(page.locator('[data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row"]')).toHaveCount(2, {
       timeout: 15000,
     });
 
-    const row = page.locator('[data-component="mobile-employees-row"]');
+    const row = page.locator('[data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row"]');
     await expect(row).toHaveCount(2);
-    const assignedRow = page.locator('[data-component="mobile-employees-row"]', {
+    const assignedRow = page.locator('[data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row"]', {
       hasText: "김정인",
     });
     await expect(assignedRow).toHaveCount(1);
@@ -121,7 +121,7 @@ test.describe("employees mobile detail layout", () => {
     await expect(page.locator(".info-card-title", { hasText: "이전 담당" })).toBeHidden();
 
     await page.getByRole("button", { name: "근무 내역" }).click();
-    await expect(page.locator('[data-component="mobile-employees-history-empty"]')).toHaveText(
+    await expect(page.locator('[data-component="mobile_employees_detail-panel_info-card-4_empty"]')).toHaveText(
       "근무 내역이 없습니다.",
     );
     await expect(page.getByText("윤정아 · A가1형")).toHaveCount(0);
@@ -131,18 +131,18 @@ test.describe("employees mobile detail layout", () => {
     await mockEmployeesApi(page);
 
     await page.goto("/employees");
-    await expect(page.locator('[data-component="mobile-employees-row"]')).toHaveCount(2, {
+    await expect(page.locator('[data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row"]')).toHaveCount(2, {
       timeout: 15000,
     });
 
-    const unassignedRow = page.locator('[data-component="mobile-employees-row"]', {
+    const unassignedRow = page.locator('[data-component="mobile_employees_detail-sheet_stack_list-page_content_list-card_body_section_row"]', {
       hasText: "박지영",
     });
     await expect(unassignedRow).toHaveCount(1);
     await unassignedRow.click();
     await page.getByRole("button", { name: "담당 고객" }).click();
 
-    await expect(page.locator('[data-component="mobile-employees-clients-empty"]')).toHaveText(
+    await expect(page.locator('[data-component="mobile_employees_detail-panel_info-card-3_empty"]')).toHaveText(
       "현재 담당 고객이 없습니다.",
     );
   });
