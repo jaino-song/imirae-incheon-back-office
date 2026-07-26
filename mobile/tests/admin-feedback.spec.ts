@@ -126,7 +126,10 @@ test.describe('Admin Feedback Page', () => {
     await expect(page.getByText('부정적').first()).toBeVisible();
     
     // Stats render via the v3 StatsBar/StatMini cards now.
-    const statsCards = page.locator('[data-component^="mobile_admin_feedback_stats_stat-mini-"]');
+    // Scope to the StatMini roots — the `_icon` child also matches the prefix.
+    const statsCards = page.locator(
+      '[data-component^="mobile_admin_feedback_stats_stat-mini-"][data-slot="stat-mini"]'
+    );
     await expect(statsCards.nth(0)).toContainText('15');
     await expect(statsCards.nth(1)).toContainText('10');
     await expect(statsCards.nth(2)).toContainText('5');

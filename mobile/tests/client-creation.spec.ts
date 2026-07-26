@@ -224,13 +224,15 @@ test.describe("clients/new wizard", () => {
 
     await goToStepOne(page);
 
-    const employeeInput = page
-      .locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card"] [data-component="employee-autocomplete-input"]')
-      .first();
+    // Autocomplete derives every descendant value from the caller base
+    // (mobile/src/components/app/ui/Autocomplete.tsx:209-214).
+    const primaryAutocomplete =
+      "mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_primary-field_autocomplete";
+    const employeeInput = page.locator(`[data-component="${primaryAutocomplete}_input"]`);
 
     await employeeInput.click();
     await employeeInput.fill("김정인");
-    await page.getByTestId("employee-autocomplete-add-button").click();
+    await page.locator(`[data-component="${primaryAutocomplete}_add-button"]`).click();
 
     const dialog = page.locator('[data-component="employees-form-dialog"]');
     await expect(dialog).toBeVisible();
