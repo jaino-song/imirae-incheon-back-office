@@ -5,7 +5,39 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DataTablePaginationProps } from "./types";
 
+const SOURCE_COMPONENT = "DataTablePagination";
+
+interface DataTablePaginationRootProps
+  extends React.HTMLAttributes<HTMLDivElement> {
+  dataComponent?: string;
+}
+
+function DataTablePaginationRoot({
+  dataComponent,
+  ...props
+}: DataTablePaginationRootProps) {
+  if (dataComponent) {
+    return (
+      <div
+        data-component={dataComponent}
+        data-source-component={SOURCE_COMPONENT}
+        {...props}
+      />
+    );
+  }
+
+  return (
+    <div
+      // TODO(data-component): Remove the legacy fallback after all callers migrate.
+      data-component="data-table-pagination"
+      data-source-component={SOURCE_COMPONENT}
+      {...props}
+    />
+  );
+}
+
 export function DataTablePagination({
+  "data-component": dataComponent,
   count,
   page,
   rowsPerPage,
@@ -20,7 +52,10 @@ export function DataTablePagination({
   const canGoNext = page < totalPages - 1;
 
   return (
-    <div data-component="data-table-pagination" className="flex items-center justify-end gap-4 py-2 px-2">
+    <DataTablePaginationRoot
+      dataComponent={dataComponent}
+      className="flex items-center justify-end gap-4 py-2 px-2"
+    >
       <span className="text-sm text-muted-foreground">
         {count > 0 ? `${startItem}-${endItem} / ${count}` : "0개"}
       </span>
@@ -52,6 +87,6 @@ export function DataTablePagination({
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </DataTablePaginationRoot>
   );
 }

@@ -15,6 +15,10 @@ import { cn } from "@/lib/utils";
 
 type NotificationButtonVariant = "positive" | "destructive" | "neutral";
 
+const SOURCE_COMPONENT = "NotificationOneButtonModal";
+// TODO(data-component): Remove the legacy fallback after all callers migrate.
+const LEGACY_DATA_COMPONENT = "notification-one-button-modal";
+
 export interface NotificationOneButtonModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,6 +29,7 @@ export interface NotificationOneButtonModalProps {
   buttonVariant?: NotificationButtonVariant;
   onAcknowledge: () => void;
   isDescriptionVisuallyHidden?: boolean;
+  "data-component"?: string;
   dataComponent?: string;
 }
 
@@ -38,27 +43,37 @@ export function NotificationOneButtonModal({
   buttonVariant = "positive",
   onAcknowledge,
   isDescriptionVisuallyHidden = true,
-  dataComponent = "notification-one-button-modal",
+  "data-component": canonicalDataComponent,
+  dataComponent: legacyDataComponent,
 }: NotificationOneButtonModalProps) {
+  const canonicalDataComponentBase = canonicalDataComponent || undefined;
+  const dataComponent =
+    canonicalDataComponentBase ?? legacyDataComponent ?? LEGACY_DATA_COMPONENT;
+  const sub = (suffix: string) =>
+    canonicalDataComponentBase
+      ? `${canonicalDataComponentBase}_${suffix}`
+      : `${dataComponent}-${suffix}`;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-component={dataComponent}
+        data-source-component={SOURCE_COMPONENT}
         className="flex aspect-[5/3] flex-col sm:max-w-[300px]"
       >
         <DialogHeader
-          data-component={`${dataComponent}-header`}
+          data-component={sub("header")}
           className="flex-1 justify-center pb-0 text-center sm:text-center"
         >
           <DialogTitle
-            data-component={`${dataComponent}-title`}
+            data-component={sub("title")}
             aria-label={titleAriaLabel}
             className="text-[calc(14px*var(--v3-ui-scale,1))] leading-5"
           >
             {title}
           </DialogTitle>
           <DialogDescription
-            data-component={`${dataComponent}-description`}
+            data-component={sub("description")}
             className={cn(
               "mt-[calc(6px*var(--v3-ui-scale,1))] text-[calc(12px*var(--v3-ui-scale,1))] leading-[calc(20px*var(--v3-ui-scale,1))] text-v3-text-muted",
               isDescriptionVisuallyHidden && "sr-only",
@@ -69,7 +84,7 @@ export function NotificationOneButtonModal({
         </DialogHeader>
 
         <DialogFooter
-          data-component={`${dataComponent}-footer`}
+          data-component={sub("footer")}
           className="pt-0 sm:justify-stretch"
         >
           <Button
@@ -77,7 +92,7 @@ export function NotificationOneButtonModal({
             variant={buttonVariant}
             size="sm"
             className="w-full"
-            data-component={`${dataComponent}-acknowledge`}
+            data-component={sub("acknowledge")}
             onClick={onAcknowledge}
           >
             {buttonLabel}

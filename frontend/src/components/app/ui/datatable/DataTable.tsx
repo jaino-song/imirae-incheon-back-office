@@ -18,7 +18,78 @@ import { DataTablePagination } from "./DataTablePagination";
 import { matchesSearchQuery, type SearchableValue } from "@/lib/search/korean-search";
 import type { DataTableProps } from "./types";
 
+const SOURCE_COMPONENT = "DataTable";
+
+interface DataTableRootProps extends React.HTMLAttributes<HTMLDivElement> {
+  dataComponent?: string;
+}
+
+function DataTableRoot({
+  dataComponent,
+  className,
+  ...props
+}: DataTableRootProps) {
+  if (dataComponent) {
+    return (
+      <div
+        data-component={dataComponent}
+        data-source-component={SOURCE_COMPONENT}
+        className={className}
+        {...props}
+      />
+    );
+  }
+
+  return (
+    <div
+      // TODO(data-component): Remove the legacy fallback after all callers migrate.
+      data-component="data-table"
+      data-source-component={SOURCE_COMPONENT}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+interface LegacyTablePartProps {
+  dataComponent?: string;
+}
+
+function DataTableHeaderRoot({
+  dataComponent,
+  ...props
+}: LegacyTablePartProps & React.ComponentPropsWithoutRef<typeof TableHeader>) {
+  if (dataComponent) {
+    return <TableHeader data-component={dataComponent} {...props} />;
+  }
+
+  return <TableHeader data-component="data-table-header" {...props} />;
+}
+
+function DataTableBodyRoot({
+  dataComponent,
+  ...props
+}: LegacyTablePartProps & React.ComponentPropsWithoutRef<typeof TableBody>) {
+  if (dataComponent) {
+    return <TableBody data-component={dataComponent} {...props} />;
+  }
+
+  return <TableBody data-component="data-table-body" {...props} />;
+}
+
+function DataTableRowRoot({
+  dataComponent,
+  ...props
+}: LegacyTablePartProps & React.ComponentPropsWithoutRef<typeof TableRow>) {
+  if (dataComponent) {
+    return <TableRow data-component={dataComponent} {...props} />;
+  }
+
+  return <TableRow data-component="data-table-row" {...props} />;
+}
+
 export function DataTable<T extends Record<string, unknown>>({
+  "data-component": dataComponent,
   data,
   columns,
   isLoading = false,
@@ -143,7 +214,11 @@ export function DataTable<T extends Record<string, unknown>>({
 
   if (error) {
     return (
-      <div className={cn("p-3", className)}>
+      <div
+        data-component={dataComponent}
+        data-source-component={SOURCE_COMPONENT}
+        className={cn("p-3", className)}
+      >
         <Alert variant="destructive">
           <AlertDescription>
             {error.message || "데이터를 불러오는데 실패했습니다"}
@@ -154,7 +229,7 @@ export function DataTable<T extends Record<string, unknown>>({
   }
 
   return (
-    <div data-component="data-table" className={className}>
+    <DataTableRoot dataComponent={dataComponent} className={className}>
       {!hideToolbar && (
         <>
           <DataTableToolbar
@@ -176,7 +251,9 @@ export function DataTable<T extends Record<string, unknown>>({
         {paginatedData.length > 0 || isLoading ? (
           <>
             <Table className="table-fixed w-full">
-              <TableHeader data-component="data-table-header">
+              <DataTableHeaderRoot
+                dataComponent={dataComponent ? `${dataComponent}_header` : undefined}
+              >
                 <TableRow>
                   {columns.map((column, index) => (
                     <TableHead
@@ -191,8 +268,10 @@ export function DataTable<T extends Record<string, unknown>>({
                     </TableHead>
                   ))}
                 </TableRow>
-              </TableHeader>
-              <TableBody data-component="data-table-body">
+              </DataTableHeaderRoot>
+              <DataTableBodyRoot
+                dataComponent={dataComponent ? `${dataComponent}_body` : undefined}
+              >
                 {isLoading &&
                   Array.from({ length: skeletonRowCount }).map((_, rowIndex) => (
                     <TableRow key={`skeleton-${rowIndex}`}>
@@ -209,8 +288,8 @@ export function DataTable<T extends Record<string, unknown>>({
 
                 {!isLoading &&
                   paginatedData.map((row, rowIndex) => (
-                    <TableRow
-                      data-component="data-table-row"
+                    <DataTableRowRoot
+                      dataComponent={dataComponent ? `${dataComponent}_row` : undefined}
                       key={getRowKey(row, rowIndex)}
                       onClick={() => onRowClick?.(row, rowIndex)}
                       className={cn(
@@ -233,13 +312,14 @@ export function DataTable<T extends Record<string, unknown>>({
                             : String(row[column.key as keyof T] ?? "")}
                         </TableCell>
                       ))}
-                    </TableRow>
+                    </DataTableRowRoot>
                   ))}
-              </TableBody>
+              </DataTableBodyRoot>
             </Table>
 
             {pagination !== "none" && (
               <DataTablePagination
+                data-component={dataComponent ? `${dataComponent}_pagination` : undefined}
                 count={paginationCount}
                 page={currentPage}
                 rowsPerPage={pageSize}
@@ -256,6 +336,6 @@ export function DataTable<T extends Record<string, unknown>>({
           </div>
         )}
       </div>
-    </div>
+    </DataTableRoot>
   );
 }

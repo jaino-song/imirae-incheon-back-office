@@ -4,6 +4,10 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "TogglePill";
+// TODO(data-component): Remove the legacy fallback after all callers migrate.
+const LEGACY_DATA_COMPONENT = "toggle-pill";
+
 export interface TogglePillProps extends React.HTMLAttributes<HTMLDivElement> {
   value: boolean;
   onValueChange: (value: boolean) => void;
@@ -28,7 +32,7 @@ function TogglePill({
   leftButtonDataComponent,
   rightButtonDataComponent,
   className,
-  "data-component": dataComponent = "toggle-pill",
+  "data-component": dataComponent = LEGACY_DATA_COMPONENT,
   ...props
 }: TogglePillProps) {
   const leftButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -55,14 +59,15 @@ function TogglePill({
 
   return (
     <div
+      {...props}
       data-component={dataComponent}
+      data-source-component={SOURCE_COMPONENT}
       role="tablist"
       aria-label={ariaLabel}
       className={cn(
         "relative isolate inline-grid h-[calc(38px*var(--glint-ui-scale,1))] min-h-[calc(38px*var(--glint-ui-scale,1))] w-fit grid-cols-2 overflow-hidden rounded-full bg-v3-primary/10",
         className,
       )}
-      {...props}
     >
       <span
         aria-hidden="true"

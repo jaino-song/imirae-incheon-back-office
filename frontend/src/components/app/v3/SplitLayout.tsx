@@ -5,6 +5,8 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
 import { SplitLayoutContext } from "./SplitLayoutContext";
 
+const SOURCE_COMPONENT = "SplitLayout";
+
 // Re-export the hook for external use
 export { useSplitLayoutNav } from "./SplitLayoutContext";
 
@@ -357,8 +359,8 @@ export function SplitLayout({
       <div
         ref={splitLayoutRef}
         data-component={dataComponent}
-        data-source-component="SplitLayout"
         data-slot="split-layout"
+        data-source-component={SOURCE_COMPONENT}
         data-columns={columns}
         data-has-selection={hasSelection ? "true" : "false"}
         data-mode={mode}

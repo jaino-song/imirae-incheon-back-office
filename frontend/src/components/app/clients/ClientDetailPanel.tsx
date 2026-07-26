@@ -48,6 +48,8 @@ import { mapStatusToLabel, type DocumentStatusLabel } from "@/lib/eformsign/stat
 import { eformsignApi, withEformsignReauth, type LocalEformsignDocRecord } from "@/services/api";
 import { Users } from "lucide-react";
 
+const SOURCE_COMPONENT = "ClientDetailPanel";
+
 const CLIENT_DETAIL_TABS = [
     { key: "basic", label: "기본 정보" },
     { key: "contracts", label: "계약서 정보" },
@@ -724,7 +726,7 @@ function ClientDetailPanelBody({
         >
             <DetailPanel
                 data-component={dataComponentPrefix}
-                data-source-component="ClientDetailPanel"
+                sourceComponent={SOURCE_COMPONENT}
                 compactBackLabel={compactBackLabel}
                 avatar={
                     <div

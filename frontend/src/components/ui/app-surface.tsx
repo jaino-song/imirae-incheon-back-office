@@ -54,6 +54,14 @@ export const APP_CONTENT_BODY_CARD_OUTLINED_CLASS_NAME =
 export const APP_SURFACE_CARD_CLASS_NAME =
   "relative w-full rounded-[28px] border-0 bg-white p-6 text-foreground shadow-v3 sm:p-7";
 
+const SOURCE_COMPONENT = "AppContentCard";
+
+type AppContentCardSourceComponent =
+  | typeof SOURCE_COMPONENT
+  | "FormSection"
+  | "InfoCard"
+  | "ServiceRecordHeaderCard";
+
 type AppContentCardElement = "div" | "section" | "article";
 type AppContentCardVariant = "default" | "muted" | "outlined";
 type AppContentCardTitleVariant = "default" | "eyebrow";
@@ -76,7 +84,8 @@ export interface AppContentCardProps extends Omit<React.HTMLAttributes<HTMLEleme
   descriptionDataComponent?: string;
   bodyDataComponent?: string;
   "data-component": string;
-  "data-source-component"?: string;
+  /** @internal Zero-DOM wrapper ownership only. */
+  sourceComponent?: AppContentCardSourceComponent;
 }
 
 export function AppContentCard({
@@ -98,7 +107,7 @@ export function AppContentCard({
   bodyDataComponent,
   children,
   "data-component": dataComponent,
-  "data-source-component": dataSourceComponent = "AppContentCard",
+  sourceComponent = SOURCE_COMPONENT,
   ...props
 }: AppContentCardProps) {
   const Component = as as React.ElementType;
@@ -116,10 +125,10 @@ export function AppContentCard({
 
   return (
     <Component
-      data-component={dataComponent}
-      data-source-component={dataSourceComponent}
-      className={cn("grid gap-[calc(12px*var(--glint-ui-scale,1))]", variantClassName, className)}
       {...props}
+      data-component={dataComponent}
+      data-source-component={sourceComponent}
+      className={cn("grid gap-[calc(12px*var(--glint-ui-scale,1))]", variantClassName, className)}
     >
       {title || description ? (
         <div

@@ -3,6 +3,8 @@ import { CardShell } from "@/components/ui/card-shell";
 import { AuthPanelHeader } from "@/components/auth/auth-panel-header";
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "SurfaceCard";
+
 export interface SurfaceCardProps {
   children: React.ReactNode;
   title?: React.ReactNode;
@@ -48,6 +50,7 @@ export function SurfaceCard({
   return (
     <CardShell
       data-component={componentSlots.card}
+      sourceComponent={SOURCE_COMPONENT}
       animated={animated}
       className={className}
     >

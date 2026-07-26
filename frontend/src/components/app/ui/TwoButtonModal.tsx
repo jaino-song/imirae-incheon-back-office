@@ -17,6 +17,8 @@ type ApprovalModalSize = "compact" | "detail";
 type ApprovalButtonVariant = "positive" | "destructive";
 
 const SOURCE_COMPONENT = "TwoButtonModal";
+// TODO(data-component): Remove the legacy fallback after all callers migrate.
+const LEGACY_DATA_COMPONENT = "two-button-modal";
 
 export interface TwoButtonModalProps {
   open: boolean;
@@ -34,6 +36,7 @@ export interface TwoButtonModalProps {
   approvalVariant?: ApprovalButtonVariant;
   isDescriptionVisuallyHidden?: boolean;
   size?: ApprovalModalSize;
+  "data-component"?: string;
   dataComponent?: string;
   headerDataComponent?: string;
   titleDataComponent?: string;
@@ -60,7 +63,8 @@ export function TwoButtonModal({
   approvalVariant = "positive",
   isDescriptionVisuallyHidden = true,
   size = "compact",
-  dataComponent = "two-button-modal",
+  "data-component": canonicalDataComponent,
+  dataComponent: legacyDataComponent,
   headerDataComponent,
   titleDataComponent,
   descriptionDataComponent,
@@ -69,6 +73,14 @@ export function TwoButtonModal({
   cancelButtonDataComponent,
   approvalButtonDataComponent,
 }: TwoButtonModalProps) {
+  const canonicalDataComponentBase = canonicalDataComponent || undefined;
+  const dataComponent =
+    canonicalDataComponentBase ?? legacyDataComponent ?? LEGACY_DATA_COMPONENT;
+  const sub = (suffix: string) =>
+    canonicalDataComponentBase
+      ? `${canonicalDataComponentBase}_${suffix}`
+      : `${dataComponent}-${suffix}`;
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && isPending) return;
     onOpenChange(nextOpen);
@@ -86,21 +98,21 @@ export function TwoButtonModal({
         )}
       >
         <DialogHeader
-          data-component={headerDataComponent ?? `${dataComponent}-header`}
+          data-component={headerDataComponent ?? sub("header")}
           className={cn(
             "gap-1 justify-center pb-0 text-left sm:text-left",
             size === "compact" && "flex-1",
           )}
         >
           <DialogTitle
-            data-component={titleDataComponent ?? `${dataComponent}-title`}
+            data-component={titleDataComponent ?? sub("title")}
             aria-label={titleAriaLabel}
             className="text-center text-[calc(16px*var(--v3-ui-scale,1))] leading-[calc(24px*var(--v3-ui-scale,1))]"
           >
             {title}
           </DialogTitle>
           <DialogDescription
-            data-component={descriptionDataComponent ?? `${dataComponent}-description`}
+            data-component={descriptionDataComponent ?? sub("description")}
             className={cn(
               "mt-0 text-[calc(14px*var(--v3-ui-scale,1))] leading-[calc(20px*var(--v3-ui-scale,1))] text-v3-text-muted",
               isDescriptionVisuallyHidden && "sr-only",
@@ -112,7 +124,7 @@ export function TwoButtonModal({
 
         {children ? (
           <div
-            data-component={bodyDataComponent ?? `${dataComponent}-body`}
+            data-component={bodyDataComponent ?? sub("body")}
             className={cn("min-h-0", size === "detail" && "overflow-y-auto")}
           >
             {children}
@@ -120,7 +132,7 @@ export function TwoButtonModal({
         ) : null}
 
         <DialogFooter
-          data-component={footerDataComponent ?? `${dataComponent}-footer`}
+          data-component={footerDataComponent ?? sub("footer")}
           className="flex-row pt-0 sm:justify-stretch"
         >
           <Button
@@ -128,7 +140,7 @@ export function TwoButtonModal({
             variant="neutral"
             size="sm"
             className="w-1/2"
-            data-component={cancelButtonDataComponent ?? `${dataComponent}-cancel`}
+            data-component={cancelButtonDataComponent ?? sub("cancel")}
             disabled={isPending}
             onClick={() => handleOpenChange(false)}
           >
@@ -139,7 +151,7 @@ export function TwoButtonModal({
             variant={approvalVariant}
             size="sm"
             className="w-1/2"
-            data-component={approvalButtonDataComponent ?? `${dataComponent}-approve`}
+            data-component={approvalButtonDataComponent ?? sub("approve")}
             disabled={isPending || approvalDisabled}
             aria-busy={isPending || undefined}
             onClick={onApprove}
