@@ -8,6 +8,7 @@ describe("NotificationOneButtonModal", () => {
 
     render(
       <NotificationOneButtonModal
+        data-component="mobile_tests_notification-modal_default"
         open
         onOpenChange={jest.fn()}
         title="요청을 완료하지 못했습니다."
@@ -20,7 +21,7 @@ describe("NotificationOneButtonModal", () => {
     const dialog = screen.getByRole("dialog", { name: "요청을 완료하지 못했습니다." });
     const button = screen.getByRole("button", { name: "확인" });
 
-    expect(dialog).toHaveAttribute("data-component", "notification-one-button-modal");
+    expect(dialog).toHaveAttribute("data-component", "mobile_tests_notification-modal_default");
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(button).toHaveClass("w-full");
 

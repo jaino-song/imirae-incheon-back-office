@@ -63,8 +63,7 @@ function StatusBadge({
 }: StatusBadgeProps) {
   return (
     <span
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? "status-badge"}
+      data-component={dataComponent}
       className={cn(statusBadgeVariants({ variant, size }), className)}
       {...props}
     >

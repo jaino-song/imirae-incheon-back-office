@@ -290,7 +290,7 @@ export function MessagesHistoryPage() {
             data-component={HISTORY_DETAIL_BASE}
           >
             <ClientMessageHistoryDetail
-              dataComponentPrefix="mobile-messages-history"
+              data-component={`${HISTORY_DETAIL_BASE}_content`}
               showBackAction={false}
               view={{
                 title: normalizedSelectedRecord.title,

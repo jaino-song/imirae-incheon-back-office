@@ -192,6 +192,7 @@ export function FilteredClientsDialog({
             </Dialog>
 
             <ClientDetailModal
+                data-component="mobile_notifications_filtered-clients_dialog_client-detail-modal"
                 open={detailModalOpen}
                 onClose={() => setDetailModalOpen(false)}
                 client={selectedClient}
@@ -210,7 +211,7 @@ export function FilteredClientsDialog({
                 onOpenChange={(nextOpen) => {
                     if (!nextOpen) setDeleteTargetClientId(null);
                 }}
-                dataComponent="filtered-clients-delete-approval"
+                data-component="mobile_notifications_filtered-clients_dialog_delete-approval"
                 title="고객을 삭제하시겠습니까?"
                 description="삭제한 고객 정보는 복구할 수 없습니다."
                 approvalLabel="삭제"

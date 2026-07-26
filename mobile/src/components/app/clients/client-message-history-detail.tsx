@@ -34,24 +34,18 @@ export function ClientMessageHistoryDetail({
   "data-component": dataComponent,
   view,
   onBack,
-  dataComponentPrefix = "mobile-clients-message-history",
   showBackAction = true,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   view: ClientMessageHistoryDetailView;
   onBack: () => void;
-  /** @deprecated Pass a canonical `data-component` from the route caller instead. */
-  dataComponentPrefix?: string;
   showBackAction?: boolean;
 }) {
   const isFailed = view.statusTone === "burgundy";
-  // TODO(data-component): Remove the legacy fallbacks after caller migration.
-  const root = dataComponent ?? `${dataComponentPrefix}-detail`;
-  const sub = (suffix: string) =>
-    dataComponent ? `${dataComponent}_${suffix}` : `${dataComponentPrefix}-detail-${suffix}`;
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
 
   return (
-    <div className="message-detail pop-up" data-component={root}>
+    <div className="message-detail pop-up" data-component={dataComponent}>
       {showBackAction ? (
         <button
           type="button"
@@ -97,7 +91,7 @@ export function ClientMessageHistoryDetail({
         </span>
       </div>
 
-      <InfoCard data-component={dataComponent ? sub("info-card") : "mobile_clients_detail-panel_info-card"} title="발송 정보">
+      <InfoCard data-component={sub("info-card")} title="발송 정보">
         <InfoRow label="수신자" value={view.recipientName} />
         <InfoRow label="연락처" value={view.recipientPhone} />
         <InfoRow label="템플릿" value={view.templateLabel} />
@@ -107,7 +101,7 @@ export function ClientMessageHistoryDetail({
         ) : null}
       </InfoCard>
 
-      <InfoCard data-component={dataComponent ? sub("info-card-2") : "mobile_clients_detail-panel_info-card-2"} title="메시지 내용">
+      <InfoCard data-component={sub("info-card-2")} title="메시지 내용">
         <p
           className="message-detail-body"
           data-component={sub("body")}

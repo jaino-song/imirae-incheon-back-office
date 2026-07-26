@@ -489,6 +489,7 @@ export default function DashboardPage() {
       />
 
       <MobileTwoButtonModal
+        data-component="mobile_dashboard_detail-sheet_delete-modal"
         open={deleteTargetClientId != null}
         title={t(locale, "common.delete")}
         description={t(locale, "clients.delete-confirm")}

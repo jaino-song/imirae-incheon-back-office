@@ -214,7 +214,6 @@ export default function PricesPage() {
                 isLoading ? (
                   <ListCountSkeleton
                     data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"
-                    dataComponentPrefix="mobile-prices"
                   />
                 ) : (
                   `${displayRows.length}개`
@@ -272,7 +271,6 @@ export default function PricesPage() {
               {isLoading ? (
                 <ListRowsSkeleton
                   data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"
-                  dataComponentPrefix="mobile-prices"
                   rowCount={5}
                 />
               ) : isError ? (

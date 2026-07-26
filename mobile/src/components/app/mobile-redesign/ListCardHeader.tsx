@@ -3,15 +3,8 @@ import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 
 const SOURCE_COMPONENT = "ListCardHeader";
-/**
- * TODO(data-component): Remove these legacy fallbacks after caller migration.
- * data-component="mobile-redesign-list-title"
- * data-component="mobile-redesign-list-action"
- * data-component="mobile-redesign-list-action"
- */
-
 export interface ListCardHeaderProps {
-  "data-component"?: string;
+  "data-component": string;
   title: string;
   count?: ReactNode;
   actionLabel?: string;
@@ -43,7 +36,7 @@ export function ListCardHeader({
       <Link
         href={actionHref}
         className="list-action"
-        data-component={dataComponent ? `${dataComponent}_action` : "mobile-redesign-list-action"}
+        data-component={`${dataComponent}_action`}
       >
         {resolvedActionIcon}
         {actionLabel}
@@ -53,7 +46,7 @@ export function ListCardHeader({
         type={actionType}
         disabled={actionDisabled}
         className="list-action"
-        data-component={dataComponent ? `${dataComponent}_action` : "mobile-redesign-list-action"}
+        data-component={`${dataComponent}_action`}
         onClick={onActionClick}
       >
         {resolvedActionIcon}
@@ -65,8 +58,7 @@ export function ListCardHeader({
   return (
     <div
       className="list-title"
-      // TODO(data-component): Remove the legacy fallbacks after caller migration.
-      data-component={dataComponent ?? "mobile-redesign-list-title"}
+      data-component={dataComponent}
       data-source-component={SOURCE_COMPONENT}
     >
       <span className="list-title-text">

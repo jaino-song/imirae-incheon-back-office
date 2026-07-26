@@ -617,7 +617,6 @@ export default function FilesPage() {
                 <ListLoadMoreButton
                   data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_load-more_button"
                   onLoadMore={loadMore}
-                  dataComponentPrefix="mobile-files"
                 />
               ) : null
             }
@@ -691,7 +690,6 @@ export default function FilesPage() {
                 <ListLoadMoreSentinel
                   data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                   sentinelRef={sentinelRef}
-                  dataComponentPrefix="mobile-files"
                 />
               )}
               </>

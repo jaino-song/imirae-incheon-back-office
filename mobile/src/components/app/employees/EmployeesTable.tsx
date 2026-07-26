@@ -226,7 +226,7 @@ export function EmployeesTable() {
                     onOpenChange={(open) => {
                         if (!open) setDeleteTargetEmployeeId(null);
                     }}
-                    dataComponent="employees-delete-approval"
+                    data-component="mobile_employees_table_delete-approval"
                     title={t(locale, "employees.delete-confirm.title")}
                     description={t(locale, "employees.delete-confirm.message")}
                     approvalLabel={t(locale, "common.delete")}
@@ -241,7 +241,7 @@ export function EmployeesTable() {
                     onOpenChange={(open) => {
                         if (!open) setDeleteErrorMessage(null);
                     }}
-                    dataComponent="employees-delete-error-notification"
+                    data-component="mobile_employees_table_delete-error-notification"
                     title="직원을 삭제하지 못했습니다."
                     description={deleteErrorMessage ?? ""}
                     isDescriptionVisuallyHidden={false}

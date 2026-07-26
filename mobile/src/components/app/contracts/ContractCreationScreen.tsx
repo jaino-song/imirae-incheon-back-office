@@ -31,6 +31,7 @@ export function ContractCreationScreen({ flow }: ContractCreationScreenProps) {
   return (
     <Block name="mobile_contracts-new_screen_root" className="h-full min-h-0 overflow-hidden">
       <SteppedWizard
+        data-component="mobile_contracts-new_screen_wizard"
         title="계약서 생성"
         subtitle={flow.activeStepMeta.desc}
         steps={steps}
@@ -52,7 +53,7 @@ export function ContractCreationScreen({ flow }: ContractCreationScreenProps) {
         steps={CONTRACT_CREATION_PROGRESS_STEPS}
         progress={flow.state.creationProgress}
         errorHint={flow.state.progressErrorHint}
-        dataComponentPrefix="mobile_contracts-new_progress_modal"
+        data-component="mobile_contracts-new_progress_modal"
       />
 
       <MobileTwoButtonModal

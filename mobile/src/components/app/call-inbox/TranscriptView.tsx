@@ -16,14 +16,16 @@ export function findEvidenceTurnIndex(transcript: TranscriptTurn[], evidence: st
 }
 
 export function TranscriptView({
+  "data-component": dataComponent,
   transcript,
   highlightIndex,
 }: {
+  "data-component": string;
   transcript: TranscriptTurn[];
   highlightIndex?: number | null;
 }) {
   return (
-    <div data-component="call-transcript" className="flex flex-col gap-2 rounded-xl bg-gray-50 p-3">
+    <div data-component={dataComponent} className="flex flex-col gap-2 rounded-xl bg-gray-50 p-3">
       {transcript.map((turn, index) => {
         const isStaff = STAFF_SPEAKERS.has(turn.speaker);
         return (

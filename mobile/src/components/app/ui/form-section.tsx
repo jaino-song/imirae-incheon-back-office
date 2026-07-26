@@ -8,8 +8,6 @@ import { Separator } from "@/components/ui/separator";
 
 const FORM_SECTION_SOURCE_COMPONENT = "FormSection";
 const FORM_NATIVE_SELECT_SOURCE_COMPONENT = "FormNativeSelect";
-// TODO(data-component): Remove legacy fallback data-component="form-section" after caller migration.
-
 export interface FormSectionProps extends React.HTMLAttributes<HTMLDivElement> {
   "data-component"?: string;
   title: string;
@@ -31,8 +29,7 @@ function FormSection({
       {showSeparator && <Separator className="my-4" />}
       <div
         {...props}
-        // TODO(data-component): Remove the legacy fallback after caller migration.
-        data-component={dataComponent ?? "form-section"}
+        data-component={dataComponent}
         data-source-component={FORM_SECTION_SOURCE_COMPONENT}
         className={cn("space-y-3", className)}
       >
@@ -66,9 +63,6 @@ export interface FormNativeSelectProps
   placeholder?: string;
   hideIcon?: boolean;
   wrapClassName?: string;
-  wrapDataComponent?: string;
-  selectDataComponent?: string;
-  iconDataComponent?: string;
 }
 
 function isFormNativeSelectGroup(option: FormNativeSelectEntry): option is FormNativeSelectGroup {
@@ -83,20 +77,15 @@ function FormNativeSelect({
   hideIcon = false,
   wrapClassName,
   className,
-  wrapDataComponent = "form-native-select-wrap",
-  selectDataComponent = "form-native-select",
-  iconDataComponent = "form-native-select-icon",
   value,
   ...props
 }: FormNativeSelectProps) {
-  // TODO(data-component): Remove the legacy fallbacks after caller migration.
-  const rootDataComponent = dataComponent ?? wrapDataComponent;
-  const selectComponent = dataComponent ? `${dataComponent}_select` : selectDataComponent;
-  const iconComponent = dataComponent ? `${dataComponent}_icon` : iconDataComponent;
+  const selectComponent = dataComponent ? `${dataComponent}_select` : undefined;
+  const iconComponent = dataComponent ? `${dataComponent}_icon` : undefined;
 
   return (
     <div
-      data-component={rootDataComponent}
+      data-component={dataComponent}
       data-source-component={FORM_NATIVE_SELECT_SOURCE_COMPONENT}
       className={cn("relative", wrapClassName)}
     >

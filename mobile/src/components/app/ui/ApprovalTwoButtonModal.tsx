@@ -7,10 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const SOURCE_COMPONENT = "ApprovalTwoButtonModal";
-const LEGACY_DATA_COMPONENT = "approval-two-button-modal";
-
 interface ApprovalTwoButtonModalProps {
-  "data-component"?: string;
+  "data-component": string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
@@ -25,12 +23,10 @@ interface ApprovalTwoButtonModalProps {
   approvalVariant?: "positive" | "destructive";
   isDescriptionVisuallyHidden?: boolean;
   size?: "compact" | "detail";
-  /** @deprecated Use the `data-component` prop. */
-  dataComponent?: string;
 }
 
 export function ApprovalTwoButtonModal({
-  "data-component": canonicalDataComponent,
+  "data-component": dataComponent,
   open,
   onOpenChange,
   title,
@@ -45,14 +41,8 @@ export function ApprovalTwoButtonModal({
   approvalVariant = "positive",
   isDescriptionVisuallyHidden = true,
   size = "compact",
-  dataComponent: legacyDataComponent = LEGACY_DATA_COMPONENT,
 }: ApprovalTwoButtonModalProps) {
-  // TODO(data-component): Remove the legacy fallback after caller migration.
-  const dataComponent = canonicalDataComponent ?? legacyDataComponent;
-  const sub = (suffix: string) =>
-    canonicalDataComponent
-      ? `${canonicalDataComponent}_${suffix}`
-      : `${legacyDataComponent}-${suffix}`;
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && isPending) return;
     onOpenChange(nextOpen);

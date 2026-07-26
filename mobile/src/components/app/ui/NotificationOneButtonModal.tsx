@@ -7,10 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const SOURCE_COMPONENT = "NotificationOneButtonModal";
-const LEGACY_DATA_COMPONENT = "notification-one-button-modal";
-
 interface NotificationOneButtonModalProps {
-  "data-component"?: string;
+  "data-component": string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
@@ -19,12 +17,10 @@ interface NotificationOneButtonModalProps {
   buttonVariant?: "positive" | "destructive" | "neutral";
   onAcknowledge: () => void | Promise<void>;
   isDescriptionVisuallyHidden?: boolean;
-  /** @deprecated Use the `data-component` prop. */
-  dataComponent?: string;
 }
 
 export function NotificationOneButtonModal({
-  "data-component": canonicalDataComponent,
+  "data-component": dataComponent,
   open,
   onOpenChange,
   title,
@@ -33,14 +29,8 @@ export function NotificationOneButtonModal({
   buttonVariant = "positive",
   onAcknowledge,
   isDescriptionVisuallyHidden = true,
-  dataComponent: legacyDataComponent = LEGACY_DATA_COMPONENT,
 }: NotificationOneButtonModalProps) {
-  // TODO(data-component): Remove the legacy fallback after caller migration.
-  const dataComponent = canonicalDataComponent ?? legacyDataComponent;
-  const sub = (suffix: string) =>
-    canonicalDataComponent
-      ? `${canonicalDataComponent}_${suffix}`
-      : `${legacyDataComponent}-${suffix}`;
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
   const resolvedButtonVariant = buttonVariant === "positive"
     ? "v3"
     : buttonVariant === "neutral"

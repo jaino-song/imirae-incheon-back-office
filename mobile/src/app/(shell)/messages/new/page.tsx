@@ -1144,6 +1144,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                       </label>
                       {isPriceInfoTemplateSelected ? (
                         <ClientAutocomplete
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_name-row_autocomplete"
                           inputId="recipient-name"
                           value={null}
                           onChange={handleClientRecipientSelect}
@@ -1188,6 +1189,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                       />
                     ) : (
                       <ClientAutocomplete
+                        data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_row_autocomplete"
                         inputId="receiver"
                         value={null}
                         onChange={handleClientRecipientSelect}

@@ -8,7 +8,7 @@ import { Button, type ButtonProps } from "@/components/ui/button";
 const SOURCE_COMPONENT = "MobileTwoButtonModal";
 
 interface MobileTwoButtonModalProps {
-  "data-component"?: string;
+  "data-component": string;
   open: boolean;
   title: string;
   description?: string;
@@ -42,11 +42,7 @@ export function MobileTwoButtonModal({
   onCancel,
   onConfirm,
 }: MobileTwoButtonModalProps) {
-  const legacyBase = "mobile-two-button-modal";
-  // TODO(data-component): Remove the legacy fallback after caller migration.
-  const rootDataComponent = dataComponent ?? legacyBase;
-  const sub = (suffix: string) =>
-    dataComponent ? `${dataComponent}_${suffix}` : `${legacyBase}-${suffix}`;
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
   const confirmButton = (
     <Button
       data-component={sub("confirm-button")}
@@ -78,7 +74,7 @@ export function MobileTwoButtonModal({
           className="fixed inset-0 z-[200] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0"
         />
         <DialogPrimitive.Content
-          data-component={rootDataComponent}
+          data-component={dataComponent}
           data-source-component={SOURCE_COMPONENT}
           aria-busy={loading}
           className="fixed top-1/2 left-1/2 z-[201] grid w-[calc(100vw-2.5rem)] max-w-[340px] -translate-x-1/2 -translate-y-1/2 gap-3 rounded-2xl border bg-background p-5 shadow-lg outline-none duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95"

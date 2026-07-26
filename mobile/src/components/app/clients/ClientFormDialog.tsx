@@ -492,6 +492,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <EmployeeAutocomplete
+                                data-component="mobile_clients_form-dialog_content_employee-grid_primary-autocomplete"
                                 value={formData.primaryEmployeeId}
                                 onChange={(id) => handleChange("primaryEmployeeId", id)}
                                 label={t(locale, "clients.form.primary-employee")}
@@ -503,6 +504,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
                                 }}
                             />
                             <EmployeeAutocomplete
+                                data-component="mobile_clients_form-dialog_content_employee-grid_secondary-autocomplete"
                                 value={formData.secondaryEmployeeId ?? null}
                                 onChange={(id) => handleChange("secondaryEmployeeId", id)}
                                 label={t(locale, "clients.form.secondary-employee")}

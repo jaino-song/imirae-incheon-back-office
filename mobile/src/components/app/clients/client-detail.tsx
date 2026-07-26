@@ -1163,6 +1163,7 @@ export function ClientDetailContent({
       ) : null}
 
       <DetailTabPills
+        data-component={`${dataComponent}_tabs`}
         tabs={[
           ...(client.pendingScheduleChange ? [{ id: "scheduleChange", label: "일정 변경" }] : []),
           { id: "basic", label: "기본 정보" },

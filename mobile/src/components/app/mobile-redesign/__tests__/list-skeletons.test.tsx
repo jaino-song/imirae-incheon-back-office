@@ -6,23 +6,23 @@ describe("mobile redesign list skeletons", () => {
   it("uses the provided data-component prefix for count and row skeletons", () => {
     const { container } = render(
       <>
-        <ListCountSkeleton dataComponentPrefix="mobile-employees" />
-        <ListRowsSkeleton dataComponentPrefix="mobile-employees" rowCount={2} />
+        <ListCountSkeleton data-component="mobile_tests_list-skeletons_count" />
+        <ListRowsSkeleton data-component="mobile_tests_list-skeletons_rows" rowCount={2} />
       </>
     );
 
-    expect(container.querySelector('[data-component="mobile-employees-count-skeleton"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="mobile-employees-loading-skeleton"]')).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-component="mobile-employees-row-skeleton"]')).toHaveLength(2);
-    expect(container.querySelectorAll('[data-component="mobile-employees-row-skeleton-info"]')).toHaveLength(2);
-    expect(container.querySelectorAll('[data-component="mobile-employees-row-skeleton-right"]')).toHaveLength(2);
+    expect(container.querySelector('[data-component="mobile_tests_list-skeletons_count"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="mobile_tests_list-skeletons_rows"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-component="mobile_tests_list-skeletons_rows_row"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-component="mobile_tests_list-skeletons_rows_row_info"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-component="mobile_tests_list-skeletons_rows_row_right"]')).toHaveLength(2);
   });
 
   it("matches the shared list row structure", () => {
-    const { container } = render(<ListRowsSkeleton dataComponentPrefix="mobile-clients" rowCount={1} />);
-    const row = container.querySelector('[data-component="mobile-clients-row-skeleton"]');
-    const info = container.querySelector('[data-component="mobile-clients-row-skeleton-info"]');
-    const right = container.querySelector('[data-component="mobile-clients-row-skeleton-right"]');
+    const { container } = render(<ListRowsSkeleton data-component="mobile_tests_list-skeletons_rows" rowCount={1} />);
+    const row = container.querySelector('[data-component="mobile_tests_list-skeletons_rows_row"]');
+    const info = container.querySelector('[data-component="mobile_tests_list-skeletons_rows_row_info"]');
+    const right = container.querySelector('[data-component="mobile_tests_list-skeletons_rows_row_right"]');
 
     expect(row).toHaveClass("list-item");
     expect(info).toHaveClass("list-info", "flex", "flex-col");
@@ -33,6 +33,7 @@ describe("mobile redesign list skeletons", () => {
   it("compacts multiple client row badges to the frontend status pattern", () => {
     const { container } = render(
       <ClientLikeRow
+        data-component="mobile_tests_client-like-row_root"
         row={{
           name: "가나안덕",
           meta: "A통합1형 · 김정인",
@@ -49,9 +50,9 @@ describe("mobile redesign list skeletons", () => {
       />
     );
 
-    const badgeGroup = container.querySelector<HTMLElement>('[data-component="mobile-redesign-list-row-badges"]');
-    const statusBadges = badgeGroup?.querySelectorAll('[data-component="status-badge"]');
-    const more = container.querySelector('[data-component="mobile-redesign-list-row-badges-more"]');
+    const badgeGroup = container.querySelector<HTMLElement>('[data-component="mobile_tests_client-like-row_root_badges"]');
+    const statusBadges = badgeGroup?.querySelectorAll('[data-component="mobile_tests_client-like-row_root_badges_primary"]');
+    const more = container.querySelector('[data-component="mobile_tests_client-like-row_root_badges_more"]');
     const meta = container.querySelector(".list-meta");
     const right = container.querySelector<HTMLElement>(".list-right");
 

@@ -50,6 +50,7 @@ export default function ContractStatusWizard({ onCheck }: ContractStatusWizardPr
 
             <div data-component="chat-wizard-contract-status-body" className="flex flex-col gap-4">
                 <ClientAutocomplete
+                    data-component="mobile_chat_contract-status-wizard_body_client-autocomplete"
                     value={selectedClientId}
                     onChange={handleClientChange}
                     label="산모 선택"

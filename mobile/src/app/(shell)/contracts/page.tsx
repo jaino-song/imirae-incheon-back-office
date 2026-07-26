@@ -2120,7 +2120,6 @@ export default function ContractsPage() {
                 <ListLoadMoreButton
                   onLoadMore={loadMore}
                   data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_button"
-                  dataComponentPrefix="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more"
                 />
               ) : null
             }
@@ -2173,7 +2172,7 @@ export default function ContractsPage() {
                     return (
                       <ListItemRow
                         key={doc.id}
-                        dataComponent="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"
+                        data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"
                         left={
                           <div
                             className={`list-avatar av-${tones.badgeTone}`}
@@ -2249,7 +2248,6 @@ export default function ContractsPage() {
                   <ListLoadMoreSentinel
                     sentinelRef={sentinelRef}
                     data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
-                    dataComponentPrefix="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body"
                   />
                 )}
               </>
@@ -2380,7 +2378,7 @@ export default function ContractsPage() {
         }
         progress={finalizeProgress}
         errorHint={finalizeErrorHint}
-        dataComponentPrefix="mobile_contracts_finalize-progress"
+        data-component="mobile_contracts_finalize-progress"
       />
 
       {isStaffIframeOpen ? (

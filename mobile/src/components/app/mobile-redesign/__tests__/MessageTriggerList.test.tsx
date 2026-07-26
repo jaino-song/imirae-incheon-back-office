@@ -63,7 +63,7 @@ function renderPage(onEdit?: (rule: MessageTriggerRule) => void) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MessageTriggerList onEdit={onEdit} />
+      <MessageTriggerList data-component="mobile_messages_triggers_test_list" onEdit={onEdit} />
     </QueryClientProvider>,
   );
 }
@@ -198,7 +198,7 @@ describe("MessageTriggerList", () => {
     expect(screen.getByText("서비스 시작 7일 전 · 고객")).toBeInTheDocument();
     const serviceInfoRow = screen.getByRole("button", { name: /서비스 시작 7일 전 서비스 안내/ });
     expect(serviceInfoRow).toHaveAttribute("data-trigger-channel", "SMS");
-    expect(serviceInfoRow.querySelector('[data-component="message-trigger-icon"]'))
+    expect(serviceInfoRow.querySelector('[data-component="mobile_messages_triggers_test_list_icon"]'))
       .toHaveClass("trigger-icon-primary");
     expect(serviceInfoRow.querySelector("svg")).toHaveClass("lucide-message-square-text");
   });

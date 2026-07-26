@@ -306,7 +306,7 @@ export function MessageTriggerEditor({
         approvalVariant="destructive"
         isPending={deleteMutation.isPending}
         onApprove={handleDelete}
-        dataComponent={`${EDITOR_BASE}_delete-modal`}
+        data-component={`${EDITOR_BASE}_delete-modal`}
       />
     </MobileDetailPage>
   );
