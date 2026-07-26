@@ -3,6 +3,14 @@ import { expect, test, type Page } from '@playwright/test';
 // The employee autocomplete lives on STEP 1 (service settings) of the
 // /clients/new wizard — the beforeEach must complete step 0 first.
 
+// Canonical data-component values rendered by the wizard's provider-assignment card.
+// Producers: mobile/src/app/(shell)/clients/new/page.tsx:1034 (card),
+// :1038 / :1052 (primary/secondary EmployeeAutocomplete bases) and
+// mobile/src/components/app/ui/Autocomplete.tsx:209-214 (suffix derivation).
+const EMPLOYEE_CARD =
+  'mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card';
+const PRIMARY_AUTOCOMPLETE = `${EMPLOYEE_CARD}_primary-field_autocomplete`;
+
 const EMPLOYEES = [
   {
     id: 11,
@@ -100,48 +108,50 @@ test.describe('EmployeeAutocomplete', () => {
   });
 
   test('renders employee autocompletes on the client creation wizard', async ({ page }) => {
-    const employeeAutocompletes = page.getByTestId('employee-autocomplete');
+    const employeeAutocompletes = page.locator(
+      `[data-component^="${EMPLOYEE_CARD}"][data-slot="autocomplete"]`
+    );
 
     await expect(employeeAutocompletes.first()).toBeVisible();
     await expect(employeeAutocompletes).toHaveCount(2);
   });
 
   test('opens the dropdown on focus and keeps the manual-entry action visible', async ({ page }) => {
-    const autocompleteInput = page.getByTestId('employee-autocomplete').first().locator('input');
+    const autocompleteInput = page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_input"]`);
 
     await autocompleteInput.click();
 
-    await expect(page.locator('[data-component="employee-autocomplete-dropdown"]').first()).toBeVisible({
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible({
       timeout: 5000,
     });
-    await expect(page.locator('[data-component="employee-autocomplete-add-button"]').first()).toBeVisible();
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_add-button"]`)).toBeVisible();
   });
 
   test('keeps the manual-entry action visible while filtering', async ({ page }) => {
-    const autocompleteInput = page.getByTestId('employee-autocomplete').first().locator('input');
+    const autocompleteInput = page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_input"]`);
 
     await autocompleteInput.click();
-    await expect(page.locator('[data-component="employee-autocomplete-dropdown"]').first()).toBeVisible({
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible({
       timeout: 5000,
     });
 
     await autocompleteInput.fill('김');
 
-    await expect(page.locator('[data-component="employee-autocomplete-dropdown"]').first()).toBeVisible();
-    await expect(page.locator('[data-component="employee-autocomplete-add-button"]').first()).toBeVisible();
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible();
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_add-button"]`)).toBeVisible();
   });
 
   test('opens the employee dialog with the typed name prefilled', async ({ page }) => {
-    const autocompleteInput = page.getByTestId('employee-autocomplete').first().locator('input');
+    const autocompleteInput = page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_input"]`);
     const typedName = '신규직원';
 
     await autocompleteInput.click();
-    await expect(page.locator('[data-component="employee-autocomplete-dropdown"]').first()).toBeVisible({
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible({
       timeout: 5000,
     });
 
     await autocompleteInput.fill(typedName);
-    await page.locator('[data-component="employee-autocomplete-add-button"]').first().click();
+    await page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_add-button"]`).click();
 
     const employeeDialog = page.locator('[data-component="employees-form-dialog"]');
     await expect(employeeDialog).toBeVisible({ timeout: 5000 });

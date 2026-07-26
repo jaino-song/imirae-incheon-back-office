@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+// Canonical data-component values rendered by the clients detail sheet.
+// Producers: mobile/src/app/(shell)/clients/page.tsx:605 (list-row badges base),
+// :638 (ClientDetailContent base) → mobile/src/components/app/clients/client-detail.tsx:1166
+// (DetailTabPills base) → mobile/src/components/app/mobile-redesign/detail-sheet.tsx:505
+// (tab-bar container) and :517 (per-tab `data-tab` on the buttons).
+const LIST_ROW =
+  "mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row";
+const DETAIL_TABS = "mobile_clients_detail-sheet_stack_detail-page_content_tabs";
+const MESSAGE_TAB_BUTTON = `[data-component="${DETAIL_TABS}"] [data-tab="message"]`;
+
 const CLIENT = {
   id: 101,
   name: "테스트 고객",
@@ -172,7 +182,7 @@ test.describe("Mobile clients detail labels", () => {
     await expect(page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]')).toBeVisible({ timeout: 15000 });
 
     await page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]', { hasText: CLIENT.name }).click();
-    const notificationTabButton = page.locator('[data-component="mobile-redesign-detail-tabs"] [data-tab="message"]');
+    const notificationTabButton = page.locator(MESSAGE_TAB_BUTTON);
     await expect(notificationTabButton).toBeVisible();
     await notificationTabButton.dispatchEvent("click");
 
@@ -222,10 +232,14 @@ test.describe("Mobile clients detail labels", () => {
     const row = page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]', {
       hasText: ACTIVE_CLIENT_WITHOUT_CONTRACT.name,
     });
-    const badges = row.locator('[data-component="mobile-redesign-list-row-badges"] [data-component="status-badge"]');
+    // ListRowBadges renders the first badge as a pill and collapses the rest into "+N".
+    // Producer: mobile/src/components/app/mobile-redesign/primitives.tsx:300-307.
+    const badges = row.locator(
+      `[data-component="${LIST_ROW}_badges"] [data-component="${LIST_ROW}_badges_primary"]`
+    );
 
     await expect(badges).toHaveText(["계약서 필요"]);
-    await expect(row.locator('[data-component="mobile-redesign-list-row-badges-more"]')).toHaveText("+1");
+    await expect(row.locator(`[data-component="${LIST_ROW}_badges_more"]`)).toHaveText("+1");
   });
 
   test("shows a request error instead of a false empty message history", async ({ page }) => {
@@ -259,7 +273,7 @@ test.describe("Mobile clients detail labels", () => {
 
     await page.goto("/clients");
     await page.locator('[data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"]', { hasText: CLIENT.name }).click();
-    await page.locator('[data-component="mobile-redesign-detail-tabs"] [data-tab="message"]').click();
+    await page.locator(MESSAGE_TAB_BUTTON).click();
 
     const messageTab = page.locator('[data-component="mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_message"]');
     await expect(messageTab).toContainText("발송 내역을 불러오지 못했습니다.");
