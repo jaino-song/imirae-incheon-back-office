@@ -138,7 +138,7 @@ test.describe('Custom Template Variables', () => {
     await expect(page.getByLabel(/산모님 성함/)).toBeVisible();
     await expect(page.getByLabel('연락처')).toBeVisible();
     await expect(
-      page.locator('[data-component="messages-new-template-variable-row"][data-template-variable-key="phone"]'),
+      page.locator('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_row"][data-template-variable-key="phone"]'),
     ).toBeVisible();
   });
 

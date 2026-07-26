@@ -92,13 +92,13 @@ describe("MessageSenderApprovalPage", () => {
 
   it("shows the settings section navigation without a back button", () => {
     const { container } = renderPage();
-    const listCard = container.querySelector('[data-component="mobile-redesign-list-card"]');
+    const listCard = container.querySelector('[data-component="mobile_messages_sender-approval_page_screen_content_scroll_list-card"]');
 
     expect(screen.getByRole("button", { name: "설정" }))
       .toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("메시지 설정")).toHaveClass("list-title-text");
     expect(listCard).toContainElement(
-      container.querySelector('[data-component="mobile-redesign-list-scroll"]'),
+      container.querySelector('[data-component="mobile_messages_sender-approval_page_screen_content_scroll_list-card_body"]'),
     );
     expect(screen.queryByRole("button", { name: "메시지 목록으로 돌아가기" }))
       .not.toBeInTheDocument();

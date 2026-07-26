@@ -44,7 +44,7 @@
   display: none;
 }
 
-.pageRoot :global([data-component="mobile-redesign-list-scroll"]) {
+.pageRoot :global(.list-card-scroll) {
   padding: 0;
 }
 
@@ -96,23 +96,23 @@
   color: hsl(var(--v3-burgundy));
 }
 
-:global([data-component="messages-new-recipient-row"] [data-component="clients-autocomplete-toggle"]) {
+:global([data-slot="messages-recipient-row"] [data-component="clients-autocomplete-toggle"]) {
   width: 44px;
   height: 44px;
   padding: 0;
   border-radius: 999px;
 }
 
-:global([data-component="messages-new-recipient-row"] [data-component="clients-autocomplete-toggle"] svg) {
+:global([data-slot="messages-recipient-row"] [data-component="clients-autocomplete-toggle"] svg) {
   width: 14px;
   height: 14px;
 }
 
-:global([data-component="messages-new-recipient-row"] [data-component="clients-autocomplete-dropdown"]) {
+:global([data-slot="messages-recipient-row"] [data-component="clients-autocomplete-dropdown"]) {
   border-radius: 12px;
 }
 
-:global([data-component="messages-new-recipient-row"] [data-component="clients-autocomplete-dropdown"][data-state="open"]) {
+:global([data-slot="messages-recipient-row"] [data-component="clients-autocomplete-dropdown"][data-state="open"]) {
   border-color: hsl(var(--v3-border)) !important;
   border-top-left-radius: 0;
   border-top-right-radius: 0;

@@ -54,7 +54,7 @@ export function MessageSectionNav({
   "data-component": dataComponent,
   activeId,
 }: {
-  "data-component"?: string;
+  "data-component": string;
   activeId: MessageSectionId;
 }) {
   const router = useRouter();

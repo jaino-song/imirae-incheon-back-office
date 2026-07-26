@@ -24,17 +24,18 @@ describe("MessagesTriggersPage", () => {
   it("renders the automation section navigation in the shared message shell", () => {
     const { container } = render(<MessagesTriggersPage />);
 
-    const content = container.querySelector<HTMLElement>('[data-component="messages-content"]');
+    const content = container.querySelector<HTMLElement>('[data-slot="messages-content"]');
     const navigation = screen.getByRole("navigation", { name: "메시지 기능" });
 
     expect(content?.firstElementChild).toBe(navigation);
     expect(container.querySelector('[data-component="messages-shell"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="messages-page"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "자동 전송" }))
       .toHaveAttribute("aria-pressed", "true");
-    expect(container.querySelector('[data-component="mobile-redesign-list-title"] .list-title-text'))
+    expect(container.querySelector('[data-component="mobile_messages_triggers_detail-sheet_stack_list-page_shell_content_list-card_header"] .list-title-text'))
       .toHaveTextContent("자동 전송");
-    expect(container.querySelector('[data-component="mobile-redesign-list-card"]'))
-      .toContainElement(container.querySelector('[data-component="mobile-redesign-list-scroll"]'));
+    expect(container.querySelector('[data-component="mobile_messages_triggers_detail-sheet_stack_list-page_shell_content_list-card"]'))
+      .toContainElement(container.querySelector('[data-component="mobile_messages_triggers_detail-sheet_stack_list-page_shell_content_list-card_body"]'));
   });
 
   it("opens creation and editing details from mobile automation", () => {

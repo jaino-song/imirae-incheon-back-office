@@ -54,7 +54,7 @@ test.describe('System Template Detail', () => {
   test('displays the current read-only template content and required variables', async ({ page }) => {
     await expect(page.getByText('감사', { exact: true })).toBeVisible();
     await expect(page.getByText('감사 메시지')).toBeVisible();
-    await expect(page.locator('[data-component="messages-system-template-content"]')).toContainText(
+    await expect(page.locator('[data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card_content"]')).toContainText(
       templateFixture.content,
     );
     await expect(page.getByText('필수 변수')).toBeVisible();

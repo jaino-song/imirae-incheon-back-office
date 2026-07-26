@@ -20,15 +20,15 @@ describe("MessagesAutomationPage", () => {
     const { container } = render(<MessagesAutomationPage />);
 
     const navigation = screen.getByRole("navigation", { name: "메시지 기능" });
-    const content = container.querySelector('[data-component="messages-content"]');
+    const content = container.querySelector('[data-slot="messages-content"]');
 
-    expect(navigation).toHaveAttribute("data-component", "section-nav-mobile");
+    expect(navigation).toHaveAttribute("data-component", "mobile_messages_automation_page_content_section-nav");
     expect(navigation).toHaveAttribute("data-mode", "compact");
     expect(content).toHaveClass("flex-col");
     expect(content?.firstElementChild).toBe(navigation);
     expect(container.querySelector('[data-component="mobile-messages-navigation"]')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-component="mobile-redesign-list-card"]'))
-      .toContainElement(container.querySelector('[data-component="mobile-redesign-list-scroll"]'));
+    expect(container.querySelector('[data-component="mobile_messages_automation_page_content_list-card"]'))
+      .toContainElement(container.querySelector('[data-component="mobile_messages_automation_page_content_list-card_body"]'));
     expect(MESSAGE_NAVIGATION_ITEMS.map((item) => item.title)).toEqual([
       "전송하기",
       "발송 예정",

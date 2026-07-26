@@ -5,6 +5,9 @@ import NewMessagePage from "../page";
 import { api } from "@/lib/api/client";
 import type { Client } from "@/lib/client/types";
 
+const FORM_CARD_CONTENT =
+  "mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content";
+
 const mockPush = jest.fn();
 const mockUseAllClients = jest.fn();
 const mockUseSystemTemplate = jest.fn();
@@ -258,18 +261,18 @@ describe("NewMessagePage", () => {
 
   it("shows the message section navigation without a back button", () => {
     const { container } = renderPage();
-    const listCard = container.querySelector('[data-component="mobile-redesign-list-card"]');
+    const listCard = container.querySelector('[data-component="mobile_messages_new_page_screen_form_scroll_list-card"]');
 
     expect(screen.getByRole("button", { name: "전송하기" }))
       .toHaveAttribute("aria-pressed", "true");
     expect(listCard).toContainElement(
-      container.querySelector('[data-component="mobile-redesign-list-title"]'),
+      container.querySelector('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_header"]'),
     );
     expect(listCard).toContainElement(
-      container.querySelector('[data-component="mobile-redesign-list-scroll"]'),
+      container.querySelector('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body"]'),
     );
     expect(screen.getByText("새 메시지")).toHaveClass("list-title-text");
-    expect(container.querySelector('[data-component="mobile-redesign-list-title"]')).toContainElement(
+    expect(container.querySelector('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_header"]')).toContainElement(
       screen.getByRole("button", { name: "즉시 발송" }),
     );
     expect(screen.queryByRole("button", { name: "메시지 목록으로 돌아가기" }))
@@ -278,19 +281,19 @@ describe("NewMessagePage", () => {
 
   it("groups the recipient, template, variables, and body sections in one form card", () => {
     const { container } = renderPage();
-    const formCards = container.querySelectorAll('[data-component="messages-new-form-card"]');
+    const formCards = container.querySelectorAll('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card"]');
     const formCard = formCards[0];
 
     expect(formCards).toHaveLength(1);
     expect(formCard?.firstElementChild).not.toHaveClass("p-6", "pt-0");
     expect(formCard).toContainElement(
-      container.querySelector('[data-component="messages-new-recipient-card"]'),
+      container.querySelector('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient"]'),
     );
     expect(formCard).toContainElement(
-      container.querySelector('[data-component="messages-new-template-card"]'),
+      container.querySelector('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_template"]'),
     );
     expect(formCard).toContainElement(
-      container.querySelector('[data-component="messages-new-body-card"]'),
+      container.querySelector('[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body"]'),
     );
   });
 
@@ -298,14 +301,14 @@ describe("NewMessagePage", () => {
     const { container } = renderPage();
     const orderedSections = Array.from(
       container.querySelectorAll(
-        '[data-component="messages-new-template-card"], [data-component="messages-new-recipient-card"], [data-component="messages-new-body-card"]',
+        '[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_template"], [data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient"], [data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body"]',
       ),
     ).map((element) => element.getAttribute("data-component"));
 
     expect(orderedSections).toEqual([
-      "messages-new-template-card",
-      "messages-new-recipient-card",
-      "messages-new-body-card",
+      `${FORM_CARD_CONTENT}_template`,
+      `${FORM_CARD_CONTENT}_recipient`,
+      `${FORM_CARD_CONTENT}_message-body`,
     ]);
     expect(screen.getByLabelText(/휴대 전화번호/)).toHaveAttribute("placeholder", "010-0000-0000");
     expect(screen.queryByLabelText(/산모님 성함/)).not.toBeInTheDocument();
@@ -495,12 +498,12 @@ describe("NewMessagePage", () => {
     expect(
       Array.from(
         container.querySelectorAll(
-          '[data-component="messages-new-recipient-name-row"], [data-component="messages-new-recipient-row"]',
+          '[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_name-row"], [data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_row"]',
         ),
       ).map((element) => element.getAttribute("data-component")),
     ).toEqual([
-      "messages-new-recipient-name-row",
-      "messages-new-recipient-row",
+      `${FORM_CARD_CONTENT}_recipient_name-row`,
+      `${FORM_CARD_CONTENT}_recipient_row`,
     ]);
 
     fireEvent.change(screen.getByLabelText(/산모님 성함/), { target: { value: "김지니" } });
@@ -573,7 +576,7 @@ describe("NewMessagePage", () => {
     expect(
       Array.from(
         container.querySelectorAll(
-          '[data-component="messages-new-price-info-controls"] > [data-template-variable-key]',
+          '[data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info"] > [data-template-variable-key]',
         ),
       ).map((element) => element.getAttribute("data-template-variable-key")),
     ).toEqual(["type", "duration", "bankAccount", "voucherYear"]);
@@ -613,7 +616,7 @@ describe("NewMessagePage", () => {
     const receiverInput = screen.getByLabelText(/휴대 전화번호/);
 
     expect(recipientNameInput).toHaveAttribute("data-component", "clients-autocomplete-input");
-    expect(receiverInput).toHaveAttribute("data-component", "messages-new-recipient-input");
+    expect(receiverInput).toHaveAttribute("data-component", `${FORM_CARD_CONTENT}_recipient_row_input`);
 
     fireEvent.focus(recipientNameInput);
     fireEvent.change(recipientNameInput, { target: { value: "박서연" } });

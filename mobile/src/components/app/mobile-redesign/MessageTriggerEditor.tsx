@@ -79,6 +79,14 @@ function initialForm(rule: MessageTriggerRule | null): RuleForm {
 
 const FIELD_CLASS = "min-h-11 w-full rounded-xl border border-v3-border bg-white px-3 text-sm text-v3-dark outline-none focus:border-v3-primary";
 
+/**
+ * The editor renders inside the MobileDetailSheet opened by MessagesTriggersPage,
+ * so it continues that sheet's canonical path. MobileDetailStack already owns
+ * `..._stack_detail-page` and `..._stack_detail-page_header`; the editor's own
+ * nodes hang off `_body` so the two never collide.
+ */
+const EDITOR_BASE = "mobile_messages_triggers_detail-sheet_stack_detail-page_body";
+
 export function MessageTriggerEditor({
   rule,
   onClose,
@@ -165,8 +173,9 @@ export function MessageTriggerEditor({
   };
 
   return (
-    <MobileDetailPage data-component="mobile_mobile-redesign_detail-sheet_stack_detail-page" name="message-trigger-editor">
-      <MobileDetailHeader data-component="mobile_mobile-redesign_detail-sheet_stack_detail-page_header"
+    <MobileDetailPage data-component={EDITOR_BASE} name="message-trigger-editor">
+      <MobileDetailHeader
+        data-component={`${EDITOR_BASE}_header`}
         name="message-trigger-editor"
         avatar={<BellRing size={22} aria-hidden="true" />}
         title={rule ? "자동 전송 규칙 수정" : "자동 전송 규칙 추가"}
@@ -175,7 +184,7 @@ export function MessageTriggerEditor({
 
       <form
         className="space-y-4 px-4 pb-8"
-        data-component="mobile-message-trigger-editor-form"
+        data-component={`${EDITOR_BASE}_form`}
         onSubmit={(event) => {
           event.preventDefault();
           void handleSave();
@@ -268,7 +277,7 @@ export function MessageTriggerEditor({
 
         {error ? <p className="text-sm font-semibold text-v3-burgundy" role="alert">{error}</p> : null}
 
-        <div className="flex gap-2" data-component="mobile-message-trigger-editor-actions">
+        <div className="flex gap-2" data-component={`${EDITOR_BASE}_form_actions`}>
           {rule ? (
             <button
               type="button"
@@ -297,7 +306,7 @@ export function MessageTriggerEditor({
         approvalVariant="destructive"
         isPending={deleteMutation.isPending}
         onApprove={handleDelete}
-        dataComponent="mobile-message-trigger-delete-modal"
+        dataComponent={`${EDITOR_BASE}_delete-modal`}
       />
     </MobileDetailPage>
   );
