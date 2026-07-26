@@ -440,11 +440,11 @@ body:has([data-component="messages"]) [data-component="messages-content"] {
 }
 
 /* ===== Dashboard route shell parity with variant-D2 ===== */
-html:has(body [data-component="dashboard"]) {
+html:has(body [data-slot="dashboard-page"]) {
   background: hsl(220, 15%, 88%) !important;
 }
 
-body:has([data-component="dashboard"]) {
+body:has([data-slot="dashboard-page"]) {
   background: hsl(220, 15%, 88%) !important;
   color: hsl(var(--v3-text));
   overflow: hidden;
@@ -452,7 +452,7 @@ body:has([data-component="dashboard"]) {
 }
 
 /* Mobile: app-root fills viewport (no phone-frame bezel) */
-[data-slot="app-root"]:has([data-component="dashboard"]) {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) {
   position: relative;
   width: 100%;
   height: 100dvh;
@@ -466,7 +466,7 @@ body:has([data-component="dashboard"]) {
 
 /* Desktop: render inside a fake iPhone phone-frame for preview */
 @media (min-width: 768px) {
-  [data-slot="app-root"]:has([data-component="dashboard"]) {
+  [data-slot="app-root"]:has([data-slot="dashboard-page"]) {
     width: 390px !important;
     max-width: 390px !important;
     height: min(100dvh, 844px) !important;
@@ -479,7 +479,7 @@ body:has([data-component="dashboard"]) {
       0 0 0 1px rgba(0, 0, 0, 0.6) inset;
   }
 
-  [data-slot="app-root"]:has([data-component="dashboard"])::before {
+  [data-slot="app-root"]:has([data-slot="dashboard-page"])::before {
     content: "";
     position: absolute;
     top: 12px;
@@ -494,7 +494,7 @@ body:has([data-component="dashboard"]) {
   }
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="app-content"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -503,7 +503,7 @@ body:has([data-component="dashboard"]) {
   border-radius: 38px;
 }
 
-main[data-slot="main-content"]:has([data-component="dashboard"]) {
+main[data-slot="main-content"]:has([data-slot="dashboard-page"]) {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -516,16 +516,16 @@ main[data-slot="main-content"]:has([data-component="dashboard"]) {
   padding: 64px 0 0 !important;
 }
 
-main[data-slot="main-content"]:has([data-component="dashboard"]) > [data-component="dashboard"] {
+main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="dashboard-page"] {
   height: 100%;
 }
 
-[data-component="dashboard"] .shell-content {
+[data-slot="dashboard-page"] .shell-content {
   overflow-y: auto;
   padding: 12px 14px 76px;
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-header"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -538,7 +538,7 @@ main[data-slot="main-content"]:has([data-component="dashboard"]) > [data-compone
   z-index: 20;
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   left: 14px !important;
@@ -559,21 +559,21 @@ main[data-slot="main-content"]:has([data-component="dashboard"]) > [data-compone
   z-index: var(--mobile-z-nav);
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   inset-block: 5px !important;
   border-radius: 14px !important;
   width: calc((100% - 10px) / 5) !important;
   left: 5px !important;
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot^="mobile-bottom-nav-"],
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav-chat"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot^="mobile-bottom-nav-"],
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-chat"] {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] svg {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
@@ -4901,18 +4901,18 @@ body.mobile-contracts-route nextjs-portal {
 }
 
 /* Dashboard frame-removal correction: anchor nav to the shell and let the card scroll internally. */
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="mobile-bottom-nav"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav"] {
   bottom: 12px !important;
   z-index: var(--mobile-z-nav) !important;
 }
 
-[data-component="dashboard"] [data-component="mobile-dashboard-content"] {
+[data-slot="dashboard-page"] [data-slot="dashboard-content"] {
   min-height: 0 !important;
   overflow: hidden !important;
   padding: 12px 14px 76px !important;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"] > [data-component="mobile-redesign-filter-row"] {
+[data-slot="dashboard-page"] .list-card > .filter-row {
   display: flex;
   gap: 6px;
   padding: 6px 8px;
@@ -4921,7 +4921,7 @@ body.mobile-contracts-route nextjs-portal {
   scroll-padding-inline: 8px;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"] > [data-component="mobile-redesign-filter-row"] [data-component="mobile-redesign-filter-pill"] {
+[data-slot="dashboard-page"] .list-card > .filter-row .filter-pill {
   flex: 0 0 auto;
   min-width: max-content;
   gap: 6px;
@@ -4929,12 +4929,12 @@ body.mobile-contracts-route nextjs-portal {
   white-space: nowrap;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"] > [data-component="mobile-redesign-filter-row"] .count {
+[data-slot="dashboard-page"] .list-card > .filter-row .count {
   flex-shrink: 0;
 }
 
-[data-component="dashboard"] [data-component="mobile-redesign-list-card"],
-[data-component="dashboard"] [data-component="mobile-redesign-list-scroll"] {
+[data-slot="dashboard-page"] .list-card,
+[data-slot="dashboard-page"] .list-card-scroll {
   min-height: 0 !important;
 }
 
@@ -4958,7 +4958,7 @@ body.mobile-dashboard-route [data-slot="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-dashboard-route [data-component="dashboard"] {
+body.mobile-dashboard-route [data-slot="dashboard-page"] {
   position: relative !important;
   inset: auto !important;
   width: auto !important;
@@ -4979,15 +4979,15 @@ body.mobile-dashboard-route .mobile-detail-sheet {
 }
 
 /* ===== Dashboard detail sheet — parity with clients/messages/etc. ===== */
-body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-slot="mobile-bottom-nav"] {
+body.mobile-dashboard-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
-body.mobile-dashboard-route:has([data-component="mobile-dashboard-stack"].show-detail) [data-slot="mobile-header"] {
+body.mobile-dashboard-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
 }
-body.mobile-dashboard-route [data-component="mobile-dashboard-detail-page"] {
+body.mobile-dashboard-route [data-slot="mobile-detail-stack-detail-page"] {
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
   bottom: 0 !important;
@@ -5001,7 +5001,7 @@ body.mobile-dashboard-route [data-component="mobile-dashboard-detail-page"] {
   background: hsl(var(--v3-dim-white)) !important;
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.22) !important;
 }
-body.mobile-dashboard-route [data-component="mobile-dashboard-detail-scrim"] {
+body.mobile-dashboard-route .scrim {
   position: fixed;
   top: 0 !important;
   right: 0 !important;
@@ -5052,7 +5052,7 @@ body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-d
 }
 
 /* ===== Mobile redesign frame removal ===== */
-html:has(body [data-component="dashboard"]),
+html:has(body [data-slot="dashboard-page"]),
 html:has(body.mobile-all-route),
 html:has(body [data-component="mobile_employees_detail-sheet"]),
 html:has(body [data-component="messages"]),
@@ -5071,7 +5071,7 @@ html:has(body.mobile-contracts-route) {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-body:has([data-component="dashboard"]),
+body:has([data-slot="dashboard-page"]),
 body.mobile-all-route,
 body:has([data-component="mobile_employees_detail-sheet"]),
 body:has([data-component="messages"]),
@@ -5090,7 +5090,7 @@ body.mobile-contracts-route {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]),
+[data-slot="app-root"]:has([data-slot="dashboard-page"]),
 body.mobile-all-route [data-slot="app-root"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"],
 body:has([data-component="messages"]) [data-slot="app-root"],
@@ -5112,7 +5112,7 @@ body.mobile-contracts-route [data-slot="app-root"] {
   box-shadow: none !important;
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"])::before,
+[data-slot="app-root"]:has([data-slot="dashboard-page"])::before,
 body.mobile-all-route [data-slot="app-root"]::before,
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"]::before,
 body:has([data-component="messages"]) [data-slot="app-root"]::before,
@@ -5132,7 +5132,7 @@ body.mobile-contracts-route [data-slot="app-root"]::before {
   content: none !important;
 }
 
-[data-slot="app-root"]:has([data-component="dashboard"]) [data-slot="app-content"],
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="app-content"],
 body.mobile-all-route [data-slot="app-content"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-content"],
 body:has([data-component="messages"]) [data-slot="app-content"],
@@ -5151,7 +5151,7 @@ body.mobile-contracts-route [data-slot="app-content"] {
   border-radius: 0 !important;
 }
 
-body:has([data-component="dashboard"]) nextjs-portal,
+body:has([data-slot="dashboard-page"]) nextjs-portal,
 body.mobile-all-route nextjs-portal,
 body:has([data-component="mobile_employees_detail-sheet"]) nextjs-portal,
 body:has([data-component="messages"]) nextjs-portal,
@@ -5606,7 +5606,7 @@ body.mobile-prices-route [data-slot="mobile-bottom-nav"] span {
 /* ===== Mobile detail-sheet sizing normalization =====
    Keep the shell full-viewport for every MobileDetailSheet route. Header spacing
    belongs to the list content only, so detail pages share one height model. */
-body:has([data-component="dashboard"]) [data-slot="main-content"],
+body:has([data-slot="dashboard-page"]) [data-slot="main-content"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="main-content"],
 body:has([data-component="messages"]) [data-slot="main-content"],
 body:has([data-component="prices-page"]) [data-slot="main-content"],
@@ -5626,7 +5626,7 @@ body.mobile-prices-route [data-slot="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body:has([data-component="dashboard"]) .mobile-detail-sheet,
+body:has([data-slot="dashboard-page"]) .mobile-detail-sheet,
 body:has([data-component="mobile_employees_detail-sheet"]) .mobile-detail-sheet,
 body:has([data-component="messages"]) .mobile-detail-sheet,
 body:has([data-component="prices-page"]) .mobile-detail-sheet,
@@ -5639,7 +5639,7 @@ body.mobile-prices-route .mobile-detail-sheet {
   margin: 0 !important;
 }
 
-[data-component="dashboard"] [data-component="mobile-dashboard-content"],
+[data-slot="dashboard-page"] [data-slot="dashboard-content"],
 [data-component="mobile_employees_detail-sheet"] [data-component="mobile-employees-content"],
 [data-component="messages"] [data-component="mobile-messages-content"],
 [data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
@@ -5649,13 +5649,13 @@ body.mobile-prices-route .mobile-detail-sheet {
 /* Dashboard has the analytics grid above its list card, so only the page shell
    should reserve header space. The list content itself must not get the shared
    76px top padding, otherwise refresh pushes the card down and clips analytics. */
-body:has([data-component="dashboard"]) [data-slot="main-content"],
+body:has([data-slot="dashboard-page"]) [data-slot="main-content"],
 body.mobile-dashboard-route [data-slot="main-content"] {
   padding: 64px 0 0 !important;
 }
 
-body:has([data-component="dashboard"]) [data-component="mobile-dashboard-content"],
-body.mobile-dashboard-route [data-component="mobile-dashboard-content"] {
+body:has([data-slot="dashboard-page"]) [data-slot="dashboard-content"],
+body.mobile-dashboard-route [data-slot="dashboard-content"] {
   padding: 12px 14px 76px !important;
 }
 
