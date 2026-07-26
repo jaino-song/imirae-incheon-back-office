@@ -201,14 +201,14 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await page.goto("/all");
     await expect(page.locator('[data-component="all-page"]')).toBeVisible();
 
-    const nav = page.locator('[data-component="mobile-bottom-nav"]');
+    const nav = page.locator('[data-slot="mobile-bottom-nav"]');
     await expect(nav).toBeVisible();
 
     // Center chat button.
-    await expect(page.locator('[data-component="mobile-bottom-nav-chat"]')).toBeVisible();
+    await expect(page.locator('[data-slot="mobile-bottom-nav-chat"]')).toBeVisible();
 
     // "전체" button should exist.
-    const allNav = page.locator('[data-component="mobile-bottom-nav-all"]');
+    const allNav = page.locator('[data-slot="mobile-bottom-nav-all"]');
     await expect(allNav).toBeVisible();
     await expect(allNav).toHaveAttribute("aria-current", "page");
     await expect(page.locator('[data-component="all-menu"]')).toBeVisible();
@@ -222,14 +222,14 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await expect(page.locator('[data-component="all-page"]')).toBeVisible();
 
     const geometry = await page.evaluate(() => {
-      const appRoot = document.querySelector('[data-component="app-root"]')?.getBoundingClientRect();
-      const appProviders = document.querySelector('[data-component="app-providers"]')?.getBoundingClientRect();
+      const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
+      const appProviders = document.querySelector('[data-slot="app-content"]')?.getBoundingClientRect();
       const allMenu = document.querySelector('[data-component="all-menu"]')?.getBoundingClientRect();
       const profileCard = document.querySelector('[data-component="mobile-all-profile-card"]')?.getBoundingClientRect();
       const menuGroup = document.querySelector('[data-component="mobile-redesign-menu-group"]')?.getBoundingClientRect();
-      const bottomNav = document.querySelector('[data-component="mobile-bottom-nav"]')?.getBoundingClientRect();
-      const rootElement = document.querySelector('[data-component="app-root"]') as HTMLElement | null;
-      const providersElement = document.querySelector('[data-component="app-providers"]') as HTMLElement | null;
+      const bottomNav = document.querySelector('[data-slot="mobile-bottom-nav"]')?.getBoundingClientRect();
+      const rootElement = document.querySelector('[data-slot="app-root"]') as HTMLElement | null;
+      const providersElement = document.querySelector('[data-slot="app-content"]') as HTMLElement | null;
       const rootStyles = rootElement ? getComputedStyle(rootElement) : null;
       const providerStyles = providersElement ? getComputedStyle(providersElement) : null;
 
@@ -352,9 +352,9 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await expect(page.locator('[data-component="all-page"]')).toBeVisible();
 
     const geometry = await page.evaluate(() => {
-      const appRoot = document.querySelector('[data-component="app-root"]')?.getBoundingClientRect();
-      const header = document.querySelector('[data-component="mobile-header"]')?.getBoundingClientRect();
-      const rootElement = document.querySelector('[data-component="app-root"]') as HTMLElement | null;
+      const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
+      const header = document.querySelector('[data-slot="mobile-header"]')?.getBoundingClientRect();
+      const rootElement = document.querySelector('[data-slot="app-root"]') as HTMLElement | null;
       const rootStyles = rootElement ? getComputedStyle(rootElement) : null;
       const rootBeforeStyles = rootElement ? getComputedStyle(rootElement, "::before") : null;
 

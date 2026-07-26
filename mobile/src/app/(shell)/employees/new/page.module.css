@@ -1,11 +1,11 @@
-:global([data-component="app-root"]:has([data-component="employees-new-redesign"])) {
+:global([data-slot="app-root"]:has([data-component="employees-new-redesign"])) {
   overflow: hidden;
   background: hsl(var(--v3-dim-white));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
 }
 
-:global(main[data-component="main-content"]:has([data-component="employees-new-redesign"])) {
+:global(main[data-slot="main-content"]:has([data-component="employees-new-redesign"])) {
   display: flex;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
   min-height: 0;
@@ -13,18 +13,18 @@
   padding: 0 !important;
 }
 
-:global(main[data-component="main-content"]:has([data-component="employees-new-redesign"]) > [data-component="employees-new-redesign"]) {
+:global(main[data-slot="main-content"]:has([data-component="employees-new-redesign"]) > [data-component="employees-new-redesign"]) {
   flex: 1;
   min-height: 0;
 }
 
-:global([data-component="app-root"]:has([data-component="employees-new-redesign"]) [data-component="mobile-header"]),
-:global([data-component="app-root"]:has([data-component="employees-new-redesign"]) [data-component="mobile-bottom-nav"]),
-:global([data-component="app-root"]:has([data-component="employees-new-redesign"]) [data-component="floating-quick-actions"]) {
+:global([data-slot="app-root"]:has([data-component="employees-new-redesign"]) [data-slot="mobile-header"]),
+:global([data-slot="app-root"]:has([data-component="employees-new-redesign"]) [data-slot="mobile-bottom-nav"]),
+:global([data-slot="app-root"]:has([data-component="employees-new-redesign"]) [data-slot="floating-quick-actions"]) {
   display: none !important;
 }
 
-:global([data-component="app-root"]:has([data-component="employees-new-redesign"]) div.fixed.left-4.right-4.z-50.bg-white) {
+:global([data-slot="app-root"]:has([data-component="employees-new-redesign"]) div.fixed.left-4.right-4.z-50.bg-white) {
   display: none !important;
 }
 

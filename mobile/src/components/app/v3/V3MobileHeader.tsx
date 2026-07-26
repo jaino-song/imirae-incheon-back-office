@@ -9,16 +9,10 @@ import "@/components/app/mobile-redesign/redesign.css";
 const DEFAULT_USER_LABEL = "사용자";
 const DEFAULT_BRANCH_LABEL = "지점 미선택";
 const SOURCE_COMPONENT = "V3MobileHeader";
-/**
- * TODO(data-component): Remove these legacy fallbacks after caller migration.
- * data-component="mobile-header"
- * data-component="mobile-header-identity"
- * data-component="mobile-header-text"
- * data-component="mobile-header-icons"
- */
 
 interface V3MobileHeaderProps {
-  "data-component"?: string;
+  /** Canonical caller-context base, e.g. "mobile_shell_header". */
+  "data-component": string;
 }
 
 export function V3MobileHeader({
@@ -31,23 +25,22 @@ export function V3MobileHeader({
 
   const userLabel = user?.name ? `${user.name} 님` : DEFAULT_USER_LABEL;
   const branchLabel = user?.branchName ?? DEFAULT_BRANCH_LABEL;
-  const sub = (suffix: string, legacyValue: string) =>
-    dataComponent ? `${dataComponent}_${suffix}` : legacyValue;
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
 
   return (
     <header
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? "mobile-header"}
+      data-component={dataComponent}
+      data-slot="mobile-header"
       data-source-component={SOURCE_COMPONENT}
       className="existing-navbar fixed top-0 left-1/2 z-40 w-full max-w-[430px] -translate-x-1/2"
     >
-      <div className="navbar-identity" data-component={sub("identity", "mobile-header-identity")}>
-        <div className="navbar-text" data-component={sub("text", "mobile-header-text")}>
+      <div className="navbar-identity" data-component={sub("identity")} data-slot="mobile-header-identity">
+        <div className="navbar-text" data-component={sub("text")} data-slot="mobile-header-text">
           <span className="navbar-user">{userLabel}</span>
           <span className="navbar-branch">{branchLabel}</span>
         </div>
       </div>
-      <div className="navbar-icons" data-component={sub("icons", "mobile-header-icons")}>
+      <div className="navbar-icons" data-component={sub("icons")} data-slot="mobile-header-icons">
         <NotificationBell className="!h-[44px] !w-[44px] !rounded-xl bg-transparent hover:bg-transparent hover:scale-100 active:scale-100 text-v3-text" />
       </div>
     </header>

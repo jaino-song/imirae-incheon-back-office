@@ -657,12 +657,12 @@ test.describe("Mobile contracts list rows", () => {
     );
 
     const geometry = await page.evaluate(() => {
-      const appRoot = document.querySelector('[data-component="app-root"]')?.getBoundingClientRect();
-      const appProviders = document.querySelector('[data-component="app-providers"]')?.getBoundingClientRect();
+      const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
+      const appProviders = document.querySelector('[data-slot="app-content"]')?.getBoundingClientRect();
       const card = document.querySelector('[data-component="mobile-redesign-list-card"]')?.getBoundingClientRect();
       const bodyBackground = getComputedStyle(document.body).backgroundColor;
-      const rootElement = document.querySelector('[data-component="app-root"]') as HTMLElement | null;
-      const providersElement = document.querySelector('[data-component="app-providers"]') as HTMLElement | null;
+      const rootElement = document.querySelector('[data-slot="app-root"]') as HTMLElement | null;
+      const providersElement = document.querySelector('[data-slot="app-content"]') as HTMLElement | null;
       const rootStyles = rootElement ? getComputedStyle(rootElement) : null;
       const providerStyles = providersElement ? getComputedStyle(providersElement) : null;
 
@@ -742,8 +742,8 @@ test.describe("Mobile contracts list rows", () => {
       document.body.classList.remove("mobile-contracts-route");
     });
 
-    const contractsTab = page.locator('[data-component="mobile-bottom-nav-contracts"]');
-    const indicator = page.locator('[data-component="mobile-bottom-indicator"]');
+    const contractsTab = page.locator('[data-slot="mobile-bottom-nav-contracts"]');
+    const indicator = page.locator('[data-slot="mobile-bottom-indicator"]');
     await expect(indicator).toHaveCSS("display", "block");
     await expect(indicator).toHaveCSS("opacity", "1");
     await expect(contractsTab).toHaveAttribute("aria-current", "page");
@@ -751,7 +751,7 @@ test.describe("Mobile contracts list rows", () => {
     await expect(contractsTab).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
     const beforeHydrationClass = await page.evaluate(() => {
-      const header = document.querySelector('[data-component="mobile-header"]')?.getBoundingClientRect();
+      const header = document.querySelector('[data-slot="mobile-header"]')?.getBoundingClientRect();
       const card = document.querySelector('[data-component="mobile-redesign-list-card"]')?.getBoundingClientRect();
       return {
         header: header ? { x: header.x, y: header.y, width: header.width } : null,
@@ -764,7 +764,7 @@ test.describe("Mobile contracts list rows", () => {
     });
 
     const afterHydrationClass = await page.evaluate(() => {
-      const header = document.querySelector('[data-component="mobile-header"]')?.getBoundingClientRect();
+      const header = document.querySelector('[data-slot="mobile-header"]')?.getBoundingClientRect();
       const card = document.querySelector('[data-component="mobile-redesign-list-card"]')?.getBoundingClientRect();
       return {
         header: header ? { x: header.x, y: header.y, width: header.width } : null,

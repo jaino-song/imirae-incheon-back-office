@@ -119,7 +119,7 @@ test.describe("Mobile prices skeletons", () => {
     await expect(page.locator('[data-component="prices-page"]')).toBeVisible();
 
     const listMetrics = await page.evaluate(() => {
-      const appRoot = document.querySelector('[data-component="app-root"]')?.getBoundingClientRect();
+      const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
       const listCard = document
         .querySelector('[data-component="mobile-redesign-list-card"]')
         ?.getBoundingClientRect();

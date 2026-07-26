@@ -1293,7 +1293,7 @@ body {
  * Route styles may arrange app-content descendants, but must not resize the
  * viewport root or its canvas.
  */
-html body [data-component="app-root"][data-slot="app-root"] {
+html body .mobile-app-root[data-slot="app-root"] {
   width: 100vw !important;
   max-width: none !important;
   height: 100dvh !important;

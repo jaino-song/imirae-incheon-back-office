@@ -5,11 +5,11 @@ import { isLayoutExcluded } from "@/lib/constants/v3-layout";
 import { cn } from "@/lib/utils";
 
 const SOURCE_COMPONENT = "V3MainContent";
-// TODO(data-component): Remove legacy fallback data-component="main-content" after caller migration.
 
 interface V3MainContentProps {
   children: React.ReactNode;
-  "data-component"?: string;
+  /** Canonical caller-context value, e.g. "mobile_shell_main-content". */
+  "data-component": string;
 }
 
 export function V3MainContent({
@@ -25,8 +25,8 @@ export function V3MainContent({
 
   return (
     <main
-      // TODO(data-component): Remove the legacy fallback after caller migration.
-      data-component={dataComponent ?? "main-content"}
+      data-component={dataComponent}
+      data-slot="main-content"
       data-source-component={SOURCE_COMPONENT}
       className={cn(
         "bg-v3-dim-white",
