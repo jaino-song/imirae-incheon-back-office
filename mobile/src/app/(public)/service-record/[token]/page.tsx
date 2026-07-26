@@ -690,7 +690,7 @@ export default function ServiceRecordPage() {
         const v = draft[it.key];
         if (it.type === "multi") {
             return (
-                <div data-component="service-record-options" className="opts">
+                <div data-component="mobile_service-record_wizard_body_day-field_options" className="opts">
                     {it.opts!.map((o) => (
                         <button type="button" key={o} aria-pressed={Array.isArray(v) && (v as string[]).includes(o)} className={`opt ${Array.isArray(v) && (v as string[]).includes(o) ? "sel" : ""}`} onClick={() => toggleMulti(it.key, o)}>
                             <span className="box">✓</span>{o}
@@ -702,7 +702,7 @@ export default function ServiceRecordPage() {
         if (it.type === "radio" || it.type === "stool") {
             return (
                 <>
-                    <div data-component="service-record-radio-options" className="opts">
+                    <div data-component="mobile_service-record_wizard_body_day-field_radio-options" className="opts">
                         {it.opts!.map((o) => (
                             <button type="button" key={o} aria-pressed={v === o} className={`opt radio ${v === o ? "sel" : ""}`} onClick={() => setField(it.key, o)}>
                                 <span className="box">●</span>{o}
@@ -718,9 +718,9 @@ export default function ServiceRecordPage() {
         }
         if (it.type === "counts") {
             return (
-                <div data-component="service-record-count-options" className="segrow">
+                <div data-component="mobile_service-record_wizard_body_day-field_count-options" className="segrow">
                     {it.counts!.map((c) => (
-                        <div data-component="service-record-count-row" className="segnum" key={c.k}>
+                        <div data-component="mobile_service-record_wizard_body_day-field_count-options_row" className="segnum" key={c.k}>
                             <span>{c.label}</span>
                             <input type="number" aria-label={c.label} inputMode={c.k === "temp" ? "decimal" : "numeric"} min="0" step={c.k === "temp" ? "0.1" : "1"} value={((draft[`${it.key}_${c.k}`] as string) ?? "")} onChange={(e) => setField(`${it.key}_${c.k}`, e.target.value)} />
                             <span>{c.unit}</span>
@@ -734,8 +734,8 @@ export default function ServiceRecordPage() {
                 ? "추가사항에 대한 기록 필요 시 기재"
                 : "서비스 제공 관련 특이사항 기록 필요 시 기재";
             const dataComponent = it.key === "etcService"
-                ? "mobile_service-record_daily-form_etc-service"
-                : "mobile_service-record_daily-form_notes";
+                ? "mobile_service-record_wizard_body_day-field_etc-service"
+                : "mobile_service-record_wizard_body_day-field_notes";
             return (
                 <textarea
                     data-component={dataComponent}
@@ -749,7 +749,7 @@ export default function ServiceRecordPage() {
         }
         if (it.type === "confirm") {
             return (
-                <div data-component="service-record-confirm-options" className="opts">
+                <div data-component="mobile_service-record_wizard_body_day-field_confirm-options" className="opts">
                     <button type="button" aria-pressed={Boolean(v)} className={`opt ${v ? "sel" : ""}`} onClick={() => setField(it.key, !v)}>
                         <span className="box">✓</span>결제 확인 완료
                     </button>
@@ -799,13 +799,16 @@ export default function ServiceRecordPage() {
                     : 5;
 
     return (
-        <div data-component="service-record-wizard" className="srec">
+        <div data-component="mobile_service-record_wizard" className="srec">
             <Styles />
-            <div data-component="service-record-top-bar" className="top">
+            <div data-component="mobile_service-record_wizard_top-bar" className="top">
                 <h1>산모·신생아 건강관리 서비스 제공기록지</h1>
-                <div data-component="service-record-top-meta" className="top-meta">
-                    <ProviderInfo providerName={ctx?.org?.name} />
-                    <div data-component="service-record-crumbs" className="crumbs">
+                <div data-component="mobile_service-record_wizard_top-bar_meta" className="top-meta">
+                    <ProviderInfo
+                        data-component="mobile_service-record_wizard_top-bar_meta_provider-name"
+                        providerName={ctx?.org?.name}
+                    />
+                    <div data-component="mobile_service-record_wizard_top-bar_meta_crumbs" className="crumbs">
                         {screen === "phone" && <>1단계 · <b>본인 확인</b></>}
                         {screen === "service" && <>2단계 · <b>서비스 기본정보</b></>}
                         {screen === "overview" && <>3단계 · <b>일자별 기록</b></>}
@@ -813,44 +816,44 @@ export default function ServiceRecordPage() {
                         {screen === "done" && <b>최종 제출 완료</b>}
                     </div>
                 </div>
-                <div data-component="service-record-progress" className="bar"><i style={{ width: `${progress}%` }} /></div>
+                <div data-component="mobile_service-record_wizard_top-bar_progress" className="bar"><i style={{ width: `${progress}%` }} /></div>
             </div>
-            <div data-component="service-record-body" className={`body ${screen === "done" ? "completion-body" : ""}`}>
+            <div data-component="mobile_service-record_wizard_body" className={`body ${screen === "done" ? "completion-body" : ""}`}>
                 {screen === "loading" && <p className="muted">불러오는 중…</p>}
 
                 {screen === "invalid" && (
-                    <div data-component="service-record-invalid-center" className="center">
-                        <div data-component="service-record-invalid-title" className="step-title">링크를 사용할 수 없습니다</div>
+                    <div data-component="mobile_service-record_wizard_body_invalid-center" className="center">
+                        <div data-component="mobile_service-record_wizard_body_invalid-center_title" className="step-title">링크를 사용할 수 없습니다</div>
                         <p className="muted">만료되었거나 더 이상 유효하지 않은 링크입니다. 지점에 문의해 주세요.</p>
                     </div>
                 )}
 
                 {screen === "phone" && (
                     <>
-                        <div data-component="service-record-phone-title" className="step-title">제공인력 본인 확인</div>
+                        <div data-component="mobile_service-record_wizard_body_phone-title" className="step-title">제공인력 본인 확인</div>
                         <p className="muted">본인 휴대폰 번호를 입력하면 서비스 기간 동안 유효한 접근 권한이 발급됩니다.</p>
-                        <label data-component="service-record-phone-label" className="lab" htmlFor="service-record-phone">휴대폰 번호</label>
-                        <input id="service-record-phone" data-component="service-record-phone-input" className="in" type="tel" inputMode="numeric" autoComplete="tel" maxLength={13} placeholder="예) 01012345678" value={phone} onChange={(e) => handlePhoneChange(e.target.value)} />
+                        <label data-component="mobile_service-record_wizard_body_phone-label" className="lab" htmlFor="service-record-phone">휴대폰 번호</label>
+                        <input id="service-record-phone" data-component="mobile_service-record_wizard_body_phone-input" className="in" type="tel" inputMode="numeric" autoComplete="tel" maxLength={13} placeholder="예) 01012345678" value={phone} onChange={(e) => handlePhoneChange(e.target.value)} />
                         {phoneError && <p className="err">{phoneError}</p>}
-                        <button data-component="service-record-phone-submit" className="btn primary" disabled={busy} onClick={submitPhone}>{busy ? "확인 중…" : "확인하기"}</button>
+                        <button data-component="mobile_service-record_wizard_body_phone-submit" className="btn primary" disabled={busy} onClick={submitPhone}>{busy ? "확인 중…" : "확인하기"}</button>
                     </>
                 )}
 
                 {screen === "service" && (
                     <>
-                        <button data-component="service-record-service-back" className="text-back" type="button" onClick={() => window.history.back()}>이전</button>
-                        <div data-component="service-record-service-title" className="step-title">서비스 기본정보</div>
-                        <div data-component="service-record-readonly-row" className="ro"><span>제공인력</span><b>{ctx?.employee.name}</b></div>
-                        <div data-component="service-record-readonly-row" className="ro"><span>제공기관</span><b>{ctx?.org?.name ?? DEFAULT_PROVIDER_NAME}</b></div>
+                        <button data-component="mobile_service-record_wizard_body_service-back" className="text-back" type="button" onClick={() => window.history.back()}>이전</button>
+                        <div data-component="mobile_service-record_wizard_body_service-title" className="step-title">서비스 기본정보</div>
+                        <div data-component="mobile_service-record_wizard_body_readonly-row" className="ro"><span>제공인력</span><b>{ctx?.employee.name}</b></div>
+                        <div data-component="mobile_service-record_wizard_body_readonly-row-2" className="ro"><span>제공기관</span><b>{ctx?.org?.name ?? DEFAULT_PROVIDER_NAME}</b></div>
                         {HEADER_FIELDS.slice(0, 4).map((f) => (
-                            <div data-component="service-record-field" className="fld" key={f.k}>
+                            <div data-component="mobile_service-record_wizard_body_field" className="fld" key={f.k}>
                                 <label className="lab">{f.label}</label>
                                 <input className="in" placeholder={f.ph} value={header[f.k] ?? ""} onChange={(e) => setHeader((h) => ({ ...h, [f.k]: e.target.value }))} />
                             </div>
                         ))}
-                        <div data-component="service-record-delivery-field" className="fld">
+                        <div data-component="mobile_service-record_wizard_body_delivery-field" className="fld">
                             <label className="lab">분만형태</label>
-                            <div data-component="service-record-delivery-options" className="opts">
+                            <div data-component="mobile_service-record_wizard_body_delivery-field_options" className="opts">
                                 {["자연분만", "제왕절개"].map((o) => (
                                     <button type="button" key={o} aria-pressed={header["deliveryType"] === o} className={`opt radio ${header["deliveryType"] === o ? "sel" : ""}`} onClick={() => setHeader((h) => ({ ...h, deliveryType: o }))}>
                                         <span className="box">●</span>{o}
@@ -858,7 +861,7 @@ export default function ServiceRecordPage() {
                                 ))}
                             </div>
                         </div>
-                        <div data-component="service-record-field" className="fld">
+                        <div data-component="mobile_service-record_wizard_body_field-2" className="fld">
                             <label className="lab">{HEADER_FIELDS[4]?.label}</label>
                             <input className="in" placeholder={HEADER_FIELDS[4]?.ph} value={header.babyWeight ?? ""} onChange={(e) => setHeader((h) => ({ ...h, babyWeight: e.target.value }))} />
                         </div>
@@ -868,9 +871,9 @@ export default function ServiceRecordPage() {
 
                 {screen === "overview" && ctx && (
                     <>
-                        <div data-component="service-record-overview-title" className="step-title">제공기록표</div>
-                        <p data-component="mobile_service-record_overview_help" className="muted">제출된 기록은 눌러서 수정할 수 있습니다.</p>
-                        <div data-component="service-record-day-grid" className="days">
+                        <div data-component="mobile_service-record_wizard_body_overview-title" className="step-title">제공기록표</div>
+                        <p data-component="mobile_service-record_wizard_body_overview-help" className="muted">제출된 기록은 눌러서 수정할 수 있습니다.</p>
+                        <div data-component="mobile_service-record_wizard_body_day-grid" className="days">
                             {Array.from({ length: ctx.totalSessions }, (_, i) => i + 1).map((d) => {
                                 const done = lockedDays.has(d);
                                 const open = d === nextOpenDay();
@@ -883,15 +886,15 @@ export default function ServiceRecordPage() {
                                         disabled={isDayButtonDisabled({ done, open, isRecordFinalized })}
                                         onClick={() => openDay(d, done)}
                                     >
-                                        <div data-component="service-record-day-date" className="d">{mmdd(done ? (ctx.sessions.find((s) => s.sessionIndex === d)?.serviceDate.slice(0, 10) ?? "") : defaultDate(d))}</div>
-                                        <div data-component="service-record-day-number" className="n">{d}</div>
-                                        <div data-component="service-record-day-status" className="st">{done ? "제출완료" : open ? "입력 가능" : "대기"}</div>
+                                        <div data-component="mobile_service-record_wizard_body_day-grid_day_date" className="d">{mmdd(done ? (ctx.sessions.find((s) => s.sessionIndex === d)?.serviceDate.slice(0, 10) ?? "") : defaultDate(d))}</div>
+                                        <div data-component="mobile_service-record_wizard_body_day-grid_day_number" className="n">{d}</div>
+                                        <div data-component="mobile_service-record_wizard_body_day-grid_day_status" className="st">{done ? "제출완료" : open ? "입력 가능" : "대기"}</div>
                                     </button>
                                 );
                             })}
                         </div>
                         {lockedDays.size < ctx.totalSessions && (
-                            <div data-component="service-record-overview-actions" className="overview-actions">
+                            <div data-component="mobile_service-record_wizard_body_overview-actions" className="overview-actions">
                                 <button className="btn primary" disabled={isRecordFinalized} onClick={() => openDay(nextOpenDay())}>{lockedDays.size ? "다음 회차 입력" : "기록 시작"}</button>
                                 <button
                                     className="btn ghost schedule-change"
@@ -908,36 +911,36 @@ export default function ServiceRecordPage() {
                 {screen === "day" && (
                     <>
                         <button
-                            data-component="service-record-day-back"
+                            data-component="mobile_service-record_wizard_body_day-back"
                             className="text-back"
                             type="button"
                             onClick={() => window.history.back()}
                         >
                             이전
                         </button>
-                        <div data-component="service-record-date-chip" className="datechip">
+                        <div data-component="mobile_service-record_wizard_body_date-chip" className="datechip">
                             {day}회차{editing ? ` · ${monthDayKo(currentServiceDate)}` : ""}
                         </div>
                         {!editing && pageIdx === 0 && (
-                            <div data-component="service-record-service-date-field" className="fld">
+                            <div data-component="mobile_service-record_wizard_body_service-date-field" className="fld">
                                 <label className="lab">제공일자</label>
                                 <input type="date" className="in dateinput" value={currentServiceDate} min={day <= 1 ? (ctx?.startDate?.slice(0, 10) ?? undefined) : defaultDate(day)} onChange={(e) => setField("_date", e.target.value)} />
                             </div>
                         )}
                         {!editing && hasServiceDateMismatch && (
-                            <div data-component="service-record-date-mismatch-notice" className="notice">
+                            <div data-component="mobile_service-record_wizard_body_date-mismatch-notice" className="notice">
                                 <span>서비스 제공일자({monthDayKo(currentServiceDate)})가 오늘과 달라요. 한번 더 확인해 주세요.</span>
                             </div>
                         )}
-                        <div data-component="service-record-day-title" className="step-title">{currentDayPage.title}</div>
+                        <div data-component="mobile_service-record_wizard_body_day-title" className="step-title">{currentDayPage.title}</div>
                         {isMomConfirmationPage ? (
                             <>
                                 {editing && (
-                                    <div data-component="service-record-resign-notice" className="notice">
+                                    <div data-component="mobile_service-record_wizard_body_resign-notice" className="notice">
                                         <span>이미 제출된 회차입니다.</span>
                                     </div>
                                 )}
-                                <div data-component="service-record-handover-banner" className="handover">
+                                <div data-component="mobile_service-record_wizard_body_handover-banner" className="handover">
                                     <b>최종 기록을 확인해 주세요.</b>
                                 </div>
                                 <MomConfirmationReview
@@ -950,6 +953,7 @@ export default function ServiceRecordPage() {
                                     })}
                                 />
                                 <SignaturePad
+                                    data-component="mobile_service-record_wizard_body_mom-sign"
                                     value={signatureValue}
                                     signedAt={currentSession?.clientSignedAt ?? null}
                                     onChange={setMomSignature}
@@ -962,7 +966,7 @@ export default function ServiceRecordPage() {
                                     const item = DAILY_ITEMS[idx];
                                     if (!item) return null;
                                     return (
-                                        <div data-component="service-record-day-field" className="fld" key={item.key}>
+                                        <div data-component="mobile_service-record_wizard_body_day-field" className="fld" key={item.key}>
                                             <label className="lab">{item.label}</label>
                                             {renderField(item)}
                                         </div>
@@ -971,11 +975,11 @@ export default function ServiceRecordPage() {
                             </>
                         )}
                         {isMomConfirmationPage ? (
-                            <div data-component="service-record-confirmation-action" className="nav confirmation-nav">
+                            <div data-component="mobile_service-record_wizard_body_confirmation-action" className="nav confirmation-nav">
                                 <button className="btn submit" disabled={busy || !signatureValue} onClick={() => setSubmitModalOpen(true)}>확인</button>
                             </div>
                         ) : (
-                            <div data-component="service-record-nav" className="nav">
+                            <div data-component="mobile_service-record_wizard_body_nav" className="nav">
                                 <button
                                     className="btn primary"
                                     disabled={!isCurrentPageComplete}
@@ -993,16 +997,16 @@ export default function ServiceRecordPage() {
                 )}
 
                 {screen === "done" && (
-                    <div data-component="service-record-done-center" className="center">
-                        <span data-component="service-record-done-icon" className="completion-icon" aria-hidden="true">✅</span>
-                        <h2 data-component="service-record-done-title" className="completion-title">제공기록지 제출이 완료되었습니다.</h2>
+                    <div data-component="mobile_service-record_wizard_body_done-center" className="center">
+                        <span data-component="mobile_service-record_wizard_body_done-center_icon" className="completion-icon" aria-hidden="true">✅</span>
+                        <h2 data-component="mobile_service-record_wizard_body_done-center_title" className="completion-title">제공기록지 제출이 완료되었습니다.</h2>
                     </div>
                 )}
             </div>
             <ApprovalTwoButtonModal
                 open={submitModalOpen}
                 onOpenChange={setSubmitModalOpen}
-                dataComponent="service-record-submit"
+                data-component="mobile_service-record_submit-modal"
                 title="제출하시겠어요?"
                 description={editing
                     ? `확인하면 ${day}회차 기록이 수정 제출됩니다.`
@@ -1014,6 +1018,7 @@ export default function ServiceRecordPage() {
                 onApprove={submitDay}
             />
             <MobileTwoButtonModal
+                data-component="mobile_service-record_schedule-change-modal"
                 open={scheduleChangeModalOpen}
                 title={scheduleChangePreview ? `${scheduleChangePreview.sessionIndex}회차 서비스 일정을 조정할까요?` : "서비스 일정 변경"}
                 description={scheduleChangePreview
@@ -1036,7 +1041,7 @@ export default function ServiceRecordPage() {
                 onOpenChange={(open) => {
                     if (!open) setErrorNotificationMessage(null);
                 }}
-                dataComponent="service-record-error-notification"
+                data-component="mobile_service-record_error-notification"
                 title="요청을 완료하지 못했습니다."
                 description={errorNotificationMessage ?? ""}
                 isDescriptionVisuallyHidden={false}
@@ -1054,16 +1059,16 @@ interface MomConfirmationReviewProps {
 
 function MomConfirmationReview({ draft, editing, onEdit }: MomConfirmationReviewProps) {
     return (
-        <div data-component="service-record-mom-confirmation-review" className="review">
+        <div data-component="mobile_service-record_wizard_body_review" className="review">
             {REVIEW_SECTIONS.map((section, sectionIndex) => (
-                <section data-component="service-record-review-section" className="review-section" key={section.id}>
-                    <div data-component="service-record-review-section-header" className="sec-head">
+                <section data-component="mobile_service-record_wizard_body_review_section" className="review-section" key={section.id}>
+                    <div data-component="mobile_service-record_wizard_body_review_section_header" className="sec-head">
                         <span className={`tag ${sectionToneClass(section.tone)}`}>{section.title}</span>
                         {editing && (
                             <button
                                 type="button"
                                 className="sec-edit"
-                                data-component="service-record-review-edit"
+                                data-component="mobile_service-record_wizard_body_review_section_header_edit"
                                 onClick={() => onEdit(sectionIndex)}
                             >
                                 수정
@@ -1093,7 +1098,7 @@ function ReviewFieldRow({
 
     if (isText) {
         return (
-            <div data-component="service-record-review-note" className="review-note">
+            <div data-component="mobile_service-record_wizard_body_review_section_note" className="review-note">
                 <span>{field.label}</span>
                 <b className={valueClassName}>{value}</b>
             </div>
@@ -1101,7 +1106,7 @@ function ReviewFieldRow({
     }
 
     return (
-        <div data-component="service-record-review-row" className="review-row">
+        <div data-component="mobile_service-record_wizard_body_review_section_row" className="review-row">
             <span>{field.label}</span>
             <b className={valueClassName}>{value}</b>
         </div>

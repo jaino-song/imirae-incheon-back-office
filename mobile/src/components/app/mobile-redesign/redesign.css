@@ -2492,19 +2492,19 @@ body.mobile-clients-route [data-slot="mobile-header"] {
 .voucher-tag.self { color: hsl(var(--v3-dark)); }
 .snippet-sep { opacity: 0.4; }
 /* ===== /employees pixel shell — scoped to this route only ===== */
-body:has([data-component="mobile_employees_detail-sheet"]) {
+body:has([data-slot="employees-content"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
   /* Lock the shell to the viewport so the page itself never scrolls — only the
-     inner [data-component="mobile-employees-content"] list scrolls (parity with
+     inner [data-slot="employees-content"] list scrolls (parity with
      the dashboard, redesign.css:155). The app-root/app-providers/main locks
      below already exist; the body overflow lock was the missing piece. */
   overflow: hidden;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"] {
+body:has([data-slot="employees-content"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   background: #000;
@@ -2513,7 +2513,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"
   overflow: hidden;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"]::before {
+body:has([data-slot="employees-content"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -2527,7 +2527,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"
   pointer-events: none;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-content"] {
+body:has([data-slot="employees-content"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -2536,7 +2536,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-conte
   border-radius: 38px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="main-content"] {
+body:has([data-slot="employees-content"]) [data-slot="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -2544,7 +2544,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="main-cont
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet"] {
+body:has([data-slot="employees-content"]) .mobile-detail-sheet {
   position: relative !important;
   inset: auto !important;
   width: auto !important;
@@ -2556,7 +2556,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
   margin: 0 !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-header"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2568,34 +2568,28 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-he
   transform: none !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet"].mobile-detail-sheet {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-employees-content"] {
+body:has([data-slot="employees-content"]) [data-slot="employees-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-title {
+body:has([data-slot="employees-content"]) .list-title {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile-employees-content"] .search-bar {
+body:has([data-slot="employees-content"]) [data-slot="employees-content"] .search-bar {
   margin: 4px 12px 8px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .search-bar input {
+body:has([data-slot="employees-content"]) .search-bar input {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .filter-pill {
+body:has([data-slot="employees-content"]) .filter-pill {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) button.list-item {
+body:has([data-slot="employees-content"]) button.list-item {
   width: 100%;
   border: 0;
   background: transparent;
@@ -2604,44 +2598,44 @@ body:has([data-component="mobile_employees_detail-sheet"]) button.list-item {
   text-align: left;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-name,
-body:has([data-component="mobile_employees_detail-sheet"]) .list-meta,
-body:has([data-component="mobile_employees_detail-sheet"]) .section-header {
+body:has([data-slot="employees-content"]) .list-name,
+body:has([data-slot="employees-content"]) .list-meta,
+body:has([data-slot="employees-content"]) .section-header {
   line-height: normal;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-primary {
+body:has([data-slot="employees-content"]) .list-avatar.av-primary {
   background: linear-gradient(135deg, hsl(var(--v3-primary)), hsl(214, 100%, 28%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-green {
+body:has([data-slot="employees-content"]) .list-avatar.av-green {
   background: linear-gradient(135deg, hsl(var(--v3-green)), hsl(137, 34%, 25%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-orange {
+body:has([data-slot="employees-content"]) .list-avatar.av-orange {
   background: linear-gradient(135deg, hsl(var(--v3-orange)), hsl(34, 100%, 45%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-burgundy {
+body:has([data-slot="employees-content"]) .list-avatar.av-burgundy {
   background: hsl(var(--v3-burgundy));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-purple {
+body:has([data-slot="employees-content"]) .list-avatar.av-purple {
   background: linear-gradient(135deg, hsl(var(--v3-purple)), hsl(267, 50%, 38%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .list-avatar.av-muted {
+body:has([data-slot="employees-content"]) .list-avatar.av-muted {
   background: linear-gradient(135deg, hsl(var(--v3-text-muted)), hsl(220, 8%, 35%));
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_list-page"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-list-page"] {
   position: absolute;
   inset: 0;
 }
@@ -2651,36 +2645,36 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobi
    peek. Pinning `inset: 0` here would flush it to the top and flatten the
    bottom-sheet look (the rounded top corners and shadow would have nothing to
    sit against). */
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack_detail-page"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component="mobile_employees_detail-sheet_stack"].show-detail .nav-page.list {
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]):has([data-component="mobile_employees_detail-sheet_stack"].show-detail) [data-slot="mobile-bottom-nav"] {
+body:has([data-slot="employees-content"]):has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-bottom-nav"] {
   opacity: 0;
   pointer-events: none;
   translate: 0 calc(100% + 32px) !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .badge-mini {
+body:has([data-slot="employees-content"]) .badge-mini {
   height: 28px;
   font-size: 0.68rem;
   border: 1px solid;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .info-row-value-orange {
+body:has([data-slot="employees-content"]) .info-row-value-orange {
   color: hsl(38, 92%, 35%);
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) .detail-body .detail-actions {
+body:has([data-slot="employees-content"]) .detail-body .detail-actions {
   margin-top: 0;
   padding: 14px 16px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bottom-nav"] {
+body:has([data-slot="employees-content"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -2698,18 +2692,18 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bo
   transform: none !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) nav[data-slot="mobile-bottom-nav"] a {
+body:has([data-slot="employees-content"]) nav[data-slot="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bottom-nav"] svg {
+body:has([data-slot="employees-content"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bottom-nav"] span {
+body:has([data-slot="employees-content"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -4685,11 +4679,11 @@ body.mobile-dashboard-route .scrim {
 }
 
 /* Detail pages should run edge-to-edge after removing the device frame. */
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-page"],
+body:has([data-slot="employees-content"]) [data-slot="mobile-detail-stack-detail-page"],
 body:has([data-slot="messages-page"]) [data-component$="-detail-page"],
-body:has([data-component="prices-page"]) [data-component$="-detail-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-detail-page"],
 body.mobile-contracts-route [data-slot="mobile-detail-stack-detail-page"],
-body.mobile-prices-route [data-component$="-detail-page"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-detail-page"] {
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
   bottom: 0 !important;
@@ -4704,11 +4698,8 @@ body.mobile-prices-route [data-component$="-detail-page"] {
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.22) !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-scrim"],
 body:has([data-slot="messages-page"]) [data-component$="-detail-scrim"],
-body:has([data-component="prices-page"]) [data-component$="-detail-scrim"],
-body.mobile-contracts-route [data-slot="mobile-detail-stack-scrim"],
-body.mobile-prices-route [data-component$="-detail-scrim"] {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-scrim"] {
   position: fixed;
   top: 0 !important;
   right: 0 !important;
@@ -4718,7 +4709,7 @@ body.mobile-prices-route [data-component$="-detail-scrim"] {
   border-radius: 0 !important;
 }
 
-body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-slot="mobile-header"],
+body:has([data-slot="employees-content"]):has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-header"],
 body:has([data-slot="messages-page"] .nav-stack.show-detail) [data-slot="mobile-header"],
 body.mobile-contracts-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
@@ -4727,48 +4718,48 @@ body.mobile-contracts-route:has([data-slot="mobile-detail-stack-track"].show-det
 /* ===== Mobile redesign frame removal ===== */
 html:has(body [data-slot="dashboard-page"]),
 html:has(body.mobile-all-route),
-html:has(body [data-component="mobile_employees_detail-sheet"]),
+html:has(body [data-slot="employees-content"]),
 html:has(body [data-slot="messages-page"]),
 html:has(body [data-component="auth-login"]),
 html:has(body [data-component="auth-forgot-password"]),
 html:has(body [data-component="auth-register"]),
 html:has(body [data-component="select-branch"]),
 html:has(body [data-slot="clients-new-page-shell"]),
-html:has(body [data-component="chat"]),
-html:has(body [data-component="employees-new-redesign"]),
-html:has(body [data-component="files-upload-page"]),
+html:has(body [data-slot="chat-page"]),
+html:has(body [data-slot="employees-new-page-shell"]),
+html:has(body [data-slot="files-upload-page-shell"]),
 html:has(body.mobile-contracts-route) {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
 body:has([data-slot="dashboard-page"]),
 body.mobile-all-route,
-body:has([data-component="mobile_employees_detail-sheet"]),
+body:has([data-slot="employees-content"]),
 body:has([data-slot="messages-page"]),
 body:has([data-component="auth-login"]),
 body:has([data-component="auth-forgot-password"]),
 body:has([data-component="auth-register"]),
 body:has([data-component="select-branch"]),
 body:has([data-slot="clients-new-page-shell"]),
-body:has([data-component="chat"]),
-body:has([data-component="employees-new-redesign"]),
-body:has([data-component="files-upload-page"]),
+body:has([data-slot="chat-page"]),
+body:has([data-slot="employees-new-page-shell"]),
+body:has([data-slot="files-upload-page-shell"]),
 body.mobile-contracts-route {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
 [data-slot="app-root"]:has([data-slot="dashboard-page"]),
 body.mobile-all-route [data-slot="app-root"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"],
+body:has([data-slot="employees-content"]) [data-slot="app-root"],
 body:has([data-slot="messages-page"]) [data-slot="app-root"],
 body:has([data-component="auth-login"]) [data-slot="app-root"],
 body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
 body:has([data-component="auth-register"]) [data-slot="app-root"],
 [data-slot="app-root"]:has([data-component="select-branch"]),
 body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
-body:has([data-component="chat"]) [data-slot="app-root"],
-body:has([data-component="employees-new-redesign"]) [data-slot="app-root"],
-body:has([data-component="files-upload-page"]) [data-slot="app-root"],
+body:has([data-slot="chat-page"]) [data-slot="app-root"],
+body:has([data-slot="employees-new-page-shell"]) [data-slot="app-root"],
+body:has([data-slot="files-upload-page-shell"]) [data-slot="app-root"],
 body.mobile-contracts-route [data-slot="app-root"] {
   padding: 0 !important;
   background: hsl(var(--v3-dim-white)) !important;
@@ -4778,16 +4769,16 @@ body.mobile-contracts-route [data-slot="app-root"] {
 
 [data-slot="app-root"]:has([data-slot="dashboard-page"])::before,
 body.mobile-all-route [data-slot="app-root"]::before,
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"]::before,
+body:has([data-slot="employees-content"]) [data-slot="app-root"]::before,
 body:has([data-slot="messages-page"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-login"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-forgot-password"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-register"]) [data-slot="app-root"]::before,
 [data-slot="app-root"]:has([data-component="select-branch"])::before,
 body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"]::before,
-body:has([data-component="chat"]) [data-slot="app-root"]::before,
-body:has([data-component="employees-new-redesign"]) [data-slot="app-root"]::before,
-body:has([data-component="files-upload-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="chat-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="employees-new-page-shell"]) [data-slot="app-root"]::before,
+body:has([data-slot="files-upload-page-shell"]) [data-slot="app-root"]::before,
 body.mobile-contracts-route [data-slot="app-root"]::before {
   display: none !important;
   content: none !important;
@@ -4795,32 +4786,32 @@ body.mobile-contracts-route [data-slot="app-root"]::before {
 
 [data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="app-content"],
 body.mobile-all-route [data-slot="app-content"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-content"],
+body:has([data-slot="employees-content"]) [data-slot="app-content"],
 body:has([data-slot="messages-page"]) [data-slot="app-content"],
 body:has([data-component="auth-login"]) [data-slot="app-content"],
 body:has([data-component="auth-forgot-password"]) [data-slot="app-content"],
 body:has([data-component="auth-register"]) [data-slot="app-content"],
 [data-slot="app-root"]:has([data-component="select-branch"]) [data-slot="app-content"],
 body:has([data-slot="clients-new-page-shell"]) [data-slot="app-content"],
-body:has([data-component="chat"]) [data-slot="app-content"],
-body:has([data-component="employees-new-redesign"]) [data-slot="app-content"],
-body:has([data-component="files-upload-page"]) [data-slot="app-content"],
+body:has([data-slot="chat-page"]) [data-slot="app-content"],
+body:has([data-slot="employees-new-page-shell"]) [data-slot="app-content"],
+body:has([data-slot="files-upload-page-shell"]) [data-slot="app-content"],
 body.mobile-contracts-route [data-slot="app-content"] {
   border-radius: 0 !important;
 }
 
 body:has([data-slot="dashboard-page"]) nextjs-portal,
 body.mobile-all-route nextjs-portal,
-body:has([data-component="mobile_employees_detail-sheet"]) nextjs-portal,
+body:has([data-slot="employees-content"]) nextjs-portal,
 body:has([data-slot="messages-page"]) nextjs-portal,
 body:has([data-component="auth-login"]) nextjs-portal,
 body:has([data-component="auth-forgot-password"]) nextjs-portal,
 body:has([data-component="auth-register"]) nextjs-portal,
 body:has([data-component="select-branch"]) nextjs-portal,
 body:has([data-slot="clients-new-page-shell"]) nextjs-portal,
-body:has([data-component="chat"]) nextjs-portal,
-body:has([data-component="employees-new-redesign"]) nextjs-portal,
-body:has([data-component="files-upload-page"]) nextjs-portal,
+body:has([data-slot="chat-page"]) nextjs-portal,
+body:has([data-slot="employees-new-page-shell"]) nextjs-portal,
+body:has([data-slot="files-upload-page-shell"]) nextjs-portal,
 body.mobile-contracts-route nextjs-portal,
 body.mobile-prices-route nextjs-portal {
   display: none !important;
@@ -4828,7 +4819,7 @@ body.mobile-prices-route nextjs-portal {
 
 /* ===== /prices route ===== */
 body.mobile-prices-route [data-slot="mobile-header"],
-body:has([data-component="prices-page"]) [data-slot="mobile-header"] {
+body:has([data-slot="prices-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -4987,7 +4978,7 @@ body.mobile-prices-route [data-slot="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-prices-route [data-component="prices-page"] {
+body.mobile-prices-route [data-slot="prices-page"] {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -4995,31 +4986,31 @@ body.mobile-prices-route [data-component="prices-page"] {
 }
 
 body.mobile-prices-route .mobile-detail-sheet,
-body:has([data-component="prices-page"]) .mobile-detail-sheet {
+body:has([data-slot="prices-page"]) .mobile-detail-sheet {
   flex: 1;
   height: 100%;
   min-height: 0 !important;
   margin: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-track"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_list-page"],
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_detail-page"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_list-page"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_detail-page"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-list-page"],
+body.mobile-prices-route [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-list-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_detail-page"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_detail-page"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-detail-page"] {
   position: fixed !important;
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
@@ -5032,8 +5023,8 @@ body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-s
   padding-top: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack_scrim"],
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack_scrim"] {
+body.mobile-prices-route [data-slot="mobile-detail-stack-scrim"],
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-scrim"] {
   position: fixed !important;
   inset: 0 !important;
   width: 100vw !important;
@@ -5042,8 +5033,8 @@ body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-s
   border-radius: 0 !important;
 }
 
-body.mobile-prices-route [data-component="mobile_prices_detail-sheet_stack"].show-detail .nav-page.list,
-body:has([data-component="prices-page"]) [data-component="mobile_prices_detail-sheet_stack"].show-detail .nav-page.list {
+body.mobile-prices-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list,
+body:has([data-slot="prices-page"]) [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
@@ -5085,7 +5076,7 @@ body.mobile-prices-route [data-slot="mobile-bottom-nav"] span {
   line-height: 1;
 }
 
-[data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
+.mobile-detail-sheet [data-slot="prices-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
@@ -5262,9 +5253,9 @@ body.mobile-prices-route [data-slot="mobile-bottom-nav"] span {
    Keep the shell full-viewport for every MobileDetailSheet route. Header spacing
    belongs to the list content only, so detail pages share one height model. */
 body:has([data-slot="dashboard-page"]) [data-slot="main-content"],
-body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="main-content"],
+body:has([data-slot="employees-content"]) [data-slot="main-content"],
 body:has([data-slot="messages-page"]) [data-slot="main-content"],
-body:has([data-component="prices-page"]) [data-slot="main-content"],
+body:has([data-slot="prices-page"]) [data-slot="main-content"],
 body.mobile-contracts-route [data-slot="main-content"],
 body.mobile-dashboard-route [data-slot="main-content"],
 body.mobile-prices-route [data-slot="main-content"] {
@@ -5282,9 +5273,9 @@ body.mobile-prices-route [data-slot="main-content"] {
 }
 
 body:has([data-slot="dashboard-page"]) .mobile-detail-sheet,
-body:has([data-component="mobile_employees_detail-sheet"]) .mobile-detail-sheet,
+body:has([data-slot="employees-content"]) .mobile-detail-sheet,
 body:has([data-slot="messages-page"]) .mobile-detail-sheet,
-body:has([data-component="prices-page"]) .mobile-detail-sheet,
+body:has([data-slot="prices-page"]) .mobile-detail-sheet,
 body.mobile-contracts-route .mobile-detail-sheet,
 body.mobile-dashboard-route .mobile-detail-sheet,
 body.mobile-prices-route .mobile-detail-sheet {
@@ -5295,8 +5286,8 @@ body.mobile-prices-route .mobile-detail-sheet {
 }
 
 [data-slot="dashboard-page"] [data-slot="dashboard-content"],
-[data-component="mobile_employees_detail-sheet"] [data-component="mobile-employees-content"],
-[data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
+.mobile-detail-sheet [data-slot="employees-content"],
+.mobile-detail-sheet [data-slot="prices-content"] {
   padding-top: 76px !important;
 }
 
@@ -5446,16 +5437,16 @@ body.mobile-contracts-route [data-slot="app-content"] {
   [data-slot="app-root"],
   body.mobile-all-route [data-slot="app-root"],
   body:has([data-component="all-page"]) [data-slot="app-root"],
-  body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"],
+  body:has([data-slot="employees-content"]) [data-slot="app-root"],
   body:has([data-slot="messages-page"]) [data-slot="app-root"],
   body:has([data-component="auth-login"]) [data-slot="app-root"],
   body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
   body:has([data-component="auth-register"]) [data-slot="app-root"],
   [data-slot="app-root"]:has([data-component="select-branch"]),
   body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
-  body:has([data-component="chat"]) [data-slot="app-root"],
-  body:has([data-component="employees-new-redesign"]) [data-slot="app-root"],
-  body:has([data-component="files-upload-page"]) [data-slot="app-root"] {
+  body:has([data-slot="chat-page"]) [data-slot="app-root"],
+  body:has([data-slot="employees-new-page-shell"]) [data-slot="app-root"],
+  body:has([data-slot="files-upload-page-shell"]) [data-slot="app-root"] {
     width: 100vw !important;
     max-width: none !important;
     height: 100dvh !important;
@@ -5511,17 +5502,17 @@ body nav[data-slot="mobile-bottom-nav"] a[data-visual-active="true"] {
    the viewport while only the inner list scrolls — parity with /dashboard,
    /clients, /employees. */
 body:has([data-slot="messages-page"]),
-body:has([data-component="prices-page"]) {
+body:has([data-slot="prices-page"]) {
   overflow: hidden;
 }
 
 body:has([data-slot="messages-page"]) [data-slot="app-root"],
-body:has([data-component="prices-page"]) [data-slot="app-root"] {
+body:has([data-slot="prices-page"]) [data-slot="app-root"] {
   overflow: hidden;
 }
 
 body:has([data-slot="messages-page"]) [data-slot="app-root"] [data-slot="app-content"],
-body:has([data-component="prices-page"]) [data-slot="app-root"] [data-slot="app-content"] {
+body:has([data-slot="prices-page"]) [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface SignaturePadProps {
+    "data-component"?: string;
     value: string | null;
     signedAt: string | null;
     onChange: (dataUri: string | null) => void;
@@ -31,7 +32,13 @@ function formatSignedAt(value: string | null): string {
     }).format(date);
 }
 
-export function SignaturePad({ value, signedAt, onChange, locked }: SignaturePadProps) {
+export function SignaturePad({
+    "data-component": dataComponent,
+    value,
+    signedAt,
+    onChange,
+    locked,
+}: SignaturePadProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const drawingRef = useRef(false);
     const lastPointRef = useRef<CanvasPoint | null>(null);
@@ -123,7 +130,7 @@ export function SignaturePad({ value, signedAt, onChange, locked }: SignaturePad
     };
 
     return (
-        <div data-component="service-record-mom-sign" className={`sign-fld ${locked ? "locked" : ""}`}>
+        <div data-component={dataComponent} className={`sign-fld ${locked ? "locked" : ""}`}>
             <div className="sign-head">
                 <label className="lab">산모 서명</label>
                 {!locked && (

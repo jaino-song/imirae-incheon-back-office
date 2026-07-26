@@ -99,7 +99,7 @@ export function CallReviewSheet({
   if (draftId === null) return null;
 
   return (
-    <MobileDetailPage name="call-inbox" data-component="call-inbox-review">
+    <MobileDetailPage name="call-inbox" data-component="mobile_call-inbox_detail-sheet_stack_detail-page_review">
       {isLoading || !draft ? (
         <div className="p-4 text-[0.82rem] text-v3-text-muted" data-component="call-inbox-review-loading">
           불러오는 중...
@@ -142,7 +142,8 @@ function ReviewHeader({ draft, title }: { draft: ClientDraftDetail; title: strin
   const driveUrl = `https://drive.google.com/file/d/${draft.callRecord.driveFileId}/view`;
   return (
     <>
-      <MobileDetailHeader data-component="mobile_call-inbox_detail-sheet_stack_detail-page_header"
+      <MobileDetailHeader
+        data-component="mobile_call-inbox_detail-sheet_stack_detail-page_review_header"
         name="call-inbox"
         avatar={<span className="text-[1rem]">📞</span>}
         avatarTone={draft.type === "NEW_CLIENT" ? "green" : "orange"}
@@ -354,7 +355,8 @@ function NewClientReview({
       </div>
 
       {isPending && (
-        <MobileDetailActions data-component="mobile_call-inbox_detail-sheet_stack_detail-page_actions"
+        <MobileDetailActions
+          data-component="mobile_call-inbox_detail-sheet_stack_detail-page_review_actions"
           name="call-inbox"
           actions={[
             {
@@ -551,7 +553,8 @@ function ClientUpdateReview({
       </div>
 
       {isPending && (
-        <MobileDetailActions data-component="mobile_call-inbox_detail-sheet_stack_detail-page_actions-2"
+        <MobileDetailActions
+          data-component="mobile_call-inbox_detail-sheet_stack_detail-page_review_actions-2"
           name="call-inbox"
           actions={[
             {

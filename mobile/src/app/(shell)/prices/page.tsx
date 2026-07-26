@@ -195,17 +195,31 @@ export default function PricesPage() {
   ) : null;
 
   return (
-    <div data-component="prices-page" className="md:hidden">
+    <div data-component="mobile_prices_page" data-slot="prices-page" className="md:hidden">
       <MobileDetailSheet
-        data-component="mobile_prices_detail-sheet"
+        data-component="mobile_prices_page_detail-sheet"
         name="prices"
         isOpen={isOpen}
         onClose={closeSheet}
         list={
-          <div className="shell-content" data-component="mobile-prices-content">
+          <div
+            className="shell-content"
+            data-component="mobile_prices_page_detail-sheet_stack_list-page_content"
+            data-slot="prices-content"
+          >
             <ListCard
+              data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card"
               title="바우처 요금표"
-              count={isLoading ? <ListCountSkeleton dataComponentPrefix="mobile-prices" /> : `${displayRows.length}개`}
+              count={
+                isLoading ? (
+                  <ListCountSkeleton
+                    data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"
+                    dataComponentPrefix="mobile-prices"
+                  />
+                ) : (
+                  `${displayRows.length}개`
+                )
+              }
               actionLabel={isOwner ? "업데이트" : undefined}
               actionIcon={isOwner ? <Upload size={12} strokeWidth={3} aria-hidden="true" /> : undefined}
               onActionClick={
@@ -222,7 +236,7 @@ export default function PricesPage() {
               beforeFilters={
                 <div
                   className="filter-row"
-                  data-component="mobile-prices-year-filter"
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter"
                   style={{ paddingBottom: 0 }}
                 >
                   {isYearsLoading
@@ -231,7 +245,7 @@ export default function PricesPage() {
                           key={`year-skeleton-${index}`}
                           type="button"
                           className="filter-pill filter-pill-skeleton"
-                          data-component="mobile-redesign-filter-pill"
+                          data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter_pill"
                           data-loading="true"
                           aria-hidden="true"
                           disabled
@@ -245,7 +259,7 @@ export default function PricesPage() {
                           key={year}
                           type="button"
                           className={`filter-pill ${year === activeYear ? "active" : ""}`}
-                          data-component="mobile-redesign-filter-pill"
+                          data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter_pill"
                           aria-pressed={year === activeYear}
                           onClick={() => setYearFilter(year)}
                         >
@@ -256,7 +270,11 @@ export default function PricesPage() {
               }
             >
               {isLoading ? (
-                <ListRowsSkeleton dataComponentPrefix="mobile-prices" rowCount={5} />
+                <ListRowsSkeleton
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"
+                  dataComponentPrefix="mobile-prices"
+                  rowCount={5}
+                />
               ) : isError ? (
                 <div
                   style={{
@@ -265,7 +283,7 @@ export default function PricesPage() {
                     fontSize: "0.82rem",
                     color: "hsl(var(--v3-burgundy))",
                   }}
-                  data-component="mobile-prices-error"
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_error"
                 >
                   가격 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.
                 </div>
@@ -277,7 +295,7 @@ export default function PricesPage() {
                     fontSize: "0.82rem",
                     color: "hsl(var(--v3-text-muted))",
                   }}
-                  data-component="mobile-prices-empty"
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_empty"
                 >
                   {activeYear !== undefined
                     ? "조건에 맞는 가격표가 없습니다."
@@ -288,25 +306,25 @@ export default function PricesPage() {
                   <div
                     className="variant-block"
                     key={variantSection.variant}
-                    data-component="mobile-prices-variant"
+                    data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant"
                   >
                     {typeFilter === "전체" && (
-                      <div className="section-header-variant" data-component="mobile-prices-variant-header">{variantSection.variant}</div>
+                      <div className="section-header-variant" data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_header">{variantSection.variant}</div>
                     )}
                     {variantSection.subgroups.map((sub) => (
                       <div
                         className="section-block"
                         key={sub.key}
-                        data-component="mobile-prices-section"
+                        data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section"
                       >
-                        <div className="section-header" data-component="mobile-prices-section-header">{sub.key}</div>
+                        <div className="section-header" data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_header">{sub.key}</div>
                         {sub.rows.map((row, idx) => (
                           <ListItemRow
                             key={row.name}
-                            dataComponent="mobile-prices-row"
+                            data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_row"
                             style={{ animationDelay: `${Math.min(idx, 4) * 40}ms` }}
                             left={
-                              <div className="duration-badge" data-component="mobile-prices-row-icon">
+                              <div className="duration-badge" data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_row_icon">
                                 <Calculator size={20} strokeWidth={2.5} aria-hidden="true" />
                               </div>
                             }
@@ -343,8 +361,8 @@ export default function PricesPage() {
 
 function PriceDetailContent({ row, year }: { row: DisplayRow; year: number }) {
   return (
-    <MobileDetailPage data-component="mobile_prices_detail-sheet_stack_detail-page_body" name="prices">
-      <MobileDetailHeader data-component="mobile_prices_detail-sheet_stack_detail-page_body_header"
+    <MobileDetailPage data-component="mobile_prices_page_detail-sheet_stack_detail-page_body" name="prices">
+      <MobileDetailHeader data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_header"
         name="prices"
         avatar={<Calculator size={24} strokeWidth={2.5} aria-hidden="true" />}
         avatarClassName="price-detail-avatar"
@@ -356,20 +374,20 @@ function PriceDetailContent({ row, year }: { row: DisplayRow; year: number }) {
       />
 
       {row.durations.map((d) => (
-        <div key={d.id} className="price-breakdown pop-up" data-component="mobile-prices-breakdown">
-          <div className="price-breakdown-row" data-component="mobile-prices-breakdown-duration">
+        <div key={d.id} className="price-breakdown pop-up" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown">
+          <div className="price-breakdown-row" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_duration">
             <span className="label">기간</span>
             <span className="value">{d.durationDays}일</span>
           </div>
-          <div className="price-breakdown-row" data-component="mobile-prices-breakdown-total">
+          <div className="price-breakdown-row" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_total">
             <span className="label">서비스가격 (총액)</span>
             <span className="value">{formatWon(d.totalPrice)}</span>
           </div>
-          <div className="price-breakdown-row grant" data-component="mobile-prices-breakdown-grant">
+          <div className="price-breakdown-row grant" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_grant">
             <span className="label">정부지원금</span>
             <span className="value">{formatWon(d.grantAmount)}</span>
           </div>
-          <div className="price-breakdown-row own" data-component="mobile-prices-breakdown-own">
+          <div className="price-breakdown-row own" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_own">
             <span className="label">본인부담금</span>
             <span className="value">{formatWon(d.ownAmount)}</span>
           </div>
@@ -388,7 +406,7 @@ function UploadSheetContent({
   return (
     <div
       className="detail-body"
-      data-component="mobile-prices-upload"
+      data-component="mobile_prices_page_detail-sheet_stack_detail-page_upload"
       style={{ display: "flex", flexDirection: "column", gap: 12 }}
     >
       <VoucherPriceUploadForm initialYear={year} />

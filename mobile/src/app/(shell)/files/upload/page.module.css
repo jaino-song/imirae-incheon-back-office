@@ -1,21 +1,21 @@
-:global([data-slot="app-root"]:has([data-component="files-upload-page"])) {
+:global([data-slot="app-root"]:has([data-slot="files-upload-page-shell"])) {
   overflow: hidden;
   background: hsl(var(--v3-dim-white));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", var(--font-pretendard), -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: normal;
 }
 
-:global([data-slot="app-root"]:has([data-component="files-upload-page"]) [data-slot="mobile-header"]),
-:global([data-slot="app-root"]:has([data-component="files-upload-page"]) [data-slot="mobile-bottom-nav"]),
-:global([data-slot="app-root"]:has([data-component="files-upload-page"]) [data-slot="floating-quick-actions"]) {
+:global([data-slot="app-root"]:has([data-slot="files-upload-page-shell"]) [data-slot="mobile-header"]),
+:global([data-slot="app-root"]:has([data-slot="files-upload-page-shell"]) [data-slot="mobile-bottom-nav"]),
+:global([data-slot="app-root"]:has([data-slot="files-upload-page-shell"]) [data-slot="floating-quick-actions"]) {
   display: none !important;
 }
 
-:global(body:has([data-component="files-upload-page"]) nextjs-portal) {
+:global(body:has([data-slot="files-upload-page-shell"]) nextjs-portal) {
   display: none !important;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="files-upload-page"])) {
+:global(main[data-slot="main-content"]:has([data-slot="files-upload-page-shell"])) {
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
   min-height: 0;
   overflow: hidden;
