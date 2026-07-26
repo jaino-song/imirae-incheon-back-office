@@ -10,6 +10,9 @@ import { authApi } from "@/services/api";
 import { forgotPasswordSchema } from "@/lib/validations/auth";
 import "@/components/app/mobile-redesign/redesign.css";
 
+/** Canonical data-component base for the /forgot-password route. */
+const FORGOT_PASSWORD_BASE = "mobile_auth_forgot-password";
+
 export default function ForgotPasswordPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -47,16 +50,16 @@ export default function ForgotPasswordPage() {
 
   if (isSuccess) {
     return (
-      <div className="auth-page" data-component="auth-forgot-password">
-        <div className="auth-brand" data-component="auth-forgot-password-brand">
-          <div className="auth-logo" data-component="auth-forgot-password-logo">
+      <div className="auth-page" data-component={FORGOT_PASSWORD_BASE} data-slot="auth-forgot-password-page">
+        <div className="auth-brand" data-component={`${FORGOT_PASSWORD_BASE}_brand`}>
+          <div className="auth-logo" data-component={`${FORGOT_PASSWORD_BASE}_brand_logo`}>
             <Image src="/assets/logo.svg" alt="아가잼잼 로고" width={80} height={80} priority />
           </div>
-          <div className="auth-title" data-component="auth-forgot-password-title">
+          <div className="auth-title" data-component={`${FORGOT_PASSWORD_BASE}_brand_title`}>
             이메일 전송 완료
           </div>
-          <div className="auth-sub-stack" data-component="auth-forgot-password-subtitle-stack">
-            <div className="auth-sub sub-variant active" data-component="auth-forgot-password-subtitle">
+          <div className="auth-sub-stack" data-component={`${FORGOT_PASSWORD_BASE}_brand_subtitle-stack`}>
+            <div className="auth-sub sub-variant active" data-component={`${FORGOT_PASSWORD_BASE}_brand_subtitle-stack_subtitle`}>
               메일을 확인하여 비밀번호를 재설정해 주세요.
             </div>
           </div>
@@ -65,31 +68,31 @@ export default function ForgotPasswordPage() {
         <div
           className="auth-step-view active"
           data-auth-step="2"
-          data-component="auth-forgot-password-success"
+          data-component={`${FORGOT_PASSWORD_BASE}_success`}
         >
-          <div className="auth-status" data-component="auth-forgot-password-status">
-            <div className="status-icon success" data-component="auth-forgot-password-status-icon">
+          <div className="auth-status" data-component={`${FORGOT_PASSWORD_BASE}_success_status`}>
+            <div className="status-icon success" data-component={`${FORGOT_PASSWORD_BASE}_success_status_icon`}>
               <Check size={32} strokeWidth={2.5} />
             </div>
-            <div className="status-message" data-component="auth-forgot-password-status-message">
+            <div className="status-message" data-component={`${FORGOT_PASSWORD_BASE}_success_status_message`}>
               <strong>{email}</strong>로
               <br />
               비밀번호 재설정 링크가 전송되었습니다.
             </div>
-            <div className="status-message status-message-muted" data-component="auth-forgot-password-status-submessage">
+            <div className="status-message status-message-muted" data-component={`${FORGOT_PASSWORD_BASE}_success_status_submessage`}>
               이메일을 확인하여 비밀번호를 재설정해 주세요.
             </div>
-            <div className="status-info" data-component="auth-forgot-password-status-info">
+            <div className="status-info" data-component={`${FORGOT_PASSWORD_BASE}_success_status_info`}>
               이메일이 도착하지 않았다면 스팸 폴더를 확인해 주세요.
             </div>
           </div>
 
-          <div className="auth-form auth-success-actions" data-component="auth-forgot-password-success-actions">
+          <div className="auth-form auth-success-actions" data-component={`${FORGOT_PASSWORD_BASE}_success_actions`}>
             <button
               type="button"
               className="auth-btn secondary"
               onClick={() => router.push("/login")}
-              data-component="auth-forgot-password-login-btn"
+              data-component={`${FORGOT_PASSWORD_BASE}_success_actions_login-button`}
             >
               로그인 페이지로 돌아가기
             </button>
@@ -100,16 +103,16 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="auth-page" data-component="auth-forgot-password">
-      <div className="auth-brand" data-component="auth-forgot-password-brand">
-        <div className="auth-logo" data-component="auth-forgot-password-logo">
+    <div className="auth-page" data-component={FORGOT_PASSWORD_BASE} data-slot="auth-forgot-password-page">
+      <div className="auth-brand" data-component={`${FORGOT_PASSWORD_BASE}_brand`}>
+        <div className="auth-logo" data-component={`${FORGOT_PASSWORD_BASE}_brand_logo`}>
           <Image src="/assets/logo.svg" alt="아가잼잼 로고" width={80} height={80} priority />
         </div>
-        <div className="auth-title" data-component="auth-forgot-password-title">
+        <div className="auth-title" data-component={`${FORGOT_PASSWORD_BASE}_brand_title`}>
           비밀번호 찾기
         </div>
-        <div className="auth-sub-stack" data-component="auth-forgot-password-subtitle-stack">
-          <div className="auth-sub sub-variant active" data-component="auth-forgot-password-subtitle">
+        <div className="auth-sub-stack" data-component={`${FORGOT_PASSWORD_BASE}_brand_subtitle-stack`}>
+          <div className="auth-sub sub-variant active" data-component={`${FORGOT_PASSWORD_BASE}_brand_subtitle-stack_subtitle`}>
             가입하신 이메일 주소를 입력하시면
             <br />
             비밀번호 재설정 링크를 보내드립니다.
@@ -118,13 +121,13 @@ export default function ForgotPasswordPage() {
       </div>
 
       {error && (
-        <div className="auth-server-error" role="alert" data-component="auth-forgot-password-server-error">
+        <div className="auth-server-error" role="alert" data-component={`${FORGOT_PASSWORD_BASE}_server-error`}>
           {error}
         </div>
       )}
 
-      <form className="auth-form" onSubmit={handleSubmit} data-component="auth-forgot-password-form">
-        <div className="auth-input-group" data-component="auth-forgot-password-email-field">
+      <form className="auth-form" onSubmit={handleSubmit} data-component={`${FORGOT_PASSWORD_BASE}_form`}>
+        <div className="auth-input-group" data-component={`${FORGOT_PASSWORD_BASE}_form_email-field`}>
           <label className="auth-label" htmlFor="forgot-email">
             이메일
           </label>
@@ -148,7 +151,7 @@ export default function ForgotPasswordPage() {
             <div
               className="auth-helper error"
               id="forgot-email-error"
-              data-component="auth-forgot-password-email-error"
+              data-component={`${FORGOT_PASSWORD_BASE}_form_email-field_error`}
             >
               {fieldError}
             </div>
@@ -159,15 +162,15 @@ export default function ForgotPasswordPage() {
           type="submit"
           className="auth-btn"
           disabled={isLoading}
-          data-component="auth-forgot-password-submit-btn"
+          data-component={`${FORGOT_PASSWORD_BASE}_form_submit-button`}
         >
           {isLoading ? "처리 중…" : "비밀번호 재설정 링크 전송"}
         </button>
       </form>
 
-      <div className="auth-footer-link" data-component="auth-forgot-password-footer-link">
+      <div className="auth-footer-link" data-component={`${FORGOT_PASSWORD_BASE}_footer-link`}>
         <span>비밀번호가 기억나셨나요?&nbsp;</span>
-        <Link href="/login" data-component="auth-forgot-password-login-link">
+        <Link href="/login" data-component={`${FORGOT_PASSWORD_BASE}_footer-link_login-link`}>
           로그인
         </Link>
       </div>

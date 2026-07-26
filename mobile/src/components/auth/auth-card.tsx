@@ -10,7 +10,8 @@ interface AuthCardProps {
   contentClassName?: string;
   disableAnimation?: boolean;
   variant?: "default" | "v3";
-  "data-component"?: string;
+  /** Canonical data-component value for the surface that renders this card. */
+  "data-component": string;
 }
 
 export function AuthCard({

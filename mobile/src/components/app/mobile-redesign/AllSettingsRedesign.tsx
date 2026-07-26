@@ -15,6 +15,15 @@ import { APP_VERSION } from "@/lib/env";
 import { useLocale } from "@/providers/LocaleProvider";
 import { useInitialUser } from "@/providers/UserProvider";
 
+const ALL_SETTINGS_SOURCE_COMPONENT = "AllSettingsRedesign";
+
+/**
+ * Canonical data-component base for the /all route menu. AllSettingsRedesign is
+ * rendered only by `app/(shell)/all/page.tsx` (root `mobile_all_page`), so the
+ * base lives here instead of being threaded through a prop.
+ */
+const ALL_MENU_BASE = "mobile_all_page_menu";
+
 const DEFAULT_PROFILE_NAME = "사용자";
 const DEFAULT_PROFILE_ROLE = "스태프";
 
@@ -57,8 +66,12 @@ export function AllSettingsRedesign({ menuGroups = defaultMenuGroups }: AllSetti
   }, []);
 
   return (
-    <div data-component="all-menu" className="menu-content">
-      <div className="profile-card pop-up" data-component="mobile-all-profile-card">
+    <div
+      data-component={ALL_MENU_BASE}
+      data-source-component={ALL_SETTINGS_SOURCE_COMPONENT}
+      className="menu-content"
+    >
+      <div className="profile-card pop-up" data-component={`${ALL_MENU_BASE}_profile-card`}>
         <div className="profile-avatar">{getAvatarInitial(profileName)}</div>
         <div className="profile-info">
           <div className="profile-name">{profileName}</div>
@@ -77,13 +90,13 @@ export function AllSettingsRedesign({ menuGroups = defaultMenuGroups }: AllSetti
         </button>
       </div>
 
-      <MenuGroups groups={menuGroups} />
+      <MenuGroups groups={menuGroups} dataComponent={ALL_MENU_BASE} />
 
       {isOwner && (
         <button
           type="button"
           className="branch-switch-btn"
-          data-component="mobile-all-branch-switch"
+          data-component={`${ALL_MENU_BASE}_branch-switch`}
           onClick={() => router.push("/select-branch")}
         >
           <Building2 size={16} strokeWidth={2.5} />
@@ -94,7 +107,7 @@ export function AllSettingsRedesign({ menuGroups = defaultMenuGroups }: AllSetti
       <button
         type="button"
         className="logout-btn"
-        data-component="mobile-all-logout"
+        data-component={`${ALL_MENU_BASE}_logout`}
         onClick={() => router.push("/logout")}
       >
         <LogOut size={16} strokeWidth={2.5} />

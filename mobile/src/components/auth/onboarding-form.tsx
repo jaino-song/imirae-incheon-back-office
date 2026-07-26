@@ -9,6 +9,15 @@ import { z } from "zod";
 import { completeKakaoOnboarding } from "@/app/(shell)/(auth)/kakao/onboarding/actions";
 import "@/components/app/mobile-redesign/redesign.css";
 
+const ONBOARDING_FORM_SOURCE_COMPONENT = "OnboardingForm";
+
+/**
+ * Canonical data-component base for the /kakao/onboarding route. OnboardingForm
+ * is rendered only by `app/(shell)/(auth)/kakao/onboarding/page.tsx`, so the
+ * route base lives here instead of being threaded through a prop.
+ */
+const KAKAO_ONBOARDING_BASE = "mobile_auth_kakao-onboarding";
+
 const schema = z.object({
   phone: authPhoneSchema,
   birthDate: authBirthDateSchema,
@@ -66,7 +75,11 @@ export function OnboardingForm(props: OnboardingFormProps) {
   };
 
   return (
-    <div className="auth-page" data-component="auth-onboarding">
+    <div
+      className="auth-page"
+      data-component={KAKAO_ONBOARDING_BASE}
+      data-source-component={ONBOARDING_FORM_SOURCE_COMPONENT}
+    >
       <div className="auth-brand">
         <div className="auth-title">카카오 가입 마무리</div>
         <div className="auth-sub">로그인에 필요한 추가 정보를 입력해 주세요.</div>

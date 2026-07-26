@@ -207,14 +207,16 @@ export function MobileMenuIcon({
 }
 
 export function MobileMenuGroup({
+  "data-component": dataComponent,
   title,
   children,
 }: {
+  "data-component": string;
   title: string;
   children: ReactNode;
 }) {
   return (
-    <div className="menu-group" data-component="mobile-redesign-menu-group">
+    <div className="menu-group" data-component={dataComponent}>
       <div className="menu-group-title">{title}</div>
       {children}
     </div>
@@ -222,6 +224,7 @@ export function MobileMenuGroup({
 }
 
 export function MobileMenuRow({
+  "data-component": dataComponent,
   label,
   icon,
   tone,
@@ -232,6 +235,7 @@ export function MobileMenuRow({
   className,
   children,
 }: {
+  "data-component": string;
   label: string;
   icon: MobileMenuIconComponent;
   tone: MobileMenuTone;
@@ -267,7 +271,7 @@ export function MobileMenuRow({
       <button
         type="button"
         className={rowClassName}
-        data-component="mobile-redesign-menu-row"
+        data-component={dataComponent}
         disabled
       >
         {rowContent}
@@ -280,7 +284,7 @@ export function MobileMenuRow({
       <Link
         href={href}
         className={rowClassName}
-        data-component="mobile-redesign-menu-row"
+        data-component={dataComponent}
       >
         {rowContent}
       </Link>
@@ -288,7 +292,7 @@ export function MobileMenuRow({
   }
 
   return (
-    <div className={rowClassName} data-component="mobile-redesign-menu-row">
+    <div className={rowClassName} data-component={dataComponent}>
       {rowContent}
     </div>
   );
@@ -758,11 +762,21 @@ export function ContractList({
   );
 }
 
-export function MenuGroups({ groups }: { groups: MenuGroup[] }) {
+export function MenuGroups({
+  groups,
+  dataComponent,
+}: {
+  groups: MenuGroup[];
+  /** Canonical data-component base of the surface these groups render into. */
+  dataComponent: string;
+}) {
+  const groupBase = `${dataComponent}_group`;
+  const rowBase = `${groupBase}_row`;
+
   return (
     <>
       {groups.map((group) => (
-        <MobileMenuGroup title={group.title} key={group.title}>
+        <MobileMenuGroup data-component={groupBase} title={group.title} key={group.title}>
           {group.rows.map((row) => {
             const badgeSkeletonStyle = row.badgeSkeletonWidth
               ? ({ "--menu-badge-skeleton-width": row.badgeSkeletonWidth } as CSSProperties)
@@ -775,7 +789,7 @@ export function MenuGroups({ groups }: { groups: MenuGroup[] }) {
                 {row.badgeLoading ? (
                   <span
                     className="menu-badge menu-badge-skeleton"
-                    data-component="mobile-all-badge-skeleton"
+                    data-component={`${rowBase}_badge-skeleton`}
                     style={badgeSkeletonStyle}
                     aria-hidden="true"
                   />
@@ -785,7 +799,7 @@ export function MenuGroups({ groups }: { groups: MenuGroup[] }) {
                 {row.valueLoading ? (
                   <span
                     className="menu-value menu-value-skeleton"
-                    data-component="mobile-all-value-skeleton"
+                    data-component={`${rowBase}_value-skeleton`}
                     style={valueSkeletonStyle}
                     aria-hidden="true"
                   />
@@ -801,6 +815,7 @@ export function MenuGroups({ groups }: { groups: MenuGroup[] }) {
             );
             return (
               <MobileMenuRow
+                data-component={rowBase}
                 key={`${group.title}-${row.label}`}
                 label={row.label}
                 icon={row.icon}

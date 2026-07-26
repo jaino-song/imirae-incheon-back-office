@@ -66,7 +66,7 @@ describe("NotificationPage", () => {
   it("renders existing notification settings in the compact list card UI", async () => {
     const { container } = renderPage();
 
-    const page = container.querySelector('[data-component="notification-settings"]');
+    const page = container.querySelector('[data-component="mobile_notification_settings"]');
     expect(page).toBeInTheDocument();
     expect(page).toHaveClass("messages-page");
 
@@ -74,7 +74,7 @@ describe("NotificationPage", () => {
     expect(screen.getByText("수신 채널")).toBeInTheDocument();
     expect(screen.getByText("관리자")).toBeInTheDocument();
 
-    const rows = container.querySelectorAll('[data-component="notification-settings-row"]');
+    const rows = container.querySelectorAll('[data-slot="notification-settings-row"]');
     expect(rows.length).toBeGreaterThanOrEqual(3);
 
     expect(within(rows[0] as HTMLElement).getByText("앱 알림")).toBeInTheDocument();

@@ -46,7 +46,7 @@ async function realLogin(page: Page): Promise<{ rateLimited: boolean }> {
     )
     .catch(() => null);
 
-  await page.click('[data-component="login-submit-button"]');
+  await page.click('[data-component="mobile_auth_login_form_submit-button"]');
   const resp = await responsePromise;
   if (resp && resp.status() === 429) {
     rateLimited = true;
@@ -55,7 +55,7 @@ async function realLogin(page: Page): Promise<{ rateLimited: boolean }> {
 
   await page.waitForURL(/\/(select-branch|dashboard)/, { timeout: 15000 });
   if (page.url().includes("select-branch")) {
-    await page.click('[data-component="select-branch-row"]', { timeout: 10000 });
+    await page.click('[data-component="mobile_select-branch_page_list_row"]', { timeout: 10000 });
     await page.waitForTimeout(300);
     const btn = page.locator(".branch-actions .branch-btn").first();
     await btn.click();

@@ -98,22 +98,22 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     });
 
     await page.goto("/all");
-    await expect(page.locator('[data-component="all-page"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-all-value-skeleton"]')).toHaveCount(4);
-    await expect(page.locator('[data-component="mobile-all-badge-skeleton"]')).toHaveCount(1);
+    await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(4);
+    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(1);
     await expect(
       page
-        .locator('[data-component="mobile-redesign-menu-row"]', { hasText: "메시지" })
-        .locator('[data-component="mobile-all-value-skeleton"]')
+        .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "메시지" })
+        .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
     ).toBeVisible();
     await expect(
       page
-        .locator('[data-component="mobile-redesign-menu-row"]', { hasText: "발송 자동화" })
-        .locator('[data-component="mobile-all-value-skeleton"]')
+        .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "발송 자동화" })
+        .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
     ).toBeVisible();
 
     const before = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('[data-component="mobile-redesign-menu-row"]'));
+      const rows = Array.from(document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'));
       const groupTitle = document.querySelector(".menu-group-title")?.getBoundingClientRect();
       const clientRow = rows[1]?.getBoundingClientRect();
       const employeeRow = rows[2]?.getBoundingClientRect();
@@ -140,11 +140,11 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     await expect(page.locator(".menu-value", { hasText: "5건" })).toBeVisible();
     await expect(page.locator(".menu-value", { hasText: "4개" })).toBeVisible();
     await expect(page.locator(".menu-badge", { hasText: "3" })).toBeVisible();
-    await expect(page.locator('[data-component="mobile-all-value-skeleton"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-all-badge-skeleton"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(0);
 
     const after = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('[data-component="mobile-redesign-menu-row"]'));
+      const rows = Array.from(document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'));
       const groupTitle = document.querySelector(".menu-group-title")?.getBoundingClientRect();
       const clientRow = rows[1]?.getBoundingClientRect();
       const employeeRow = rows[2]?.getBoundingClientRect();
@@ -199,7 +199,7 @@ test.describe("Mobile nav: center chat + /all menu", () => {
 
   test("all menu has center chat and active /all bottom nav item", async ({ page }) => {
     await page.goto("/all");
-    await expect(page.locator('[data-component="all-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
 
     const nav = page.locator('[data-slot="mobile-bottom-nav"]');
     await expect(nav).toBeVisible();
@@ -211,22 +211,22 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     const allNav = page.locator('[data-slot="mobile-bottom-nav-all"]');
     await expect(allNav).toBeVisible();
     await expect(allNav).toHaveAttribute("aria-current", "page");
-    await expect(page.locator('[data-component="all-menu"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-all-profile-card"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page_menu"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page_menu_profile-card"]')).toBeVisible();
   });
 
   test("all page cards respond to the mobile viewport width", async ({ page }) => {
     await page.setViewportSize({ width: 467, height: 852 });
 
     await page.goto("/all");
-    await expect(page.locator('[data-component="all-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
 
     const geometry = await page.evaluate(() => {
       const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
       const appProviders = document.querySelector('[data-slot="app-content"]')?.getBoundingClientRect();
-      const allMenu = document.querySelector('[data-component="all-menu"]')?.getBoundingClientRect();
-      const profileCard = document.querySelector('[data-component="mobile-all-profile-card"]')?.getBoundingClientRect();
-      const menuGroup = document.querySelector('[data-component="mobile-redesign-menu-group"]')?.getBoundingClientRect();
+      const allMenu = document.querySelector('[data-component="mobile_all_page_menu"]')?.getBoundingClientRect();
+      const profileCard = document.querySelector('[data-component="mobile_all_page_menu_profile-card"]')?.getBoundingClientRect();
+      const menuGroup = document.querySelector('[data-component="mobile_all_page_menu_group"]')?.getBoundingClientRect();
       const bottomNav = document.querySelector('[data-slot="mobile-bottom-nav"]')?.getBoundingClientRect();
       const rootElement = document.querySelector('[data-slot="app-root"]') as HTMLElement | null;
       const providersElement = document.querySelector('[data-slot="app-content"]') as HTMLElement | null;
@@ -346,10 +346,10 @@ test.describe("Mobile nav: center chat + /all menu", () => {
 
     await restoreAuthCookies(page);
     await page.goto("/all");
-    await expect(page.locator('[data-component="all-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
     await restoreAuthCookies(page);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator('[data-component="all-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
 
     const geometry = await page.evaluate(() => {
       const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
@@ -446,11 +446,11 @@ test.describe("Mobile nav: center chat + /all menu", () => {
 
     await restoreAuthCookies(page);
     await page.goto("/all");
-    await expect(page.locator('[data-component="all-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
 
     await restoreAuthCookies(page);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator('[data-component="mobile-all-profile-card"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_all_page_menu_profile-card"]')).toBeVisible();
 
     const samples = [];
     let previousDelay = 0;
@@ -459,9 +459,9 @@ test.describe("Mobile nav: center chat + /all menu", () => {
       previousDelay = delay;
       samples.push(
         await page.evaluate(() => {
-          const profile = document.querySelector('[data-component="mobile-all-profile-card"]');
+          const profile = document.querySelector('[data-component="mobile_all_page_menu_profile-card"]');
           const groupTitle = document.querySelector(".menu-group-title");
-          const firstRow = document.querySelector('[data-component="mobile-redesign-menu-row"]');
+          const firstRow = document.querySelector('[data-component="mobile_all_page_menu_group_row"]');
           const profileRect = profile?.getBoundingClientRect();
           const groupTitleRect = groupTitle?.getBoundingClientRect();
           const rowRect = firstRow?.getBoundingClientRect();
