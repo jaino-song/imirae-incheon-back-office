@@ -12,6 +12,16 @@ import { AppContentCard } from "@/components/ui/app-surface";
 export const APP_FORM_CONTROL_CLASS_NAME =
   "flex h-[calc(38px*var(--glint-ui-scale,1))] min-h-[calc(38px*var(--glint-ui-scale,1))] w-full rounded-[13px] border-[1.35px] border-input bg-white px-[calc(14px*var(--glint-ui-scale,1))] py-[calc(8px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] font-[Pretendard] font-medium text-v3-dark shadow-none outline-none transition-all focus-visible:border-v3-primary focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-v3-primary/10 disabled:cursor-not-allowed disabled:opacity-55";
 
+const FORM_SECTION_SOURCE_COMPONENT = "FormSection";
+const FORM_GRID_SOURCE_COMPONENT = "FormGrid";
+const FORM_FIELD_SOURCE_COMPONENT = "FormField";
+const FORM_TEXT_INPUT_SOURCE_COMPONENT = "FormTextInput";
+const FORM_TEXT_INPUT_WITH_SUFFIX_SOURCE_COMPONENT = "FormTextInputWithSuffix";
+const FORM_HELPER_TEXT_SOURCE_COMPONENT = "FormHelperText";
+const FORM_NATIVE_SELECT_SOURCE_COMPONENT = "FormNativeSelect";
+const FORM_CHIP_SOURCE_COMPONENT = "FormChip";
+const FORM_SWITCH_ROW_SOURCE_COMPONENT = "FormSwitchRow";
+
 export interface FormSectionProps extends Omit<React.HTMLAttributes<HTMLElement>, "title"> {
   title: React.ReactNode;
   description?: React.ReactNode;
@@ -48,7 +58,7 @@ function FormSection({
       <AppContentCard
         as="section"
         data-component={dataComponent}
-        data-source-component="FormSection"
+        sourceComponent={FORM_SECTION_SOURCE_COMPONENT}
         title={title}
         description={description}
         titleTrailing={badge}
@@ -77,10 +87,10 @@ function FormGrid({
 }: FormGridProps) {
   return (
     <div
-      data-component={dataComponent}
-      data-source-component="FormGrid"
-      className={cn("grid grid-cols-1 gap-[calc(16px*var(--glint-ui-scale,1))] sm:grid-cols-2", className)}
       {...props}
+      data-component={dataComponent}
+      data-source-component={FORM_GRID_SOURCE_COMPONENT}
+      className={cn("grid grid-cols-1 gap-[calc(16px*var(--glint-ui-scale,1))] sm:grid-cols-2", className)}
     />
   );
 }
@@ -140,10 +150,10 @@ function FormField({
 
   return (
     <div
-      data-component={dataComponent}
-      data-source-component="FormField"
-      className={cn("grid gap-[calc(7px*var(--glint-ui-scale,1))]", className)}
       {...props}
+      data-component={dataComponent}
+      data-source-component={FORM_FIELD_SOURCE_COMPONENT}
+      className={cn("grid gap-[calc(7px*var(--glint-ui-scale,1))]", className)}
     >
       {labelAccessory ? (
         <div
@@ -176,8 +186,9 @@ const FormTextInput = React.forwardRef<HTMLInputElement, FormTextInputProps>(
   ({ className, error, "data-component": dataComponent, ...props }, ref) => (
     <input
       ref={ref}
+      {...props}
       data-component={dataComponent}
-      data-source-component="FormTextInput"
+      data-source-component={FORM_TEXT_INPUT_SOURCE_COMPONENT}
       className={cn(
         APP_FORM_CONTROL_CLASS_NAME,
         "placeholder:text-muted-foreground",
@@ -185,7 +196,6 @@ const FormTextInput = React.forwardRef<HTMLInputElement, FormTextInputProps>(
         className,
       )}
       aria-invalid={error || undefined}
-      {...props}
     />
   ),
 );
@@ -211,7 +221,7 @@ const FormTextInputWithSuffix = React.forwardRef<HTMLInputElement, FormTextInput
     return (
     <div
       data-component={dataComponent}
-      data-source-component="FormTextInputWithSuffix"
+      data-source-component={FORM_TEXT_INPUT_WITH_SUFFIX_SOURCE_COMPONENT}
       className="relative"
     >
       <FormTextInput
@@ -245,15 +255,15 @@ function FormHelperText({
 }: FormHelperTextProps) {
   return (
     <p
+      {...props}
       data-component={dataComponent}
-      data-source-component="FormHelperText"
+      data-source-component={FORM_HELPER_TEXT_SOURCE_COMPONENT}
       className={cn(
         tone === "error"
           ? "text-[calc(12px*var(--glint-ui-scale,1))] font-bold leading-[1.35] text-v3-burgundy"
           : "-mt-0.5 m-0 text-[calc(11.2px*var(--glint-ui-scale,1))] font-semibold leading-[1.45] text-v3-text-muted",
         className,
       )}
-      {...props}
     />
   );
 }
@@ -305,7 +315,7 @@ function FormNativeSelect({
   return (
     <div
       data-component={resolvedWrapDataComponent}
-      data-source-component="FormNativeSelect"
+      data-source-component={FORM_NATIVE_SELECT_SOURCE_COMPONENT}
       className="relative"
     >
       <select
@@ -367,15 +377,15 @@ function FormChip({
   return (
     <button
       type={type}
+      {...props}
       data-component={dataComponent}
-      data-source-component="FormChip"
+      data-source-component={FORM_CHIP_SOURCE_COMPONENT}
       className={cn(
         "min-h-[calc(34px*var(--glint-ui-scale,1))] rounded-full border-[1.5px] border-v3-border bg-white px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(7px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] font-extrabold leading-none text-v3-text-muted transition-colors disabled:cursor-not-allowed disabled:opacity-55",
         selected && "border-v3-primary/40 bg-v3-primary-light text-v3-primary",
         className,
       )}
       aria-pressed={selected}
-      {...props}
     />
   );
 }
@@ -417,14 +427,14 @@ function FormSwitchRow({
 
   return (
     <div
+      {...props}
       data-component={dataComponent}
-      data-source-component="FormSwitchRow"
+      data-source-component={FORM_SWITCH_ROW_SOURCE_COMPONENT}
       className={cn(
         "flex min-h-[calc(54px*var(--glint-ui-scale,1))] items-center justify-between gap-[calc(14px*var(--glint-ui-scale,1))] rounded-[14px] border-[1.5px] border-v3-border bg-white px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(10px*var(--glint-ui-scale,1))]",
         size === "control" && "h-[calc(38px*var(--glint-ui-scale,1))] min-h-[calc(38px*var(--glint-ui-scale,1))] border-[1.35px] py-0",
         className,
       )}
-      {...props}
     >
       <div data-component={copyDataComponent ?? sub("copy")}>
         <strong

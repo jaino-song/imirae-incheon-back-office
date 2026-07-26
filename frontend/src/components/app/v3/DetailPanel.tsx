@@ -8,9 +8,14 @@ import { PanelTitleGroup } from "./PanelTitleGroup";
 import { useSplitLayoutNavOptional } from "./SplitLayoutContext";
 import { useScrollActivity } from "./useScrollActivity";
 
+const SOURCE_COMPONENT = "DetailPanel";
+
+type DetailPanelSourceComponent = typeof SOURCE_COMPONENT | "ClientDetailPanel";
+
 interface DetailPanelProps {
   "data-component": string;
-  "data-source-component"?: string;
+  /** @internal Zero-DOM wrapper ownership only. */
+  sourceComponent?: DetailPanelSourceComponent;
   /** Fully custom header (escape hatch for centered layouts etc.) */
   header?: React.ReactNode;
   /** Optional avatar element on the left */
@@ -64,8 +69,8 @@ function DetailPanelTextSkeleton({
   return (
     <span
       aria-hidden="true"
-      data-slot="skeleton"
       data-component={name}
+      data-slot="skeleton"
       className={cn("block animate-pulse rounded-md bg-v3-dim-white", className)}
     />
   );
@@ -73,7 +78,7 @@ function DetailPanelTextSkeleton({
 
 export function DetailPanel({
   "data-component": dataComponent,
-  "data-source-component": dataSourceComponent = "DetailPanel",
+  sourceComponent = SOURCE_COMPONENT,
   header = null,
   avatar,
   title,
@@ -157,8 +162,8 @@ export function DetailPanel({
   return (
     <div
       data-component={dataComponent}
-      data-source-component={dataSourceComponent}
       data-slot="detail-panel"
+      data-source-component={sourceComponent}
       className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] bg-white shadow-v3"
     >
       {(resolvedBackAction || renderedHeader) && (

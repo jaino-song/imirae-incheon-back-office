@@ -5,6 +5,12 @@ import React from "react";
 import { AppContentCard } from "@/components/ui/app-surface";
 import { InfoCardDataComponentProvider } from "./InfoCardDataComponentContext";
 
+const SOURCE_COMPONENT = "InfoCard";
+
+type InfoCardSourceComponent =
+  | typeof SOURCE_COMPONENT
+  | "ServiceRecordHeaderCard";
+
 interface InfoCardProps {
   title: string;
   children: React.ReactNode;
@@ -13,7 +19,11 @@ interface InfoCardProps {
   className?: string;
   contentClassName?: string;
   "data-component": string;
-  "data-source-component"?: string;
+  /**
+   * @deprecated Zero-DOM ownership bridge for ServiceRecordHeaderCard only.
+   * Arbitrary source-component overrides are not supported.
+   */
+  "data-source-component"?: InfoCardSourceComponent;
 }
 
 export function InfoCard({
@@ -24,13 +34,13 @@ export function InfoCard({
   className,
   contentClassName,
   "data-component": dataComponent,
-  "data-source-component": dataSourceComponent = "InfoCard",
+  "data-source-component": sourceComponent = SOURCE_COMPONENT,
 }: InfoCardProps) {
   return (
     <InfoCardDataComponentProvider value={dataComponent}>
       <AppContentCard
         data-component={dataComponent}
-        data-source-component={dataSourceComponent}
+        sourceComponent={sourceComponent}
         variant="muted"
         title={title}
         description={description}

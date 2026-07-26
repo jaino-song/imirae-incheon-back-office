@@ -5,6 +5,8 @@ import React from "react";
 import { cn } from "@/lib/utils";
 import { useInfoCardDataComponent } from "./InfoCardDataComponentContext";
 
+const SOURCE_COMPONENT = "InfoRow";
+
 interface InfoRowProps {
   label: string;
   value: React.ReactNode;
@@ -28,7 +30,7 @@ export function InfoRow({
   return (
     <div
       data-component={dataComponent}
-      data-source-component="InfoRow"
+      data-source-component={SOURCE_COMPONENT}
       className={cn("flex items-start gap-[calc(16px*var(--glint-ui-scale,1))] border-b border-v3-border py-[calc(10px*var(--glint-ui-scale,1))] last:border-b-0", className)}
     >
       <span data-component={sub("label")} className={cn(

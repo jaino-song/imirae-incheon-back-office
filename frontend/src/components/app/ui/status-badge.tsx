@@ -4,6 +4,8 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "StatusBadge";
+
 const statusBadgeVariants = cva(
   "inline-flex items-center justify-center overflow-hidden rounded-[50px] border px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(4px*var(--glint-ui-scale,1))] text-[calc(10.4px*var(--glint-ui-scale,1))] font-semibold leading-none whitespace-nowrap shrink-0 transition-colors gap-[calc(4px*var(--glint-ui-scale,1))] [&>svg]:size-[calc(12px*var(--glint-ui-scale,1))] [&>svg]:pointer-events-none",
   {
@@ -63,9 +65,11 @@ function StatusBadge({
 }: StatusBadgeProps) {
   return (
     <span
+      // TODO(data-component): Remove the legacy fallback after all callers migrate.
       data-component="status-badge"
-      className={cn(statusBadgeVariants({ variant, size }), className)}
       {...props}
+      data-source-component={SOURCE_COMPONENT}
+      className={cn(statusBadgeVariants({ variant, size }), className)}
     >
       {children}
     </span>

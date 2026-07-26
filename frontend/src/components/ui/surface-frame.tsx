@@ -1,6 +1,8 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "SurfaceFrame";
+
 export interface SurfaceFrameProps {
   children: React.ReactNode;
   className?: string;
@@ -30,6 +32,7 @@ export function SurfaceFrame({
   return (
     <div
       data-component={componentSlots.container}
+      data-source-component={SOURCE_COMPONENT}
       className={cn(
         "relative flex !h-auto min-h-[100dvh] w-full items-center justify-center py-4 md:py-8",
         className,

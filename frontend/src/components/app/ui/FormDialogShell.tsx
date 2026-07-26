@@ -25,8 +25,11 @@ import {
   APP_FORM_DIALOG_CONTENT_CLASS_NAME,
 } from "@/components/ui/app-surface";
 
+const SOURCE_COMPONENT = "FormDialogShell";
+
 interface FormDialogShellProps {
-  dataComponent: string;
+  "data-component"?: string;
+  dataComponent?: string;
   title: React.ReactNode;
   description?: React.ReactNode;
   eyebrow?: React.ReactNode;
@@ -37,7 +40,8 @@ interface FormDialogShellProps {
 }
 
 export function FormDialogShell({
-  dataComponent,
+  "data-component": canonicalDataComponent,
+  dataComponent: legacyDataComponent,
   title,
   description,
   eyebrow,
@@ -46,9 +50,17 @@ export function FormDialogShell({
   contentClassName,
   footerClassName,
 }: FormDialogShellProps) {
+  const canonicalDataComponentBase = canonicalDataComponent || undefined;
+  const dataComponent = canonicalDataComponentBase ?? legacyDataComponent;
+  const sub = (suffix: string) => {
+    if (canonicalDataComponentBase) return `${canonicalDataComponentBase}_${suffix}`;
+    return legacyDataComponent ? `${legacyDataComponent}-${suffix}` : undefined;
+  };
+
   return (
     <DialogContent
       data-component={dataComponent}
+      data-source-component={SOURCE_COMPONENT}
       showCloseButton={false}
       className={cn(
         APP_DIALOG_FLUSH_CONTENT_CLASS_NAME,
@@ -82,7 +94,7 @@ export function FormDialogShell({
       </DialogHeader>
 
       <div
-        data-component={`${dataComponent}-content`}
+        data-component={sub("content")}
         className={cn(APP_DIALOG_BODY_CLASS_NAME, contentClassName)}
       >
         {children}
@@ -90,7 +102,7 @@ export function FormDialogShell({
 
       {footer ? (
         <DialogFooter
-          data-component={`${dataComponent}-actions`}
+          data-component={sub("actions")}
           className={cn(APP_DIALOG_FOOTER_CLASS_NAME, footerClassName)}
         >
           {footer}
