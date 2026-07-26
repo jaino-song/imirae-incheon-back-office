@@ -63,7 +63,7 @@ describe("EmployeeAutocomplete", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "제공인력 1 성함" }));
 
     expect(await screen.findByText("일치하는 제공인력이 없습니다.")).toBeInTheDocument();
-    expect(document.querySelector('[data-component="employee-autocomplete-dropdown"]')).toHaveClass(
+    expect(document.querySelector('[data-component="desktop_clients_employee-autocomplete_dropdown"]')).toHaveClass(
       "glint-ui-scale-scope",
     );
     expect(screen.queryByText("김제공")).not.toBeInTheDocument();

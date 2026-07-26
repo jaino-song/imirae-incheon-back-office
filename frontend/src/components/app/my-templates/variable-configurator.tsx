@@ -30,7 +30,7 @@ export const VariableConfigurator = ({ variable, onChange }: VariableConfigurato
     };
 
     return (
-        <Card data-component="my-templates-variable-config" className="p-4">
+        <Card data-component="desktop_my-templates_variable-config" className="p-4">
             <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center">
                     <p className="text-base font-semibold text-primary">

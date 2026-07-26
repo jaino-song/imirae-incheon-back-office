@@ -42,16 +42,16 @@ export function LoginPageMobile() {
   };
 
   return (
-    <div data-component="auth-login-main" className="flex h-full items-center justify-center">
+    <div data-component="desktop_auth_login_main" className="flex h-full items-center justify-center">
       <MobileAuthCardContainer
-        data-component="auth-login"
+        data-component="desktop_auth_login"
         dataComponents={{
-          container: "auth-login-container",
-          card: "auth-login-card",
-          header: "auth-login-header",
-          title: "auth-login-title",
-          subtitle: "auth-login-subtitle",
-          content: "auth-login-content",
+          container: "desktop_auth_login_container",
+          card: "desktop_auth_login_card",
+          header: "desktop_auth_login_header",
+          title: "desktop_auth_login_title",
+          subtitle: "desktop_auth_login_subtitle",
+          content: "desktop_auth_login_content",
         }}
         className="max-w-[400px] border bg-card text-card-foreground shadow-lg"
         contentClassName="flex flex-col gap-6"
@@ -61,14 +61,14 @@ export function LoginPageMobile() {
         {serverError ? (
           <MobileAlertCard
             variant="destructive"
-            data-component="login-error"
+            data-component="desktop_auth_login_error"
             message={serverError}
             actionLabel={emailVerificationRequired ? (isResendingVerification ? "재발송 중..." : "인증 이메일 재발송") : undefined}
             actionOnClick={emailVerificationRequired ? handleResendVerification : undefined}
           />
         ) : null}
 
-        <form data-component="login-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form data-component="desktop_auth_login_form" onSubmit={handleSubmit} className="flex flex-col gap-4">
           <MobileInputField
             title="이메일"
             message={errors.email}
@@ -90,7 +90,7 @@ export function LoginPageMobile() {
             renderInput={(resolvedInputProps) => (
               <MobileInput
                 {...resolvedInputProps}
-                data-component="auth-login-email-field"
+                data-component="desktop_auth_login_form_auth-login-email-field"
               />
             )}
           />
@@ -116,13 +116,13 @@ export function LoginPageMobile() {
             renderInput={(resolvedInputProps) => (
               <MobileInput
                 {...resolvedInputProps}
-                data-component="auth-login-password-field"
+                data-component="desktop_auth_login_form_auth-login-password-field"
               />
             )}
           />
 
-          <div data-component="login-form-checkboxes" className="flex items-center gap-6">
-            <div data-component="login-form-checkbox-remember-id" className="flex items-center gap-2">
+          <div data-component="desktop_auth_login_form_checkboxes" className="flex items-center gap-6">
+            <div data-component="desktop_auth_login_form_checkboxes_checkbox-remember-id" className="flex items-center gap-2">
               <Checkbox
                 id="login-remember-id"
                 checked={rememberId}
@@ -134,7 +134,7 @@ export function LoginPageMobile() {
               </Label>
             </div>
 
-            <div data-component="login-form-checkbox-auto-login" className="flex items-center gap-2">
+            <div data-component="desktop_auth_login_form_checkboxes_checkbox-auto-login" className="flex items-center gap-2">
               <Checkbox
                 id="login-auto-login"
                 checked={autoLogin}
@@ -148,7 +148,7 @@ export function LoginPageMobile() {
           </div>
 
           <Button
-            data-component="login-submit-button"
+            data-component="desktop_auth_login_form_submit-button"
             type="submit"
             variant="positive"
             size="lg"
@@ -159,11 +159,11 @@ export function LoginPageMobile() {
           </Button>
         </form>
 
-        <div data-component="login-divider" className="relative">
-          <div data-component="login-divider-line" className="absolute inset-0 flex items-center">
+        <div data-component="desktop_auth_login_divider" className="relative">
+          <div data-component="desktop_auth_login_divider_line" className="absolute inset-0 flex items-center">
             <span className="w-full border-t border-border" />
           </div>
-          <div data-component="login-divider-text" className="relative flex justify-center text-xs uppercase">
+          <div data-component="desktop_auth_login_divider_text" className="relative flex justify-center text-xs uppercase">
             <span className="bg-white px-2 text-muted-foreground">또는</span>
           </div>
         </div>
@@ -171,14 +171,14 @@ export function LoginPageMobile() {
         <MobileOAuthButtons kakaoButton={kakaoButton} />
 
         <AuthInlineLink
-          dataComponent="login-forgot"
+          dataComponent="desktop_auth_login_forgot"
           href="/forgot-password"
           prefixText="비밀번호를 잊으셨나요?"
           linkLabel="비밀번호 찾기"
         />
 
         <AuthInlineLink
-          dataComponent="login-register-link"
+          dataComponent="desktop_auth_login_register-link"
           href="/register"
           prefixText="계정이 없으신가요?"
           linkLabel="회원가입"

@@ -53,7 +53,7 @@ export function PanelTitleGroup({
         ) : null}
       </div>
       {subtitle ? (
-        <p data-component={`${dataComponent}_subtitle`} className={cn("text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-text-muted", subtitleClassName)}>
+        <p data-component={`${dataComponent}_subtitle`} data-slot="panel-subtitle" className={cn("text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-text-muted", subtitleClassName)}>
           {subtitle}
         </p>
       ) : null}

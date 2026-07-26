@@ -168,10 +168,10 @@ export const V3Sidebar = () => {
     <aside
       className="hidden md:flex flex-col fixed left-0 top-0 h-full w-[calc(min(20vw,240px)*var(--glint-ui-scale,1))] bg-white z-40 rounded-tr-[32px] rounded-br-[32px] shadow-v3 animate-v3-slide-right overflow-hidden"
       aria-label="Sidebar Navigation"
-      data-component="sidebar"
+      data-component="desktop_chrome_sidebar"
       style={scaledStyle}
     >
-      <div className="flex items-center justify-between gap-[calc(12px*var(--glint-ui-scale,1))] px-[calc(24px*var(--glint-ui-scale,1))] pt-[calc(32px*var(--glint-ui-scale,1))] pb-[calc(24px*var(--glint-ui-scale,1))]" data-component="sidebar-brand">
+      <div className="flex items-center justify-between gap-[calc(12px*var(--glint-ui-scale,1))] px-[calc(24px*var(--glint-ui-scale,1))] pt-[calc(32px*var(--glint-ui-scale,1))] pb-[calc(24px*var(--glint-ui-scale,1))]" data-component="desktop_chrome_sidebar_brand">
         <div className="flex min-w-0 items-center gap-[calc(12px*var(--glint-ui-scale,1))]">
           <div className="flex h-[calc(48px*var(--glint-ui-scale,1))] w-[calc(48px*var(--glint-ui-scale,1))] shrink-0 items-center justify-center overflow-hidden rounded-xl shadow-sm">
             <Image src="/assets/logo.svg" alt="아가잼잼 로고" width={48} height={48} className="w-full h-full object-cover" />
@@ -192,7 +192,7 @@ export const V3Sidebar = () => {
 
       <nav
         className="custom-scrollbar scrollbar-on-scroll flex-1 space-y-[calc(24px*var(--glint-ui-scale,1))] overflow-y-auto px-[calc(16px*var(--glint-ui-scale,1))] py-[calc(8px*var(--glint-ui-scale,1))]"
-        data-component="sidebar-nav"
+        data-component="desktop_chrome_sidebar_nav"
         data-scroll-active={isNavScrolling ? "true" : "false"}
         onScroll={handleNavScroll}
       >
@@ -272,7 +272,7 @@ export const V3Sidebar = () => {
         ))}
       </nav>
 
-      <div className="mt-auto p-[calc(16px*var(--glint-ui-scale,1))]" data-component="sidebar-profile">
+      <div className="mt-auto p-[calc(16px*var(--glint-ui-scale,1))]" data-component="desktop_chrome_sidebar_profile">
         <SidebarAccountMenu
           name={user?.name || "GUEST"}
           roleLabel={

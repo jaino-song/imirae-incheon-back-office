@@ -43,7 +43,7 @@ function DataTableRoot({
   return (
     <div
       // TODO(data-component): Remove the legacy fallback after all callers migrate.
-      data-component="data-table"
+      data-component="desktop_v3_data-table"
       data-source-component={SOURCE_COMPONENT}
       className={className}
       {...props}
@@ -63,7 +63,7 @@ function DataTableHeaderRoot({
     return <TableHeader data-component={dataComponent} {...props} />;
   }
 
-  return <TableHeader data-component="data-table-header" {...props} />;
+  return <TableHeader data-component="desktop_v3_data-table_header" {...props} />;
 }
 
 function DataTableBodyRoot({
@@ -74,7 +74,7 @@ function DataTableBodyRoot({
     return <TableBody data-component={dataComponent} {...props} />;
   }
 
-  return <TableBody data-component="data-table-body" {...props} />;
+  return <TableBody data-component="desktop_v3_data-table_body" {...props} />;
 }
 
 function DataTableRowRoot({
@@ -85,7 +85,7 @@ function DataTableRowRoot({
     return <TableRow data-component={dataComponent} {...props} />;
   }
 
-  return <TableRow data-component="data-table-row" {...props} />;
+  return <TableRow data-component="desktop_v3_data-table_row" {...props} />;
 }
 
 export function DataTable<T extends Record<string, unknown>>({

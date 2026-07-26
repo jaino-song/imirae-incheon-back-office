@@ -25,5 +25,5 @@ function AuthCallbackContent() {
 }
 
 function AuthCallbackLoading() {
-  return <div data-component="auth-callback-loading" className="min-h-screen" />;
+  return <div data-component="desktop_auth_callback_loading" className="min-h-screen" />;
 }

@@ -57,7 +57,7 @@ describe('VersionHistory', () => {
     fireEvent.click(screen.getByRole('button', { name: '이 버전으로 복원' }));
 
     const dialog = screen.getByRole('dialog', { name: '버전 복원' });
-    expect(dialog).toHaveAttribute('data-component', 'system-template-version-approval');
+    expect(dialog).toHaveAttribute('data-component', 'desktop_system-templates_version-approval');
     expect(
       screen.getByText('버전 3으로 복원하시겠습니까? 현재 내용은 새 버전으로 저장됩니다.'),
     ).toBeInTheDocument();
@@ -79,7 +79,7 @@ describe('VersionHistory', () => {
     fireEvent.click(screen.getByRole('button', { name: '기본값으로 초기화' }));
 
     const dialog = screen.getByRole('dialog', { name: '기본값 초기화' });
-    expect(dialog).toHaveAttribute('data-component', 'system-template-version-approval');
+    expect(dialog).toHaveAttribute('data-component', 'desktop_system-templates_version-approval');
     expect(screen.getByRole('button', { name: '초기화' })).toHaveAttribute(
       'data-variant',
       'destructive',

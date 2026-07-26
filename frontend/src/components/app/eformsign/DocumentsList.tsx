@@ -153,7 +153,7 @@ export function DocumentsList() {
       subtitle={t(locale, "documents-list.subtitle")}
       className="min-h-[70vh] flex-grow w-full"
     >
-      <div data-component="contracts-eformsign-list">
+      <div data-component="desktop_contracts_eformsign-list">
         <DataTable
           data={documents}
           columns={columns}

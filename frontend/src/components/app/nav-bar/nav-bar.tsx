@@ -85,11 +85,11 @@ export const NavBar = ({ onClose }: NavBarProps) => {
     ];
 
     return (
-        <div data-component="nav-bar" className="w-full h-full p-4 flex flex-col justify-between">
+        <div data-component="desktop_chrome_nav-bar" className="w-full h-full p-4 flex flex-col justify-between">
             {/* Main navigation section */}
-            <div data-component="nav-bar-content" className="flex-1">
+            <div data-component="desktop_chrome_nav-bar_content" className="flex-1">
                 {/* Close button */}
-                <div data-component="nav-bar-close" className="flex justify-end mb-4">
+                <div data-component="desktop_chrome_nav-bar_content_close" className="flex justify-end mb-4">
                     <SheetClose asChild>
                         <Button
                             variant="ghost"
@@ -103,7 +103,7 @@ export const NavBar = ({ onClose }: NavBarProps) => {
                 </div>
 
                 {/* Navigation items */}
-                <nav data-component="nav-bar-nav" className="flex flex-col gap-1">
+                <nav data-component="desktop_chrome_nav-bar_content_nav" className="flex flex-col gap-1">
                     {navItems.map((item, index) => (
                         <NavButton
                             key={item.href}
@@ -134,7 +134,7 @@ export const NavBar = ({ onClose }: NavBarProps) => {
             </div>
 
             {/* Footer with language switcher */}
-            <div data-component="nav-bar-footer" className="opacity-0 animate-fade-in" style={{ animationDelay: '500ms' }}>
+            <div data-component="desktop_chrome_nav-bar_footer" className="opacity-0 animate-fade-in" style={{ animationDelay: '500ms' }}>
                 <LanguageSwitcher />
             </div>
         </div>

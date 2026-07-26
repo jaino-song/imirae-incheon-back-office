@@ -81,8 +81,8 @@ export function AddCategoryModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen: boolean) => !isOpen && handleClose()}>
-        <DialogContent data-component="contracts-add-category" className="sm:max-w-md" showCloseButton={false}>
-        <DialogHeader data-component="contracts-add-category-header" className="flex-row justify-between items-center">
+        <DialogContent data-component="desktop_contracts_add-category" className="sm:max-w-md" showCloseButton={false}>
+        <DialogHeader data-component="desktop_contracts_add-category_header" className="flex-row justify-between items-center">
           <DialogTitle>태그 추가</DialogTitle>
           <Button
             variant="ghost"
@@ -94,7 +94,7 @@ export function AddCategoryModal({
           </Button>
         </DialogHeader>
 
-        <div data-component="contracts-add-category-form" className="flex flex-col gap-4 py-4">
+        <div data-component="desktop_contracts_add-category_form" className="flex flex-col gap-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="category-name">태그 이름</Label>
             <Input
@@ -135,7 +135,7 @@ export function AddCategoryModal({
           </div>
         </div>
 
-        <DialogFooter data-component="contracts-add-category-footer">
+        <DialogFooter data-component="desktop_contracts_add-category_footer">
           <Button variant="outline" onClick={handleClose} disabled={isLoading}>
             취소
           </Button>

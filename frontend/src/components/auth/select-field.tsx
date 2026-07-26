@@ -66,13 +66,13 @@ export function SelectField({
   return (
     <div className="flex flex-col gap-2" data-component={dataComponent}>
       <div
-        data-component="form-field-label-row"
+        data-component="desktop_auth_form-field_label-row"
         className="flex items-center justify-between gap-2"
       >
         <Label htmlFor={fieldId}>{label}</Label>
         {shouldShowInlineError || trailingContent ? (
           <div
-            data-component="form-field-label-trailing"
+            data-component="desktop_auth_form-field_label-row_trailing"
             className="flex min-h-[0.6875rem] shrink-0 items-center"
           >
             {trailingContent}

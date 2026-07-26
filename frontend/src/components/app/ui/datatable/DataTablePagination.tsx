@@ -29,7 +29,7 @@ function DataTablePaginationRoot({
   return (
     <div
       // TODO(data-component): Remove the legacy fallback after all callers migrate.
-      data-component="data-table-pagination"
+      data-component="desktop_v3_data-table_pagination"
       data-source-component={SOURCE_COMPONENT}
       {...props}
     />

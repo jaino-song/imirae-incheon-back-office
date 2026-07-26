@@ -33,6 +33,8 @@ import { getGlintUiScaleForViewport } from "@/components/app/v3/useGlintUiScale"
 import { ClientFormDialog } from "./ClientFormDialog";
 
 interface ClientAutocompleteProps {
+    /** Caller-context canonical data-component base for this autocomplete instance. */
+    "data-component"?: string;
     containerClassName?: string;
     value: number | null;
     onChange: (clientId: number | null, client: Client | null) => void;
@@ -51,6 +53,7 @@ interface ClientAutocompleteProps {
 }
 
 export function ClientAutocomplete({
+    "data-component": dataComponent = "desktop_clients_autocomplete",
     containerClassName,
     value,
     onChange,
@@ -222,7 +225,7 @@ export function ClientAutocomplete({
 
     return (
         <div
-            data-component="clients-autocomplete"
+            data-component={dataComponent}
             className={cn("space-y-2", containerClassName)}
         >
             <Label
@@ -243,7 +246,7 @@ export function ClientAutocomplete({
                             role="combobox"
                             aria-label={label}
                             aria-expanded={isOpen}
-                            data-component="clients-autocomplete-input"
+                            data-component={`${dataComponent}_input`}
                             className={cn(
                                 V3_INPUT_CONTROL_CLASS_NAME,
                                 "w-full justify-between font-normal hover:bg-white",
@@ -287,7 +290,7 @@ export function ClientAutocomplete({
                     </PopoverTrigger>
                 </div>
                 <PopoverContent
-                    data-component="clients-autocomplete-dropdown"
+                    data-component={`${dataComponent}_dropdown`}
                     className="glint-ui-scale-scope w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-[22px] border-none bg-white p-0 text-v3-dark shadow-[0_0_0_2px_hsla(214,30%,40%,0.12),0_0_12px_hsla(214,30%,40%,0.05)]"
                     align="start"
                     sideOffset={popoverSideOffset}
@@ -409,6 +412,7 @@ export function ClientAutocomplete({
 
             {isRegistrationDialogOpen ? (
                 <ClientFormDialog
+                    data-component={`${dataComponent}_client-form-dialog`}
                     open
                     onClose={handleRegistrationDialogClose}
                     onSuccess={handleRegistrationSuccess}

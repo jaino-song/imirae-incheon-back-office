@@ -34,7 +34,7 @@ export function ServiceScheduleChangeModal({
             onOpenChange={(nextOpen) => {
                 if (!nextOpen) onClose();
             }}
-            dataComponent="clients-detail-service-schedule-change-modal"
+            dataComponent="desktop_clients-detail_service-schedule-change-modal"
             title="서비스 일정 변경"
             description={`${sessionIndex}회차 서비스 제공 날짜를 조정합니다.`}
             isDescriptionVisuallyHidden={false}

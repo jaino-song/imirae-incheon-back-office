@@ -86,7 +86,7 @@ describe("ClientServiceRecordsTab", () => {
         ).toHaveTextContent("회차별 제공기록");
         expect(container.querySelectorAll('[data-slot="skeleton"].animate-pulse').length).toBeGreaterThan(0);
         expect(
-            container.querySelector('[data-component="clients-detail-service-records-skeleton-card"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}_skeleton-card"]`),
         ).not.toBeInTheDocument();
     });
 
@@ -312,7 +312,7 @@ describe("ClientServiceRecordsTab", () => {
         expect(screen.getByText(/2회차 ·/)).toBeInTheDocument();
         expect(screen.queryByText("계약 회차를 누르면 기록 상세가 열립니다")).not.toBeInTheDocument();
         expect(
-            container.querySelector('[data-component="clients-detail-service-records-progress"]'),
+            container.querySelector(`[data-component="${TEST_COMPONENT}_progress"]`),
         ).not.toBeInTheDocument();
 
         const overviewGrid = container.querySelector<HTMLElement>(
@@ -354,15 +354,15 @@ describe("ClientServiceRecordsTab", () => {
         expect(overviewCards[0].querySelector(`[data-component="${TEST_COMPONENT}_overview-grid_status-card_row"] > span`)).toHaveClass(
             "text-[calc(12px*var(--glint-ui-scale,1))]",
         );
-        expect(overviewCards[0].querySelector('[data-component="status-badge"]')).not.toBeInTheDocument();
+        expect(overviewCards[0].querySelector('[data-slot="status-badge"]')).not.toBeInTheDocument();
         expect(
             overviewCards[1].querySelector(
-                `[data-component="${TEST_COMPONENT}_overview-grid_header-card_head_title-row"] [data-component="status-badge"]`,
+                `[data-component="${TEST_COMPONENT}_overview-grid_header-card_head_title-row"] [data-slot="status-badge"]`,
             ),
         ).not.toBeInTheDocument();
         expect(
             overviewCards[2].querySelector(
-                `[data-component="${TEST_COMPONENT}_overview-grid_link-card_head_title-row"] [data-component="status-badge"]`,
+                `[data-component="${TEST_COMPONENT}_overview-grid_link-card_head_title-row"] [data-slot="status-badge"]`,
             ),
         ).not.toBeInTheDocument();
         const sessionDetail = container.querySelector<HTMLElement>(

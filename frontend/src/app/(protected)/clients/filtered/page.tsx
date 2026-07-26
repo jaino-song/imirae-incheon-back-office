@@ -198,6 +198,7 @@ export default function FilteredClientsPage() {
             />
 
             <ClientFormDialog
+                data-component="desktop_clients-filtered_form-dialog"
                 open={formDialogOpen}
                 onClose={() => {
                     setFormDialogOpen(false);

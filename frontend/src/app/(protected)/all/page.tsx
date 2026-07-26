@@ -72,10 +72,10 @@ export default function AllMenuPage() {
   }, [isAdminOrOwner]);
 
   return (
-    <div data-component="all-menu" className="md:hidden space-y-6">
+    <div data-component="desktop_all_menu" className="md:hidden space-y-6">
       {/* Profile */}
       <section
-        data-component="all-menu-profile"
+        data-component="desktop_all_menu_profile"
         className={cn(
           "bg-white rounded-[28px] shadow-v3 p-5",
           "border border-black/5",
@@ -83,7 +83,7 @@ export default function AllMenuPage() {
         )}
         style={{ animationFillMode: "both" }}
       >
-        <div data-component="all-menu-profile-content" className="flex items-center gap-4">
+        <div data-component="desktop_all_menu_profile_content" className="flex items-center gap-4">
           {isLoading ? (
             <Skeleton className="h-14 w-14 rounded-2xl bg-v3-dim-white" />
           ) : (
@@ -95,15 +95,15 @@ export default function AllMenuPage() {
             </Avatar>
           )}
 
-          <div data-component="all-menu-profile-text" className="min-w-0 flex-1">
+          <div data-component="desktop_all_menu_profile_content_text" className="min-w-0 flex-1">
             {isLoading ? (
-              <div data-component="all-menu-profile-skeleton" className="space-y-2">
+              <div data-component="desktop_all_menu_profile_content_text_skeleton" className="space-y-2">
                 <Skeleton className="h-4 w-32 bg-v3-dim-white" />
                 <Skeleton className="h-3 w-44 bg-v3-dim-white" />
               </div>
             ) : (
               <>
-                <div data-component="all-menu-profile-name-row" className="flex items-center gap-2">
+                <div data-component="desktop_all_menu_profile_content_text_name-row" className="flex items-center gap-2">
                   <p className="text-[1.05rem] font-extrabold text-v3-dark truncate">
                     {user?.name ?? "사용자"}
                   </p>
@@ -130,25 +130,25 @@ export default function AllMenuPage() {
       </section>
 
       <div
-        data-component="all-menu-content"
+        data-component="desktop_all_menu_content"
         className="bg-white rounded-tl-[28px] rounded-tr-[28px] -mx-4 p-4 opacity-0 animate-v3-slide-up"
         style={{ animationDelay: "0.1s", animationFillMode: "both" }}
       >
         <ShortcutGrid shortcuts={shortcuts} className="mb-4" />
 
         {/* Full nav stack */}
-        <section data-component="all-menu-nav" className="space-y-3 pb-2">
+        <section data-component="desktop_all_menu_content_nav" className="space-y-3 pb-2">
           <h2 className="px-1 text-lg font-extrabold tracking-tight text-v3-dark">
             전체 메뉴
           </h2>
-          <div data-component="all-menu-nav-list" className="flex flex-col gap-2">
+          <div data-component="desktop_all_menu_content_nav_list" className="flex flex-col gap-2">
             {navItems.map((item, idx) => {
               const Icon = item.icon;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  data-component="all-menu-nav-item"
+                  data-component="desktop_all_menu_content_nav_list_item"
                   className={cn(
                     "flex items-center gap-3 px-3 py-1",
                     "rounded-[18px]",
@@ -157,10 +157,10 @@ export default function AllMenuPage() {
                   )}
                   style={{ animationDelay: `${0.35 + idx * 0.04}s`, animationFillMode: "both" }}
                 >
-                  <div data-component="all-menu-nav-item-icon" className="w-11 h-11 rounded-[14px] bg-v3-dim-white flex items-center justify-center shrink-0">
+                  <div data-component="desktop_all_menu_content_nav_list_item_icon" className="w-11 h-11 rounded-[14px] bg-v3-dim-white flex items-center justify-center shrink-0">
                     <Icon className="w-5 h-5 text-v3-text-muted" strokeWidth={2.5} />
                   </div>
-                  <div data-component="all-menu-nav-item-content" className="min-w-0 flex-1 flex items-center justify-between">
+                  <div data-component="desktop_all_menu_content_nav_list_item_content" className="min-w-0 flex-1 flex items-center justify-between">
                     <p className="text-md font-extrabold text-v3-dark truncate">
                       {item.label}
                     </p>

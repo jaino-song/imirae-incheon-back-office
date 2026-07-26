@@ -12,9 +12,9 @@ import { useChatStream, ChatMessage, ChatState } from "@/hooks/useChatStream";
 
 function UserMessage({ message }: { message: ChatMessage }) {
     return (
-        <div data-component="chat-message-user-row" className="flex justify-end mb-4">
+        <div data-component="desktop_chat_page_message-user-row" className="flex justify-end mb-4">
             <div
-                data-component="chat-message-user"
+                data-component="desktop_chat_page_message-user-row_bubble"
                 className="max-w-[80%] px-4 py-3 rounded-lg bg-primary text-primary-foreground"
             >
                 <p className="text-base whitespace-pre-wrap break-words">
@@ -27,7 +27,7 @@ function UserMessage({ message }: { message: ChatMessage }) {
 
 function ToolExecutingIndicator({ toolName }: { toolName: string | null }) {
     return (
-        <div data-component="chat-tool-indicator" className="flex items-center gap-2 mb-4 px-4">
+        <div data-component="desktop_chat_page_tool-indicator" className="flex items-center gap-2 mb-4 px-4">
             <Spinner size="sm" />
             <p className="text-sm text-muted-foreground">
                 {toolName ? `${toolName} 실행 중...` : "처리 중..."}
@@ -39,7 +39,7 @@ function ToolExecutingIndicator({ toolName }: { toolName: string | null }) {
 function StateIndicator({ state }: { state: ChatState }) {
     if (state === "connecting") {
         return (
-            <div data-component="chat-state-indicator" className="flex items-center gap-2 mb-4 px-4">
+            <div data-component="desktop_chat_page_state-indicator" className="flex items-center gap-2 mb-4 px-4">
                 <Spinner size="sm" />
                 <p className="text-sm text-muted-foreground">
                     연결 중...
@@ -160,7 +160,7 @@ export default function ChatPage() {
 
     return (
         <div
-            data-component="chat"
+            data-component="desktop_chat_page"
             className={cn(
                 "fixed inset-0 h-dvh flex flex-col bg-background z-[1200]",
                 "transition-transform duration-300 ease-out",
@@ -168,8 +168,8 @@ export default function ChatPage() {
             )}
         >
             {/* Header */}
-            <div data-component="chat-header" className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
-                <div data-component="chat-header-title-group" className="flex items-center gap-2">
+            <div data-component="desktop_chat_page_header" className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
+                <div data-component="desktop_chat_page_header_title-group" className="flex items-center gap-2">
                     <Button
                         variant="ghost"
                         size="icon"
@@ -197,17 +197,17 @@ export default function ChatPage() {
 
             {/* Messages Area */}
             <div
-                data-component="chat-messages"
+                data-component="desktop_chat_page_messages"
                 ref={scrollContainerRef}
                 className="flex-1 overflow-auto px-4 sm:px-8 py-6 select-text [-webkit-overflow-scrolling:touch]"
             >
                 {isLoadingHistory && messages.length > 0 && (
-                    <div data-component="chat-history-loading" className="flex justify-center p-4">
+                    <div data-component="desktop_chat_page_messages_history-loading" className="flex justify-center p-4">
                         <Spinner size="sm" />
                     </div>
                 )}
                 {messages.length === 0 ? (
-                    <div data-component="chat-empty" className="flex flex-col items-center justify-center h-full text-center text-muted-foreground animate-fade-in">
+                    <div data-component="desktop_chat_page_messages_empty" className="flex flex-col items-center justify-center h-full text-center text-muted-foreground animate-fade-in">
                         <Sparkles className="w-12 h-12 mb-4 opacity-50" />
                         <h2 className="text-lg font-semibold mb-2">
                             무엇을 도와드릴까요?
@@ -236,7 +236,7 @@ export default function ChatPage() {
                         {isToolExecuting && <ToolExecutingIndicator toolName={currentTool} />}
                         <StateIndicator state={state} />
                         {showConfirmButtons && (
-                            <div data-component="chat-confirm-actions" className="flex gap-2 mb-4 px-4">
+                            <div data-component="desktop_chat_page_messages_confirm-actions" className="flex gap-2 mb-4 px-4">
                                 <Button
                                     size="sm"
                                     onClick={handleConfirm}
@@ -254,14 +254,14 @@ export default function ChatPage() {
                                 </Button>
                             </div>
                         )}
-                        <div ref={messagesEndRef} data-component="chat-messages-end" />
+                        <div ref={messagesEndRef} data-component="desktop_chat_page_messages_end" />
                     </>
                 )}
             </div>
 
             {/* Input Area */}
-            <div data-component="chat-input-area" className="px-4 sm:px-8 py-4 border-t border-border bg-card shrink-0">
-                <div data-component="chat-quick-actions" className="mb-3 flex flex-wrap gap-2">
+            <div data-component="desktop_chat_page_input-area" className="px-4 sm:px-8 py-4 border-t border-border bg-card shrink-0">
+                <div data-component="desktop_chat_page_input-area_quick-actions" className="mb-3 flex flex-wrap gap-2">
                     {quickActions.map((label) => (
                         <Button
                             key={label}

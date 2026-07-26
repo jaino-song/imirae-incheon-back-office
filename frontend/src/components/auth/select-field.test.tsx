@@ -19,7 +19,7 @@ describe("SelectField", () => {
 
     expect(inlineError.tagName).toBe("SPAN");
     expect(inlineError).toHaveClass("inline-flex");
-    expect(document.querySelector('[data-component="form-field-label-trailing"]')).toBeTruthy();
+    expect(document.querySelector('[data-component="desktop_auth_form-field_label-row_trailing"]')).toBeTruthy();
     expect(document.querySelector("p#역할-error")).toBeNull();
   });
 
@@ -34,7 +34,7 @@ describe("SelectField", () => {
       />
     );
 
-    const trailingSlot = document.querySelector('[data-component="form-field-label-trailing"]');
+    const trailingSlot = document.querySelector('[data-component="desktop_auth_form-field_label-row_trailing"]');
 
     expect(trailingSlot).toBeTruthy();
     expect(trailingSlot?.textContent).toContain("\u00A0");

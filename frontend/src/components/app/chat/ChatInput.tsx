@@ -44,7 +44,7 @@ export function ChatInput({
 
     return (
         <div
-            data-component="chat-input"
+            data-component="desktop_chat_page_input"
             onClick={onClick}
             className={cn(
                 "relative flex items-center gap-2 rounded-full",

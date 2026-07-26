@@ -66,7 +66,7 @@ export function SidebarAccountMenu({
   return (
     <div
       ref={containerRef}
-      data-component="sidebar-account-menu"
+      data-component="desktop_chrome_sidebar_account-menu"
       data-state={open ? "open" : "closed"}
       className={cn(
         "flex flex-col gap-[calc(2px*var(--glint-ui-scale,1))] rounded-2xl border transition-all",

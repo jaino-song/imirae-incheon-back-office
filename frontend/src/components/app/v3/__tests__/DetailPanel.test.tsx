@@ -105,9 +105,9 @@ describe("DetailPanel", () => {
 
     expect(container.querySelector('[data-slot="detail-panel-overlay"]')).toBeInTheDocument();
     expect(screen.getByText("항목을 선택하면 상세 정보가 표시됩니다.")).toBeInTheDocument();
-    expect(container.querySelector('[data-component="detail-panel-empty"]')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-component="list-empty-state-copy"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="detail-panel-empty-copy"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_detail-panel-6_empty"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_list-empty-state_copy"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_detail-panel-6_empty-copy"]')).not.toBeInTheDocument();
   });
 
   it("returns to the list from the compact back button", () => {
@@ -164,11 +164,11 @@ describe("DetailPanel", () => {
     expect(container.querySelector('[data-slot="detail-panel"]')).toBeInTheDocument();
     expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_detail-panel-9_header_title-group_title-row_title-skeleton"]')).toBeInTheDocument();
     expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_detail-panel-9_header_title-group_subtitle-skeleton"]')).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-component="detail-tabs-text-skeleton"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-component="desktop_v3_detail-tabs_button_text-skeleton"]')).toHaveLength(2);
     expect(container.querySelector('[data-slot="detail-panel-scroll-content"]')).toBeEmptyDOMElement();
     expect(screen.queryByTestId("detail-loaded-body")).not.toBeInTheDocument();
 
-    fireEvent.click(container.querySelector('[data-component="detail-tabs-button"]') as HTMLElement);
+    fireEvent.click(container.querySelector('[data-component="desktop_v3_detail-tabs_button"]') as HTMLElement);
     expect(onTabChange).not.toHaveBeenCalled();
   });
 });

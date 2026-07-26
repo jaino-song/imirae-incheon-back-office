@@ -85,7 +85,7 @@ export const TemplateEditor = ({ initialData }: TemplateEditorProps) => {
 
     return (
         <div className="flex flex-col gap-6">
-            <ContentPaper data-component="my-templates-editor" className="p-6" disableAnimation>
+            <ContentPaper data-component="desktop_my-templates_editor" className="p-6" disableAnimation>
                 <div className="flex flex-col gap-5">
                     <div className="flex flex-col gap-2">
                         <Label htmlFor="template-name">

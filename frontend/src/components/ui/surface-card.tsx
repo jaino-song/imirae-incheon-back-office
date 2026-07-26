@@ -38,13 +38,13 @@ export function SurfaceCard({
   "data-component": dataComponent,
   dataComponents,
 }: SurfaceCardProps) {
-  const componentName = dataComponent ?? "surface-card";
+  const componentName = dataComponent ?? "desktop_v3_surface-card";
   const componentSlots = {
-    card: dataComponents?.card ?? `${componentName}-card`,
-    header: dataComponents?.header ?? `${componentName}-header`,
-    title: dataComponents?.title ?? `${componentName}-title`,
-    subtitle: dataComponents?.subtitle ?? `${componentName}-subtitle`,
-    content: dataComponents?.content ?? `${componentName}-content`,
+    card: dataComponents?.card ?? `${componentName}_card`,
+    header: dataComponents?.header ?? `${componentName}_header`,
+    title: dataComponents?.title ?? `${componentName}_title`,
+    subtitle: dataComponents?.subtitle ?? `${componentName}_subtitle`,
+    content: dataComponents?.content ?? `${componentName}_content`,
   };
 
   return (

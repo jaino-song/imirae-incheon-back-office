@@ -27,7 +27,7 @@ export function QuickActions({
     className,
 }: QuickActionsProps) {
     return (
-        <section data-component="quick-actions" className={cn("space-y-3", className)}>
+        <section data-component="desktop_v3_quick-actions" className={cn("space-y-3", className)}>
             <h2 className="px-1 text-lg font-extrabold tracking-tight text-v3-dark">
                 {title}
             </h2>

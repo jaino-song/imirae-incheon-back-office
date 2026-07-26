@@ -53,6 +53,8 @@ import {
 } from "@/components/app/v3/DetailPanel";
 
 export interface ClientFormDialogProps {
+    /** Caller-context canonical data-component base for this form instance. */
+    "data-component"?: string;
     open: boolean;
     onClose: () => void;
     client?: Client | null; // null/undefined for create mode, Client for edit mode
@@ -196,6 +198,7 @@ const isValidCompactDateInput = (value: string): boolean => {
 };
 
 export function ClientFormPanel({
+    "data-component": dataComponent,
     open = true,
     onClose,
     client,
@@ -207,6 +210,7 @@ export function ClientFormPanel({
     return (
         <ClientFormContent
             surface="panel"
+            data-component={dataComponent}
             open={open}
             onClose={onClose}
             client={client}
@@ -218,10 +222,11 @@ export function ClientFormPanel({
     );
 }
 
-export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFormDialogProps) {
+export function ClientFormDialog({ "data-component": dataComponent, open, onClose, client, onSuccess }: ClientFormDialogProps) {
     return (
         <ClientFormContent
             surface="dialog"
+            data-component={dataComponent}
             open={open}
             onClose={onClose}
             client={client}
@@ -232,6 +237,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
 
 function ClientFormContent({
     surface,
+    "data-component": dataComponent,
     open,
     onClose,
     client,
@@ -240,6 +246,8 @@ function ClientFormContent({
     onActiveStepChange,
     renderLayout,
 }: ClientFormDialogProps & Pick<ClientFormPanelProps, "activeStep" | "onActiveStepChange" | "renderLayout"> & { surface: "dialog" | "panel" }) {
+    const base =
+        dataComponent ?? (surface === "panel" ? "desktop_clients_form-panel" : "desktop_clients_form-dialog");
     const router = useRouter();
     const searchParams = useSearchParams();
     const locale = useLocale();
@@ -791,7 +799,7 @@ function ClientFormContent({
                 size="sm"
                 onClick={handleDialogClose}
                 disabled={isSubmitting}
-                data-component="clients-form-dialog-cancel"
+                data-component={`${base}_cancel`}
                 className="w-full sm:flex-1"
             >
                 {t(locale, "common.cancel")}
@@ -801,7 +809,7 @@ function ClientFormContent({
                 size="sm"
                 onClick={handleSubmit}
                 disabled={isSubmitting || isPhoneCheckBlockingSubmit}
-                data-component="clients-form-dialog-submit"
+                data-component={`${base}_submit`}
                 className="w-full sm:flex-1"
             >
                 {isSubmitting ? (
@@ -836,7 +844,7 @@ function ClientFormContent({
                         size="sm"
                         onClick={() => handleStepChange(activeStep - 1)}
                         disabled={isSubmitting}
-                        data-component="clients-form-panel-prev"
+                        data-component={`${base}_prev`}
                         className="min-w-[calc(132px*var(--glint-ui-scale,1))]"
                     >
                         이전
@@ -848,7 +856,7 @@ function ClientFormContent({
                         size="sm"
                         onClick={() => handleStepChange(activeStep + 1)}
                         disabled={!isCurrentStepValid || isSubmitting}
-                        data-component="clients-form-panel-next"
+                        data-component={`${base}_next`}
                         className="min-w-[calc(132px*var(--glint-ui-scale,1))]"
                     >
                         다음
@@ -859,7 +867,7 @@ function ClientFormContent({
                         size="sm"
                         onClick={handleSubmit}
                         disabled={isSubmitting || !isFormComplete}
-                        data-component="clients-form-panel-submit"
+                        data-component={`${base}_submit`}
                         className="min-w-[calc(132px*var(--glint-ui-scale,1))]"
                     >
                         {isSubmitting ? (
@@ -877,13 +885,13 @@ function ClientFormContent({
 
     const basicInfoSection = (
         <ClientDialogSection
-            dataComponent="clients-form-dialog-section-basic"
+            dataComponent={`${base}_section-basic`}
             title={t(locale, "clients.form.section-basic")}
             description="고객의 프로필과 연락처를 먼저 입력해 주세요."
         >
-            <FormGrid data-component="clients-form-dialog-basic-grid">
+            <FormGrid data-component={`${base}_basic-grid`}>
                 <FormField
-                    data-component="clients-form-dialog-field-name"
+                    data-component={`${base}_basic-grid_field-name`}
                     htmlFor="name"
                     label={t(locale, "clients.form.name")}
                     required
@@ -897,7 +905,7 @@ function ClientFormContent({
                 </FormField>
 
                 <FormField
-                    data-component="clients-form-dialog-field-birthday"
+                    data-component={`${base}_basic-grid_field-birthday`}
                     htmlFor="birthday"
                     label={t(locale, "clients.form.birthday")}
                 >
@@ -908,13 +916,13 @@ function ClientFormContent({
                         onChange={(e) => handleChange("birthday", e.target.value)}
                         maxLength={6}
                     />
-                    <FormHelperText data-component="clients-form-dialog-field-birthday-helper">
+                    <FormHelperText data-component={`${base}_basic-grid_field-birthday_helper`}>
                         {t(locale, "clients.form.birthday-helper")}
                     </FormHelperText>
                 </FormField>
 
                 <FormField
-                    data-component="clients-form-dialog-field-due-date"
+                    data-component={`${base}_basic-grid_field-due-date`}
                     htmlFor="dueDate"
                     label={t(locale, "clients.form.due-date")}
                 >
@@ -930,13 +938,13 @@ function ClientFormContent({
                 </FormField>
 
                 <FormField
-                    data-component="clients-form-dialog-field-phone"
+                    data-component={`${base}_basic-grid_field-phone`}
                     htmlFor="phone"
                     label={t(locale, "clients.form.phone")}
                     labelAccessory={phoneInlineMessage ? (
                         <FormHelperText
                             id="clients-form-dialog-phone-helper"
-                            data-component="clients-form-dialog-phone-helper"
+                            data-component={`${base}_basic-grid_field-phone_helper`}
                             tone={hasPhoneStatusError ? "error" : "default"}
                             className={cn("m-0 text-right", isPhoneCheckReady && "text-v3-green")}
                             aria-live="polite"
@@ -962,7 +970,7 @@ function ClientFormContent({
                 </FormField>
 
                 <FormField
-                    data-component="clients-form-dialog-field-address"
+                    data-component={`${base}_basic-grid_field-address`}
                     htmlFor="address"
                     label={t(locale, "clients.form.address")}
                     className="sm:col-span-2"
@@ -980,12 +988,13 @@ function ClientFormContent({
 
     const employeeSection = (
         <ClientDialogSection
-            dataComponent="clients-form-dialog-section-employee"
+            dataComponent={`${base}_section-employee`}
             title={t(locale, "clients.form.section-employee")}
             description="서비스를 담당할 제공인력을 배정해 주세요."
         >
-            <FormGrid data-component="clients-form-dialog-employee-grid">
+            <FormGrid data-component={`${base}_employee-grid`}>
                 <EmployeeAutocomplete
+                    data-component={`${base}_employee-grid_primary-employee-autocomplete`}
                     value={formData.primaryEmployeeId}
                     onChange={(id) => handleChange("primaryEmployeeId", id)}
                     label={t(locale, "clients.form.primary-employee")}
@@ -996,6 +1005,7 @@ function ClientFormContent({
                     }}
                 />
                 <EmployeeAutocomplete
+                    data-component={`${base}_employee-grid_secondary-employee-autocomplete`}
                     value={formData.secondaryEmployeeId ?? null}
                     onChange={(id) => handleChange("secondaryEmployeeId", id)}
                     label={t(locale, "clients.form.secondary-employee")}
@@ -1012,12 +1022,12 @@ function ClientFormContent({
     const voucherInfoSections = (
         <>
             <ClientDialogSection
-                dataComponent="clients-form-dialog-section-service"
+                dataComponent={`${base}_section-service`}
                 title={t(locale, "clients.form.section-service")}
                 description="선택 항목입니다. 상담 단계에서는 입력하지 않아도 됩니다."
             >
                 <TogglePill
-                    data-component="clients-form-dialog-field-voucher-client"
+                    data-component={`${base}_field-voucher-client`}
                     value={formData.voucherClient}
                     onValueChange={handleVoucherClientChange}
                     leftLabel={t(locale, "clients.form.voucher-client")}
@@ -1025,11 +1035,11 @@ function ClientFormContent({
                     ariaLabel={t(locale, "clients.form.customer-type")}
                 />
 
-                <FormGrid data-component="clients-form-dialog-service-grid">
+                <FormGrid data-component={`${base}_service-grid`}>
                     {formData.voucherClient && (
                         <>
                             <FormField
-                                data-component="clients-form-dialog-field-voucher-year"
+                                data-component={`${base}_service-grid_field-voucher-year`}
                                 htmlFor="clients-form-voucher-year"
                                 label={t(locale, "clients.form.voucher-year")}
                             >
@@ -1039,14 +1049,14 @@ function ClientFormContent({
                                     options={voucherYearOptions}
                                     placeholder={t(locale, "clients.form.voucher-year")}
                                     onValueChange={handleVoucherYearChange}
-                                    wrapDataComponent="clients-form-dialog-field-voucher-year-select-wrap"
-                                    selectDataComponent="clients-form-dialog-field-voucher-year-select"
-                                    iconDataComponent="clients-form-dialog-field-voucher-year-select-icon"
+                                    wrapDataComponent={`${base}_service-grid_field-voucher-year_select-wrap`}
+                                    selectDataComponent={`${base}_service-grid_field-voucher-year_select`}
+                                    iconDataComponent={`${base}_service-grid_field-voucher-year_select-icon`}
                                 />
                             </FormField>
 
                             <FormField
-                                data-component="clients-form-dialog-field-voucher-type"
+                                data-component={`${base}_service-grid_field-voucher-type`}
                                 htmlFor="clients-form-voucher-type"
                                 label={t(locale, "clients.form.voucher-type")}
                             >
@@ -1056,16 +1066,16 @@ function ClientFormContent({
                                     options={voucherTypeOptions}
                                     placeholder={t(locale, "clients.form.voucher-type")}
                                     onValueChange={handleTypeChange}
-                                    wrapDataComponent="clients-form-dialog-field-voucher-type-select-wrap"
-                                    selectDataComponent="clients-form-dialog-field-voucher-type-select"
-                                    iconDataComponent="clients-form-dialog-field-voucher-type-select-icon"
+                                    wrapDataComponent={`${base}_service-grid_field-voucher-type_select-wrap`}
+                                    selectDataComponent={`${base}_service-grid_field-voucher-type_select`}
+                                    iconDataComponent={`${base}_service-grid_field-voucher-type_select-icon`}
                                 />
                             </FormField>
                         </>
                     )}
 
                     <FormField
-                        data-component="clients-form-dialog-field-duration"
+                        data-component={`${base}_service-grid_field-duration`}
                         htmlFor="clients-form-duration"
                         label={t(locale, "clients.form.duration")}
                     >
@@ -1082,9 +1092,9 @@ function ClientFormContent({
                                 disabled={formData.voucherClient
                                     ? !formData.type || isPriceLoading
                                     : isOutOfPocketPriceLoading || isOutOfPocketPriceError}
-                                wrapDataComponent="clients-form-dialog-field-duration-select-wrap"
-                                selectDataComponent="clients-form-dialog-field-duration-select"
-                                iconDataComponent="clients-form-dialog-field-duration-select-icon"
+                                wrapDataComponent={`${base}_service-grid_field-duration_select-wrap`}
+                                selectDataComponent={`${base}_service-grid_field-duration_select`}
+                                iconDataComponent={`${base}_service-grid_field-duration_select-icon`}
                             />
                             {(formData.voucherClient ? isPriceLoading : isOutOfPocketPriceLoading) && (
                                 <div className="absolute right-10 top-1/2 -translate-y-1/2">
@@ -1095,25 +1105,25 @@ function ClientFormContent({
                     </FormField>
                 </FormGrid>
                 {!formData.voucherClient && isOutOfPocketPriceError && (
-                    <FormHelperText tone="error" data-component="clients-form-dialog-out-of-pocket-price-error">
+                    <FormHelperText tone="error" data-component={`${base}_out-of-pocket-price-error`}>
                         자부담 요금 정보를 불러오지 못했습니다.
                     </FormHelperText>
                 )}
             </ClientDialogSection>
 
             <ClientDialogSection
-                dataComponent="clients-form-dialog-section-pricing"
+                dataComponent={`${base}_section-pricing`}
                 title={t(locale, "clients.form.section-pricing")}
                 description={formData.voucherClient
                     ? "서비스 금액과 지원 금액을 확인하고 조정해 주세요."
                     : "기간별 총 서비스 금액을 확인하고 조정해 주세요."}
             >
                 <FormGrid
-                    data-component="clients-form-dialog-pricing-grid"
+                    data-component={`${base}_pricing-grid`}
                     className={formData.voucherClient ? "lg:grid-cols-3" : undefined}
                 >
                     <FormField
-                        data-component="clients-form-dialog-field-full-price"
+                        data-component={`${base}_pricing-grid_field-full-price`}
                         htmlFor="fullPrice"
                         label={t(locale, "clients.form.full-price")}
                     >
@@ -1132,7 +1142,7 @@ function ClientFormContent({
                     </FormField>
 
                     {formData.voucherClient && <FormField
-                        data-component="clients-form-dialog-field-grant"
+                        data-component={`${base}_pricing-grid_field-grant`}
                         htmlFor="grant"
                         label={t(locale, "clients.form.grant")}
                     >
@@ -1151,7 +1161,7 @@ function ClientFormContent({
                     </FormField>}
 
                     {formData.voucherClient && <FormField
-                        data-component="clients-form-dialog-field-actual-price"
+                        data-component={`${base}_pricing-grid_field-actual-price`}
                         htmlFor="actualPrice"
                         label={t(locale, "clients.form.actual-price")}
                     >
@@ -1176,13 +1186,13 @@ function ClientFormContent({
     const contractInfoSections = (
         <>
             <ClientDialogSection
-                dataComponent="clients-form-dialog-section-contract"
+                dataComponent={`${base}_section-contract`}
                 title={t(locale, "clients.form.section-contract")}
                 description="선택 항목입니다. 예약이 확정되면 서비스 일정을 입력해 주세요."
             >
-                <FormGrid data-component="clients-form-dialog-contract-grid" className="lg:grid-cols-3">
+                <FormGrid data-component={`${base}_contract-grid`} className="lg:grid-cols-3">
                     <FormField
-                        data-component="clients-form-dialog-field-contract-status"
+                        data-component={`${base}_contract-grid_field-contract-status`}
                         htmlFor="clients-form-contract-status"
                         label={t(locale, "clients.form.contract-status")}
                     >
@@ -1192,14 +1202,14 @@ function ClientFormContent({
                             options={serviceStatusOptions}
                             placeholder={t(locale, "clients.form.contract-status")}
                             onValueChange={(value) => handleChange("serviceStatus", value)}
-                            wrapDataComponent="clients-form-dialog-field-contract-status-select-wrap"
-                            selectDataComponent="clients-form-dialog-field-contract-status-select"
-                            iconDataComponent="clients-form-dialog-field-contract-status-select-icon"
+                            wrapDataComponent={`${base}_contract-grid_field-contract-status_select-wrap`}
+                            selectDataComponent={`${base}_contract-grid_field-contract-status_select`}
+                            iconDataComponent={`${base}_contract-grid_field-contract-status_select-icon`}
                         />
                     </FormField>
 
                     <FormField
-                        data-component="clients-form-dialog-field-start-date"
+                        data-component={`${base}_contract-grid_field-start-date`}
                         htmlFor="startDate"
                         label={t(locale, "clients.form.start-date")}
                     >
@@ -1215,7 +1225,7 @@ function ClientFormContent({
                     </FormField>
 
                     <FormField
-                        data-component="clients-form-dialog-field-end-date"
+                        data-component={`${base}_contract-grid_field-end-date`}
                         htmlFor="endDate"
                         label={t(locale, "clients.form.end-date")}
                     >
@@ -1234,7 +1244,7 @@ function ClientFormContent({
             </ClientDialogSection>
 
             <ClientDialogSection
-                dataComponent="clients-form-dialog-section-flags"
+                dataComponent={`${base}_section-flags`}
                 title={t(locale, "clients.form.section-flags")}
                 description="추가 서비스 옵션을 설정해 주세요."
             >
@@ -1243,14 +1253,14 @@ function ClientFormContent({
                     isEditMode ? "lg:grid-cols-2" : "lg:grid-cols-3",
                 )}>
                     <FormSwitchRow
-                        data-component="clients-form-dialog-field-care-center"
+                        data-component={`${base}_field-care-center`}
                         title={t(locale, "clients.form.care-center")}
                         checked={formData.careCenter === true}
                         onToggle={() => handleChange("careCenter", !formData.careCenter)}
                         buttonAriaLabel={t(locale, "clients.form.care-center")}
                     />
                     <FormSwitchRow
-                        data-component="clients-form-dialog-field-breast-pump"
+                        data-component={`${base}_field-breast-pump`}
                         title={t(locale, "clients.form.breast-pump")}
                         checked={formData.breastPump}
                         onToggle={() => handleChange("breastPump", !formData.breastPump)}
@@ -1258,7 +1268,7 @@ function ClientFormContent({
                     />
                     {!isEditMode ? (
                         <FormSwitchRow
-                            data-component="clients-form-dialog-field-message-automation"
+                            data-component={`${base}_field-message-automation`}
                             title={t(locale, "clients.form.message-automation")}
                             checked={formData.applyMessageAutomation !== false}
                             onToggle={() => handleChange("applyMessageAutomation", formData.applyMessageAutomation === false)}
@@ -1273,7 +1283,7 @@ function ClientFormContent({
     const panelBasicInfoStep = (
         <>
             <FormField
-                data-component="clients-form-panel-name-input"
+                data-component={`${base}_name-input`}
                 htmlFor="name"
                 label={t(locale, "clients.form.name")}
                 required
@@ -1287,7 +1297,7 @@ function ClientFormContent({
             </FormField>
 
             <FormField
-                data-component="clients-form-panel-birthday-input"
+                data-component={`${base}_birthday-input`}
                 htmlFor="birthday"
                 label={t(locale, "clients.form.birthday")}
             >
@@ -1301,7 +1311,7 @@ function ClientFormContent({
             </FormField>
 
             <FormField
-                data-component="clients-form-panel-due-date-input"
+                data-component={`${base}_due-date-input`}
                 htmlFor="dueDate"
                 label={t(locale, "clients.form.due-date")}
             >
@@ -1316,13 +1326,13 @@ function ClientFormContent({
             </FormField>
 
             <FormField
-                data-component="clients-form-panel-phone-input"
+                data-component={`${base}_phone-input`}
                 htmlFor="phone"
                 label={t(locale, "clients.form.phone")}
                 labelAccessory={phoneInlineMessage ? (
                     <FormHelperText
                         id="clients-form-panel-phone-helper"
-                        data-component="clients-form-panel-phone-helper"
+                        data-component={`${base}_phone-input_helper`}
                         tone={hasPhoneStatusError ? "error" : "default"}
                         className={cn("m-0 text-right", isPhoneCheckReady && "text-v3-green")}
                         aria-live="polite"
@@ -1348,7 +1358,7 @@ function ClientFormContent({
             </FormField>
 
             <FormField
-                data-component="clients-form-panel-address-input"
+                data-component={`${base}_address-input`}
                 htmlFor="address"
                 label={t(locale, "clients.form.address")}
                 className={PANEL_FULL_FIELD_CLASS_NAME}
@@ -1366,6 +1376,7 @@ function ClientFormContent({
     const panelEmployeeStep = (
         <>
             <EmployeeAutocomplete
+                data-component={`${base}_employee-step_primary-employee-autocomplete`}
                 value={formData.primaryEmployeeId}
                 onChange={(id) => handleChange("primaryEmployeeId", id)}
                 label={t(locale, "clients.form.primary-employee")}
@@ -1376,6 +1387,7 @@ function ClientFormContent({
                 }}
             />
             <EmployeeAutocomplete
+                data-component={`${base}_employee-step_secondary-employee-autocomplete`}
                 value={formData.secondaryEmployeeId ?? null}
                 onChange={(id) => handleChange("secondaryEmployeeId", id)}
                 label={t(locale, "clients.form.secondary-employee")}
@@ -1392,7 +1404,7 @@ function ClientFormContent({
         <>
             <div className={cn(PANEL_FULL_FIELD_CLASS_NAME, "flex justify-center")}>
                 <TogglePill
-                    data-component="clients-form-panel-voucher-client-field"
+                    data-component={`${base}_voucher-client-field`}
                     value={formData.voucherClient}
                     onValueChange={handleVoucherClientChange}
                     leftLabel={t(locale, "clients.form.voucher-client")}
@@ -1404,7 +1416,7 @@ function ClientFormContent({
             {formData.voucherClient && (
                 <>
                     <FormField
-                        data-component="clients-form-panel-voucher-year-field"
+                        data-component={`${base}_voucher-year-field`}
                         htmlFor="clients-form-panel-voucher-year"
                         label={t(locale, "clients.form.voucher-year")}
                     >
@@ -1414,14 +1426,14 @@ function ClientFormContent({
                             options={voucherYearOptions}
                             placeholder={t(locale, "clients.form.voucher-year")}
                             onValueChange={handleVoucherYearChange}
-                            wrapDataComponent="clients-form-panel-voucher-year-select-wrap"
-                            selectDataComponent="clients-form-panel-voucher-year-select"
-                            iconDataComponent="clients-form-panel-voucher-year-select-icon"
+                            wrapDataComponent={`${base}_voucher-year-field_select-wrap`}
+                            selectDataComponent={`${base}_voucher-year-field_select`}
+                            iconDataComponent={`${base}_voucher-year-field_select-icon`}
                         />
                     </FormField>
 
                     <FormField
-                        data-component="clients-form-panel-voucher-type-field"
+                        data-component={`${base}_voucher-type-field`}
                         htmlFor="clients-form-panel-voucher-type"
                         label={t(locale, "clients.form.voucher-type")}
                     >
@@ -1431,16 +1443,16 @@ function ClientFormContent({
                             options={voucherTypeOptions}
                             placeholder={t(locale, "clients.form.voucher-type")}
                             onValueChange={handleTypeChange}
-                            wrapDataComponent="clients-form-panel-voucher-type-select-wrap"
-                            selectDataComponent="clients-form-panel-voucher-type-select"
-                            iconDataComponent="clients-form-panel-voucher-type-select-icon"
+                            wrapDataComponent={`${base}_voucher-type-field_select-wrap`}
+                            selectDataComponent={`${base}_voucher-type-field_select`}
+                            iconDataComponent={`${base}_voucher-type-field_select-icon`}
                         />
                     </FormField>
                 </>
             )}
 
             <FormField
-                data-component="clients-form-panel-duration-field"
+                data-component={`${base}_duration-field`}
                 htmlFor="clients-form-panel-duration"
                 label={t(locale, "clients.form.duration")}
             >
@@ -1457,9 +1469,9 @@ function ClientFormContent({
                         disabled={formData.voucherClient
                             ? !formData.type || isPriceLoading
                             : isOutOfPocketPriceLoading || isOutOfPocketPriceError}
-                        wrapDataComponent="clients-form-panel-duration-select-wrap"
-                        selectDataComponent="clients-form-panel-duration-select"
-                        iconDataComponent="clients-form-panel-duration-select-icon"
+                        wrapDataComponent={`${base}_duration-field_select-wrap`}
+                        selectDataComponent={`${base}_duration-field_select`}
+                        iconDataComponent={`${base}_duration-field_select-icon`}
                     />
                     {(formData.voucherClient ? isPriceLoading : isOutOfPocketPriceLoading) && (
                         <div className="absolute right-10 top-1/2 -translate-y-1/2">
@@ -1473,14 +1485,14 @@ function ClientFormContent({
                 <FormHelperText
                     tone="error"
                     className={PANEL_FULL_FIELD_CLASS_NAME}
-                    data-component="clients-form-panel-out-of-pocket-price-error"
+                    data-component={`${base}_out-of-pocket-price-error`}
                 >
                     자부담 요금 정보를 불러오지 못했습니다.
                 </FormHelperText>
             )}
 
             <FormField
-                data-component="clients-form-panel-full-price-input"
+                data-component={`${base}_full-price-input`}
                 htmlFor="fullPrice"
                 label={t(locale, "clients.form.full-price")}
             >
@@ -1493,7 +1505,7 @@ function ClientFormContent({
             </FormField>
 
             {formData.voucherClient && <FormField
-                data-component="clients-form-panel-grant-input"
+                data-component={`${base}_grant-input`}
                 htmlFor="grant"
                 label={t(locale, "clients.form.grant")}
             >
@@ -1506,7 +1518,7 @@ function ClientFormContent({
             </FormField>}
 
             {formData.voucherClient && <FormField
-                data-component="clients-form-panel-actual-price-input"
+                data-component={`${base}_actual-price-input`}
                 htmlFor="actualPrice"
                 label={t(locale, "clients.form.actual-price")}
             >
@@ -1523,7 +1535,7 @@ function ClientFormContent({
     const panelContractInfoStep = (
         <>
             <FormField
-                data-component="clients-form-panel-contract-status-field"
+                data-component={`${base}_contract-status-field`}
                 htmlFor="clients-form-panel-contract-status"
                 label={t(locale, "clients.form.contract-status")}
             >
@@ -1533,14 +1545,14 @@ function ClientFormContent({
                     options={serviceStatusOptions}
                     placeholder={t(locale, "clients.form.contract-status")}
                     onValueChange={(value) => handleChange("serviceStatus", value)}
-                    wrapDataComponent="clients-form-panel-contract-status-select-wrap"
-                    selectDataComponent="clients-form-panel-contract-status-select"
-                    iconDataComponent="clients-form-panel-contract-status-select-icon"
+                    wrapDataComponent={`${base}_contract-status-field_select-wrap`}
+                    selectDataComponent={`${base}_contract-status-field_select`}
+                    iconDataComponent={`${base}_contract-status-field_select-icon`}
                 />
             </FormField>
 
             <FormField
-                data-component="clients-form-panel-start-date-input"
+                data-component={`${base}_start-date-input`}
                 htmlFor="startDate"
                 label={t(locale, "clients.form.start-date")}
             >
@@ -1555,7 +1567,7 @@ function ClientFormContent({
             </FormField>
 
             <FormField
-                data-component="clients-form-panel-end-date-input"
+                data-component={`${base}_end-date-input`}
                 htmlFor="endDate"
                 label={t(locale, "clients.form.end-date")}
             >
@@ -1576,7 +1588,7 @@ function ClientFormContent({
                 isEditMode ? "lg:grid-cols-2" : "lg:grid-cols-3",
             )}>
                 <FormSwitchRow
-                    data-component="clients-form-panel-care-center-field"
+                    data-component={`${base}_care-center-field`}
                     size="control"
                     title={t(locale, "clients.form.care-center")}
                     checked={formData.careCenter === true}
@@ -1584,7 +1596,7 @@ function ClientFormContent({
                     buttonAriaLabel={t(locale, "clients.form.care-center")}
                 />
                 <FormSwitchRow
-                    data-component="clients-form-panel-breast-pump-field"
+                    data-component={`${base}_breast-pump-field`}
                     size="control"
                     title={t(locale, "clients.form.breast-pump")}
                     checked={formData.breastPump}
@@ -1593,7 +1605,7 @@ function ClientFormContent({
                 />
                 {!isEditMode ? (
                     <FormSwitchRow
-                        data-component="clients-form-panel-message-automation-field"
+                        data-component={`${base}_message-automation-field`}
                         size="control"
                         title={t(locale, "clients.form.message-automation")}
                         checked={formData.applyMessageAutomation !== false}
@@ -1627,7 +1639,7 @@ function ClientFormContent({
     const formContent = surface === "panel" ? (
         <SteppedWizardPanelContent
             ref={contentRef}
-            dataComponent="clients-form-panel-content"
+            dataComponent={`${base}_content`}
             stepContentClassName={PANEL_STEP_CONTENT_CLASS_NAME}
             feedback={formError}
         >
@@ -1636,7 +1648,7 @@ function ClientFormContent({
     ) : (
         <div
             ref={contentRef}
-            data-component="clients-form-dialog-content"
+            data-component={`${base}_content`}
             className="space-y-5"
         >
             {formError}
@@ -1661,7 +1673,7 @@ function ClientFormContent({
         const panelLayout = renderLayout ? renderLayout({ content: formContent, footer: panelFooter }) : (
             <>
                 {formContent}
-                <footer data-component="detail-panel-footer" className={DETAIL_PANEL_FOOTER_CLASS_NAME}>
+                <footer data-component={`${base}_footer`} data-slot="detail-panel-footer" className={DETAIL_PANEL_FOOTER_CLASS_NAME}>
                     {panelFooter}
                 </footer>
             </>
@@ -1677,9 +1689,9 @@ function ClientFormContent({
 
     return (
         <>
-            <Dialog data-component="clients-form-dialog" open={open} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
+            <Dialog data-component={`${base}`} open={open} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
                 <FormDialogShell
-                    dataComponent="clients-form-dialog"
+                    dataComponent={`${base}`}
                     title={formTitle}
                     contentClassName="space-y-5"
                     footer={dialogFormActions}

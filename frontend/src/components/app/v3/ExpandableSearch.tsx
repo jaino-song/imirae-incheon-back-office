@@ -38,7 +38,7 @@ export function ExpandableSearch({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const resolveOverlayExpandedWidth = useCallback(() => {
-    const container = rootRef.current?.closest<HTMLElement>('[data-component="list-panel-tabs"]');
+    const container = rootRef.current?.closest<HTMLElement>('[data-slot="list-panel-controls"]');
     const containerWidth = container?.getBoundingClientRect().width ?? 0;
 
     if (!containerWidth) return "7rem";
@@ -56,7 +56,7 @@ export function ExpandableSearch({
   useEffect(() => {
     if (!overlay || !expanded) return;
 
-    const container = rootRef.current?.closest<HTMLElement>('[data-component="list-panel-tabs"]');
+    const container = rootRef.current?.closest<HTMLElement>('[data-slot="list-panel-controls"]');
 
     if (!container || typeof ResizeObserver === "undefined") return;
 
@@ -92,11 +92,11 @@ export function ExpandableSearch({
     return (
       <div
         ref={rootRef}
-        data-component="expandable-search"
+        data-component="desktop_v3_expandable-search"
         className={cn("relative z-20 flex h-[calc(40px*var(--glint-ui-scale,1))] w-[calc(32px*var(--glint-ui-scale,1))] shrink-0 items-start justify-end overflow-visible", className)}
       >
         <div
-          data-component="expandable-search-overlay"
+          data-component="desktop_v3_expandable-search_overlay"
           data-expanded={expanded ? "true" : "false"}
           style={{
             width: expanded
@@ -152,7 +152,7 @@ export function ExpandableSearch({
   }
 
   return (
-    <div data-component="expandable-search" className={cn("flex items-center gap-[calc(6px*var(--glint-ui-scale,1))]", className)}>
+    <div data-component="desktop_v3_expandable-search" className={cn("flex items-center gap-[calc(6px*var(--glint-ui-scale,1))]", className)}>
       <Button
         type="button"
         variant="ghost"

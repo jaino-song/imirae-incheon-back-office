@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/command";
 
 interface EmployeeAutocompleteProps {
+    /** Caller-context canonical data-component base for this autocomplete instance. */
+    "data-component"?: string;
     "data-testid"?: string;
     containerClassName?: string;
     value: number | null;
@@ -50,6 +52,7 @@ interface EmployeeAutocompleteProps {
 }
 
 export function EmployeeAutocomplete({
+    "data-component": dataComponent = "desktop_clients_employee-autocomplete",
     containerClassName,
     value,
     onChange,
@@ -196,7 +199,7 @@ export function EmployeeAutocomplete({
 
     return (
         <div
-            data-component="employee-autocomplete"
+            data-component={dataComponent}
             className={cn("space-y-2", containerClassName)}
             data-testid={dataTestId ?? "employee-autocomplete"}
         >
@@ -220,7 +223,7 @@ export function EmployeeAutocomplete({
                             role="combobox"
                             aria-label={label}
                             aria-expanded={isOpen}
-                            data-component="employee-autocomplete-input"
+                            data-component={`${dataComponent}_input`}
                             className={cn(
                                 V3_INPUT_CONTROL_CLASS_NAME,
                                 "w-full justify-between font-normal hover:bg-white",
@@ -268,7 +271,7 @@ export function EmployeeAutocomplete({
                     </PopoverTrigger>
                 </div>
                 <PopoverContent
-                    data-component="employee-autocomplete-dropdown"
+                    data-component={`${dataComponent}_dropdown`}
                     className="glint-ui-scale-scope w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-[22px] border-none bg-white p-0 text-v3-dark shadow-[0_0_0_2px_hsla(214,30%,40%,0.12),0_0_12px_hsla(214,30%,40%,0.05)]"
                     align="start"
                     sideOffset={popoverSideOffset}
