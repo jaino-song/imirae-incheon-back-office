@@ -2,7 +2,16 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 
+const SOURCE_COMPONENT = "ListCardHeader";
+/**
+ * TODO(data-component): Remove these legacy fallbacks after caller migration.
+ * data-component="mobile-redesign-list-title"
+ * data-component="mobile-redesign-list-action"
+ * data-component="mobile-redesign-list-action"
+ */
+
 export interface ListCardHeaderProps {
+  "data-component"?: string;
   title: string;
   count?: ReactNode;
   actionLabel?: string;
@@ -14,6 +23,7 @@ export interface ListCardHeaderProps {
 }
 
 export function ListCardHeader({
+  "data-component": dataComponent,
   title,
   count,
   actionLabel,
@@ -30,7 +40,11 @@ export function ListCardHeader({
       : <Plus size={12} strokeWidth={3} />;
   const action = actionLabel ? (
     actionHref ? (
-      <Link href={actionHref} className="list-action" data-component="mobile-redesign-list-action">
+      <Link
+        href={actionHref}
+        className="list-action"
+        data-component={dataComponent ? `${dataComponent}_action` : "mobile-redesign-list-action"}
+      >
         {resolvedActionIcon}
         {actionLabel}
       </Link>
@@ -39,7 +53,7 @@ export function ListCardHeader({
         type={actionType}
         disabled={actionDisabled}
         className="list-action"
-        data-component="mobile-redesign-list-action"
+        data-component={dataComponent ? `${dataComponent}_action` : "mobile-redesign-list-action"}
         onClick={onActionClick}
       >
         {resolvedActionIcon}
@@ -49,7 +63,12 @@ export function ListCardHeader({
   ) : null;
 
   return (
-    <div className="list-title" data-component="mobile-redesign-list-title">
+    <div
+      className="list-title"
+      // TODO(data-component): Remove the legacy fallbacks after caller migration.
+      data-component={dataComponent ?? "mobile-redesign-list-title"}
+      data-source-component={SOURCE_COMPONENT}
+    >
       <span className="list-title-text">
         {title}
         {count && <span className="list-count">{count}</span>}

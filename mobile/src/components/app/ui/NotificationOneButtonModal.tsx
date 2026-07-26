@@ -6,7 +6,11 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "NotificationOneButtonModal";
+const LEGACY_DATA_COMPONENT = "notification-one-button-modal";
+
 interface NotificationOneButtonModalProps {
+  "data-component"?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
@@ -15,10 +19,12 @@ interface NotificationOneButtonModalProps {
   buttonVariant?: "positive" | "destructive" | "neutral";
   onAcknowledge: () => void | Promise<void>;
   isDescriptionVisuallyHidden?: boolean;
+  /** @deprecated Use the `data-component` prop. */
   dataComponent?: string;
 }
 
 export function NotificationOneButtonModal({
+  "data-component": canonicalDataComponent,
   open,
   onOpenChange,
   title,
@@ -27,8 +33,14 @@ export function NotificationOneButtonModal({
   buttonVariant = "positive",
   onAcknowledge,
   isDescriptionVisuallyHidden = true,
-  dataComponent = "notification-one-button-modal",
+  dataComponent: legacyDataComponent = LEGACY_DATA_COMPONENT,
 }: NotificationOneButtonModalProps) {
+  // TODO(data-component): Remove the legacy fallback after caller migration.
+  const dataComponent = canonicalDataComponent ?? legacyDataComponent;
+  const sub = (suffix: string) =>
+    canonicalDataComponent
+      ? `${canonicalDataComponent}_${suffix}`
+      : `${legacyDataComponent}-${suffix}`;
   const resolvedButtonVariant = buttonVariant === "positive"
     ? "v3"
     : buttonVariant === "neutral"
@@ -39,25 +51,26 @@ export function NotificationOneButtonModal({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
-          data-component={`${dataComponent}-overlay`}
+          data-component={sub("overlay")}
           className="fixed inset-0 z-[250] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0"
         />
         <DialogPrimitive.Content
           data-component={dataComponent}
+          data-source-component={SOURCE_COMPONENT}
           className="fixed left-1/2 top-1/2 z-[251] flex aspect-[5/3] max-h-[80vh] w-[calc(100vw-2.5rem)] max-w-[300px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto rounded-[28px] border-0 bg-v3-dim-white p-4 shadow-[0_20px_60px_hsla(214,50%,20%,0.15)] outline-none duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95"
         >
           <div
-            data-component={`${dataComponent}-header`}
+            data-component={sub("header")}
             className="flex flex-1 flex-col items-center justify-center gap-2 text-center"
           >
             <DialogPrimitive.Title
-              data-component={`${dataComponent}-title`}
+              data-component={sub("title")}
               className="text-[0.875rem] font-bold leading-5 text-v3-dark"
             >
               {title}
             </DialogPrimitive.Title>
             <DialogPrimitive.Description
-              data-component={`${dataComponent}-description`}
+              data-component={sub("description")}
               className={cn(
                 "text-[0.75rem] leading-5 text-v3-text-muted",
                 isDescriptionVisuallyHidden && "sr-only",
@@ -72,7 +85,7 @@ export function NotificationOneButtonModal({
             variant={resolvedButtonVariant}
             size="sm"
             className="w-full rounded-full"
-            data-component={`${dataComponent}-acknowledge`}
+            data-component={sub("acknowledge")}
             onClick={() => void onAcknowledge()}
           >
             {buttonLabel}
