@@ -366,7 +366,7 @@ describe("MessageTenantApplicationSettings", () => {
     for (const rule of DEFAULT_TRIGGER_RULES) {
       expect(screen.getByText(rule.name)).toBeInTheDocument();
     }
-    expect(container.querySelectorAll('[data-source-component="InfoRow"][data-component^="desktop_messages_sections_settings-past-trigger-policy-order-trigger-rule-"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[data-source-component="InfoRow"][data-component^="desktop_messages_sections_settings-past-trigger-policy-order-card_form_trigger-rule-"]')).toHaveLength(6);
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => {
@@ -379,7 +379,7 @@ describe("MessageTenantApplicationSettings", () => {
     fireEvent.click(screen.getAllByText("중복 전송 확인")[0]);
 
     expect(screen.getByText("최근 72시간")).toBeInTheDocument();
-    expect(container.querySelector('[data-component="desktop_messages_sections_settings-duplicate-send-policy"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_messages_sections_split-layout_detail-panel-4_duplicate-send-policy"]')).toBeInTheDocument();
   });
 
   it("SMS retry row shows the API-provided value, not hardcoded copy", () => {

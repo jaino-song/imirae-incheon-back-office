@@ -30,7 +30,7 @@ export function PendingClientsTable() {
         <CardTitle className="text-lg">최근 고객 목록</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <div data-component="desktop_dashboard_pending-clients-table" className="flex flex-col">
+        <div data-component="desktop_dashboard_pending-clients_table" className="flex flex-col">
           {pendingClients.map((client, index) => {
             const statusKey = index === 0 ? "inProgress" : index === 1 ? "waiting" : "completed";
             const status = statusConfig[statusKey];
@@ -39,7 +39,7 @@ export function PendingClientsTable() {
             return (
               <div
                 key={client.id}
-                data-component="desktop_dashboard_pending-clients-item"
+                data-component="desktop_dashboard_pending-clients_table_item"
                 className={cn(
                   "flex items-center gap-3 px-6 py-4",
                   "transition-colors cursor-pointer hover:bg-muted/50",

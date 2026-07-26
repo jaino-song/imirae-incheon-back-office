@@ -153,7 +153,7 @@ export function SystemAdminBranchForm({
           dataComponent="desktop_system-admin_sections_branch-form-field"
           inputDataComponent="desktop_system-admin_sections_branch-form_slug"
         />
-        <div data-component="desktop_system-admin_sections_branch-form-manager" className="grid gap-[calc(7px*var(--glint-ui-scale,1))] sm:col-span-2">
+        <div data-component="desktop_system-admin_sections_branch-form_manager" className="grid gap-[calc(7px*var(--glint-ui-scale,1))] sm:col-span-2">
           <Label
             htmlFor="system-admin-branch-manager"
             className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold leading-[1.3] text-v3-text-muted"
@@ -176,7 +176,7 @@ export function SystemAdminBranchForm({
           {errors.ownerId ? (
             <p
               id="system-admin-branch-manager-error"
-              data-component="desktop_system-admin_sections_branch-form-manager-error"
+              data-component="desktop_system-admin_sections_branch-form_manager_error"
               className="text-[calc(11.5px*var(--glint-ui-scale,1))] font-semibold text-destructive"
               role="alert"
             >
@@ -258,7 +258,7 @@ export function SystemAdminBranchForm({
       ) : null}
 
       <div
-        data-component="desktop_system-admin_sections_branch-form-actions"
+        data-component="desktop_system-admin_sections_branch-form_actions"
         className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
       >
         <Button type="button" variant="outline" disabled={isSubmitting} onClick={onCancel}>

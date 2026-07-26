@@ -542,7 +542,7 @@ export function MessageTenantApplicationSettings() {
           }
           footer={selectedItem.id === PAST_TRIGGER_POLICY_ID ? (
             <div
-              data-component="desktop_messages_sections_settings-past-trigger-policy-footer"
+              data-component="desktop_messages_sections_split-layout_detail-panel-2_past-trigger-policy-footer"
               className="ml-auto flex shrink-0 flex-wrap justify-end gap-[calc(12px*var(--glint-ui-scale,1))]"
             >
               <Button
@@ -550,7 +550,7 @@ export function MessageTenantApplicationSettings() {
                 variant="positive"
                 onClick={handleSavePastTriggerConfig}
                 disabled={!canSavePastTriggerConfig || savePastTriggerConfigMutation.isPending}
-                data-component="desktop_messages_sections_settings-past-trigger-policy-save"
+                data-component="desktop_messages_sections_split-layout_detail-panel-2_past-trigger-policy-footer_save"
                 className="shrink-0"
               >
                 <Send className="h-4 w-4" />
@@ -604,19 +604,19 @@ export function MessageTenantApplicationSettings() {
                 title="늦은 등록 자동 전송 순서"
               >
                 <div
-                  data-component="desktop_messages_sections_settings-past-trigger-policy-order-form"
+                  data-component="desktop_messages_sections_settings-past-trigger-policy-order-card_form"
                   className="-mt-1"
                 >
                   {isTriggerRulesLoading ? (
                     <InfoRow
-                      data-component="desktop_messages_sections_settings-past-trigger-policy-order-loading"
+                      data-component="desktop_messages_sections_settings-past-trigger-policy-order-card_form_loading"
                       label="상태"
                       value="자동 전송 루틴을 불러오는 중"
                     />
                   ) : retroactiveTriggerOrderItems.length > 0 ? retroactiveTriggerOrderItems.map((item, index) => (
                     <InfoRow
                       key={item.id}
-                      data-component={`desktop_messages_sections_settings-past-trigger-policy-order-${item.id}`}
+                      data-component={`desktop_messages_sections_settings-past-trigger-policy-order-card_form_${item.id}`}
                       label={`${index + 1}순위`}
                       value={
                         <div className="flex min-w-0 items-center justify-end gap-2">
@@ -661,7 +661,7 @@ export function MessageTenantApplicationSettings() {
                     />
                   )) : (
                     <InfoRow
-                      data-component="desktop_messages_sections_settings-past-trigger-policy-order-empty"
+                      data-component="desktop_messages_sections_settings-past-trigger-policy-order-card_form_empty"
                       label="루틴"
                       value="등록된 자동 전송 루틴 없음"
                     />
@@ -707,24 +707,24 @@ export function MessageTenantApplicationSettings() {
             </span>
           }
         >
-          <div data-component="desktop_messages_sections_settings-duplicate-send-policy" className="space-y-4">
+          <div data-component="desktop_messages_sections_split-layout_detail-panel-4_duplicate-send-policy" className="space-y-4">
             <InfoCard
-              data-component="desktop_messages_sections_settings-duplicate-send-policy-card"
+              data-component="desktop_messages_sections_split-layout_detail-panel-4_duplicate-send-policy_card"
               title="규칙"
             >
               <div className="-mt-1">
                 <InfoRow
-                  data-component="desktop_messages_sections_settings-duplicate-send-policy-condition"
+                  data-component="desktop_messages_sections_split-layout_detail-panel-4_duplicate-send-policy_card_condition"
                   label="조건"
                   value="같은 번호 · 같은 메시지"
                 />
                 <InfoRow
-                  data-component="desktop_messages_sections_settings-duplicate-send-policy-window"
+                  data-component="desktop_messages_sections_split-layout_detail-panel-4_duplicate-send-policy_card_window"
                   label="확인 범위"
                   value="최근 72시간"
                 />
                 <InfoRow
-                  data-component="desktop_messages_sections_settings-duplicate-send-policy-action"
+                  data-component="desktop_messages_sections_split-layout_detail-panel-4_duplicate-send-policy_card_action"
                   label="동작"
                   value="전송 전 확인 모달"
                 />
@@ -732,7 +732,7 @@ export function MessageTenantApplicationSettings() {
             </InfoCard>
 
             <div
-              data-component="desktop_messages_sections_settings-duplicate-send-policy-preview"
+              data-component="desktop_messages_sections_split-layout_detail-panel-4_duplicate-send-policy_preview"
               className="rounded-[18px] border border-v3-border bg-white p-4"
             >
               <div className="flex items-start gap-3">
@@ -766,9 +766,9 @@ export function MessageTenantApplicationSettings() {
             ) : undefined
           }
         >
-          <div data-component="desktop_messages_sections_settings-tenant-form" className="space-y-5 pb-2">
+          <div data-component="desktop_messages_sections_split-layout_detail-panel-5_tenant-form" className="space-y-5 pb-2">
             <div
-              data-component="desktop_messages_sections_settings-tenant-card"
+              data-component="desktop_messages_sections_split-layout_detail-panel-5_tenant-form_card"
               className="rounded-[18px] border border-v3-border bg-v3-dim-white/35 p-4"
             >
               <div className="flex items-center gap-3">
@@ -782,7 +782,7 @@ export function MessageTenantApplicationSettings() {
             </div>
 
             <div
-              data-component="desktop_messages_sections_settings-tenant-sender-info"
+              data-component="desktop_messages_sections_split-layout_detail-panel-5_tenant-form_sender-info"
               className="rounded-[18px] border border-v3-border bg-v3-dim-white/35 p-4"
             >
               <p className="text-[0.76rem] font-semibold text-v3-dark">발신번호</p>
@@ -792,7 +792,7 @@ export function MessageTenantApplicationSettings() {
               </p>
             </div>
 
-            <div data-component="desktop_messages_sections_settings-tenant-agreements" className="space-y-3">
+            <div data-component="desktop_messages_sections_split-layout_detail-panel-5_tenant-form_agreements" className="space-y-3">
               {ALIGO_POLICY_ITEMS.map((policy) => {
                 const checked = agreements[policy.id];
 
@@ -833,7 +833,7 @@ export function MessageTenantApplicationSettings() {
             </div>
 
             <Button
-              data-component="desktop_messages_sections_settings-tenant-submit"
+              data-component="desktop_messages_sections_split-layout_detail-panel-5_tenant-form_submit"
               type="button"
               onClick={handleSubmit}
               disabled={!canSubmit}
@@ -845,7 +845,7 @@ export function MessageTenantApplicationSettings() {
 
             {requestedAt ? (
               <div
-                data-component="desktop_messages_sections_settings-tenant-success"
+                data-component="desktop_messages_sections_split-layout_detail-panel-5_tenant-form_success"
                 className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3"
               >
                 <div className="flex items-start gap-3">

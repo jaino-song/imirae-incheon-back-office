@@ -367,7 +367,7 @@ describe("recipient phone input layout", () => {
     expect(mockedGetClientOverview).not.toHaveBeenCalled();
     expect(mockedSendSms).not.toHaveBeenCalled();
     expect(
-      document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
+      document.querySelector('[data-component="desktop_messages_sections_template-send-form_feedback"]'),
     ).toHaveTextContent("제공기록지 링크 즉시 발송이 완료되었습니다.");
     const queryClient = mockedUseQueryClient.mock.results[0]?.value;
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
@@ -439,13 +439,13 @@ describe("recipient phone input layout", () => {
 
     await waitFor(() => {
       expect(
-        document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
+        document.querySelector('[data-component="desktop_messages_sections_template-send-form_feedback"]'),
       ).toHaveTextContent(
         "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 발송하지 못했습니다.",
       );
     });
     const feedback = document.querySelector(
-      '[data-component="desktop_messages_sections_template-send-form-feedback"]',
+      '[data-component="desktop_messages_sections_template-send-form_feedback"]',
     );
     expect(feedback).not.toHaveTextContent("400");
     expect(feedback).not.toHaveTextContent("Bad Request");
@@ -497,12 +497,12 @@ describe("A: partial-failure send keeps only failed recipients in queue", () => 
     await waitFor(() => {
       // Feedback element should be visible with partial summary.
       expect(
-        document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
+        document.querySelector('[data-component="desktop_messages_sections_template-send-form_feedback"]'),
       ).toBeInTheDocument();
     });
 
     const feedback = document.querySelector(
-      '[data-component="desktop_messages_sections_template-send-form-feedback"]',
+      '[data-component="desktop_messages_sections_template-send-form_feedback"]',
     );
 
     // Feedback must mention both 발송 완료 and 실패 (partial summary).
@@ -545,12 +545,12 @@ describe("A: partial-failure send keeps only failed recipients in queue", () => 
 
     await waitFor(() => {
       expect(
-        document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
+        document.querySelector('[data-component="desktop_messages_sections_template-send-form_feedback"]'),
       ).toBeInTheDocument();
     });
 
     const feedback = document.querySelector(
-      '[data-component="desktop_messages_sections_template-send-form-feedback"]',
+      '[data-component="desktop_messages_sections_template-send-form_feedback"]',
     );
     expect(feedback?.textContent).toContain("발송 완료");
     expect(feedback?.textContent).toContain("실패");
@@ -629,12 +629,12 @@ describe("C: duplicate-send confirm dialog lists all duplicates (not just the fi
 
     // The duplicate list must contain exactly 2 entries — one per duplicate recipient.
     const confirmList = document.querySelector(
-      '[data-component="desktop_messages_sections_duplicate-send-confirm-list"]',
+      '[data-component="desktop_messages_sections_template-send-form_duplicate-send-confirm-list"]',
     );
     expect(confirmList).toBeInTheDocument();
 
     const recentItems = document.querySelectorAll(
-      '[data-component="desktop_messages_sections_duplicate-send-confirm-recent"]',
+      '[data-component="desktop_messages_sections_template-send-form_duplicate-send-confirm-list_recent"]',
     );
     expect(recentItems).toHaveLength(2);
 

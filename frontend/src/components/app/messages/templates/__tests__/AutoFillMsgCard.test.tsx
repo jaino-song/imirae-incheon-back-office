@@ -56,7 +56,7 @@ describe("AutoFillMsgCard", () => {
     );
 
     expect(
-      container.querySelector('[data-component="desktop_messages_sections_generated-msg-detail-grid"]'),
+      container.querySelector('[data-component="desktop_messages_sections_generated-msg-panel_detail-grid"]'),
     ).not.toBeInTheDocument();
     expect(
       container.querySelector('[data-component="desktop_messages_sections_generated-msg-detail-content"]'),

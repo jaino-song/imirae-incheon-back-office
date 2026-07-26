@@ -110,7 +110,7 @@ export function ImageDropzone({
 
       {/* 드롭존 */}
       <div
-        data-component="desktop_settings_sections_image-dropzone-paper"
+        data-component="desktop_settings_sections_image-dropzone_paper"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
