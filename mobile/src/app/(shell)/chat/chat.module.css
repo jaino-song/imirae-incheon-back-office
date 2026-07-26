@@ -1,12 +1,12 @@
 .chatShell,
-:global(main[data-slot="main-content"]:has([data-component="chat"])) {
+:global(main[data-slot="main-content"]:has([data-slot="chat-page"])) {
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
   -webkit-font-smoothing: antialiased;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="chat"])) {
+:global(main[data-slot="main-content"]:has([data-slot="chat-page"])) {
   display: flex;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
   min-height: 0;
@@ -15,17 +15,17 @@
   background: hsl(var(--v3-dim-white));
 }
 
-:global(main[data-slot="main-content"]:has([data-component="chat"]) > [data-component="chat"]) {
+:global(main[data-slot="main-content"]:has([data-slot="chat-page"]) > [data-slot="chat-page"]) {
   flex: 1;
   min-height: 0;
 }
 
-:global([data-slot="app-root"]:has([data-component="chat"]) [data-slot="mobile-header"]),
-:global([data-slot="app-root"]:has([data-component="chat"]) [data-slot="floating-quick-actions"]) {
+:global([data-slot="app-root"]:has([data-slot="chat-page"]) [data-slot="mobile-header"]),
+:global([data-slot="app-root"]:has([data-slot="chat-page"]) [data-slot="floating-quick-actions"]) {
   display: none !important;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="chat"]) ~ [data-slot="mobile-bottom-nav"]) {
+:global(main[data-slot="main-content"]:has([data-slot="chat-page"]) ~ [data-slot="mobile-bottom-nav"]) {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -46,24 +46,24 @@
   backdrop-filter: blur(20px) saturate(180%);
 }
 
-:global(main[data-slot="main-content"]:has([data-component="chat"]) ~ [data-slot="mobile-bottom-nav"] a) {
+:global(main[data-slot="main-content"]:has([data-slot="chat-page"]) ~ [data-slot="mobile-bottom-nav"] a) {
   gap: 2px !important;
   border-radius: 14px !important;
   padding: 5px 4px !important;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="chat"]) ~ [data-slot="mobile-bottom-nav"] a svg) {
+:global(main[data-slot="main-content"]:has([data-slot="chat-page"]) ~ [data-slot="mobile-bottom-nav"] a svg) {
   width: 18px;
   height: 18px;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="chat"]) ~ [data-slot="mobile-bottom-nav"] a span) {
+:global(main[data-slot="main-content"]:has([data-slot="chat-page"]) ~ [data-slot="mobile-bottom-nav"] a span) {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-:global(body:has([data-component="chat"]) nextjs-portal) {
+:global(body:has([data-slot="chat-page"]) nextjs-portal) {
   display: none !important;
 }
 

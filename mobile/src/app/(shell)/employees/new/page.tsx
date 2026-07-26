@@ -348,8 +348,12 @@ export default function NewEmployeePage() {
   };
 
   return (
-    <div className={styles.page} data-component="employees-new-redesign">
-      <div className={styles.navbar} data-component="employees-new-navbar">
+    <div
+      className={styles.page}
+      data-component="mobile_employees-new_screen_root"
+      data-slot="employees-new-page-shell"
+    >
+      <div className={styles.navbar} data-component="mobile_employees-new_screen_root_navbar">
         <button
           className={styles.navbarIconButton}
           type="button"
@@ -358,7 +362,7 @@ export default function NewEmployeePage() {
         >
           <ChevronLeft aria-hidden="true" size={20} strokeWidth={2.5} />
         </button>
-        <div className={styles.navbarTitle} data-component="employees-new-navbar-title">
+        <div className={styles.navbarTitle} data-component="mobile_employees-new_screen_root_navbar_title">
           {t(locale, "employees.form.create-title")}
         </div>
         <button
@@ -371,28 +375,28 @@ export default function NewEmployeePage() {
         </button>
       </div>
 
-      <div className={styles.wizardContent} data-component="employees-new-wizard-content">
-        <div className={styles.wizardHeader} data-component="employees-new-wizard-header">
-          <div className={styles.progressRow} data-component="employees-new-progress-row">
-            <div className={styles.progressTrack} data-component="employees-new-progress-track">
+      <div className={styles.wizardContent} data-component="mobile_employees-new_screen_root_wizard">
+        <div className={styles.wizardHeader} data-component="mobile_employees-new_screen_root_wizard_header">
+          <div className={styles.progressRow} data-component="mobile_employees-new_screen_root_wizard_header_progress-row">
+            <div className={styles.progressTrack} data-component="mobile_employees-new_screen_root_wizard_header_progress-row_progress-track">
               <div
                 className={styles.progressFill}
-                data-component="employees-new-progress-fill"
+                data-component="mobile_employees-new_screen_root_wizard_header_progress-row_progress-track_progress-fill"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className={styles.stepCount} data-component="employees-new-step-count">
+            <div className={styles.stepCount} data-component="mobile_employees-new_screen_root_wizard_header_progress-row_step-count">
               <span>{activeStep + 1}</span> / {TOTAL_STEPS} 단계
             </div>
           </div>
-          <div className={styles.stepTitle} data-component="employees-new-step-title">{activeStepTitle}</div>
-          <div className={styles.stepDescription} data-component="employees-new-step-description">
+          <div className={styles.stepTitle} data-component="mobile_employees-new_screen_root_wizard_header_step-title">{activeStepTitle}</div>
+          <div className={styles.stepDescription} data-component="mobile_employees-new_screen_root_wizard_header_step-description">
             {activeStepDescription}
           </div>
         </div>
 
         {activeStep === 1 && selectedSummary.length > 0 && (
-          <div className={styles.summaryPills} data-component="employees-new-summary-pills">
+          <div className={styles.summaryPills} data-component="mobile_employees-new_screen_root_wizard_summary-pills">
             {selectedSummary.map((summary) => (
               <span className={styles.summaryPill} key={summary}>
                 {summary}
@@ -403,10 +407,10 @@ export default function NewEmployeePage() {
 
         <div
           className={cn(styles.formScroll, activeStep === 0 ? styles.activeStep : styles.hiddenStep)}
-          data-component="employees-new-basic-step"
+          data-component="mobile_employees-new_screen_root_wizard_basic-step"
         >
-          <div className={styles.formCard} data-component="employees-new-basic-card">
-            <div className={styles.formRow} data-component="employees-new-basic-name-field">
+          <div className={styles.formCard} data-component="mobile_employees-new_screen_root_wizard_basic-step_basic-card">
+            <div className={styles.formRow} data-component="mobile_employees-new_screen_root_wizard_basic-step_basic-card_name-field">
               <label htmlFor="employee-name" className={styles.formLabel}>
                 {t(locale, "employees.form.name")} <span className={styles.required}>*</span>
               </label>
@@ -424,7 +428,7 @@ export default function NewEmployeePage() {
               />
             </div>
 
-            <div className={styles.formRow} data-component="employees-new-basic-phone-field">
+            <div className={styles.formRow} data-component="mobile_employees-new_screen_root_wizard_basic-step_basic-card_phone-field">
               <label htmlFor="employee-phone" className={styles.formLabel}>
                 {t(locale, "employees.form.phone")} <span className={styles.required}>*</span>
               </label>
@@ -447,7 +451,7 @@ export default function NewEmployeePage() {
               {phoneHelperMessage && (
                 <div
                   className={cn(styles.formHelper, styles[phoneHelperTone])}
-                  data-component="employees-new-basic-phone-helper"
+                  data-component="mobile_employees-new_screen_root_wizard_basic-step_basic-card_phone-field_helper"
                 >
                   {phoneHelperTone === "ok" ? "✓ " : ""}
                   {phoneHelperMessage}
@@ -456,11 +460,11 @@ export default function NewEmployeePage() {
             </div>
           </div>
 
-          <div className={styles.formCard} data-component="employees-new-grade-card">
-            <div className={styles.cardTitle} data-component="employees-new-grade-title">
+          <div className={styles.formCard} data-component="mobile_employees-new_screen_root_wizard_basic-step_grade-card">
+            <div className={styles.cardTitle} data-component="mobile_employees-new_screen_root_wizard_basic-step_grade-card_title">
               {t(locale, "employees.form.grade")} <span className={styles.required}>*</span>
             </div>
-            <div className={styles.gradeRow} data-component="employees-new-basic-grade-field">
+            <div className={styles.gradeRow} data-component="mobile_employees-new_screen_root_wizard_basic-step_grade-card_grade-field">
               {GRADES.map((grade) => {
                 const isSelected = store.grade === grade;
 
@@ -484,7 +488,7 @@ export default function NewEmployeePage() {
           </div>
 
           {error && activeStep === 0 && (
-            <div className={styles.errorBox} data-component="employees-new-basic-error">
+            <div className={styles.errorBox} data-component="mobile_employees-new_screen_root_wizard_basic-step_error">
               {error}
             </div>
           )}
@@ -492,13 +496,13 @@ export default function NewEmployeePage() {
 
         <div
           className={cn(styles.formScroll, activeStep === 1 ? styles.activeStep : styles.hiddenStep)}
-          data-component="employees-new-work-step"
+          data-component="mobile_employees-new_screen_root_wizard_work-step"
         >
-          <div className={styles.formCard} data-component="employees-new-work-area-card">
-            <div className={styles.cardTitle} data-component="employees-new-work-area-title">
+          <div className={styles.formCard} data-component="mobile_employees-new_screen_root_wizard_work-step_work-area-card">
+            <div className={styles.cardTitle} data-component="mobile_employees-new_screen_root_wizard_work-step_work-area-card_title">
               {t(locale, "employees.form.work-area")} <span className={styles.required}>*</span>
             </div>
-            <div className={styles.areaRow} data-component="employees-new-work-area-options">
+            <div className={styles.areaRow} data-component="mobile_employees-new_screen_root_wizard_work-step_work-area-card_options">
               {ORDERED_WORK_AREAS.map((area) => {
                 const isSelected = store.workArea.includes(area);
 
@@ -523,16 +527,16 @@ export default function NewEmployeePage() {
                 );
               })}
             </div>
-            <div className={styles.formHelper} data-component="employees-new-work-area-helper">
+            <div className={styles.formHelper} data-component="mobile_employees-new_screen_root_wizard_work-step_work-area-card_helper">
               {store.workArea.length}개 지역 선택됨 · 복수 선택 가능
             </div>
           </div>
 
-          <div className={styles.formCard} data-component="employees-new-open-status-card">
-            <div className={styles.cardTitle} data-component="employees-new-open-status-title">
+          <div className={styles.formCard} data-component="mobile_employees-new_screen_root_wizard_work-step_open-status-card">
+            <div className={styles.cardTitle} data-component="mobile_employees-new_screen_root_wizard_work-step_open-status-card_title">
               {t(locale, "employees.form.open-to-next-work")}
             </div>
-            <div className={styles.openRow} data-component="employees-new-open-status-options">
+            <div className={styles.openRow} data-component="mobile_employees-new_screen_root_wizard_work-step_open-status-card_options">
               {[
                 { value: true, label: "배정 가능", tone: "ok" },
                 { value: false, label: "배정 불가", tone: "no" },
@@ -566,19 +570,19 @@ export default function NewEmployeePage() {
                 );
               })}
             </div>
-            <div className={styles.formHelper} data-component="employees-new-open-status-helper">
+            <div className={styles.formHelper} data-component="mobile_employees-new_screen_root_wizard_work-step_open-status-card_helper">
               새로운 고객 매칭에 노출될지 여부입니다. 언제든 변경할 수 있습니다.
             </div>
           </div>
 
           {error && activeStep === 1 && (
-            <div className={styles.errorBox} data-component="employees-new-work-error">
+            <div className={styles.errorBox} data-component="mobile_employees-new_screen_root_wizard_work-step_error">
               {error}
             </div>
           )}
         </div>
 
-        <div className={styles.actions} data-component="employees-new-actions">
+        <div className={styles.actions} data-component="mobile_employees-new_screen_root_wizard_actions">
           <button
             className={cn(styles.actionButton, styles.secondary)}
             type="button"

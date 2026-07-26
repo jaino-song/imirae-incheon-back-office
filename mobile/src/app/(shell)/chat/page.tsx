@@ -53,11 +53,11 @@ function UserMessage({ message }: { message: ChatDisplayMessage }) {
   const timeLabel = formatMessageTime(message);
 
   return (
-    <div className={`${styles.msgRow} ${styles.userRow}`} data-component="chat-message-user">
-      <div className={`${styles.msgAvatar} ${styles.userAvatar}`} data-component="chat-message-user-avatar">송</div>
-      <div data-component="chat-message-user-body">
-        <div className={styles.msgBubble} data-component="chat-message-user-bubble">{message.content}</div>
-        {timeLabel && <div className={styles.msgTime} data-component="chat-message-user-time">{timeLabel}</div>}
+    <div className={`${styles.msgRow} ${styles.userRow}`} data-component="mobile_chat_page_content_messages_message-user">
+      <div className={`${styles.msgAvatar} ${styles.userAvatar}`} data-component="mobile_chat_page_content_messages_message-user_avatar">송</div>
+      <div data-component="mobile_chat_page_content_messages_message-user_body">
+        <div className={styles.msgBubble} data-component="mobile_chat_page_content_messages_message-user_body_bubble">{message.content}</div>
+        {timeLabel && <div className={styles.msgTime} data-component="mobile_chat_page_content_messages_message-user_body_time">{timeLabel}</div>}
       </div>
     </div>
   );
@@ -76,7 +76,7 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
       case "clientRegistrationWizard":
         if (createdClient) {
           return (
-            <div data-component="chat-wizard-registration-success">
+            <div data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_wizard-registration-success">
               산모 등록 완료: {createdClient.name} (ID: {createdClient.id})
             </div>
           );
@@ -86,7 +86,7 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
 
       case "contractSendWizard":
         if (contractSendDone) {
-          return <div data-component="chat-wizard-contract-send-success">계약서 전송 화면으로 이동했습니다.</div>;
+          return <div data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_wizard-contract-send-success">계약서 전송 화면으로 이동했습니다.</div>;
         }
 
         return <ContractSendWizard onComplete={() => setContractSendDone(true)} />;
@@ -94,15 +94,15 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
       case "contractStatusWizard":
         if (contractStatus) {
           return (
-            <div data-component="chat-wizard-contract-status-result" className={styles.wizardResult}>
-              <div data-component="chat-wizard-contract-status-state">
+            <div data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_wizard-contract-status-result" className={styles.wizardResult}>
+              <div data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_wizard-contract-status-result_state">
                 계약서 상태: <strong>{String(contractStatus.documentStatus)}</strong>
               </div>
-              <div data-component="chat-wizard-contract-status-client">
+              <div data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_wizard-contract-status-result_client">
                 산모: {contractStatus.clientName} (ID: {contractStatus.clientId})
               </div>
               {contractStatus.serviceStatus && (
-                <div data-component="chat-wizard-contract-status-service">서비스 상태: {contractStatus.serviceStatus}</div>
+                <div data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_wizard-contract-status-result_service">서비스 상태: {contractStatus.serviceStatus}</div>
               )}
             </div>
           );
@@ -119,17 +119,17 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
   const showTyping = message.isStreaming && !message.content && !wizardContent;
 
   return (
-    <div className={styles.msgRow} data-component="chat-message-assistant">
-      <div className={`${styles.msgAvatar} ${styles.aiAvatar}`} data-component="chat-message-assistant-avatar">AI</div>
-      <div data-component="chat-message-assistant-body">
+    <div className={styles.msgRow} data-component="mobile_chat_page_content_messages_message-assistant">
+      <div className={`${styles.msgAvatar} ${styles.aiAvatar}`} data-component="mobile_chat_page_content_messages_message-assistant_avatar">AI</div>
+      <div data-component="mobile_chat_page_content_messages_message-assistant_body">
         {showTyping ? (
           <TypingIndicator />
         ) : (
-          <div className={styles.msgBubble} data-component="chat-message-assistant-bubble">
+          <div className={styles.msgBubble} data-component="mobile_chat_page_content_messages_message-assistant_body_bubble">
             {wizardContent ? (
               wizardContent
             ) : (
-              <div className={styles.chatMarkdown} data-component="chat-markdown">
+              <div className={styles.chatMarkdown} data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_markdown">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -150,7 +150,7 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
                       );
                     },
                     table: ({ children }) => (
-                      <div className={styles.tableWrapper} data-component="chat-markdown-table-wrapper">
+                      <div className={styles.tableWrapper} data-component="mobile_chat_page_content_messages_message-assistant_body_bubble_markdown_table-wrapper">
                         <table>{children}</table>
                       </div>
                     ),
@@ -163,7 +163,7 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
           </div>
         )}
         {message.sources && (
-          <div className={styles.msgSources} data-component="chat-message-sources">
+          <div className={styles.msgSources} data-component="mobile_chat_page_content_messages_message-assistant_body_sources">
             {message.sources.map((source) => (
               <span className={styles.msgSource} key={source}>
                 {source}
@@ -172,7 +172,7 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
           </div>
         )}
         {timeLabel && !showTyping && (
-          <div className={styles.msgTime} data-component="chat-message-assistant-time">
+          <div className={styles.msgTime} data-component="mobile_chat_page_content_messages_message-assistant_body_time">
             {timeLabel}
           </div>
         )}
@@ -183,7 +183,7 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
 
 function ToolExecutingIndicator({ toolName }: { toolName: string | null }) {
   return (
-    <div className={styles.stateIndicator} data-component="chat-tool-executing-indicator">
+    <div className={styles.stateIndicator} data-component="mobile_chat_page_content_messages_tool-executing-indicator">
       <p>{toolName ? `${toolName} 실행 중...` : "처리 중..."}</p>
     </div>
   );
@@ -232,7 +232,7 @@ function ChatComposer({
   };
 
   return (
-    <div className={styles.chatInputBar} data-component="chat-input-area">
+    <div className={styles.chatInputBar} data-component="mobile_chat_page_input-area">
       <textarea
         ref={textareaRef}
         className={styles.chatInput}
@@ -242,7 +242,7 @@ function ChatComposer({
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         disabled={disabled}
-        data-component="chat-input"
+        data-component="mobile_chat_page_input-area_input"
       />
       <button
         className={styles.chatSend}
@@ -336,13 +336,13 @@ export default function ChatPage() {
   const isInputDisabled = state === "streaming" || state === "connecting";
 
   return (
-    <section className={styles.chatShell} data-component="chat">
-      <header className={styles.existingNavbar} data-component="chat-header">
-        <div className={styles.navbarIdentity} data-component="chat-header-identity">
+    <section className={styles.chatShell} data-component="mobile_chat_page" data-slot="chat-page">
+      <header className={styles.existingNavbar} data-component="mobile_chat_page_header">
+        <div className={styles.navbarIdentity} data-component="mobile_chat_page_header_identity">
           <span className={styles.navbarUser}>{userLabel}</span>
           <span className={styles.navbarBranch}>{branchLabel}</span>
         </div>
-        <div className={styles.navbarIcons} data-component="chat-header-icons">
+        <div className={styles.navbarIcons} data-component="mobile_chat_page_header_icons">
           <button
             className={styles.navbarIconBtn}
             type="button"
@@ -359,10 +359,10 @@ export default function ChatPage() {
         </div>
       </header>
 
-      <div className={styles.chatContent} data-component="chat-content">
-        <div className={styles.chatScroll} ref={scrollContainerRef} data-component="chat-messages">
+      <div className={styles.chatContent} data-component="mobile_chat_page_content">
+        <div className={styles.chatScroll} ref={scrollContainerRef} data-component="mobile_chat_page_content_messages">
           {isLoadingHistory && messages.length > 0 && (
-            <div className={styles.historySpinner} data-component="chat-history-spinner">
+            <div className={styles.historySpinner} data-component="mobile_chat_page_content_messages_history-spinner">
               <Spinner size="sm" />
             </div>
           )}
@@ -378,7 +378,7 @@ export default function ChatPage() {
           {isToolExecuting && <ToolExecutingIndicator toolName={currentTool} />}
 
           {showConfirmButtons && (
-            <div className={styles.confirmActions} data-component="chat-confirm-actions">
+            <div className={styles.confirmActions} data-component="mobile_chat_page_content_messages_confirm-actions">
               <button type="button" onClick={() => sendMessage("확인")} disabled={isInputDisabled}>
                 확인
               </button>
@@ -388,7 +388,7 @@ export default function ChatPage() {
             </div>
           )}
 
-          <div ref={messagesEndRef} data-component="chat-messages-end" />
+          <div ref={messagesEndRef} data-component="mobile_chat_page_content_messages_end" />
         </div>
       </div>
 

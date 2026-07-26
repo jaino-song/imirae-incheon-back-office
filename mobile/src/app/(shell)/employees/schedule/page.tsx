@@ -102,7 +102,7 @@ export default function EmployeeSchedulePage() {
   const entries = useMemo(() => buildEntries(data?.data ?? []), [data?.data]);
 
   return (
-    <section className="shell-content flex flex-col" data-component="employee-schedule-page">
+    <section className="shell-content flex flex-col" data-component="mobile_employees-schedule_screen_root">
       <div className="list-card">
         <div className="list-title">
           <span className="list-title-text">
@@ -119,7 +119,7 @@ export default function EmployeeSchedulePage() {
                 fontSize: "0.82rem",
                 color: "hsl(var(--v3-text-muted))",
               }}
-              data-component="employee-schedule-loading"
+              data-component="mobile_employees-schedule_screen_root_list-card_loading"
             >
               불러오는 중...
             </div>
@@ -131,7 +131,7 @@ export default function EmployeeSchedulePage() {
                 fontSize: "0.82rem",
                 color: "hsl(var(--v3-burgundy))",
               }}
-              data-component="employee-schedule-error"
+              data-component="mobile_employees-schedule_screen_root_list-card_error"
             >
               일정을 불러오지 못했습니다.
             </div>
@@ -143,7 +143,7 @@ export default function EmployeeSchedulePage() {
                 fontSize: "0.82rem",
                 color: "hsl(var(--v3-text-muted))",
               }}
-              data-component="employee-schedule-empty"
+              data-component="mobile_employees-schedule_screen_root_list-card_empty"
             >
               앞으로 30일 일정이 없습니다.
             </div>
@@ -151,7 +151,7 @@ export default function EmployeeSchedulePage() {
             entries.map((entry) => (
               <div
                 className="list-item"
-                data-component="employee-schedule-row"
+                data-component="mobile_employees-schedule_screen_root_list-card_row"
                 data-kind={entry.kind}
                 key={entry.id}
               >

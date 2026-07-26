@@ -141,7 +141,7 @@ test.describe('Chat client registration wizard', () => {
     // The wizard is triggered by sending the literal "산모 등록" message —
     // useChatStream intercepts it locally and renders the wizard inline
     // without calling the SSE endpoint.
-    const chatInput = page.locator('[data-component="chat-input"]');
+    const chatInput = page.locator('[data-component="mobile_chat_page_input-area_input"]');
     await expect(chatInput).toBeVisible({ timeout: 15000 });
     await chatInput.fill('산모 등록');
     await chatInput.press('Enter');
