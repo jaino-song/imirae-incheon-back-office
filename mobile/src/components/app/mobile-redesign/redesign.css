@@ -2288,348 +2288,13 @@ body.mobile-all-route .menu-row {
 }
 
 /* ===== Files page — page-files.html fidelity overrides ===== */
-[data-component="files"] {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: min(100vw, 390px);
-  height: min(100dvh, 844px);
-  min-height: 0 !important;
-  margin: 0 auto !important;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-  line-height: normal;
-}
-
-[data-component="files"] .nav-stack {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-[data-component="files"] .nav-page {
-  position: absolute;
-  inset: 0;
-}
-
-[data-component="files"] .nav-page.detail {
-  top: 62px;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
-}
-
-[data-component="files"] .nav-stack.show-detail .nav-page.list {
-  transform: translateX(0);
-}
-
-[data-component="files"] [data-component="mobile-files-content"] {
-  padding: 76px 26px 100px;
-  overflow-y: auto;
-}
-
-[data-component="files"] .list-title,
-[data-component="files"] .search-bar,
-[data-component="files"] .search-bar input,
-[data-component="files"] .filter-pill,
-[data-component="files"] .list-name,
-[data-component="files"] .file-meta,
-[data-component="files"] .section-header,
-[data-component="files"] .dday-sub {
-  line-height: normal;
-}
-
-[data-component="files"] .search-bar {
-  margin: 4px 12px 8px;
-}
-
-[data-component="files"] [data-component="mobile-files-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  text-align: left;
-}
-
-[data-component="files"] [data-component="mobile-files-row"] .list-name {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-[data-component="files"] .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
-}
-
-[data-component="files"] .pdf-page {
-  transform-origin: 0 0;
-  touch-action: pan-x pan-y;
-  will-change: transform;
-}
-
-[data-component="files"] .pdf-table {
-  margin-top: 6px;
-  overflow: hidden;
-  border: 1px solid hsl(var(--v3-border));
-  border-radius: 6px;
-}
-
-[data-component="files"] .pdf-table-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  padding: 5px 8px;
-  border-top: 1px solid hsl(var(--v3-border));
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.55rem;
-}
-
-[data-component="files"] .pdf-table-row:first-child {
-  border-top: 0;
-}
-
-[data-component="files"] .pdf-table-head {
-  padding: 6px 8px;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  font-weight: 700;
-}
-
-[data-component="files"] .pdf-final-note {
-  margin-top: 18px;
-  padding: 10px;
-  border-radius: 6px;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.55rem;
-  text-align: center;
-}
-
-body:has([data-component="files"]) {
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-  line-height: normal;
-}
-
-body:has([data-component="files"]) nextjs-portal {
-  display: none !important;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] {
-  width: calc(min(100vw, 390px) - 52px);
-  max-width: 338px;
-  gap: 2px;
-  padding: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px;
-  bottom: max(calc(24px + env(safe-area-inset-bottom)), calc(100dvh - var(--mobile-shell-max-height, 844px) + 24px)) !important;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
-  display: none;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] a {
-  gap: 2px;
-  padding: 5px 4px;
-  border-radius: 14px;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] svg {
-  width: 18px;
-  height: 18px;
-}
-
-body:has([data-component="files"]) [data-component="mobile-bottom-nav"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobile-bottom-nav"] {
-  transform: translate(-50%, calc(100% + 32px));
-  opacity: 0;
-  pointer-events: none;
-}
-
 /* ===== Clients page — page-clients.html fidelity overrides ===== */
-[data-component="clients"] {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: min(100vw, 390px);
-  height: min(100dvh, 844px);
-  min-height: 0 !important;
-  margin: 0 auto !important;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-}
-
-[data-component="clients"] .nav-stack {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-[data-component="clients"] .nav-page {
-  position: absolute;
-  inset: 0;
-}
-
-[data-component="clients"] .nav-page.detail {
-  top: 62px;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
-}
-
-[data-component="clients"] .nav-stack.show-detail .nav-page.list {
-  transform: translateX(0);
-}
-
-[data-component="clients"] [data-component="mobile-clients-content"] {
-  padding: 12px 14px 76px;
-  overflow-y: auto;
-}
-
-[data-component="clients"] .list-title {
-  line-height: normal;
-}
-
-[data-component="clients"] .search-bar {
-  margin: 4px 12px 8px;
-  line-height: normal;
-}
-
-[data-component="clients"] .search-bar input {
-  line-height: normal;
-}
-
-[data-component="clients"] .filter-pill {
-  line-height: normal;
-}
-
-[data-component="clients"] [data-component="mobile-clients-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  line-height: normal;
-  text-align: left;
-}
-
-[data-component="clients"] .list-name,
-[data-component="clients"] .list-meta,
-[data-component="clients"] .section-header {
-  line-height: normal;
-}
-
 .mobile-clients-row-badges {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
   white-space: nowrap;
-}
-
-[data-component="clients"] .badge-mini {
-  height: 28px;
-  font-size: 0.68rem;
-  border-color: currentColor;
-}
-
-[data-component="clients"] .badge-mini.muted {
-  background: hsl(220, 20%, 97%);
-  color: hsl(214, 10%, 55%);
-  border-color: hsl(220, 20%, 90%);
-}
-
-[data-component="clients"] .badge-mini.gray {
-  background: hsl(220, 20%, 97%);
-  color: hsl(214, 10%, 55%);
-  border-color: hsl(220, 20%, 90%);
-}
-
-[data-component="clients"] .badge-mini.primary {
-  border-color: hsl(214, 70%, 85%);
-}
-
-[data-component="clients"] .badge-mini.blue {
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-  border-color: hsl(214, 70%, 85%);
-}
-
-[data-component="clients"] .badge-mini.green {
-  border-color: hsl(137, 34%, 84%);
-}
-
-[data-component="clients"] .badge-mini.orange {
-  border-color: hsla(38, 92%, 35%, 0.18);
-}
-
-[data-component="clients"] .badge-mini.burgundy {
-  border-color: hsla(355, 36%, 45%, 0.2);
-}
-
-[data-component="clients"] .badge-mini.purple {
-  background: hsl(267, 50%, 92%);
-  color: hsl(267, 50%, 46%);
-  border-color: hsla(267, 50%, 46%, 0.2);
-}
-
-[data-component="clients"] .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
-}
-
-[data-component="clients"] .btn,
-[data-component="clients"] .info-row,
-[data-component="clients"] .info-card-title,
-[data-component="clients"] .doc-title,
-[data-component="clients"] .doc-meta {
-  line-height: normal;
-}
-
-[data-component="clients"] .info-row-value-orange {
-  color: hsl(var(--v3-orange));
-}
-
-[data-component="clients"] .doc-icon-primary {
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-}
-
-[data-component="clients"] .doc-icon-green {
-  background: hsl(var(--v3-green-light));
-  color: hsl(var(--v3-green));
-}
-
-[data-component="clients"] .doc-icon-orange {
-  background: hsl(var(--v3-orange-light));
-  color: hsl(var(--v3-orange));
-}
-
-[data-component="clients"] .doc-icon-burgundy {
-  background: hsl(var(--v3-burgundy-light));
-  color: hsl(var(--v3-burgundy));
-}
-
-[data-component="clients"] .doc-icon-muted {
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text-muted));
-}
-
-[data-component="clients"] .doc-icon-purple {
-  background: hsl(267, 50%, 92%);
-  color: hsl(267, 50%, 46%);
 }
 
 [data-component="mobile-clients-service-records"] .detail-actions.card-actions {
@@ -2737,8 +2402,7 @@ body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobil
   }
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"],
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] {
+body.mobile-clients-route [data-component="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -2755,46 +2419,39 @@ body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"],
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-clients-route [data-component="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] a,
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] a {
+body.mobile-clients-route [data-component="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] svg,
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] svg {
+body.mobile-clients-route [data-component="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav"] span,
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav"] span {
+body.mobile-clients-route [data-component="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
 }
 
-body.mobile-clients-route [data-component="mobile-bottom-nav-clients"],
-body:has([data-component="clients"]) [data-component="mobile-bottom-nav-clients"] {
+body.mobile-clients-route [data-component="mobile-bottom-nav-clients"] {
   background: transparent;
 }
 
-body.mobile-clients-route:has(.nav-stack.show-detail) [data-component="mobile-bottom-nav"],
-body:has([data-component="clients"] .nav-stack.show-detail) [data-component="mobile-bottom-nav"] {
+body.mobile-clients-route:has(.nav-stack.show-detail) [data-component="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
 
-body.mobile-clients-route [data-component="mobile-header"],
-body:has([data-component="clients"]) [data-component="mobile-header"] {
+body.mobile-clients-route [data-component="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2821,160 +2478,6 @@ body:has([data-component="clients"]) [data-component="mobile-header"] {
 }
 
 /* ===== Consultations-specific ===== */
-body:has([data-component="consultations"]) {
-  background: hsl(220, 15%, 88%);
-  color: hsl(var(--v3-text));
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-  line-height: normal;
-  overflow: hidden;
-}
-
-body:has([data-component="consultations"]) [data-component="app-root"] {
-  position: relative;
-  padding: 12px;
-  overflow: hidden;
-  background: #000;
-  border-radius: 48px;
-  box-shadow:
-    0 30px 80px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(0, 0, 0, 0.6) inset;
-}
-
-body:has([data-component="consultations"]) [data-component="app-root"]::before {
-  content: "";
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  z-index: 100;
-  width: 110px;
-  height: 28px;
-  border-radius: 999px;
-  background: #000;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-body:has([data-component="consultations"]) [data-component="app-providers"] {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  background: hsl(var(--v3-dim-white));
-  border-radius: 38px;
-}
-
-body:has([data-component="consultations"]) [data-component="main-content"] {
-  position: absolute !important;
-  inset: 0 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  width: auto !important;
-  height: auto !important;
-  min-height: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  line-height: normal;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-header"] {
-  position: absolute !important;
-  top: 0 !important;
-  right: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  max-width: none !important;
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-  z-index: 20;
-  color: hsl(var(--v3-text));
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-}
-
-[data-component="consultations"] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  min-height: 0 !important;
-  margin: 0 !important;
-  overflow: hidden;
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-  line-height: normal;
-}
-
-[data-component="consultations"]:has(.nav-stack.show-detail) {
-  z-index: 50;
-}
-
-[data-component="consultations"] .nav-stack {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-[data-component="consultations"] .nav-page {
-  position: absolute;
-  inset: 0;
-}
-
-[data-component="consultations"] .nav-page.detail {
-  top: 50px;
-}
-
-[data-component="consultations"] .nav-stack.show-detail .nav-page.list {
-  transform: translateX(0);
-}
-
-[data-component="consultations"] [data-component="mobile-consultations-content"] {
-  padding: 76px 14px 76px;
-  overflow-y: auto;
-}
-
-[data-component="consultations"] .list-title,
-[data-component="consultations"] .filter-pill,
-[data-component="consultations"] .section-header,
-[data-component="consultations"] .list-name,
-[data-component="consultations"] .consult-snippet,
-[data-component="consultations"] .dday-sub,
-[data-component="consultations"] .info-card-title,
-[data-component="consultations"] .info-row,
-[data-component="consultations"] .btn,
-[data-component="consultations"] .badge-mini {
-  line-height: normal;
-}
-
-[data-component="consultations"] [data-component="mobile-consultations-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  text-align: left;
-}
-
 .consult-snippet {
   font-size: 0.7rem;
   color: hsl(var(--v3-text-muted));
@@ -2988,122 +2491,6 @@ body:has([data-component="consultations"]) [data-component="mobile-header"] {
 .voucher-tag.govt { color: hsl(var(--v3-primary)); }
 .voucher-tag.self { color: hsl(var(--v3-dark)); }
 .snippet-sep { opacity: 0.4; }
-[data-component="consultations"] .list-item.unread-row {
-  background: hsla(214, 80%, 95%, 0.5);
-  position: relative;
-  padding-left: 18px;
-}
-[data-component="consultations"] .list-item.unread-row::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 6px;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: hsl(var(--v3-primary));
-}
-[data-component="consultations"] .filter-pill:nth-child(2):not(.active) .count,
-[data-component="consultations"] .filter-pill .count.burgundy-count {
-  background: hsl(var(--v3-burgundy-light));
-  color: hsl(var(--v3-burgundy));
-}
-
-[data-component="consultations"] .detail-body .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
-}
-
-[data-component="consultations"] .badge-mini {
-  height: 28px;
-  font-size: 0.68rem;
-  border: 1px solid;
-}
-
-[data-component="consultations"] .badge-mini.muted {
-  border-color: hsl(var(--v3-border));
-}
-
-[data-component="consultations"] .badge-mini.burgundy {
-  border-color: hsla(355, 36%, 45%, 0.2);
-}
-
-[data-component="consultations"] .badge-mini.green {
-  border-color: hsl(137, 34%, 84%);
-}
-
-[data-component="consultations"] .info-card-padded {
-  padding: 16px;
-}
-
-[data-component="consultations"] .consultation-body-copy {
-  white-space: pre-wrap;
-  color: hsl(var(--v3-dark));
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] {
-  position: absolute !important;
-  right: 14px !important;
-  bottom: 12px !important;
-  left: 14px !important;
-  width: auto !important;
-  max-width: none !important;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  align-items: end;
-  gap: 2px !important;
-  padding: 5px !important;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px !important;
-  background: rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 8px 32px hsla(214, 50%, 20%, 0.1) !important;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  color: hsl(var(--v3-text));
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-  z-index: var(--mobile-z-nav);
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] > [aria-hidden="true"] {
-  display: none;
-}
-
-body:has([data-component="consultations"]) nav[data-component="mobile-bottom-nav"] a {
-  gap: 2px !important;
-  height: 40px;
-  padding: 5px 4px !important;
-  border-radius: 14px !important;
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] svg {
-  width: 18px;
-  height: 18px;
-}
-
-body:has([data-component="consultations"]) [data-component="mobile-bottom-nav"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-body:has([data-component="consultations"]):has([data-component="mobile-consultations-stack"].show-detail) [data-component="mobile-bottom-nav"] {
-  opacity: 0;
-  pointer-events: none;
-  translate: 0 calc(100% + 32px) !important;
-}
-
 /* ===== /employees pixel shell — scoped to this route only ===== */
 body:has([data-component="mobile_employees_detail-sheet"]) {
   background: hsl(220, 15%, 88%);
@@ -3935,11 +3322,6 @@ body:has([data-component="messages-shell"]) [data-component="mobile-bottom-nav"]
 /* ===== Detail action button row spacing (override default for nested in sheet) ===== */
 .detail-body .detail-actions {
   padding: 0 4px;
-}
-
-[data-component="clients"] .detail-body .detail-actions {
-  margin-top: 0;
-  padding: 14px 16px;
 }
 
 /* ===== Auth pages (login / register / forgot-password) ===== */
@@ -5112,13 +4494,6 @@ body.mobile-contracts-route [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-contracts-route [data-component="contracts"] {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 !important;
-}
-
 body.mobile-contracts-route .mobile-detail-sheet {
   flex: 1;
   height: 100%;
@@ -5150,36 +4525,31 @@ body.mobile-contracts-route [data-component="mobile-contracts-stack"].show-detai
 /* Lock the app shell to the viewport on the clients route (parity with the
    dashboard, redesign.css:155-212) so the page itself never scrolls — only the
    inner [data-component="mobile-clients-content"] list scrolls. */
-body.mobile-clients-route,
-body:has([data-component="clients"]) {
+body.mobile-clients-route {
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-component="app-root"],
-body:has([data-component="clients"]) [data-component="app-root"] {
+body.mobile-clients-route [data-component="app-root"] {
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  body.mobile-clients-route [data-component="app-root"],
-  body:has([data-component="clients"]) [data-component="app-root"] {
+  body.mobile-clients-route [data-component="app-root"] {
     height: min(100dvh, 844px);
     max-height: 844px;
   }
 }
 
-body.mobile-clients-route [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="clients"]) [data-component="app-root"] [data-component="app-providers"] {
+body.mobile-clients-route [data-component="app-root"] [data-component="app-providers"] {
   position: relative;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-component="main-content"],
-body:has([data-component="clients"]) [data-component="main-content"] {
+body.mobile-clients-route [data-component="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -5193,35 +4563,19 @@ body:has([data-component="clients"]) [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-clients-route [data-component="clients"],
-body:has([data-component="clients"]) [data-component="clients"] {
-  position: relative !important;
-  inset: auto !important;
-  width: auto !important;
-  height: auto !important;
-  transform: none !important;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 !important;
-}
-
-body.mobile-clients-route .mobile-detail-sheet,
-body:has([data-component="clients"]) .mobile-detail-sheet {
+body.mobile-clients-route .mobile-detail-sheet {
   flex: 1;
   height: 100%;
   min-height: 0 !important;
   margin: 0 !important;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-content"],
-body:has([data-component="clients"]) [data-component="mobile-clients-content"] {
+body.mobile-clients-route [data-component="mobile-clients-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-stack"],
-body:has([data-component="clients"]) [data-component="mobile-clients-stack"] {
+body.mobile-clients-route [data-component="mobile-clients-stack"] {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -5229,20 +4583,16 @@ body:has([data-component="clients"]) [data-component="mobile-clients-stack"] {
 }
 
 body.mobile-clients-route [data-component="mobile-clients-list-page"],
-body.mobile-clients-route [data-component="mobile-clients-detail-page"],
-body:has([data-component="clients"]) [data-component="mobile-clients-list-page"],
-body:has([data-component="clients"]) [data-component="mobile-clients-detail-page"] {
+body.mobile-clients-route [data-component="mobile-clients-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-detail-page"],
-body:has([data-component="clients"]) [data-component="mobile-clients-detail-page"] {
+body.mobile-clients-route [data-component="mobile-clients-detail-page"] {
   top: 50px;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-stack"].show-detail .nav-page.list,
-body:has([data-component="clients"]) [data-component="mobile-clients-stack"].show-detail .nav-page.list {
+body.mobile-clients-route [data-component="mobile-clients-stack"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
@@ -5662,10 +5012,7 @@ body.mobile-dashboard-route [data-component="mobile-dashboard-detail-scrim"] {
 }
 
 /* Detail pages should run edge-to-edge after removing the device frame. */
-body:has([data-component="consultations"]) [data-component$="-detail-page"],
-body:has([data-component="clients"]) [data-component$="-detail-page"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-page"],
-body:has([data-component="files"]) [data-component$="-detail-page"],
 body:has([data-component="messages"]) [data-component$="-detail-page"],
 body:has([data-component="prices-page"]) [data-component$="-detail-page"],
 body.mobile-contracts-route [data-component$="-detail-page"],
@@ -5688,10 +5035,7 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-de
 body:has([data-component="messages"]) [data-component$="-detail-scrim"],
 body:has([data-component="prices-page"]) [data-component$="-detail-scrim"],
 body.mobile-contracts-route [data-component$="-detail-scrim"],
-body.mobile-prices-route [data-component$="-detail-scrim"],
-body:has([data-component="consultations"]) [data-component$="-detail-scrim"],
-body:has([data-component="clients"]) [data-component$="-detail-scrim"],
-body:has([data-component="files"]) [data-component$="-detail-scrim"] {
+body.mobile-prices-route [data-component$="-detail-scrim"] {
   position: fixed;
   top: 0 !important;
   right: 0 !important;
@@ -5701,10 +5045,7 @@ body:has([data-component="files"]) [data-component$="-detail-scrim"] {
   border-radius: 0 !important;
 }
 
-body:has([data-component="consultations"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="clients"] .nav-stack.show-detail) [data-component="mobile-header"],
 body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-component="mobile-header"],
-body:has([data-component="files"] .nav-stack.show-detail) [data-component="mobile-header"],
 body:has([data-component="messages"] .nav-stack.show-detail) [data-component="mobile-header"],
 body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-component="mobile-header"] {
   z-index: 20 !important;
@@ -5713,10 +5054,7 @@ body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-d
 /* ===== Mobile redesign frame removal ===== */
 html:has(body [data-component="dashboard"]),
 html:has(body.mobile-all-route),
-html:has(body [data-component="consultations"]),
-html:has(body [data-component="clients"]),
 html:has(body [data-component="mobile_employees_detail-sheet"]),
-html:has(body [data-component="files"]),
 html:has(body [data-component="messages"]),
 html:has(body [data-component="messages-new-page"]),
 html:has(body [data-component="messages-templates"]),
@@ -5735,10 +5073,7 @@ html:has(body.mobile-contracts-route) {
 
 body:has([data-component="dashboard"]),
 body.mobile-all-route,
-body:has([data-component="consultations"]),
-body:has([data-component="clients"]),
 body:has([data-component="mobile_employees_detail-sheet"]),
-body:has([data-component="files"]),
 body:has([data-component="messages"]),
 body:has([data-component="messages-new-page"]),
 body:has([data-component="messages-templates"]),
@@ -5757,10 +5092,7 @@ body.mobile-contracts-route {
 
 [data-component="app-root"]:has([data-component="dashboard"]),
 body.mobile-all-route [data-component="app-root"],
-body:has([data-component="consultations"]) [data-component="app-root"],
-body:has([data-component="clients"]) [data-component="app-root"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
-body:has([data-component="files"]) [data-component="app-root"],
 body:has([data-component="messages"]) [data-component="app-root"],
 body:has([data-component="messages-new-page"]) [data-component="app-root"],
 body:has([data-component="messages-templates"]) [data-component="app-root"],
@@ -5782,10 +5114,7 @@ body.mobile-contracts-route [data-component="app-root"] {
 
 [data-component="app-root"]:has([data-component="dashboard"])::before,
 body.mobile-all-route [data-component="app-root"]::before,
-body:has([data-component="consultations"]) [data-component="app-root"]::before,
-body:has([data-component="clients"]) [data-component="app-root"]::before,
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"]::before,
-body:has([data-component="files"]) [data-component="app-root"]::before,
 body:has([data-component="messages"]) [data-component="app-root"]::before,
 body:has([data-component="messages-new-page"]) [data-component="app-root"]::before,
 body:has([data-component="messages-templates"]) [data-component="app-root"]::before,
@@ -5805,10 +5134,7 @@ body.mobile-contracts-route [data-component="app-root"]::before {
 
 [data-component="app-root"]:has([data-component="dashboard"]) [data-component="app-providers"],
 body.mobile-all-route [data-component="app-providers"],
-body:has([data-component="consultations"]) [data-component="app-providers"],
-body:has([data-component="clients"]) [data-component="app-providers"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-providers"],
-body:has([data-component="files"]) [data-component="app-providers"],
 body:has([data-component="messages"]) [data-component="app-providers"],
 body:has([data-component="messages-new-page"]) [data-component="app-providers"],
 body:has([data-component="messages-templates"]) [data-component="app-providers"],
@@ -5827,10 +5153,7 @@ body.mobile-contracts-route [data-component="app-providers"] {
 
 body:has([data-component="dashboard"]) nextjs-portal,
 body.mobile-all-route nextjs-portal,
-body:has([data-component="consultations"]) nextjs-portal,
-body:has([data-component="clients"]) nextjs-portal,
 body:has([data-component="mobile_employees_detail-sheet"]) nextjs-portal,
-body:has([data-component="files"]) nextjs-portal,
 body:has([data-component="messages"]) nextjs-portal,
 body:has([data-component="messages-new-page"]) nextjs-portal,
 body:has([data-component="messages-templates"]) nextjs-portal,
@@ -6283,12 +5606,8 @@ body.mobile-prices-route [data-component="mobile-bottom-nav"] span {
 /* ===== Mobile detail-sheet sizing normalization =====
    Keep the shell full-viewport for every MobileDetailSheet route. Header spacing
    belongs to the list content only, so detail pages share one height model. */
-body:has([data-component="clients"]) [data-component="main-content"],
-body:has([data-component="consultations"]) [data-component="main-content"],
-body:has([data-component="contracts"]) [data-component="main-content"],
 body:has([data-component="dashboard"]) [data-component="main-content"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component="main-content"],
-body:has([data-component="files"]) [data-component="main-content"],
 body:has([data-component="messages"]) [data-component="main-content"],
 body:has([data-component="prices-page"]) [data-component="main-content"],
 body.mobile-contracts-route [data-component="main-content"],
@@ -6307,12 +5626,8 @@ body.mobile-prices-route [data-component="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body:has([data-component="clients"]) .mobile-detail-sheet,
-body:has([data-component="consultations"]) .mobile-detail-sheet,
-body:has([data-component="contracts"]) .mobile-detail-sheet,
 body:has([data-component="dashboard"]) .mobile-detail-sheet,
 body:has([data-component="mobile_employees_detail-sheet"]) .mobile-detail-sheet,
-body:has([data-component="files"]) .mobile-detail-sheet,
 body:has([data-component="messages"]) .mobile-detail-sheet,
 body:has([data-component="prices-page"]) .mobile-detail-sheet,
 body.mobile-contracts-route .mobile-detail-sheet,
@@ -6324,12 +5639,8 @@ body.mobile-prices-route .mobile-detail-sheet {
   margin: 0 !important;
 }
 
-[data-component="clients"] [data-component="mobile-clients-content"],
-[data-component="consultations"] [data-component="mobile-consultations-content"],
-[data-component="contracts"] [data-component="mobile-contracts-content"],
 [data-component="dashboard"] [data-component="mobile-dashboard-content"],
 [data-component="mobile_employees_detail-sheet"] [data-component="mobile-employees-content"],
-[data-component="files"] [data-component="mobile-files-content"],
 [data-component="messages"] [data-component="mobile-messages-content"],
 [data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
   padding-top: 76px !important;
@@ -6350,206 +5661,9 @@ body.mobile-dashboard-route [data-component="mobile-dashboard-content"] {
 
 /* Contracts must look active on the first paint, before the route body class is
    added on hydration. This prevents the bottom nav from sliding in after reload. */
-body:has([data-component="contracts"]) [data-component="mobile-bottom-nav"] {
-  position: absolute !important;
-  left: 14px !important;
-  right: 14px !important;
-  bottom: 12px !important;
-  width: auto !important;
-  max-width: none !important;
-  --tw-translate-x: 0 !important;
-  --tw-translate-y: 0 !important;
-  transform: none !important;
-  translate: none !important;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  align-items: end;
-  gap: 2px !important;
-  padding: 5px !important;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px !important;
-  background: rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 8px 32px hsla(214, 50%, 20%, 0.1) !important;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  color: hsl(var(--v3-text));
-  z-index: var(--mobile-z-nav);
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-bottom-indicator"] {
-  display: block !important;
-}
-
-body:has([data-component="contracts"]) [data-component^="mobile-bottom-nav-"] {
-  position: static !important;
-  display: flex;
-  height: 40px;
-  align-items: center;
-  flex-direction: column;
-  gap: 2px !important;
-  padding: 5px 4px !important;
-  border-radius: 14px !important;
-  color: hsl(var(--v3-text-muted)) !important;
-  text-decoration: none;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-bottom-nav-contracts"] {
-  background: transparent !important;
-}
-
-body:has([data-component="contracts"]) [data-component^="mobile-bottom-nav-"] svg {
-  width: 18px !important;
-  height: 18px !important;
-}
-
-body:has([data-component="contracts"]) [data-component^="mobile-bottom-nav-"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
 /* Contracts first paint must match the hydrated route state. The route body
    class is added by React after hydration, so keep the shell geometry keyed to
    the rendered contracts component as well. */
-html:has(body [data-component="contracts"]) {
-  background: hsl(var(--v3-dim-white)) !important;
-}
-
-body:has([data-component="contracts"]) {
-  background: hsl(var(--v3-dim-white)) !important;
-  color: hsl(var(--v3-text));
-  overflow: hidden;
-  line-height: normal;
-}
-
-body:has([data-component="contracts"]) [data-component="app-root"] {
-  width: min(100vw, 390px) !important;
-  max-width: 390px !important;
-  height: min(100dvh, var(--mobile-shell-max-height, 844px)) !important;
-  max-height: var(--mobile-shell-max-height, 844px) !important;
-  margin: 0 auto !important;
-  padding: 0 !important;
-  overflow: hidden;
-  border-radius: 0 !important;
-  background: hsl(var(--v3-dim-white)) !important;
-  box-shadow: none !important;
-}
-
-body:has([data-component="contracts"]) [data-component="app-root"]::before {
-  display: none !important;
-  content: none !important;
-}
-
-body:has([data-component="contracts"]) [data-component="app-providers"] {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border-radius: 38px;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  font-family:
-    "NanumSquare Neo",
-    "Noto Sans KR",
-    "Apple SD Gothic Neo",
-    "Malgun Gothic",
-    -apple-system,
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-header"] {
-  position: absolute !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  width: auto !important;
-  max-width: none !important;
-  --tw-translate-x: 0 !important;
-  --tw-translate-y: 0 !important;
-  transform: none !important;
-  translate: none !important;
-  z-index: 20;
-  color: hsl(var(--v3-text));
-}
-
-body:has([data-component="contracts"]) [data-component="floating-quick-actions"] {
-  display: none !important;
-}
-
-body:has([data-component="contracts"]) [data-component="contracts"] {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 !important;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-stack"] {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-list-page"],
-body:has([data-component="contracts"]) [data-component="mobile-contracts-detail-page"] {
-  position: absolute;
-  inset: 0;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-detail-page"] {
-  top: 50px;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-stack"].show-detail .nav-page.list {
-  transform: translateX(0) !important;
-}
-
-body:has([data-component="contracts"]) .list-count {
-  display: inline-flex;
-  min-width: 4ch;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-search"] {
-  margin: 4px 12px 8px;
-  line-height: normal;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-search"] input {
-  line-height: normal;
-}
-
-body:has([data-component="contracts"]) [data-component="mobile-contracts-row"] {
-  width: 100%;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: hsl(var(--v3-text));
-  font-family: inherit;
-  line-height: normal;
-  text-align: left;
-  animation: none !important;
-}
-
-body:has([data-component="contracts"]) .filter-pill:nth-child(3):not(.active) .count {
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-}
-
-body:has([data-component="contracts"]) .section-header,
-body:has([data-component="contracts"]) .list-title,
-body:has([data-component="contracts"]) .filter-pill,
-body:has([data-component="contracts"]) .badge,
-body:has([data-component="contracts"]) .badge-mini,
-body:has([data-component="contracts"]) .btn,
-body:has([data-component="contracts"]) .info-row,
-body:has([data-component="contracts"]) .info-card-title,
-body:has([data-component="contracts"]) .doc-title,
-body:has([data-component="contracts"]) .doc-meta {
-  line-height: normal;
-}
-
 .contracts-count-placeholder {
   display: inline-block;
   width: 4ch;
@@ -6627,7 +5741,6 @@ nav[data-component="mobile-bottom-nav"] a {
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body:has([data-component="contracts"]) nav[data-component="mobile-bottom-nav"] [data-component="mobile-bottom-indicator"],
 body.mobile-contracts-route nav[data-component="mobile-bottom-nav"] [data-component="mobile-bottom-indicator"] {
   display: block !important;
 }
@@ -6636,21 +5749,17 @@ nav[data-component="mobile-bottom-nav"] a[aria-current="page"][data-component^="
   background: transparent !important;
 }
 
-body:has([data-component="contracts"]) [data-component="mobile-contracts-content"],
 body.mobile-contracts-route [data-component="mobile-contracts-content"] {
   padding: 76px 14px 76px !important;
   overflow-y: auto;
 }
 
 html:has(body.mobile-contracts-route),
-html:has(body [data-component="contracts"]),
-body.mobile-contracts-route,
-body:has([data-component="contracts"]) {
+body.mobile-contracts-route {
   background: hsl(var(--v3-dim-white)) !important;
 }
 
-body.mobile-contracts-route [data-component="app-root"],
-body:has([data-component="contracts"]) [data-component="app-root"] {
+body.mobile-contracts-route [data-component="app-root"] {
   width: min(100vw, 390px) !important;
   max-width: 390px !important;
   height: min(100dvh, var(--mobile-shell-max-height, 844px)) !important;
@@ -6663,14 +5772,12 @@ body:has([data-component="contracts"]) [data-component="app-root"] {
   box-shadow: none !important;
 }
 
-body.mobile-contracts-route [data-component="app-root"]::before,
-body:has([data-component="contracts"]) [data-component="app-root"]::before {
+body.mobile-contracts-route [data-component="app-root"]::before {
   display: none !important;
   content: none !important;
 }
 
-body.mobile-contracts-route [data-component="app-providers"],
-body:has([data-component="contracts"]) [data-component="app-providers"] {
+body.mobile-contracts-route [data-component="app-providers"] {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -6685,10 +5792,7 @@ body:has([data-component="contracts"]) [data-component="app-providers"] {
   [data-component="app-root"],
   body.mobile-all-route [data-component="app-root"],
   body:has([data-component="all-page"]) [data-component="app-root"],
-  body:has([data-component="consultations"]) [data-component="app-root"],
-  body:has([data-component="clients"]) [data-component="app-root"],
   body:has([data-component="mobile_employees_detail-sheet"]) [data-component="app-root"],
-  body:has([data-component="files"]) [data-component="app-root"],
   body:has([data-component="messages"]) [data-component="app-root"],
   body:has([data-component="messages-new-page"]) [data-component="app-root"],
   body:has([data-component="messages-templates"]) [data-component="app-root"],
@@ -6712,14 +5816,6 @@ body:has([data-component="contracts"]) [data-component="app-providers"] {
     width: 100% !important;
     height: 100% !important;
     min-height: 100% !important;
-  }
-
-  [data-component="clients"],
-  [data-component="files"] {
-    width: 100vw !important;
-    max-width: none !important;
-    height: 100dvh !important;
-    max-height: none !important;
   }
 
   .shell-content,
@@ -6763,25 +5859,16 @@ body nav[data-component="mobile-bottom-nav"] a[data-visual-active="true"] {
    Without them the page itself scrolls. Completing the locks fixes the page to
    the viewport while only the inner list scrolls — parity with /dashboard,
    /clients, /employees. */
-body:has([data-component="consultations"]),
-body:has([data-component="contracts"]),
-body:has([data-component="files"]),
 body:has([data-component="messages"]),
 body:has([data-component="prices-page"]) {
   overflow: hidden;
 }
 
-body:has([data-component="consultations"]) [data-component="app-root"],
-body:has([data-component="contracts"]) [data-component="app-root"],
-body:has([data-component="files"]) [data-component="app-root"],
 body:has([data-component="messages"]) [data-component="app-root"],
 body:has([data-component="prices-page"]) [data-component="app-root"] {
   overflow: hidden;
 }
 
-body:has([data-component="consultations"]) [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="contracts"]) [data-component="app-root"] [data-component="app-providers"],
-body:has([data-component="files"]) [data-component="app-root"] [data-component="app-providers"],
 body:has([data-component="messages"]) [data-component="app-root"] [data-component="app-providers"],
 body:has([data-component="prices-page"]) [data-component="app-root"] [data-component="app-providers"] {
   position: relative;
