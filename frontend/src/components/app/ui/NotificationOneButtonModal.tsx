@@ -16,8 +16,7 @@ import { cn } from "@/lib/utils";
 type NotificationButtonVariant = "positive" | "destructive" | "neutral";
 
 const SOURCE_COMPONENT = "NotificationOneButtonModal";
-// TODO(data-component): Remove the legacy fallback after all callers migrate.
-const LEGACY_DATA_COMPONENT = "notification-one-button-modal";
+const DEFAULT_DATA_COMPONENT = "desktop_v3_notification-one-button-modal";
 
 export interface NotificationOneButtonModalProps {
   open: boolean;
@@ -48,7 +47,7 @@ export function NotificationOneButtonModal({
 }: NotificationOneButtonModalProps) {
   const canonicalDataComponentBase = canonicalDataComponent || undefined;
   const dataComponent =
-    canonicalDataComponentBase ?? legacyDataComponent ?? LEGACY_DATA_COMPONENT;
+    canonicalDataComponentBase ?? legacyDataComponent ?? DEFAULT_DATA_COMPONENT;
   const sub = (suffix: string) =>
     canonicalDataComponentBase
       ? `${canonicalDataComponentBase}_${suffix}`

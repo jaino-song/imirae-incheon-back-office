@@ -27,18 +27,18 @@ const BRANCHES_PER_PAGE = 5;
 
 function SelectBranchLoadingSkeleton() {
     return (
-        <div data-component="select-branch-loading" className="flex w-full flex-1 flex-col gap-3">
+        <div data-component="desktop_select-branch_loading" className="flex w-full flex-1 flex-col gap-3">
             {Array.from({ length: 3 }).map((_, index) => (
                 <Card
                     key={index}
-                    data-component="select-branch-loading-card"
+                    data-component="desktop_select-branch_loading_card"
                     className="rounded-[24px] border-[1.35px] border-v3-border bg-white shadow-[0_4px_24px_hsla(214,50%,20%,0.06)]"
                 >
                     <CardContent className="p-4">
-                        <div data-component="select-branch-loading-card-row" className="flex items-center justify-between gap-4">
-                            <div data-component="select-branch-loading-card-main" className="flex min-w-0 items-center gap-3">
+                        <div data-component="desktop_select-branch_loading_card_row" className="flex items-center justify-between gap-4">
+                            <div data-component="desktop_select-branch_loading_card_row_main" className="flex min-w-0 items-center gap-3">
                                 <Skeleton className="h-11 w-11 shrink-0 rounded-[18px] bg-v3-dim-white" />
-                                <div data-component="select-branch-loading-card-copy" className="min-w-0 flex-1 space-y-2">
+                                <div data-component="desktop_select-branch_loading_card_row_main_copy" className="min-w-0 flex-1 space-y-2">
                                     <Skeleton className="h-4 w-32 bg-v3-dim-white" />
                                     <Skeleton className="h-3 w-48 max-w-full bg-v3-dim-white" />
                                 </div>
@@ -122,12 +122,12 @@ export default function SelectBranchPage() {
         return (
             <AuthPanel
                 dataComponents={{
-                    container: "select-branch",
-                    card: "select-branch-container",
-                    header: "select-branch-header",
-                    title: "select-branch-title",
-                    subtitle: "select-branch-subtitle",
-                    content: "select-branch-content",
+                    container: "desktop_select-branch",
+                    card: "desktop_select-branch_container",
+                    header: "desktop_select-branch_header",
+                    title: "desktop_select-branch_title",
+                    subtitle: "desktop_select-branch_subtitle",
+                    content: "desktop_select-branch_content",
                 }}
                 containerClassName="!h-full min-h-0 items-center overflow-hidden py-0 md:py-0"
                 className="min-h-[70vh] gap-5 !p-5 sm:!p-6 [&_[data-component='select-branch-title']]:!text-[1.72rem] md:[&_[data-component='select-branch-title']]:!text-[1.5rem] [&_[data-component='select-branch-subtitle']]:!max-w-[30ch] [&_[data-component='select-branch-subtitle']]:!text-[0.82rem] md:[&_[data-component='select-branch-subtitle']]:!text-[0.76rem]"
@@ -144,12 +144,12 @@ export default function SelectBranchPage() {
         return (
             <AuthPanel
                 dataComponents={{
-                    container: "select-branch",
-                    card: "select-branch-container",
-                    header: "select-branch-header",
-                    title: "select-branch-title",
-                    subtitle: "select-branch-subtitle",
-                    content: "select-branch-content",
+                    container: "desktop_select-branch",
+                    card: "desktop_select-branch_container",
+                    header: "desktop_select-branch_header",
+                    title: "desktop_select-branch_title",
+                    subtitle: "desktop_select-branch_subtitle",
+                    content: "desktop_select-branch_content",
                 }}
                 containerClassName="!h-full min-h-0 items-center overflow-hidden py-0 md:py-0"
                 className="min-h-[70vh] gap-5 !p-5 sm:!p-6 [&_[data-component='select-branch-title']]:!text-[1.72rem] md:[&_[data-component='select-branch-title']]:!text-[1.5rem] [&_[data-component='select-branch-subtitle']]:!max-w-[30ch] [&_[data-component='select-branch-subtitle']]:!text-[0.82rem] md:[&_[data-component='select-branch-subtitle']]:!text-[0.76rem]"
@@ -157,7 +157,7 @@ export default function SelectBranchPage() {
                 title="지점을 불러오지 못했습니다"
                 subtitle="권한 확인 또는 다시 로그인이 필요할 수 있습니다."
             >
-                <div data-component="select-branch-error" className="flex flex-col items-center gap-4 text-center">
+                <div data-component="desktop_select-branch_error" className="flex flex-col items-center gap-4 text-center">
                     <p className="rounded-full bg-destructive/10 px-3 py-1 text-sm font-semibold text-destructive">
                         {error}
                     </p>
@@ -173,12 +173,12 @@ export default function SelectBranchPage() {
         return (
             <AuthPanel
                 dataComponents={{
-                    container: "select-branch",
-                    card: "select-branch-container",
-                    header: "select-branch-header",
-                    title: "select-branch-title",
-                    subtitle: "select-branch-subtitle",
-                    content: "select-branch-content",
+                    container: "desktop_select-branch",
+                    card: "desktop_select-branch_container",
+                    header: "desktop_select-branch_header",
+                    title: "desktop_select-branch_title",
+                    subtitle: "desktop_select-branch_subtitle",
+                    content: "desktop_select-branch_content",
                 }}
                 containerClassName="!h-full min-h-0 items-center overflow-hidden py-0 md:py-0"
                 className="min-h-[70vh] gap-5 !p-5 sm:!p-6 [&_[data-component='select-branch-title']]:!text-[1.72rem] md:[&_[data-component='select-branch-title']]:!text-[1.5rem] [&_[data-component='select-branch-subtitle']]:!max-w-[30ch] [&_[data-component='select-branch-subtitle']]:!text-[0.82rem] md:[&_[data-component='select-branch-subtitle']]:!text-[0.76rem]"
@@ -186,16 +186,16 @@ export default function SelectBranchPage() {
                 title="접근 가능한 지점이 없습니다"
                 subtitle="관리자에게 지점 접근 권한을 요청한 뒤 다시 시도해 주세요."
             >
-                <div data-component="select-branch-empty-state" className="flex flex-col items-center gap-6 text-center">
-                    <div data-component="select-branch-empty-icon" className="flex h-16 w-16 items-center justify-center rounded-full bg-v3-primary/8 text-v3-primary">
+                <div data-component="desktop_select-branch_empty-state" className="flex flex-col items-center gap-6 text-center">
+                    <div data-component="desktop_select-branch_empty-state_icon" className="flex h-16 w-16 items-center justify-center rounded-full bg-v3-primary/8 text-v3-primary">
                         <Building2 className="h-8 w-8" />
                     </div>
-                    <div data-component="select-branch-empty">
+                    <div data-component="desktop_select-branch_empty-state_copy">
                         <p className="text-sm text-v3-text-muted">
                             권한이 부여되면 이 페이지를 새로고침하세요.
                         </p>
                     </div>
-                    <div data-component="select-branch-empty-actions" className="flex gap-3">
+                    <div data-component="desktop_select-branch_empty-state_actions" className="flex gap-3">
                         <Button onClick={() => window.location.reload()}>
                             새로고침
                         </Button>
@@ -240,12 +240,12 @@ export default function SelectBranchPage() {
     return (
         <AuthPanel
             dataComponents={{
-                container: "select-branch",
-                card: "select-branch-container",
-                header: "select-branch-header",
-                title: "select-branch-title",
-                subtitle: "select-branch-subtitle",
-                content: "select-branch-content",
+                container: "desktop_select-branch",
+                card: "desktop_select-branch_container",
+                header: "desktop_select-branch_header",
+                title: "desktop_select-branch_title",
+                subtitle: "desktop_select-branch_subtitle",
+                content: "desktop_select-branch_content",
             }}
             containerClassName="!h-full min-h-0 items-center overflow-hidden py-0 md:py-0"
             className="min-h-[70vh] gap-5 !p-5 sm:!p-6 [&_[data-component='select-branch-title']]:!text-[1.72rem] md:[&_[data-component='select-branch-title']]:!text-[1.5rem] [&_[data-component='select-branch-subtitle']]:!max-w-[30ch] [&_[data-component='select-branch-subtitle']]:!text-[0.82rem] md:[&_[data-component='select-branch-subtitle']]:!text-[0.76rem]"
@@ -253,7 +253,7 @@ export default function SelectBranchPage() {
             title="지점 선택"
             subtitle="지점을 선택해 주세요."
         >
-            <div data-component="select-branch-list" className="flex w-full flex-1 flex-col gap-3">
+            <div data-component="desktop_select-branch_list" className="flex w-full flex-1 flex-col gap-3">
                 {paginatedBranches.map((org) => (
                     <Card
                         key={org.id}
@@ -263,14 +263,14 @@ export default function SelectBranchPage() {
                         onClick={() => !selecting && handleSelectBranch(org.id)}
                     >
                         <CardContent className="p-4">
-                            <div data-component="select-branch-card-row" className="flex items-center justify-between gap-4">
-                                <div data-component="select-branch-card-main" className="flex items-center gap-3">
+                            <div data-component="desktop_select-branch_list_card-row" className="flex items-center justify-between gap-4">
+                                <div data-component="desktop_select-branch_list_card-row_main" className="flex items-center gap-3">
                                     <Avatar className="h-11 w-11 rounded-[18px] bg-[linear-gradient(180deg,hsl(214,100%,34%),hsl(214,92%,28%))] ring-1 ring-v3-primary/15">
                                         <AvatarFallback className="rounded-[18px] bg-transparent text-primary-foreground">
                                             <Building2 className="w-5 h-5" />
                                         </AvatarFallback>
                                     </Avatar>
-                                    <div data-component="select-branch-card-text" className="flex min-w-0 flex-col gap-1">
+                                    <div data-component="desktop_select-branch_list_card-row_main_text" className="flex min-w-0 flex-col gap-1">
                                         <h3 className="text-base font-semibold tracking-[-0.02em] text-v3-dark">
                                             {org.name}
                                         </h3>
@@ -282,7 +282,7 @@ export default function SelectBranchPage() {
                                     </div>
                                 </div>
                                 {selecting === org.id ? (
-                                    <div data-component="select-branch-card-spinner" className="flex h-8 w-8 items-center justify-center rounded-full bg-v3-primary/10">
+                                    <div data-component="desktop_select-branch_list_card-row_spinner" className="flex h-8 w-8 items-center justify-center rounded-full bg-v3-primary/10">
                                         <Spinner size="sm" className="text-v3-primary" />
                                     </div>
                                 ) : (
@@ -299,10 +299,10 @@ export default function SelectBranchPage() {
                 ))}
             </div>
             <FooterNavigation
-                dataComponent="select-branch-pagination"
-                prevDataComponent="select-branch-pagination-prev"
-                nextDataComponent="select-branch-pagination-next"
-                positionDataComponent="select-branch-pagination-position"
+                dataComponent="desktop_select-branch_pagination"
+                prevDataComponent="desktop_select-branch_pagination-prev"
+                nextDataComponent="desktop_select-branch_pagination-next"
+                positionDataComponent="desktop_select-branch_pagination-position"
                 positionLabel={`${currentPage} / ${totalPages}`}
                 prevVariant="outline"
                 nextVariant="outline"

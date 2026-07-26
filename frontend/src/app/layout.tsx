@@ -48,8 +48,8 @@ export default async function RootLayout({
   return (
     <html lang={locale}>
       <body className={`${Pretendard.variable} antialiased min-h-screen`} suppressHydrationWarning>
-        <div data-component="app-root">
-          <div data-component="app-providers">
+        <div data-component="desktop_shell_root">
+          <div data-component="desktop_shell_root_providers">
             <QueryProvider>
               <LocaleProvider locale={locale}>
                 {children}

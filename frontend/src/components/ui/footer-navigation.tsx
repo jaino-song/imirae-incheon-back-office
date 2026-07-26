@@ -50,10 +50,10 @@ export function FooterNavigation({
   nextClassName,
   positionClassName,
   stickyOnMobile = false,
-  dataComponent = "footer-navigation",
-  prevDataComponent = "footer-navigation-prev",
-  nextDataComponent = "footer-navigation-next",
-  positionDataComponent = "footer-navigation-position",
+  dataComponent = "desktop_v3_footer-navigation",
+  prevDataComponent = "desktop_v3_footer-navigation_prev",
+  nextDataComponent = "desktop_v3_footer-navigation_next",
+  positionDataComponent = "desktop_v3_footer-navigation_position",
 }: FooterNavigationProps) {
   const hasPositionLabel = positionLabel != null;
 

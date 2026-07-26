@@ -7,7 +7,7 @@ import { LoginAuthErrorModal } from "@/features/auth/login/shared/login-auth-err
 import { useAuthShellVariant } from "@/features/auth/shared/use-auth-shell-variant";
 
 function AuthLoginLoading() {
-  return <div data-component="auth-login-loading" className="min-h-screen" />;
+  return <div data-component="desktop_auth_login_loading" className="min-h-screen" />;
 }
 
 const LoginPageDesktop = dynamic(

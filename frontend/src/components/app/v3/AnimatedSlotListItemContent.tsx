@@ -53,7 +53,7 @@ export function AnimatedSlotListItemContent({
 }: AnimatedSlotListItemContentProps) {
   // TODO(data-component): Remove the legacy fallback after all callers migrate.
   const dataComponent =
-    canonicalDataComponent ?? legacyDataComponent ?? "animated-slot-list-item-content";
+    canonicalDataComponent ?? legacyDataComponent ?? "desktop_v3_animated-slot-list_item-content";
   const sub = (suffix: string) =>
     canonicalDataComponent
       ? `${dataComponent}_${suffix}`

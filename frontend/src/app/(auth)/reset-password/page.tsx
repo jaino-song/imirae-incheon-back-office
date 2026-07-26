@@ -25,5 +25,5 @@ function ResetPasswordContent() {
 }
 
 function ResetPasswordLoading() {
-  return <div data-component="auth-reset-password-loading" className="min-h-screen" />;
+  return <div data-component="desktop_auth_reset-password_loading" className="min-h-screen" />;
 }

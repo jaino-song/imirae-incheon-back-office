@@ -473,6 +473,7 @@ export function ClientNewForm() {
                 label={t(locale, "clients.form.primary-employee")}
               >
                 <EmployeeAutocomplete
+                    data-component="desktop_clients-new_service_employee-grid_primary-employee-field_autocomplete"
                   value={store.primaryEmployeeId}
                   onChange={(id) => setField("primaryEmployeeId", id)}
                   label=""
@@ -489,6 +490,7 @@ export function ClientNewForm() {
                 label={t(locale, "clients.form.secondary-employee")}
               >
                 <EmployeeAutocomplete
+                    data-component="desktop_clients-new_service_employee-grid_secondary-employee-field_autocomplete"
                   value={store.secondaryEmployeeId}
                   onChange={(id) => setField("secondaryEmployeeId", id)}
                   label=""

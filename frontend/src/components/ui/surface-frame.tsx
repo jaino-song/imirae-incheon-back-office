@@ -22,11 +22,11 @@ export function SurfaceFrame({
   "data-component": dataComponent,
   dataComponents,
 }: SurfaceFrameProps) {
-  const componentName = dataComponent ?? "surface-frame";
+  const componentName = dataComponent ?? "desktop_v3_surface-frame";
   const componentSlots = {
-    container: dataComponents?.container ?? `${componentName}-container`,
-    glow: dataComponents?.glow ?? `${componentName}-glow`,
-    inner: dataComponents?.inner ?? `${componentName}-inner`,
+    container: dataComponents?.container ?? `${componentName}_container`,
+    glow: dataComponents?.glow ?? `${componentName}_glow`,
+    inner: dataComponents?.inner ?? `${componentName}_inner`,
   };
 
   return (

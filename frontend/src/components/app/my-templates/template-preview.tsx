@@ -32,7 +32,7 @@ export const TemplatePreview = ({ content, variables }: TemplatePreviewProps) =>
     };
 
     return (
-        <div data-component="my-templates-preview">
+        <div data-component="desktop_my-templates_preview">
             <AutoFillMsgCard
                 title="실시간 미리보기"
                 copyButtonText="복사"

@@ -5,8 +5,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const SOURCE_COMPONENT = "TogglePill";
-// TODO(data-component): Remove the legacy fallback after all callers migrate.
-const LEGACY_DATA_COMPONENT = "toggle-pill";
+const DEFAULT_DATA_COMPONENT = "desktop_v3_toggle-pill";
 
 export interface TogglePillProps extends React.HTMLAttributes<HTMLDivElement> {
   value: boolean;
@@ -32,7 +31,7 @@ function TogglePill({
   leftButtonDataComponent,
   rightButtonDataComponent,
   className,
-  "data-component": dataComponent = LEGACY_DATA_COMPONENT,
+  "data-component": dataComponent = DEFAULT_DATA_COMPONENT,
   ...props
 }: TogglePillProps) {
   const leftButtonRef = React.useRef<HTMLButtonElement>(null);

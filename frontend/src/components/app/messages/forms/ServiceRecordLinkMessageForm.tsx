@@ -237,6 +237,7 @@ ${resolvedServiceRecordUrl}`;
     <>
       <TemplateFieldGridItem dataComponent="desktop_messages_sections_service-feedback-link-employee-name-field">
         <EmployeeAutocomplete
+          data-component="desktop_messages_sections_service-feedback-link-employee-name-field_autocomplete"
           containerClassName={ALIGNED_AUTOCOMPLETE_CLASS_NAME}
           value={employeeId}
           onChange={handleEmployeeChange}
@@ -260,6 +261,7 @@ ${resolvedServiceRecordUrl}`;
       </TemplateFieldGridItem>
       <TemplateFieldGridItem dataComponent="desktop_messages_sections_service-feedback-link-client-name-field">
         <ClientAutocomplete
+          data-component="desktop_messages_sections_service-feedback-link-client-name-field_autocomplete"
           containerClassName={ALIGNED_AUTOCOMPLETE_CLASS_NAME}
           value={clientId}
           onChange={handleClientChange}

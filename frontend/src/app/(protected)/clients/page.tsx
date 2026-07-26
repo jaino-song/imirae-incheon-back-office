@@ -768,6 +768,7 @@ export default function ClientsPage() {
 
                 {shouldShowClientFormPanel ? (
                     <ClientFormPanel
+                        data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-panel_form-panel"
                         client={panelFormClient}
                         onClose={handleClientFormPanelClose}
                         onSuccess={handleClientFormPanelSuccess}
@@ -875,6 +876,7 @@ export default function ClientsPage() {
                 />
 
             <ClientFormDialog
+                data-component="desktop_clients_form-dialog"
                 open={formDialogOpen}
                 onClose={handleFormDialogClose}
                 client={editingClient ?? null}

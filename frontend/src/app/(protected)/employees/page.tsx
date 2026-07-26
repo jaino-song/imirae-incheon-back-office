@@ -226,7 +226,7 @@ export default function EmployeesPage() {
                             icon={Plus}
                             label="직원 추가"
                             onClick={handleAddNew}
-                            data-component="employees-header-add"
+                            data-component="desktop_employees_split-layout_list-panel_employees-header-add"
                             className="text-[calc(12px*var(--glint-ui-scale,1))]"
                         />
                     }
@@ -256,10 +256,10 @@ export default function EmployeesPage() {
                                 if (slotLoading) {
                                     return (
                                         <>
-                                            <div data-component="employees-list-item-avatar-skeleton" className="w-11 h-11 rounded-[14px] shrink-0 shadow-md bg-v3-dim-white flex items-center justify-center">
+                                            <div data-component="desktop_employees_split-layout_list-panel_employees-list-item-avatar-skeleton" className="w-11 h-11 rounded-[14px] shrink-0 shadow-md bg-v3-dim-white flex items-center justify-center">
                                                 <Skeleton className="w-5 h-5 rounded-md bg-white/70" />
                                             </div>
-                                            <div data-component="employees-list-item-info-skeleton" className="flex-1 min-w-0">
+                                            <div data-component="desktop_employees_split-layout_list-panel_employees-list-item-info-skeleton" className="flex-1 min-w-0">
                                                 <Skeleton className="h-4 w-24 mb-1.5 bg-v3-dim-white" />
                                                 <Skeleton className="h-3 w-40 bg-v3-dim-white" />
                                             </div>
@@ -272,7 +272,7 @@ export default function EmployeesPage() {
 
                                 return (
                                     <AnimatedSlotListItemContent
-                                        dataComponent="employees-list-item"
+                                        dataComponent="desktop_employees_split-layout_list-panel_employees-list-item"
                                         icon={UserCheck}
                                         iconContainerClassName={getEmployeeAvatarClassName(employee.openToNextWork)}
                                         title={employee.name}
@@ -300,7 +300,7 @@ export default function EmployeesPage() {
                                 subtitle="이름, 연락처, 등급과 근무 가능 지역을 입력합니다."
                                 avatar={
                                     <div
-                                        data-component="employees-create-avatar"
+                                        data-component="desktop_employees_split-layout_detail-panel_create_employees-create-avatar"
                                         className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"
                                     >
                                         <UserCheck className="h-5 w-5" />
@@ -334,7 +334,7 @@ export default function EmployeesPage() {
                 onOpenChange={(open) => {
                     if (!open) setDeleteTargetEmployeeId(null);
                 }}
-                dataComponent="employees-delete-approval"
+                dataComponent="desktop_employees_delete-approval"
                 title="직원을 삭제하시겠습니까?"
                 description="삭제한 직원 정보는 복구할 수 없습니다."
                 approvalLabel="삭제"
@@ -348,7 +348,7 @@ export default function EmployeesPage() {
                 onOpenChange={(open) => {
                     if (!open) setDeleteErrorMessage(null);
                 }}
-                dataComponent="employees-delete-error-notification"
+                dataComponent="desktop_employees_delete-error-notification"
                 title="직원을 삭제하지 못했습니다."
                 description={deleteErrorMessage ?? ""}
                 isDescriptionVisuallyHidden={false}
@@ -368,7 +368,7 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
     return (
         <DetailPanel data-component="desktop_employees_split-layout_detail-panel"
             avatar={
-                <div data-component="employees-detail-avatar" className={cn("w-12 h-12 rounded-[16px] flex items-center justify-center shadow-lg shrink-0", getEmployeeAvatarClassName(employee.openToNextWork))}>
+                <div data-component="desktop_employees_split-layout_detail-panel_employees-detail-avatar" className={cn("w-12 h-12 rounded-[16px] flex items-center justify-center shadow-lg shrink-0", getEmployeeAvatarClassName(employee.openToNextWork))}>
                     <UserCheck className="w-5 h-5 shrink-0 transition-colors" aria-hidden="true" />
                 </div>
             }
@@ -402,7 +402,7 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
                             수정
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                            data-component="employees-detail-menu-delete"
+                            data-component="desktop_employees_split-layout_detail-panel_employees-detail-menu-delete"
                             onClick={() => onDelete(employee.id)}
                             className="gap-2 text-destructive focus:text-destructive"
                         >
@@ -413,7 +413,7 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
                 </DropdownMenu>
             }
         >
-            <div data-component="employees-detail" className="space-y-5">
+            <div data-component="desktop_employees_split-layout_detail-panel_employees-detail" className="space-y-5">
                 <InfoCard data-component="desktop_employees_detail-panel_info-card" title="기본 정보">
                     <InfoRow label="이름" value={employee.name} />
                     <InfoRow label="연락처" value={formatPhoneNumber(employee.phone)} />
@@ -429,7 +429,7 @@ function EmployeeDetail({ employee, onEdit, onDelete }: EmployeeDetailProps) {
                     <InfoRow
                         label="근무 지역"
                         value={
-                            <div data-component="employees-detail-work-area-tags" className="flex flex-wrap gap-1.5">
+                            <div data-component="desktop_employees_detail-panel_info-card-2_employees-detail-work-area-tags" className="flex flex-wrap gap-1.5">
                                 {employee.workArea.map((area) => (
                                     <span
                                         key={area}

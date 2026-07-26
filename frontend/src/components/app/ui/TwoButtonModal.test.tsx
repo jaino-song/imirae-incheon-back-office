@@ -16,7 +16,7 @@ describe("TwoButtonModal", () => {
         approvalLabel="삭제"
         approvalVariant="destructive"
         onApprove={handleApprove}
-        dataComponent="employees-delete-approval"
+        dataComponent="desktop_employees_delete-approval"
       />,
     );
 
@@ -27,7 +27,7 @@ describe("TwoButtonModal", () => {
     const cancelButton = screen.getByRole("button", { name: "취소" });
     const approvalButton = screen.getByRole("button", { name: "삭제" });
 
-    expect(dialog).toHaveAttribute("data-component", "employees-delete-approval");
+    expect(dialog).toHaveAttribute("data-component", "desktop_employees_delete-approval");
     expect(dialog).toHaveClass("aspect-[5/3]", "sm:max-w-[300px]");
     expect(header).toHaveClass("gap-1");
     expect(header).not.toHaveClass("gap-2");

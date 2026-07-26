@@ -49,14 +49,14 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
   return (
     <AuthSurface
       variant={variant}
-      data-component="auth-verify-email"
+      data-component="desktop_auth_verify-email"
       dataComponents={{
-        container: "auth-verify-email",
-        card: "auth-verify-email-card",
-        header: "auth-verify-email-header",
-        title: "auth-verify-email-title",
-        subtitle: "auth-verify-email-subtitle",
-        content: "auth-verify-email-content",
+        container: "desktop_auth_verify-email",
+        card: "desktop_auth_verify-email_card",
+        header: "desktop_auth_verify-email_header",
+        title: "desktop_auth_verify-email_title",
+        subtitle: "desktop_auth_verify-email_subtitle",
+        content: "desktop_auth_verify-email_content",
       }}
       title={cardTitle}
       subtitle={cardSubtitle}
@@ -64,18 +64,18 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
       mobileWrapperClassName="px-4 py-6"
     >
       {status === "loading" ? (
-        <div data-component="auth-verify-email-loading" className="flex flex-col items-center gap-4 py-2 text-center">
+        <div data-component="desktop_auth_verify-email_loading" className="flex flex-col items-center gap-4 py-2 text-center">
           <Spinner size="lg" className="text-primary" />
           <p className="text-muted-foreground">이메일 인증 중...</p>
         </div>
       ) : status === "success" ? (
-        <div data-component="auth-verify-email-success" className="flex flex-col items-center gap-4 text-center">
-          <div data-component="auth-verify-email-success-icon" className="rounded-full bg-success/10 p-3">
+        <div data-component="desktop_auth_verify-email_success" className="flex flex-col items-center gap-4 text-center">
+          <div data-component="desktop_auth_verify-email_success_icon" className="rounded-full bg-success/10 p-3">
             <CheckCircle className="h-12 w-12 text-success" />
           </div>
           <p className="text-muted-foreground">{message}</p>
           <Button
-            data-component="auth-verify-email-login-btn"
+            data-component="desktop_auth_verify-email_success_login-btn"
             variant="positive"
             size="lg"
             className={actionButtonClassName}
@@ -86,11 +86,11 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
         </div>
       ) : (
         <div
-          data-component={status === "error" ? "auth-verify-email-error" : "auth-verify-email-no-token"}
+          data-component={status === "error" ? "desktop_auth_verify-email_error" : "desktop_auth_verify-email_no-token"}
           className="flex flex-col items-center gap-4 text-center"
         >
           <div
-            data-component={status === "error" ? "auth-verify-email-error-icon" : "auth-verify-email-no-token-icon"}
+            data-component={status === "error" ? "desktop_auth_verify-email_error-icon" : "desktop_auth_verify-email_no-token-icon"}
             className={cn(
               "rounded-full p-3",
               status === "error" ? "bg-destructive/10" : "bg-warning/10",
@@ -110,7 +110,7 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
                   : "인증 이메일을 받지 못하셨나요? 아래에서 재발송을 요청할 수 있습니다."}
               </Alert>
 
-              <form onSubmit={handleResendSubmit} data-component="auth-verify-email-resend-form" className="flex w-full flex-col gap-3">
+              <form onSubmit={handleResendSubmit} data-component="desktop_auth_verify-email_resend-form" className="flex w-full flex-col gap-3">
                 {variant === "mobile" ? (
                   <MobileInputField
                     title="이메일 주소"
@@ -126,7 +126,7 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
                     renderInput={(resolvedInputProps) => (
                       <MobileInput
                         {...resolvedInputProps}
-                        data-component="auth-verify-email-resend-field"
+                        data-component="desktop_auth_verify-email_resend-form_field"
                       />
                     )}
                   />
@@ -137,7 +137,7 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
                     value={resendEmail}
                     onChange={handleResendChange}
                     disabled={resendLoading}
-                    data-component="auth-verify-email-resend-field"
+                    data-component="desktop_auth_verify-email_resend-form_field"
                   />
                 )}
 
@@ -148,7 +148,7 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
                 ) : null}
 
                 <Button
-                  data-component="auth-verify-email-resend-btn"
+                  data-component="desktop_auth_verify-email_resend-form_btn"
                   type="submit"
                   variant="positive-outline"
                   size="lg"
@@ -162,7 +162,7 @@ export function VerifyEmailPageContent({ variant }: VerifyEmailPageContentProps)
           ) : null}
 
           <Button
-            data-component="auth-verify-email-login-btn"
+            data-component="desktop_auth_verify-email_login-btn"
             variant="link"
             onClick={goToLogin}
           >

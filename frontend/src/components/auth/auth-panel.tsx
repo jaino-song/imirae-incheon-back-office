@@ -39,15 +39,15 @@ export function AuthPanel({
   dataComponents,
 }: AuthPanelProps) {
   const hasHeaderActions = Boolean(headerActionsLeft || headerActionsRight);
-  const componentName = dataComponent ?? "auth-panel";
+  const componentName = dataComponent ?? "desktop_auth_panel";
   const componentSlots = {
-    container: dataComponents?.container ?? `${componentName}-container`,
-    card: dataComponents?.card ?? `${componentName}-card`,
-    headerActions: dataComponents?.headerActions ?? `${componentName}-header-actions`,
-    header: dataComponents?.header ?? `${componentName}-header`,
-    title: dataComponents?.title ?? `${componentName}-title`,
-    subtitle: dataComponents?.subtitle ?? `${componentName}-subtitle`,
-    content: dataComponents?.content ?? `${componentName}-content`,
+    container: dataComponents?.container ?? `${componentName}_container`,
+    card: dataComponents?.card ?? `${componentName}_card`,
+    headerActions: dataComponents?.headerActions ?? `${componentName}_header-actions`,
+    header: dataComponents?.header ?? `${componentName}_header`,
+    title: dataComponents?.title ?? `${componentName}_title`,
+    subtitle: dataComponents?.subtitle ?? `${componentName}_subtitle`,
+    content: dataComponents?.content ?? `${componentName}_content`,
   };
 
   return (
@@ -55,8 +55,8 @@ export function AuthPanel({
       data-component={componentName}
       dataComponents={{
         container: componentSlots.container,
-        glow: `${componentName}-glow`,
-        inner: `${componentName}-inner`,
+        glow: `${componentName}_glow`,
+        inner: `${componentName}_inner`,
       }}
       className={containerClassName}
     >

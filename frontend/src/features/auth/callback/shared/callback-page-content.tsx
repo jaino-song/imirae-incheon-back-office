@@ -15,14 +15,14 @@ export function CallbackPageContent({ variant }: CallbackPageContentProps) {
   return (
     <AuthSurface
       variant={variant}
-      data-component="auth-callback"
+      data-component="desktop_auth_callback"
       dataComponents={{
-        container: "auth-callback",
-        card: "auth-callback-card",
-        header: "auth-callback-header",
-        title: "auth-callback-title",
-        subtitle: "auth-callback-subtitle",
-        content: "auth-callback-content",
+        container: "desktop_auth_callback",
+        card: "desktop_auth_callback_card",
+        header: "desktop_auth_callback_header",
+        title: "desktop_auth_callback_title",
+        subtitle: "desktop_auth_callback_subtitle",
+        content: "desktop_auth_callback_content",
       }}
       title={status === "error" ? "로그인 실패" : "로그인 중..."}
       subtitle={status === "error" ? undefined : "인증 정보를 확인하고 있습니다."}
@@ -33,7 +33,7 @@ export function CallbackPageContent({ variant }: CallbackPageContentProps) {
         <>
           <p className="text-destructive">{error}</p>
           <Button
-            data-component="auth-callback-login-btn"
+            data-component="desktop_auth_callback_login-btn"
             variant="link"
             onClick={goToLogin}
           >

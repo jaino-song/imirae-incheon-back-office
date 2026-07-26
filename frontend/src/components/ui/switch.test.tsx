@@ -7,15 +7,15 @@ describe("Switch", () => {
     render(
       <Switch
         aria-label="근무 가능 여부"
-        data-component="test-switch"
-        thumbDataComponent="test-switch-thumb"
+        data-component="desktop_v3_tests_switch"
+        thumbDataComponent="desktop_v3_tests_switch_thumb"
       />,
     );
 
     const switchControl = screen.getByRole("switch", { name: "근무 가능 여부" });
-    const thumb = document.querySelector('[data-component="test-switch-thumb"]');
+    const thumb = document.querySelector('[data-component="desktop_v3_tests_switch_thumb"]');
 
-    expect(switchControl).toHaveAttribute("data-component", "test-switch");
+    expect(switchControl).toHaveAttribute("data-component", "desktop_v3_tests_switch");
     expect(switchControl).toHaveClass(
       "h-[calc(23.4px*var(--glint-ui-scale,1))]",
       "w-[calc(41.4px*var(--glint-ui-scale,1))]",

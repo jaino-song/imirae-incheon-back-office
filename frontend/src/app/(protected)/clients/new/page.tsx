@@ -531,6 +531,7 @@ export default function NewClientPage() {
             <div data-component="desktop_clients-new_service_step_employee-grid_primary-employee-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.primary-employee")}</label>
               <EmployeeAutocomplete
+                  data-component="desktop_clients-new_service_step_employee-grid_primary-employee-field_autocomplete"
                 value={store.primaryEmployeeId}
                 onChange={(id) => setField("primaryEmployeeId", id)}
                 label=""
@@ -545,6 +546,7 @@ export default function NewClientPage() {
             <div data-component="desktop_clients-new_service_step_employee-grid_secondary-employee-field" className="flex flex-col gap-1.5">
               <label className={LABEL_CLS}>{t(locale, "clients.form.secondary-employee")}</label>
               <EmployeeAutocomplete
+                  data-component="desktop_clients-new_service_step_employee-grid_secondary-employee-field_autocomplete"
                 value={store.secondaryEmployeeId}
                 onChange={(id) => setField("secondaryEmployeeId", id)}
                 label=""

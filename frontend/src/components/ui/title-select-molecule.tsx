@@ -60,7 +60,7 @@ export function TitleSelectMolecule({
   labelRowClassName,
   contentClassName,
   itemClassName,
-  dataComponent = "title-select-molecule",
+  dataComponent = "desktop_v3_title-select-molecule",
   triggerDataComponent,
   contentDataComponent,
   optionDataComponent,

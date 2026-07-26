@@ -15,7 +15,7 @@ export function AdminGuard({ children, fallback }: AdminGuardProps) {
   
   if (isLoading) {
     return (
-      <div data-component="admin-guard-loading" className="min-h-screen bg-background p-6">
+      <div data-component="desktop_shell_admin-guard_loading" className="min-h-screen bg-background p-6">
         <div className="mx-auto max-w-4xl space-y-6">
           <Skeleton className="h-8 w-40 bg-v3-dim-white" />
           <div className="rounded-[24px] border border-v3-border bg-white p-6 shadow-v3">

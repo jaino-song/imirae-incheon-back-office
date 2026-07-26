@@ -40,9 +40,9 @@ export function DetailTabPanels({
 }: DetailTabPanelsProps) {
   // TODO(data-component): Remove legacy fallbacks after all callers migrate.
   const dataComponent =
-    canonicalDataComponent ?? legacyDataComponent ?? "detail-tab-panels";
+    canonicalDataComponent ?? legacyDataComponent ?? "desktop_v3_detail-tab-panels";
   const panelDataComponent =
-    canonicalPanelDataComponent ?? legacyPanelDataComponent ?? "detail-tab-panel";
+    canonicalPanelDataComponent ?? legacyPanelDataComponent ?? "desktop_v3_detail-tab-panels_panel";
   const trackDataComponent = canonicalDataComponent
     ? `${dataComponent}_track`
     : `${dataComponent}-track`;

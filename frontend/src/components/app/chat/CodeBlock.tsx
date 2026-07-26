@@ -27,7 +27,7 @@ export function CodeBlock({ children, language = "text" }: CodeBlockProps) {
     };
 
     return (
-        <div data-component="chat-code-block" className="relative my-4">
+        <div data-component="desktop_chat_page_code-block" className="relative my-4">
             <div className="flex justify-between items-center bg-zinc-800 px-4 py-1 rounded-t-lg">
                 <span className="text-xs text-zinc-400">
                     {language}

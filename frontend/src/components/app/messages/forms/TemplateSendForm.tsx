@@ -457,6 +457,7 @@ export function TemplateSendForm({
 
   const phoneAutocompleteField = (
     <ClientAutocomplete
+      data-component="desktop_messages_sections_template-send-form_phone-autocomplete"
       value={selectedClientId}
       onChange={handleRecipientChange}
       label="휴대 전화번호"
@@ -719,6 +720,7 @@ export function TemplateSendForm({
             <>
               <TemplateFieldGridItem dataComponent="desktop_messages_sections_template-send-form-recipient-field">
                 <ClientAutocomplete
+                  data-component="desktop_messages_sections_template-send-form-recipient-field_autocomplete"
                   value={selectedClientId}
                   onChange={handleRecipientChange}
                   label="산모님 성함"

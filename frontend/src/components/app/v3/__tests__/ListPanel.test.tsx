@@ -20,9 +20,9 @@ describe("ListPanel", () => {
     );
 
     expect(container.querySelector('[data-slot="list-panel-overlay"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="list-panel-empty"]')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-component="list-empty-state-copy"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="list-panel-empty-copy"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_list-panel_empty"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_list-empty-state_copy"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_list-panel_empty-copy"]')).not.toBeInTheDocument();
     expect(screen.getByText("항목이 없습니다.")).toBeInTheDocument();
   });
 
@@ -37,7 +37,7 @@ describe("ListPanel", () => {
     );
 
     expect(container.querySelector('[data-slot="list-panel-overlay"]')).toBeInTheDocument();
-    expect(container.querySelector('[data-component="list-panel-empty-state"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-component="desktop_v3_tests_split-layout_list-panel-2_empty-state"]')).not.toBeInTheDocument();
     expect(container.querySelector('[data-slot="list-panel-content"]')).toBeInTheDocument();
     expect(screen.getByTestId("list-panel-content-child")).toBeInTheDocument();
     expect(screen.getByText("항목이 없습니다.")).toBeInTheDocument();
@@ -103,12 +103,12 @@ describe("ListPanel", () => {
       "flex-1",
       "overflow-x-auto",
     );
-    expect(container.querySelector('[data-component="expandable-search"]')).toHaveClass(
+    expect(container.querySelector('[data-component="desktop_v3_expandable-search"]')).toHaveClass(
       "h-[calc(40px*var(--glint-ui-scale,1))]",
       "w-[calc(32px*var(--glint-ui-scale,1))]",
       "overflow-visible",
     );
-    expect(container.querySelector('[data-component="expandable-search-overlay"]')).toHaveClass(
+    expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).toHaveClass(
       "absolute",
       "right-0",
       "h-[calc(40px*var(--glint-ui-scale,1))]",
@@ -121,11 +121,11 @@ describe("ListPanel", () => {
       "placeholder",
       "검색…",
     );
-    expect(container.querySelector('[data-component="expandable-search-overlay"]')).toHaveClass(
+    expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).toHaveClass(
       "bg-[linear-gradient(to_right,rgb(255_255_255_/_0)_0%,rgb(255_255_255)_10%,rgb(255_255_255)_100%)]",
     );
-    expect(container.querySelector('[data-component="expandable-search-overlay"]')).not.toHaveClass("shadow-v3");
-    expect(container.querySelector('[data-component="expandable-search-overlay"]')).toHaveStyle({
+    expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).not.toHaveClass("shadow-v3");
+    expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).toHaveStyle({
       width: "7rem",
     });
     expect(screen.getByRole("button", { name: "검색 닫기" })).toHaveClass(

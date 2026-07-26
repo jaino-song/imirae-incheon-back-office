@@ -21,7 +21,7 @@ export const ConditionalHeader = () => {
   }
 
   return (
-    <div data-component="conditional-header">
+    <div data-component="desktop_chrome_conditional-header">
       <Header initialUser={initialUser} />
     </div>
   );

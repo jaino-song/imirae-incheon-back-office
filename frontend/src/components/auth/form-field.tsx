@@ -66,10 +66,10 @@ export const FormField = React.forwardRef<HTMLInputElement, FormFieldProps>(
         containerClassName="gap-2"
         inputClassName={cn(AUTH_FIELD_CONTROL_CLASS_NAME, className)}
         labelTrailing={trailingContent}
-        dataComponent="form-field"
+        dataComponent="desktop_auth_form-field"
         inputDataComponent={dataComponent}
-        labelRowDataComponent="form-field-label-row"
-        labelTrailingDataComponent={shouldShowInlineError || trailingContent ? "form-field-label-trailing" : undefined}
+        labelRowDataComponent="desktop_auth_form-field_label-row"
+        labelTrailingDataComponent={shouldShowInlineError || trailingContent ? "desktop_auth_form-field_label-row_trailing" : undefined}
         aria-describedby={error ? errorId : undefined}
         aria-invalid={!!error}
       />

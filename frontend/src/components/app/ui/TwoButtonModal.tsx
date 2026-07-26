@@ -17,8 +17,7 @@ type ApprovalModalSize = "compact" | "detail";
 type ApprovalButtonVariant = "positive" | "destructive";
 
 const SOURCE_COMPONENT = "TwoButtonModal";
-// TODO(data-component): Remove the legacy fallback after all callers migrate.
-const LEGACY_DATA_COMPONENT = "two-button-modal";
+const DEFAULT_DATA_COMPONENT = "desktop_v3_two-button-modal";
 
 export interface TwoButtonModalProps {
   open: boolean;
@@ -75,7 +74,7 @@ export function TwoButtonModal({
 }: TwoButtonModalProps) {
   const canonicalDataComponentBase = canonicalDataComponent || undefined;
   const dataComponent =
-    canonicalDataComponentBase ?? legacyDataComponent ?? LEGACY_DATA_COMPONENT;
+    canonicalDataComponentBase ?? legacyDataComponent ?? DEFAULT_DATA_COMPONENT;
   const sub = (suffix: string) =>
     canonicalDataComponentBase
       ? `${canonicalDataComponentBase}_${suffix}`

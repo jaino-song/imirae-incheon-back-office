@@ -65,8 +65,7 @@ function StatusBadge({
 }: StatusBadgeProps) {
   return (
     <span
-      // TODO(data-component): Remove the legacy fallback after all callers migrate.
-      data-component="status-badge"
+      data-slot="status-badge"
       {...props}
       data-source-component={SOURCE_COMPONENT}
       className={cn(statusBadgeVariants({ variant, size }), className)}

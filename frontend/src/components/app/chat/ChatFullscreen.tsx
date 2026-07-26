@@ -56,7 +56,7 @@ function UserMessage({ message }: { message: ChatMessage }) {
     return (
         <div className="flex justify-end mb-4">
             <div
-                data-component="chat-fullscreen-message-user"
+                data-component="desktop_chat_page_fullscreen-message-user"
                 className="max-w-[80%] px-4 py-3 rounded-lg bg-primary text-primary-foreground"
             >
                 <p className="whitespace-pre-wrap break-words">
@@ -196,7 +196,7 @@ export function ChatFullscreen({ open, onClose }: ChatFullscreenProps) {
 
     return (
         <div
-            data-component="chat-fullscreen"
+            data-component="desktop_chat_page_fullscreen"
             className={cn(
                 "fixed inset-0 bg-background z-[1300]",
                 "transition-transform duration-300 ease-out",
@@ -211,7 +211,7 @@ export function ChatFullscreen({ open, onClose }: ChatFullscreenProps) {
                 }}
             >
                 {/* Header */}
-                <div data-component="chat-fullscreen-header" className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
+                <div data-component="desktop_chat_page_fullscreen_header" className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
                     <div className="flex items-center gap-2">
                         <Sparkles className="w-5 h-5 text-primary" />
                         <h2 className="text-lg font-semibold">
@@ -244,7 +244,7 @@ export function ChatFullscreen({ open, onClose }: ChatFullscreenProps) {
 
                 {/* Messages area */}
                 <div
-                    data-component="chat-fullscreen-messages"
+                    data-component="desktop_chat_page_fullscreen_messages"
                     ref={scrollContainerRef}
                     className="flex-1 overflow-auto px-4 sm:px-8 py-6 select-text"
                 >
@@ -307,7 +307,7 @@ export function ChatFullscreen({ open, onClose }: ChatFullscreenProps) {
                 </div>
 
                 {/* Input area */}
-                <div data-component="chat-fullscreen-input-area" className="px-4 sm:px-8 py-4 border-t border-border bg-card">
+                <div data-component="desktop_chat_page_fullscreen_input-area" className="px-4 sm:px-8 py-4 border-t border-border bg-card">
                     <div className="mb-3 flex flex-wrap gap-2">
                         {quickActions.map((label) => (
                             <Button

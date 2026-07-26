@@ -43,7 +43,7 @@ export const TitleTextareaMolecule = React.forwardRef<
       labelRowClassName,
       labelClassName,
       className,
-      dataComponent = "title-textarea-molecule",
+      dataComponent = "desktop_v3_title-textarea-molecule",
       textareaDataComponent,
       ...textareaProps
     },

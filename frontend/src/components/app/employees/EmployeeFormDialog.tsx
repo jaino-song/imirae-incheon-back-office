@@ -508,7 +508,7 @@ function EmployeeFormContent({
                 size="sm"
                 onClick={handleClose}
                 disabled={isLoading}
-                data-component="employees-form-dialog-cancel"
+                data-component="desktop_employees_form-dialog_cancel"
                 className="w-full sm:flex-1"
             >
                 {t(locale, "common.cancel")}
@@ -518,7 +518,7 @@ function EmployeeFormContent({
                 size="sm"
                 onClick={handleSubmit}
                 disabled={isLoading || !isFormValid}
-                data-component="employees-form-dialog-submit"
+                data-component="desktop_employees_form-dialog_submit"
                 className="w-full sm:flex-1"
             >
                 {isLoading ? (
@@ -542,7 +542,7 @@ function EmployeeFormContent({
                     size="sm"
                     onClick={handleClose}
                     disabled={isLoading}
-                    data-component="employees-form-panel-cancel"
+                    data-component="desktop_employees_form-panel_cancel"
                     className="min-w-[calc(132px*var(--glint-ui-scale,1))]"
                 >
                     {t(locale, "common.cancel")}
@@ -553,7 +553,7 @@ function EmployeeFormContent({
                     size="sm"
                     onClick={handleSubmit}
                     disabled={isLoading || !isFormValid}
-                    data-component="employees-form-panel-submit"
+                    data-component="desktop_employees_form-panel_submit"
                     className="min-w-[calc(132px*var(--glint-ui-scale,1))]"
                 >
                     {isLoading ? (
@@ -571,7 +571,7 @@ function EmployeeFormContent({
     const feedback = error ? (
         <Alert
             variant="destructive"
-            data-component="employees-form-dialog-error"
+            data-component="desktop_employees_form-dialog_error"
             className="rounded-[18px] border-none bg-v3-burgundy-light px-4 py-3 text-v3-burgundy [&>svg]:text-v3-burgundy"
         >
             <AlertDescription>{error}</AlertDescription>
@@ -581,16 +581,16 @@ function EmployeeFormContent({
     const formSections = (
         <>
             <FormSection
-                data-component="employees-form-dialog-section-basic"
+                data-component="desktop_employees_form-dialog_section-basic"
                 title={t(locale, "employees.form.section-basic")}
                 description="제공인력의 기본 정보를 입력해 주세요."
-                headerDataComponent="employees-form-dialog-section-basic-head"
-                titleDataComponent="employees-form-dialog-section-basic-title"
-                descriptionDataComponent="employees-form-dialog-section-basic-caption"
+                headerDataComponent="desktop_employees_form-dialog_section-basic-head"
+                titleDataComponent="desktop_employees_form-dialog_section-basic-title"
+                descriptionDataComponent="desktop_employees_form-dialog_section-basic-caption"
             >
-                <FormGrid data-component="employees-form-dialog-grid">
+                <FormGrid data-component="desktop_employees_form-dialog_section-basic_grid">
                     <FormField
-                        data-component="employees-form-dialog-field-name"
+                        data-component="desktop_employees_form-dialog_section-basic_grid_field-name"
                         htmlFor="name"
                         label={t(locale, "employees.form.name")}
                         required
@@ -604,14 +604,14 @@ function EmployeeFormContent({
                     </FormField>
 
                     <FormField
-                        data-component="employees-form-dialog-field-phone"
+                        data-component="desktop_employees_form-dialog_section-basic_grid_field-phone"
                         htmlFor="phone"
                         label={t(locale, "employees.form.phone")}
                         required
                         labelAccessory={phoneInlineMessage ? (
                             <FormHelperText
                                 id="employees-form-dialog-phone-helper"
-                                data-component="employees-form-dialog-phone-helper"
+                                data-component="desktop_employees_form-dialog_section-basic_grid_field-phone_helper"
                                 tone={hasPhoneStatusError ? "error" : "default"}
                                 className={cn("m-0 text-right", isPhoneCheckReady && "text-v3-green")}
                                 aria-live="polite"
@@ -640,7 +640,7 @@ function EmployeeFormContent({
                             <FormHelperText
                                 id="employees-form-dialog-field-phone-error"
                                 tone="error"
-                                data-component="employees-form-dialog-field-phone-error"
+                                data-component="desktop_employees_form-dialog_section-basic_grid_field-phone_error"
                             >
                                 {t(locale, "employees.form.phone-required")}
                             </FormHelperText>
@@ -648,7 +648,7 @@ function EmployeeFormContent({
                     </FormField>
 
                     <FormField
-                        data-component="employees-form-dialog-field-birthday"
+                        data-component="desktop_employees_form-dialog_section-basic_grid_field-birthday"
                         htmlFor="birthday"
                         label="생년월일 (YYMMDD)"
                     >
@@ -665,16 +665,16 @@ function EmployeeFormContent({
             </FormSection>
 
             <FormSection
-                data-component="employees-form-dialog-section-work"
+                data-component="desktop_employees_form-dialog_section-work"
                 title={t(locale, "employees.form.section-work")}
                 description="필요한 범위만 선택하고 나중에 수정할 수 있습니다."
-                headerDataComponent="employees-form-dialog-section-work-head"
-                titleDataComponent="employees-form-dialog-section-work-title"
-                descriptionDataComponent="employees-form-dialog-section-work-caption"
+                headerDataComponent="desktop_employees_form-dialog_section-work-head"
+                titleDataComponent="desktop_employees_form-dialog_section-work-title"
+                descriptionDataComponent="desktop_employees_form-dialog_section-work-caption"
             >
-                <FormGrid data-component="employees-form-dialog-work-grid">
+                <FormGrid data-component="desktop_employees_form-dialog_section-work_grid">
                     <FormField
-                        data-component="employees-form-dialog-field-grade"
+                        data-component="desktop_employees_form-dialog_section-work_grid_field-grade"
                         htmlFor="employee-form-grade"
                         label={t(locale, "employees.form.grade")}
                         required
@@ -684,14 +684,14 @@ function EmployeeFormContent({
                             value={formData.grade}
                             options={GRADE_OPTIONS}
                             onValueChange={(value) => handleChange("grade", value)}
-                            wrapDataComponent="employees-form-dialog-field-grade-select-wrap"
-                            selectDataComponent="employees-form-dialog-field-grade-select"
-                            iconDataComponent="employees-form-dialog-field-grade-select-icon"
+                            wrapDataComponent="desktop_employees_form-dialog_section-work_grid_field-grade_select-wrap"
+                            selectDataComponent="desktop_employees_form-dialog_section-work_grid_field-grade_select"
+                            iconDataComponent="desktop_employees_form-dialog_section-work_grid_field-grade_select-icon"
                         />
                     </FormField>
 
                     <FormField
-                        data-component="employees-form-dialog-field-work-area"
+                        data-component="desktop_employees_form-dialog_section-work_grid_field-work-area"
                         htmlFor="employee-form-work-area"
                         label={t(locale, "employees.form.work-area")}
                         required
@@ -699,7 +699,7 @@ function EmployeeFormContent({
                             <FormHelperText
                                 id="employee-form-work-area-error"
                                 tone="error"
-                                data-component="employees-form-dialog-field-work-area-error"
+                                data-component="desktop_employees_form-dialog_section-work_grid_field-work-area_error"
                                 className="m-0 text-right"
                             >
                                 {t(locale, "employees.form.work-area-required")}
@@ -718,19 +718,19 @@ function EmployeeFormContent({
                     </FormField>
                 </FormGrid>
 
-                <FormField data-component="employees-form-dialog-field-open-status" label="다음 배정 가능 여부">
+                <FormField data-component="desktop_employees_form-dialog_section-work_field-open-status" label="다음 배정 가능 여부">
                     <FormSwitchRow
-                        data-component="employees-form-dialog-field-open-status-control"
+                        data-component="desktop_employees_form-dialog_section-work_field-open-status_control"
                         title="다음 근무 배정 가능"
                         description="고객 생성 완료 후 배정 후보에 표시합니다."
                         checked={formData.openToNextWork}
                         onToggle={() => handleChange("openToNextWork", !formData.openToNextWork)}
                         buttonAriaLabel="다음 근무 배정 가능"
-                        copyDataComponent="employees-form-dialog-field-open-status-copy"
-                        titleDataComponent="employees-form-dialog-field-open-status-title"
-                        descriptionDataComponent="employees-form-dialog-field-open-status-description"
-                        buttonDataComponent="employees-form-dialog-field-open-status-switch"
-                        thumbDataComponent="employees-form-dialog-field-open-status-switch-thumb"
+                        copyDataComponent="desktop_employees_form-dialog_field-open-status-copy"
+                        titleDataComponent="desktop_employees_form-dialog_field-open-status-title"
+                        descriptionDataComponent="desktop_employees_form-dialog_field-open-status-description"
+                        buttonDataComponent="desktop_employees_form-dialog_field-open-status-switch"
+                        thumbDataComponent="desktop_employees_form-dialog_field-open-status-switch-thumb"
                     />
                 </FormField>
 
@@ -739,7 +739,7 @@ function EmployeeFormContent({
     );
 
     const dialogContent = (
-        <div data-component="employees-form-content" className="space-y-5">
+        <div data-component="desktop_employees_form-dialog_content" className="space-y-5">
             {feedback}
             {formSections}
         </div>
@@ -748,7 +748,7 @@ function EmployeeFormContent({
     const panelFields = (
         <>
             <FormField
-                data-component="employees-form-panel-name-field"
+                data-component="desktop_employees_form-panel_name-field"
                 htmlFor="employee-panel-name"
                 label={
                     <>
@@ -762,12 +762,12 @@ function EmployeeFormContent({
                     value={formData.name}
                     onChange={(event) => handleChange("name", event.target.value)}
                     placeholder="홍길동"
-                    data-component="employees-form-panel-name-input"
+                    data-component="desktop_employees_form-panel_name-field_input"
                 />
             </FormField>
 
             <FormField
-                data-component="employees-form-panel-phone-field"
+                data-component="desktop_employees_form-panel_phone-field"
                 htmlFor="employee-panel-phone"
                 label={
                     <>
@@ -778,7 +778,7 @@ function EmployeeFormContent({
                 labelAccessory={phoneInlineMessage ? (
                     <FormHelperText
                         id="employees-form-panel-phone-helper"
-                        data-component="employees-form-panel-phone-helper"
+                        data-component="desktop_employees_form-panel_phone-field_helper"
                         tone={hasPhoneStatusError ? "error" : "default"}
                         className={cn("m-0 text-right", isPhoneCheckReady && "text-v3-green")}
                         aria-live="polite"
@@ -802,13 +802,13 @@ function EmployeeFormContent({
                         : touched.phone && !isPhoneFormatValid
                             ? "employees-form-panel-phone-error"
                             : undefined}
-                    data-component="employees-form-panel-phone-input"
+                    data-component="desktop_employees_form-panel_phone-field_input"
                 />
                 {touched.phone && !isPhoneFormatValid && (
                     <FormHelperText
                         id="employees-form-panel-phone-error"
                         tone="error"
-                        data-component="employees-form-panel-phone-error"
+                        data-component="desktop_employees_form-panel_phone-field_error"
                     >
                         {t(locale, "employees.form.phone-required")}
                     </FormHelperText>
@@ -816,7 +816,7 @@ function EmployeeFormContent({
             </FormField>
 
             <FormField
-                data-component="employees-form-panel-birthday-field"
+                data-component="desktop_employees_form-panel_birthday-field"
                 htmlFor="employee-panel-birthday"
                 label="생년월일 (YYMMDD)"
             >
@@ -826,12 +826,12 @@ function EmployeeFormContent({
                     onChange={(event) => handleChange("birthday", event.target.value)}
                     placeholder="YYMMDD"
                     maxLength={6}
-                    data-component="employees-form-panel-birthday-input"
+                    data-component="desktop_employees_form-panel_birthday-field_input"
                 />
             </FormField>
 
             <FormField
-                data-component="employees-form-panel-grade-field"
+                data-component="desktop_employees_form-panel_grade-field"
                 htmlFor="employee-panel-grade"
                 label={
                     <>
@@ -845,14 +845,14 @@ function EmployeeFormContent({
                     value={formData.grade}
                     options={GRADE_OPTIONS}
                     onValueChange={(value) => handleChange("grade", value)}
-                    wrapDataComponent="employees-form-panel-grade-select-wrap"
-                    selectDataComponent="employees-form-panel-grade-select"
-                    iconDataComponent="employees-form-panel-grade-select-icon"
+                    wrapDataComponent="desktop_employees_form-panel_grade-field_select-wrap"
+                    selectDataComponent="desktop_employees_form-panel_grade-field_select"
+                    iconDataComponent="desktop_employees_form-panel_grade-field_select-icon"
                 />
             </FormField>
 
             <FormField
-                data-component="employees-form-panel-work-area-field"
+                data-component="desktop_employees_form-panel_work-area-field"
                 htmlFor="employee-panel-work-area"
                 label={
                     <>
@@ -864,7 +864,7 @@ function EmployeeFormContent({
                     <FormHelperText
                         id="employee-panel-work-area-error"
                         tone="error"
-                        data-component="employees-form-panel-work-area-error"
+                        data-component="desktop_employees_form-panel_work-area-field_error"
                         className="m-0 text-right"
                     >
                         {t(locale, "employees.form.work-area-required")}
@@ -883,22 +883,22 @@ function EmployeeFormContent({
             </FormField>
 
             <FormSwitchRow
-                data-component="employees-form-panel-open-status-field"
+                data-component="desktop_employees_form-panel_open-status-field"
                 className="self-end h-[calc(38px*var(--glint-ui-scale,1))] min-h-[calc(38px*var(--glint-ui-scale,1))] rounded-[13px] border-[1.35px] px-[calc(14px*var(--glint-ui-scale,1))] py-0"
                 title={t(locale, "employees.form.open-to-next-work")}
                 checked={formData.openToNextWork}
                 onToggle={() => handleChange("openToNextWork", !formData.openToNextWork)}
                 buttonAriaLabel={t(locale, "employees.form.open-to-next-work")}
-                buttonDataComponent="employees-form-panel-open-status-switch"
-                thumbDataComponent="employees-form-panel-open-status-switch-thumb"
+                buttonDataComponent="desktop_employees_form-panel_open-status-switch"
+                thumbDataComponent="desktop_employees_form-panel_open-status-switch-thumb"
             />
         </>
     );
 
     const panelContent = (
         <SteppedWizardPanelContent
-            dataComponent="employees-form-panel-content"
-            stepContentDataComponent="employees-form-panel-fields"
+            dataComponent="desktop_employees_form-panel_content"
+            stepContentDataComponent="desktop_employees_form-panel_fields"
             className={PANEL_CONTENT_CLASS_NAME}
             stepContentClassName={PANEL_FIELDS_CLASS_NAME}
             feedback={feedback}
@@ -913,11 +913,11 @@ function EmployeeFormContent({
         return renderLayout ? (
             <>{renderLayout({ content: panelContent, footer: panelFooter })}</>
         ) : (
-            <div data-component="employees-form-panel" className="flex h-full min-h-0 flex-col">
-                <div data-component="employees-form-panel-content-fallback" className="min-h-0 flex-1 overflow-y-auto">
+            <div data-component="desktop_employees_form-panel" className="flex h-full min-h-0 flex-col">
+                <div data-component="desktop_employees_form-panel_content-fallback" className="min-h-0 flex-1 overflow-y-auto">
                     {panelContent}
                 </div>
-                <footer data-component="detail-panel-footer" className={DETAIL_PANEL_FOOTER_CLASS_NAME}>
+                <footer data-component="desktop_employees_form-panel_footer" data-slot="detail-panel-footer" className={DETAIL_PANEL_FOOTER_CLASS_NAME}>
                     {panelFooter}
                 </footer>
             </div>
@@ -927,7 +927,7 @@ function EmployeeFormContent({
     return (
         <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
             <FormDialogShell
-                dataComponent="employees-form-dialog"
+                dataComponent="desktop_employees_form-dialog"
                 title={
                     isEditMode
                         ? t(locale, "employees.form.edit-title")

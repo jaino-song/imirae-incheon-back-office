@@ -27,7 +27,7 @@ export function LoginAuthErrorModal() {
       description={dialog.description}
       isDescriptionVisuallyHidden={false}
       onAcknowledge={dismiss}
-      dataComponent="login-auth-error-modal"
+      dataComponent="desktop_auth_login_error-modal"
     />
   );
 }

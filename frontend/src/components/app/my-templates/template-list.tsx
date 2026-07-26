@@ -41,10 +41,10 @@ export const TemplateList = () => {
     const rowsPerPage = 5;
 
     return (
-        <div data-component="my-templates-list">
+        <div data-component="desktop_my-templates_list">
             {/* Toolbar */}
             <div
-                data-component="my-templates-list-toolbar"
+                data-component="desktop_my-templates_list_toolbar"
                 className="flex items-center justify-end"
             >
                 {/* New Template Button */}
@@ -63,7 +63,7 @@ export const TemplateList = () => {
             {/* Table */}
             <div className="min-h-[200px] w-full">
                 {isLoading ? (
-                    <div data-component="my-templates-list-loading">
+                    <div data-component="desktop_my-templates_list_loading">
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -90,7 +90,7 @@ export const TemplateList = () => {
                         </Table>
                     </div>
                 ) : templates && templates.length > 0 ? (
-                    <div data-component="my-templates-list-table">
+                    <div data-component="desktop_my-templates_list_table">
                         <Table>
                             <TableHeader>
                                 <TableRow>

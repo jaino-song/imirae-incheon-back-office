@@ -314,7 +314,7 @@ export function DocumentsTable() {
             subtitle="문서 및 파일을 관리합니다"
             sx={{ minHeight: "70vh", flexGrow: 1, width: "100%" }}
         >
-            <div data-component="contracts-documents-table">
+            <div data-component="desktop_contracts_documents-table">
                 <DataTable
                     data={tableData}
                     columns={columns}
@@ -404,6 +404,7 @@ export function DocumentsTable() {
 
             {/* Preview Modal */}
             <DocumentPreviewModal
+                data-component="desktop_contracts_documents-table_preview-dialog"
                 open={!!previewDoc}
                 onClose={() => setPreviewDoc(null)}
                 doc={previewDoc}
@@ -440,7 +441,7 @@ export function DocumentsTable() {
                 onOpenChange={(open) => {
                     if (!open) setDeleteDoc(null);
                 }}
-                dataComponent="documents-delete-approval"
+                dataComponent="desktop_contracts_documents-table_delete-approval"
                 title={t(locale, "documents.delete-confirm-title")}
                 description={t(locale, "documents.delete-confirm-message")}
                 isDescriptionVisuallyHidden={false}
