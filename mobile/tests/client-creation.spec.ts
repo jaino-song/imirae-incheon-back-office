@@ -240,13 +240,13 @@ test.describe("clients/new wizard", () => {
     await expect(dialog.locator('[data-component="employees-form-dialog-header"]')).not.toContainText("고객 생성 중 바로 추가");
     await expect(dialog.locator('[data-component="employees-form-dialog-content"]')).toHaveClass(/detail-body detail-column/);
     await expect(dialog.locator('[data-component="employees-form-dialog-content"] > [data-component="employees-form-dialog-header"]')).toHaveCount(1);
-    await expect(dialog.locator('[data-component="employees-form-dialog-content"] > [data-component="employee-form-card"]')).toHaveCount(1);
+    await expect(dialog.locator('[data-component="employees-form-dialog-content"] > [data-component="mobile_employees_form-dialog_card"]')).toHaveCount(1);
     await expect(dialog.locator('[data-component="employees-form-dialog-content"] > [data-component="employees-form-dialog-actions"]')).toHaveCount(1);
     await expect(dialog.locator('[data-component="employees-form-dialog-actions"]')).toHaveCSS("background-color", "rgb(255, 255, 255)");
     await expect(dialog.locator('[data-component="employees-form-dialog-actions"]')).toHaveCSS("border-radius", "16px");
     await expect
       .poll(async () => dialog.evaluate((element) => {
-        const workSection = element.querySelector('[data-component="employees-form-dialog-section-work"]');
+        const workSection = element.querySelector('[data-component="mobile_employees_form-dialog_card_section-work"]');
         const actions = element.querySelector('[data-component="employees-form-dialog-actions"]');
         if (!workSection || !actions) {
           return false;
@@ -254,9 +254,9 @@ test.describe("clients/new wizard", () => {
         return Boolean(workSection.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING);
       }))
       .toBe(true);
-    await expect(dialog.locator('[data-component="employee-form-card-assignment"]')).toContainText("제공인력 1에 배정");
-    await expect(dialog.locator('[data-component="employees-form-dialog-field-name"] input')).toHaveValue("김정인");
-    await expect(dialog.locator('[data-component="employees-form-dialog-field-birthday"] input')).toHaveAttribute("placeholder", "YYMMDD");
+    await expect(dialog.locator('[data-component="mobile_employees_form-dialog_card_assignment"]')).toContainText("제공인력 1에 배정");
+    await expect(dialog.locator('[data-component="mobile_employees_form-dialog_card_section-basic_field-name"] input')).toHaveValue("김정인");
+    await expect(dialog.locator('[data-component="mobile_employees_form-dialog_card_section-basic_field-birthday"] input')).toHaveAttribute("placeholder", "YYMMDD");
     await expect(dialog.locator('[data-component="employees-form-dialog-submit"]')).toHaveText("등록");
     await expect(dialog.locator('[data-component="employees-form-dialog-cancel"]')).toHaveClass(/btn-press/);
     await expect(dialog.locator('[data-component="employees-form-dialog-submit"]')).toHaveClass(/btn-press/);
@@ -271,7 +271,7 @@ test.describe("clients/new wizard", () => {
     expect(Math.round(cancelButtonBox?.height ?? 0)).toBe(46);
     expect(Math.round(submitButtonBox?.height ?? 0)).toBe(46);
 
-    const gradeSelect = dialog.locator('[data-component="employees-form-dialog-field-grade"] select');
+    const gradeSelect = dialog.locator('[data-component="mobile_employees_form-dialog_card_section-work_field-grade"] select');
     await expect(gradeSelect).toHaveValue("스탠다드");
     await expect(gradeSelect.locator("option")).toHaveText(["스탠다드", "베스트", "프리미엄"]);
 

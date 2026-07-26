@@ -29,7 +29,7 @@ jest.mock("@/hooks/use-toast", () => ({
 }));
 
 jest.mock("@/components/ui/toaster", () => ({
-  Toaster: () => <div data-component="toaster" />,
+  Toaster: () => <div data-component="mobile_shell_toaster" />,
 }));
 
 jest.mock("@/providers/UserProvider", () => ({

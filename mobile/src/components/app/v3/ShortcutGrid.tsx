@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 import { QuickActionItem, QuickActionColor, DEFAULT_QUICK_ACTION_COLORS, QuickActionButton } from "./QuickActionButton";
 
 interface ShortcutGridProps {
+  /** Caller-context canonical base, e.g. `mobile_admin_feedback_shortcuts`. */
+  "data-component": string;
   /** Items to display in the grid */
   shortcuts: QuickActionItem[];
   /** Section title. Pass `null` to hide. */
@@ -21,6 +23,7 @@ interface ShortcutGridProps {
 }
 
 export function ShortcutGrid({
+  "data-component": dataComponent,
   shortcuts,
   title = "바로가기",
   colors = DEFAULT_QUICK_ACTION_COLORS,
@@ -30,7 +33,7 @@ export function ShortcutGrid({
   className,
 }: ShortcutGridProps) {
   return (
-    <section data-component="shortcut-grid" className={cn("space-y-3", className)}>
+    <section data-component={dataComponent} className={cn("space-y-3", className)}>
       {title !== null && (
         <h2 className="px-1 text-lg font-extrabold tracking-tight text-v3-dark">
           {title}
@@ -42,6 +45,7 @@ export function ShortcutGrid({
       >
         {shortcuts.map((s, idx) => (
           <QuickActionButton
+            data-component={`${dataComponent}_item-${idx + 1}`}
             key={s.href}
             href={s.href}
             label={s.label}

@@ -4,6 +4,8 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 export interface InfoRowProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** Caller-context canonical value. Callers pass `${base}_row-<name>`. */
+  "data-component"?: string;
   label: string;
   value: React.ReactNode;
   icon?: React.ReactNode;
@@ -12,6 +14,7 @@ export interface InfoRowProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /** @deprecated v3 InfoRow(@/components/app/v3)를 사용할 것 — 중복 구현 (BJJ-254, manifest deprecatedBy 참조) */
 function InfoRow({
+  "data-component": dataComponent,
   label,
   value,
   icon,
@@ -21,7 +24,8 @@ function InfoRow({
 }: InfoRowProps) {
   return (
     <div
-      data-component="info-row"
+      data-component={dataComponent}
+      data-slot="info-row"
       className={cn("flex items-center py-2", className)}
       {...props}
     >

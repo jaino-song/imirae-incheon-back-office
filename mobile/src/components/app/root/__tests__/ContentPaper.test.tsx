@@ -14,12 +14,14 @@ describe('ContentPaper', () => {
       expect(screen.getByText('Hello')).toBeInTheDocument();
     });
 
-    it('renders with data-component attribute for testing', () => {
-      render(<ContentPaper>Content</ContentPaper>);
+    it('forwards the caller-provided data-component attribute', () => {
+      render(
+        <ContentPaper data-component="mobile_tests_content-paper">Content</ContentPaper>
+      );
 
       expect(screen.getByTestId('ContentPaper')).toHaveAttribute(
         'data-component',
-        'content-paper'
+        'mobile_tests_content-paper'
       );
     });
 

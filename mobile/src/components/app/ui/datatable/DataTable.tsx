@@ -19,6 +19,7 @@ import { matchesKoreanSearch } from "@/lib/search/korean-search";
 import type { DataTableProps } from "./types";
 
 export function DataTable<T extends Record<string, unknown>>({
+  "data-component": dataComponent,
   data,
   columns,
   isLoading = false,
@@ -46,6 +47,7 @@ export function DataTable<T extends Record<string, unknown>>({
   sx: _sx, // Kept for backward compatibility, ignored
   skeletonRowCount = 5,
 }: DataTableProps<T>) {
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
   const [internalPage, setInternalPage] = useState(0);
   const [internalSearchQuery, setInternalSearchQuery] = useState("");
   const [internalFilterValue, setInternalFilterValue] = useState<string | null>(null);
@@ -155,10 +157,11 @@ export function DataTable<T extends Record<string, unknown>>({
   }
 
   return (
-    <div data-component="data-table" className={className}>
+    <div data-component={dataComponent} className={className}>
       {!hideToolbar && (
         <>
           <DataTableToolbar
+            data-component={sub("toolbar")}
             searchEnabled={searchEnabled}
             searchPlaceholder={searchPlaceholder}
             searchQuery={currentSearchQuery}
@@ -177,7 +180,7 @@ export function DataTable<T extends Record<string, unknown>>({
         {paginatedData.length > 0 || isLoading ? (
           <>
             <Table className="table-fixed w-full">
-              <TableHeader data-component="data-table-header">
+              <TableHeader data-component={sub("header")}>
                 <TableRow>
                   {columns.map((column, index) => (
                     <TableHead
@@ -193,7 +196,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   ))}
                 </TableRow>
               </TableHeader>
-              <TableBody data-component="data-table-body">
+              <TableBody data-component={sub("body")}>
                 {isLoading &&
                   Array.from({ length: skeletonRowCount }).map((_, rowIndex) => (
                     <TableRow key={`skeleton-${rowIndex}`}>
@@ -211,7 +214,7 @@ export function DataTable<T extends Record<string, unknown>>({
                 {!isLoading &&
                   paginatedData.map((row, rowIndex) => (
                     <TableRow
-                      data-component="data-table-row"
+                      data-component={sub("body_row")}
                       key={getRowKey(row, rowIndex)}
                       onClick={() => onRowClick?.(row, rowIndex)}
                       className={cn(
@@ -241,6 +244,7 @@ export function DataTable<T extends Record<string, unknown>>({
 
             {pagination !== "none" && (
               <DataTablePagination
+                data-component={sub("pagination")}
                 count={paginationCount}
                 page={currentPage}
                 rowsPerPage={pageSize}

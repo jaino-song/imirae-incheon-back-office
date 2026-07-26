@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface ChatInputProps {
+    /** Caller-context canonical value for this node. */
+    "data-component": string;
+
     onSubmit: (message: string) => void;
     onFocus?: () => void;
     onClick?: () => void;
@@ -16,6 +19,7 @@ interface ChatInputProps {
 }
 
 export function ChatInput({
+    "data-component": dataComponent,
     onSubmit,
     onFocus,
     onClick,
@@ -44,7 +48,7 @@ export function ChatInput({
 
     return (
         <div
-            data-component="chat-input"
+            data-component={dataComponent}
             onClick={onClick}
             className={cn(
                 "relative flex items-center gap-2 rounded-full",

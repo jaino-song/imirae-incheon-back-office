@@ -3,11 +3,14 @@
 import { TemplateVariable } from "@/lib/template/types";
 
 interface TemplatePreviewProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
     content: string;
     variables: TemplateVariable[];
 }
 
-export const TemplatePreview = ({ content, variables }: TemplatePreviewProps) => {
+export const TemplatePreview = ({ "data-component": dataComponent, content, variables }: TemplatePreviewProps) => {
     const renderPreview = () => {
         let preview = content;
         variables.forEach((v) => {
@@ -24,7 +27,7 @@ export const TemplatePreview = ({ content, variables }: TemplatePreviewProps) =>
     };
 
     return (
-        <div data-component="my-templates-preview" className="p-4 bg-card rounded-2xl border min-h-[100px] whitespace-pre-wrap break-words">
+        <div data-component={dataComponent} className="p-4 bg-card rounded-2xl border min-h-[100px] whitespace-pre-wrap break-words">
             <p className="font-mono text-sm">
                 {renderPreview()}
             </p>

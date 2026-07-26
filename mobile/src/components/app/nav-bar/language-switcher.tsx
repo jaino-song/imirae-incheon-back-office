@@ -5,7 +5,12 @@ import Cookies from "js-cookie";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export const LanguageSwitcher = () => {
+interface LanguageSwitcherProps {
+  /** Caller-context canonical value for the switcher root. */
+  "data-component": string;
+}
+
+export const LanguageSwitcher = ({ "data-component": dataComponent }: LanguageSwitcherProps) => {
   const router = useRouter();
   const currentLang = Cookies.get("language") || "ko";
 
@@ -17,7 +22,7 @@ export const LanguageSwitcher = () => {
   };
 
   return (
-    <div data-component="nav-bar-language-switcher" className="flex border border-sidebar-border rounded-2xl overflow-hidden">
+    <div data-component={dataComponent} className="flex border border-sidebar-border rounded-2xl overflow-hidden">
       <Button
         variant="ghost"
         size="sm"

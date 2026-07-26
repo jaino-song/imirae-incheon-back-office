@@ -20,6 +20,8 @@ export interface FilterOption {
 export type PaginationMode = "client" | "server" | "none";
 
 export interface DataTableProps<T> {
+  /** Caller-context canonical base, e.g. `mobile_employees_table_data-table`. */
+  "data-component": string;
   data: T[];
   columns: DataTableColumn<T>[];
   isLoading?: boolean;
@@ -62,6 +64,8 @@ export interface FilterAddAction {
 }
 
 export interface DataTableToolbarProps {
+  /** Caller-context canonical value, `${tableBase}_toolbar`. */
+  "data-component": string;
   searchEnabled?: boolean;
   searchPlaceholder?: string;
   searchQuery: string;
@@ -74,6 +78,8 @@ export interface DataTableToolbarProps {
 }
 
 export interface DataTablePaginationProps {
+  /** Caller-context canonical value, `${tableBase}_pagination`. */
+  "data-component": string;
   count: number;
   page: number;
   rowsPerPage: number;

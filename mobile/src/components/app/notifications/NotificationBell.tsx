@@ -93,7 +93,14 @@ function groupNotificationsByDate(notifications: Notification[]): GroupedNotific
  * - Not subscribed: Click to enable notifications (dark gray icon)
  * - Subscribed: Click to view notifications (white icon with primary border)
  */
-export function NotificationBell({ className }: { className?: string }) {
+export function NotificationBell({
+    "data-component": dataComponent,
+    className,
+}: {
+    /** Caller-context canonical base, e.g. `mobile_shell_header_icons_notification-bell`. */
+    "data-component"?: string;
+    className?: string;
+}) {
     const router = useRouter();
     const [isOpen, setIsOpen] = useState(false);
     const [subscribeLoading, setSubscribeLoading] = useState(false);
@@ -337,7 +344,7 @@ export function NotificationBell({ className }: { className?: string }) {
                         variant="ghost"
                         size="icon"
                         onClick={handleClick}
-                        data-component="notification-bell"
+                        data-component={dataComponent}
                         data-testid="notification-bell"
                         className={cn("relative transition-transform duration-200 hover:scale-110 active:scale-95", className)}
                     >
@@ -366,7 +373,7 @@ export function NotificationBell({ className }: { className?: string }) {
                     avoidCollisions={true}
                     collisionPadding={16}
                     className="!w-[80vw] sm:!w-[360px] max-h-[480px] min-h-[240px] p-0 overflow-hidden"
-                    data-component="notification-bell-popover"
+                    data-component={dataComponent ? `${dataComponent}_popover` : undefined}
                     data-testid="notification-popover"
                 >
                     {renderPopoverContent()}

@@ -2,6 +2,8 @@ import { cn } from "@/lib/utils";
 import { QuickActionItem, QuickActionColor, DEFAULT_QUICK_ACTION_COLORS, QuickActionButton } from "./QuickActionButton";
 
 interface QuickActionsProps {
+    /** Caller-context canonical base for the section root. */
+    "data-component"?: string;
     /** Items to display in the grid */
     shortcuts: QuickActionItem[];
     /** Section title. Pass `null` to hide. */
@@ -19,6 +21,7 @@ interface QuickActionsProps {
 }
 
 export function QuickActions({
+    "data-component": dataComponent,
     shortcuts,
     title = "바로가기",
     colors = DEFAULT_QUICK_ACTION_COLORS,
@@ -27,7 +30,7 @@ export function QuickActions({
     className,
 }: QuickActionsProps) {
     return (
-        <section data-component="quick-actions" className={cn("space-y-3", className)}>
+        <section data-component={dataComponent} data-slot="quick-actions" className={cn("space-y-3", className)}>
             <h2 className="px-1 text-lg font-extrabold tracking-tight text-v3-dark">
                 {title}
             </h2>
@@ -36,6 +39,7 @@ export function QuickActions({
             >
                 {shortcuts.map((s, idx) => (
                     <QuickActionButton
+                        data-component={dataComponent ? `${dataComponent}_item-${idx + 1}` : undefined}
                         key={s.href}
                         href={s.href}
                         label={s.label}

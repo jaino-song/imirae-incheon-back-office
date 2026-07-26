@@ -38,7 +38,7 @@ export default function ContractStatusWizard({ onCheck }: ContractStatusWizardPr
     }, [selectedClient, onCheck]);
 
     return (
-        <div data-component="chat-wizard-contract-status" className="flex flex-col">
+        <div data-component="mobile_chat_contract-status-wizard" className="flex flex-col">
             <div className="mb-4">
                 <h3 className="text-base font-bold mb-1">
                     계약서 상태 조회
@@ -48,7 +48,7 @@ export default function ContractStatusWizard({ onCheck }: ContractStatusWizardPr
                 </p>
             </div>
 
-            <div data-component="chat-wizard-contract-status-body" className="flex flex-col gap-4">
+            <div data-component="mobile_chat_contract-status-wizard_body" className="flex flex-col gap-4">
                 <ClientAutocomplete
                     data-component="mobile_chat_contract-status-wizard_body_client-autocomplete"
                     value={selectedClientId}
