@@ -967,7 +967,11 @@ export default function ContractCreationPage() {
         )}
       </AnimatePresence>
 
-      <div className={styles.pageRoot} data-component="mobile_contracts-new_screen_root">
+      <div
+        className={styles.pageRoot}
+        data-component="mobile_contracts-new_screen_root"
+        data-slot="contract-creation-screen"
+      >
         <div className={styles.navPage} data-component="mobile_contracts-new_screen_root_page">
           <header className={styles.navbar} data-component="mobile_contracts-new_screen_root_page_root">
             <button

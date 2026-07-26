@@ -1,12 +1,12 @@
 .pageRoot,
-:global(main[data-slot="main-content"]:has([data-component="mobile_contracts-new_screen_root"])) {
+:global(main[data-slot="main-content"]:has([data-slot="contract-creation-screen"])) {
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
   -webkit-font-smoothing: antialiased;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="mobile_contracts-new_screen_root"])) {
+:global(main[data-slot="main-content"]:has([data-slot="contract-creation-screen"])) {
   display: flex;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
   min-height: 0;
@@ -15,21 +15,21 @@
   background: hsl(var(--v3-dim-white));
 }
 
-:global(main[data-slot="main-content"]:has([data-component="mobile_contracts-new_screen_root"]) > [data-component="mobile_contracts-new_screen_root"]) {
+:global(main[data-slot="main-content"]:has([data-slot="contract-creation-screen"]) > [data-slot="contract-creation-screen"]) {
   flex: 1;
   min-height: 0;
 }
 
-:global([data-slot="app-root"]:has([data-component="mobile_contracts-new_screen_root"]) [data-slot="mobile-header"]),
-:global([data-slot="app-root"]:has([data-component="mobile_contracts-new_screen_root"]) [data-slot="floating-quick-actions"]) {
+:global([data-slot="app-root"]:has([data-slot="contract-creation-screen"]) [data-slot="mobile-header"]),
+:global([data-slot="app-root"]:has([data-slot="contract-creation-screen"]) [data-slot="floating-quick-actions"]) {
   display: none !important;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="mobile_contracts-new_screen_root"]) ~ [data-slot="mobile-bottom-nav"]) {
+:global(main[data-slot="main-content"]:has([data-slot="contract-creation-screen"]) ~ [data-slot="mobile-bottom-nav"]) {
   display: none !important;
 }
 
-:global(body:has([data-component="mobile_contracts-new_screen_root"]) nextjs-portal) {
+:global(body:has([data-slot="contract-creation-screen"]) nextjs-portal) {
   display: none !important;
 }
 
@@ -469,6 +469,10 @@
   box-shadow: none;
 }
 
+/* TODO(data-component): these keys are emitted by the shared Autocomplete primitive
+   (src/components/app/ui/Autocomplete.tsx), which has no data-slot hook yet. Re-key to
+   data-slot together with the shared-primitives migration; the same rules exist in
+   clients/new/page.module.css. */
 .pageRoot [data-component="employee-autocomplete"],
 .pageRoot [data-component="clients-autocomplete"] {
   margin: 0;

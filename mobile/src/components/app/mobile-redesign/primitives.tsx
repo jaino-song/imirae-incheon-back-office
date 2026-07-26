@@ -294,9 +294,17 @@ export function MobileMenuRow({
   );
 }
 
-export function Badge({ label, tone }: { label: string; tone: ListRow["badgeTone"] }) {
+export function Badge({
+  "data-component": dataComponent,
+  label,
+  tone,
+}: {
+  "data-component"?: string;
+  label: string;
+  tone: ListRow["badgeTone"];
+}) {
   return (
-    <StatusPill variant={badgeToneVariant[tone]} size="sm">
+    <StatusPill data-component={dataComponent} variant={badgeToneVariant[tone]} size="sm">
       {label}
     </StatusPill>
   );

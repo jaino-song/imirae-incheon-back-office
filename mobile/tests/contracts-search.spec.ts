@@ -123,7 +123,7 @@ async function routeContractsList(
   });
 }
 
-// The contract list rows ([data-component="mobile-contracts-row"]) only mount
+// The contract list rows ([data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]) only mount
 // in the mobile layout — at the default desktop viewport the row tree is
 // absent (run #7 evidence: page renders, row count stays 0).
 test.use({ viewport: { width: 390, height: 844 } });
@@ -135,9 +135,9 @@ test.describe('Contracts Page Search Feature', () => {
     await page.goto('/contracts');
     await expect(page.getByPlaceholder(SEARCH_PLACEHOLDER)).toBeVisible({ timeout: 15000 });
 
-    await expect(page.locator('[data-component="mobile-contracts-search"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-filter-row"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-list-action"]')).toContainText(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header_action"]')).toContainText(
       '계약 작성',
     );
   });
@@ -153,7 +153,7 @@ test.describe('Contracts Page Search Feature', () => {
     await expect(searchField).toBeVisible({ timeout: 15000 });
 
     // Anchor on the mocked rows landing before exercising the search.
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(3, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(3, {
       timeout: 15000,
     });
     await expect(page.getByText('홍길동')).toBeVisible();
@@ -184,7 +184,7 @@ test.describe('Contracts Page Search Feature', () => {
     await page.goto('/contracts');
     const searchField = page.getByPlaceholder(SEARCH_PLACEHOLDER);
     await expect(searchField).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(3, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(3, {
       timeout: 15000,
     });
 
@@ -203,12 +203,12 @@ test.describe('Contracts Page Search Feature', () => {
 
     await page.goto('/contracts');
     await expect(page.getByPlaceholder(SEARCH_PLACEHOLDER)).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(3, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(3, {
       timeout: 15000,
     });
 
     const completedFilter = page
-      .locator('[data-component="mobile-redesign-filter-pill"]')
+      .locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters_pill"]')
       .filter({ hasText: '완료' });
     await expect(completedFilter.locator('.count')).toHaveText('2');
     await completedFilter.click();
@@ -226,7 +226,7 @@ test.describe('Contracts Page Search Feature', () => {
     await expect(page.getByPlaceholder(SEARCH_PLACEHOLDER)).toBeVisible({ timeout: 15000 });
 
     // The empty copy is scoped to the active section label ("산모 계약서" by default).
-    await expect(page.locator('[data-component="mobile-contracts-empty"]')).toContainText(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"]')).toContainText(
       '등록된 산모 계약서가 없습니다.',
     );
   });

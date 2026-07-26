@@ -4175,24 +4175,24 @@ body.mobile-contracts-route .mobile-detail-sheet {
   margin: 0 !important;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-stack"] {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-list-page"],
-body.mobile-contracts-route [data-component="mobile-contracts-detail-page"] {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-list-page"],
+body.mobile-contracts-route [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-detail-page"] {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-detail-page"] {
   top: 50px;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-stack"].show-detail .nav-page.list {
+body.mobile-contracts-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
@@ -4270,12 +4270,12 @@ body.mobile-clients-route [data-component="mobile-clients-stack"].show-detail .n
   transform: translateX(0) !important;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-content"] {
+body.mobile-contracts-route [data-slot="list-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-row"] {
+body.mobile-contracts-route .list-item {
   width: 100%;
   border: 0;
   appearance: none;
@@ -4286,12 +4286,12 @@ body.mobile-contracts-route [data-component="mobile-contracts-row"] {
   text-align: left;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-search"] {
+body.mobile-contracts-route .search-bar {
   margin: 4px 12px 8px;
   line-height: normal;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-search"] input {
+body.mobile-contracts-route .search-bar input {
   line-height: normal;
 }
 
@@ -4369,8 +4369,7 @@ body.mobile-contracts-route .doc-meta {
   line-height: normal;
 }
 
-body.mobile-contracts-route .client-detail-badges .badge-mini,
-[data-component="mobile-contracts-detail-badges"] .badge-mini {
+body.mobile-contracts-route .client-detail-badges .badge-mini {
   height: 28px;
   font-size: 0.68rem;
   line-height: 1;
@@ -4564,7 +4563,7 @@ body.mobile-contracts-route [data-slot^="mobile-bottom-nav-"] span {
   line-height: 1;
 }
 
-body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-slot="mobile-bottom-nav"] {
+body.mobile-contracts-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translateY(calc(100% + 32px)) !important;
   opacity: 0;
   pointer-events: none;
@@ -4689,7 +4688,7 @@ body.mobile-dashboard-route .scrim {
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-page"],
 body:has([data-slot="messages-page"]) [data-component$="-detail-page"],
 body:has([data-component="prices-page"]) [data-component$="-detail-page"],
-body.mobile-contracts-route [data-component$="-detail-page"],
+body.mobile-contracts-route [data-slot="mobile-detail-stack-detail-page"],
 body.mobile-prices-route [data-component$="-detail-page"] {
   top: var(--mobile-detail-top-gap, 5vh) !important;
   right: 0 !important;
@@ -4708,7 +4707,7 @@ body.mobile-prices-route [data-component$="-detail-page"] {
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-scrim"],
 body:has([data-slot="messages-page"]) [data-component$="-detail-scrim"],
 body:has([data-component="prices-page"]) [data-component$="-detail-scrim"],
-body.mobile-contracts-route [data-component$="-detail-scrim"],
+body.mobile-contracts-route [data-slot="mobile-detail-stack-scrim"],
 body.mobile-prices-route [data-component$="-detail-scrim"] {
   position: fixed;
   top: 0 !important;
@@ -4721,7 +4720,7 @@ body.mobile-prices-route [data-component$="-detail-scrim"] {
 
 body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-slot="mobile-header"],
 body:has([data-slot="messages-page"] .nav-stack.show-detail) [data-slot="mobile-header"],
-body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-slot="mobile-header"] {
+body.mobile-contracts-route:has([data-slot="mobile-detail-stack-track"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
 }
 
@@ -5404,7 +5403,7 @@ nav[data-slot="mobile-bottom-nav"] a[aria-current="page"][data-slot^="mobile-bot
   background: transparent !important;
 }
 
-body.mobile-contracts-route [data-component="mobile-contracts-content"] {
+body.mobile-contracts-route [data-slot="list-content"] {
   padding: 76px 14px 76px !important;
   overflow-y: auto;
 }
