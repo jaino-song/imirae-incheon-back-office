@@ -5,7 +5,7 @@ interface AuthInlineLinkProps {
   href: string;
   linkLabel: string;
   prefixText?: string;
-  dataComponent?: string;
+  dataComponent: string;
   paragraphClassName?: string;
   linkClassName?: string;
 }
@@ -14,7 +14,7 @@ export function AuthInlineLink({
   href,
   linkLabel,
   prefixText,
-  dataComponent = "auth-inline-link",
+  dataComponent,
   paragraphClassName,
   linkClassName,
 }: AuthInlineLinkProps) {

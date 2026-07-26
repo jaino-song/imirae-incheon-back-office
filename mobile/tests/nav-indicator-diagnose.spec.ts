@@ -37,12 +37,12 @@ async function realLogin(page: Page) {
   await page.goto("http://localhost:3000/login");
   await page.fill('input[type=email]', EMAIL);
   await page.fill('input[type=password]', PASSWORD);
-  await page.click('[data-component="login-submit-button"]');
+  await page.click('[data-component="mobile_auth_login_form_submit-button"]');
   // Wait either for /select-branch or dashboard
   await page.waitForURL(/\/(select-branch|dashboard)/, { timeout: 15000 });
   if (page.url().includes("select-branch")) {
     // Click first branch row
-    await page.click('[data-component="select-branch-row"]', { timeout: 10000 });
+    await page.click('[data-component="mobile_select-branch_page_list_row"]', { timeout: 10000 });
     await page.waitForTimeout(300);
     // Pick the first branch-btn ("선택" / "이동")
     const btn = page.locator(".branch-actions .branch-btn").first();
