@@ -152,8 +152,8 @@ export async function proxy(request: NextRequest) {
   let authToken = request.cookies.get("auth_token")?.value;
 
   if (
-    pathname === "/onboarding"
-    && request.cookies.has(PENDING_ACCOUNT_ONBOARDING_COOKIE)
+    pathname === "/onboarding" &&
+    request.cookies.has(PENDING_ACCOUNT_ONBOARDING_COOKIE)
   ) {
     return NextResponse.next();
   }
@@ -162,10 +162,10 @@ export async function proxy(request: NextRequest) {
   if (pathname === "/" || PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
     const isNavigationRequest = request.method === "GET" || request.method === "HEAD";
     if (
-      pathname.startsWith("/login")
-      && isNavigationRequest
-      && authToken
-      && isAccessTokenExpiredOrInvalid(authToken)
+      pathname.startsWith("/login") &&
+      isNavigationRequest &&
+      authToken &&
+      isAccessTokenExpiredOrInvalid(authToken)
     ) {
       const loginRefreshToken = request.cookies.get("refresh_token")?.value;
       if (loginRefreshToken) {

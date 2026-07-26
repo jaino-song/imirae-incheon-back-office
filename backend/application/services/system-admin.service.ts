@@ -179,6 +179,14 @@ export class SystemAdminService {
                 }
 
                 if (dto.ownerId !== undefined && existing.ownerId && existing.ownerId !== dto.ownerId) {
+                    await tx.user_branch.updateMany({
+                        where: {
+                            userId: existing.ownerId,
+                            branchId,
+                            role: "admin",
+                        },
+                        data: { role: "user" },
+                    });
                     const stillOwnsBranch = await tx.branch.findFirst({
                         where: { ownerId: existing.ownerId },
                         select: { id: true },

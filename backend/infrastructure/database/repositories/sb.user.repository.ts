@@ -114,10 +114,35 @@ export class SbUserRepository implements IUserRepository {
         return deleted.count === 1;
     }
 
-    async clearBranchOwnerships(userId: string): Promise<void> {
-        await this.prismaService.branch.updateMany({
-            where: { ownerId: userId },
-            data: { ownerId: null },
+    async clearBranchOwnerships(
+        userId: string,
+        membershipRole: "admin" | "manager" | "user",
+    ): Promise<void> {
+        await this.prismaService.$transaction(async (tx) => {
+            const ownedBranches = await tx.branch.findMany({
+                where: { ownerId: userId },
+                select: { id: true },
+            });
+            const branchIds = ownedBranches.map((branch) => branch.id);
+            if (branchIds.length === 0) {
+                return;
+            }
+
+            await tx.branch.updateMany({
+                where: {
+                    id: { in: branchIds },
+                    ownerId: userId,
+                },
+                data: { ownerId: null },
+            });
+            await tx.user_branch.updateMany({
+                where: {
+                    userId,
+                    branchId: { in: branchIds },
+                    role: "admin",
+                },
+                data: { role: membershipRole },
+            });
         });
     }
 

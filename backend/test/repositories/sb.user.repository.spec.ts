@@ -353,6 +353,48 @@ describe("SbUserRepository", () => {
         });
     });
 
+    describe("clearBranchOwnerships", () => {
+        it("clears ownership and downgrades admin memberships for the owned branches", async () => {
+            const branchModel = {
+                findMany: jest.fn().mockResolvedValue([
+                    { id: "branch-1" },
+                    { id: "branch-2" },
+                ]),
+                updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+            };
+            const userBranchModel = {
+                updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+            };
+            const transactionPrisma = {
+                branch: branchModel,
+                user_branch: userBranchModel,
+                $transaction: jest.fn(async (callback) => callback({
+                    branch: branchModel,
+                    user_branch: userBranchModel,
+                })),
+            } as unknown as PrismaService;
+            const transactionRepository = new SbUserRepository(transactionPrisma);
+
+            await transactionRepository.clearBranchOwnerships("user-1", "manager");
+
+            expect(branchModel.updateMany).toHaveBeenCalledWith({
+                where: {
+                    id: { in: ["branch-1", "branch-2"] },
+                    ownerId: "user-1",
+                },
+                data: { ownerId: null },
+            });
+            expect(userBranchModel.updateMany).toHaveBeenCalledWith({
+                where: {
+                    userId: "user-1",
+                    branchId: { in: ["branch-1", "branch-2"] },
+                    role: "admin",
+                },
+                data: { role: "manager" },
+            });
+        });
+    });
+
     // ============================================
     // delete
     // ============================================

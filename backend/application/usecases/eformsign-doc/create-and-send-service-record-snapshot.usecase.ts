@@ -75,6 +75,15 @@ interface PreparedSnapshotChunk {
     templateId: string;
 }
 
+interface PersistedSnapshotChunkLayout {
+    assignmentId: string | null;
+    chunkIndex: number;
+    chunkCount: number;
+    firstSessionIndex: number;
+    lastSessionIndex: number;
+    employeeNameSnapshot: string;
+}
+
 const CHUNK_CLAIM_STALE_MS = 10 * 60 * 1000;
 const CHUNK_RETRY_DELAY_MS = 5 * 60 * 1000;
 const MAX_DEFINITIVE_CREATE_ATTEMPTS = 5;
@@ -147,7 +156,27 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         }
         this.assertReadyForSnapshot(record);
 
-        const chunks = this.buildCaseChunks(record, tierNumbers, templateIdByTier);
+        const persistedChunkLayout = await this.prisma.service_record_snapshot_chunk.findMany({
+            where: {
+                serviceRecordCaseId: record.id,
+                snapshotVersion: record.formVersion,
+            },
+            select: {
+                assignmentId: true,
+                chunkIndex: true,
+                chunkCount: true,
+                firstSessionIndex: true,
+                lastSessionIndex: true,
+                employeeNameSnapshot: true,
+            },
+            orderBy: { chunkIndex: "asc" },
+        });
+        const chunks = this.buildCaseChunks(
+            record,
+            tierNumbers,
+            templateIdByTier,
+            persistedChunkLayout,
+        );
         const chunkRows = await this.prepareChunkRows(record, chunks);
         const existingDocs = await this.prisma.eformsign_doc.findMany({
             where: {
@@ -248,7 +277,17 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         record: ServiceRecordCaseForSnapshot,
         tiers: number[],
         templateIdByTier: Map<number, string>,
+        persistedLayout: PersistedSnapshotChunkLayout[] = [],
     ): PreparedSnapshotChunk[] {
+        if (persistedLayout.length > 0) {
+            return this.buildCaseChunksFromPersistedLayout(
+                record,
+                tiers,
+                templateIdByTier,
+                persistedLayout,
+            );
+        }
+
         const assignmentsBySchedule = new Map(
             record.assignments
                 .filter((assignment) => assignment.scheduleId !== null)
@@ -341,6 +380,112 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 templateId,
             };
         });
+    }
+
+    /**
+     * Once durable chunk rows exist, their session boundaries are the layout of record for this
+     * snapshot version. Rebuild the payload inside those boundaries instead of re-tiering with the
+     * current environment, otherwise a newly enabled larger tier could reuse chunkIndex 1 for a
+     * different session range and make an existing document hide sessions from the retry.
+     */
+    private buildCaseChunksFromPersistedLayout(
+        record: ServiceRecordCaseForSnapshot,
+        tiers: number[],
+        templateIdByTier: Map<number, string>,
+        persistedLayout: PersistedSnapshotChunkLayout[],
+    ): PreparedSnapshotChunk[] {
+        const layouts = [...persistedLayout].sort((a, b) => a.chunkIndex - b.chunkIndex);
+        const assignmentsById = new Map(record.assignments.map((assignment) => [assignment.id, assignment]));
+        const sortedTiers = [...tiers].sort((a, b) => a - b);
+        let expectedFirstSessionIndex = 1;
+
+        const chunks = layouts.map((layout, index) => {
+            const expectedChunkIndex = index + 1;
+            const layoutIsValid = (
+                layout.chunkIndex === expectedChunkIndex
+                && layout.chunkCount === layouts.length
+                && layout.firstSessionIndex === expectedFirstSessionIndex
+                && layout.lastSessionIndex >= layout.firstSessionIndex
+                && layout.lastSessionIndex <= record.days.length
+            );
+            if (!layoutIsValid) {
+                throw new ConflictException({ code: "SERVICE_RECORD_SNAPSHOT_LAYOUT_INVALID" });
+            }
+
+            const sourceDays = record.days.filter((day) => (
+                day.caseSessionIndex! >= layout.firstSessionIndex
+                && day.caseSessionIndex! <= layout.lastSessionIndex
+            ));
+            const expectedDayCount = layout.lastSessionIndex - layout.firstSessionIndex + 1;
+            if (sourceDays.length !== expectedDayCount) {
+                throw new ConflictException({ code: "SERVICE_RECORD_SNAPSHOT_LAYOUT_INVALID" });
+            }
+
+            const tier = sortedTiers.find((candidate) => candidate >= sourceDays.length);
+            const templateId = tier === undefined ? undefined : templateIdByTier.get(tier);
+            if (tier === undefined || !templateId) {
+                throw new ConflictException({ code: "SERVICE_RECORD_SNAPSHOT_TEMPLATE_TIER_UNAVAILABLE" });
+            }
+
+            const days = sourceDays.map((day) => ({
+                sessionIndex: day.caseSessionIndex!,
+                serviceDate: day.serviceDate,
+                answers: (day.answers ?? {}) as Record<string, unknown>,
+                etcService: day.etcService,
+                notes: day.notes,
+                paymentConfirmed: day.paymentConfirmed,
+                momApproval: day.momApproval,
+                clientSignature: day.clientSignature,
+            }));
+            const assignment = layout.assignmentId
+                ? assignmentsById.get(layout.assignmentId) ?? null
+                : null;
+            const employeeName = layout.employeeNameSnapshot;
+            const chunkCount = layouts.length;
+            const documentName = this.caseDocumentName(
+                record.client?.name || record.momName?.trim() || "삭제된 고객",
+                record.id,
+                record.formVersion,
+                layout.chunkIndex,
+                chunkCount,
+            );
+            const sourceHash = createHash("sha256")
+                .update(this.stableStringify({
+                    formVersion: record.formVersion,
+                    header: {
+                        momName: record.momName,
+                        momBirth: record.momBirth,
+                        babyName: record.babyName,
+                        babyBirth: record.babyBirth,
+                        deliveryType: record.deliveryType,
+                        babyWeight: record.babyWeight,
+                    },
+                    employeeName,
+                    days,
+                }))
+                .digest("hex");
+
+            expectedFirstSessionIndex = layout.lastSessionIndex + 1;
+            return {
+                assignmentId: layout.assignmentId,
+                scheduleId: sourceDays[0]?.scheduleId ?? assignment?.scheduleId ?? null,
+                employeeName,
+                chunkIndex: layout.chunkIndex,
+                chunkCount,
+                firstSessionIndex: layout.firstSessionIndex,
+                lastSessionIndex: layout.lastSessionIndex,
+                sourceHash,
+                documentName,
+                days,
+                tier,
+                templateId,
+            };
+        });
+
+        if (expectedFirstSessionIndex !== record.days.length + 1) {
+            throw new ConflictException({ code: "SERVICE_RECORD_SNAPSHOT_LAYOUT_INVALID" });
+        }
+        return chunks;
     }
 
     private findAssignmentForDay(

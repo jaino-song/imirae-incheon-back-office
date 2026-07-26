@@ -9,6 +9,19 @@ type PreparedChunk = {
     templateId: string;
     sourceHash: string;
     documentName: string;
+    chunkIndex: number;
+    chunkCount: number;
+    firstSessionIndex: number;
+    lastSessionIndex: number;
+};
+
+type PersistedChunkLayout = {
+    assignmentId: string | null;
+    chunkIndex: number;
+    chunkCount: number;
+    firstSessionIndex: number;
+    lastSessionIndex: number;
+    employeeNameSnapshot: string;
 };
 
 /** base-only env (only EFORMSIGN_FEEDBACK_TEMPLATE_ID set) — preserves the pre-multi-tier 5-only chunking. */
@@ -30,14 +43,16 @@ function callBuildCaseChunks(
     record: ReturnType<typeof makeRecord>,
     tiers: number[],
     templateIdByTier: Map<number, string>,
+    persistedLayout: PersistedChunkLayout[] = [],
 ): PreparedChunk[] {
     return (usecase as unknown as {
         buildCaseChunks(
             value: ReturnType<typeof makeRecord>,
             tiers: number[],
             templateIdByTier: Map<number, string>,
+            persistedLayout?: PersistedChunkLayout[],
         ): PreparedChunk[];
-    }).buildCaseChunks(record, tiers, templateIdByTier);
+    }).buildCaseChunks(record, tiers, templateIdByTier, persistedLayout);
 }
 
 function makeRecord() {
@@ -213,6 +228,58 @@ describe("client-owned service record snapshot", () => {
         expect(chunks.map((chunk) => [chunk.employeeName, chunk.days.length, chunk.tier, chunk.templateId])).toEqual([
             ["제공A", 6, 10, "template-10"],
             ["제공B", 1, 5, "template-5"],
+        ]);
+    });
+
+    it("preserves durable session boundaries when larger tiers are enabled before a retry", () => {
+        const { usecase } = setup();
+        const record = makeRecord();
+        record.requiredSessionCount = 10;
+        record.assignments = [{ ...record.assignments[0]!, endDate: dbDate(10) }];
+        record.days = Array.from({ length: 10 }, (_, index) => ({
+            ...makeRecord().days[0]!,
+            scheduleId: 101,
+            employeeId: 1,
+            employeeNameSnapshot: "제공A",
+            caseSessionIndex: index + 1,
+            serviceDate: dbDate(index + 1),
+        }));
+        const persistedLayout: PersistedChunkLayout[] = [
+            {
+                assignmentId: "assignment-a",
+                chunkIndex: 1,
+                chunkCount: 2,
+                firstSessionIndex: 1,
+                lastSessionIndex: 5,
+                employeeNameSnapshot: "제공A",
+            },
+            {
+                assignmentId: "assignment-a",
+                chunkIndex: 2,
+                chunkCount: 2,
+                firstSessionIndex: 6,
+                lastSessionIndex: 10,
+                employeeNameSnapshot: "제공A",
+            },
+        ];
+
+        const chunks = callBuildCaseChunks(
+            usecase,
+            record,
+            ALL_TIERS,
+            ALL_TEMPLATE_BY_TIER,
+            persistedLayout,
+        );
+
+        expect(chunks.map((chunk) => [
+            chunk.chunkIndex,
+            chunk.firstSessionIndex,
+            chunk.lastSessionIndex,
+            chunk.tier,
+            chunk.templateId,
+        ])).toEqual([
+            [1, 1, 5, 5, "template-5"],
+            [2, 6, 10, 5, "template-5"],
         ]);
     });
 

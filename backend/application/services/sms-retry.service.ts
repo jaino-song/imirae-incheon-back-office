@@ -115,6 +115,7 @@ export class SmsRetryService {
 
     private createRetryAttempt(sourceLog: MessageLogEntity): MessageLogEntity {
         const now = new Date(Date.now());
+        const recoveryAt = new Date(now.getTime() + SMS_DELIVERY_RETRY_DELAY_MS);
         return MessageLogEntity.reconstitute(
             0,
             sourceLog.branchId,
@@ -134,7 +135,7 @@ export class SmsRetryService {
             null,
             sourceLog.attempts,
             null,
-            null,
+            recoveryAt,
             now,
             now,
             sourceLog.recipientName,
