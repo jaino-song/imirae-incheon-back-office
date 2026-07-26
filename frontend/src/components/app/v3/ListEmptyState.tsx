@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 
 export interface ListEmptyStateProps {
   message: string;
-  name?: string;
   icon?: LucideIcon;
   className?: string;
 }

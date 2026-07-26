@@ -181,7 +181,7 @@ beforeEach(() => {
 
 describe("TriggerRulesManager", () => {
   it("keeps the trigger detail panel empty and blocks the rules list before approval", () => {
-    const { container } = render(<TriggerRulesManager />);
+    const { container } = render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
 
     expect(screen.queryByRole("button", { name: "새 규칙" })).not.toBeInTheDocument();
 
@@ -201,7 +201,7 @@ describe("TriggerRulesManager", () => {
   it("keeps trigger rules available when message sending is approved even if provider settings are disabled", () => {
     mockSettingsQueries({ providerEnabled: false, senderApproved: true });
 
-    const { container } = render(<TriggerRulesManager />);
+    const { container } = render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
 
     expect(screen.getByRole("button", { name: "새 규칙" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "활성화" })).toBeEnabled();
@@ -214,7 +214,7 @@ describe("TriggerRulesManager", () => {
   it("does not preselect the first rule in compact split layout", async () => {
     mockSettingsQueries({ providerEnabled: false, senderApproved: true });
 
-    const { container } = render(<TriggerRulesManager />);
+    const { container } = render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
     act(() => {
       window.dispatchEvent(new Event("resize"));
     });
@@ -286,7 +286,7 @@ describe("TriggerRulesManager", () => {
       ],
     } as unknown as ReturnType<typeof useMessageTriggerTemplates>);
 
-    render(<TriggerRulesManager dataComponentPrefix="message" channel="sms" />);
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" channel="sms" />);
 
     expect(screen.getByText("자동 전송 루틴")).toBeInTheDocument();
     expect(screen.getByText("메시지 템플릿을 자동으로 보내는 루틴만 관리합니다.")).toBeInTheDocument();

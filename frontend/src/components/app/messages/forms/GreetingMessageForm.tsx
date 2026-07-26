@@ -60,7 +60,7 @@ export const GreetingMessageForm = ({
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-greeting-form"
+      dataComponent="desktop_messages_sections_greeting-form"
       className="w-full"
       fields={null}
       messageCard={messageCard}

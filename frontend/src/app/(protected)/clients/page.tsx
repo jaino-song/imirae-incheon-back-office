@@ -257,7 +257,6 @@ function ClientAutomationSection() {
                     <DetailPanel data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel-empty"
                         overlay={(
                             <ListEmptyState
-                                name="clients-automation-detail-empty"
                                 icon={Workflow}
                                 message="왼쪽 목록에서 자동화 항목을 선택해 주세요."
                                 className="flex-none min-h-0"
@@ -855,7 +854,6 @@ export default function ClientsPage() {
                     </div>
                 ) : (
                     <EmptyState
-                        name="desktop_clients_sections_section-content_list-section_split-layout_detail-empty"
                         icon={Users}
                         message="고객을 선택하면 상세 정보가 표시됩니다"
                     />

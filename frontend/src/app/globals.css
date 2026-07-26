@@ -649,7 +649,7 @@
     will-change: transform;
   }
 
-  [data-component="animated-slot-list"] > * {
+  [data-slot="animated-slot-list"] > * {
     margin-bottom: 0 !important;
   }
 
@@ -713,9 +713,9 @@
 }
 
 /* Messages trigger rules must fill the same split-layout height as the templates view. */
-[data-component="messages-triggers-section"],
-[data-component="message-trigger-rules"],
-[data-component="message-trigger-rules-layout"] {
+[data-slot="trigger-rules-section"],
+[data-slot="trigger-rules"],
+[data-slot="trigger-rules-layout"] {
   display: flex;
   flex: 1 1 0%;
   flex-direction: column;
@@ -760,8 +760,7 @@
 
 [data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="list-panel"],
 [data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="detail-panel"],
-[data-slot="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-detail-empty"],
-[data-slot="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-activities-panel"] > div {
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="activities-panel"] > div {
   box-shadow: none;
 }
 
@@ -770,80 +769,80 @@
   padding-top: 16px;
 }
 
-[data-slot="main-content"][data-mode="compact"] [data-component="messages-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"],
 [data-slot="main-content"][data-mode="compact"] [data-slot="contracts-sections"],
 [data-slot="main-content"][data-mode="compact"] [data-slot="clients-sections"],
-[data-slot="main-content"][data-mode="compact"] [data-component="system-admin-sections"],
-[data-slot="main-content"][data-mode="compact"] [data-component="messages-sections"],
-[data-slot="main-content"][data-mode="compact"] [data-component="settings-sections"] {
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"] {
   align-items: stretch;
   flex-direction: column;
 }
 
 @media (max-width: 1279px) {
   [data-slot="main-content"]:has(:is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   )) {
     padding-top: 16px;
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) {
     align-items: stretch;
     flex-direction: column;
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="section-nav"] {
     width: 100%;
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="section-nav-desktop"] {
     display: none !important;
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="section-nav-mobile"] {
     display: block !important;
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="split-layout"] {
     display: block;
     height: 100%;
@@ -854,12 +853,12 @@
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="split-layout-track"] {
     display: flex;
     gap: var(--compact-panel-gap, 16px);
@@ -867,23 +866,23 @@
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="split-layout"][data-columns="2"][data-has-selection="true"] [data-slot="split-layout-track"] {
     transform: translateX(calc(-100% - var(--compact-panel-gap, 16px)));
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="split-layout-panel"] {
     flex-shrink: 0;
     height: 100%;
@@ -892,20 +891,20 @@
   }
 
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="split-layout-panel"] > [data-slot="list-panel"],
   :is(
-    [data-component="messages-sections"],
+    [data-slot="page-sections"],
     [data-slot="contracts-sections"],
     [data-slot="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) [data-slot="split-layout-panel"] > [data-slot="detail-panel"] {
     width: 100%;
   }

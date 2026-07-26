@@ -227,7 +227,6 @@ export default function ConsultationsPage() {
                     isLoading={isListLoading}
                     emptyState={!isListLoading && visibleInquiries.length === 0 ? (
                         <ListEmptyState
-                            name="consultations-empty"
                             message={search ? "검색 결과가 없습니다" : "상담 문의가 없습니다"}
                         />
                     ) : undefined}
@@ -397,7 +396,6 @@ export default function ConsultationsPage() {
                     </DetailPanel>
                 ) : (
                     <EmptyState
-                        name="consultations-empty-detail"
                         icon={MapPin}
                         message="상담 문의를 선택하면 상세 정보가 표시됩니다"
                     />

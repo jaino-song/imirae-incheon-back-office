@@ -160,7 +160,7 @@ test("shows the exact prepared service-record URL and sends the same token", asy
         .getByText("송진호", { exact: true })
         .click();
 
-    const messageField = page.locator('[data-component="messages-msg-field"]');
+    const messageField = page.locator('[data-component="desktop_messages_sections_msg-field"]');
     await expect(messageField).toBeVisible();
     await expect(messageField).toHaveValue(new RegExp(SERVICE_RECORD_URL));
     await expect(messageField).not.toHaveValue(/\{\{serviceRecordUrl\}\}/);

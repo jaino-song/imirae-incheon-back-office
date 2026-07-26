@@ -113,7 +113,7 @@ export function SystemAdminBranchForm({
 
   return (
     <form
-      data-component="system-admin-branch-form"
+      data-component="desktop_system-admin_sections_branch-form"
       className="space-y-5"
       noValidate
       onSubmit={handleSubmit}
@@ -132,8 +132,8 @@ export function SystemAdminBranchForm({
           helperText={errors.name}
           disabled={isSubmitting}
           autoComplete="organization"
-          dataComponent="system-admin-branch-form-field"
-          inputDataComponent="system-admin-branch-form-name"
+          dataComponent="desktop_system-admin_sections_branch-form-field"
+          inputDataComponent="desktop_system-admin_sections_branch-form_name"
         />
         <TitleTextInputMolecule
           name="slug"
@@ -143,17 +143,17 @@ export function SystemAdminBranchForm({
               영문 소문자, 숫자, 하이픈으로 입력해 주세요.
             </span>
           }
-          labelTrailingDataComponent="system-admin-branch-form-slug-guide"
+          labelTrailingDataComponent="desktop_system-admin_sections_branch-form_slug-guide"
           required
           defaultValue={branch?.slug ?? ""}
           error={Boolean(errors.slug)}
           helperText={errors.slug}
           disabled={isSubmitting}
           autoComplete="off"
-          dataComponent="system-admin-branch-form-field"
-          inputDataComponent="system-admin-branch-form-slug"
+          dataComponent="desktop_system-admin_sections_branch-form-field"
+          inputDataComponent="desktop_system-admin_sections_branch-form_slug"
         />
-        <div data-component="system-admin-branch-form-manager" className="grid gap-[calc(7px*var(--glint-ui-scale,1))] sm:col-span-2">
+        <div data-component="desktop_system-admin_sections_branch-form-manager" className="grid gap-[calc(7px*var(--glint-ui-scale,1))] sm:col-span-2">
           <Label
             htmlFor="system-admin-branch-manager"
             className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold leading-[1.3] text-v3-text-muted"
@@ -163,7 +163,7 @@ export function SystemAdminBranchForm({
           <FormNativeSelect
             id="system-admin-branch-manager"
             name="ownerId"
-            selectDataComponent="system-admin-branch-form-manager-select"
+            selectDataComponent="desktop_system-admin_sections_branch-form_manager-select"
             defaultValue={branch?.owner?.id ?? ""}
             disabled={isSubmitting || managerOptions.length === 0}
             aria-invalid={Boolean(errors.ownerId)}
@@ -176,7 +176,7 @@ export function SystemAdminBranchForm({
           {errors.ownerId ? (
             <p
               id="system-admin-branch-manager-error"
-              data-component="system-admin-branch-form-manager-error"
+              data-component="desktop_system-admin_sections_branch-form-manager-error"
               className="text-[calc(11.5px*var(--glint-ui-scale,1))] font-semibold text-destructive"
               role="alert"
             >
@@ -195,8 +195,8 @@ export function SystemAdminBranchForm({
           helperText={errors.region}
           disabled={isSubmitting}
           containerClassName="sm:col-span-2"
-          dataComponent="system-admin-branch-form-field"
-          inputDataComponent="system-admin-branch-form-region"
+          dataComponent="desktop_system-admin_sections_branch-form-field"
+          inputDataComponent="desktop_system-admin_sections_branch-form_region"
         />
         <TitleTextInputMolecule
           name="address"
@@ -207,8 +207,8 @@ export function SystemAdminBranchForm({
           disabled={isSubmitting}
           autoComplete="street-address"
           containerClassName="sm:col-span-2"
-          dataComponent="system-admin-branch-form-field"
-          inputDataComponent="system-admin-branch-form-address"
+          dataComponent="desktop_system-admin_sections_branch-form-field"
+          inputDataComponent="desktop_system-admin_sections_branch-form_address"
         />
         <TitleTextInputMolecule
           name="phone"
@@ -222,8 +222,8 @@ export function SystemAdminBranchForm({
           inputMode="numeric"
           maxLength={13}
           autoComplete="tel"
-          dataComponent="system-admin-branch-form-field"
-          inputDataComponent="system-admin-branch-form-phone"
+          dataComponent="desktop_system-admin_sections_branch-form-field"
+          inputDataComponent="desktop_system-admin_sections_branch-form_phone"
         />
         <TitleTextInputMolecule
           name="email"
@@ -234,22 +234,22 @@ export function SystemAdminBranchForm({
           disabled={isSubmitting}
           type="email"
           autoComplete="email"
-          dataComponent="system-admin-branch-form-field"
-          inputDataComponent="system-admin-branch-form-email"
+          dataComponent="desktop_system-admin_sections_branch-form-field"
+          inputDataComponent="desktop_system-admin_sections_branch-form_email"
         />
         <FormCheckboxField
           name="isActive"
           label="운영 중인 지점"
           defaultChecked={branch?.isActive ?? true}
           disabled={isSubmitting}
-          data-component="system-admin-branch-form-active"
+          data-component="desktop_system-admin_sections_branch-form-active"
           className="sm:col-span-2"
         />
       </FormCard>
 
       {submitError ? (
         <p
-          data-component="system-admin-branch-form-submit-error"
+          data-component="desktop_system-admin_sections_branch-form-submit-error"
           className="rounded-[13px] bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive"
           role="alert"
         >
@@ -258,7 +258,7 @@ export function SystemAdminBranchForm({
       ) : null}
 
       <div
-        data-component="system-admin-branch-form-actions"
+        data-component="desktop_system-admin_sections_branch-form-actions"
         className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
       >
         <Button type="button" variant="outline" disabled={isSubmitting} onClick={onCancel}>

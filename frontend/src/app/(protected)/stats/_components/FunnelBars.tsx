@@ -2,6 +2,7 @@ import type { FunnelStep } from "@/lib/observability/types";
 import { cn } from "@/lib/utils";
 
 interface FunnelBarsProps {
+  dataComponent: string;
   steps: FunnelStep[];
   biggestDropStep?: number | null;
   /** Compact = overview card; verbose = full /stats/funnel detail page */
@@ -9,6 +10,7 @@ interface FunnelBarsProps {
 }
 
 export function FunnelBars({
+  dataComponent,
   steps,
   biggestDropStep,
   variant = "compact",
@@ -28,7 +30,10 @@ export function FunnelBars({
         const showDropLabel = variant === "verbose" && i > 0;
         return (
           <div key={s.step}>
-            <div className="flex items-center gap-3" data-component={`funnel-step-${s.step}`}>
+            <div
+              data-component={`${dataComponent}_step-${s.step}`}
+              className="flex items-center gap-3"
+            >
               <div
                 className={cn(
                   "shrink-0",

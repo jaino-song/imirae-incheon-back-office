@@ -367,7 +367,7 @@ describe("recipient phone input layout", () => {
     expect(mockedGetClientOverview).not.toHaveBeenCalled();
     expect(mockedSendSms).not.toHaveBeenCalled();
     expect(
-      document.querySelector('[data-component="messages-template-send-form-feedback"]'),
+      document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
     ).toHaveTextContent("제공기록지 링크 즉시 발송이 완료되었습니다.");
     const queryClient = mockedUseQueryClient.mock.results[0]?.value;
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
@@ -439,13 +439,13 @@ describe("recipient phone input layout", () => {
 
     await waitFor(() => {
       expect(
-        document.querySelector('[data-component="messages-template-send-form-feedback"]'),
+        document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
       ).toHaveTextContent(
         "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 발송하지 못했습니다.",
       );
     });
     const feedback = document.querySelector(
-      '[data-component="messages-template-send-form-feedback"]',
+      '[data-component="desktop_messages_sections_template-send-form-feedback"]',
     );
     expect(feedback).not.toHaveTextContent("400");
     expect(feedback).not.toHaveTextContent("Bad Request");
@@ -475,7 +475,7 @@ describe("A: partial-failure send keeps only failed recipients in queue", () => 
 
     await waitFor(() => {
       expect(
-        document.querySelectorAll('[data-component="messages-template-send-form-recipient"]').length,
+        document.querySelectorAll('[data-component="desktop_messages_sections_template-send-form-recipient"]').length,
       ).toBe(2);
     });
 
@@ -497,12 +497,12 @@ describe("A: partial-failure send keeps only failed recipients in queue", () => 
     await waitFor(() => {
       // Feedback element should be visible with partial summary.
       expect(
-        document.querySelector('[data-component="messages-template-send-form-feedback"]'),
+        document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
       ).toBeInTheDocument();
     });
 
     const feedback = document.querySelector(
-      '[data-component="messages-template-send-form-feedback"]',
+      '[data-component="desktop_messages_sections_template-send-form-feedback"]',
     );
 
     // Feedback must mention both 발송 완료 and 실패 (partial summary).
@@ -512,7 +512,7 @@ describe("A: partial-failure send keeps only failed recipients in queue", () => 
     // Only the FAILED recipient (010-2222-2222) must remain in the queue.
     // The succeeded recipient (010-1111-1111) must be gone.
     const remainingPills = document.querySelectorAll(
-      '[data-component="messages-template-send-form-recipient"]',
+      '[data-component="desktop_messages_sections_template-send-form-recipient"]',
     );
     expect(remainingPills).toHaveLength(1);
     expect(remainingPills[0].textContent).toContain("010-2222-2222");
@@ -527,7 +527,7 @@ describe("A: partial-failure send keeps only failed recipients in queue", () => 
 
     await waitFor(() => {
       expect(
-        document.querySelectorAll('[data-component="messages-template-send-form-recipient"]').length,
+        document.querySelectorAll('[data-component="desktop_messages_sections_template-send-form-recipient"]').length,
       ).toBe(2);
     });
 
@@ -545,18 +545,18 @@ describe("A: partial-failure send keeps only failed recipients in queue", () => 
 
     await waitFor(() => {
       expect(
-        document.querySelector('[data-component="messages-template-send-form-feedback"]'),
+        document.querySelector('[data-component="desktop_messages_sections_template-send-form-feedback"]'),
       ).toBeInTheDocument();
     });
 
     const feedback = document.querySelector(
-      '[data-component="messages-template-send-form-feedback"]',
+      '[data-component="desktop_messages_sections_template-send-form-feedback"]',
     );
     expect(feedback?.textContent).toContain("발송 완료");
     expect(feedback?.textContent).toContain("실패");
 
     const remainingPills = document.querySelectorAll(
-      '[data-component="messages-template-send-form-recipient"]',
+      '[data-component="desktop_messages_sections_template-send-form-recipient"]',
     );
     expect(remainingPills).toHaveLength(1);
     expect(remainingPills[0].textContent).toContain("010-2222-2222");
@@ -610,7 +610,7 @@ describe("C: duplicate-send confirm dialog lists all duplicates (not just the fi
 
     await waitFor(() => {
       expect(
-        document.querySelectorAll('[data-component="messages-template-send-form-recipient"]').length,
+        document.querySelectorAll('[data-component="desktop_messages_sections_template-send-form-recipient"]').length,
       ).toBe(2);
     });
 
@@ -623,23 +623,23 @@ describe("C: duplicate-send confirm dialog lists all duplicates (not just the fi
     // Wait for the duplicate confirm dialog to appear.
     await waitFor(() => {
       expect(
-        document.querySelector('[data-component="messages-duplicate-send-confirm-dialog"]'),
+        document.querySelector('[data-component="desktop_messages_sections_duplicate-send-confirm-dialog"]'),
       ).toBeInTheDocument();
     });
 
     // The duplicate list must contain exactly 2 entries — one per duplicate recipient.
     const confirmList = document.querySelector(
-      '[data-component="messages-duplicate-send-confirm-list"]',
+      '[data-component="desktop_messages_sections_duplicate-send-confirm-list"]',
     );
     expect(confirmList).toBeInTheDocument();
 
     const recentItems = document.querySelectorAll(
-      '[data-component="messages-duplicate-send-confirm-recent"]',
+      '[data-component="desktop_messages_sections_duplicate-send-confirm-recent"]',
     );
     expect(recentItems).toHaveLength(2);
 
     // The dialog description must mention "2건" (plural).
-    const dialogDescription = document.querySelector('[data-component="messages-duplicate-send-confirm-header"]');
+    const dialogDescription = document.querySelector('[data-component="desktop_messages_sections_duplicate-send-confirm-dialog_header"]');
     expect(dialogDescription?.textContent).toContain("2건");
 
     // sendSms must NOT have been called (dialog intercepted the send).
@@ -664,7 +664,7 @@ describe("B: editing name for already-queued phone updates the pill in place", (
     // Pill should show initial name.
     await waitFor(() => {
       const pills = document.querySelectorAll(
-        '[data-component="messages-template-send-form-recipient"]',
+        '[data-component="desktop_messages_sections_template-send-form-recipient"]',
       );
       expect(pills).toHaveLength(1);
       expect(pills[0].textContent).toContain("김철수");
@@ -676,7 +676,7 @@ describe("B: editing name for already-queued phone updates the pill in place", (
     // Queue must still have exactly 1 entry (no duplicate), and name is corrected.
     await waitFor(() => {
       const pills = document.querySelectorAll(
-        '[data-component="messages-template-send-form-recipient"]',
+        '[data-component="desktop_messages_sections_template-send-form-recipient"]',
       );
       expect(pills).toHaveLength(1);
       expect(pills[0].textContent).toContain("김영희");

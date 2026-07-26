@@ -529,7 +529,7 @@ test.describe("Contract creation iframe + success flow", () => {
     );
     await expect(page.getByTestId("contract-creation-progress-error-client-started")).toBeVisible();
     await expect(page.getByTestId("contract-creation-retry")).toBeVisible();
-    await expect(page.locator('[data-component="messages-contract-form-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]')).toHaveCount(0);
     await expect(page.locator("#eformsign_iframe")).toHaveCount(0);
 
     await page.getByTestId("contract-creation-manual").click();
@@ -559,7 +559,7 @@ test.describe("Contract creation iframe + success flow", () => {
     await expect.poll(async () => {
       return page.evaluate(() => (window as Window & { __eformsignCalls?: unknown[] }).__eformsignCalls?.length ?? 0);
     }).toBeGreaterThan(0);
-    const manualDialog = page.locator('[data-component="messages-contract-form-dialog"]');
+    const manualDialog = page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]');
     await expect(manualDialog).toBeVisible();
     await expect(page.locator("#eformsign_iframe")).toBeVisible();
     await expect(page.getByTestId("contract-creation-progress-stepper")).toHaveCount(1);
@@ -610,7 +610,7 @@ test.describe("Contract creation iframe + success flow", () => {
       stepRecipientSms: MOCK_CLIENT.phone,
       linkToClient: true,
     });
-    await expect(page.locator('[data-component="messages-contract-form-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]')).toHaveCount(0);
     await expect(page.getByTestId("contract-creation-progress-step-sent")).toHaveAttribute("data-state", "done");
     const actions = page.locator('[data-component="stepped-wizard-actions"]');
     await expect(actions.getByRole("button", { name: "취소" })).toHaveCount(0);
@@ -700,7 +700,7 @@ test.describe("Contract creation iframe + success flow", () => {
       "active"
     );
     await expect(page.getByTestId("contract-creation-progress-spinner-creating")).toBeVisible();
-    await expect(page.locator('[data-component="messages-contract-form-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]')).toHaveCount(0);
     await expect(page.locator("#eformsign_iframe")).toHaveCount(0);
 
     releaseDispatch();
@@ -711,7 +711,7 @@ test.describe("Contract creation iframe + success flow", () => {
     await expect(page.getByTestId("contract-creation-progress-step-creating")).toContainText("전자문서 생성 실패");
     await expect(page.getByTestId("contract-creation-progress-error-creating")).toBeVisible();
     await expect(page.getByTestId("contract-creation-retry")).toBeVisible();
-    await expect(page.locator('[data-component="messages-contract-form-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]')).toHaveCount(0);
     await expect(page.locator("#eformsign_iframe")).toHaveCount(0);
   });
 
@@ -848,7 +848,7 @@ test.describe("Contract creation iframe + success flow", () => {
     await expect(failedStep).toContainText("수동으로 입력해 주세요");
     await expect(page.getByTestId("contract-creation-progress-error-info-inserted")).toBeVisible();
     await expect(page.getByTestId("contract-creation-retry")).toBeVisible();
-    await expect(page.locator('[data-component="messages-contract-form-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]')).toHaveCount(0);
     await expect(page.locator("#eformsign_iframe")).toHaveCount(0);
 
     await page.getByTestId("contract-creation-retry").click();
@@ -862,7 +862,7 @@ test.describe("Contract creation iframe + success flow", () => {
     const actions = page.locator('[data-component="stepped-wizard-actions"]');
     await expect(actions.getByRole("button", { name: "취소" })).toHaveCount(0);
     await expect(page.getByTestId("contract-creation-new-send")).toBeVisible();
-    await expect(page.locator('[data-component="messages-contract-form-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]')).toHaveCount(0);
     await expect(page.locator("#eformsign_iframe")).toHaveCount(0);
   });
 
@@ -879,12 +879,12 @@ test.describe("Contract creation iframe + success flow", () => {
     await expect(page.getByTestId("contract-creation-manual")).toBeVisible();
     await page.getByTestId("contract-creation-manual").click();
 
-    await expect(page.locator('[data-component="messages-contract-form-error"]')).toContainText(
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-error"]')).toContainText(
       "Request failed with status code 500"
     );
     await expect(page.getByPlaceholder("YYYY-MM-DD")).toHaveCount(3);
     await expect(page.getByTestId("contract-creation-submit")).toBeEnabled();
-    await expect(page.locator('[data-component="messages-contract-form-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="desktop_messages_sections_contract-form-dialog"]')).toHaveCount(0);
     const sdkCallCount = await page.evaluate(
       () => (window as Window & { __eformsignCalls?: unknown[] }).__eformsignCalls?.length ?? 0
     );

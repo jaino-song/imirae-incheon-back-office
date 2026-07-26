@@ -235,7 +235,7 @@ ${resolvedServiceRecordUrl}`;
 
   const fields = (
     <>
-      <TemplateFieldGridItem dataComponent="messages-service-feedback-link-employee-name-field">
+      <TemplateFieldGridItem dataComponent="desktop_messages_sections_service-feedback-link-employee-name-field">
         <EmployeeAutocomplete
           containerClassName={ALIGNED_AUTOCOMPLETE_CLASS_NAME}
           value={employeeId}
@@ -248,17 +248,17 @@ ${resolvedServiceRecordUrl}`;
           required
         />
       </TemplateFieldGridItem>
-      <TemplateFieldGridItem dataComponent="messages-service-feedback-link-employee-phone-field">
+      <TemplateFieldGridItem dataComponent="desktop_messages_sections_service-feedback-link-employee-phone-field">
         <ContactInput
           phone={employeePhone}
           setPhone={handleEmployeePhoneChange}
           label="관리사님 전화번호"
           placeholder="010-0000-0000"
           required
-          dataComponent="messages-service-feedback-link-employee-phone-input"
+          dataComponent="desktop_messages_sections_service-feedback-link-employee-phone-input"
         />
       </TemplateFieldGridItem>
-      <TemplateFieldGridItem dataComponent="messages-service-feedback-link-client-name-field">
+      <TemplateFieldGridItem dataComponent="desktop_messages_sections_service-feedback-link-client-name-field">
         <ClientAutocomplete
           containerClassName={ALIGNED_AUTOCOMPLETE_CLASS_NAME}
           value={clientId}
@@ -299,7 +299,7 @@ ${resolvedServiceRecordUrl}`;
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-service-feedback-link-form"
+      dataComponent="desktop_messages_sections_service-feedback-link-form"
       fields={fields}
       fieldsLayout="stack"
       messageCard={messageCard}

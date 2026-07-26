@@ -138,7 +138,6 @@ function ClientServiceRecordsTabContent({
     if (clientId === null) {
         return (
             <DetailEmptyState
-                name={`${dataComponent}_empty`}
                 message="고객 정보가 없어 제공기록지를 조회할 수 없습니다"
             />
         );
@@ -162,7 +161,6 @@ function ClientServiceRecordsTabContent({
     if (assignments.length === 0 && !record) {
         return (
             <DetailEmptyState
-                name={`${dataComponent}_empty`}
                 message="제공기록지 배정 정보가 없습니다"
             />
         );

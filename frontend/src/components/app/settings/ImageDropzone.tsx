@@ -100,7 +100,7 @@ export function ImageDropzone({
   };
 
   return (
-    <div data-component="settings-image-dropzone">
+    <div data-component="desktop_settings_sections_image-dropzone">
       {/* 에러 표시 */}
       {(validationError || error) && (
         <Alert variant="destructive" className="mb-4">
@@ -110,7 +110,7 @@ export function ImageDropzone({
 
       {/* 드롭존 */}
       <div
-        data-component="settings-image-dropzone-paper"
+        data-component="desktop_settings_sections_image-dropzone-paper"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

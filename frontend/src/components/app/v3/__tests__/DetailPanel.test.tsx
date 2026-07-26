@@ -93,7 +93,6 @@ describe("DetailPanel", () => {
         title="상세"
         emptyState={
           <DetailEmptyState
-            name="detail-panel-empty"
             icon={Users}
             message="항목을 선택하면 상세 정보가 표시됩니다."
             className="flex-none min-h-0"

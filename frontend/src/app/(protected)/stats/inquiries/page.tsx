@@ -52,8 +52,8 @@ export default async function InquiriesDetailPage() {
   const maxBranch = Math.max(1, ...byBranch.map((b) => b.count));
 
   return (
-    <section data-component="stats-inquiries" className="flex flex-col gap-6 pb-10">
-      <Block name="stats-inquiries-hero" className="shrink-0">
+    <section data-component="desktop_stats-inquiries_page" className="flex flex-col gap-6 pb-10">
+      <Block name="desktop_stats-inquiries_page_hero" className="shrink-0">
         <StatsHero
           title={isOwner ? "상담 신청 통계" : `${user?.branchName ?? "내 지점"} 상담 신청 통계`}
           subtitle={
@@ -64,13 +64,13 @@ export default async function InquiriesDetailPage() {
           rightValue={formatDateForDisplay(today)}
           backHref={isOwner ? "/stats" : undefined}
           backLabel={isOwner ? "통계 overview로" : undefined}
-          dataComponent="stats-inquiries-hero"
+          dataComponent="desktop_stats-inquiries_page_hero_content"
         />
       </Block>
 
-      <Block name="stats-inquiries-kpi" className="shrink-0">
+      <Block name="desktop_stats-inquiries_page_kpi" className="shrink-0">
         <div
-          data-component="stats-inquiries-kpi-grid"
+          data-component="desktop_stats-inquiries_page_kpi_grid"
           className="grid grid-cols-2 lg:grid-cols-5 gap-3"
         >
           <KpiCard
@@ -79,14 +79,14 @@ export default async function InquiriesDetailPage() {
             value={summary.today}
             unit="건"
             tone="success"
-            dataComponent="stats-inquiries-kpi-today"
+            dataComponent="desktop_stats-inquiries_page_kpi_grid_card-today"
           />
           <KpiCard
             iconEmoji="📅"
             label="어제"
             value={summary.yesterday}
             unit="건"
-            dataComponent="stats-inquiries-kpi-yesterday"
+            dataComponent="desktop_stats-inquiries_page_kpi_grid_card-yesterday"
           />
           <KpiCard
             iconEmoji="📊"
@@ -94,28 +94,28 @@ export default async function InquiriesDetailPage() {
             value={summary.sevenDayTotal}
             unit="건"
             meta={`평균 ${summary.sevenDayAvg.toFixed(1)}건/일`}
-            dataComponent="stats-inquiries-kpi-week"
+            dataComponent="desktop_stats-inquiries_page_kpi_grid_card-week"
           />
           <KpiCard
             iconEmoji="🔀"
             label="전환율"
             value={summary.conversionRate.toFixed(1)}
             unit="%"
-            dataComponent="stats-inquiries-kpi-conversion"
+            dataComponent="desktop_stats-inquiries_page_kpi_grid_card-conversion"
           />
           <KpiCard
             iconEmoji="⏱"
             label="최근 신청"
             value={formatRelativeKo(summary.lastSubmissionAt)}
-            dataComponent="stats-inquiries-kpi-last"
+            dataComponent="desktop_stats-inquiries_page_kpi_grid_card-last"
             valueSize="sm"
           />
         </div>
       </Block>
 
-      <Block name="stats-inquiries-daily">
+      <Block name="desktop_stats-inquiries_page_daily">
         <div
-          data-component="stats-inquiries-daily-card"
+          data-component="desktop_stats-inquiries_page_daily_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-4">
@@ -160,12 +160,12 @@ export default async function InquiriesDetailPage() {
       </Block>
 
       <Block
-        name="stats-inquiries-breakdown"
+        name="desktop_stats-inquiries_page_breakdown"
         className={isOwner ? "grid grid-cols-1 lg:grid-cols-2 gap-4" : "grid grid-cols-1 gap-4"}
       >
         {/* Hourly today */}
         <div
-          data-component="stats-inquiries-hourly-card"
+          data-component="desktop_stats-inquiries_page_breakdown_hourly-card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -214,7 +214,7 @@ export default async function InquiriesDetailPage() {
         {/* By branch — owner only */}
         {isOwner && (
           <div
-            data-component="stats-inquiries-branch-card"
+            data-component="desktop_stats-inquiries_page_breakdown_branch-card"
             className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
           >
             <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -251,9 +251,9 @@ export default async function InquiriesDetailPage() {
         )}
       </Block>
 
-      <Block name="stats-inquiries-recent">
+      <Block name="desktop_stats-inquiries_page_recent">
         <div
-          data-component="stats-inquiries-recent-card"
+          data-component="desktop_stats-inquiries_page_recent_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -284,7 +284,7 @@ export default async function InquiriesDetailPage() {
                 {recent.map((r, i) => (
                   <tr
                     key={`${r.distinctId}-${i}`}
-                    data-component="stats-inquiries-recent-row"
+                    data-component="desktop_stats-inquiries_page_recent_card_body_row"
                     className="border-b border-v3-border last:border-0 hover:bg-v3-dim-white"
                   >
                     <td className="px-3 py-3 font-mono text-[0.72rem] text-v3-text-muted">

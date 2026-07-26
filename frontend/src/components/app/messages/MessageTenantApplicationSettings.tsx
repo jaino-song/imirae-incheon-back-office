@@ -443,10 +443,10 @@ export function MessageTenantApplicationSettings() {
   if (isMessageSenderApprovalLoading) {
     return (
       <div
-        data-component="messages-settings-layout"
+        data-component="desktop_messages_sections_settings-layout"
         className="grid min-h-[560px] flex-1 gap-6 lg:grid-cols-[380px_1fr]"
       >
-        <ListPanel data-component="desktop_messages_split-layout_list-panel"
+        <ListPanel data-component="desktop_messages_sections_split-layout_list-panel"
           title="설정"
           subtitle="메시지에 관련된 설정들을 정할 수 있어요"
           headerActions={
@@ -460,12 +460,11 @@ export function MessageTenantApplicationSettings() {
           />
         </ListPanel>
 
-        <DetailPanel data-component="desktop_messages_split-layout_detail-panel"
+        <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel"
           title="설정"
           subtitle="메시지에 관련된 설정들을 정할 수 있어요"
         >
           <DetailEmptyState
-            name="messages-settings-detail-empty"
             message={emptyDetailMessage}
           />
         </DetailPanel>
@@ -475,10 +474,10 @@ export function MessageTenantApplicationSettings() {
 
   return (
     <div
-      data-component="messages-settings-tenant-application"
+      data-component="desktop_messages_sections_settings-tenant-application"
       className="grid min-h-[560px] flex-1 gap-6 lg:grid-cols-[380px_1fr]"
     >
-      <ListPanel data-component="desktop_messages_split-layout_list-panel-2"
+      <ListPanel data-component="desktop_messages_sections_split-layout_list-panel-2"
         title="설정"
         subtitle="메시지에 관련된 설정들을 정할 수 있어요"
         headerActions={
@@ -501,7 +500,7 @@ export function MessageTenantApplicationSettings() {
 
             return (
               <AnimatedSlotListItemContent
-                dataComponent="messages-settings-tenant-list"
+                dataComponent="desktop_messages_sections_settings-tenant-list"
                 icon={item.icon}
                 iconContainerClassName="bg-white text-v3-primary"
                 title={item.title}
@@ -528,7 +527,7 @@ export function MessageTenantApplicationSettings() {
       </ListPanel>
 
       {selectedItem?.kind === "automation-policy" ? (
-        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-2"
+        <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-2"
           avatar={
             <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
               <SelectedItemIcon className="h-5 w-5" />
@@ -543,7 +542,7 @@ export function MessageTenantApplicationSettings() {
           }
           footer={selectedItem.id === PAST_TRIGGER_POLICY_ID ? (
             <div
-              data-component="messages-settings-past-trigger-policy-footer"
+              data-component="desktop_messages_sections_settings-past-trigger-policy-footer"
               className="ml-auto flex shrink-0 flex-wrap justify-end gap-[calc(12px*var(--glint-ui-scale,1))]"
             >
               <Button
@@ -551,7 +550,7 @@ export function MessageTenantApplicationSettings() {
                 variant="positive"
                 onClick={handleSavePastTriggerConfig}
                 disabled={!canSavePastTriggerConfig || savePastTriggerConfigMutation.isPending}
-                data-component="messages-settings-past-trigger-policy-save"
+                data-component="desktop_messages_sections_settings-past-trigger-policy-save"
                 className="shrink-0"
               >
                 <Send className="h-4 w-4" />
@@ -576,7 +575,7 @@ export function MessageTenantApplicationSettings() {
                 ))}
                 {selectedItem.id === PAST_TRIGGER_POLICY_ID ? (
                   <InfoRow
-                    data-component="messages-settings-past-trigger-policy-send-interval"
+                    data-component="desktop_messages_sections_settings-past-trigger-policy-send-interval"
                     label="전송 간격"
                     value={
                       <div className="flex min-w-0 items-center justify-end gap-2">
@@ -601,23 +600,23 @@ export function MessageTenantApplicationSettings() {
 
             {selectedItem.id === PAST_TRIGGER_POLICY_ID ? (
               <InfoCard
-                data-component="messages-settings-past-trigger-policy-order-card"
+                data-component="desktop_messages_sections_settings-past-trigger-policy-order-card"
                 title="늦은 등록 자동 전송 순서"
               >
                 <div
-                  data-component="messages-settings-past-trigger-policy-order-form"
+                  data-component="desktop_messages_sections_settings-past-trigger-policy-order-form"
                   className="-mt-1"
                 >
                   {isTriggerRulesLoading ? (
                     <InfoRow
-                      data-component="messages-settings-past-trigger-policy-order-loading"
+                      data-component="desktop_messages_sections_settings-past-trigger-policy-order-loading"
                       label="상태"
                       value="자동 전송 루틴을 불러오는 중"
                     />
                   ) : retroactiveTriggerOrderItems.length > 0 ? retroactiveTriggerOrderItems.map((item, index) => (
                     <InfoRow
                       key={item.id}
-                      data-component={`messages-settings-past-trigger-policy-order-${item.id}`}
+                      data-component={`desktop_messages_sections_settings-past-trigger-policy-order-${item.id}`}
                       label={`${index + 1}순위`}
                       value={
                         <div className="flex min-w-0 items-center justify-end gap-2">
@@ -662,7 +661,7 @@ export function MessageTenantApplicationSettings() {
                     />
                   )) : (
                     <InfoRow
-                      data-component="messages-settings-past-trigger-policy-order-empty"
+                      data-component="desktop_messages_sections_settings-past-trigger-policy-order-empty"
                       label="루틴"
                       value="등록된 자동 전송 루틴 없음"
                     />
@@ -673,20 +672,20 @@ export function MessageTenantApplicationSettings() {
           </div>
         </DetailPanel>
       ) : selectedItem?.kind === "client-registration-policy" ? (
-        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-3"
+        <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-3"
           avatar={<div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"><UserPlus className="h-5 w-5" /></div>}
           title="고객 자동 등록"
           subtitle="전자문서 고객 등록과 인사 문자 발송을 관리합니다."
         >
-          <InfoCard data-component="messages-settings-client-registration-policy-card" title="고객 자동 등록">
+          <InfoCard data-component="desktop_messages_sections_settings-client-registration-policy-card" title="고객 자동 등록">
             <div className="-mt-1">
               <InfoRow
-                data-component="messages-settings-client-auto-registration"
+                data-component="desktop_messages_sections_settings-client-auto-registration"
                 label="전자문서 생성 시 고객 자동 등록"
                 value={<Switch aria-label="전자문서 생성 시 고객 자동 등록" checked={clientRegistrationPolicy?.clientAutoRegistration === true} disabled={!clientRegistrationPolicy || updateClientRegistrationPolicyMutation.isPending} onCheckedChange={(checked) => updateClientRegistrationPolicyMutation.mutate({ clientAutoRegistration: checked })} />}
               />
               <InfoRow
-                data-component="messages-settings-greeting-on-auto-registration"
+                data-component="desktop_messages_sections_settings-greeting-on-auto-registration"
                 label="자동 등록 시 인사 문자 발송"
                 value={<Switch aria-label="자동 등록 시 인사 문자 발송" checked={clientRegistrationPolicy?.greetingOnAutoRegistration === true} disabled={!clientRegistrationPolicy?.clientAutoRegistration || updateClientRegistrationPolicyMutation.isPending} onCheckedChange={(checked) => updateClientRegistrationPolicyMutation.mutate({ greetingOnAutoRegistration: checked })} />}
               />
@@ -694,7 +693,7 @@ export function MessageTenantApplicationSettings() {
           </InfoCard>
         </DetailPanel>
       ) : selectedItem?.kind === "duplicate-send-policy" ? (
-        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-4"
+        <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-4"
           avatar={
             <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
               <Repeat2 className="h-5 w-5" />
@@ -708,24 +707,24 @@ export function MessageTenantApplicationSettings() {
             </span>
           }
         >
-          <div data-component="messages-settings-duplicate-send-policy" className="space-y-4">
+          <div data-component="desktop_messages_sections_settings-duplicate-send-policy" className="space-y-4">
             <InfoCard
-              data-component="messages-settings-duplicate-send-policy-card"
+              data-component="desktop_messages_sections_settings-duplicate-send-policy-card"
               title="규칙"
             >
               <div className="-mt-1">
                 <InfoRow
-                  data-component="messages-settings-duplicate-send-policy-condition"
+                  data-component="desktop_messages_sections_settings-duplicate-send-policy-condition"
                   label="조건"
                   value="같은 번호 · 같은 메시지"
                 />
                 <InfoRow
-                  data-component="messages-settings-duplicate-send-policy-window"
+                  data-component="desktop_messages_sections_settings-duplicate-send-policy-window"
                   label="확인 범위"
                   value="최근 72시간"
                 />
                 <InfoRow
-                  data-component="messages-settings-duplicate-send-policy-action"
+                  data-component="desktop_messages_sections_settings-duplicate-send-policy-action"
                   label="동작"
                   value="전송 전 확인 모달"
                 />
@@ -733,7 +732,7 @@ export function MessageTenantApplicationSettings() {
             </InfoCard>
 
             <div
-              data-component="messages-settings-duplicate-send-policy-preview"
+              data-component="desktop_messages_sections_settings-duplicate-send-policy-preview"
               className="rounded-[18px] border border-v3-border bg-white p-4"
             >
               <div className="flex items-start gap-3">
@@ -751,7 +750,7 @@ export function MessageTenantApplicationSettings() {
           </div>
         </DetailPanel>
       ) : (
-        <DetailPanel data-component="desktop_messages_split-layout_detail-panel-5"
+        <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel-5"
           avatar={
             <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary">
               <ShieldCheck className="h-5 w-5" />
@@ -767,9 +766,9 @@ export function MessageTenantApplicationSettings() {
             ) : undefined
           }
         >
-          <div data-component="messages-settings-tenant-form" className="space-y-5 pb-2">
+          <div data-component="desktop_messages_sections_settings-tenant-form" className="space-y-5 pb-2">
             <div
-              data-component="messages-settings-tenant-card"
+              data-component="desktop_messages_sections_settings-tenant-card"
               className="rounded-[18px] border border-v3-border bg-v3-dim-white/35 p-4"
             >
               <div className="flex items-center gap-3">
@@ -783,7 +782,7 @@ export function MessageTenantApplicationSettings() {
             </div>
 
             <div
-              data-component="messages-settings-tenant-sender-info"
+              data-component="desktop_messages_sections_settings-tenant-sender-info"
               className="rounded-[18px] border border-v3-border bg-v3-dim-white/35 p-4"
             >
               <p className="text-[0.76rem] font-semibold text-v3-dark">발신번호</p>
@@ -793,7 +792,7 @@ export function MessageTenantApplicationSettings() {
               </p>
             </div>
 
-            <div data-component="messages-settings-tenant-agreements" className="space-y-3">
+            <div data-component="desktop_messages_sections_settings-tenant-agreements" className="space-y-3">
               {ALIGO_POLICY_ITEMS.map((policy) => {
                 const checked = agreements[policy.id];
 
@@ -834,7 +833,7 @@ export function MessageTenantApplicationSettings() {
             </div>
 
             <Button
-              data-component="messages-settings-tenant-submit"
+              data-component="desktop_messages_sections_settings-tenant-submit"
               type="button"
               onClick={handleSubmit}
               disabled={!canSubmit}
@@ -846,7 +845,7 @@ export function MessageTenantApplicationSettings() {
 
             {requestedAt ? (
               <div
-                data-component="messages-settings-tenant-success"
+                data-component="desktop_messages_sections_settings-tenant-success"
                 className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3"
               >
                 <div className="flex items-start gap-3">
