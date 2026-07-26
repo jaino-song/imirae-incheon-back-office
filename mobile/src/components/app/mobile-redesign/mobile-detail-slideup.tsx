@@ -60,7 +60,7 @@ export function MobileDetailSlideUp({
       stackClassName={styles.stack}
       listDataComponent={`mobile-${name}-list-page`}
       listClassName={styles.listStub}
-      scrimDataComponent={`mobile-${name}-detail-scrim`}
+      scrimDataComponent={`mobile_${name}_stack_scrim`}
       scrimClassName={styles.scrim}
       scrimDisabled={!open || closeDisabled}
       detailDataComponent={name}

@@ -115,6 +115,7 @@ export function MobileDetailStack({
         <div
           className={cn("nav-page list", listClassName)}
           data-component={listDataComponent ?? `${dataComponent}_stack_list-page`}
+          data-slot="mobile-detail-stack-list-page"
           aria-hidden={list == null}
         >
           {list}
@@ -124,6 +125,7 @@ export function MobileDetailStack({
           aria-label={closeLabel}
           className={cn("scrim", scrimClassName)}
           data-component={scrimDataComponent ?? `${dataComponent}_stack_scrim`}
+          data-slot="mobile-detail-stack-scrim"
           onClick={onClose}
           disabled={scrimDisabled}
         />
@@ -437,10 +439,12 @@ export function Avatar({
 }
 
 export function DetailTabPills({
+  "data-component": dataComponent,
   tabs,
   activeTab,
   onTabChange,
 }: {
+  "data-component"?: string;
   tabs: DetailTab[];
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -495,7 +499,12 @@ export function DetailTabPills({
   };
 
   return (
-    <div ref={tabsRef} className="filter-row detail-tabs" data-component="mobile-redesign-detail-tabs">
+    <div
+      ref={tabsRef}
+      className="filter-row detail-tabs"
+      // TODO(data-component): Remove the legacy fallbacks after caller migration.
+      data-component={dataComponent ?? "mobile-redesign-detail-tabs"}
+    >
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         return (
@@ -517,7 +526,7 @@ export function DetailTabPills({
       <span
         ref={indicatorRef}
         className="detail-tabs-indicator"
-        data-component="mobile-redesign-detail-tabs-indicator"
+        data-component={dataComponent ? `${dataComponent}_indicator` : "mobile-redesign-detail-tabs-indicator"}
       />
     </div>
   );
@@ -556,18 +565,24 @@ export function DocRow({
 }
 
 export function MobileSearchBar({
+  "data-component": dataComponent,
   placeholder,
   label,
   value,
   onChange,
 }: {
+  "data-component"?: string;
   placeholder: string;
   label: string;
   value?: string;
   onChange?: (value: string) => void;
 }) {
   return (
-    <div className="search-bar" data-component={`mobile-${label}-search`}>
+    <div
+      className="search-bar"
+      // TODO(data-component): Remove the legacy fallback after caller migration.
+      data-component={dataComponent ?? `mobile-${label}-search`}
+    >
       <Search size={14} strokeWidth={2.5} />
       <input
         name={`${label}Search`}
