@@ -53,6 +53,10 @@ const DEFAULT_ANALYTICS = {
   upcomingThisMonth: 4,
   upcomingNextMonth: 5,
 };
+const DASHBOARD_LIST_ROW =
+  "mobile_dashboard_page_content_list-card_body_section-1_row-1";
+const DASHBOARD_DETAIL_PAGE =
+  "mobile_dashboard_detail-sheet_stack_detail-page";
 
 function createMockClient({
   id,
@@ -283,13 +287,19 @@ test.describe("Dashboard activities animations", () => {
 
     await page.goto("/dashboard");
 
-    const rows = page.locator('[data-component="mobile-redesign-list-row"]', { hasText: "가나다" });
+    const rows = page.locator(`[data-component="${DASHBOARD_LIST_ROW}"]`, {
+      hasText: "가나다",
+    });
     await expect(rows).toHaveCount(1);
 
     const row = rows.first();
-    const badges = row.locator('[data-component="mobile-redesign-list-row-badges"] [data-component="status-badge"]');
+    const badges = row.locator(
+      `[data-component="${DASHBOARD_LIST_ROW}_badges_primary"]`
+    );
     await expect(badges).toHaveText(["계약서 필요"]);
-    await expect(row.locator('[data-component="mobile-redesign-list-row-badges-more"]')).toHaveText("+1");
+    await expect(
+      row.locator(`[data-component="${DASHBOARD_LIST_ROW}_badges_more"]`)
+    ).toHaveText("+1");
     await expect(row.locator(".dday")).toHaveText(`서비스 시작 ${Math.abs(elapsedBusinessDays)} 영업일 경과`);
     await expect(row.locator(".list-right")).toContainText("계약서 필요");
     await expect(page.getByRole("button", { name: /전체\s+1/ })).toBeVisible();
@@ -477,7 +487,9 @@ test.describe("Dashboard activities animations", () => {
     await expect(firstItem).toBeVisible();
     await firstItem.click();
 
-    const detailPanel = page.locator('[data-component="detail-panel"]');
+    const detailPanel = page.locator(
+      `[data-component="${DASHBOARD_DETAIL_PAGE}"][data-slot="mobile-detail-stack-detail-page"]`
+    );
     await expect(detailPanel).toBeVisible();
     await expect(detailPanel).toContainText("김교체");
 
