@@ -129,6 +129,10 @@ const requireDataComponent = {
             type: "boolean",
             default: false,
           },
+          checkMissingAnnotations: {
+            type: "boolean",
+            default: true,
+          },
         },
         additionalProperties: false,
       },
@@ -153,6 +157,9 @@ const requireDataComponent = {
   create(context) {
     const banLegacyFormat =
       context.options[0] && context.options[0].banLegacyFormat === true;
+    const checkMissingAnnotations =
+      !context.options[0] ||
+      context.options[0].checkMissingAnnotations !== false;
 
     return {
       JSXOpeningElement(node) {
@@ -173,7 +180,7 @@ const requireDataComponent = {
         // Find data-component attribute
         const dataComponentAttr = getAttribute(node, "data-component");
 
-        if (!dataComponentAttr) {
+        if (!dataComponentAttr && checkMissingAnnotations) {
           if (isAnonymousChildrenWrapper(node, elementName)) return;
 
           context.report({
@@ -184,34 +191,36 @@ const requireDataComponent = {
           return;
         }
 
-        // Canonical names are preferred; legacy kebab-case stays valid until
-        // the remaining routes complete the migration.
-        const literalValue = getLiteralAttributeValue(dataComponentAttr);
-        if (literalValue) {
-          const isCanonical =
-            CANONICAL_DATA_COMPONENT_REGEX.test(literalValue);
-          const isLegacy = LEGACY_KEBAB_CASE_REGEX.test(literalValue);
+        if (dataComponentAttr) {
+          // Canonical names are preferred; legacy kebab-case stays valid until
+          // the remaining routes complete the migration.
+          const literalValue = getLiteralAttributeValue(dataComponentAttr);
+          if (literalValue) {
+            const isCanonical =
+              CANONICAL_DATA_COMPONENT_REGEX.test(literalValue);
+            const isLegacy = LEGACY_KEBAB_CASE_REGEX.test(literalValue);
 
-          if (isLegacy && banLegacyFormat) {
-            context.report({
-              node: dataComponentAttr,
-              messageId: "legacyFormat",
-              data: { value: literalValue },
-            });
-          } else if (!isCanonical && !isLegacy) {
-            context.report({
-              node: dataComponentAttr,
-              messageId: "invalidFormat",
-              data: { value: literalValue },
-            });
-          } else if (isCanonical) {
-            const parent = getNearestCanonicalParent(node);
-            if (parent && !literalValue.startsWith(`${parent}_`)) {
+            if (isLegacy && banLegacyFormat) {
               context.report({
                 node: dataComponentAttr,
-                messageId: "brokenParentPath",
-                data: { value: literalValue, parent },
+                messageId: "legacyFormat",
+                data: { value: literalValue },
               });
+            } else if (!isCanonical && !isLegacy) {
+              context.report({
+                node: dataComponentAttr,
+                messageId: "invalidFormat",
+                data: { value: literalValue },
+              });
+            } else if (isCanonical) {
+              const parent = getNearestCanonicalParent(node);
+              if (parent && !literalValue.startsWith(`${parent}_`)) {
+                context.report({
+                  node: dataComponentAttr,
+                  messageId: "brokenParentPath",
+                  data: { value: literalValue, parent },
+                });
+              }
             }
           }
         }
