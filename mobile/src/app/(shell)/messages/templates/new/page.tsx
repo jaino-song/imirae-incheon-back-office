@@ -7,12 +7,12 @@ import { ContentPaper } from "@/components/app/root/content-paper";
 
 export default function NewTemplatePage() {
   return (
-    <div data-component="messages-templates-new" className="bg-background">
+    <div data-component="mobile_messages_templates_new_page" className="bg-background">
       <section
-        data-component="messages-templates-new-content"
+        data-component="mobile_messages_templates_new_page_content"
         className="mx-auto px-4 py-6 sm:px-6 md:px-12 sm:py-8"
       >
-        <div data-component="messages-templates-new-nav" className="mb-4">
+        <div data-component="mobile_messages_templates_new_page_content_nav" className="mb-4">
           <Button variant="ghost" size="icon" className="h-[44px] w-[44px]" asChild>
             <Link href="/messages/templates">
               <ArrowLeft className="h-6 w-6" />
@@ -22,7 +22,7 @@ export default function NewTemplatePage() {
 
         <ContentPaper title="템플릿 생성" subtitle="템플릿 생성은 데스크톱에서만 가능합니다">
           <div
-            data-component="messages-templates-new-desktop-only"
+            data-component="mobile_messages_templates_new_page_content_desktop-only"
             className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-v3-border bg-v3-dim-white px-6 py-10 text-center"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-v3-primary/10">

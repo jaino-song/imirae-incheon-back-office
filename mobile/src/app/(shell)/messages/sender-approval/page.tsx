@@ -40,6 +40,8 @@ interface AgreementState {
   senderNumber: boolean;
 }
 
+const SENDER_APPROVAL_FORM_BASE = "mobile_messages_sender-approval_page_screen_content_scroll_list-card_body_form";
+
 interface SenderApprovalFormProps {
   approval?: MessageSenderApprovalResponse;
   branchName: string;
@@ -113,28 +115,28 @@ function SenderApprovalForm({
   const submitLabel = approval?.approvalStatus === "pending" ? "다시 신청하기" : "신청하기";
 
   return (
-    <div data-component="messages-settings-tenant-sections" className={styles.formSections}>
-      <section data-component="messages-settings-tenant-branch-card" className={styles.formCardSection}>
-          <div data-component="messages-settings-tenant-branch-row" className={styles.formSection}>
-            <div data-component="messages-settings-tenant-branch-label-row" className={styles.labelRow}>
+    <div data-component={SENDER_APPROVAL_FORM_BASE} className={styles.formSections}>
+      <section data-component={`${SENDER_APPROVAL_FORM_BASE}_branch`} className={styles.formCardSection}>
+          <div data-component={`${SENDER_APPROVAL_FORM_BASE}_branch_row`} className={styles.formSection}>
+            <div data-component={`${SENDER_APPROVAL_FORM_BASE}_branch_row_label`} className={styles.labelRow}>
               <span className={styles.formLabel}>지점</span>
               <span className={styles.statusPill}>{approvalStatusLabel(approval)}</span>
             </div>
-            <div data-component="messages-settings-tenant-card" className={styles.branchInline}>
-              <span data-component="messages-settings-tenant-branch-icon" className={styles.branchIcon} aria-hidden="true">
+            <div data-component={`${SENDER_APPROVAL_FORM_BASE}_branch_row_card`} className={styles.branchInline}>
+              <span data-component={`${SENDER_APPROVAL_FORM_BASE}_branch_row_card_icon`} className={styles.branchIcon} aria-hidden="true">
                 <Building2 size={16} strokeWidth={2.5} />
               </span>
-              <span data-component="messages-settings-tenant-branch-name" className={styles.branchName}>
+              <span data-component={`${SENDER_APPROVAL_FORM_BASE}_branch_row_card_name`} className={styles.branchName}>
                 {branchName}
               </span>
             </div>
           </div>
       </section>
 
-      <section data-component="messages-settings-tenant-phone-card" className={styles.formCardSection}>
-          <div data-component="messages-settings-tenant-sender-info" className={styles.formSection}>
+      <section data-component={`${SENDER_APPROVAL_FORM_BASE}_phone`} className={styles.formCardSection}>
+          <div data-component={`${SENDER_APPROVAL_FORM_BASE}_phone_info`} className={styles.formSection}>
             <span className={styles.formLabel}>발신번호</span>
-            <span data-component="messages-settings-tenant-sender-number" className={styles.branchName}>
+            <span data-component={`${SENDER_APPROVAL_FORM_BASE}_phone_info_number`} className={styles.branchName}>
               {UNIFIED_SENDER_PHONE}
             </span>
             <p className={styles.helperText}>
@@ -143,12 +145,12 @@ function SenderApprovalForm({
           </div>
       </section>
 
-      <section data-component="messages-settings-tenant-agreements-card" className={styles.formCardSection}>
-          <div data-component="messages-settings-tenant-agreements" className={styles.formSection}>
+      <section data-component={`${SENDER_APPROVAL_FORM_BASE}_agreements`} className={styles.formCardSection}>
+          <div data-component={`${SENDER_APPROVAL_FORM_BASE}_agreements_row`} className={styles.formSection}>
             <span className={styles.formLabel}>
               동의 항목 <span className={styles.required}>*</span>
             </span>
-            <div data-component="messages-settings-tenant-agreement-list" className={styles.agreementGroup}>
+            <div data-component={`${SENDER_APPROVAL_FORM_BASE}_agreements_row_list`} className={styles.agreementGroup}>
               {AGREEMENT_ITEMS.map((item) => (
                 <label key={item.id} htmlFor={item.id} className={styles.agreementCard}>
                   <Checkbox
@@ -185,7 +187,7 @@ function SenderApprovalForm({
       </section>
 
       {!isLoading && !canRequest ? (
-        <Alert data-component="messages-settings-tenant-permission-alert" className={styles.feedbackAlert}>
+        <Alert data-component={`${SENDER_APPROVAL_FORM_BASE}_permission-alert`} className={styles.feedbackAlert}>
           <AlertDescription>
             현재 계정은 메시지 발송 기능 신청 권한이 없습니다. 관리자 또는 매니저 계정으로 신청해 주세요.
           </AlertDescription>
@@ -194,7 +196,7 @@ function SenderApprovalForm({
 
       {errorMessage ? (
         <Alert
-          data-component="messages-settings-tenant-error"
+          data-component={`${SENDER_APPROVAL_FORM_BASE}_error`}
           variant="destructive"
           className={styles.feedbackAlert}
         >
@@ -202,10 +204,10 @@ function SenderApprovalForm({
         </Alert>
       ) : null}
 
-      <div data-component="messages-settings-tenant-actions" className={styles.msgActions}>
+      <div data-component={`${SENDER_APPROVAL_FORM_BASE}_actions`} className={styles.msgActions}>
         <Button
           type="button"
-          data-component="messages-settings-tenant-submit"
+          data-component={`${SENDER_APPROVAL_FORM_BASE}_actions_submit`}
           variant="v3"
           disabled={!canSubmit}
           className={styles.submitButton}
@@ -260,22 +262,31 @@ export default function MessageSenderApprovalPage() {
 
   return (
     <section
-      data-component="messages"
+      data-component="mobile_messages_sender-approval_page"
+      data-slot="messages-page"
       data-page="messages-sender-approval"
       className={`messages-page ${styles.pageRoot}`}
     >
-      <div data-component="messages-sender-approval-screen" className={styles.phoneScreen}>
+      <div data-component="mobile_messages_sender-approval_page_screen" className={styles.phoneScreen}>
         <div
-          data-component="messages-content"
+          data-component="mobile_messages_sender-approval_page_screen_content"
+          data-slot="messages-content"
           data-form="messages-sender-approval-form"
           className={`shell-content gap-[calc(8px*var(--glint-ui-scale,1))] ${styles.navPage}`}
         >
-          <div data-component="messages-sender-approval-section-nav" className="shrink-0">
-            <MessageSectionNav activeId="settings" />
+          <div data-component="mobile_messages_sender-approval_page_screen_content_section-nav" className="shrink-0">
+            <MessageSectionNav
+              data-component="mobile_messages_sender-approval_page_screen_content_section-nav_nav"
+              activeId="settings"
+            />
           </div>
 
-          <div data-component="messages-sender-approval-scroll" className={styles.formScroll}>
-            <ListCard title="메시지 설정" filters={[]}>
+          <div data-component="mobile_messages_sender-approval_page_screen_content_scroll" className={styles.formScroll}>
+            <ListCard
+              data-component="mobile_messages_sender-approval_page_screen_content_scroll_list-card"
+              title="메시지 설정"
+              filters={[]}
+            >
               <SenderApprovalForm
                 approval={approvalQuery.data}
                 branchName={branchName}

@@ -83,7 +83,7 @@ describe("MessagesPermissionGuard", () => {
     expect(await screen.findByText("메시지 전송 권한이 필요합니다.")).toBeInTheDocument();
 
     const backdrop = document.querySelector(
-      '[data-component="mobile-messages-approval-modal-overlay"]',
+      '[data-component="mobile_messages_sender-approval-modal_overlay"]',
     );
     expect(backdrop).toBeInTheDocument();
 

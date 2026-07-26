@@ -13,11 +13,11 @@
 }
 
 /* ===== Mobile messages navigation + data pages ===== */
-body:has([data-component="messages"]) [data-slot="floating-quick-actions"] {
+body:has([data-slot="messages-page"]) [data-slot="floating-quick-actions"] {
   display: none !important;
 }
 
-body:has([data-component="messages"]) [data-component="messages"],
+body:has([data-slot="messages-page"]) [data-slot="messages-page"],
 .message-page-shell {
   display: flex;
   width: 100%;
@@ -26,7 +26,7 @@ body:has([data-component="messages"]) [data-component="messages"],
   flex-direction: column;
 }
 
-body:has([data-component="messages"]) [data-component="messages-content"] {
+body:has([data-slot="messages-page"]) [data-slot="messages-content"] {
   padding: 76px 14px;
   overflow-y: auto;
 }
@@ -2716,14 +2716,14 @@ body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="mobile-bo
 }
 
 /* ===== /messages pixel shell — scoped to page-messages.html parity ===== */
-body:has([data-component="messages"]) {
+body:has([data-slot="messages-page"]) {
   background: hsl(220, 15%, 88%);
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
 }
 
-body:has([data-component="messages"]) [data-slot="app-root"] {
+body:has([data-slot="messages-page"]) [data-slot="app-root"] {
   position: relative;
   padding: 12px;
   overflow: hidden;
@@ -2734,7 +2734,7 @@ body:has([data-component="messages"]) [data-slot="app-root"] {
     0 0 0 1px rgba(0, 0, 0, 0.6) inset;
 }
 
-body:has([data-component="messages"]) [data-slot="app-root"]::before {
+body:has([data-slot="messages-page"]) [data-slot="app-root"]::before {
   content: "";
   position: absolute;
   top: 12px;
@@ -2748,7 +2748,7 @@ body:has([data-component="messages"]) [data-slot="app-root"]::before {
   pointer-events: none;
 }
 
-body:has([data-component="messages"]) [data-slot="app-content"] {
+body:has([data-slot="messages-page"]) [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
@@ -2759,11 +2759,11 @@ body:has([data-component="messages"]) [data-slot="app-content"] {
   -webkit-font-smoothing: antialiased;
 }
 
-body:has([data-component="messages"]) nextjs-portal {
+body:has([data-slot="messages-page"]) nextjs-portal {
   display: none !important;
 }
 
-body:has([data-component="messages"]) [data-slot="main-content"] {
+body:has([data-slot="messages-page"]) [data-slot="main-content"] {
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -2773,7 +2773,7 @@ body:has([data-component="messages"]) [data-slot="main-content"] {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) [data-slot="mobile-header"] {
+body:has([data-slot="messages-page"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2786,36 +2786,23 @@ body:has([data-component="messages"]) [data-slot="mobile-header"] {
   z-index: 20;
 }
 
-body:has([data-component="messages"]) [data-component="messages"].mobile-detail-sheet {
+body:has([data-slot="messages-page"]) [data-slot="messages-page"].mobile-detail-sheet {
   --mobile-detail-sheet-min-height: calc(min(100dvh, 844px) - 88px);
   height: calc(min(100dvh, 844px) - 88px);
 }
 
-body:has([data-component="messages"]) [data-component="mobile-messages-content"] {
-  padding: 12px 14px 76px;
-  overflow-y: auto;
-}
-
-body:has([data-component="messages"]) [data-component="mobile-messages-list-card"] {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-body:has([data-component="messages"]) .messages-hub-wrap {
+body:has([data-slot="messages-page"]) .messages-hub-wrap {
   padding: 0 12px 4px;
 }
 
-body:has([data-component="messages"]) .hub-tiles {
+body:has([data-slot="messages-page"]) .hub-tiles {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 0 4px 12px;
 }
 
-body:has([data-component="messages"]) .hub-tile {
+body:has([data-slot="messages-page"]) .hub-tile {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2832,7 +2819,7 @@ body:has([data-component="messages"]) .hub-tile {
   font: inherit;
 }
 
-body:has([data-component="messages"]) .hub-tile-icon {
+body:has([data-slot="messages-page"]) .hub-tile-icon {
   display: flex;
   width: 32px;
   height: 32px;
@@ -2842,17 +2829,17 @@ body:has([data-component="messages"]) .hub-tile-icon {
   border-radius: 10px;
 }
 
-body:has([data-component="messages"]) .hub-tile-icon-kakao {
+body:has([data-slot="messages-page"]) .hub-tile-icon-kakao {
   color: hsl(45, 70%, 30%);
   background: hsl(50, 100%, 88%);
 }
 
-body:has([data-component="messages"]) .hub-tile-icon-primary {
+body:has([data-slot="messages-page"]) .hub-tile-icon-primary {
   color: hsl(214, 100%, 34%);
   background: hsl(var(--v3-primary-light));
 }
 
-body:has([data-component="messages"]) .hub-tile-text {
+body:has([data-slot="messages-page"]) .hub-tile-text {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -2860,19 +2847,19 @@ body:has([data-component="messages"]) .hub-tile-text {
   line-height: 1.2;
 }
 
-body:has([data-component="messages"]) .hub-tile-label {
+body:has([data-slot="messages-page"]) .hub-tile-label {
   font-size: 0.75rem;
   font-weight: 700;
   color: hsl(var(--v3-dark));
 }
 
-body:has([data-component="messages"]) .hub-tile-sub {
+body:has([data-slot="messages-page"]) .hub-tile-sub {
   margin-top: 2px;
   font-size: 0.6rem;
   color: hsl(var(--v3-text-muted));
 }
 
-body:has([data-component="messages"]) button.list-item {
+body:has([data-slot="messages-page"]) button.list-item {
   width: 100%;
   appearance: none;
   border: 0;
@@ -2883,18 +2870,18 @@ body:has([data-component="messages"]) button.list-item {
   text-align: left;
 }
 
-body:has([data-component="messages"]) .list-info {
+body:has([data-slot="messages-page"]) .list-info {
   display: block;
 }
 
-body:has([data-component="messages"]) .list-name,
-body:has([data-component="messages"]) .list-meta,
-body:has([data-component="messages"]) .section-header,
-body:has([data-component="messages"]) .filter-pill {
+body:has([data-slot="messages-page"]) .list-name,
+body:has([data-slot="messages-page"]) .list-meta,
+body:has([data-slot="messages-page"]) .section-header,
+body:has([data-slot="messages-page"]) .filter-pill {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) .thread-channel {
+body:has([data-slot="messages-page"]) .thread-channel {
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 0.55rem;
@@ -2904,17 +2891,17 @@ body:has([data-component="messages"]) .thread-channel {
   line-height: normal;
 }
 
-body:has([data-component="messages"]) .thread-channel.kakao {
+body:has([data-slot="messages-page"]) .thread-channel.kakao {
   color: hsl(45, 70%, 30%);
   background: hsl(50, 100%, 88%);
 }
 
-body:has([data-component="messages"]) .thread-channel.sms {
+body:has([data-slot="messages-page"]) .thread-channel.sms {
   color: hsl(var(--v3-primary));
   background: hsl(var(--v3-primary-light));
 }
 
-body:has([data-component="messages"]) .message-row-status {
+body:has([data-slot="messages-page"]) .message-row-status {
   display: inline-flex;
   min-width: max-content;
   flex-direction: column;
@@ -2923,66 +2910,50 @@ body:has([data-component="messages"]) .message-row-status {
   text-align: center;
 }
 
-body:has([data-component="messages"]) .message-row-status .dday-sub {
+body:has([data-slot="messages-page"]) .message-row-status .dday-sub {
   line-height: 1;
 }
 
-body:has([data-component="messages"]) .filter-pill .messages-filter-count-danger {
+body:has([data-slot="messages-page"]) .filter-pill .messages-filter-count-danger {
   color: hsl(var(--v3-burgundy));
   background: hsl(var(--v3-burgundy-light));
 }
 
-body:has([data-component="messages"]) .filter-pill.active .messages-filter-count-danger {
+body:has([data-slot="messages-page"]) .filter-pill.active .messages-filter-count-danger {
   color: white;
   background: rgba(255, 255, 255, 0.25);
 }
 
-body:has([data-component="messages"]) .messages-body-text {
+body:has([data-slot="messages-page"]) .messages-body-text {
   white-space: pre-wrap;
   color: hsl(var(--v3-dark));
   font-size: 0.84rem;
   line-height: 1.55;
 }
 
-body:has([data-component="messages"]) .messages-detail-link {
+body:has([data-slot="messages-page"]) .messages-detail-link {
   display: flex;
   align-items: center;
   justify-content: center;
   text-decoration: none;
 }
 
-body:has([data-component="messages"]) .detail-body .detail-actions {
+body:has([data-slot="messages-page"]) .detail-body .detail-actions {
   margin-top: 0;
   padding: 14px 16px;
 }
 
-body:has([data-component="messages"]) .badge-mini {
+body:has([data-slot="messages-page"]) .badge-mini {
   height: 28px;
   font-size: 0.68rem;
   border: 1px solid;
 }
 
-body:has([data-component="messages"]) .nav-stack.show-detail .nav-page.list {
+body:has([data-slot="messages-page"]) .nav-stack.show-detail .nav-page.list {
   transform: translateX(0);
 }
 
-body:has([data-component="messages"]) [data-component="mobile-messages-detail-scrim"] {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
-  z-index: 50;
-  border-radius: 38px;
-}
-
-body:has([data-component="messages"]):has([data-component="mobile-messages-stack"].show-detail) [data-slot="mobile-bottom-nav"] {
-  opacity: 0;
-  pointer-events: none;
-  translate: 0 calc(100% + 32px) !important;
-}
-
-body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   right: 14px !important;
   bottom: 12px !important;
@@ -3000,320 +2971,23 @@ body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] {
   transform: none !important;
 }
 
-body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body:has([data-component="messages"]) nav[data-slot="mobile-bottom-nav"] a {
+body:has([data-slot="messages-page"]) nav[data-slot="mobile-bottom-nav"] a {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] svg {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body:has([data-component="messages"]) [data-slot="mobile-bottom-nav"] span {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-/* ===== Message automation shell ===== */
-body:has([data-component="messages-shell"]) {
-  background: hsl(220, 15%, 88%);
-  color: hsl(var(--v3-text));
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="app-root"] {
-  position: relative;
-  padding: 12px;
-  overflow: hidden;
-  background: #000;
-  border-radius: 48px;
-  box-shadow:
-    0 30px 80px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(0, 0, 0, 0.6) inset;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="app-root"]::before {
-  content: "";
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  z-index: 100;
-  width: 110px;
-  height: 28px;
-  border-radius: 999px;
-  background: #000;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="app-content"] {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  color: hsl(var(--v3-text));
-  background: hsl(var(--v3-dim-white));
-  border-radius: 38px;
-  -webkit-font-smoothing: antialiased;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="main-content"] {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 64px 0 0 !important;
-  background: hsl(var(--v3-dim-white));
-  color: hsl(var(--v3-text));
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="mobile-header"] {
-  position: absolute !important;
-  top: 0 !important;
-  right: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  max-width: none !important;
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-  z-index: 20;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="floating-quick-actions"] {
-  display: none !important;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="app-content"] > .fixed.left-4.right-4.z-50 {
-  display: none !important;
-}
-
-body:has([data-component="messages-shell"]) [data-component="messages-shell"] {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-  font-family: inherit;
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) [data-component="messages-content"] {
-  padding: 12px 14px 76px;
-  overflow-y: auto;
-}
-
-body:has([data-component="messages-shell"]) [data-component="message-trigger-card"] {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-body:has([data-component="messages-shell"]) .list-action {
-  text-decoration: none;
-}
-
-body:has([data-component="messages-shell"]) .list-title,
-body:has([data-component="messages-shell"]) .list-title-text,
-body:has([data-component="messages-shell"]) .list-action,
-body:has([data-component="messages-shell"]) .section-header,
-body:has([data-component="messages-shell"]) .trigger-title,
-body:has([data-component="messages-shell"]) .trigger-meta,
-body:has([data-component="messages-shell"]) .send-stat {
-  line-height: normal;
-}
-
-body:has([data-component="messages-shell"]) button.message-trigger-row {
-  width: 100%;
-  appearance: none;
-  border: 0;
-  padding: 12px 10px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-body:has([data-component="messages-shell"]) button.message-trigger-row:disabled {
-  cursor: wait;
-  opacity: 0.72;
-}
-
-body:has([data-component="messages-shell"]) .message-trigger-row-skeleton {
-  padding: 12px 10px;
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon {
-  display: flex;
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 11px;
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-primary {
-  color: hsl(var(--v3-primary));
-  background: hsl(var(--v3-primary-light));
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-orange {
-  color: hsl(var(--v3-orange));
-  background: hsl(var(--v3-orange-light));
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-green {
-  color: hsl(var(--v3-green));
-  background: hsl(var(--v3-green-light));
-}
-
-body:has([data-component="messages-shell"]) .trigger-icon-purple {
-  color: hsl(267, 50%, 46%);
-  background: hsl(267, 50%, 92%);
-}
-
-body:has([data-component="messages-shell"]) .trigger-info {
-  flex: 1;
-  min-width: 0;
-}
-
-body:has([data-component="messages-shell"]) .trigger-title {
-  color: hsl(var(--v3-dark));
-  font-size: 0.86rem;
-  font-weight: 700;
-}
-
-body:has([data-component="messages-shell"]) .trigger-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 3px;
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.66rem;
-}
-
-body:has([data-component="messages-shell"]) .trigger-meta .sep {
-  color: hsl(var(--v3-border));
-}
-
-body:has([data-component="messages-shell"]) .send-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: hsl(var(--v3-primary-light));
-  color: hsl(var(--v3-primary));
-  font-size: 0.6rem;
-  font-weight: 700;
-}
-
-body:has([data-component="messages-shell"]) .message-count-skeleton {
-  display: inline-block;
-  width: 36px;
-  height: 0.6rem;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.18;
-  animation: pulse 0.8s ease-in-out infinite;
-}
-
-body:has([data-component="messages-shell"]) .send-stat.fail {
-  color: hsl(var(--v3-burgundy));
-  background: hsl(var(--v3-burgundy-light));
-}
-
-body:has([data-component="messages-shell"]) .message-empty-state {
-  display: flex;
-  min-height: 120px;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed hsl(var(--v3-border));
-  border-radius: 18px;
-  color: hsl(var(--v3-text-muted));
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-align: center;
-}
-
-body:has([data-component="messages-shell"]) .toggle {
-  position: relative;
-  width: 38px;
-  height: 22px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: hsl(var(--v3-border));
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-body:has([data-component="messages-shell"]) .toggle::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: left 0.2s ease;
-}
-
-body:has([data-component="messages-shell"]) .toggle.on {
-  background: hsl(var(--v3-green));
-}
-
-body:has([data-component="messages-shell"]) .toggle.on::after {
-  left: 18px;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] {
-  position: absolute !important;
-  right: 14px !important;
-  bottom: 12px !important;
-  left: 14px !important;
-  width: auto !important;
-  max-width: none !important;
-  gap: 2px !important;
-  padding: 5px !important;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 20px !important;
-  background: rgba(255, 255, 255, 0.8);
-  box-shadow: 0 8px 32px hsla(214, 50%, 20%, 0.1);
-  --tw-translate-x: 0px !important;
-  translate: 0 0 !important;
-  transform: none !important;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
-  display: none;
-}
-
-body:has([data-component="messages-shell"]) nav[data-slot="mobile-bottom-nav"] a {
-  gap: 2px !important;
-  padding: 5px 4px !important;
-  border-radius: 14px !important;
-  font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] svg {
-  width: 18px;
-  height: 18px;
-}
-
-body:has([data-component="messages-shell"]) [data-slot="mobile-bottom-nav"] span {
+body:has([data-slot="messages-page"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -5013,7 +4687,7 @@ body.mobile-dashboard-route .scrim {
 
 /* Detail pages should run edge-to-edge after removing the device frame. */
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-page"],
-body:has([data-component="messages"]) [data-component$="-detail-page"],
+body:has([data-slot="messages-page"]) [data-component$="-detail-page"],
 body:has([data-component="prices-page"]) [data-component$="-detail-page"],
 body.mobile-contracts-route [data-component$="-detail-page"],
 body.mobile-prices-route [data-component$="-detail-page"] {
@@ -5032,7 +4706,7 @@ body.mobile-prices-route [data-component$="-detail-page"] {
 }
 
 body:has([data-component="mobile_employees_detail-sheet"]) [data-component$="-detail-scrim"],
-body:has([data-component="messages"]) [data-component$="-detail-scrim"],
+body:has([data-slot="messages-page"]) [data-component$="-detail-scrim"],
 body:has([data-component="prices-page"]) [data-component$="-detail-scrim"],
 body.mobile-contracts-route [data-component$="-detail-scrim"],
 body.mobile-prices-route [data-component$="-detail-scrim"] {
@@ -5046,7 +4720,7 @@ body.mobile-prices-route [data-component$="-detail-scrim"] {
 }
 
 body:has([data-component="mobile_employees_detail-sheet"] .nav-stack.show-detail) [data-slot="mobile-header"],
-body:has([data-component="messages"] .nav-stack.show-detail) [data-slot="mobile-header"],
+body:has([data-slot="messages-page"] .nav-stack.show-detail) [data-slot="mobile-header"],
 body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-detail) [data-slot="mobile-header"] {
   z-index: 20 !important;
 }
@@ -5055,10 +4729,7 @@ body.mobile-contracts-route:has([data-component="mobile-contracts-stack"].show-d
 html:has(body [data-slot="dashboard-page"]),
 html:has(body.mobile-all-route),
 html:has(body [data-component="mobile_employees_detail-sheet"]),
-html:has(body [data-component="messages"]),
-html:has(body [data-component="messages-new-page"]),
-html:has(body [data-component="messages-templates"]),
-html:has(body [data-component="messages-shell"]),
+html:has(body [data-slot="messages-page"]),
 html:has(body [data-component="auth-login"]),
 html:has(body [data-component="auth-forgot-password"]),
 html:has(body [data-component="auth-register"]),
@@ -5074,10 +4745,7 @@ html:has(body.mobile-contracts-route) {
 body:has([data-slot="dashboard-page"]),
 body.mobile-all-route,
 body:has([data-component="mobile_employees_detail-sheet"]),
-body:has([data-component="messages"]),
-body:has([data-component="messages-new-page"]),
-body:has([data-component="messages-templates"]),
-body:has([data-component="messages-shell"]),
+body:has([data-slot="messages-page"]),
 body:has([data-component="auth-login"]),
 body:has([data-component="auth-forgot-password"]),
 body:has([data-component="auth-register"]),
@@ -5093,10 +4761,7 @@ body.mobile-contracts-route {
 [data-slot="app-root"]:has([data-slot="dashboard-page"]),
 body.mobile-all-route [data-slot="app-root"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"],
-body:has([data-component="messages"]) [data-slot="app-root"],
-body:has([data-component="messages-new-page"]) [data-slot="app-root"],
-body:has([data-component="messages-templates"]) [data-slot="app-root"],
-body:has([data-component="messages-shell"]) [data-slot="app-root"],
+body:has([data-slot="messages-page"]) [data-slot="app-root"],
 body:has([data-component="auth-login"]) [data-slot="app-root"],
 body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
 body:has([data-component="auth-register"]) [data-slot="app-root"],
@@ -5115,10 +4780,7 @@ body.mobile-contracts-route [data-slot="app-root"] {
 [data-slot="app-root"]:has([data-slot="dashboard-page"])::before,
 body.mobile-all-route [data-slot="app-root"]::before,
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"]::before,
-body:has([data-component="messages"]) [data-slot="app-root"]::before,
-body:has([data-component="messages-new-page"]) [data-slot="app-root"]::before,
-body:has([data-component="messages-templates"]) [data-slot="app-root"]::before,
-body:has([data-component="messages-shell"]) [data-slot="app-root"]::before,
+body:has([data-slot="messages-page"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-login"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-forgot-password"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-register"]) [data-slot="app-root"]::before,
@@ -5135,10 +4797,7 @@ body.mobile-contracts-route [data-slot="app-root"]::before {
 [data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="app-content"],
 body.mobile-all-route [data-slot="app-content"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-content"],
-body:has([data-component="messages"]) [data-slot="app-content"],
-body:has([data-component="messages-new-page"]) [data-slot="app-content"],
-body:has([data-component="messages-templates"]) [data-slot="app-content"],
-body:has([data-component="messages-shell"]) [data-slot="app-content"],
+body:has([data-slot="messages-page"]) [data-slot="app-content"],
 body:has([data-component="auth-login"]) [data-slot="app-content"],
 body:has([data-component="auth-forgot-password"]) [data-slot="app-content"],
 body:has([data-component="auth-register"]) [data-slot="app-content"],
@@ -5154,10 +4813,7 @@ body.mobile-contracts-route [data-slot="app-content"] {
 body:has([data-slot="dashboard-page"]) nextjs-portal,
 body.mobile-all-route nextjs-portal,
 body:has([data-component="mobile_employees_detail-sheet"]) nextjs-portal,
-body:has([data-component="messages"]) nextjs-portal,
-body:has([data-component="messages-new-page"]) nextjs-portal,
-body:has([data-component="messages-templates"]) nextjs-portal,
-body:has([data-component="messages-shell"]) nextjs-portal,
+body:has([data-slot="messages-page"]) nextjs-portal,
 body:has([data-component="auth-login"]) nextjs-portal,
 body:has([data-component="auth-forgot-password"]) nextjs-portal,
 body:has([data-component="auth-register"]) nextjs-portal,
@@ -5608,7 +5264,7 @@ body.mobile-prices-route [data-slot="mobile-bottom-nav"] span {
    belongs to the list content only, so detail pages share one height model. */
 body:has([data-slot="dashboard-page"]) [data-slot="main-content"],
 body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="main-content"],
-body:has([data-component="messages"]) [data-slot="main-content"],
+body:has([data-slot="messages-page"]) [data-slot="main-content"],
 body:has([data-component="prices-page"]) [data-slot="main-content"],
 body.mobile-contracts-route [data-slot="main-content"],
 body.mobile-dashboard-route [data-slot="main-content"],
@@ -5628,7 +5284,7 @@ body.mobile-prices-route [data-slot="main-content"] {
 
 body:has([data-slot="dashboard-page"]) .mobile-detail-sheet,
 body:has([data-component="mobile_employees_detail-sheet"]) .mobile-detail-sheet,
-body:has([data-component="messages"]) .mobile-detail-sheet,
+body:has([data-slot="messages-page"]) .mobile-detail-sheet,
 body:has([data-component="prices-page"]) .mobile-detail-sheet,
 body.mobile-contracts-route .mobile-detail-sheet,
 body.mobile-dashboard-route .mobile-detail-sheet,
@@ -5641,7 +5297,6 @@ body.mobile-prices-route .mobile-detail-sheet {
 
 [data-slot="dashboard-page"] [data-slot="dashboard-content"],
 [data-component="mobile_employees_detail-sheet"] [data-component="mobile-employees-content"],
-[data-component="messages"] [data-component="mobile-messages-content"],
 [data-component="mobile_prices_detail-sheet"] [data-component="mobile-prices-content"] {
   padding-top: 76px !important;
 }
@@ -5793,10 +5448,7 @@ body.mobile-contracts-route [data-slot="app-content"] {
   body.mobile-all-route [data-slot="app-root"],
   body:has([data-component="all-page"]) [data-slot="app-root"],
   body:has([data-component="mobile_employees_detail-sheet"]) [data-slot="app-root"],
-  body:has([data-component="messages"]) [data-slot="app-root"],
-  body:has([data-component="messages-new-page"]) [data-slot="app-root"],
-  body:has([data-component="messages-templates"]) [data-slot="app-root"],
-  body:has([data-component="messages-shell"]) [data-slot="app-root"],
+  body:has([data-slot="messages-page"]) [data-slot="app-root"],
   body:has([data-component="auth-login"]) [data-slot="app-root"],
   body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
   body:has([data-component="auth-register"]) [data-slot="app-root"],
@@ -5859,17 +5511,17 @@ body nav[data-slot="mobile-bottom-nav"] a[data-visual-active="true"] {
    Without them the page itself scrolls. Completing the locks fixes the page to
    the viewport while only the inner list scrolls — parity with /dashboard,
    /clients, /employees. */
-body:has([data-component="messages"]),
+body:has([data-slot="messages-page"]),
 body:has([data-component="prices-page"]) {
   overflow: hidden;
 }
 
-body:has([data-component="messages"]) [data-slot="app-root"],
+body:has([data-slot="messages-page"]) [data-slot="app-root"],
 body:has([data-component="prices-page"]) [data-slot="app-root"] {
   overflow: hidden;
 }
 
-body:has([data-component="messages"]) [data-slot="app-root"] [data-slot="app-content"],
+body:has([data-slot="messages-page"]) [data-slot="app-root"] [data-slot="app-content"],
 body:has([data-component="prices-page"]) [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;

@@ -154,13 +154,23 @@ export default function TemplatesPage() {
   };
 
   return (
-    <section data-component="messages" data-page="messages-templates" className="messages-page">
+    <section
+      data-component="mobile_messages_templates_page"
+      data-slot="messages-page"
+      data-page="messages-templates"
+      className="messages-page"
+    >
       <div
         className="shell-content flex-col gap-[calc(8px*var(--glint-ui-scale,1))]"
-        data-component="messages-content"
+        data-component="mobile_messages_templates_page_content"
+        data-slot="messages-content"
       >
-        <MessageSectionNav activeId="templates" />
+        <MessageSectionNav
+          data-component="mobile_messages_templates_page_content_section-nav"
+          activeId="templates"
+        />
         <ListCard
+          data-component="mobile_messages_templates_page_content_list-card"
           title="템플릿 관리"
           actionLabel="+ 새 템플릿"
           actionHref="/messages/templates/new"
@@ -171,7 +181,7 @@ export default function TemplatesPage() {
           activeFilter={activeFilter}
           onFilterChange={(filter) => setActiveFilter(filter as TemplateFilter)}
           beforeFilters={(
-            <label className={`search-bar ${styles.searchBar}`} data-component="messages-templates-search">
+            <label className={`search-bar ${styles.searchBar}`} data-component="mobile_messages_templates_page_content_list-card_search">
               <MockupIcon name="search" size={14} />
               <input
                 type="text"
@@ -185,13 +195,14 @@ export default function TemplatesPage() {
           scrollRef={scrollContainerRef}
           loadMore={isInitialLoad && hasMore ? (
             <ListLoadMoreButton
+              data-component="mobile_messages_templates_page_content_list-card_load-more_button"
               onLoadMore={loadMore}
               dataComponentPrefix="messages-templates"
             />
           ) : null}
         >
             {isLoading ? (
-              <div className="detail-empty-state" data-component="messages-templates-loading">
+              <div className="detail-empty-state" data-component="mobile_messages_templates_page_content_list-card_body_loading">
                 템플릿을 불러오고 있습니다.
               </div>
             ) : null}
@@ -212,12 +223,13 @@ export default function TemplatesPage() {
               />
             )}
             {!isLoading && visibleRows.length === 0 ? (
-              <div className="detail-empty-state" data-component="messages-templates-empty">
+              <div className="detail-empty-state" data-component="mobile_messages_templates_page_content_list-card_body_empty">
                 {searchQuery.trim() ? "조건에 맞는 템플릿이 없습니다." : "등록된 템플릿이 없습니다."}
               </div>
             ) : null}
             {!isInitialLoad && hasMore && (
               <ListLoadMoreSentinel
+                data-component="mobile_messages_templates_page_content_list-card_body_sentinel"
                 sentinelRef={sentinelRef}
                 dataComponentPrefix="messages-templates"
               />
@@ -240,8 +252,8 @@ function TemplateSection({
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: TemplateRow) => void;
 }) {
   return (
-    <div className="section-block" data-component="messages-templates-section">
-      <div className="section-header" data-component="messages-templates-section-header">
+    <div className="section-block" data-component="mobile_messages_templates_page_content_list-card_body_section">
+      <div className="section-header" data-component="mobile_messages_templates_page_content_list-card_body_section_header">
         {title}
       </div>
       {rows.map((row) => (
@@ -268,7 +280,7 @@ function TemplateListRow({
   return (
     <div
       className="list-item"
-      data-component="messages-templates-row"
+      data-component="mobile_messages_templates_page_content_list-card_body_section_row"
       role="button"
       tabIndex={0}
       onClick={() => onOpen(row)}
@@ -276,18 +288,18 @@ function TemplateListRow({
     >
       <div
         className={`${styles.templateIcon} ${styles.templateIconSms}`}
-        data-component="messages-templates-row-icon"
+        data-component="mobile_messages_templates_page_content_list-card_body_section_row_icon"
       >
         <MockupIcon name={row.icon} size={18} />
       </div>
-      <div className="list-info" data-component="messages-templates-row-info">
-        <div className="list-name" data-component="messages-templates-row-name">
+      <div className="list-info" data-component="mobile_messages_templates_page_content_list-card_body_section_row_info">
+        <div className="list-name" data-component="mobile_messages_templates_page_content_list-card_body_section_row_info_name">
           {row.name}
           <span className={`${styles.channel} ${styles.channelSms}`}>
             SMS
           </span>
         </div>
-        <div className={styles.templateMeta} data-component="messages-templates-row-meta">
+        <div className={styles.templateMeta} data-component="mobile_messages_templates_page_content_list-card_body_section_row_info_meta">
           {row.eventLabel} <span className={styles.metaSeparator}>·</span> {row.updatedLabel}
         </div>
       </div>

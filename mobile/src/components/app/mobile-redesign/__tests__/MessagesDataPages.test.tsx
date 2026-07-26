@@ -59,7 +59,7 @@ describe("mobile message data pages", () => {
 
     const { container } = render(<MessagesScheduledPage />);
 
-    const scheduledItem = container.querySelector('[data-component="mobile-messages-scheduled-item"]');
+    const scheduledItem = container.querySelector('[data-component="mobile_messages_scheduled_page_content_list-card_body_item"]');
     const rowInfo = scheduledItem?.querySelector(".message-data-row-info");
 
     expect(screen.getByText("김고객")).toBeInTheDocument();
@@ -69,10 +69,10 @@ describe("mobile message data pages", () => {
     expect(scheduledItem).not.toHaveTextContent("01012345678");
     expect(screen.getByRole("button", { name: "발송 예정" }))
       .toHaveAttribute("aria-pressed", "true");
-    expect(container.querySelector('[data-component="mobile-redesign-list-title"] .list-title-text'))
+    expect(container.querySelector('[data-component$="_content_list-card_header"] .list-title-text'))
       .toHaveTextContent("발송 예정");
-    expect(container.querySelector('[data-component="mobile-redesign-list-card"]'))
-      .toContainElement(container.querySelector('[data-component="mobile-redesign-list-scroll"]'));
+    expect(container.querySelector('[data-component="mobile_messages_scheduled_page_content_list-card"]'))
+      .toContainElement(container.querySelector('[data-component="mobile_messages_scheduled_page_content_list-card_body"]'));
     expect(screen.queryByRole("link", { name: "메시지로 돌아가기" }))
       .not.toBeInTheDocument();
   });
@@ -126,7 +126,7 @@ describe("mobile message data pages", () => {
     expect(screen.getByText(/김문자/)).toBeInTheDocument();
     expect(screen.queryByText("김알림톡")).not.toBeInTheDocument();
     expect(screen.getByText("1건")).toBeInTheDocument();
-    expect(container.querySelector('[data-component="mobile-redesign-list-title"] .list-title-text'))
+    expect(container.querySelector('[data-component$="_content_list-card_header"] .list-title-text'))
       .toHaveTextContent("발송 기록");
     expect(screen.getByText("발송 성공")).toBeInTheDocument();
   });
@@ -170,7 +170,7 @@ describe("mobile message data pages", () => {
 
     const { container } = render(<MessagesHistoryPage />);
 
-    const historyItem = container.querySelector('[data-component="mobile-messages-history-item"]');
+    const historyItem = container.querySelector('[data-component="mobile_messages_history_detail-sheet_stack_list-page_shell_content_list-card_body_item"]');
 
     expect(historyItem).not.toBeNull();
     expect(historyItem?.querySelector("strong")).toHaveTextContent("제공기록지 작성 링크");
@@ -198,7 +198,7 @@ describe("mobile message data pages", () => {
 
     await user.click(closeButton!);
 
-    expect(container.querySelector('[data-component="mobile-redesign-list-title"] .list-title-text'))
+    expect(container.querySelector('[data-component$="_content_list-card_header"] .list-title-text'))
       .toHaveTextContent("발송 기록");
     expect(stack).not.toHaveClass("show-detail");
     expect(detailPage).toHaveAttribute("aria-hidden", "true");
