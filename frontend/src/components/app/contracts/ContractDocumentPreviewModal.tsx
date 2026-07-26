@@ -14,6 +14,7 @@ import {
 import { eformsignApi } from "@/services/api";
 
 interface ContractDocumentPreviewModalProps {
+  "data-component": string;
   open: boolean;
   onClose: () => void;
   document: EformsignDocument | null;
@@ -33,6 +34,7 @@ function getPreviewUrl(documentId: string, attachment = false): string {
 }
 
 export function ContractDocumentPreviewModal({
+  "data-component": dataComponent,
   open,
   onClose,
   document,
@@ -71,6 +73,7 @@ export function ContractDocumentPreviewModal({
 
   return (
     <SharedDocumentPreviewDialog
+      data-component={dataComponent}
       open={open}
       onClose={onClose}
       title={document.document_name}
@@ -95,7 +98,7 @@ export function ContractDocumentPreviewModal({
         <Button
           variant="positive"
           size="sm"
-          data-component="contracts-document-preview-review-confirm"
+          data-component={`${dataComponent}_footer_review-action_review-confirm`}
           onClick={onReviewConfirm}
           disabled={isReviewConfirming}
           className="min-w-[88px] hover:translate-y-0 hover:shadow-[0_4px_24px_hsla(214,50%,20%,0.06)]"

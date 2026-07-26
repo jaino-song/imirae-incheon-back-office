@@ -222,7 +222,7 @@ test.describe("Staff finalize iframe + prefill flow", () => {
     await reviewItem.click();
 
     // 확인하기 button only appears for 검토 필요 docs.
-    const finalizeTrigger = page.locator('[data-component="contracts-detail-finalize-trigger"]');
+    const finalizeTrigger = page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_header_review-trigger"]');
     await expect(finalizeTrigger).toBeVisible();
     await finalizeTrigger.click();
 
@@ -284,7 +284,7 @@ test.describe("Staff finalize iframe + prefill flow", () => {
     const reviewItem = page.locator('[data-component="animated-slot-list-item"]').filter({ hasText: "검토 필요" }).first();
     await expect(reviewItem).toBeVisible();
     await reviewItem.click();
-    await page.locator('[data-component="contracts-detail-finalize-trigger"]').click();
+    await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_header_review-trigger"]').click();
 
     const dateInput = page.getByPlaceholder("YYYY-MM-DD");
     await dateInput.fill("");
@@ -305,7 +305,7 @@ test.describe("Staff finalize iframe + prefill flow", () => {
     const reviewItem = page.locator('[data-component="animated-slot-list-item"]').filter({ hasText: "검토 필요" }).first();
     await expect(reviewItem).toBeVisible();
     await reviewItem.click();
-    await page.locator('[data-component="contracts-detail-finalize-trigger"]').click();
+    await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_header_review-trigger"]').click();
     await fillEndDateAndSubmit(page, "2026-07-15");
 
     await expect(page.getByText("최종 확인 실패")).toBeVisible();

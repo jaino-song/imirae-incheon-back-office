@@ -11,6 +11,6 @@ describe("ClientsPage deletion conflicts", () => {
 
     expect(handler).toContain("setDeleteTargetClientId(null)");
     expect(handler).toContain("getApiErrorMessage");
-    expect(source).toContain('dataComponent="clients-delete-error-notification"');
+    expect(source).toContain('data-component="desktop_clients_modals_delete-error-notification"');
   });
 });

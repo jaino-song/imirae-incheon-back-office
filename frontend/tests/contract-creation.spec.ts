@@ -311,7 +311,7 @@ async function gotoContractsPage(page: Page) {
 
 async function openContractCreationForm(page: Page) {
   await gotoContractsPage(page);
-  await page.locator('[data-component="contracts-header-send-contract"]').click();
+  await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_header_send-contract"]').click();
   await expect(page.locator('[data-component="contract-creation-form"]')).toBeVisible();
   await expect(page.locator('[data-component="stepped-wizard-stepper-desktop"]')).toBeVisible();
   await expect(page.locator('[data-component="stepped-wizard-stepper-desktop"]')).toContainText("전자문서 생성");
@@ -765,11 +765,11 @@ test.describe("Contract creation iframe + success flow", () => {
       "data-state",
       "active"
     );
-    await page.locator('[data-component="contracts-list-item-content"]').getByText("기존고객").click();
-    await expect(page.locator('[data-component="contracts-detail-content"]')).toBeVisible();
+    await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_item_content"]').getByText("기존고객").click();
+    await expect(page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_content"]')).toBeVisible();
     await expect(page.locator('[data-component="contract-creation-form"]')).toBeHidden();
 
-    await page.locator('[data-component="contracts-header-send-contract"]').click();
+    await page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_header_send-contract"]').click();
     await expect(page.locator('[data-component="contract-creation-form"]')).toBeVisible();
     await expect(page.getByTestId("contract-creation-progress-step-creating")).toHaveAttribute(
       "data-state",

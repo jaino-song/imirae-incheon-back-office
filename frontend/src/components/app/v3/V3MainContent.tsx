@@ -6,7 +6,17 @@ import { cn } from "@/lib/utils";
 import { FloatingQuickActions } from "./FloatingQuickActions";
 import { useGlintUiScaleStyle } from "./useGlintUiScale";
 
-export function V3MainContent({ children }: { children: React.ReactNode }) {
+const SOURCE_COMPONENT = "V3MainContent";
+
+interface V3MainContentProps {
+  children: React.ReactNode;
+  "data-component": string;
+}
+
+export function V3MainContent({
+  children,
+  "data-component": dataComponent,
+}: V3MainContentProps) {
   const pathname = usePathname();
   const excluded = isLayoutExcluded(pathname);
   const isSelectBranchPage = pathname === "/select-branch";
@@ -21,7 +31,9 @@ export function V3MainContent({ children }: { children: React.ReactNode }) {
 
   return (
     <main
-      data-component="main-content"
+      data-component={dataComponent}
+      data-slot="main-content"
+      data-source-component={SOURCE_COMPONENT}
       data-mode="desktop"
       style={scaledStyle}
       className={cn(
@@ -32,10 +44,14 @@ export function V3MainContent({ children }: { children: React.ReactNode }) {
     >
       {shouldRenderQuickActions ? (
         <>
-          <div data-component="main-content-body" className="h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div
+            data-component={`${dataComponent}_body`}
+            data-slot="main-content-body"
+            className="h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+          >
             {children}
           </div>
-          <FloatingQuickActions />
+          <FloatingQuickActions data-component={`${dataComponent}_quick-actions`} />
         </>
       ) : (
         children

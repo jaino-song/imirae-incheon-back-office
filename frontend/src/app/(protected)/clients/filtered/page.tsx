@@ -61,7 +61,10 @@ function FilteredClientsTableSkeleton() {
             </TableHeader>
             <TableBody>
                 {Array.from({ length: 6 }).map((_, index) => (
-                    <TableRow key={index} data-component="clients-filtered-loading-row">
+                    <TableRow
+                        key={index}
+                        data-component="desktop_clients-filtered_page_content_loading_table_row"
+                    >
                         <TableCell>
                             <Skeleton className="h-4 w-24 bg-v3-dim-white" />
                         </TableCell>
@@ -125,16 +128,16 @@ export default function FilteredClientsPage() {
 
     if (!filter || !filterConfig) {
         return (
-            <div data-component="clients-filtered-invalid" className="p-6">
+            <div data-component="desktop_clients-filtered_invalid" className="p-6">
                 <Alert variant="destructive">잘못된 필터입니다</Alert>
             </div>
         );
     }
 
     return (
-        <section data-component="clients-filtered" className="bg-card min-h-screen">
+        <section data-component="desktop_clients-filtered_page" className="bg-card min-h-screen">
             {/* Header */}
-            <div data-component="clients-filtered-header" className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div data-component="desktop_clients-filtered_page_header" className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <h1 className="text-lg font-semibold text-foreground">
                     {filterConfig.title}
                 </h1>
@@ -144,9 +147,9 @@ export default function FilteredClientsPage() {
             </div>
 
             {/* Content */}
-            <div data-component="clients-filtered-content" className="px-4 sm:px-6 py-4">
+            <div data-component="desktop_clients-filtered_page_content" className="px-4 sm:px-6 py-4">
                 {isLoading ? (
-                    <div data-component="clients-filtered-loading">
+                    <div data-component="desktop_clients-filtered_page_content_loading">
                         <FilteredClientsTableSkeleton />
                     </div>
                 ) : error ? (
@@ -208,7 +211,7 @@ export default function FilteredClientsPage() {
                 onOpenChange={(open) => {
                     if (!open) setDeleteTargetClientId(null);
                 }}
-                dataComponent="clients-filtered-delete-approval"
+                data-component="desktop_clients-filtered_delete-approval"
                 title="고객을 삭제하시겠습니까?"
                 description="삭제한 고객 정보는 복구할 수 없습니다."
                 approvalLabel="삭제"
