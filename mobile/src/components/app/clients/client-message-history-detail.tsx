@@ -31,25 +31,32 @@ export interface ClientMessageHistoryDetailView {
  * Mirrors the frontend MessageHistoryDetailPanel using mobile-redesign primitives.
  */
 export function ClientMessageHistoryDetail({
+  "data-component": dataComponent,
   view,
   onBack,
   dataComponentPrefix = "mobile-clients-message-history",
   showBackAction = true,
 }: {
+  "data-component"?: string;
   view: ClientMessageHistoryDetailView;
   onBack: () => void;
+  /** @deprecated Pass a canonical `data-component` from the route caller instead. */
   dataComponentPrefix?: string;
   showBackAction?: boolean;
 }) {
   const isFailed = view.statusTone === "burgundy";
+  // TODO(data-component): Remove the legacy fallbacks after caller migration.
+  const root = dataComponent ?? `${dataComponentPrefix}-detail`;
+  const sub = (suffix: string) =>
+    dataComponent ? `${dataComponent}_${suffix}` : `${dataComponentPrefix}-detail-${suffix}`;
 
   return (
-    <div className="message-detail pop-up" data-component={`${dataComponentPrefix}-detail`}>
+    <div className="message-detail pop-up" data-component={root}>
       {showBackAction ? (
         <button
           type="button"
           className="message-detail-back"
-          data-component={`${dataComponentPrefix}-detail-back`}
+          data-component={sub("back")}
           onClick={onBack}
         >
           <ChevronLeft size={16} strokeWidth={2.5} />
@@ -57,10 +64,10 @@ export function ClientMessageHistoryDetail({
         </button>
       ) : null}
 
-      <div className="message-detail-head" data-component={`${dataComponentPrefix}-detail-head`}>
+      <div className="message-detail-head" data-component={sub("head")}>
         <div
           className={`doc-icon doc-icon-${view.statusTone}`}
-          data-component={`${dataComponentPrefix}-detail-icon`}
+          data-component={sub("icon")}
         >
           {isFailed ? (
             <CircleAlert size={16} strokeWidth={2.5} />
@@ -70,27 +77,27 @@ export function ClientMessageHistoryDetail({
         </div>
         <div
           className="message-detail-head-text"
-          data-component={`${dataComponentPrefix}-detail-head-text`}
+          data-component={sub("head-text")}
         >
-          <div className="message-detail-title" data-component={`${dataComponentPrefix}-detail-title`}>
+          <div className="message-detail-title" data-component={sub("title")}>
             {view.title}
           </div>
           <div
             className="message-detail-subtitle"
-            data-component={`${dataComponentPrefix}-detail-subtitle`}
+            data-component={sub("subtitle")}
           >
             {view.channelLabel} · {view.sentAtLabel}
           </div>
         </div>
         <span
           className={`badge-mini ${view.statusTone}`}
-          data-component={`${dataComponentPrefix}-detail-status`}
+          data-component={sub("status")}
         >
           {view.statusLabel}
         </span>
       </div>
 
-      <InfoCard data-component="mobile_clients_detail-panel_info-card" title="발송 정보">
+      <InfoCard data-component={dataComponent ? sub("info-card") : "mobile_clients_detail-panel_info-card"} title="발송 정보">
         <InfoRow label="수신자" value={view.recipientName} />
         <InfoRow label="연락처" value={view.recipientPhone} />
         <InfoRow label="템플릿" value={view.templateLabel} />
@@ -100,10 +107,10 @@ export function ClientMessageHistoryDetail({
         ) : null}
       </InfoCard>
 
-      <InfoCard data-component="mobile_clients_detail-panel_info-card-2" title="메시지 내용">
+      <InfoCard data-component={dataComponent ? sub("info-card-2") : "mobile_clients_detail-panel_info-card-2"} title="메시지 내용">
         <p
           className="message-detail-body"
-          data-component={`${dataComponentPrefix}-detail-body`}
+          data-component={sub("body")}
         >
           {view.messageBody}
         </p>

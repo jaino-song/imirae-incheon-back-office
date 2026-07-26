@@ -508,9 +508,11 @@ export default function ClientsPage() {
         list={
           <div
             className="shell-content flex-col gap-[calc(8px*var(--glint-ui-scale,1))]"
-            data-component="mobile-clients-content"
+            data-component="mobile_clients_detail-sheet_stack_list-page_content"
+            data-slot="clients-content"
           >
             <MobileSectionNav
+              data-component="mobile_clients_detail-sheet_stack_list-page_content_section-nav"
               ariaLabel="고객 섹션"
               items={CLIENT_SECTIONS}
               activeId={activeSection}
@@ -518,10 +520,16 @@ export default function ClientsPage() {
             />
             {activeSection === "list" ? (
               <ListCard
+              data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card"
               title="고객"
               count={
                 isClientsFetching
-                  ? <ListCountSkeleton dataComponentPrefix="mobile-clients" />
+                  ? (
+                    <ListCountSkeleton
+                      data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"
+                      dataComponentPrefix="mobile-clients"
+                    />
+                  )
                   : `${total ?? allClients.length}명`
               }
               actionLabel="+ 추가"
@@ -533,6 +541,7 @@ export default function ClientsPage() {
               loadMore={
                 isInitialLoad && hasMore ? (
                   <ListLoadMoreButton
+                    data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_load-more_button"
                     onLoadMore={loadMore}
                     dataComponentPrefix="mobile-clients"
                   />
@@ -548,7 +557,10 @@ export default function ClientsPage() {
               }
             >
               {isClientsFetching ? (
-                <ListRowsSkeleton dataComponentPrefix="mobile-clients" />
+                <ListRowsSkeleton
+                  data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"
+                  dataComponentPrefix="mobile-clients"
+                />
               ) : visibleSections.length === 0 ? (
                 <div
                   style={{
@@ -557,7 +569,7 @@ export default function ClientsPage() {
                     fontSize: "0.82rem",
                     color: "hsl(var(--v3-text-muted))",
                   }}
-                  data-component="mobile-clients-empty"
+                  data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_empty"
                 >
                   {searchQuery.trim() || activeFilter !== ALL_FILTER
                     ? "조건에 맞는 고객이 없습니다."
@@ -569,7 +581,7 @@ export default function ClientsPage() {
                   <div
                     className="section-block"
                     key={section.key}
-                    data-component="mobile-clients-section"
+                    data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section"
                   >
                     {section.rows.map((c, idx) => {
                       const g = groupForClient(c);
@@ -579,12 +591,15 @@ export default function ClientsPage() {
                       <ListItemRow
                         key={c.id}
                         style={{ animationDelay: `${Math.min(idx, 4) * 40}ms` }}
-	                        dataComponent="mobile-clients-row"
-	                        left={
-	                          <div className={`list-avatar av-${avatarTone}`} data-component="mobile-clients-row-avatar">
-	                            <User size={16} strokeWidth={2} />
-	                          </div>
-	                        }
+                        data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row"
+                        left={
+                          <div
+                            className={`list-avatar av-${avatarTone}`}
+                            data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_section_row_avatar"
+                          >
+                            <User size={16} strokeWidth={2} />
+                          </div>
+                        }
                         name={c.name}
                         meta={clientMeta(c)}
                         right={<ListRowBadges badges={badges} />}
@@ -596,6 +611,7 @@ export default function ClientsPage() {
                 ))}
                 {!isInitialLoad && hasMore && (
                   <ListLoadMoreSentinel
+                    data-component="mobile_clients_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                     sentinelRef={sentinelRef}
                     dataComponentPrefix="mobile-clients"
                   />
@@ -604,7 +620,11 @@ export default function ClientsPage() {
               )}
               </ListCard>
             ) : (
-              <ListCard title="고객 자동화" filters={[]}>
+              <ListCard
+                data-component="mobile_clients_detail-sheet_stack_list-page_content_automation-card"
+                title="고객 자동화"
+                filters={[]}
+              >
                 <ClientRegistrationPolicySettings />
               </ListCard>
             )}
@@ -632,12 +652,13 @@ export default function ClientsPage() {
               onClientUpdated={handleClientUpdated}
             />
           ) : (
-            <div className="detail-body" data-component="mobile-clients-detail-empty" />
+            <div className="detail-body" data-component="mobile_clients_detail-sheet_stack_detail-page_empty" />
           )
         }
       />
 
       <ClientDetailModal
+        data-component="mobile_clients_detail-modal"
         open={detailModalOpen}
         onClose={() => setDetailModalOpen(false)}
         client={detailClient}
@@ -646,6 +667,7 @@ export default function ClientsPage() {
       />
 
       <MobileTwoButtonModal
+        data-component="mobile_clients_delete-confirm-modal"
         open={deleteTargetClientId != null}
         title={t(locale, "common.delete")}
         description={t(locale, "clients.delete-confirm")}

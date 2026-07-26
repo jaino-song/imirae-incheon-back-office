@@ -81,7 +81,7 @@ test.describe('EmployeeAutocomplete', () => {
     await mockWizardRoutes(page);
 
     await page.goto('/clients/new');
-    await expect(page.locator('[data-component="clients-new-page-shell"]')).toBeVisible({
+    await expect(page.locator('[data-component="mobile_clients-new_screen_root"]')).toBeVisible({
       timeout: 15000,
     });
 
@@ -92,11 +92,11 @@ test.describe('EmployeeAutocomplete', () => {
     await page.getByPlaceholder('YYMMDD').nth(1).fill('260615');
     await page.getByPlaceholder('서울시 강남구...').fill('인천광역시 연수구 테스트로 10');
     await expect(
-      page.locator('[data-component="clients-new-basic-contact-card"] [data-component="clients-new-form-helper"]')
+      page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card"] [data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_phone-field_helper"]')
     ).toContainText('등록 가능한 번호입니다.');
 
-    await page.locator('[data-component="clients-new-actions"] button').nth(1).click();
-    await expect(page.locator('[data-component="clients-new-step-count"]')).toHaveText('2 / 3 단계');
+    await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_actions"] button').nth(1).click();
+    await expect(page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_header_progress-row_step-count"]')).toHaveText('2 / 3 단계');
   });
 
   test('renders employee autocompletes on the client creation wizard', async ({ page }) => {

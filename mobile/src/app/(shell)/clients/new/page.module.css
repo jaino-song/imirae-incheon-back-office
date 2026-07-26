@@ -1,12 +1,12 @@
 .pageRoot,
-:global(main[data-slot="main-content"]:has([data-component="clients-new-page-shell"])) {
+:global(main[data-slot="main-content"]:has([data-slot="clients-new-page-shell"])) {
   color: hsl(var(--v3-text));
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
   line-height: normal;
   -webkit-font-smoothing: antialiased;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="clients-new-page-shell"])) {
+:global(main[data-slot="main-content"]:has([data-slot="clients-new-page-shell"])) {
   display: flex;
   height: min(100dvh, var(--mobile-shell-max-height, 844px));
   min-height: 0;
@@ -15,21 +15,21 @@
   background: hsl(var(--v3-dim-white));
 }
 
-:global(main[data-slot="main-content"]:has([data-component="clients-new-page-shell"]) > [data-component="clients-new-page-shell"]) {
+:global(main[data-slot="main-content"]:has([data-slot="clients-new-page-shell"]) > [data-slot="clients-new-page-shell"]) {
   flex: 1;
   min-height: 0;
 }
 
-:global([data-slot="app-root"]:has([data-component="clients-new-page-shell"]) [data-slot="mobile-header"]),
-:global([data-slot="app-root"]:has([data-component="clients-new-page-shell"]) [data-slot="floating-quick-actions"]) {
+:global([data-slot="app-root"]:has([data-slot="clients-new-page-shell"]) [data-slot="mobile-header"]),
+:global([data-slot="app-root"]:has([data-slot="clients-new-page-shell"]) [data-slot="floating-quick-actions"]) {
   display: none !important;
 }
 
-:global(main[data-slot="main-content"]:has([data-component="clients-new-page-shell"]) ~ [data-slot="mobile-bottom-nav"]) {
+:global(main[data-slot="main-content"]:has([data-slot="clients-new-page-shell"]) ~ [data-slot="mobile-bottom-nav"]) {
   display: none !important;
 }
 
-:global(body:has([data-component="clients-new-page-shell"]) nextjs-portal) {
+:global(body:has([data-slot="clients-new-page-shell"]) nextjs-portal) {
   display: none !important;
 }
 
@@ -434,6 +434,10 @@
   box-shadow: none;
 }
 
+/* TODO(data-component): these keys are emitted by the shared Autocomplete primitive
+   (src/components/app/ui/Autocomplete.tsx), which has no data-slot hook yet. Re-key to
+   data-slot together with the shared-primitives migration; the same rules exist in
+   contracts/new/page.module.css. */
 .pageRoot [data-component="employee-autocomplete"] {
   margin: 0;
 }
