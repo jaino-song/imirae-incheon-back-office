@@ -5,6 +5,7 @@ import { ServiceScheduleChangeModal } from "../ServiceScheduleChangeModal";
 
 describe("ServiceScheduleChangeModal", () => {
     const defaultProps = {
+        "data-component": "mobile_clients_detail-sheet_stack_detail-page_content_schedule-change-modal",
         open: true,
         sessionIndex: 3,
         currentDate: "2026-07-20",

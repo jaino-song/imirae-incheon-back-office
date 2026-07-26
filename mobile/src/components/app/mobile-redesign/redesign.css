@@ -4524,7 +4524,7 @@ body.mobile-contracts-route [data-component="mobile-contracts-stack"].show-detai
 
 /* Lock the app shell to the viewport on the clients route (parity with the
    dashboard, redesign.css:155-212) so the page itself never scrolls — only the
-   inner [data-component="mobile-clients-content"] list scrolls. */
+   inner [data-slot="clients-content"] list scrolls. */
 body.mobile-clients-route {
   overflow: hidden;
 }
@@ -4570,7 +4570,7 @@ body.mobile-clients-route .mobile-detail-sheet {
   margin: 0 !important;
 }
 
-body.mobile-clients-route [data-component="mobile-clients-content"] {
+body.mobile-clients-route [data-slot="clients-content"] {
   padding: 12px 14px 76px;
   overflow-y: auto;
 }
@@ -5063,7 +5063,7 @@ html:has(body [data-component="auth-login"]),
 html:has(body [data-component="auth-forgot-password"]),
 html:has(body [data-component="auth-register"]),
 html:has(body [data-component="select-branch"]),
-html:has(body [data-component="clients-new-page-shell"]),
+html:has(body [data-slot="clients-new-page-shell"]),
 html:has(body [data-component="chat"]),
 html:has(body [data-component="employees-new-redesign"]),
 html:has(body [data-component="files-upload-page"]),
@@ -5082,7 +5082,7 @@ body:has([data-component="auth-login"]),
 body:has([data-component="auth-forgot-password"]),
 body:has([data-component="auth-register"]),
 body:has([data-component="select-branch"]),
-body:has([data-component="clients-new-page-shell"]),
+body:has([data-slot="clients-new-page-shell"]),
 body:has([data-component="chat"]),
 body:has([data-component="employees-new-redesign"]),
 body:has([data-component="files-upload-page"]),
@@ -5101,7 +5101,7 @@ body:has([data-component="auth-login"]) [data-slot="app-root"],
 body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
 body:has([data-component="auth-register"]) [data-slot="app-root"],
 [data-slot="app-root"]:has([data-component="select-branch"]),
-body:has([data-component="clients-new-page-shell"]) [data-slot="app-root"],
+body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
 body:has([data-component="chat"]) [data-slot="app-root"],
 body:has([data-component="employees-new-redesign"]) [data-slot="app-root"],
 body:has([data-component="files-upload-page"]) [data-slot="app-root"],
@@ -5123,7 +5123,7 @@ body:has([data-component="auth-login"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-forgot-password"]) [data-slot="app-root"]::before,
 body:has([data-component="auth-register"]) [data-slot="app-root"]::before,
 [data-slot="app-root"]:has([data-component="select-branch"])::before,
-body:has([data-component="clients-new-page-shell"]) [data-slot="app-root"]::before,
+body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"]::before,
 body:has([data-component="chat"]) [data-slot="app-root"]::before,
 body:has([data-component="employees-new-redesign"]) [data-slot="app-root"]::before,
 body:has([data-component="files-upload-page"]) [data-slot="app-root"]::before,
@@ -5143,7 +5143,7 @@ body:has([data-component="auth-login"]) [data-slot="app-content"],
 body:has([data-component="auth-forgot-password"]) [data-slot="app-content"],
 body:has([data-component="auth-register"]) [data-slot="app-content"],
 [data-slot="app-root"]:has([data-component="select-branch"]) [data-slot="app-content"],
-body:has([data-component="clients-new-page-shell"]) [data-slot="app-content"],
+body:has([data-slot="clients-new-page-shell"]) [data-slot="app-content"],
 body:has([data-component="chat"]) [data-slot="app-content"],
 body:has([data-component="employees-new-redesign"]) [data-slot="app-content"],
 body:has([data-component="files-upload-page"]) [data-slot="app-content"],
@@ -5162,7 +5162,7 @@ body:has([data-component="auth-login"]) nextjs-portal,
 body:has([data-component="auth-forgot-password"]) nextjs-portal,
 body:has([data-component="auth-register"]) nextjs-portal,
 body:has([data-component="select-branch"]) nextjs-portal,
-body:has([data-component="clients-new-page-shell"]) nextjs-portal,
+body:has([data-slot="clients-new-page-shell"]) nextjs-portal,
 body:has([data-component="chat"]) nextjs-portal,
 body:has([data-component="employees-new-redesign"]) nextjs-portal,
 body:has([data-component="files-upload-page"]) nextjs-portal,
@@ -5801,7 +5801,7 @@ body.mobile-contracts-route [data-slot="app-content"] {
   body:has([data-component="auth-forgot-password"]) [data-slot="app-root"],
   body:has([data-component="auth-register"]) [data-slot="app-root"],
   [data-slot="app-root"]:has([data-component="select-branch"]),
-  body:has([data-component="clients-new-page-shell"]) [data-slot="app-root"],
+  body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
   body:has([data-component="chat"]) [data-slot="app-root"],
   body:has([data-component="employees-new-redesign"]) [data-slot="app-root"],
   body:has([data-component="files-upload-page"]) [data-slot="app-root"] {
