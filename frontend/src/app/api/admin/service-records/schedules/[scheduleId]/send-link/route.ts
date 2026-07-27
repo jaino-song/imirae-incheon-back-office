@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         preparedLinkToken !== undefined
         && (typeof preparedLinkToken !== "string" || !PREPARED_LINK_TOKEN_PATTERN.test(preparedLinkToken))
     ) {
-        return NextResponse.json({ error: "Invalid prepared feedback link" }, { status: 400 });
+        return NextResponse.json({ error: "Invalid prepared service-record link" }, { status: 400 });
     }
     if (
         recipientPhone !== undefined

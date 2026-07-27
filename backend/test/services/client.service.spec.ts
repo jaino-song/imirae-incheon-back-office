@@ -977,7 +977,7 @@ describe("ClientService", () => {
                 expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(20);
             });
 
-            it("keeps feedback access for the old assignment when replacement creation fails", async () => {
+            it("keeps service-record access for the old assignment when replacement creation fails", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);
                 prismaService.employee_schedule.findFirst.mockResolvedValue({

@@ -27,11 +27,11 @@ interface ServiceRecordLinkTokenParams {
 }
 
 /**
- * No-login per-assignment feedback access (BJJ-247).
+ * No-login per-assignment service-record access (BJJ-247).
  * Two secrets per token row:
  *   - link token: carried in the SMS URL (possession). Stored plaintext so the issued
  *     form URL can be recovered from the database when needed; only reaches the phone challenge.
- *   - access token: minted after a correct phone number (knowledge). Grants the feedback endpoints
+ *   - access token: minted after a correct phone number (knowledge). Grants the service-record endpoints
  *     until expiresAt (= schedule.endDate + grace buffer).
  * The access token and expected phone remain sha256 hashes. `linkTokenHash` retains its
  * legacy Prisma/database name even though newly issued form-link values are plaintext.

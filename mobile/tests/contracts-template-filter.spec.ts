@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
-  DEFAULT_FEEDBACK_TEMPLATE_IDS,
+  DEFAULT_SERVICE_RECORD_TEMPLATE_IDS,
   routeContractsApi,
   type ContractListRequest,
   type ContractMockDocument,
@@ -25,7 +25,7 @@ const TIER_SERVICE_RECORD_DOCUMENT: ContractMockDocument = {
   document_number: "RECORD-010",
   document_name: "김산모 10회차 기록",
   template: {
-    id: DEFAULT_FEEDBACK_TEMPLATE_IDS[1],
+    id: DEFAULT_SERVICE_RECORD_TEMPLATE_IDS[1],
     name: "산모신생아 건강관리 10회차",
   },
   created_date: Date.now() - 1_000,
@@ -111,7 +111,7 @@ test.describe("contracts service-record template filters", () => {
 
     await page.goto("/contracts");
 
-    const joinedTemplateIds = DEFAULT_FEEDBACK_TEMPLATE_IDS.join(",");
+    const joinedTemplateIds = DEFAULT_SERVICE_RECORD_TEMPLATE_IDS.join(",");
     await expect.poll(() =>
       listRequests.some(
         (request) =>
@@ -157,14 +157,14 @@ test.describe("contracts service-record template filters", () => {
     await expect.poll(() =>
       listRequests.some(
         (request) =>
-          request.templateId === DEFAULT_FEEDBACK_TEMPLATE_IDS[0]
+          request.templateId === DEFAULT_SERVICE_RECORD_TEMPLATE_IDS[0]
           && request.templateMatch === "exclude",
       ),
     ).toBe(true);
     await expect.poll(() =>
       statusCountsRequests.some(
         (request) =>
-          request.templateId === DEFAULT_FEEDBACK_TEMPLATE_IDS[0]
+          request.templateId === DEFAULT_SERVICE_RECORD_TEMPLATE_IDS[0]
           && request.templateMatch === "exclude",
       ),
     ).toBe(true);

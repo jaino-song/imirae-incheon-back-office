@@ -20,8 +20,8 @@ import {
     type ServiceRecordDayInput,
 } from "./service-record-field-mapper";
 import {
-    FEEDBACK_TEMPLATE_SESSIONS_PER_DOCUMENT,
-    FEEDBACK_TEMPLATE_TIER_ENV_KEYS,
+    SERVICE_RECORD_TEMPLATE_SESSIONS_PER_DOCUMENT,
+    SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS,
 } from "./service-record-field-ids";
 
 const CASE_SNAPSHOT_INCLUDE = {
@@ -100,7 +100,7 @@ const MAX_RECONCILIATION_ATTEMPTS = 12;
  * segments longer than the max tier are cut at max-tier size with the remainder re-tiered.
  * Each document's fields are prefilled from `service_record` + `service_record_day`
  * by the pure mapper. Persisted with linkToClient:false — the client's eDocId is NEVER touched —
- * and the webhook template_id gate (all EFORMSIGN_FEEDBACK_TEMPLATE_ID* tiers) keeps completion
+ * and the webhook template_id gate (all EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID* tiers) keeps completion
  * from marking the contract done.
  *
  * Retry-safe: durable `service_record_snapshot_chunk` rows let a re-run skip documents already created.
@@ -124,12 +124,12 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
      * when even the base tier is missing, preserving the existing "not configured" contract.
      */
     private getConfiguredTiers(): Array<{ tier: number; templateId: string }> {
-        const tiers = FEEDBACK_TEMPLATE_TIER_ENV_KEYS
+        const tiers = SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS
             .map(({ tier, envKey }) => ({ tier, templateId: this.configService.get<string>(envKey)?.trim() ?? "" }))
             .filter((entry) => entry.templateId !== "");
-        const hasBase = tiers.some((entry) => entry.tier === FEEDBACK_TEMPLATE_SESSIONS_PER_DOCUMENT);
+        const hasBase = tiers.some((entry) => entry.tier === SERVICE_RECORD_TEMPLATE_SESSIONS_PER_DOCUMENT);
         if (!hasBase) {
-            throw new BadRequestException("EFORMSIGN_FEEDBACK_TEMPLATE_ID is not configured.");
+            throw new BadRequestException("EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID is not configured.");
         }
         return tiers;
     }

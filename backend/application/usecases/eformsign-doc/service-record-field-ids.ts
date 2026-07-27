@@ -13,26 +13,26 @@
  */
 
 /** Fixed number of session columns in the template; drives chunking. */
-export const FEEDBACK_TEMPLATE_SESSIONS_PER_DOCUMENT = 5;
+export const SERVICE_RECORD_TEMPLATE_SESSIONS_PER_DOCUMENT = 5;
 
 /**
  * Multi-tier 제공기록지 templates (BJJ-multi-tier): each tier is a fixed N-session grid sharing
- * the same header + `feedbackDayFieldIds(n)` field-naming scheme, just with more slots. Only
+ * the same header + `serviceRecordDayFieldIds(n)` field-naming scheme, just with more slots. Only
  * tiers whose env var is actually set are usable — an unset env key means that tier's template
  * has not been deployed to this environment, so chunking must fall back to the tiers that are.
  * The 5-session tier is the base tier and its env key must stay backward-compatible.
  */
-export const FEEDBACK_TEMPLATE_TIER_ENV_KEYS: ReadonlyArray<{ tier: number; envKey: string }> = [
-    { tier: 5, envKey: "EFORMSIGN_FEEDBACK_TEMPLATE_ID" },
-    { tier: 10, envKey: "EFORMSIGN_FEEDBACK_TEMPLATE_ID_10" },
-    { tier: 15, envKey: "EFORMSIGN_FEEDBACK_TEMPLATE_ID_15" },
-    { tier: 20, envKey: "EFORMSIGN_FEEDBACK_TEMPLATE_ID_20" },
+export const SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS: ReadonlyArray<{ tier: number; envKey: string }> = [
+    { tier: 5, envKey: "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID" },
+    { tier: 10, envKey: "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_10" },
+    { tier: 15, envKey: "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_15" },
+    { tier: 20, envKey: "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_20" },
 ];
 
 /**
  * Value that marks a selection field (결제 확인, and the ①–⑪ selection marks) as "selected".
  * 산모확인서명 N is NOT a checkbox mark — it is a binary(서명) field filled with a raw
- * `data:image/png;base64,...` dataURI by the mapper (see `feedbackDayFieldIds` below); this
+ * `data:image/png;base64,...` dataURI by the mapper (see `serviceRecordDayFieldIds` below); this
  * constant does not apply to it.
  *
  * Per the eformsign API spec, 체크/라디오/콤보/토글 fields are filled by sending the ITEM's
@@ -55,10 +55,10 @@ export const CHECKBOX_UNCHECKED_VALUE = "false";
  * (see CHECKBOX_*_VALUE); 산모확인서명 is a binary(서명) field — an empty string "" satisfies the
  * required check while leaving the signature blank (verified live 2026-07-15).
  */
-export const FEEDBACK_REQUIRED_SLOT_FIELD_BASES = ["결제 확인", "산모확인서명"] as const;
+export const SERVICE_RECORD_REQUIRED_SLOT_FIELD_BASES = ["결제 확인", "산모확인서명"] as const;
 
 /** Header fields (filled once per document, no slot suffix). */
-export const FEEDBACK_HEADER_FIELD_IDS = {
+export const SERVICE_RECORD_HEADER_FIELD_IDS = {
     momName: "산모 이름",
     momBirth: "산모 생년월일", // date_yyyy-MM-dd
     deliveryNatural: "자연분만", // checkbox mark
@@ -74,7 +74,7 @@ export const FEEDBACK_HEADER_FIELD_IDS = {
  * NOT the global session index. Selection groups are keyed by the form-layout option strings
  * (e.g. "잘 잠" with a space) so the mapper can look them up directly from `answers`.
  */
-export function feedbackDayFieldIds(n: number) {
+export function serviceRecordDayFieldIds(n: number) {
     return {
         month: `월 ${n}`, // date_MM  → "07"
         day: `일 ${n}`, // date_DD → "09"

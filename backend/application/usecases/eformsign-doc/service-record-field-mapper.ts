@@ -8,9 +8,9 @@
 import {
     CHECKBOX_CHECKED_VALUE,
     CHECKBOX_UNCHECKED_VALUE,
-    FEEDBACK_HEADER_FIELD_IDS,
-    FEEDBACK_TEMPLATE_SESSIONS_PER_DOCUMENT,
-    feedbackDayFieldIds,
+    SERVICE_RECORD_HEADER_FIELD_IDS,
+    SERVICE_RECORD_TEMPLATE_SESSIONS_PER_DOCUMENT,
+    serviceRecordDayFieldIds,
 } from "./service-record-field-ids";
 
 export interface ServiceRecordHeaderInput {
@@ -64,7 +64,7 @@ function utcDay(date: Date): string {
 }
 
 /** Split sessions into fixed-size chunks (one eformsign document per chunk). */
-export function chunkSessions<T>(days: T[], size: number = FEEDBACK_TEMPLATE_SESSIONS_PER_DOCUMENT): T[][] {
+export function chunkSessions<T>(days: T[], size: number = SERVICE_RECORD_TEMPLATE_SESSIONS_PER_DOCUMENT): T[][] {
     if (size < 1) throw new Error("chunk size must be >= 1");
     const chunks: T[][] = [];
     for (let i = 0; i < days.length; i += size) {
@@ -126,7 +126,7 @@ export function buildServiceRecordDocumentFields(input: {
     days: ServiceRecordDayInput[];
     slotCount?: number;
 }): EformsignField[] {
-    const { header, employeeName, days, slotCount = FEEDBACK_TEMPLATE_SESSIONS_PER_DOCUMENT } = input;
+    const { header, employeeName, days, slotCount = SERVICE_RECORD_TEMPLATE_SESSIONS_PER_DOCUMENT } = input;
     if (days.length > slotCount) {
         throw new Error(`buildServiceRecordDocumentFields: ${days.length} days exceed slotCount ${slotCount}`);
     }
@@ -146,19 +146,19 @@ export function buildServiceRecordDocumentFields(input: {
     };
 
     // ── Header (once per document) — every header field is required at creation ──
-    pushRequired(FEEDBACK_HEADER_FIELD_IDS.employeeName, employeeName);
-    pushRequired(FEEDBACK_HEADER_FIELD_IDS.momName, header?.momName);
-    pushRequired(FEEDBACK_HEADER_FIELD_IDS.momBirth, yymmddToIso(header?.momBirth));
-    pushRequired(FEEDBACK_HEADER_FIELD_IDS.babyName, header?.babyName);
-    pushRequired(FEEDBACK_HEADER_FIELD_IDS.babyBirth, yymmddToIso(header?.babyBirth));
-    pushRequired(FEEDBACK_HEADER_FIELD_IDS.babyWeight, header?.babyWeight);
+    pushRequired(SERVICE_RECORD_HEADER_FIELD_IDS.employeeName, employeeName);
+    pushRequired(SERVICE_RECORD_HEADER_FIELD_IDS.momName, header?.momName);
+    pushRequired(SERVICE_RECORD_HEADER_FIELD_IDS.momBirth, yymmddToIso(header?.momBirth));
+    pushRequired(SERVICE_RECORD_HEADER_FIELD_IDS.babyName, header?.babyName);
+    pushRequired(SERVICE_RECORD_HEADER_FIELD_IDS.babyBirth, yymmddToIso(header?.babyBirth));
+    pushRequired(SERVICE_RECORD_HEADER_FIELD_IDS.babyWeight, header?.babyWeight);
     // Both delivery-type marks are required — send the pair, checked per deliveryType.
-    pushCheck(FEEDBACK_HEADER_FIELD_IDS.deliveryNatural, header?.deliveryType === "자연분만");
-    pushCheck(FEEDBACK_HEADER_FIELD_IDS.deliveryCSection, header?.deliveryType === "제왕절개");
+    pushCheck(SERVICE_RECORD_HEADER_FIELD_IDS.deliveryNatural, header?.deliveryType === "자연분만");
+    pushCheck(SERVICE_RECORD_HEADER_FIELD_IDS.deliveryCSection, header?.deliveryType === "제왕절개");
 
     // ── Session slots 1..slotCount ──
     for (let slot = 1; slot <= slotCount; slot++) {
-        const ids = feedbackDayFieldIds(slot);
+        const ids = serviceRecordDayFieldIds(slot);
         const day = days[slot - 1];
 
         if (!day) {
