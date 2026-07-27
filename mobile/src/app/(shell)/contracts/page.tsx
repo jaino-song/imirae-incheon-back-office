@@ -1849,11 +1849,11 @@ export default function ContractsPage() {
   });
 
   const {
-    data: feedbackTemplateData,
-    isError: isFeedbackTemplateError,
+    data: serviceRecordTemplateData,
+    isError: isServiceRecordTemplateError,
   } = useQuery({
-    queryKey: ["eformsign-docs", "feedback-template-id"],
-    queryFn: eformsignApi.getFeedbackTemplateId,
+    queryKey: ["eformsign-docs", "service-record-template-id"],
+    queryFn: eformsignApi.getServiceRecordTemplateId,
     enabled: isAuthenticated,
     staleTime: 1000 * 60 * 5,
   });
@@ -1862,9 +1862,9 @@ export default function ContractsPage() {
   // template id가 미설정(null)인 설치에서는 모든 문서를 산모 계약서로 취급한다 —
   // 산모 섹션은 템플릿 필터 없이 조회하고, 제공기록지 섹션만 비활성(빈 목록)으로 남긴다.
   const serviceRecordTemplateIds = useMemo(
-    () => feedbackTemplateData?.templateIds
-      ?? (feedbackTemplateData?.templateId ? [feedbackTemplateData.templateId] : []),
-    [feedbackTemplateData],
+    () => serviceRecordTemplateData?.templateIds
+      ?? (serviceRecordTemplateData?.templateId ? [serviceRecordTemplateData.templateId] : []),
+    [serviceRecordTemplateData],
   );
   const serviceRecordTemplateId = useMemo(
     () => serviceRecordTemplateIds.length > 0
@@ -1872,11 +1872,11 @@ export default function ContractsPage() {
       : null,
     [serviceRecordTemplateIds],
   );
-  const isFeedbackTemplateResolved =
-    feedbackTemplateData !== undefined || isFeedbackTemplateError;
+  const isServiceRecordTemplateResolved =
+    serviceRecordTemplateData !== undefined || isServiceRecordTemplateError;
   const sectionTemplateMatch = activeSection === "service-records" ? "include" : "exclude";
   const sectionFilterReady =
-    isFeedbackTemplateResolved
+    isServiceRecordTemplateResolved
     && (activeSection === "maternal-contracts" || serviceRecordTemplateIds.length > 0);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
@@ -1931,7 +1931,7 @@ export default function ContractsPage() {
 
   const isContractsLoading =
     isAuthLoading ||
-    (isAuthenticated && !isFeedbackTemplateResolved) ||
+    (isAuthenticated && !isServiceRecordTemplateResolved) ||
     (
       isAuthenticated
       && sectionFilterReady

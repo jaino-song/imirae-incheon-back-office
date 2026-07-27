@@ -37,7 +37,7 @@ interface EformsignDocProps {
     clientId: number | null;
     // document classification. null means an older/unclassified row.
     documentKind?: EformsignDocumentKind | null;
-    // FK to employee_schedule for service feedback snapshots.
+    // FK to employee_schedule for service-record snapshots.
     employeeScheduleId?: number | null;
     // Source eformsign template identifier.
     templateId?: string | null;

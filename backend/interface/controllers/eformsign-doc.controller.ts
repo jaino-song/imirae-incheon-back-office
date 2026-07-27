@@ -9,7 +9,7 @@ import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-
 import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
 import { AdoptEformsignDocUsecase } from "application/usecases/eformsign-doc/adopt-eformsign-doc.usecase";
 import type { CreateEformsignDocResult } from "application/usecases/eformsign-doc/create-eformsign-doc.usecase";
-import { FEEDBACK_TEMPLATE_TIER_ENV_KEYS } from "application/usecases/eformsign-doc/service-record-field-ids";
+import { SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS } from "application/usecases/eformsign-doc/service-record-field-ids";
 import {
     GetAccessTokenDto,
     RefreshAccessTokenDto,
@@ -45,16 +45,16 @@ export class EformsignDocController {
 
     /**
      * GET /eformsign-docs/feedback-template-id
-     * Exposes the 제공기록지 template id(s) so the UI can split feedback documents
+     * Exposes the 제공기록지 template id(s) so the UI can split service-record documents
      * from contract documents by template — never by (renamable) template name.
      * `templateId` stays the base (5회) id for backward compatibility; `templateIds`
      * lists every configured tier (base, then 10/15/20회 in that order) so the UI can
      * match documents created on any tier's template (BJJ-multi-tier).
      */
     @Get("feedback-template-id")
-    getFeedbackTemplateId(): { templateId: string | null; templateIds: string[] } {
-        const templateId = this.configService.get<string>("EFORMSIGN_FEEDBACK_TEMPLATE_ID")?.trim();
-        const templateIds = FEEDBACK_TEMPLATE_TIER_ENV_KEYS
+    getServiceRecordTemplateId(): { templateId: string | null; templateIds: string[] } {
+        const templateId = this.configService.get<string>("EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID")?.trim();
+        const templateIds = SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS
             .map(({ envKey }) => this.configService.get<string>(envKey)?.trim())
             .filter((id): id is string => Boolean(id));
         return { templateId: templateId || null, templateIds };

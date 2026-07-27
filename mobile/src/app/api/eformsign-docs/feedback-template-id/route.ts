@@ -25,6 +25,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(response.data);
   } catch (error) {
-    return errorResponse(error, "get feedback template id");
+    return errorResponse(error, "get service record template id");
   }
 }

@@ -414,7 +414,7 @@ https://mobile.test/service-record/efl_token`;
 
     const createServiceRecordJob = () =>
         MessageTriggerJobEntity.reconstitute(
-            "job-feedback-link",
+            "job-service-record-link",
             "branch-1",
             "system:service_record_link",
             "pending",
@@ -448,7 +448,7 @@ https://mobile.test/service-record/efl_token`;
             new Date("2026-07-02T00:00:00.000Z"),
         );
 
-    it("renders the editable service feedback system template and records it in SMS history", async () => {
+    it("renders the editable service-record system template and records it in SMS history", async () => {
         const aligoService = {
             sendSms: jest.fn().mockResolvedValue({
                 request: { receiver: "01011112222", msgType: "LMS", testModeYn: "N" },
@@ -486,7 +486,7 @@ https://mobile.test/service-record/efl_token`;
         }));
     });
 
-    it("records a failed retryable SMS history row when Aligo rejects the feedback link message", async () => {
+    it("records a failed retryable SMS history row when Aligo rejects the service-record link message", async () => {
         const aligoService = {
             sendSms: jest.fn().mockResolvedValue({
                 request: { receiver: "01011112222", msgType: "LMS", testModeYn: "N" },
@@ -510,7 +510,7 @@ https://mobile.test/service-record/efl_token`;
         expect(savedLog.nextRetryAt).toBeInstanceOf(Date);
     });
 
-    it("uses the registry default when the editable feedback link template row is unavailable", async () => {
+    it("uses the registry default when the editable service-record link template row is unavailable", async () => {
         const aligoService = {
             sendSms: jest.fn().mockResolvedValue({
                 request: { receiver: "01011112222", msgType: "LMS", testModeYn: "N" },

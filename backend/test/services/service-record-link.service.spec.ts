@@ -328,7 +328,7 @@ describe("ServiceRecordLinkService", () => {
         expect(logRepository.update).not.toHaveBeenCalled();
     });
 
-    it("provisions the fixed system rule before issuing a feedback token", async () => {
+    it("provisions the fixed system rule before issuing a service-record token", async () => {
         const prisma = createPrisma();
         const tokenService = createTokenService();
         const service = new ServiceRecordLinkService(

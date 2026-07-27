@@ -29,12 +29,12 @@ function createRequest(path: string, body?: object, authenticated = true): NextR
     });
 }
 
-describe("service-record feedback link proxy routes", () => {
+describe("service-record link proxy routes", () => {
     beforeEach(() => {
         mockPost.mockReset();
     });
 
-    it("prepares an exact feedback URL for the manually entered recipient phone", async () => {
+    it("prepares an exact service-record URL for the manually entered recipient phone", async () => {
         mockPost.mockResolvedValue({
             status: 201,
             data: {

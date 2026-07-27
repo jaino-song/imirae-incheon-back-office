@@ -295,7 +295,7 @@ export class ServiceRecordEntryService {
             return row;
         });
         if (lock) {
-            this.logger.log(`Service feedback session ${sessionIndex} submitted + locked for case ${aggregate.id}`);
+            this.logger.log(`Service-record session ${sessionIndex} submitted + locked for case ${aggregate.id}`);
         }
         return { ...saved, sessionIndex: saved.caseSessionIndex ?? saved.sessionIndex };
     }

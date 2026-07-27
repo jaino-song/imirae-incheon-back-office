@@ -228,7 +228,7 @@ test.describe('Contracts Page Skeleton Loading', () => {
     await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
   });
 
-  test('falls back to the maternal contract filter when feedback template lookup fails', async ({ page }) => {
+  test('falls back to the maternal contract filter when service-record template lookup fails', async ({ page }) => {
     await page.route('**/api/access-token', async (route) => {
       await route.fulfill({
         status: 200,
@@ -238,7 +238,7 @@ test.describe('Contracts Page Skeleton Loading', () => {
     });
     await routeContractsApi(page, {
       getDocuments: () => MOCK_DOCUMENTS.documents,
-      feedbackTemplateStatus: 500,
+      serviceRecordTemplateStatus: 500,
     });
     await routeSharedContractDependencies(page);
 

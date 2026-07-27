@@ -78,7 +78,7 @@ export class ServiceRecordLinkService {
                 handled: true,
                 scheduleId,
             });
-            this.logger.error(`Failed to schedule feedback link for schedule ${scheduleId}: ${error}`);
+            this.logger.error(`Failed to schedule service-record link for schedule ${scheduleId}: ${error}`);
         }
     }
 
@@ -189,14 +189,14 @@ export class ServiceRecordLinkService {
         };
     }
 
-    /** Revoke an assignment's feedback access (replacement / termination). */
+    /** Revoke an assignment's service-record access (replacement / termination). */
     async revoke(scheduleId: number): Promise<void> {
         try {
             await this.tokenService.revokeForSchedule(scheduleId);
             await this.cancelPendingServiceRecordJobs(scheduleId, "Service record access revoked");
             this.logger.log(`Service record access revoked for schedule ${scheduleId}`);
         } catch (error) {
-            this.logger.error(`Failed to revoke feedback link for schedule ${scheduleId}: ${error}`);
+            this.logger.error(`Failed to revoke service-record link for schedule ${scheduleId}: ${error}`);
             throw error;
         }
     }
@@ -211,7 +211,7 @@ export class ServiceRecordLinkService {
                 await this.tokenService.extendExpiryForSchedule(scheduleId, expiresAt);
             }
         } catch (error) {
-            this.logger.error(`Failed to extend feedback token expiry for schedule ${scheduleId}: ${error}`);
+            this.logger.error(`Failed to extend service-record token expiry for schedule ${scheduleId}: ${error}`);
             throw error;
         }
     }
@@ -297,7 +297,7 @@ export class ServiceRecordLinkService {
             }
 
             this.logger.warn(
-                `Schedule ${scheduleId}: provider ${employee.id} has no phone on file; feedback link NOT sent. Set the employee's phone first.`
+                `Schedule ${scheduleId}: provider ${employee.id} has no phone on file; service-record link NOT sent. Set the employee's phone first.`
             );
             await this.recordPermanentFailure({
                 branchId: schedule.branchId,

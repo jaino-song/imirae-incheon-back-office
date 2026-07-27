@@ -34,7 +34,7 @@ interface ServiceRecordLinkMessageFormProps {
 const ALIGNED_AUTOCOMPLETE_CLASS_NAME =
   "grid gap-[calc(7px*var(--glint-ui-scale,1))] space-y-0";
 
-interface PreparedFeedbackLink extends ServiceRecordLinkPreparation {
+interface PreparedServiceRecordLink extends ServiceRecordLinkPreparation {
   selectionKey: string;
 }
 
@@ -58,31 +58,31 @@ export const ServiceRecordLinkMessageForm = ({
     resetEmployeeFields,
   } = useFormStore();
   const { data: systemTemplate } = useSystemTemplate("SERVICE_RECORD_LINK");
-  const [preparedFeedbackLink, setPreparedFeedbackLink] = useState<PreparedFeedbackLink | null>(null);
+  const [preparedServiceRecordLink, setPreparedServiceRecordLink] = useState<PreparedServiceRecordLink | null>(null);
   const [preparationErrorKey, setPreparationErrorKey] = useState<string | null>(null);
   const inFlightPreparationRef = useRef<{
     selectionKey: string;
-    promise: Promise<PreparedFeedbackLink>;
+    promise: Promise<PreparedServiceRecordLink>;
   } | null>(null);
 
   const normalizedEmployeePhone = normalizeKoreanPhoneLookupKey(employeePhone);
-  const canPrepareFeedbackLink = clientId !== null
+  const canPrepareServiceRecordLink = clientId !== null
     && Boolean(clientName.trim())
     && employeeId !== null
     && Boolean(employeeName.trim())
     && isValidKoreanPhoneNumber(normalizedEmployeePhone);
-  const selectionKey = canPrepareFeedbackLink
+  const selectionKey = canPrepareServiceRecordLink
     ? `${clientId}:${employeeId}:${normalizedEmployeePhone}`
     : null;
-  const currentPreparation = preparedFeedbackLink?.selectionKey === selectionKey
-    ? preparedFeedbackLink
+  const currentPreparation = preparedServiceRecordLink?.selectionKey === selectionKey
+    ? preparedServiceRecordLink
     : null;
 
   useEffect(() => {
     if (selectionKey === null || clientId === null || employeeId === null) {
       return;
     }
-    if (preparedFeedbackLink?.selectionKey === selectionKey) {
+    if (preparedServiceRecordLink?.selectionKey === selectionKey) {
       return;
     }
 
@@ -91,7 +91,7 @@ export const ServiceRecordLinkMessageForm = ({
     const existingRequest = inFlightPreparationRef.current;
     const promise = existingRequest?.selectionKey === selectionKey
       ? existingRequest.promise
-      : (async (): Promise<PreparedFeedbackLink> => {
+      : (async (): Promise<PreparedServiceRecordLink> => {
           const overviewResponse = await serviceRecordsApi.getClientOverview(clientId);
           const assignment = overviewResponse.data.assignments.find(
             (item) => !item.replaced && item.employee.id === employeeId,
@@ -115,7 +115,7 @@ export const ServiceRecordLinkMessageForm = ({
     void promise
       .then((prepared) => {
         if (!cancelled) {
-          setPreparedFeedbackLink(prepared);
+          setPreparedServiceRecordLink(prepared);
         }
       })
       .catch(() => {
@@ -136,14 +136,14 @@ export const ServiceRecordLinkMessageForm = ({
     clientId,
     employeeId,
     normalizedEmployeePhone,
-    preparedFeedbackLink?.selectionKey,
+    preparedServiceRecordLink?.selectionKey,
     selectionKey,
   ]);
 
   const resolvedEmployeeName = employeeName.trim() || "{{employeeName}}";
   const resolvedClientName = clientName.trim() || "{{clientName}}";
   const resolvedServiceRecordUrl = currentPreparation?.serviceRecordUrl ?? "{{serviceRecordUrl}}";
-  const feedbackLinkDisplayValue = currentPreparation?.serviceRecordUrl
+  const serviceRecordLinkDisplayValue = currentPreparation?.serviceRecordUrl
     ?? (selectionKey === null
       ? "필수 정보 입력 후 생성"
       : preparationErrorKey === selectionKey
@@ -177,8 +177,8 @@ ${resolvedServiceRecordUrl}`;
     return navigator.clipboard.writeText(generatedMessage);
   };
 
-  const invalidatePreparedFeedbackLink = () => {
-    setPreparedFeedbackLink(null);
+  const invalidatePreparedServiceRecordLink = () => {
+    setPreparedServiceRecordLink(null);
     setPreparationErrorKey(null);
   };
 
@@ -186,7 +186,7 @@ ${resolvedServiceRecordUrl}`;
     nextEmployeeId: number | null,
     employee: Employee | null,
   ) => {
-    invalidatePreparedFeedbackLink();
+    invalidatePreparedServiceRecordLink();
     if (!employee || nextEmployeeId === null) {
       resetEmployeeFields();
       return;
@@ -197,7 +197,7 @@ ${resolvedServiceRecordUrl}`;
   };
 
   const handleEmployeeManualNameChange = (value: string) => {
-    invalidatePreparedFeedbackLink();
+    invalidatePreparedServiceRecordLink();
     const nextName = value.trimStart();
     if (!nextName.trim()) {
       resetEmployeeFields();
@@ -212,7 +212,7 @@ ${resolvedServiceRecordUrl}`;
     nextClientId: number | null,
     client: Client | null,
   ) => {
-    invalidatePreparedFeedbackLink();
+    invalidatePreparedServiceRecordLink();
     if (!client || nextClientId === null) {
       setClientId(null);
       return;
@@ -223,13 +223,13 @@ ${resolvedServiceRecordUrl}`;
   };
 
   const handleClientManualNameChange = (value: string) => {
-    invalidatePreparedFeedbackLink();
+    invalidatePreparedServiceRecordLink();
     setClientId(null);
     setClientName(value);
   };
 
   const handleEmployeePhoneChange = (value: string) => {
-    invalidatePreparedFeedbackLink();
+    invalidatePreparedServiceRecordLink();
     setEmployeePhone(value);
   };
 
@@ -287,12 +287,12 @@ ${resolvedServiceRecordUrl}`;
         { label: "관리사님 성함", value: employeeName.trim() || "-" },
         { label: "관리사님 전화번호", value: employeePhone.trim() || "-" },
         { label: "산모님 성함", value: clientName.trim() || "-" },
-        { label: "제공기록지 링크", value: feedbackLinkDisplayValue },
+        { label: "제공기록지 링크", value: serviceRecordLinkDisplayValue },
       ]}
       variableItems={[
         { token: "{{employeeName}}", label: "관리사님 성함", value: employeeName.trim() || "-" },
         { token: "{{clientName}}", label: "산모님 성함", value: clientName.trim() || "-" },
-        { token: "{{serviceRecordUrl}}", label: "제공기록지 링크", value: feedbackLinkDisplayValue },
+        { token: "{{serviceRecordUrl}}", label: "제공기록지 링크", value: serviceRecordLinkDisplayValue },
       ]}
       handleCopy={handleCopy}
       showSide={showMessageSide}
