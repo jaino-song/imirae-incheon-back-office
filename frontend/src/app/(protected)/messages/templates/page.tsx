@@ -1,9 +1,16 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { ArrowLeft, FileText, Loader2, Plus } from "lucide-react";
-import { useMessageTemplates } from "@/features/message-templates/hooks/use-message-templates";
-import { useMessageTemplate, useUpdateMessageTemplate } from "@/hooks/use-message-templates";
+import { ArrowLeft, FileText, Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  useDeleteMessageTemplate,
+  useMessageTemplates,
+} from "@/features/message-templates/hooks/use-message-templates";
+import {
+  useMessageTemplate,
+  useUpdateMessageTemplate,
+} from "@/hooks/use-message-templates";
+import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import {
   AnimatedSlotList,
   AnimatedSlotListItemContent,
@@ -14,6 +21,7 @@ import {
   ListPanel,
   SplitLayout,
 } from "@/components/app/v3";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -48,14 +56,22 @@ function TemplateEditorLoadingSkeleton({ name }: { name: string }) {
   );
 }
 
-function BranchTemplateDetail({ templateId }: { templateId: string }) {
+function BranchTemplateDetail({
+  templateId,
+  onDeleted,
+}: {
+  templateId: string;
+  onDeleted: () => void;
+}) {
   const { data: template, isLoading } = useMessageTemplate(templateId);
   const updateMutation = useUpdateMessageTemplate();
+  const deleteMutation = useDeleteMessageTemplate();
   const { toast } = useToast();
 
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
   const [initialized, setInitialized] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   if (template && initialized !== template.id) {
     setName(template.name);
@@ -87,6 +103,19 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
     );
   };
 
+  const handleDelete = () => {
+    deleteMutation.mutate(template.id, {
+      onSuccess: () => {
+        setDeleteDialogOpen(false);
+        onDeleted();
+        toast({ description: "지점 템플릿이 삭제되었습니다." });
+      },
+      onError: () => {
+        toast({ variant: "destructive", description: "삭제 중 오류가 발생했습니다." });
+      },
+    });
+  };
+
   return (
     <div data-component="desktop_messages_sections_templates-user-detail" className="flex flex-col gap-6">
       <div data-component="desktop_messages_sections_templates-user-detail_templates-user-name-field">
@@ -114,7 +143,17 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
         />
       </div>
 
-      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-actions" className="flex justify-end">
+      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-actions" className="flex justify-between gap-3">
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => setDeleteDialogOpen(true)}
+          disabled={deleteMutation.isPending}
+          data-component="desktop_messages_sections_templates-user-detail_templates-user-actions_delete"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          삭제
+        </Button>
         <button
           type="button"
           onClick={handleSave}
@@ -130,6 +169,21 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
           {updateMutation.isPending ? "저장 중..." : "저장"}
         </button>
       </div>
+
+      <TwoButtonModal
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="지점 템플릿을 삭제하시겠습니까?"
+        description="삭제한 지점 템플릿은 복구할 수 없습니다."
+        cancelLabel="취소"
+        approvalLabel="삭제"
+        pendingLabel="삭제 중..."
+        approvalVariant="destructive"
+        isPending={deleteMutation.isPending}
+        isDescriptionVisuallyHidden={false}
+        onApprove={handleDelete}
+        data-component="desktop_messages_sections_templates_delete-confirmation"
+      />
     </div>
   );
 }
@@ -238,7 +292,13 @@ export default function TemplatesPage() {
             />
           ) : null}
 
-          {branchTemplateId ? <BranchTemplateDetail key={branchTemplateId} templateId={branchTemplateId} /> : null}
+          {branchTemplateId ? (
+            <BranchTemplateDetail
+              key={branchTemplateId}
+              templateId={branchTemplateId}
+              onDeleted={() => setSelectedValue(null)}
+            />
+          ) : null}
         </DetailPanel>
       </SplitLayout>
     </section>
