@@ -681,7 +681,7 @@ function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
                         <span
                             className={cn(
                                 "h-[calc(7px*var(--glint-ui-scale,1))] w-[calc(7px*var(--glint-ui-scale,1))] rounded-full",
-                                section.tone === "mom" && "bg-v3-burgundy",
+                                section.tone === "mom" && "bg-v3-purple",
                                 section.tone === "baby" && "bg-v3-primary",
                                 section.tone === "finish" && "bg-v3-green",
                             )}
@@ -728,7 +728,7 @@ function EmptySessionRecordDetail() {
                         <span
                             className={cn(
                                 "h-[calc(7px*var(--glint-ui-scale,1))] w-[calc(7px*var(--glint-ui-scale,1))] rounded-full",
-                                section.tone === "mom" && "bg-v3-burgundy",
+                                section.tone === "mom" && "bg-v3-purple",
                                 section.tone === "baby" && "bg-v3-primary",
                                 section.tone === "finish" && "bg-v3-green",
                             )}

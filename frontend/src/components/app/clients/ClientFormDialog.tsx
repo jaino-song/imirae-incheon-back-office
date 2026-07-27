@@ -384,9 +384,9 @@ function ClientFormContent({
         () =>
             Object.entries(voucherOptions.voucherOptions).map(([groupName, types]) => ({
                 label: groupName,
-                options: Object.entries(types).map(([typeValue, typeData]) => ({
+                options: Object.keys(types).map((typeValue) => ({
                     value: typeValue,
-                    label: typeData.label,
+                    label: typeValue,
                 })),
             })),
         []
@@ -977,7 +977,7 @@ function ClientFormContent({
                 >
                     <FormTextInput
                         id="address"
-                        placeholder="상세 주소"
+                        placeholder="예: 인천광역시 서구"
                         value={formData.address ?? ""}
                         onChange={(e) => handleChange("address", e.target.value)}
                     />
@@ -1365,7 +1365,7 @@ function ClientFormContent({
             >
                 <FormTextInput
                     id="address"
-                    placeholder="상세 주소"
+                    placeholder="예: 인천광역시 서구"
                     value={formData.address ?? ""}
                     onChange={(event) => handleChange("address", event.target.value)}
                 />

@@ -46,8 +46,10 @@ import {
     ClientFormPanel,
 } from "@/components/app/clients/ClientFormDialog";
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
+import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { NotificationOneButtonModal } from "@/components/app/ui/NotificationOneButtonModal";
+import { StatusPill } from "@/components/app/ui/status-badge";
 import { ClientDetailModal } from "@/components/app/clients/ClientDetailModal";
 import { ServiceRecordLinkResetResultModal } from "@/components/app/clients/ServiceRecordLinkResetResultModal";
 import { ServiceScheduleChangeModal } from "@/components/app/clients/ServiceScheduleChangeModal";
@@ -696,7 +698,7 @@ export default function ClientsPage() {
                         />
                     }
                     emptyState={!isLoading && filteredClients.length === 0 ? (
-                        <ListEmptyState message={t(locale, "clients.no-data")} />
+                        <ListEmptyState icon={Users} message={t(locale, "clients.no-data")} />
                     ) : undefined}
                 >
                     <div
@@ -735,6 +737,7 @@ export default function ClientsPage() {
 	                                        const clientBadges = getClientBadges(client);
 	                                        const sortedClientBadges = prioritizeClientBadges(clientBadges);
 	                                        const primaryClientBadge = getPrimaryClientBadge(clientBadges);
+                                            const [firstClientBadge, ...remainingClientBadges] = sortedClientBadges;
 
 	                                        return (
 	                                            <AnimatedSlotListItemContent
@@ -752,13 +755,27 @@ export default function ClientsPage() {
 	                                                        ) : null}
 	                                                    </>
 	                                                }
-			                                                status={sortedClientBadges.map((badge, badgeIndex) => (
-			                                                    <StatusBadge
-			                                                        key={badge.key ?? `${badge.status}-${badge.label ?? badgeIndex}`}
-			                                                        status={badge.status}
-			                                                        label={badge.label}
-			                                                    />
-			                                                ))}
+                                                    status={firstClientBadge ? (
+                                                        <div className="flex items-center gap-[calc(4px*var(--glint-ui-scale,1))]">
+                                                            <StatusBadge
+                                                                status={firstClientBadge.status}
+                                                                label={
+                                                                    firstClientBadge.label
+                                                                        ? getClientDisplayLabel(firstClientBadge.label)
+                                                                        : undefined
+                                                                }
+                                                            />
+                                                            {remainingClientBadges.length > 0 ? (
+                                                                <StatusPill
+                                                                    data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_status-more"
+                                                                    variant="neutral"
+                                                                    size="sm"
+                                                                >
+                                                                    +{remainingClientBadges.length}
+                                                                </StatusPill>
+                                                            ) : null}
+                                                        </div>
+                                                    ) : undefined}
 			                                            />
 	                                        );
 	                                    }}
@@ -843,7 +860,8 @@ export default function ClientsPage() {
                                         <DropdownMenuItem
                                             data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_delete"
                                             onClick={() => handleDeleteRequest(activeSelectedClient.id)}
-                                            className="gap-2 text-destructive focus:text-destructive"
+                                            variant="destructive"
+                                            className="gap-2"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                             {t(locale, "common.delete")}

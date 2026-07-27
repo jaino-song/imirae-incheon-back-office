@@ -225,6 +225,9 @@ describe("ClientServiceRecordsTab", () => {
             `[data-component="${TEST_COMPONENT}_sessions_list_row_detail"]`,
         );
         expect(detail).toBeInTheDocument();
+        const motherSectionMarker = screen.getByText("산모 기록").querySelector("span");
+        expect(motherSectionMarker).toHaveClass("bg-v3-purple");
+        expect(motherSectionMarker).not.toHaveClass("bg-v3-burgundy");
         const emptyValues = detail!.querySelectorAll(
             `[data-component="${TEST_COMPONENT}_sessions_list_row_detail_field_empty-value"]`,
         );
