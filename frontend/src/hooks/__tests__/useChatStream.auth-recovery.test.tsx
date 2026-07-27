@@ -4,6 +4,12 @@ import { TextDecoder, TextEncoder } from "util";
 
 import { useChatStream } from "../useChatStream";
 
+const refreshAppAuthSessionMock = jest.fn<Promise<void>, []>();
+
+jest.mock("@/lib/api/client", () => ({
+    refreshAppAuthSession: () => refreshAppAuthSessionMock(),
+}));
+
 const SESSION_EXPIRED_MESSAGE =
     "세션이 만료되었습니다. 페이지를 새로고침하거나 다시 로그인해 주세요.";
 const TEMPORARY_ERROR_MESSAGE =
@@ -41,6 +47,8 @@ describe("useChatStream auth recovery", () => {
 
     beforeEach(() => {
         localStorage.clear();
+        refreshAppAuthSessionMock.mockReset();
+        refreshAppAuthSessionMock.mockResolvedValue(undefined);
         Object.assign(globalThis, {
             TextEncoder,
             TextDecoder: TextDecoder as unknown as typeof globalThis.TextDecoder,
@@ -57,7 +65,6 @@ describe("useChatStream auth recovery", () => {
         const fetchMock = jest
             .fn()
             .mockResolvedValueOnce(createResponse({ ok: false, status: 401 }))
-            .mockResolvedValueOnce(createResponse({ ok: true, status: 200 }))
             .mockResolvedValueOnce(
                 createResponse({
                     body: createSSEStream([
@@ -78,9 +85,9 @@ describe("useChatStream auth recovery", () => {
 
         expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
             "/api/ai/chat/stream",
-            "/api/auth/refresh",
             "/api/ai/chat/stream",
         ]);
+        expect(refreshAppAuthSessionMock).toHaveBeenCalledTimes(1);
         expect(result.current.messages.at(-1)?.content).toBe("갱신 성공");
         expect(result.current.state).toBe("complete");
     });
@@ -89,7 +96,6 @@ describe("useChatStream auth recovery", () => {
         const fetchMock = jest
             .fn()
             .mockResolvedValueOnce(createResponse({ ok: false, status: 401 }))
-            .mockResolvedValueOnce(createResponse({ ok: true, status: 200 }))
             .mockResolvedValueOnce(createResponse({ ok: false, status: 401 }));
         globalThis.fetch = fetchMock as typeof fetch;
         jest.spyOn(console, "error").mockImplementation(() => undefined);
@@ -100,7 +106,8 @@ describe("useChatStream auth recovery", () => {
             await result.current.sendMessage("안녕");
         });
 
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(refreshAppAuthSessionMock).toHaveBeenCalledTimes(1);
         expect(result.current.messages.at(-1)?.content).toBe(SESSION_EXPIRED_MESSAGE);
         expect(result.current.error).toBe(SESSION_EXPIRED_MESSAGE);
         expect(result.current.state).toBe("error");

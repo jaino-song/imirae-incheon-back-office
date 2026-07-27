@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { refreshAppAuthSession } from "@/lib/api/client";
 import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from "@/lib/safe-storage";
 
 export interface ChatMessage {
@@ -85,14 +86,15 @@ async function requestChatStream(init: RequestInit): Promise<Response> {
     let response = await sendRequest();
 
     if (response.status === 401) {
-        const refreshResponse = await fetch("/api/auth/refresh", {
-            method: "POST",
-            credentials: "include",
-            signal: init.signal,
-        });
+        await response.body?.cancel().catch(() => undefined);
 
-        if (!refreshResponse.ok) {
-            throw new ChatStreamResponseError(refreshResponse.status);
+        // Share the axios interceptor's single-flight refresh: a second
+        // concurrent refresh would consume the rotating refresh token and
+        // force a full logout on the losing request.
+        try {
+            await refreshAppAuthSession();
+        } catch {
+            throw new ChatStreamResponseError(401);
         }
 
         response = await sendRequest();
