@@ -11,7 +11,6 @@ import {
   ClipboardList,
   Download,
   Eye,
-  ExternalLink,
   FileCheck2,
   FileSignature,
   FileText,
@@ -1444,17 +1443,6 @@ function ContractDetailContent({
               >
                 <Download size={16} strokeWidth={2.5} />
                 <span>다운로드</span>
-              </a>
-              <a
-                className="contract-preview-open"
-                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_open"
-                href={downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`${name} PDF 새 탭에서 열기`}
-              >
-                <ExternalLink size={16} strokeWidth={2.5} />
-                <span>새 탭</span>
               </a>
             </div>
           </div>
