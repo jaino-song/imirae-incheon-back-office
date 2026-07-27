@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FolderOpen, FileText, Image as ImageIcon, File, Upload, CloudUpload, Loader2, Tag, MoreVertical, Pencil, Trash2, Eye } from "lucide-react";
+import { FolderOpen, FileText, Image as ImageIcon, File, Upload, CloudUpload, Loader2, Tag, MoreVertical, Pencil, Trash2, Eye, X } from "lucide-react";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { StatsBar, SplitLayout, ListPanel, DetailPanel, InfoCard, InfoRow, HeaderActionButton, AnimatedSlotList, AnimatedSlotListItemContent, EmptyState, PageSection, DetailSkeleton, ListEmptyState } from "@/components/app/v3";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -256,7 +256,7 @@ export default function FilesPage() {
           showCloseButton={false}
           className="flex max-h-[90vh] w-[min(720px,calc(100vw-1.5rem))] max-w-[720px] flex-col overflow-hidden rounded-[28px] border-none bg-v3-dim-white p-0 shadow-[0_20px_60px_hsla(214,50%,20%,0.15)] gap-0"
         >
-          <DialogHeader className="shrink-0 border-b border-v3-border bg-white p-6 text-left">
+          <DialogHeader className="shrink-0 flex-row items-start justify-between border-b border-v3-border bg-white p-6 text-left">
             <div data-component="desktop_files_upload-dialog_heading" className="flex min-w-0 flex-col items-start gap-2 pr-12">
               <DialogTitle className="flex items-center gap-2 text-[1.35rem] font-bold tracking-[-0.02em] text-v3-dark">
                 <Upload className="h-5 w-5 text-v3-primary" />
@@ -266,6 +266,16 @@ export default function FilesPage() {
                 파일을 선택하고 문서 정보를 입력해 저장소에 업로드합니다.
               </DialogDescription>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="업로드 닫기"
+              onClick={() => handleUploadOpenChange(false)}
+              disabled={uploadMutation.isPending}
+              className="shrink-0"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </DialogHeader>
           <div data-component="desktop_files_upload-dialog_content" className="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-6">
             <DocumentDropzone

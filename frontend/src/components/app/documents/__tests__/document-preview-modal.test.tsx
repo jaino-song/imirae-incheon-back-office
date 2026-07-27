@@ -218,6 +218,7 @@ describe("DocumentPreviewModal", () => {
     expect(screen.getByRole("button", { name: "미리보기 닫기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "문서 작업 더보기" })).toBeInTheDocument();
     await screen.findByTestId("pdf-page-1");
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
   });
 
   it("keeps the print frame mounted until the print preview closes", async () => {

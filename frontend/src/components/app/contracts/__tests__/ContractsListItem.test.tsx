@@ -56,6 +56,7 @@ describe("ContractsListItem", () => {
       );
 
       expect(title(container)).toHaveTextContent("이름 없음");
+      expect(title(container)).toHaveClass("italic", "text-v3-text-muted");
     },
   );
 
@@ -70,6 +71,7 @@ describe("ContractsListItem", () => {
     );
 
     expect(title(container)).toHaveTextContent("송진호");
+    expect(title(container)).not.toHaveClass("italic", "text-v3-text-muted");
   });
 
   it("uses the supplied subtitle label instead of the stored document name", () => {

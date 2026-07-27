@@ -123,7 +123,7 @@ export default async function TrafficDetailPage() {
             label="평균 방문 시간"
             value={
               summary.sevenDayTotal.pv === 0
-                ? "—"
+                ? "-"
                 : `${Math.floor(summary.avgSessionSeconds / 60)}:${String(Math.round(summary.avgSessionSeconds % 60)).padStart(2, "0")}`
             }
             dataComponent="desktop_stats-traffic_page_kpi_grid_card-session"

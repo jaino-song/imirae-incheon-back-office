@@ -17,6 +17,29 @@ function createRect(left: number, width: number): DOMRect {
 }
 
 describe("ListPanel", () => {
+  it("aligns its header padding with a detail panel when requested", () => {
+    const { container } = render(
+      <ListPanel
+        data-component="desktop_v3_tests_split-layout_list-panel-detail-header"
+        title="목록"
+        headerPadding="detail"
+        className="h-fit flex-none self-start"
+      >
+        {null}
+      </ListPanel>,
+    );
+
+    expect(container.querySelector('[data-slot="list-panel"]')).toHaveClass(
+      "h-fit",
+      "flex-none",
+      "self-start",
+    );
+    expect(container.querySelector('[data-slot="list-panel-header"]')).toHaveClass(
+      "px-[calc(24px*var(--glint-ui-scale,1))]",
+      "py-[calc(20px*var(--glint-ui-scale,1))]",
+    );
+  });
+
   it("renders overlay through the root list-panel overlay layer", () => {
     const { container } = render(
       <ListPanel data-component="desktop_v3_tests_split-layout_list-panel"

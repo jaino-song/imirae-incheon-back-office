@@ -62,7 +62,7 @@ export function FunnelBars({
                         ? "bg-gradient-to-r from-red-500 to-red-600"
                         : "bg-gradient-to-r from-v3-primary to-blue-700"
                   )}
-                  style={{ width: `${Math.max(s.pct, 1)}%` }}
+                  style={{ width: s.pct === 0 ? "0%" : `${Math.max(s.pct, 1)}%` }}
                 />
               </div>
               <div className="w-20 text-right text-[0.78rem] font-semibold text-v3-text tabular-nums">
