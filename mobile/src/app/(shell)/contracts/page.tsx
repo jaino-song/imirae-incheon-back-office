@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Download,
   Eye,
+  ExternalLink,
   FileCheck2,
   FileSignature,
   FileText,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
 import { useEformsignAuth } from "@/hooks/useEformsignAuth";
@@ -67,6 +69,7 @@ import {
   type HeadlessProgressState,
 } from "@/lib/eformsign/headless-progress";
 import { HeadlessProgressModal } from "@/components/app/eformsign/HeadlessProgressModal";
+import { ContractPdfViewerPlaceholder } from "@/components/app/contracts/contract-pdf-viewer-placeholder";
 import { MobileTwoButtonModal } from "@/components/app/ui/MobileTwoButtonModal";
 import type { EformsignDocClientSummary } from "@babyjamjam/shared/types/eformsign";
 import {
@@ -108,6 +111,24 @@ import { useFormStore, type ContractCreationPrefill } from "@/stores/form-store"
 import "@/components/app/mobile-redesign/redesign.css";
 
 const STAFF_COMPLETION_IFRAME_ID = "contracts_staff_completion_iframe";
+const CONTRACT_PDF_VIEWER_ARIA_LABEL = "계약서 PDF 미리보기";
+
+const ContractPdfViewer = dynamic(
+  () =>
+    import("@/components/app/contracts/contract-pdf-viewer").then(
+      (module) => module.ContractPdfViewer
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <ContractPdfViewerPlaceholder
+        className="contract-preview-frame"
+        data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_frame"
+        aria-label={CONTRACT_PDF_VIEWER_ARIA_LABEL}
+      />
+    ),
+  }
+);
 
 type ContractCategory = "in-progress" | "drafting" | "completed" | "expired" | "unknown";
 type ContractSectionId = "maternal-contracts" | "service-records";
@@ -1400,32 +1421,50 @@ function ContractDetailContent({
               <ArrowLeft size={18} strokeWidth={2.5} />
               <span>돌아가기</span>
             </button>
-            <a
-              className="contract-preview-receipt"
-              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_receipt-download"
-              href={receiptDownloadUrl}
-              download={receiptFilename}
-              aria-label={`${name} 영수증 PDF 다운로드`}
+            <div
+              className="contract-preview-header-actions"
+              data-slot="contract-preview-header-actions"
             >
-              <Download size={16} strokeWidth={2.5} />
-              <span>영수증</span>
-            </a>
-            <a
-              className="contract-preview-download"
-              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_pdf-download"
-              href={downloadUrl}
-              download={`${name}.pdf`}
-              aria-label={`${name} PDF 다운로드`}
-            >
-              <Download size={16} strokeWidth={2.5} />
-              <span>다운로드</span>
-            </a>
+              <a
+                className="contract-preview-receipt"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_receipt-download"
+                href={receiptDownloadUrl}
+                download={receiptFilename}
+                aria-label={`${name} 영수증 PDF 다운로드`}
+              >
+                <Download size={16} strokeWidth={2.5} />
+                <span>영수증</span>
+              </a>
+              <a
+                className="contract-preview-download"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_pdf-download"
+                href={downloadUrl}
+                download={`${name}.pdf`}
+                aria-label={`${name} PDF 다운로드`}
+              >
+                <Download size={16} strokeWidth={2.5} />
+                <span>다운로드</span>
+              </a>
+              <a
+                className="contract-preview-open"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_open"
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${name} PDF 새 탭에서 열기`}
+              >
+                <ExternalLink size={16} strokeWidth={2.5} />
+                <span>새 탭</span>
+              </a>
+            </div>
           </div>
-          <iframe
+          <ContractPdfViewer
+            key={previewUrl}
             className="contract-preview-frame"
             data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_frame"
-            title={`${name} PDF 미리보기`}
-            src={previewUrl}
+            title={CONTRACT_PDF_VIEWER_ARIA_LABEL}
+            fileUrl={previewUrl}
+            fallbackHref={downloadUrl}
           />
         </section>
       ) : (

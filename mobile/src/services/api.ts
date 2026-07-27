@@ -427,7 +427,7 @@ export const eformsignApi = {
     getDocumentReceiptDownloadUrl: (documentId: string): string =>
         `/api/eformsign/documents/${encodeURIComponent(documentId)}/download_files?fileType=document&page=7`,
     getDocumentPreviewUrl: (documentId: string): string =>
-        `/api/eformsign/documents/${encodeURIComponent(documentId)}/download_files?fileType=document#toolbar=0`,
+        `/api/eformsign/documents/${encodeURIComponent(documentId)}/download_files?fileType=document`,
     getInProgressDocuments: async (): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/in-progress');
         return normalizeDocumentListResponse(data);

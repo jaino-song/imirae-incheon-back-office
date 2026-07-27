@@ -4459,9 +4459,18 @@ body.mobile-contracts-route .contract-preview-header {
   animation: mobile-redesign-pop-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+body.mobile-contracts-route .contract-preview-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 body.mobile-contracts-route .contract-preview-back,
 body.mobile-contracts-route .contract-preview-receipt,
-body.mobile-contracts-route .contract-preview-download {
+body.mobile-contracts-route .contract-preview-download,
+body.mobile-contracts-route .contract-preview-open {
   display: inline-flex;
   min-width: 0;
   height: 32px;
@@ -4488,24 +4497,112 @@ body.mobile-contracts-route .contract-preview-download {
 
 body.mobile-contracts-route .contract-preview-back svg,
 body.mobile-contracts-route .contract-preview-receipt svg,
-body.mobile-contracts-route .contract-preview-download svg {
+body.mobile-contracts-route .contract-preview-download svg,
+body.mobile-contracts-route .contract-preview-open svg {
   transition: transform 160ms var(--ease-spatial);
 }
 
 body.mobile-contracts-route .contract-preview-back:active,
 body.mobile-contracts-route .contract-preview-receipt:active,
-body.mobile-contracts-route .contract-preview-download:active {
+body.mobile-contracts-route .contract-preview-download:active,
+body.mobile-contracts-route .contract-preview-open:active {
   opacity: 0.72;
   transform: translateX(-1px) scale(0.98);
 }
 
 body.mobile-contracts-route .contract-preview-frame {
+  display: flex;
   width: 100%;
   min-height: 0;
   height: 100%;
   flex: 1 1 auto;
+  overflow: hidden;
+  flex-direction: column;
   border: 0;
   background: hsl(var(--v3-dim-white));
+}
+
+body.mobile-contracts-route .contract-pdf-viewer {
+  position: relative;
+  isolation: isolate;
+}
+
+body.mobile-contracts-route .contract-pdf-viewport {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+body.mobile-contracts-route .contract-pdf-document {
+  display: flex;
+  min-width: 100%;
+  min-height: 100%;
+  flex: 1 0 auto;
+}
+
+body.mobile-contracts-route .contract-pdf-sizer {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+body.mobile-contracts-route .contract-pdf-pages {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0 24px;
+  transform-origin: 0 0;
+}
+
+body.mobile-contracts-route .contract-pdf-page {
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: hsl(var(--v3-dim-white));
+  box-shadow: 0 10px 28px rgb(15 23 42 / 10%);
+}
+
+body.mobile-contracts-route .contract-pdf-status {
+  display: flex;
+  min-width: 100%;
+  min-height: 0;
+  align-items: center;
+  flex: 1 0 auto;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: hsl(var(--v3-text));
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+body.mobile-contracts-route .contract-pdf-status-error {
+  flex-direction: column;
+  color: hsl(var(--v3-burgundy));
+}
+
+body.mobile-contracts-route .contract-pdf-status-error a {
+  color: hsl(var(--v3-primary));
+  font-weight: 800;
+  text-underline-offset: 3px;
+  transition: opacity 160ms var(--ease-standard);
+}
+
+body.mobile-contracts-route .contract-pdf-status-error a:hover {
+  opacity: 0.78;
+}
+
+body.mobile-contracts-route .contract-pdf-status-error a:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid hsl(var(--v3-primary));
+  outline-offset: 3px;
 }
 
 body.mobile-contracts-route .contract-doc-icon-primary {
