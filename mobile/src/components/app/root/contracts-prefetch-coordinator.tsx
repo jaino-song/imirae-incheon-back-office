@@ -60,13 +60,16 @@ export function ContractsPrefetchCoordinator(): null {
           queryFn: eformsignApi.getFeedbackTemplateId,
           staleTime: 1000 * 60 * 5,
         });
-        if (cancelled || !feedbackTemplate?.templateId) return;
+        const serviceRecordTemplateIds = feedbackTemplate?.templateIds
+          ?? (feedbackTemplate?.templateId ? [feedbackTemplate.templateId] : []);
+        if (cancelled || serviceRecordTemplateIds.length === 0) return;
+        const serviceRecordTemplateId = serviceRecordTemplateIds.join(",");
 
         const options = infiniteContractsQueryOptions({
           branchId,
           statusCategory: null,
           search: "",
-          templateId: feedbackTemplate.templateId,
+          templateId: serviceRecordTemplateId,
           templateMatch: "exclude",
         });
         const queryState = queryClient.getQueryState(options.queryKey);

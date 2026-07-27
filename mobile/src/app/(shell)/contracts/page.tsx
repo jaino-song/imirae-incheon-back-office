@@ -329,9 +329,12 @@ function templateName(doc: EformsignDocument): string {
 
 function isServiceRecordDocument(
   doc: EformsignDocument,
-  serviceRecordTemplateId: string | null | undefined,
+  serviceRecordTemplateIds: readonly string[] | null | undefined,
 ): boolean {
-  if (serviceRecordTemplateId && doc.template?.id === serviceRecordTemplateId) {
+  if (
+    doc.template?.id
+    && serviceRecordTemplateIds?.includes(doc.template.id)
+  ) {
     return true;
   }
 
@@ -1591,7 +1594,7 @@ export default function ContractsPage() {
     setFinalizeErrorHint(null);
     setFinalizeProgress(INITIAL_HEADLESS_PROGRESS);
 
-    if (isServiceRecordDocument(doc, feedbackTemplateData?.templateId)) {
+    if (isServiceRecordDocument(doc, serviceRecordTemplateIds)) {
       setFinalizeEndDateInput("");
       setIsFinalizeDialogOpen(false);
       setIsServiceRecordFinalizeConfirmOpen(true);
@@ -1656,7 +1659,7 @@ export default function ContractsPage() {
     if (!finalizeDoc) return;
     const isServiceRecordFinalize = isServiceRecordDocument(
       finalizeDoc,
-      feedbackTemplateData?.templateId,
+      serviceRecordTemplateIds,
     );
     const endDateIso = isServiceRecordFinalize
       ? undefined
@@ -1831,13 +1834,23 @@ export default function ContractsPage() {
   // 섹션(산모 계약서/제공기록지)은 제공기록지 template id의 include/exclude로 서버에서 필터한다.
   // template id가 미설정(null)인 설치에서는 모든 문서를 산모 계약서로 취급한다 —
   // 산모 섹션은 템플릿 필터 없이 조회하고, 제공기록지 섹션만 비활성(빈 목록)으로 남긴다.
-  const serviceRecordTemplateId = feedbackTemplateData?.templateId ?? null;
+  const serviceRecordTemplateIds = useMemo(
+    () => feedbackTemplateData?.templateIds
+      ?? (feedbackTemplateData?.templateId ? [feedbackTemplateData.templateId] : []),
+    [feedbackTemplateData],
+  );
+  const serviceRecordTemplateId = useMemo(
+    () => serviceRecordTemplateIds.length > 0
+      ? serviceRecordTemplateIds.join(",")
+      : null,
+    [serviceRecordTemplateIds],
+  );
   const isFeedbackTemplateResolved =
     feedbackTemplateData !== undefined || isFeedbackTemplateError;
   const sectionTemplateMatch = activeSection === "service-records" ? "include" : "exclude";
   const sectionFilterReady =
     isFeedbackTemplateResolved
-    && (activeSection === "maternal-contracts" || Boolean(serviceRecordTemplateId));
+    && (activeSection === "maternal-contracts" || serviceRecordTemplateIds.length > 0);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
 
@@ -2284,7 +2297,7 @@ export default function ContractsPage() {
             metadata={selectedDocMetadata}
             isServiceRecord={isServiceRecordDocument(
               selectedDetailDoc,
-              feedbackTemplateData?.templateId,
+              serviceRecordTemplateIds,
             )}
             notificationLogs={notificationLogs}
             activeTab={activeTab}
@@ -2394,7 +2407,7 @@ export default function ContractsPage() {
         open={isFinalizeProgressOpen}
         title="최종 확인 처리 중"
         steps={
-          finalizeDoc && isServiceRecordDocument(finalizeDoc, feedbackTemplateData?.templateId)
+          finalizeDoc && isServiceRecordDocument(finalizeDoc, serviceRecordTemplateIds)
             ? SERVICE_RECORD_FINALIZE_PROGRESS_STEPS
             : CONTRACT_FINALIZE_PROGRESS_STEPS
         }

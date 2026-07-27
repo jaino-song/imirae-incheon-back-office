@@ -48,6 +48,7 @@ export interface ContractDataDto {
 
 export interface FeedbackTemplateIdResponse {
     templateId: string | null;
+    templateIds?: string[];
 }
 
 const HEADLESS_DISPATCH_TIMEOUT_MS = 180_000;
