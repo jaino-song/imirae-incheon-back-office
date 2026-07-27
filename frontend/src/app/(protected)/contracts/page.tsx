@@ -326,7 +326,8 @@ function formatSingleFieldDate(value?: string | null): string | null {
     /^(\d{2,4})\s*(?:년|[./-])\s*(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*(?:일)?\.?$/
   );
   if (!match) {
-    return formatDateForDisplay(trimmed, trimmed);
+    const looksLikeDate = /\d{4}/.test(trimmed) && /[-./]/.test(trimmed);
+    return looksLikeDate ? formatDateForDisplay(trimmed, trimmed) : trimmed;
   }
 
   const [, year, month, day] = match;
@@ -1712,7 +1713,7 @@ function ContractDetail({
     />,
   ];
 
-  const providerTabCards = [
+  const presentProviderCards = [
     provider1Name || provider1Contact ? (
     <InfoRowsCard
       data-component={`${dataComponent}_content_provider_primary-card`}
@@ -1737,7 +1738,23 @@ function ContractDetail({
       ]}
     />
     ) : null,
-  ];
+  ].filter(Boolean);
+
+  const providerTabCards =
+    presentProviderCards.length > 0
+      ? presentProviderCards
+      : [
+          <InfoRowsCard
+            data-component={`${dataComponent}_content_provider_primary-card`}
+            key="provider-empty"
+            title="제공인력"
+            loading={isBaseDetailLoading}
+            rows={[
+              { label: "성명", value: "–" },
+              { label: "연락처", value: "–" },
+            ]}
+          />,
+        ];
 
   const serviceTabCards = [
     <InfoRowsCard
