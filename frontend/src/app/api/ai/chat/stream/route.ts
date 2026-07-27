@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 
+import { upstreamSseErrorResponse } from "@/lib/api/route-utils";
+
 const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "preview";
 const BACKEND_URL = isProduction
     ? process.env.NEXT_PUBLIC_API_BASE_URL
@@ -29,18 +31,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (!backendResponse.ok) {
-        const errorText = await backendResponse.text();
-        return new Response(
-            `event: error\ndata: ${JSON.stringify({ type: "error", error: errorText })}\n\n`,
-            {
-                status: backendResponse.status,
-                headers: {
-                    "Content-Type": "text/event-stream",
-                    "Cache-Control": "no-cache",
-                    Connection: "keep-alive",
-                },
-            }
-        );
+        await backendResponse.text().catch(() => "");
+        console.error("[chat] upstream stream request failed:", {
+            status: backendResponse.status,
+        });
+        return upstreamSseErrorResponse(backendResponse.status);
     }
 
     return new Response(backendResponse.body, {

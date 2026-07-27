@@ -48,6 +48,62 @@ interface UseChatStreamReturn {
 }
 
 const SESSION_STORAGE_KEY = "ai_chat_session_id";
+const CHAT_SESSION_EXPIRED_MESSAGE =
+    "세션이 만료되었습니다. 페이지를 새로고침하거나 다시 로그인해 주세요.";
+const CHAT_TEMPORARY_ERROR_MESSAGE =
+    "일시적인 오류로 응답을 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+
+class ChatStreamResponseError extends Error {
+    constructor(readonly status: number) {
+        super(`Chat stream request failed with status ${status}`);
+        this.name = "ChatStreamResponseError";
+    }
+}
+
+function isChatStreamAuthError(error: unknown): boolean {
+    return error instanceof ChatStreamResponseError
+        && (error.status === 401 || error.status === 403);
+}
+
+function getChatStreamErrorMessage(error: unknown): string {
+    return isChatStreamAuthError(error)
+        ? CHAT_SESSION_EXPIRED_MESSAGE
+        : CHAT_TEMPORARY_ERROR_MESSAGE;
+}
+
+function logChatStreamError(context: string, error: unknown): void {
+    if (error instanceof ChatStreamResponseError) {
+        console.error(`[chat] ${context}:`, { status: error.status });
+        return;
+    }
+
+    console.error(`[chat] ${context}:`, error);
+}
+
+async function requestChatStream(init: RequestInit): Promise<Response> {
+    const sendRequest = () => fetch("/api/ai/chat/stream", init);
+    let response = await sendRequest();
+
+    if (response.status === 401) {
+        const refreshResponse = await fetch("/api/auth/refresh", {
+            method: "POST",
+            credentials: "include",
+            signal: init.signal,
+        });
+
+        if (!refreshResponse.ok) {
+            throw new ChatStreamResponseError(refreshResponse.status);
+        }
+
+        response = await sendRequest();
+    }
+
+    if (!response.ok) {
+        throw new ChatStreamResponseError(response.status);
+    }
+
+    return response;
+}
 
 // Map persisted wizard markers back to UI metadata
 const WIZARD_MARKERS: Record<string, ChatMessage["ui"]> = {
@@ -334,7 +390,7 @@ export function useChatStream(): UseChatStreamReturn {
         abortControllerRef.current = new AbortController();
 
         try {
-            const response = await fetch("/api/ai/chat/stream", {
+            const response = await requestChatStream({
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -346,10 +402,6 @@ export function useChatStream(): UseChatStreamReturn {
                 credentials: "include",
                 signal: abortControllerRef.current.signal,
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error: ${response.status}`);
-            }
 
             setState("streaming");
 
@@ -428,9 +480,10 @@ export function useChatStream(): UseChatStreamReturn {
                             break;
 
                         case "error":
+                            console.error("[chat] stream event reported an error");
                             setIsToolExecuting(false);
                             setCurrentTool(null);
-                            setError(event.error || "Unknown error");
+                            setError(CHAT_TEMPORARY_ERROR_MESSAGE);
                             setState("error");
                             clearScheduledFlush();
                             flushPendingAssistant();
@@ -440,7 +493,7 @@ export function useChatStream(): UseChatStreamReturn {
                                 if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
                                     updated[lastIdx] = {
                                         ...updated[lastIdx],
-                                        content: `Error: ${event.error}`,
+                                        content: CHAT_TEMPORARY_ERROR_MESSAGE,
                                         isStreaming: false,
                                     };
                                 }
@@ -509,9 +562,10 @@ export function useChatStream(): UseChatStreamReturn {
                             setState("complete");
                             break;
                         case "error":
+                            console.error("[chat] buffered stream event reported an error");
                             setIsToolExecuting(false);
                             setCurrentTool(null);
-                            setError(event.error || "Unknown error");
+                            setError(CHAT_TEMPORARY_ERROR_MESSAGE);
                             setState("error");
                             clearScheduledFlush();
                             flushPendingAssistant();
@@ -521,7 +575,7 @@ export function useChatStream(): UseChatStreamReturn {
                                 if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
                                     updated[lastIdx] = {
                                         ...updated[lastIdx],
-                                        content: `Error: ${event.error}`,
+                                        content: CHAT_TEMPORARY_ERROR_MESSAGE,
                                         isStreaming: false,
                                     };
                                 }
@@ -545,12 +599,13 @@ export function useChatStream(): UseChatStreamReturn {
                 return;
             }
             
-            const errorMessage = err instanceof Error ? err.message : "Unknown error";
+            const errorMessage = getChatStreamErrorMessage(err);
+            logChatStreamError("stream request failed", err);
             clearScheduledFlush();
             flushPendingAssistant();
             
             // Auto-retry logic: retry once automatically after 1 second
-            if (retryCount < 1) {
+            if (retryCount < 1 && !isChatStreamAuthError(err)) {
                 setRetryCount((prev) => prev + 1);
                 setMessages((prev) => {
                     const updated = [...prev];
@@ -558,7 +613,7 @@ export function useChatStream(): UseChatStreamReturn {
                     if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
                         updated[lastIdx] = {
                             ...updated[lastIdx],
-                            content: `Error: ${errorMessage}. Retrying...`,
+                            content: `${errorMessage} 자동으로 다시 시도하고 있습니다.`,
                             isStreaming: false,
                         };
                     }
@@ -597,7 +652,7 @@ export function useChatStream(): UseChatStreamReturn {
 
                     abortControllerRef.current = new AbortController();
 
-                    fetch("/api/ai/chat/stream", {
+                    requestChatStream({
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
@@ -609,10 +664,6 @@ export function useChatStream(): UseChatStreamReturn {
                         credentials: "include",
                         signal: abortControllerRef.current.signal,
                     }).then(async (response) => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error: ${response.status}`);
-                        }
-
                         setState("streaming");
 
                         const reader = response.body?.getReader();
@@ -689,21 +740,22 @@ export function useChatStream(): UseChatStreamReturn {
                                         setState("complete");
                                         break;
 
-	                                    case "error":
-	                                        setIsToolExecuting(false);
-	                                        setCurrentTool(null);
-	                                        setError(event.error || "Unknown error");
-	                                        setState("error");
+		                                    case "error":
+                                                console.error("[chat] retried stream event reported an error");
+		                                        setIsToolExecuting(false);
+		                                        setCurrentTool(null);
+		                                        setError(CHAT_TEMPORARY_ERROR_MESSAGE);
+		                                        setState("error");
 	                                        clearScheduledFlush();
 	                                        flushPendingAssistant();
 	                                        setMessages((prev) => {
 	                                            const updated = [...prev];
 	                                            const lastIdx = updated.length - 1;
 	                                            if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                                                updated[lastIdx] = {
-                                                    ...updated[lastIdx],
-                                                    content: `Error: ${event.error}`,
-                                                    isStreaming: false,
+		                                                updated[lastIdx] = {
+		                                                    ...updated[lastIdx],
+		                                                    content: CHAT_TEMPORARY_ERROR_MESSAGE,
+		                                                    isStreaming: false,
                                                 };
                                             }
                                             return updated;
@@ -769,21 +821,22 @@ export function useChatStream(): UseChatStreamReturn {
                                         });
                                         setState("complete");
                                         break;
-	                                    case "error":
-	                                        setIsToolExecuting(false);
-	                                        setCurrentTool(null);
-	                                        setError(event.error || "Unknown error");
-	                                        setState("error");
+		                                    case "error":
+                                                console.error("[chat] buffered retried stream event reported an error");
+		                                        setIsToolExecuting(false);
+		                                        setCurrentTool(null);
+		                                        setError(CHAT_TEMPORARY_ERROR_MESSAGE);
+		                                        setState("error");
 	                                        clearScheduledFlush();
 	                                        flushPendingAssistant();
 	                                        setMessages((prev) => {
 	                                            const updated = [...prev];
 	                                            const lastIdx = updated.length - 1;
 	                                            if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                                                updated[lastIdx] = {
-                                                    ...updated[lastIdx],
-                                                    content: `Error: ${event.error}`,
-                                                    isStreaming: false,
+		                                                updated[lastIdx] = {
+		                                                    ...updated[lastIdx],
+		                                                    content: CHAT_TEMPORARY_ERROR_MESSAGE,
+		                                                    isStreaming: false,
                                                 };
                                             }
                                             return updated;
@@ -805,7 +858,8 @@ export function useChatStream(): UseChatStreamReturn {
                             return;
                         }
                         
-                        const retryErrorMessage = retryErr instanceof Error ? retryErr.message : "Unknown error";
+                        const retryErrorMessage = getChatStreamErrorMessage(retryErr);
+                        logChatStreamError("retried stream request failed", retryErr);
                         setError(retryErrorMessage);
                         setState("error");
                         
@@ -815,7 +869,7 @@ export function useChatStream(): UseChatStreamReturn {
                             if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
                                 updated[lastIdx] = {
                                     ...updated[lastIdx],
-                                    content: `Error: ${retryErrorMessage}`,
+                                    content: retryErrorMessage,
                                     isStreaming: false,
                                 };
                             }
@@ -836,7 +890,7 @@ export function useChatStream(): UseChatStreamReturn {
                 if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
                     updated[lastIdx] = {
                         ...updated[lastIdx],
-                        content: `Error: ${errorMessage}`,
+                        content: errorMessage,
                         isStreaming: false,
                     };
                 }
