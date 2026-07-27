@@ -3,6 +3,10 @@
 import { Bell, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
+const NOTIFICATION_PROMPT_DISMISSED_AT_KEY =
+    "babyjamjam-admin:notification-prompt-dismissed-at";
+const NOTIFICATION_PROMPT_DISMISSAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export function NotificationPermissionPrompt() {
     const [showBanner, setShowBanner] = useState(false);
     const titleId = useId();
@@ -11,11 +15,27 @@ export function NotificationPermissionPrompt() {
     useEffect(() => {
         if (typeof window === 'undefined') return;
         if (!('Notification' in window)) return;
-        if (Notification.permission === 'default') {
-            queueMicrotask(() => {
-                setShowBanner(true);
-            });
+        if (Notification.permission !== 'default') return;
+
+        try {
+            const dismissedAt = Number(
+                window.localStorage.getItem(NOTIFICATION_PROMPT_DISMISSED_AT_KEY),
+            );
+            const elapsedSinceDismissal = Date.now() - dismissedAt;
+            if (
+                dismissedAt > 0
+                && elapsedSinceDismissal >= 0
+                && elapsedSinceDismissal < NOTIFICATION_PROMPT_DISMISSAL_TTL_MS
+            ) {
+                return;
+            }
+        } catch {
+            // Continue when storage is unavailable so permission can still be requested.
         }
+
+        queueMicrotask(() => {
+            setShowBanner(true);
+        });
     }, []);
 
     if (!showBanner) return null;
@@ -29,6 +49,16 @@ export function NotificationPermissionPrompt() {
 
     const handleDismiss = () => {
         setShowBanner(false);
+        if (typeof window === 'undefined') return;
+
+        try {
+            window.localStorage.setItem(
+                NOTIFICATION_PROMPT_DISMISSED_AT_KEY,
+                String(Date.now()),
+            );
+        } catch {
+            // Keep the current-session dismissal when storage is unavailable.
+        }
     };
 
     return (

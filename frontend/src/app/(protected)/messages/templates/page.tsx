@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { type CSSProperties, useCallback, useMemo, useState } from "react";
 import { ArrowLeft, FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   useDeleteMessageTemplate,
@@ -33,6 +33,9 @@ interface TemplateListItem {
   subtitle?: string;
   icon: typeof FileText;
 }
+
+// Align the standalone template manager with the content column after the messages SectionNav rail.
+const MESSAGE_SECTION_NAV_CONTENT_OFFSET_PX = 132;
 
 const formatDate = (dateString: string): string => {
   return formatDateForDisplay(dateString);
@@ -223,7 +226,10 @@ export default function TemplatesPage() {
   return (
     <section
       data-component="desktop_messages_sections_templates"
-      className="flex h-full min-h-0 flex-1 flex-col lg:pl-[calc(132px*var(--glint-ui-scale,1))]"
+      className="flex h-full min-h-0 flex-1 flex-col lg:pl-[calc(var(--message-section-nav-content-offset)*var(--glint-ui-scale,1))]"
+      style={{
+        "--message-section-nav-content-offset": `${MESSAGE_SECTION_NAV_CONTENT_OFFSET_PX}px`,
+      } as CSSProperties}
     >
       <SplitLayout data-component="desktop_messages_sections_templates_split-layout" hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
         <ListPanel data-component="desktop_messages_sections_templates_split-layout_list-panel"

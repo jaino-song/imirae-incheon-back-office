@@ -766,8 +766,8 @@ export function SharedDocumentPreviewDialog({
             )}
 
             {isZoomablePreview && isPreviewReady && (
-              <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-[18px] border border-border bg-white/95 px-4 py-3 opacity-70 shadow-[0_16px_40px_rgba(15,23,42,0.12)] backdrop-blur-sm transition-opacity hover:opacity-100 focus-within:opacity-100">
-                <div className="min-w-[3rem] text-right text-xs font-semibold text-v3-text-muted">
+              <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-[18px] border border-border bg-white px-4 py-3 opacity-90 shadow-[0_16px_40px_rgba(15,23,42,0.12)] backdrop-blur-sm transition-opacity hover:opacity-100 focus-within:opacity-100">
+                <div className="min-w-[3rem] text-right text-xs font-semibold text-v3-text">
                   확대
                 </div>
                 <input
