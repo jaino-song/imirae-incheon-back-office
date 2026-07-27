@@ -60,6 +60,58 @@ describe("runEformsignCreationGates", () => {
         expect(log).toHaveBeenCalledWith("[creation-gate] clicked popup 전송");
     });
 
+    it("waits through a disabled top-level send before clicking the dialog send", async () => {
+        const topLevelSendButton = visibleLocator({
+            isEnabled: jest
+                .fn()
+                .mockResolvedValueOnce(true)
+                .mockResolvedValueOnce(false),
+        });
+        const popupSendButton = visibleLocator();
+        const requestSendDialog = visibleLocator({
+            isVisible: jest
+                .fn()
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce(true),
+            getByRole: jest
+                .fn()
+                .mockReturnValueOnce(locatorList([]))
+                .mockReturnValueOnce(locatorList([]))
+                .mockReturnValueOnce(locatorList([popupSendButton])),
+        });
+        const frameGetByRole = jest.fn().mockImplementation(
+            (_role: string, options: { name: string }) =>
+                options.name === "전송"
+                    ? locatorList([topLevelSendButton])
+                    : locatorList([]),
+        );
+        const eformsignFrame = {
+            locator: jest.fn().mockReturnValue(requestSendDialog),
+            getByRole: frameGetByRole,
+            getByText: jest.fn().mockReturnValue(locatorList([])),
+        } as unknown as FrameLocator;
+        const page = {
+            evaluate: jest
+                .fn()
+                .mockResolvedValueOnce({ hasSuccess: false, hasError: false })
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce({ hasSuccess: false, hasError: false })
+                .mockResolvedValueOnce(false)
+                .mockResolvedValueOnce({ hasSuccess: false, hasError: false })
+                .mockResolvedValueOnce(false),
+            waitForTimeout: jest.fn().mockResolvedValue(undefined),
+        } as unknown as Page;
+
+        await expect(runEformsignCreationGates(page, eformsignFrame)).resolves.toBe(
+            "request-send-clicked",
+        );
+        expect(topLevelSendButton.click).toHaveBeenCalledTimes(1);
+        expect(popupSendButton.click).toHaveBeenCalledTimes(1);
+        expect(page.waitForTimeout).toHaveBeenNthCalledWith(1, 250);
+        expect(page.waitForTimeout).toHaveBeenNthCalledWith(2, 500);
+    });
+
     it("adds a gate snapshot when an SDK error aborts creation", async () => {
         const snapshot = {
             visibleButtons: ["전송"],

@@ -122,4 +122,23 @@ describe.each(routeCases)("$label SSE proxy", ({ maxDuration, requestUrl, run })
         });
         expect(cancelUpstream).toHaveBeenCalledTimes(1);
     });
+
+    it("should forward Last-Event-ID to the upstream request", async () => {
+        let upstreamHeaders: Headers | undefined;
+        globalThis.fetch = jest.fn((_input, init) => {
+            upstreamHeaders = new Headers(init?.headers);
+            return Promise.resolve(new Response(null, { status: 204 }));
+        }) as typeof fetch;
+
+        await run(
+            new NextRequest(requestUrl, {
+                headers: {
+                    cookie: "auth_token=auth-token",
+                    "Last-Event-ID": "event-42",
+                },
+            }),
+        );
+
+        expect(upstreamHeaders?.get("Last-Event-ID")).toBe("event-42");
+    });
 });

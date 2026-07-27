@@ -245,6 +245,10 @@ export function logUpstreamError(
     error: unknown,
     upstreamBody?: string,
 ): void {
+    const maxUpstreamBodyLength = 2_000;
+    const loggedUpstreamBody = upstreamBody !== undefined && upstreamBody.length > maxUpstreamBodyLength
+        ? `${upstreamBody.slice(0, maxUpstreamBodyLength)}…(truncated)`
+        : upstreamBody;
     const data = getUpstreamErrorData(error);
     const upstreamCode = data && typeof data === "object"
         ? safeErrorCode((data as { code?: unknown }).code)
@@ -258,7 +262,7 @@ export function logUpstreamError(
         status: getUpstreamErrorStatus(error),
         code: upstreamCode ?? transportCode,
         name: errorName,
-        ...(upstreamBody === undefined ? {} : { body: upstreamBody }),
+        ...(loggedUpstreamBody === undefined ? {} : { body: loggedUpstreamBody }),
     });
 }
 
