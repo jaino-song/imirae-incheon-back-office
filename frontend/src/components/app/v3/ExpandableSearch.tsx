@@ -33,7 +33,7 @@ export function ExpandableSearch({
   inputLabel = "검색어",
 }: ExpandableSearchProps) {
   const [expanded, setExpanded] = useState(false);
-  const [overlayExpandedWidth, setOverlayExpandedWidth] = useState("7rem");
+  const [overlayExpandedWidth, setOverlayExpandedWidth] = useState("12rem");
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -41,12 +41,13 @@ export function ExpandableSearch({
     const container = rootRef.current?.closest<HTMLElement>('[data-slot="list-panel-controls"]');
     const containerWidth = container?.getBoundingClientRect().width ?? 0;
 
-    if (!containerWidth) return "7rem";
+    if (!containerWidth) return "12rem";
 
     const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const minimumWidth = 7 * rootFontSize;
-    const preferredWidth = containerWidth * 0.2;
-    const maximumWidth = containerWidth * 0.3;
+    const collapsedWidth = 2 * rootFontSize;
+    const minimumWidth = 12 * rootFontSize;
+    const preferredWidth = containerWidth * 0.55;
+    const maximumWidth = Math.max(collapsedWidth, containerWidth - 1.5 * rootFontSize);
     const effectiveMinimumWidth = Math.min(minimumWidth, maximumWidth);
     const resolvedWidth = Math.min(Math.max(preferredWidth, effectiveMinimumWidth), maximumWidth);
 
@@ -104,10 +105,10 @@ export function ExpandableSearch({
               : "calc(32px * var(--glint-ui-scale, 1))",
           }}
           className={cn(
-            "expandable-search-overlay-surface absolute right-0 top-0 flex h-[calc(40px*var(--glint-ui-scale,1))] items-start justify-start overflow-hidden rounded-[12px] bg-transparent",
+            "expandable-search-overlay-surface absolute right-0 top-0 flex h-[calc(40px*var(--glint-ui-scale,1))] items-start justify-start overflow-hidden rounded-[12px]",
             expanded
-              ? "bg-[linear-gradient(to_right,rgb(255_255_255_/_0)_0%,rgb(255_255_255)_10%,rgb(255_255_255)_100%)]"
-              : "w-[calc(32px*var(--glint-ui-scale,1))]"
+              ? "border border-input bg-white shadow-sm focus-within:border-v3-primary focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-v3-primary/10"
+              : "w-[calc(32px*var(--glint-ui-scale,1))] border border-transparent bg-transparent"
           )}
         >
           <Button
@@ -128,6 +129,7 @@ export function ExpandableSearch({
           <Input
             ref={inputRef}
             data-slot="input"
+            variant="v3"
             type="text"
             aria-label={inputLabel}
             autoComplete="off"
@@ -142,7 +144,7 @@ export function ExpandableSearch({
               pointerEvents: expanded ? "auto" : "none",
             }}
             className={cn(
-              "expandable-search-overlay-input h-[calc(32px*var(--glint-ui-scale,1))] min-w-0 flex-1 w-auto rounded-none border-0 bg-transparent px-0 py-0 text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-dark shadow-none outline-none caret-v3-primary placeholder:text-v3-text-muted/50 focus:outline-none focus:ring-0",
+              "expandable-search-overlay-input h-[calc(32px*var(--glint-ui-scale,1))] min-h-0 min-w-0 w-auto flex-1 truncate rounded-none border-0 bg-transparent px-0 py-0 text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-dark shadow-none outline-none caret-v3-primary placeholder:text-v3-text-muted/70 focus-visible:border-0 focus-visible:ring-0 focus-visible:shadow-none",
               disabled && "cursor-not-allowed text-v3-text-muted",
             )}
           />
@@ -171,6 +173,7 @@ export function ExpandableSearch({
       <Input
         ref={inputRef}
         data-slot="input"
+        variant="v3"
         type="text"
         aria-label={inputLabel}
         autoComplete="off"
@@ -185,7 +188,7 @@ export function ExpandableSearch({
           pointerEvents: expanded ? "auto" : "none",
         }}
         className={cn(
-          "h-[calc(32px*var(--glint-ui-scale,1))] min-w-0 rounded-none border-0 bg-transparent px-0 py-0 text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-dark shadow-none outline-none caret-v3-primary placeholder:text-v3-text-muted/50 transition-[width,opacity,padding-inline] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] focus:outline-none focus:ring-0 motion-reduce:transition-none",
+          "h-[calc(32px*var(--glint-ui-scale,1))] min-h-0 min-w-0 truncate rounded-[10px] bg-white py-0 text-[calc(12.8px*var(--glint-ui-scale,1))] text-v3-dark caret-v3-primary placeholder:text-v3-text-muted/70 transition-[width,opacity,padding-inline] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
           expanded ? expandedWidth : "w-0",
           disabled && "cursor-not-allowed text-v3-text-muted",
         )}

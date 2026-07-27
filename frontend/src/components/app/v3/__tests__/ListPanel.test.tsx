@@ -1,6 +1,20 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { ListEmptyState } from "../ListEmptyState";
 import { ListPanel } from "../ListPanel";
+
+function createRect(left: number, width: number): DOMRect {
+  return {
+    x: left,
+    y: 0,
+    width,
+    height: 32,
+    top: 0,
+    right: left + width,
+    bottom: 32,
+    left,
+    toJSON: () => ({}),
+  };
+}
 
 describe("ListPanel", () => {
   it("renders overlay through the root list-panel overlay layer", () => {
@@ -122,11 +136,13 @@ describe("ListPanel", () => {
       "검색…",
     );
     expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).toHaveClass(
-      "bg-[linear-gradient(to_right,rgb(255_255_255_/_0)_0%,rgb(255_255_255)_10%,rgb(255_255_255)_100%)]",
+      "border",
+      "border-input",
+      "bg-white",
+      "shadow-sm",
     );
-    expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).not.toHaveClass("shadow-v3");
     expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).toHaveStyle({
-      width: "7rem",
+      width: "12rem",
     });
     expect(screen.getByRole("button", { name: "검색 닫기" })).toHaveClass(
       "transition-transform",
@@ -135,6 +151,7 @@ describe("ListPanel", () => {
     expect(container.querySelector('input[type="text"]')).toHaveClass(
       "flex-1",
       "border-0",
+      "truncate",
       "expandable-search-overlay-input",
     );
   });
@@ -166,5 +183,61 @@ describe("ListPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "조치 필요" }));
     expect(onTabChange).toHaveBeenCalledWith("action-required");
+  });
+
+  it("remeasures the underline on the next frame when the active tab changes", () => {
+    const frameCallbacks: FrameRequestCallback[] = [];
+    const requestFrameSpy = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback);
+        return frameCallbacks.length;
+      });
+    const cancelFrameSpy = jest
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation(() => undefined);
+    const tabs = [
+      { label: "전체", value: "all" },
+      { label: "진행중", value: "active" },
+    ];
+    const renderPanel = (activeTab: string) => (
+      <ListPanel
+        data-component="desktop_v3_tests_split-layout_list-panel-8"
+        title="고객 목록"
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={jest.fn()}
+      >
+        {null}
+      </ListPanel>
+    );
+
+    const { container, rerender } = render(renderPanel("all"));
+    const tabList = container.querySelector<HTMLElement>('[data-slot="list-panel-tab-list"]');
+    const allTab = screen.getByRole("button", { name: "전체" });
+    const activeTab = screen.getByRole("button", { name: "진행중" });
+    const indicator = container.querySelector<HTMLElement>('[data-slot="list-panel-tab-indicator"]');
+
+    if (!tabList || !indicator) {
+      throw new Error("ListPanel tab measurement elements were not rendered");
+    }
+
+    tabList.getBoundingClientRect = () => createRect(10, 130);
+    allTab.getBoundingClientRect = () => createRect(20, 40);
+    activeTab.getBoundingClientRect = () => createRect(80, 60);
+
+    act(() => {
+      frameCallbacks.splice(0).forEach((callback) => callback(0));
+    });
+    expect(indicator).toHaveStyle({ transform: "translateX(10px)", width: "40px" });
+
+    rerender(renderPanel("active"));
+    act(() => {
+      frameCallbacks.splice(0).forEach((callback) => callback(16));
+    });
+    expect(indicator).toHaveStyle({ transform: "translateX(70px)", width: "60px" });
+
+    requestFrameSpy.mockRestore();
+    cancelFrameSpy.mockRestore();
   });
 });

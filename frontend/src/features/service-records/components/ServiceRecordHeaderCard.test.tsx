@@ -26,7 +26,7 @@ describe("ServiceRecordHeaderCard", () => {
     expect(screen.getByText("송진호")).toBeInTheDocument();
     expect(screen.getByText("1996.04.14")).toBeInTheDocument();
     expect(screen.getByText("송송송")).toBeInTheDocument();
-    expect(screen.getByText("260626")).toBeInTheDocument();
+    expect(screen.getByText("2026.06.26")).toBeInTheDocument();
     expect(screen.getByText("자연분만")).toBeInTheDocument();
     expect(screen.getByText("2.6kg")).toBeInTheDocument();
     expect(

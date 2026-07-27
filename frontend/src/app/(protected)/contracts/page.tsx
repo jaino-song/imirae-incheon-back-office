@@ -306,7 +306,10 @@ function formatFieldDate(year?: string | null, month?: string | null, day?: stri
   }
 
   const normalizedYear = year.length === 2 ? `20${year}` : year;
-  return `${normalizedYear}. ${month.padStart(2, "0")}. ${day.padStart(2, "0")}.`;
+  return formatDateForDisplay(
+    `${normalizedYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`,
+    "",
+  ) || null;
 }
 
 function formatSingleFieldDate(value?: string | null): string | null {
@@ -323,7 +326,7 @@ function formatSingleFieldDate(value?: string | null): string | null {
     /^(\d{2,4})\s*(?:년|[./-])\s*(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})\s*(?:일)?\.?$/
   );
   if (!match) {
-    return trimmed;
+    return formatDateForDisplay(trimmed, trimmed);
   }
 
   const [, year, month, day] = match;
@@ -363,11 +366,24 @@ function pickServiceDaysValue(values: string[]): string | null {
 }
 
 function pickContractDurationValue(values: string[]): string | null {
-  return (
+  const rangeValue =
     values.find((value) => value.includes("~")) ??
-    values.find((value) => value.includes("-")) ??
-    null
-  );
+    values.find((value) => /\s-\s/.test(value));
+  if (!rangeValue) {
+    return null;
+  }
+
+  const dateParts = rangeValue.includes("~")
+    ? rangeValue.split(/\s*~\s*/)
+    : rangeValue.split(/\s+-\s+/);
+  if (dateParts.length !== 2) {
+    return rangeValue;
+  }
+
+  const [startDate, endDate] = dateParts;
+  const formattedStartDate = formatSingleFieldDate(startDate) ?? startDate;
+  const formattedEndDate = formatSingleFieldDate(endDate) ?? endDate;
+  return `${formattedStartDate} ~ ${formattedEndDate}`;
 }
 
 function normalizeDocumentYear(value: string | null | undefined, fallbackTimestamp: number): number {

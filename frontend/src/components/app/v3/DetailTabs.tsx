@@ -66,8 +66,12 @@ export function DetailTabs({
   }, [activeTab]);
 
   useLayoutEffect(() => {
-    measureIndicator();
+    const animationFrameId = requestAnimationFrame(measureIndicator);
 
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [activeTab, measureIndicator]);
+
+  useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
 
@@ -86,7 +90,7 @@ export function DetailTabs({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", measureIndicator);
     };
-  }, [measureIndicator, tabs]);
+  }, [activeTab, measureIndicator, tabs]);
 
   useEffect(() => {
     if (!indicatorMetrics.isReady) return;

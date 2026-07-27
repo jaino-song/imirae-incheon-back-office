@@ -81,7 +81,12 @@ export function ServiceRecordHeaderCard({
               size="compact"
             />
             <InfoRow data-component={`${dataComponent}_body_row`} label="신생아 성명" value={header.babyName || "-"} size="compact" />
-            <InfoRow data-component={`${dataComponent}_body_row`} label="신생아 출생일자" value={header.babyBirth || "-"} size="compact" />
+            <InfoRow
+              data-component={`${dataComponent}_body_row`}
+              label="신생아 출생일자"
+              value={formatBirthdayYYMMDD(header.babyBirth ?? "") || "-"}
+              size="compact"
+            />
             <InfoRow data-component={`${dataComponent}_body_row`} label="분만형태" value={header.deliveryType || "-"} size="compact" />
             <InfoRow data-component={`${dataComponent}_body_row`} label="신생아 몸무게" value={formatBabyWeight(header.babyWeight)} size="compact" />
           </div>

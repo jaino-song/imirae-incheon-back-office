@@ -133,11 +133,13 @@ export function AnimatedSlotListItemContent({
           <div
             data-component={sub("subtitle")}
             className={cn(
-              "flex items-center gap-[calc(8px*var(--glint-ui-scale,1))] truncate text-[calc(11.2px*var(--glint-ui-scale,1))] text-v3-text-muted",
+              "min-w-0 text-[calc(11.2px*var(--glint-ui-scale,1))] text-v3-text-muted",
               subtitleClassName
             )}
           >
-            {subtitle}
+            <span className="block min-w-0 truncate [&>*+*]:ml-[calc(8px*var(--glint-ui-scale,1))]">
+              {subtitle}
+            </span>
           </div>
         ) : null}
 

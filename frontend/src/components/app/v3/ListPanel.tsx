@@ -141,9 +141,13 @@ export function ListPanel({
   useLayoutEffect(() => {
     const animationFrameId = requestAnimationFrame(measureTabIndicator);
 
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [activeTab, measureTabIndicator]);
+
+  useLayoutEffect(() => {
     const root = inlineTabsRef.current;
     if (!root) {
-      return () => cancelAnimationFrame(animationFrameId);
+      return;
     }
 
     const resizeObserver = typeof ResizeObserver === "undefined"
@@ -159,11 +163,10 @@ export function ListPanel({
     window.addEventListener("resize", measureTabIndicator);
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
       resizeObserver?.disconnect();
       window.removeEventListener("resize", measureTabIndicator);
     };
-  }, [measureTabIndicator, tabs]);
+  }, [activeTab, measureTabIndicator, tabs]);
 
   useEffect(() => {
     if (!tabIndicatorMetrics.isReady) return;
