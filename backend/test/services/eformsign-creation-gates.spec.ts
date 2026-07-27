@@ -1,8 +1,8 @@
 import type { FrameLocator, Locator, Page } from "playwright-core";
 
-import { runEformsignFinalizeGates } from "../../infrastructure/automation/eformsign-finalize-gates";
+import { runEformsignCreationGates } from "../../infrastructure/automation/eformsign-creation-gates";
 
-describe("runEformsignFinalizeGates", () => {
+describe("runEformsignCreationGates", () => {
     function visibleLocator(overrides: Partial<Locator> = {}): Locator {
         return {
             isVisible: jest.fn().mockResolvedValue(true),
@@ -20,34 +20,7 @@ describe("runEformsignFinalizeGates", () => {
         } as unknown as Locator;
     }
 
-    it("clicks the #inputCommentPopup send button instead of retrying top-level send", async () => {
-        const popupSendButton = visibleLocator();
-        const requestSendDialog = visibleLocator({
-            getByRole: jest.fn().mockReturnValue(locatorList([popupSendButton])),
-        });
-        const eformsignFrame = {
-            locator: jest.fn().mockReturnValue(requestSendDialog),
-            getByRole: jest.fn(),
-        } as unknown as FrameLocator;
-        const page = {
-            evaluate: jest.fn().mockResolvedValue(false),
-            waitForTimeout: jest.fn().mockResolvedValue(undefined),
-        } as unknown as Page;
-        const log = jest.fn();
-        const logger = { log } as unknown as Console;
-
-        const result = await runEformsignFinalizeGates(page, eformsignFrame, logger);
-
-        expect(result).toBe("request-send-clicked");
-        expect((eformsignFrame as unknown as { locator: jest.Mock }).locator).toHaveBeenCalledWith(
-            "#inputCommentPopup",
-        );
-        expect(popupSendButton.click).toHaveBeenCalledTimes(1);
-        expect((eformsignFrame as unknown as { getByRole: jest.Mock }).getByRole).not.toHaveBeenCalled();
-        expect(log).toHaveBeenCalledWith("[finalize-gate] clicked popup 전송");
-    });
-
-    it("retries a timed-out popup send click on the next poll", async () => {
+    it("retries a timed-out click on the scoped request dialog send button", async () => {
         const popupSendButton = visibleLocator({
             click: jest
                 .fn()
@@ -57,9 +30,10 @@ describe("runEformsignFinalizeGates", () => {
         const requestSendDialog = visibleLocator({
             getByRole: jest.fn().mockReturnValue(locatorList([popupSendButton])),
         });
+        const frameGetByRole = jest.fn().mockReturnValue(locatorList([]));
         const eformsignFrame = {
             locator: jest.fn().mockReturnValue(requestSendDialog),
-            getByRole: jest.fn(),
+            getByRole: frameGetByRole,
         } as unknown as FrameLocator;
         const page = {
             evaluate: jest
@@ -73,15 +47,20 @@ describe("runEformsignFinalizeGates", () => {
         const log = jest.fn();
         const logger = { log } as unknown as Console;
 
-        const result = await runEformsignFinalizeGates(page, eformsignFrame, logger);
+        const result = await runEformsignCreationGates(page, eformsignFrame, logger);
 
         expect(result).toBe("request-send-clicked");
+        expect((eformsignFrame as unknown as { locator: jest.Mock }).locator).toHaveBeenCalledWith(
+            "#requestWithInputCommentPopup",
+        );
         expect(popupSendButton.click).toHaveBeenCalledTimes(2);
+        expect(frameGetByRole).not.toHaveBeenCalledWith("button", { name: "전송" });
         expect(page.waitForTimeout).toHaveBeenCalledWith(500);
         expect(log).toHaveBeenCalledTimes(1);
+        expect(log).toHaveBeenCalledWith("[creation-gate] clicked popup 전송");
     });
 
-    it("uses the finalize dialog selector in an abort snapshot", async () => {
+    it("adds a gate snapshot when an SDK error aborts creation", async () => {
         const snapshot = {
             visibleButtons: ["전송"],
             guideButtonLabel: null,
@@ -105,13 +84,13 @@ describe("runEformsignFinalizeGates", () => {
             }),
         } as unknown as Page;
 
-        await expect(runEformsignFinalizeGates(page, eformsignFrame)).rejects.toThrow(
+        await expect(runEformsignCreationGates(page, eformsignFrame)).rejects.toThrow(
             `Snapshot: ${JSON.stringify(snapshot)}`,
         );
         expect(body.evaluate).toHaveBeenCalledWith(
             expect.any(Function),
             expect.objectContaining({
-                requestDialogSelector: "#inputCommentPopup",
+                requestDialogSelector: "#requestWithInputCommentPopup",
             }),
         );
     });

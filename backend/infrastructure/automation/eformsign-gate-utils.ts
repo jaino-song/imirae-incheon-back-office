@@ -35,12 +35,24 @@ export async function findVisibleEnabledLocator(locator: Locator): Promise<Locat
         const candidate = locator.nth(index);
         const visible = await candidate.isVisible().catch(() => false);
         if (!visible) continue;
+        const className = await candidate.getAttribute("class").catch(() => null);
+        const classDisabled = className?.split(/\s+/).includes("disabled") ?? false;
+        if (classDisabled) continue;
         const enabled = await candidate.isEnabled().catch(() => false);
         if (enabled) {
             return candidate;
         }
     }
     return null;
+}
+
+export async function tryClickGateLocator(locator: Locator): Promise<boolean> {
+    try {
+        await locator.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export interface GateSnapshot {
@@ -89,7 +101,10 @@ export async function throwIfEformsignErrorLatched(page: Page): Promise<void> {
     throw new Error(`eformsign SDK error: ${formatEformsignCallbackPayload(state.error)}`);
 }
 
-export async function getEformsignGateSnapshot(eformsignFrame: FrameLocator): Promise<GateSnapshot> {
+export async function getEformsignGateSnapshot(
+    eformsignFrame: FrameLocator,
+    requestDialogSelector = REQUEST_SEND_DIALOG_SELECTOR,
+): Promise<GateSnapshot> {
     return eformsignFrame.locator("body").evaluate(
         (body, { readyText, requestDialogSelector }) => {
             const normalize = (value: string | null | undefined): string =>
@@ -129,9 +144,24 @@ export async function getEformsignGateSnapshot(eformsignFrame: FrameLocator): Pr
         },
         {
             readyText: EFORMSIGN_READY_TEXT,
-            requestDialogSelector: REQUEST_SEND_DIALOG_SELECTOR,
+            requestDialogSelector,
         },
     );
+}
+
+export async function createGateErrorWithSnapshot(
+    error: unknown,
+    eformsignFrame: FrameLocator,
+    requestDialogSelector: string,
+): Promise<Error> {
+    const reason = error instanceof Error ? error.message : String(error);
+    try {
+        const snapshot = await getEformsignGateSnapshot(eformsignFrame, requestDialogSelector);
+        return new Error(`${reason}. Snapshot: ${JSON.stringify(snapshot)}`);
+    } catch (snapshotError) {
+        const snapshotReason = snapshotError instanceof Error ? snapshotError.message : String(snapshotError);
+        return new Error(`${reason}. Snapshot: unavailable (${snapshotReason})`);
+    }
 }
 
 /**

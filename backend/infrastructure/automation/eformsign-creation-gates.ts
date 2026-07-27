@@ -1,15 +1,16 @@
 import type { FrameLocator, Logger, Page } from "playwright-core";
 import type { Logger as NestLogger } from "@nestjs/common";
 import {
-    EFORMSIGN_CLICK_TIMEOUT_MS,
     EFORMSIGN_GATE_POLL_MS,
     EFORMSIGN_READY_TEXT,
     REQUEST_SEND_DIALOG_SELECTOR,
+    createGateErrorWithSnapshot,
     findVisibleEnabledLocator,
     findVisibleLocator,
     getEformsignGateSnapshot,
     isSuccessLatched,
     throwIfEformsignErrorLatched,
+    tryClickGateLocator,
 } from "./eformsign-gate-utils";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 
@@ -38,96 +39,129 @@ export async function runEformsignCreationGates(
         onProgress?.("info-inserted");
     };
 
-    while (Date.now() < deadline) {
-        await throwIfEformsignErrorLatched(page);
+    try {
+        while (Date.now() < deadline) {
+            await throwIfEformsignErrorLatched(page);
 
-        if (await isSuccessLatched(page)) {
-            return "success-latched";
-        }
-
-        const requestSendDialog = eformsignFrame.locator(REQUEST_SEND_DIALOG_SELECTOR);
-
-        // 회사 도장 dialog: appears 3 times, "확인" each time.
-        const confirmButton = await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "확인" }));
-        if (confirmButton) {
-            (logger as NestLogger).log?.("[creation-gate] clicked 회사 도장 확인") ??
-                console.log("[creation-gate] clicked 회사 도장 확인");
-            await confirmButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            stampConfirmCount++;
-            if (stampConfirmCount >= 3) {
-                emitInfoInserted();
+            if (await isSuccessLatched(page)) {
+                return "success-latched";
             }
-            lastAction = "clicked 회사 도장 확인";
-            await page.waitForTimeout(250);
-            continue;
-        }
 
-        // popup-level 전송 inside #requestWithInputCommentPopup terminates the gate loop.
-        const requestSendButton = await findVisibleEnabledLocator(
-            requestSendDialog.getByRole("button", { name: "전송" }),
-        );
-        if (requestSendButton) {
-            (logger as NestLogger).log?.("[creation-gate] clicked popup 전송") ??
-                console.log("[creation-gate] clicked popup 전송");
-            await requestSendButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            emitInfoInserted();
-            onProgress?.("creating");
-            return "request-send-clicked";
-        }
+            const requestSendDialog = eformsignFrame.locator(REQUEST_SEND_DIALOG_SELECTOR);
 
-        const requestSendDialogVisible = await requestSendDialog.isVisible().catch(() => false);
-        const topLevelSendButton = requestSendDialogVisible
-            ? null
-            : await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "전송" }));
-        if (topLevelSendButton) {
-            const isFinalTopLevelSend = stampConfirmCount >= 3 || infoInsertedEmitted;
+            // 회사 도장 dialog: appears 3 times, "확인" each time.
+            const confirmButton = await findVisibleEnabledLocator(
+                eformsignFrame.getByRole("button", { name: "확인" }),
+            );
+            if (confirmButton) {
+                if (!(await tryClickGateLocator(confirmButton))) {
+                    lastAction = "회사 도장 확인 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[creation-gate] clicked 회사 도장 확인") ??
+                    console.log("[creation-gate] clicked 회사 도장 확인");
+                stampConfirmCount++;
+                if (stampConfirmCount >= 3) {
+                    emitInfoInserted();
+                }
+                lastAction = "clicked 회사 도장 확인";
+                await page.waitForTimeout(250);
+                continue;
+            }
 
-            (logger as NestLogger).log?.("[creation-gate] clicked top-level 전송") ??
-                console.log("[creation-gate] clicked top-level 전송");
-            await topLevelSendButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            if (isFinalTopLevelSend) {
+            // popup-level 전송 inside #requestWithInputCommentPopup terminates the gate loop.
+            const requestSendButton = await findVisibleEnabledLocator(
+                requestSendDialog.getByRole("button", { name: "전송" }),
+            );
+            if (requestSendButton) {
+                if (!(await tryClickGateLocator(requestSendButton))) {
+                    lastAction = "popup 전송 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[creation-gate] clicked popup 전송") ??
+                    console.log("[creation-gate] clicked popup 전송");
                 emitInfoInserted();
                 onProgress?.("creating");
+                return "request-send-clicked";
             }
-            lastAction = "clicked top-level 전송";
-            await page.waitForTimeout(250);
-            continue;
-        }
 
-        const nextButton = await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "다음" }));
-        if (nextButton) {
-            (logger as NestLogger).log?.("[creation-gate] clicked 다음") ??
-                console.log("[creation-gate] clicked 다음");
-            await nextButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            lastAction = "clicked 다음";
-            await page.waitForTimeout(250);
-            continue;
-        }
+            const requestSendDialogVisible = await requestSendDialog.isVisible().catch(() => false);
+            const topLevelSendButton = requestSendDialogVisible
+                ? null
+                : await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "전송" }));
+            if (topLevelSendButton) {
+                const isFinalTopLevelSend = stampConfirmCount >= 3 || infoInsertedEmitted;
 
-        const startButton = await findVisibleEnabledLocator(
-            eformsignFrame.getByRole("button", { name: "입력 시작" }),
-        );
-        if (startButton) {
-            (logger as NestLogger).log?.("[creation-gate] clicked 입력 시작") ??
-                console.log("[creation-gate] clicked 입력 시작");
-            await startButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            lastAction = "clicked 입력 시작";
-            await page.waitForTimeout(250);
-            continue;
-        }
+                if (!(await tryClickGateLocator(topLevelSendButton))) {
+                    lastAction = "top-level 전송 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[creation-gate] clicked top-level 전송") ??
+                    console.log("[creation-gate] clicked top-level 전송");
+                if (isFinalTopLevelSend) {
+                    emitInfoInserted();
+                    onProgress?.("creating");
+                }
+                lastAction = "clicked top-level 전송";
+                await page.waitForTimeout(250);
+                continue;
+            }
 
-        const readyMessage = await findVisibleLocator(
-            eformsignFrame.getByText(EFORMSIGN_READY_TEXT, { exact: true }),
-        );
-        if (readyMessage) {
+            const nextButton = await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "다음" }));
+            if (nextButton) {
+                if (!(await tryClickGateLocator(nextButton))) {
+                    lastAction = "다음 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[creation-gate] clicked 다음") ??
+                    console.log("[creation-gate] clicked 다음");
+                lastAction = "clicked 다음";
+                await page.waitForTimeout(250);
+                continue;
+            }
+
+            const startButton = await findVisibleEnabledLocator(
+                eformsignFrame.getByRole("button", { name: "입력 시작" }),
+            );
+            if (startButton) {
+                if (!(await tryClickGateLocator(startButton))) {
+                    lastAction = "입력 시작 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[creation-gate] clicked 입력 시작") ??
+                    console.log("[creation-gate] clicked 입력 시작");
+                lastAction = "clicked 입력 시작";
+                await page.waitForTimeout(250);
+                continue;
+            }
+
+            const readyMessage = await findVisibleLocator(
+                eformsignFrame.getByText(EFORMSIGN_READY_TEXT, { exact: true }),
+            );
+            if (readyMessage) {
+                await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                continue;
+            }
+
             await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
-            continue;
         }
-
-        await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+    } catch (error) {
+        throw await createGateErrorWithSnapshot(
+            error,
+            eformsignFrame,
+            REQUEST_SEND_DIALOG_SELECTOR,
+        );
     }
 
-    const snapshot = await getEformsignGateSnapshot(eformsignFrame);
+    const snapshot = await getEformsignGateSnapshot(
+        eformsignFrame,
+        REQUEST_SEND_DIALOG_SELECTOR,
+    );
     throw new Error(
         `Timed out after ${EFORMSIGN_CREATION_GATE_TIMEOUT_MS}ms while advancing eformsign creation gates. ` +
             `Last action: ${lastAction}. Snapshot: ${JSON.stringify(snapshot)}`,

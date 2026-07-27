@@ -1,13 +1,14 @@
 import type { FrameLocator, Page } from "playwright-core";
 import type { Logger as NestLogger } from "@nestjs/common";
 import {
-    EFORMSIGN_CLICK_TIMEOUT_MS,
     EFORMSIGN_GATE_POLL_MS,
     FINALIZE_REQUEST_SEND_DIALOG_SELECTOR,
+    createGateErrorWithSnapshot,
     findVisibleEnabledLocator,
     getEformsignGateSnapshot,
     isSuccessLatched,
     throwIfEformsignErrorLatched,
+    tryClickGateLocator,
 } from "./eformsign-gate-utils";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 
@@ -40,55 +41,80 @@ export async function runEformsignFinalizeGates(
         onProgress?.("creating");
     };
 
-    while (Date.now() < deadline) {
-        await throwIfEformsignErrorLatched(page);
+    try {
+        while (Date.now() < deadline) {
+            await throwIfEformsignErrorLatched(page);
 
-        if (await isSuccessLatched(page)) {
-            return "success-latched";
+            if (await isSuccessLatched(page)) {
+                return "success-latched";
+            }
+
+            const requestSendDialog = eformsignFrame.locator(FINALIZE_REQUEST_SEND_DIALOG_SELECTOR);
+
+            const requestSendButton = await findVisibleEnabledLocator(
+                requestSendDialog.getByRole("button", { name: "전송" }),
+            );
+            if (requestSendButton) {
+                if (!(await tryClickGateLocator(requestSendButton))) {
+                    lastAction = "popup 전송 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[finalize-gate] clicked popup 전송") ??
+                    console.log("[finalize-gate] clicked popup 전송");
+                emitCreating();
+                return "request-send-clicked";
+            }
+
+            const requestSendDialogVisible = await requestSendDialog.isVisible().catch(() => false);
+            const topLevelSendButton = requestSendDialogVisible
+                ? null
+                : await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "전송" }));
+            if (topLevelSendButton) {
+                if (!(await tryClickGateLocator(topLevelSendButton))) {
+                    lastAction = "top-level 전송 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[finalize-gate] clicked top-level 전송") ??
+                    console.log("[finalize-gate] clicked top-level 전송");
+                emitCreating();
+                lastAction = "clicked top-level 전송";
+                await page.waitForTimeout(250);
+                continue;
+            }
+
+            // mode:"02" sometimes shows a 확인 dialog before allowing 전송.
+            const confirmButton = await findVisibleEnabledLocator(
+                eformsignFrame.getByRole("button", { name: "확인" }),
+            );
+            if (confirmButton) {
+                if (!(await tryClickGateLocator(confirmButton))) {
+                    lastAction = "확인 click failed; retrying";
+                    await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
+                    continue;
+                }
+                (logger as NestLogger).log?.("[finalize-gate] clicked 확인") ??
+                    console.log("[finalize-gate] clicked 확인");
+                lastAction = "clicked 확인";
+                await page.waitForTimeout(250);
+                continue;
+            }
+
+            await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
         }
-
-        const requestSendDialog = eformsignFrame.locator(FINALIZE_REQUEST_SEND_DIALOG_SELECTOR);
-
-        const requestSendButton = await findVisibleEnabledLocator(
-            requestSendDialog.getByRole("button", { name: "전송" }),
+    } catch (error) {
+        throw await createGateErrorWithSnapshot(
+            error,
+            eformsignFrame,
+            FINALIZE_REQUEST_SEND_DIALOG_SELECTOR,
         );
-        if (requestSendButton) {
-            (logger as NestLogger).log?.("[finalize-gate] clicked popup 전송") ??
-                console.log("[finalize-gate] clicked popup 전송");
-            emitCreating();
-            await requestSendButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            return "request-send-clicked";
-        }
-
-        const requestSendDialogVisible = await requestSendDialog.isVisible().catch(() => false);
-        const topLevelSendButton = requestSendDialogVisible
-            ? null
-            : await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "전송" }));
-        if (topLevelSendButton) {
-            (logger as NestLogger).log?.("[finalize-gate] clicked top-level 전송") ??
-                console.log("[finalize-gate] clicked top-level 전송");
-            emitCreating();
-            await topLevelSendButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            lastAction = "clicked top-level 전송";
-            await page.waitForTimeout(250);
-            continue;
-        }
-
-        // mode:"02" sometimes shows a 확인 dialog before allowing 전송.
-        const confirmButton = await findVisibleEnabledLocator(eformsignFrame.getByRole("button", { name: "확인" }));
-        if (confirmButton) {
-            (logger as NestLogger).log?.("[finalize-gate] clicked 확인") ??
-                console.log("[finalize-gate] clicked 확인");
-            await confirmButton.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-            lastAction = "clicked 확인";
-            await page.waitForTimeout(250);
-            continue;
-        }
-
-        await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
     }
 
-    const snapshot = await getEformsignGateSnapshot(eformsignFrame);
+    const snapshot = await getEformsignGateSnapshot(
+        eformsignFrame,
+        FINALIZE_REQUEST_SEND_DIALOG_SELECTOR,
+    );
     throw new Error(
         `Timed out after ${EFORMSIGN_FINALIZE_GATE_TIMEOUT_MS}ms while advancing eformsign finalize gates. ` +
             `Last action: ${lastAction}. Snapshot: ${JSON.stringify(snapshot)}`,
