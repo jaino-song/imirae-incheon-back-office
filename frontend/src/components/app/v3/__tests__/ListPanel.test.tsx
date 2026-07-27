@@ -156,6 +156,45 @@ describe("ListPanel", () => {
     );
   });
 
+  it("shows the right fade only while more tabs remain offscreen", () => {
+    const { container } = render(
+      <ListPanel
+        data-component="desktop_v3_tests_split-layout_list-panel-scroll-hint"
+        title="고객 목록"
+        tabs={[
+          { label: "전체", value: "all" },
+          { label: "대기", value: "waiting" },
+          { label: "진행중", value: "active" },
+          { label: "중단", value: "terminated" },
+        ]}
+        activeTab="all"
+        onTabChange={jest.fn()}
+      >
+        {null}
+      </ListPanel>,
+    );
+
+    const viewport = container.querySelector<HTMLElement>(
+      '[data-slot="list-panel-tab-scroll"]'
+    );
+    const fade = viewport?.nextElementSibling;
+    if (!viewport || !(fade instanceof HTMLElement)) {
+      throw new Error("ListPanel tab scroll hint elements were not rendered");
+    }
+
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 180 },
+      scrollWidth: { configurable: true, value: 320 },
+    });
+
+    fireEvent.scroll(viewport);
+    expect(fade).toHaveClass("opacity-100");
+
+    viewport.scrollLeft = 140;
+    fireEvent.scroll(viewport);
+    expect(fade).toHaveClass("opacity-0");
+  });
+
   it("exposes the active filter state when a tab group label is provided", () => {
     const onTabChange = jest.fn();
 

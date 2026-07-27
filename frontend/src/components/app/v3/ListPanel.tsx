@@ -74,6 +74,7 @@ export function ListPanel({
   className,
 }: ListPanelProps) {
   const inlineTabsRef = useRef<HTMLDivElement>(null);
+  const tabScrollViewportRef = useRef<HTMLDivElement>(null);
   const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const showTabs = tabs && tabs.length > 0;
   const hasSearch = searchValue !== undefined && !!onSearchChange;
@@ -83,12 +84,12 @@ export function ListPanel({
   const headerAlignmentClass = subtitle ? "items-start" : "items-center";
   const headerClassName =
     headerPadding === "default"
-      ? `flex ${headerAlignmentClass} justify-between p-[calc(24px*var(--glint-ui-scale,1))] shrink-0`
+      ? `flex ${headerAlignmentClass} justify-between gap-[calc(12px*var(--glint-ui-scale,1))] p-[calc(24px*var(--glint-ui-scale,1))] shrink-0`
       : headerPadding === "compact"
-        ? `flex ${headerAlignmentClass} justify-between p-[calc(24px*var(--glint-ui-scale,1))] pb-0 shrink-0`
+        ? `flex ${headerAlignmentClass} justify-between gap-[calc(12px*var(--glint-ui-scale,1))] p-[calc(24px*var(--glint-ui-scale,1))] pb-0 shrink-0`
         : showControls
-          ? `flex ${headerAlignmentClass} justify-between p-[calc(24px*var(--glint-ui-scale,1))] pb-0 shrink-0`
-          : `flex ${headerAlignmentClass} justify-between p-[calc(24px*var(--glint-ui-scale,1))] shrink-0`;
+          ? `flex ${headerAlignmentClass} justify-between gap-[calc(12px*var(--glint-ui-scale,1))] p-[calc(24px*var(--glint-ui-scale,1))] pb-0 shrink-0`
+          : `flex ${headerAlignmentClass} justify-between gap-[calc(12px*var(--glint-ui-scale,1))] p-[calc(24px*var(--glint-ui-scale,1))] shrink-0`;
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [tabIndicatorMetrics, setTabIndicatorMetrics] = useState({
@@ -97,6 +98,7 @@ export function ListPanel({
     isReady: false,
   });
   const [isTabIndicatorTransitionEnabled, setIsTabIndicatorTransitionEnabled] = useState(false);
+  const [isTabScrollHintVisible, setIsTabScrollHintVisible] = useState(false);
   const { isScrollActive, handleScroll } = useScrollActivity();
 
   const measureTabIndicator = useCallback(() => {
@@ -126,6 +128,18 @@ export function ListPanel({
         : nextMetrics
     );
   }, [activeTab]);
+
+  const updateTabScrollHint = useCallback(() => {
+    const viewport = tabScrollViewportRef.current;
+    if (!viewport) {
+      setIsTabScrollHintVisible(false);
+      return;
+    }
+
+    const remainingScrollWidth =
+      viewport.scrollWidth - viewport.clientWidth - viewport.scrollLeft;
+    setIsTabScrollHintVisible(remainingScrollWidth > 1);
+  }, []);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -168,6 +182,29 @@ export function ListPanel({
     };
   }, [activeTab, measureTabIndicator, tabs]);
 
+  useLayoutEffect(() => {
+    const viewport = tabScrollViewportRef.current;
+    const tabList = inlineTabsRef.current;
+    if (!viewport || !tabList) {
+      return;
+    }
+
+    const frameId = requestAnimationFrame(updateTabScrollHint);
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateTabScrollHint);
+
+    resizeObserver?.observe(viewport);
+    resizeObserver?.observe(tabList);
+    window.addEventListener("resize", updateTabScrollHint);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateTabScrollHint);
+    };
+  }, [tabs, updateTabScrollHint]);
+
   useEffect(() => {
     if (!tabIndicatorMetrics.isReady) return;
 
@@ -196,7 +233,7 @@ export function ListPanel({
     >
       <div data-component={`${dataComponent}_top-area`} data-slot="list-panel-top-area" className="relative z-20 shrink-0">
         <div data-component={`${dataComponent}_top-area_header`} data-slot="list-panel-header" className={headerClassName}>
-          <div className="flex min-w-0 items-center gap-[calc(16px*var(--glint-ui-scale,1))]">
+          <div className="flex min-w-0 flex-1 items-center gap-[calc(16px*var(--glint-ui-scale,1))]">
             {avatar}
             <PanelTitleGroup
               data-component={`${dataComponent}_top-area_header_title-group`}
@@ -208,7 +245,7 @@ export function ListPanel({
           {headerActions && (
             <div
               data-component={`${dataComponent}_top-area_header_actions`}
-              className={cn(disabled && "pointer-events-none opacity-40")}
+              className={cn("shrink-0", disabled && "pointer-events-none opacity-40")}
             >
               {headerActions}
             </div>
@@ -266,58 +303,69 @@ export function ListPanel({
                   )}
                 </div>
               ) : (
-                <div
-                  data-component={`${dataComponent}_top-area_controls_tab-scroll`}
-                  data-slot="list-panel-tab-scroll"
-                  className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                >
+                <div className="relative min-w-0 flex-1">
                   <div
-                    ref={inlineTabsRef}
-                    data-component={`${dataComponent}_top-area_controls_tab-scroll_list`}
-                    data-slot="list-panel-tab-list"
-                    role={tabsAriaLabel ? "group" : undefined}
-                    aria-label={tabsAriaLabel}
-                    className="relative flex w-max gap-[calc(4px*var(--glint-ui-scale,1))]"
+                    ref={tabScrollViewportRef}
+                    data-component={`${dataComponent}_top-area_controls_tab-scroll`}
+                    data-slot="list-panel-tab-scroll"
+                    onScroll={updateTabScrollHint}
+                    className="min-w-0 w-full flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                   >
-                    {(tabs ?? []).map((tab) => (
-                      <button
-                        data-component={`${dataComponent}_top-area_controls_tab-scroll_list_button`}
-                        data-slot="list-panel-tab-button"
-                        type="button"
-                        key={tab.value}
-                        ref={(node) => {
-                          tabButtonRefs.current[tab.value] = node;
-                        }}
-                        disabled={disabled}
-                        onClick={() => onTabChange?.(tab.value)}
-                        aria-pressed={tabsAriaLabel ? activeTab === tab.value : undefined}
+                    <div
+                      ref={inlineTabsRef}
+                      data-component={`${dataComponent}_top-area_controls_tab-scroll_list`}
+                      data-slot="list-panel-tab-list"
+                      role={tabsAriaLabel ? "group" : undefined}
+                      aria-label={tabsAriaLabel}
+                      className="relative flex w-max gap-[calc(4px*var(--glint-ui-scale,1))]"
+                    >
+                      {(tabs ?? []).map((tab) => (
+                        <button
+                          data-component={`${dataComponent}_top-area_controls_tab-scroll_list_button`}
+                          data-slot="list-panel-tab-button"
+                          type="button"
+                          key={tab.value}
+                          ref={(node) => {
+                            tabButtonRefs.current[tab.value] = node;
+                          }}
+                          disabled={disabled}
+                          onClick={() => onTabChange?.(tab.value)}
+                          aria-pressed={tabsAriaLabel ? activeTab === tab.value : undefined}
+                          className={cn(
+                            "relative shrink-0 px-[calc(12px*var(--glint-ui-scale,1))] pb-[calc(8px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-v3-primary",
+                            activeTab === tab.value
+                              ? cn("font-semibold", tab.activeClassName ?? "text-primary")
+                              : "text-v3-text-muted hover:text-v3-text",
+                            disabled && "cursor-not-allowed text-v3-text-muted/60 hover:text-v3-text-muted/60"
+                          )}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                      <span
+                        data-component={`${dataComponent}_top-area_controls_tab-scroll_list_indicator`}
+                        data-slot="list-panel-tab-indicator"
                         className={cn(
-                          "relative shrink-0 px-[calc(12px*var(--glint-ui-scale,1))] pb-[calc(8px*var(--glint-ui-scale,1))] text-[calc(12px*var(--glint-ui-scale,1))] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-v3-primary",
-                          activeTab === tab.value
-                            ? cn("font-semibold", tab.activeClassName ?? "text-primary")
-                            : "text-v3-text-muted hover:text-v3-text",
-                          disabled && "cursor-not-allowed text-v3-text-muted/60 hover:text-v3-text-muted/60"
+                          "pointer-events-none absolute bottom-0 left-0 h-0.5 will-change-[transform,width]",
+                          activeTabIndicatorClassName,
+                          isTabIndicatorTransitionEnabled &&
+                            "transition-[transform,width,opacity,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                          tabIndicatorMetrics.isReady ? "opacity-100" : "opacity-0",
                         )}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                    <span
-                      data-component={`${dataComponent}_top-area_controls_tab-scroll_list_indicator`}
-                      data-slot="list-panel-tab-indicator"
-                      className={cn(
-                        "pointer-events-none absolute bottom-0 left-0 h-0.5 will-change-[transform,width]",
-                        activeTabIndicatorClassName,
-                        isTabIndicatorTransitionEnabled &&
-                          "transition-[transform,width,opacity,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-                        tabIndicatorMetrics.isReady ? "opacity-100" : "opacity-0",
-                      )}
-                      style={{
-                        transform: `translateX(${tabIndicatorMetrics.left}px)`,
-                        width: `${tabIndicatorMetrics.width}px`,
-                      }}
-                    />
+                        style={{
+                          transform: `translateX(${tabIndicatorMetrics.left}px)`,
+                          width: `${tabIndicatorMetrics.width}px`,
+                        }}
+                      />
+                    </div>
                   </div>
+                  <div
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none absolute inset-y-0 right-0 w-[calc(28px*var(--glint-ui-scale,1))] bg-gradient-to-l from-white via-white/90 to-transparent transition-opacity",
+                      isTabScrollHintVisible ? "opacity-100" : "opacity-0",
+                    )}
+                  />
                 </div>
               )
             ) : null}

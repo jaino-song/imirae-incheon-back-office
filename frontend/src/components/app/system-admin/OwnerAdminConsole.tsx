@@ -1296,6 +1296,11 @@ export function OwnerAdminConsole() {
                                     setAccountEditUserId(selectedRecord.id);
                                   }}
                                 />
+                              ) : isApprovedAccount ? (
+                                <span
+                                  aria-hidden="true"
+                                  className="h-[calc(26px*var(--glint-ui-scale,1))] w-px shrink-0"
+                                />
                               ) : undefined
                             }
                           >

@@ -90,7 +90,7 @@ function FormGrid({
       {...props}
       data-component={dataComponent}
       data-source-component={FORM_GRID_SOURCE_COMPONENT}
-      className={cn("grid grid-cols-1 gap-[calc(16px*var(--glint-ui-scale,1))] sm:grid-cols-2", className)}
+      className={cn("grid grid-cols-1 items-start gap-[calc(16px*var(--glint-ui-scale,1))] sm:grid-cols-2", className)}
     />
   );
 }

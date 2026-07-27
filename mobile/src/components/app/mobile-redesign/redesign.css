@@ -3227,7 +3227,10 @@ body:has([data-slot="auth-login-page"]) main[data-slot="main-content"] {
 }
 
 [data-slot="auth-login-page"].auth-page {
+  width: 100%;
+  max-width: 430px;
   min-height: 100%;
+  margin: 0 auto;
   padding: 24px;
 }
 

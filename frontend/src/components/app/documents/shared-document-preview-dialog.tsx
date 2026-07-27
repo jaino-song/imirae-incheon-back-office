@@ -1,6 +1,14 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Image from "next/image";
 import { Document as PdfDocument, Page } from "react-pdf";
 import { Download, Eye, Printer, X } from "lucide-react";
@@ -57,6 +65,12 @@ interface PointerPosition {
 }
 
 type PreviewAvailabilityStatus = "idle" | "checking" | "ready" | "missing" | "error";
+type ImageLoadStatus = "loading" | "loaded" | "error";
+
+interface ZoomViewportAnchor {
+  x: number;
+  y: number;
+}
 
 function clampZoomPercent(value: number): number {
   return Math.min(MAX_ZOOM_PERCENT, Math.max(MIN_ZOOM_PERCENT, value));
@@ -156,9 +170,11 @@ export function SharedDocumentPreviewDialog({
   const previewViewportRef = useRef<HTMLDivElement | null>(null);
   const pinchWheelRemainderRef = useRef(0);
   const lastPointerPositionRef = useRef<PointerPosition | null>(null);
+  const pendingZoomAnchorRef = useRef<ZoomViewportAnchor | null>(null);
   const [zoomPercent, setZoomPercent] = useState(DEFAULT_ZOOM_PERCENT);
   const [numPages, setNumPages] = useState(0);
   const [previewWidth, setPreviewWidth] = useState(0);
+  const [imageLoadStatus, setImageLoadStatus] = useState<ImageLoadStatus>("loading");
   const isPdf = previewKind === "pdf";
   const isImage = previewKind === "image";
   const isHwp = previewKind === "hwp";
@@ -170,7 +186,24 @@ export function SharedDocumentPreviewDialog({
   const zoomPercentRef = useRef(DEFAULT_ZOOM_PERCENT);
   const isPreviewReady = !isZoomablePreview || previewAvailabilityStatus === "ready";
 
-  const applyPinchZoomDelta = (event: Pick<WheelEvent, "deltaMode" | "deltaY">) => {
+  const setZoomPercentPreservingAnchor = useCallback(
+    (getNextZoomPercent: (currentZoomPercent: number) => number) => {
+      const viewport = previewViewportRef.current;
+      if (viewport && viewport.scrollWidth > 0 && viewport.scrollHeight > 0) {
+        pendingZoomAnchorRef.current = {
+          x: (viewport.scrollLeft + viewport.clientWidth / 2) / viewport.scrollWidth,
+          y: (viewport.scrollTop + viewport.clientHeight / 2) / viewport.scrollHeight,
+        };
+      }
+
+      setZoomPercent((currentZoomPercent) =>
+        clampZoomPercent(getNextZoomPercent(currentZoomPercent))
+      );
+    },
+    []
+  );
+
+  const applyPinchZoomDelta = useCallback((event: Pick<WheelEvent, "deltaMode" | "deltaY">) => {
     pinchWheelRemainderRef.current += normalizeWheelDeltaY(event);
     const steps = Math.trunc(pinchWheelRemainderRef.current / PINCH_WHEEL_DELTA_PER_STEP);
     if (steps === 0) {
@@ -178,8 +211,10 @@ export function SharedDocumentPreviewDialog({
     }
 
     pinchWheelRemainderRef.current -= steps * PINCH_WHEEL_DELTA_PER_STEP;
-    setZoomPercent((currentZoomPercent) => clampZoomPercent(currentZoomPercent - steps * ZOOM_STEP));
-  };
+    setZoomPercentPreservingAnchor(
+      (currentZoomPercent) => currentZoomPercent - steps * ZOOM_STEP
+    );
+  }, [setZoomPercentPreservingAnchor]);
 
   const getNodeAtPointerPosition = (pointerPosition: PointerPosition | null): Node | null => {
     if (!pointerPosition) {
@@ -190,9 +225,15 @@ export function SharedDocumentPreviewDialog({
     return elementAtPointer instanceof Node ? elementAtPointer : null;
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = previewViewportRef.current;
-    if (!open || (!isPdf && !isHwp) || !node || typeof ResizeObserver === "undefined") {
+    if (
+      !open ||
+      !isZoomablePreview ||
+      !isPreviewReady ||
+      !node ||
+      typeof ResizeObserver === "undefined"
+    ) {
       return;
     }
 
@@ -200,17 +241,50 @@ export function SharedDocumentPreviewDialog({
       setPreviewWidth(Math.max(node.clientWidth - 48, 320));
     };
 
-    const frameId = window.requestAnimationFrame(updatePreviewWidth);
-    const observer = new ResizeObserver(() => {
-      window.requestAnimationFrame(updatePreviewWidth);
-    });
+    updatePreviewWidth();
+    const observer = new ResizeObserver(updatePreviewWidth);
 
     observer.observe(node);
     return () => {
-      window.cancelAnimationFrame(frameId);
       observer.disconnect();
     };
-  }, [isHwp, isPdf, open]);
+  }, [isPreviewReady, isZoomablePreview, open]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingZoomAnchorRef.current;
+    const viewport = previewViewportRef.current;
+    if (!anchor || !viewport) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const nextViewport = previewViewportRef.current;
+      if (!nextViewport) {
+        return;
+      }
+
+      nextViewport.scrollLeft =
+        anchor.x * nextViewport.scrollWidth - nextViewport.clientWidth / 2;
+      nextViewport.scrollTop =
+        anchor.y * nextViewport.scrollHeight - nextViewport.clientHeight / 2;
+      pendingZoomAnchorRef.current = null;
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [zoomPercent]);
+
+  useEffect(() => {
+    let isActive = true;
+    queueMicrotask(() => {
+      if (isActive) {
+        setImageLoadStatus("loading");
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isImage, open, previewUrl]);
 
   useEffect(() => {
     let isActive = true;
@@ -400,12 +474,14 @@ export function SharedDocumentPreviewDialog({
       window.cancelAnimationFrame(frameId);
       controller?.abort();
     };
-  }, [isZoomablePreview, open]);
+  }, [applyPinchZoomDelta, isZoomablePreview, open]);
 
   const handleClose = () => {
     setZoomPercent(DEFAULT_ZOOM_PERCENT);
     pinchWheelRemainderRef.current = 0;
+    pendingZoomAnchorRef.current = null;
     setNumPages(0);
+    setImageLoadStatus("loading");
     setPreviewAvailabilityStatus("idle");
     onClose();
   };
@@ -584,7 +660,7 @@ export function SharedDocumentPreviewDialog({
             {isZoomablePreview && !isPreviewReady && renderPreviewAvailabilityMessage()}
 
             {isPdf && isPreviewReady && (
-              <div ref={previewViewportRef} className="h-full overflow-auto px-6 py-6">
+              <div ref={previewViewportRef} className="h-full overflow-auto px-6 pb-24 pt-6">
                 <PdfDocument
                   key={previewKey}
                   file={previewUrl}
@@ -625,24 +701,47 @@ export function SharedDocumentPreviewDialog({
             )}
 
             {isImage && isPreviewReady && (
-              <div className="flex h-full w-full items-center justify-center overflow-auto p-6">
-                <Image
-                  src={previewUrl}
-                  alt={imageAlt ?? title}
-                  width={1600}
-                  height={1600}
-                  unoptimized
-                  className="max-h-full max-w-full object-contain transition-transform duration-200"
-                  style={{
-                    transform: `scale(${zoomScale})`,
-                    transformOrigin: "center center",
-                  }}
-                />
+              <div ref={previewViewportRef} className="h-full w-full overflow-auto px-6 pb-24 pt-6">
+                <div className="flex min-h-full min-w-full items-center justify-center">
+                  {imageLoadStatus !== "error" ? (
+                    <Image
+                      src={previewUrl}
+                      alt={imageAlt ?? title}
+                      width={1600}
+                      height={1600}
+                      unoptimized
+                      onLoad={() => setImageLoadStatus("loaded")}
+                      onError={() => setImageLoadStatus("error")}
+                      className="h-auto max-w-none object-contain"
+                      style={{ width: `${pageWidth}px` }}
+                    />
+                  ) : null}
+                </div>
               </div>
             )}
 
+            {isImage && isPreviewReady && imageLoadStatus === "loading" ? (
+              <div
+                className="pointer-events-none absolute inset-0 flex items-center justify-center px-6"
+                aria-live="polite"
+              >
+                <div className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 text-sm font-medium text-v3-text shadow-sm">
+                  <Spinner size="sm" className="text-v3-primary" />
+                  이미지를 불러오는 중입니다
+                </div>
+              </div>
+            ) : null}
+
+            {isImage && isPreviewReady && imageLoadStatus === "error" ? (
+              <div className="absolute inset-0 flex items-center justify-center px-6" role="alert">
+                <div className="rounded-2xl bg-white px-5 py-4 text-sm font-medium text-v3-burgundy shadow-sm">
+                  이미지 미리보기를 불러오지 못했습니다.
+                </div>
+              </div>
+            ) : null}
+
             {isHwp && isPreviewReady && (
-              <div ref={previewViewportRef} className="h-full overflow-auto px-6 py-6">
+              <div ref={previewViewportRef} className="h-full overflow-auto px-6 pb-24 pt-6">
                 <HwpDocumentPreview
                   key={previewKey}
                   previewUrl={previewUrl}
@@ -667,7 +766,7 @@ export function SharedDocumentPreviewDialog({
             )}
 
             {isZoomablePreview && isPreviewReady && (
-              <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-[18px] border border-border bg-white/95 px-4 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.12)] backdrop-blur-sm">
+              <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-[18px] border border-border bg-white/95 px-4 py-3 opacity-70 shadow-[0_16px_40px_rgba(15,23,42,0.12)] backdrop-blur-sm transition-opacity hover:opacity-100 focus-within:opacity-100">
                 <div className="min-w-[3rem] text-right text-xs font-semibold text-v3-text-muted">
                   확대
                 </div>
@@ -677,7 +776,10 @@ export function SharedDocumentPreviewDialog({
                   max={MAX_ZOOM_PERCENT}
                   step={ZOOM_STEP}
                   value={zoomPercent}
-                  onChange={(event) => setZoomPercent(Number(event.target.value))}
+                  onChange={(event) => {
+                    const nextZoomPercent = Number(event.target.value);
+                    setZoomPercentPreservingAnchor(() => nextZoomPercent);
+                  }}
                   className="h-2 w-32 cursor-pointer accent-[hsl(214,100%,34%)]"
                   aria-label={`${isPdf ? "PDF" : isHwp ? "한글 문서" : "이미지"} 미리보기 확대/축소`}
                 />

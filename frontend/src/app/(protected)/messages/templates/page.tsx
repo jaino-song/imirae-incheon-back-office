@@ -167,7 +167,10 @@ export default function TemplatesPage() {
     activeTemplateId?.startsWith("user:") ? activeTemplateId.replace("user:", "") : null;
 
   return (
-    <section data-component="desktop_messages_sections_templates">
+    <section
+      data-component="desktop_messages_sections_templates"
+      className="flex h-full min-h-0 flex-1 flex-col lg:pl-[calc(132px*var(--glint-ui-scale,1))]"
+    >
       <SplitLayout data-component="desktop_messages_sections_templates_split-layout" hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
         <ListPanel data-component="desktop_messages_sections_templates_split-layout_list-panel"
           title="지점 템플릿 수정"

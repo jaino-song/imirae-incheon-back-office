@@ -296,6 +296,45 @@ describe("DocumentPreviewModal", () => {
     });
   });
 
+  it("keeps the visible document center anchored while zooming", async () => {
+    render(
+      <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
+        open={true}
+        onClose={jest.fn()}
+        doc={baseDocument}
+        categories={categories}
+      />
+    );
+
+    const slider = await screen.findByLabelText("PDF 미리보기 확대/축소");
+    const pdfDocument = await screen.findByTestId("pdf-document");
+    const viewport = pdfDocument.parentElement;
+    if (!viewport) {
+      throw new Error("PDF viewport was not rendered");
+    }
+
+    let scrollWidth = 800;
+    let scrollHeight = 1_000;
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 400 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollWidth: { configurable: true, get: () => scrollWidth },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+    });
+    viewport.scrollLeft = 200;
+    viewport.scrollTop = 100;
+
+    fireEvent.change(slider, { target: { value: "150" } });
+    scrollWidth = 1_200;
+    scrollHeight = 1_500;
+
+    await waitFor(() => {
+      expect(viewport.scrollLeft).toBe(400);
+      expect(viewport.scrollTop).toBe(250);
+    });
+  });
+
   it("zooms when document-targeted pinch wheel hit-tests inside the canvas", async () => {
     render(
       <DocumentPreviewModal
@@ -458,12 +497,41 @@ describe("DocumentPreviewModal", () => {
     const image = await screen.findByAltText("현장사진.jpg");
 
     expect(slider).toHaveValue("100");
-    expect(image).toHaveStyle({ transform: "scale(1)" });
+    expect(screen.getByText("이미지를 불러오는 중입니다")).toBeInTheDocument();
+    expect(image).toHaveStyle({ width: "320px" });
+
+    fireEvent.load(image);
+    expect(screen.queryByText("이미지를 불러오는 중입니다")).not.toBeInTheDocument();
 
     fireEvent.change(slider, { target: { value: "125" } });
 
     expect(screen.getByText("125%")).toBeInTheDocument();
-    expect(image).toHaveStyle({ transform: "scale(1.25)" });
+    expect(image).toHaveStyle({ width: "400px" });
+  });
+
+  it("shows an image-specific error when the image element fails to load", async () => {
+    render(
+      <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
+        open={true}
+        onClose={jest.fn()}
+        doc={{
+          ...baseDocument,
+          id: "img-error",
+          name: "손상된사진.jpg",
+          mimeType: "image/jpeg",
+        }}
+        categories={categories}
+      />
+    );
+
+    const image = await screen.findByAltText("손상된사진.jpg");
+    fireEvent.error(image);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "이미지 미리보기를 불러오지 못했습니다."
+    );
+    expect(screen.queryByText("이미지를 불러오는 중입니다")).not.toBeInTheDocument();
   });
 
   it("renders a Hangul document preview from an HWP storage extension", async () => {
