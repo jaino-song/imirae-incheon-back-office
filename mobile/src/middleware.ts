@@ -189,6 +189,12 @@ const PUBLIC_ROUTES = [
   "/manifest.json",
   "/sw.js",
   "/service-record",
+  // The PDF preview loads this as a Web Worker. A redirect here would not just
+  // break the preview: this middleware clears the auth cookies on its way to
+  // /login, so one worker fetch landing in an expired-token window would log
+  // the user out mid-session. It is an unmodified pdf.js build — nothing to gate.
+  "/pdf.worker.min.mjs",
+  "/pdfjs-iframe-test.html",
 ];
 
 const PUBLIC_API_ROUTES = [
