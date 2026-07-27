@@ -327,12 +327,33 @@ const CUSTOMER_NAME_FIELD_IDS = [
 
 const DEFAULT_DETAIL_ENRICHMENT_CONCURRENCY = 8;
 const DETAIL_ENRICHMENT_CONCURRENCY_ENV = "EFORMSIGN_DETAIL_ENRICHMENT_CONCURRENCY";
+const DETAIL_ENRICHMENT_BUDGET_MS = 5_000;
+const DETAIL_ENRICHMENT_RETRY_DELAYS_MS = [500, 1_500] as const;
 
 function getDetailEnrichmentConcurrency(): number {
     const configured = Number(process.env[DETAIL_ENRICHMENT_CONCURRENCY_ENV]);
     return Number.isInteger(configured) && configured > 0
         ? configured
         : DEFAULT_DETAIL_ENRICHMENT_CONCURRENCY;
+}
+
+function isEformsignRateLimitError(error: unknown): boolean {
+    if (error && typeof error === "object") {
+        const directStatus = (error as { status?: unknown }).status;
+        const responseStatus = (error as { response?: { status?: unknown } }).response?.status;
+        if (directStatus === 429 || responseStatus === 429) {
+            return true;
+        }
+    }
+
+    return error instanceof Error
+        && /^Failed to get document:\s*429(?:\s*-|$)/.test(error.message);
+}
+
+async function waitForDetailEnrichmentRetry(delayMs: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+        setTimeout(resolve, delayMs);
+    });
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -859,6 +880,7 @@ export class EformsignController {
         documents: EformsignListDoc[],
     ): Promise<EformsignListDoc[]> {
         const enrichStartedAt = Date.now();
+        const retryDeadline = enrichStartedAt + DETAIL_ENRICHMENT_BUDGET_MS;
         const candidateDocumentIds = Array.from(new Set(
             documents
                 .filter((document) => !documentHasCustomerNameField(document))
@@ -905,7 +927,10 @@ export class EformsignController {
                 return addLocalCustomerNameField(doc, localCustomerName);
             }
 
-            const cached = await this.documentSnapshotService.getDisplayFieldEnrichment(doc.id);
+            const cached = await this.documentSnapshotService.getDisplayFieldEnrichment(
+                doc.id,
+                accessToken,
+            );
             if (cached !== null) {
                 cacheHits += 1;
                 return applyDisplayFieldEnrichment(doc, cached);
@@ -913,7 +938,11 @@ export class EformsignController {
 
             apiFallbacks += 1;
             try {
-                const detail = await this.eformsignService.getDocumentById(accessToken, doc.id);
+                const detail = await this.getDocumentDetailForEnrichment(
+                    accessToken,
+                    doc.id,
+                    retryDeadline,
+                );
                 const detailEnrichment: DocumentDisplayFieldEnrichment = {
                     ...(hasCollectionValues(detail?.fields) ? { fields: detail.fields } : {}),
                     ...(hasCollectionValues(detail?.detail_template_info)
@@ -922,6 +951,7 @@ export class EformsignController {
                 };
                 await this.documentSnapshotService.setDisplayFieldEnrichment(
                     doc.id,
+                    accessToken,
                     detailEnrichment,
                 );
                 return applyDisplayFieldEnrichment(doc, detailEnrichment);
@@ -935,6 +965,28 @@ export class EformsignController {
             `enrichDocumentsWithDisplayFields docs=${documents.length} localHits=${localHits} cacheHits=${cacheHits} apiFallbacks=${apiFallbacks} tookMs=${Date.now() - enrichStartedAt}`,
         );
         return enriched;
+    }
+
+    private async getDocumentDetailForEnrichment(
+        accessToken: string,
+        documentId: string,
+        retryDeadline: number,
+    ): Promise<EformsignListDoc> {
+        for (let attempt = 0; ; attempt += 1) {
+            try {
+                return await this.eformsignService.getDocumentById(accessToken, documentId);
+            } catch (error) {
+                const retryDelay = DETAIL_ENRICHMENT_RETRY_DELAYS_MS[attempt];
+                if (
+                    retryDelay === undefined
+                    || !isEformsignRateLimitError(error)
+                    || Date.now() + retryDelay > retryDeadline
+                ) {
+                    throw error;
+                }
+                await waitForDetailEnrichmentRetry(retryDelay);
+            }
+        }
     }
 
     @Post("generate-signature")

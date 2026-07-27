@@ -1,10 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
 
 import {
   routeContractsApi,
   type ContractListRequest,
   type ContractMockDocument,
 } from "./helpers/contracts-api-mock";
+
+async function createPreviewPdf(): Promise<Buffer> {
+  const pdfDocument = await PDFDocument.create();
+  pdfDocument.addPage([595, 842]);
+  pdfDocument.addPage([595, 842]);
+  return Buffer.from(await pdfDocument.save());
+}
 
 const MOCK_DOCUMENTS = {
   documents: [
@@ -373,11 +381,12 @@ async function routeDocumentDetails(page: Page, docs = [...MOCK_DOCUMENTS.docume
 }
 
 async function routeDocumentPdfPreview(page: Page) {
+  const pdfBody = await createPreviewPdf();
   await page.route("**/api/eformsign/documents/*/download_files**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/pdf",
-      body: "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF",
+      body: pdfBody,
     });
   });
 }
@@ -484,7 +493,7 @@ test.describe("Mobile contracts list rows", () => {
           && request.skip === 0
           && request.search === ""
           && request.statusCategory === null
-          && request.templateId === "service-record-template"
+          && request.templateId === "service-record-template,service-record-template-10,service-record-template-15,service-record-template-20"
           && request.templateMatch === "exclude"
           && request.excludeDeleted,
       ),
@@ -509,7 +518,7 @@ test.describe("Mobile contracts list rows", () => {
           && request.skip === 9
           && request.search === ""
           && request.statusCategory === null
-          && request.templateId === "service-record-template"
+          && request.templateId === "service-record-template,service-record-template-10,service-record-template-15,service-record-template-20"
           && request.templateMatch === "exclude"
           && request.excludeDeleted,
       ),
@@ -968,7 +977,30 @@ test.describe("Mobile contracts list rows", () => {
     await expect(previewHeader).toHaveCSS("animation-duration", "0.4s");
 
     const frame = page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_frame"]');
-    await expect(frame).toHaveAttribute("src", /\/api\/eformsign\/documents\/doc-completed\/download_files\?fileType=document#toolbar=0/);
+    await expect(frame).toBeVisible();
+    const renderedPages = frame.locator('[data-slot="contract-pdf-page"] canvas');
+    await expect(renderedPages).toHaveCount(2);
+    await expect(renderedPages.nth(0)).toBeVisible();
+    await expect(renderedPages.nth(1)).toBeVisible();
+    const sizing = await frame.evaluate((node) => {
+      const sizer = node.querySelector<HTMLElement>(
+        '[data-slot="contract-pdf-sizer"]'
+      );
+      const pages = node.querySelector<HTMLElement>(
+        '[data-slot="contract-pdf-pages"]'
+      );
+      if (!sizer || !pages) {
+        throw new Error("PDF sizing surfaces were not rendered");
+      }
+      return {
+        sizerHeight: Number.parseFloat(sizer.style.height),
+        sizerWidth: Number.parseFloat(sizer.style.width),
+        contentHeight: pages.scrollHeight,
+      };
+    });
+    expect(sizing.sizerWidth).toBeGreaterThan(0);
+    expect(sizing.contentHeight).toBeGreaterThan(0);
+    expect(sizing.sizerHeight).toBe(sizing.contentHeight);
     await expect(frame).toHaveCSS("min-height", "0px");
     const frameBox = await frame.boundingBox();
     expect(frameBox).not.toBeNull();

@@ -27,7 +27,7 @@ interface ListPanelProps {
   onTabChange?: (value: string) => void;
   tabsAriaLabel?: string;
   tabsVariant?: "inline" | "dropdown";
-  headerPadding?: "auto" | "compact" | "default";
+  headerPadding?: "auto" | "compact" | "default" | "detail";
   overlay?: React.ReactNode;
   /** Empty state rendered as overlay (centered in full panel height) */
   emptyState?: React.ReactNode;
@@ -83,7 +83,9 @@ export function ListPanel({
   const resolvedOverlay = overlay ?? (isLoading || isContentLoading ? undefined : emptyState);
   const headerAlignmentClass = subtitle ? "items-start" : "items-center";
   const headerClassName =
-    headerPadding === "default"
+    headerPadding === "detail"
+      ? `flex ${headerAlignmentClass} justify-between gap-[calc(12px*var(--glint-ui-scale,1))] px-[calc(24px*var(--glint-ui-scale,1))] py-[calc(20px*var(--glint-ui-scale,1))] shrink-0`
+      : headerPadding === "default"
       ? `flex ${headerAlignmentClass} justify-between gap-[calc(12px*var(--glint-ui-scale,1))] p-[calc(24px*var(--glint-ui-scale,1))] shrink-0`
       : headerPadding === "compact"
         ? `flex ${headerAlignmentClass} justify-between gap-[calc(12px*var(--glint-ui-scale,1))] p-[calc(24px*var(--glint-ui-scale,1))] pb-0 shrink-0`

@@ -129,8 +129,9 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
     async getDisplayFieldEnrichment(
         documentId: string,
+        accessToken: string,
     ): Promise<DocumentDisplayFieldEnrichment | null> {
-        const key = this.displayFieldKey(documentId);
+        const key = this.displayFieldKey(documentId, accessToken);
         let payload: string | null;
 
         if (!this.redis) {
@@ -172,9 +173,10 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
     async setDisplayFieldEnrichment(
         documentId: string,
+        accessToken: string,
         enrichment: DocumentDisplayFieldEnrichment,
     ): Promise<void> {
-        const key = this.displayFieldKey(documentId);
+        const key = this.displayFieldKey(documentId, accessToken);
         let payload: string;
         try {
             payload = JSON.stringify(enrichment);
@@ -459,7 +461,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     }
 
     private snapshotKey(params: DocumentSnapshotKeyParams, version: string): string {
-        const tokenHash = createHash("sha256").update(params.accessToken).digest("hex");
+        const tokenHash = this.tokenHash(params.accessToken);
         return `${SNAPSHOT_KEY_PREFIX}:v${SNAPSHOT_SCHEMA_VERSION}:${params.branchId}:${params.scope}:${tokenHash}:${version}`;
     }
 
@@ -467,8 +469,12 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         return `${VERSION_KEY_PREFIX}:${branchId}`;
     }
 
-    private displayFieldKey(documentId: string): string {
-        return `${DISPLAY_FIELD_KEY_PREFIX}:${documentId}`;
+    private displayFieldKey(documentId: string, accessToken: string): string {
+        return `${DISPLAY_FIELD_KEY_PREFIX}:${documentId}:${this.tokenHash(accessToken)}`;
+    }
+
+    private tokenHash(accessToken: string): string {
+        return createHash("sha256").update(accessToken).digest("hex");
     }
 
     private dropMemoryEntriesForBranch(branchId: string): void {

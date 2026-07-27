@@ -169,7 +169,7 @@ test.describe('Contracts Page Search Feature', () => {
           && request.limit === 9
           && request.skip === 0
           && request.excludeDeleted
-          && request.templateId === 'service-record-template'
+          && request.templateId === 'service-record-template,service-record-template-10,service-record-template-15,service-record-template-20'
           && request.templateMatch === 'exclude',
       ),
     ).toBe(true);

@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
 
     return proxySseStream({
         upstreamUrl,
+        lastEventId: request.headers.get("Last-Event-ID"),
         requestSignal: request.signal,
         headers: {
             Authorization: `Bearer ${token}`,

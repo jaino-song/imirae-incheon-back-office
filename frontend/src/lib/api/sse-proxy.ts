@@ -11,6 +11,7 @@ type AbortCause = "request" | "timeout" | null;
 
 interface ProxySseStreamOptions {
     headers: HeadersInit;
+    lastEventId?: string | null;
     requestSignal: AbortSignal;
     upstreamUrl: string;
 }
@@ -46,6 +47,7 @@ async function settleWritable(
 
 export async function proxySseStream({
     headers,
+    lastEventId,
     requestSignal,
     upstreamUrl,
 }: ProxySseStreamOptions): Promise<Response> {
@@ -89,9 +91,14 @@ export async function proxySseStream({
     }
 
     try {
+        const upstreamHeaders = new Headers(headers);
+        // Backend replay is not supported yet; preserve the resume cursor for future support.
+        if (lastEventId) {
+            upstreamHeaders.set("Last-Event-ID", lastEventId);
+        }
         const upstream = await fetch(upstreamUrl, {
             method: "GET",
-            headers,
+            headers: upstreamHeaders,
             signal: upstreamController.signal,
             cache: "no-store",
         });

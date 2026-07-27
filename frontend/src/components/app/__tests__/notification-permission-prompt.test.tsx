@@ -89,4 +89,50 @@ describe("NotificationPermissionPrompt", () => {
       }),
     ).toBeInTheDocument();
   });
+
+  it("stores a dismissal timestamp when the native prompt remains default", async () => {
+    const now = new Date("2026-07-27T00:00:00.000Z").getTime();
+    jest.spyOn(Date, "now").mockReturnValue(now);
+    const requestPermission = jest.fn().mockResolvedValue("default");
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: {
+        permission: "default",
+        requestPermission,
+      },
+    });
+
+    render(<NotificationPermissionPrompt />);
+    fireEvent.click(await screen.findByRole("button", { name: "허용" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(requestPermission).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(dismissedAtStorageKey)).toBe(String(now));
+    expect(
+      screen.queryByRole("dialog", { name: "알림을 허용하시겠습니까?" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each(["granted", "denied"])(
+    "removes a stale dismissal when permission becomes %s",
+    async (permission) => {
+      window.localStorage.setItem(dismissedAtStorageKey, "123");
+      Object.defineProperty(window, "Notification", {
+        configurable: true,
+        value: {
+          permission,
+          requestPermission: jest.fn(),
+        },
+      });
+
+      render(<NotificationPermissionPrompt />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(window.localStorage.getItem(dismissedAtStorageKey)).toBeNull();
+    },
+  );
 });

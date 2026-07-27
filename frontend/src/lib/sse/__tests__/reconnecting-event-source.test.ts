@@ -44,7 +44,7 @@ describe("createReconnectingEventSource", () => {
         delete (globalThis as unknown as { EventSource?: unknown }).EventSource;
     });
 
-    it("should reconnect once after a two-second minimum delay", () => {
+    it("should reconnect with exponential backoff capped at thirty seconds", () => {
         const onProgress = jest.fn();
         const connection = createReconnectingEventSource({
             eventName: "progress",
@@ -70,8 +70,44 @@ describe("createReconnectingEventSource", () => {
         jest.advanceTimersByTime(1);
         expect(MockEventSource.instances).toHaveLength(2);
 
+        MockEventSource.instances[1].emit("error");
+        jest.advanceTimersByTime(3_999);
+        expect(MockEventSource.instances).toHaveLength(2);
+        jest.advanceTimersByTime(1);
+        expect(MockEventSource.instances).toHaveLength(3);
+
+        for (const expectedDelay of [8_000, 16_000, 30_000, 30_000]) {
+            MockEventSource.instances.at(-1)?.emit("error");
+            jest.advanceTimersByTime(expectedDelay - 1);
+            const countBeforeReconnect = MockEventSource.instances.length;
+            jest.advanceTimersByTime(1);
+            expect(MockEventSource.instances).toHaveLength(countBeforeReconnect + 1);
+        }
+
         connection.close();
-        expect(MockEventSource.instances[1].closed).toBe(true);
+        expect(MockEventSource.instances.at(-1)?.closed).toBe(true);
+    });
+
+    it("should reset the backoff after a connection opens", () => {
+        const connection = createReconnectingEventSource({
+            eventName: "progress",
+            onEvent: jest.fn(),
+            url: "/api/eformsign-docs/dispatch-headless/progress?progressId=progress-1",
+        });
+
+        MockEventSource.instances[0].emit("error");
+        jest.advanceTimersByTime(2_000);
+        MockEventSource.instances[1].emit("error");
+        jest.advanceTimersByTime(4_000);
+        MockEventSource.instances[2].emit("open");
+        MockEventSource.instances[2].emit("error");
+
+        jest.advanceTimersByTime(1_999);
+        expect(MockEventSource.instances).toHaveLength(3);
+        jest.advanceTimersByTime(1);
+        expect(MockEventSource.instances).toHaveLength(4);
+
+        connection.close();
     });
 
     it("should cancel a pending reconnect when the owner closes", () => {

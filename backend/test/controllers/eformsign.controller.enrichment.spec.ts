@@ -45,6 +45,7 @@ describe("EformsignController display-field enrichment", () => {
     });
 
     afterEach(async () => {
+        jest.useRealTimers();
         jest.restoreAllMocks();
         jest.clearAllMocks();
         await snapshotService.onModuleDestroy();
@@ -118,6 +119,93 @@ describe("EformsignController display-field enrichment", () => {
         expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
     });
 
+    it("should isolate cached API display fields by access token", async () => {
+        eformsignService.getDocumentById
+            .mockResolvedValueOnce({
+                fields: [{ id: "이용자 성명", value: "첫 토큰 고객" }],
+            })
+            .mockResolvedValueOnce({
+                fields: [{ id: "이용자 성명", value: "둘째 토큰 고객" }],
+            });
+
+        const first = await controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token-1",
+            [{ id: "doc-1" }],
+        );
+        const second = await controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token-2",
+            [{ id: "doc-1" }],
+        );
+
+        expect(first[0]?.fields).toEqual([{ id: "이용자 성명", value: "첫 토큰 고객" }]);
+        expect(second[0]?.fields).toEqual([{ id: "이용자 성명", value: "둘째 토큰 고객" }]);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(2);
+    });
+
+    it("should retry the detail API twice with exponential backoff after 429 responses", async () => {
+        jest.useFakeTimers();
+        eformsignService.getDocumentById
+            .mockRejectedValueOnce(new Error("Failed to get document: 429 - rate limited"))
+            .mockRejectedValueOnce(new Error("Failed to get document: 429 - rate limited"))
+            .mockResolvedValueOnce({
+                fields: [{ id: "이용자 성명", value: "재시도 고객" }],
+            });
+
+        const enrichment = controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token",
+            [{ id: "doc-1" }],
+        );
+        await jest.advanceTimersByTimeAsync(2_000);
+
+        await expect(enrichment).resolves.toEqual([
+            {
+                id: "doc-1",
+                fields: [{ id: "이용자 성명", value: "재시도 고객" }],
+            },
+        ]);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(3);
+    });
+
+    it("should skip a 429 retry when the shared enrichment budget is exhausted", async () => {
+        jest.useFakeTimers();
+        jest.spyOn(Date, "now")
+            .mockReturnValueOnce(0)
+            .mockReturnValue(5_000);
+        eformsignService.getDocumentById.mockRejectedValue(
+            new Error("Failed to get document: 429 - rate limited"),
+        );
+
+        const enrichment = controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token",
+            [{ id: "doc-1" }],
+        );
+        await jest.advanceTimersByTimeAsync(2_000);
+
+        await expect(enrichment).resolves.toEqual([{ id: "doc-1" }]);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not retry a non-rate-limit error that only mentions 429", async () => {
+        jest.useFakeTimers();
+        eformsignService.getDocumentById.mockRejectedValue(
+            new Error("Document doc-429 failed"),
+        );
+
+        const enrichment = controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token",
+            [{ id: "doc-1" }],
+        );
+        await jest.advanceTimersByTimeAsync(2_000);
+
+        await expect(enrichment).resolves.toEqual([{ id: "doc-1" }]);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
+    });
+
     it("should preserve the list document when the API fallback fails", async () => {
         eformsignService.getDocumentById.mockRejectedValue(new Error("detail failed"));
 
@@ -169,7 +257,7 @@ describe("EformsignController display-field enrichment", () => {
         eformsignDocService.findDisplayFieldsByDocumentIds.mockResolvedValue([
             { documentId: "local-doc", customerName: "로컬 고객" },
         ]);
-        await snapshotService.setDisplayFieldEnrichment("cached-doc", {
+        await snapshotService.setDisplayFieldEnrichment("cached-doc", "access-token", {
             fields: [{ id: "이용자 성명", value: "캐시 고객" }],
         });
         eformsignService.getDocumentById.mockResolvedValue({

@@ -25,6 +25,11 @@ BabyJamJam admin의 UI 재료 전수 조사. 기계용 목록은 [`component-man
 
 mobile도 같은 StatusBadge/InfoRow 중복을 가진다 (frontend와 동일 처리).
 
+### 모바일 계약서 PDF 미리보기
+
+- `ContractPdfViewer` (`mobile/src/components/app/contracts/contract-pdf-viewer.tsx`) — pdf.js 기반 다중 페이지 렌더링, 고정 캔버스 밀도, 핀치/휠 CSS 줌을 소유한다.
+- `ContractPdfViewerPlaceholder` (`mobile/src/components/app/contracts/contract-pdf-viewer-placeholder.tsx`) — 뷰어 dynamic import 중 표시하는 공용 로딩 상태다.
+
 ## 위반 현황 (baseline 등록 대상)
 
 ### Page-local 컴포넌트 정의 — frontend 19개 페이지

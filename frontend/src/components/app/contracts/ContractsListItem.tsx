@@ -75,6 +75,7 @@ function ContractsListItemComponent({
     normalizedCustomerName && normalizedCustomerName !== "-"
       ? normalizedCustomerName
       : "이름 없음";
+  const isRecipientNamePlaceholder = recipientName === "이름 없음";
 
   return (
     <AnimatedSlotListItemContent
@@ -99,6 +100,7 @@ function ContractsListItemComponent({
               : "text-v3-orange"
       )}
       title={recipientName}
+      titleClassName={isRecipientNamePlaceholder ? "italic text-v3-text-muted" : undefined}
       subtitle={subtitle ?? document.document_name}
       meta={
         <>

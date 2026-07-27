@@ -144,6 +144,11 @@ describe("MessageTriggerList", () => {
       expect(screen.getByText(`${monthLabel()} 2건`)).toBeInTheDocument();
     });
     expect(screen.getByText("서비스 시작 1일 전 · 고객")).toBeInTheDocument();
+    expect(
+      document.querySelector(
+        '[data-component="mobile_messages_triggers_test_list_meta"]',
+      ),
+    ).toHaveTextContent(`${monthLabel()} 2건 · 서비스 시작 1일 전 · 고객 · SMS`);
   });
 
   it("updates the selected real rule when the toggle row is pressed", async () => {

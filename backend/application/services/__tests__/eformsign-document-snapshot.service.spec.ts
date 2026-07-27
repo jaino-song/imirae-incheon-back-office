@@ -264,13 +264,19 @@ describe("EformsignDocumentSnapshotService", () => {
             detail_template_info: [{ field_values: { "이용자 성명": "김고객" } }],
         };
 
-        await service.setDisplayFieldEnrichment("document-1", enrichment);
+        await service.setDisplayFieldEnrichment("document-1", "access-token", enrichment);
 
-        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toEqual(enrichment);
+        await expect(
+            service.getDisplayFieldEnrichment("document-1", "access-token"),
+        ).resolves.toEqual(enrichment);
         jest.advanceTimersByTime(3_599_999);
-        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toEqual(enrichment);
+        await expect(
+            service.getDisplayFieldEnrichment("document-1", "access-token"),
+        ).resolves.toEqual(enrichment);
         jest.advanceTimersByTime(1);
-        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toBeNull();
+        await expect(
+            service.getDisplayFieldEnrichment("document-1", "access-token"),
+        ).resolves.toBeNull();
     });
 
     it("should store document display fields in Valkey with a one hour TTL", async () => {
@@ -281,12 +287,15 @@ describe("EformsignDocumentSnapshotService", () => {
             fields: [{ id: "이용자 성명", value: "김고객" }],
         };
 
-        await service.setDisplayFieldEnrichment("document-1", enrichment);
+        await service.setDisplayFieldEnrichment("document-1", "access-token", enrichment);
         redis.get.mockResolvedValue(JSON.stringify(enrichment));
 
-        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toEqual(enrichment);
+        await expect(
+            service.getDisplayFieldEnrichment("document-1", "access-token"),
+        ).resolves.toEqual(enrichment);
+        const tokenHash = createHash("sha256").update("access-token").digest("hex");
         expect(redis.set).toHaveBeenCalledWith(
-            "eformsign:doc-display-fields:v1:document-1",
+            `eformsign:doc-display-fields:v1:document-1:${tokenHash}`,
             JSON.stringify(enrichment),
             "EX",
             3_600,

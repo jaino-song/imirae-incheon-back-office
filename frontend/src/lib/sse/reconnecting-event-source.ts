@@ -1,4 +1,5 @@
-const RECONNECT_DELAY_MS = 2_000;
+const INITIAL_RECONNECT_DELAY_MS = 2_000;
+const MAX_RECONNECT_DELAY_MS = 30_000;
 
 interface ReconnectingEventSourceOptions {
     eventName: string;
@@ -17,6 +18,7 @@ export function createReconnectingEventSource({
 }: ReconnectingEventSourceOptions): ReconnectingEventSource {
     let source: EventSource | null = null;
     let reconnectTimer: number | null = null;
+    let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
     let closed = false;
 
     const connect = () => {
@@ -27,6 +29,11 @@ export function createReconnectingEventSource({
         const next = new EventSource(url);
         source = next;
 
+        next.addEventListener("open", () => {
+            if (source === next) {
+                reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+            }
+        });
         next.addEventListener(eventName, (event) => {
             if (source !== next) {
                 return;
@@ -41,10 +48,15 @@ export function createReconnectingEventSource({
 
             next.close();
             source = null;
+            const currentDelayMs = reconnectDelayMs;
+            reconnectDelayMs = Math.min(
+                reconnectDelayMs * 2,
+                MAX_RECONNECT_DELAY_MS,
+            );
             reconnectTimer = window.setTimeout(() => {
                 reconnectTimer = null;
                 connect();
-            }, RECONNECT_DELAY_MS);
+            }, currentDelayMs);
         });
     };
 

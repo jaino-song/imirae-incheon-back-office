@@ -249,7 +249,7 @@ export default async function StatsPage() {
                 <div className="text-[0.65rem] font-medium text-v3-text-muted">평균 방문 시간</div>
                 <div className="text-[1.55rem] font-bold tabular-nums leading-none mt-1">
                   {traffic.today.pv === 0
-                    ? "—"
+                    ? "-"
                     : `${Math.floor(traffic.avgSessionSeconds / 60)}:${String(Math.round(traffic.avgSessionSeconds % 60)).padStart(2, "0")}`}
                 </div>
               </div>

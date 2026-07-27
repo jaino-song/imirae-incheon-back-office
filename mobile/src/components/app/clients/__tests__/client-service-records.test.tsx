@@ -122,6 +122,26 @@ describe("ClientServiceRecords", () => {
         expect(screen.queryAllByText(/메시지 재전송 시/)).toHaveLength(0);
     });
 
+    it("formats the newborn birth date instead of exposing raw YYMMDD", () => {
+        const assignment = createAssignment(1, "sent");
+        assignment.header = {
+            momName: "고명순",
+            momBirth: "900101",
+            babyName: "아가",
+            babyBirth: "260703",
+            deliveryType: "자연분만",
+            babyWeight: "3.2",
+            createdAt: "2026-07-03T00:00:00.000Z",
+            updatedAt: "2026-07-03T00:00:00.000Z",
+        };
+
+        renderComponent({ assignments: [assignment] });
+
+        expect(screen.getByText("신생아 출생일자").closest("div"))
+            .toHaveTextContent("2026.07.03");
+        expect(screen.queryByText("260703")).not.toBeInTheDocument();
+    });
+
     it("uses the document lifecycle as the visible status once a record exists", () => {
         const { container } = renderComponent({
             record: createRecord("COMPLETED"),

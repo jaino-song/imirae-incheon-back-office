@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   DEFAULT_QUICK_ACTION_COLORS,
   type QuickActionIcon,
+  type QuickActionColor,
 } from "./QuickActionButton";
 
 const SOURCE_COMPONENT = "FloatingQuickActions";
@@ -15,13 +16,19 @@ interface FloatingAction {
   href: string;
   label: string;
   icon: QuickActionIcon;
+  color?: QuickActionColor;
 }
 
 const FLOATING_ACTIONS: FloatingAction[] = [
   { href: "/contracts?create=1", label: "계약 발송", icon: Send },
   { href: "/messages", label: "메시지", icon: MessageSquare },
   { href: "/clients?openClientForm=1", label: "고객 등록", icon: UserPlus },
-  { href: "/prices", label: "가격표", icon: Calculator },
+  {
+    href: "/prices",
+    label: "가격표",
+    icon: Calculator,
+    color: { bg: "bg-v3-purple-light", text: "text-v3-purple" },
+  },
 ];
 
 interface FloatingQuickActionsProps {
@@ -44,7 +51,7 @@ export function FloatingQuickActions({
       )}
     >
       {FLOATING_ACTIONS.map((action, idx) => {
-        const color = DEFAULT_QUICK_ACTION_COLORS[idx % DEFAULT_QUICK_ACTION_COLORS.length];
+        const color = action.color ?? DEFAULT_QUICK_ACTION_COLORS[idx % DEFAULT_QUICK_ACTION_COLORS.length];
         const IconComp = action.icon as ComponentType<{
           className?: string;
           strokeWidth?: number;

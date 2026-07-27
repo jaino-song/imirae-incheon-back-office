@@ -183,8 +183,8 @@ export function MessageTriggerList({
   }, [updateRuleMutation]);
 
   return (
-    <div className="section-block" data-component={dataComponent}>
-        <div className="section-header" data-component={sub("header")}>자동 전송 트리거</div>
+    <div className="section-block message-trigger-list" data-component={dataComponent}>
+        <div className="section-header message-trigger-list-header" data-component={sub("header")}>자동 전송 트리거</div>
 
         {displayRows.map((row) => {
           const Icon = row.icon;
@@ -214,9 +214,9 @@ export function MessageTriggerList({
                       `${monthLabel} ${row.monthlyCount ?? 0}건`
                     )}
                   </span>
-                  <span className="sep">·</span>
+                  {" · "}
                   <span>{row.timingLabel}</span>
-                  <span className="sep">·</span>
+                  {" · "}
                   <span>{row.channelLabel}</span>
                 </div>
               </div>

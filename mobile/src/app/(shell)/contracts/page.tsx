@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Download,
   Eye,
+  ExternalLink,
   FileCheck2,
   FileSignature,
   FileText,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
 import { useEformsignAuth } from "@/hooks/useEformsignAuth";
@@ -67,6 +69,7 @@ import {
   type HeadlessProgressState,
 } from "@/lib/eformsign/headless-progress";
 import { HeadlessProgressModal } from "@/components/app/eformsign/HeadlessProgressModal";
+import { ContractPdfViewerPlaceholder } from "@/components/app/contracts/contract-pdf-viewer-placeholder";
 import { MobileTwoButtonModal } from "@/components/app/ui/MobileTwoButtonModal";
 import type { EformsignDocClientSummary } from "@babyjamjam/shared/types/eformsign";
 import {
@@ -108,6 +111,24 @@ import { useFormStore, type ContractCreationPrefill } from "@/stores/form-store"
 import "@/components/app/mobile-redesign/redesign.css";
 
 const STAFF_COMPLETION_IFRAME_ID = "contracts_staff_completion_iframe";
+const CONTRACT_PDF_VIEWER_ARIA_LABEL = "계약서 PDF 미리보기";
+
+const ContractPdfViewer = dynamic(
+  () =>
+    import("@/components/app/contracts/contract-pdf-viewer").then(
+      (module) => module.ContractPdfViewer
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <ContractPdfViewerPlaceholder
+        className="contract-preview-frame"
+        data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_frame"
+        aria-label={CONTRACT_PDF_VIEWER_ARIA_LABEL}
+      />
+    ),
+  }
+);
 
 type ContractCategory = "in-progress" | "drafting" | "completed" | "expired" | "unknown";
 type ContractSectionId = "maternal-contracts" | "service-records";
@@ -329,9 +350,12 @@ function templateName(doc: EformsignDocument): string {
 
 function isServiceRecordDocument(
   doc: EformsignDocument,
-  serviceRecordTemplateId: string | null | undefined,
+  serviceRecordTemplateIds: readonly string[] | null | undefined,
 ): boolean {
-  if (serviceRecordTemplateId && doc.template?.id === serviceRecordTemplateId) {
+  if (
+    doc.template?.id
+    && serviceRecordTemplateIds?.includes(doc.template.id)
+  ) {
     return true;
   }
 
@@ -1397,32 +1421,50 @@ function ContractDetailContent({
               <ArrowLeft size={18} strokeWidth={2.5} />
               <span>돌아가기</span>
             </button>
-            <a
-              className="contract-preview-receipt"
-              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_receipt-download"
-              href={receiptDownloadUrl}
-              download={receiptFilename}
-              aria-label={`${name} 영수증 PDF 다운로드`}
+            <div
+              className="contract-preview-header-actions"
+              data-slot="contract-preview-header-actions"
             >
-              <Download size={16} strokeWidth={2.5} />
-              <span>영수증</span>
-            </a>
-            <a
-              className="contract-preview-download"
-              data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_pdf-download"
-              href={downloadUrl}
-              download={`${name}.pdf`}
-              aria-label={`${name} PDF 다운로드`}
-            >
-              <Download size={16} strokeWidth={2.5} />
-              <span>다운로드</span>
-            </a>
+              <a
+                className="contract-preview-receipt"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_receipt-download"
+                href={receiptDownloadUrl}
+                download={receiptFilename}
+                aria-label={`${name} 영수증 PDF 다운로드`}
+              >
+                <Download size={16} strokeWidth={2.5} />
+                <span>영수증</span>
+              </a>
+              <a
+                className="contract-preview-download"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_pdf-download"
+                href={downloadUrl}
+                download={`${name}.pdf`}
+                aria-label={`${name} PDF 다운로드`}
+              >
+                <Download size={16} strokeWidth={2.5} />
+                <span>다운로드</span>
+              </a>
+              <a
+                className="contract-preview-open"
+                data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_header_open"
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${name} PDF 새 탭에서 열기`}
+              >
+                <ExternalLink size={16} strokeWidth={2.5} />
+                <span>새 탭</span>
+              </a>
+            </div>
           </div>
-          <iframe
+          <ContractPdfViewer
+            key={previewUrl}
             className="contract-preview-frame"
             data-component="mobile_contracts_detail-sheet_stack_detail-page_content_pdf-preview_frame"
-            title={`${name} PDF 미리보기`}
-            src={previewUrl}
+            title={CONTRACT_PDF_VIEWER_ARIA_LABEL}
+            fileUrl={previewUrl}
+            fallbackHref={downloadUrl}
           />
         </section>
       ) : (
@@ -1591,7 +1633,7 @@ export default function ContractsPage() {
     setFinalizeErrorHint(null);
     setFinalizeProgress(INITIAL_HEADLESS_PROGRESS);
 
-    if (isServiceRecordDocument(doc, feedbackTemplateData?.templateId)) {
+    if (isServiceRecordDocument(doc, serviceRecordTemplateIds)) {
       setFinalizeEndDateInput("");
       setIsFinalizeDialogOpen(false);
       setIsServiceRecordFinalizeConfirmOpen(true);
@@ -1656,7 +1698,7 @@ export default function ContractsPage() {
     if (!finalizeDoc) return;
     const isServiceRecordFinalize = isServiceRecordDocument(
       finalizeDoc,
-      feedbackTemplateData?.templateId,
+      serviceRecordTemplateIds,
     );
     const endDateIso = isServiceRecordFinalize
       ? undefined
@@ -1818,7 +1860,10 @@ export default function ContractsPage() {
     onDocsChanged: refreshContractsFromEvent,
   });
 
-  const { data: feedbackTemplateData, isLoading: isFeedbackTemplateLoading } = useQuery({
+  const {
+    data: feedbackTemplateData,
+    isError: isFeedbackTemplateError,
+  } = useQuery({
     queryKey: ["eformsign-docs", "feedback-template-id"],
     queryFn: eformsignApi.getFeedbackTemplateId,
     enabled: isAuthenticated,
@@ -1828,12 +1873,23 @@ export default function ContractsPage() {
   // 섹션(산모 계약서/제공기록지)은 제공기록지 template id의 include/exclude로 서버에서 필터한다.
   // template id가 미설정(null)인 설치에서는 모든 문서를 산모 계약서로 취급한다 —
   // 산모 섹션은 템플릿 필터 없이 조회하고, 제공기록지 섹션만 비활성(빈 목록)으로 남긴다.
-  const serviceRecordTemplateId = feedbackTemplateData?.templateId ?? null;
-  const isFeedbackTemplateResolved = feedbackTemplateData !== undefined;
+  const serviceRecordTemplateIds = useMemo(
+    () => feedbackTemplateData?.templateIds
+      ?? (feedbackTemplateData?.templateId ? [feedbackTemplateData.templateId] : []),
+    [feedbackTemplateData],
+  );
+  const serviceRecordTemplateId = useMemo(
+    () => serviceRecordTemplateIds.length > 0
+      ? serviceRecordTemplateIds.join(",")
+      : null,
+    [serviceRecordTemplateIds],
+  );
+  const isFeedbackTemplateResolved =
+    feedbackTemplateData !== undefined || isFeedbackTemplateError;
   const sectionTemplateMatch = activeSection === "service-records" ? "include" : "exclude";
   const sectionFilterReady =
     isFeedbackTemplateResolved
-    && (activeSection === "maternal-contracts" || Boolean(serviceRecordTemplateId));
+    && (activeSection === "maternal-contracts" || serviceRecordTemplateIds.length > 0);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
 
@@ -1842,6 +1898,8 @@ export default function ContractsPage() {
     totalRows,
     branchId,
     isLoading: isDocumentsLoading,
+    isSuccess: isDocumentsSuccess,
+    isError: isDocumentsError,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
@@ -1855,7 +1913,11 @@ export default function ContractsPage() {
   });
 
   // 필터 pill 카운터: 목록과 동일한 선(先)필터가 적용된 상태 신호를 받아 클라이언트에서 접는다.
-  const { data: statusCountsData } = useQuery({
+  const {
+    data: statusCountsData,
+    isSuccess: isStatusCountsSuccess,
+    isError: isStatusCountsError,
+  } = useQuery({
     // "eformsign-documents" 아래에 중첩 — 문서 변이가 광역 prefix 무효화만 해도
     // (삭제 훅, 생성 플로우, 지점 전환 removeQueries) 카운터가 함께 갱신된다.
     queryKey: [
@@ -1881,8 +1943,20 @@ export default function ContractsPage() {
 
   const isContractsLoading =
     isAuthLoading ||
-    (isAuthenticated && isDocumentsLoading) ||
-    (isAuthenticated && isFeedbackTemplateLoading && !feedbackTemplateData);
+    (isAuthenticated && !isFeedbackTemplateResolved) ||
+    (
+      isAuthenticated
+      && sectionFilterReady
+      && (
+        isDocumentsLoading
+        || (!isDocumentsSuccess && !isDocumentsError)
+        || (
+          Boolean(branchId)
+          && !isStatusCountsSuccess
+          && !isStatusCountsError
+        )
+      )
+    );
   const { data: documentClientSummaries = [] } = useQuery({
     queryKey: ["eformsign-doc-client-names"],
     queryFn: eformsignApi.getDocumentClientNames,
@@ -1989,20 +2063,20 @@ export default function ContractsPage() {
   );
 
   const filterItems = useMemo(() => {
-    if (isContractsLoading || !statusCountsData) {
+    if (isContractsLoading) {
       return FILTER_LABELS.map((label) => ({ label, count: "00", skeleton: true }));
     }
 
     // 목록과 동일한 선(先)필터가 적용된 신호를 문서와 같은 규칙으로 접는다.
     const counts: Record<FilterKey, number> = {
-      전체: statusCountsData.documents.length,
+      전체: statusCountsData?.documents.length ?? 0,
       대기: 0,
       "검토 필요": 0,
       완료: 0,
       "기간 만료": 0,
       "상태 확인": 0,
     };
-    for (const signal of statusCountsData.documents) {
+    for (const signal of statusCountsData?.documents ?? []) {
       counts[FILTER_BY_CATEGORY[categorizeSignal(signal)]] += 1;
     }
     return FILTER_LABELS.map((label) => ({ label, count: String(counts[label]) }));
@@ -2262,7 +2336,7 @@ export default function ContractsPage() {
             metadata={selectedDocMetadata}
             isServiceRecord={isServiceRecordDocument(
               selectedDetailDoc,
-              feedbackTemplateData?.templateId,
+              serviceRecordTemplateIds,
             )}
             notificationLogs={notificationLogs}
             activeTab={activeTab}
@@ -2372,7 +2446,7 @@ export default function ContractsPage() {
         open={isFinalizeProgressOpen}
         title="최종 확인 처리 중"
         steps={
-          finalizeDoc && isServiceRecordDocument(finalizeDoc, feedbackTemplateData?.templateId)
+          finalizeDoc && isServiceRecordDocument(finalizeDoc, serviceRecordTemplateIds)
             ? SERVICE_RECORD_FINALIZE_PROGRESS_STEPS
             : CONTRACT_FINALIZE_PROGRESS_STEPS
         }
