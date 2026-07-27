@@ -146,6 +146,9 @@ export async function getEformsignGateSnapshot(
             readyText: EFORMSIGN_READY_TEXT,
             requestDialogSelector,
         },
+        // Diagnostics must never stall a failing dispatch: the body walk is
+        // expensive and evaluate would otherwise inherit Playwright's 30s default.
+        { timeout: 3_000 },
     );
 }
 

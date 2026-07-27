@@ -7,6 +7,7 @@ type TestListDocument = {
     id: string;
     fields?: unknown;
     detail_template_info?: unknown;
+    document_name?: string;
 };
 
 interface EnrichmentController {
@@ -77,6 +78,24 @@ describe("EformsignController display-field enrichment", () => {
             ["doc-1"],
         );
         expect(eformsignService.getDocumentById).not.toHaveBeenCalled();
+    });
+
+    it("should fall back to the API when the local name is the document title sentinel", async () => {
+        eformsignDocService.findDisplayFieldsByDocumentIds.mockResolvedValue([
+            { documentId: "doc-1", customerName: "산모신생아 건강관리 서비스 표준계약서" },
+        ]);
+        eformsignService.getDocumentById.mockResolvedValue({
+            fields: [{ id: "이용자 성명", value: "실제 고객" }],
+        });
+
+        const result = await controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token",
+            [{ id: "doc-1", document_name: "산모신생아 건강관리 서비스 표준계약서" }],
+        );
+
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
+        expect(result[0]?.fields).toEqual([{ id: "이용자 성명", value: "실제 고객" }]);
     });
 
     it("should reuse cached API display fields on the next enrichment", async () => {

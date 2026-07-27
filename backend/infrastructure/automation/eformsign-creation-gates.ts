@@ -7,7 +7,6 @@ import {
     createGateErrorWithSnapshot,
     findVisibleEnabledLocator,
     findVisibleLocator,
-    getEformsignGateSnapshot,
     isSuccessLatched,
     throwIfEformsignErrorLatched,
     tryClickGateLocator,
@@ -158,12 +157,12 @@ export async function runEformsignCreationGates(
         );
     }
 
-    const snapshot = await getEformsignGateSnapshot(
+    throw await createGateErrorWithSnapshot(
+        new Error(
+            `Timed out after ${EFORMSIGN_CREATION_GATE_TIMEOUT_MS}ms while advancing eformsign creation gates. ` +
+                `Last action: ${lastAction}`,
+        ),
         eformsignFrame,
         REQUEST_SEND_DIALOG_SELECTOR,
-    );
-    throw new Error(
-        `Timed out after ${EFORMSIGN_CREATION_GATE_TIMEOUT_MS}ms while advancing eformsign creation gates. ` +
-            `Last action: ${lastAction}. Snapshot: ${JSON.stringify(snapshot)}`,
     );
 }

@@ -113,6 +113,7 @@ describe("runEformsignFinalizeGates", () => {
             expect.objectContaining({
                 requestDialogSelector: "#inputCommentPopup",
             }),
+            { timeout: 3_000 },
         );
     });
 });

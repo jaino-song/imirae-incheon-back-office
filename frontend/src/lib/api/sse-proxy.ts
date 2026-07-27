@@ -97,6 +97,9 @@ export async function proxySseStream({
         });
 
         if (!upstream.ok || !upstream.body) {
+            // Release the upstream connection: cleanup() removes the abort
+            // handle, so an unread body would otherwise linger in the pool.
+            await upstream.body?.cancel().catch(() => undefined);
             cleanup();
             return new Response(null, { status: upstream.status });
         }

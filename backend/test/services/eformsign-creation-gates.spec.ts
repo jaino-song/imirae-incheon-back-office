@@ -92,6 +92,7 @@ describe("runEformsignCreationGates", () => {
             expect.objectContaining({
                 requestDialogSelector: "#requestWithInputCommentPopup",
             }),
+            { timeout: 3_000 },
         );
     });
 });

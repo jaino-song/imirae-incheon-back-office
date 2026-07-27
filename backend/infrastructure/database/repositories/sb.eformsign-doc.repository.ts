@@ -179,10 +179,16 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             },
         });
 
-        return docs.map((doc) => ({
-            documentId: doc.documentId,
-            customerName: doc.stepRecipientName.trim() || null,
-        }));
+        return docs.map((doc) => {
+            const trimmed = doc.stepRecipientName.trim();
+            // "수신자" is the adoption-time fallback sentinel, not a real
+            // customer name — treat it as missing so enrichment falls through
+            // to the cache/API path instead of displaying it forever.
+            return {
+                documentId: doc.documentId,
+                customerName: trimmed && trimmed !== "수신자" ? trimmed : null,
+            };
+        });
     }
 
     async findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]> {

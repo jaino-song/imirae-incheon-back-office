@@ -896,7 +896,11 @@ export class EformsignController {
             }
 
             const localCustomerName = localCustomerNameByDocumentId.get(doc.id);
-            if (localCustomerName) {
+            // stepRecipientName can fall back to the document title at adoption
+            // time; such a value is not a customer name, so let those documents
+            // take the cache/API path instead.
+            const documentTitle = (stringFromUnknown(doc["document_name"]) ?? "").trim();
+            if (localCustomerName && localCustomerName !== documentTitle) {
                 localHits += 1;
                 return addLocalCustomerNameField(doc, localCustomerName);
             }
