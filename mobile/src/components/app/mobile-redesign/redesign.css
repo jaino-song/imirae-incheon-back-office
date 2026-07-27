@@ -1702,7 +1702,9 @@ body.mobile-all-route .menu-row {
   flex-shrink: 0;
   position: relative;
   z-index: 3;
-  background: white;
+  /* Opaque so scrolled content cannot bleed through, but it has to be the
+     sheet's own colour — hardcoding white left a seam against the sheet. */
+  background: hsl(var(--v3-dim-white));
 }
 .sheet-title {
   min-width: 0;
@@ -1983,7 +1985,8 @@ body.mobile-all-route .menu-row {
   position: relative;
   padding: 0;
   border-bottom: 1px solid hsl(var(--v3-border));
-  background: white;
+  /* Matches .sheet-header: opaque for the sticky case, in the sheet's colour. */
+  background: hsl(var(--v3-dim-white));
 }
 body.mobile-clients-route .detail-tabs {
   position: sticky;
@@ -4469,8 +4472,7 @@ body.mobile-contracts-route .contract-preview-header-actions {
 
 body.mobile-contracts-route .contract-preview-back,
 body.mobile-contracts-route .contract-preview-receipt,
-body.mobile-contracts-route .contract-preview-download,
-body.mobile-contracts-route .contract-preview-open {
+body.mobile-contracts-route .contract-preview-download {
   display: inline-flex;
   min-width: 0;
   height: 32px;
@@ -4497,15 +4499,13 @@ body.mobile-contracts-route .contract-preview-open {
 
 body.mobile-contracts-route .contract-preview-back svg,
 body.mobile-contracts-route .contract-preview-receipt svg,
-body.mobile-contracts-route .contract-preview-download svg,
-body.mobile-contracts-route .contract-preview-open svg {
+body.mobile-contracts-route .contract-preview-download svg {
   transition: transform 160ms var(--ease-spatial);
 }
 
 body.mobile-contracts-route .contract-preview-back:active,
 body.mobile-contracts-route .contract-preview-receipt:active,
-body.mobile-contracts-route .contract-preview-download:active,
-body.mobile-contracts-route .contract-preview-open:active {
+body.mobile-contracts-route .contract-preview-download:active {
   opacity: 0.72;
   transform: translateX(-1px) scale(0.98);
 }
@@ -4568,19 +4568,27 @@ body.mobile-contracts-route .contract-pdf-page {
   box-shadow: 0 10px 28px rgb(15 23 42 / 10%);
 }
 
+/* react-pdf wraps loading/error content in its own unstyled `.react-pdf__message`
+   div, which shrinks to its content — centring inside that box parks the spinner
+   in the top-left corner of the frame. Take the status out of flow instead and
+   centre it over the viewer, which is `position: relative` above. */
 body.mobile-contracts-route .contract-pdf-status {
+  position: absolute;
+  z-index: 2;
   display: flex;
-  min-width: 100%;
-  min-height: 0;
   align-items: center;
-  flex: 1 0 auto;
   justify-content: center;
   gap: 10px;
   padding: 24px;
+  inset: 0;
   color: hsl(var(--v3-text));
   font-size: 0.86rem;
   font-weight: 700;
   text-align: center;
+}
+
+body.mobile-contracts-route .contract-pdf-spinner {
+  color: hsl(var(--v3-primary));
 }
 
 body.mobile-contracts-route .contract-pdf-status-error {

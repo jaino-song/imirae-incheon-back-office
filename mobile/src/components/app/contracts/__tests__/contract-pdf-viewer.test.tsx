@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import {
   calculateRenderDpr,
@@ -116,6 +116,7 @@ jest.mock("react-pdf", () => {
           data-loading-copy={typeof loading === "string" ? loading : undefined}
           data-error-copy={typeof error === "string" ? error : undefined}
         >
+          {loading}
           Page {pageNumber}
         </div>
       );
@@ -676,15 +677,15 @@ describe("ContractPdfViewer", () => {
     });
   });
 
-  it("sets Korean loading and error copy on every PDF page", async () => {
+  it("shows a labelled spinner while each PDF page renders, with Korean error copy", async () => {
     renderViewer();
 
     const pages = await screen.findAllByTestId(/^pdf-page-/);
     for (const page of pages) {
-      expect(page).toHaveAttribute(
-        "data-loading-copy",
-        "PDF 페이지를 불러오는 중입니다"
-      );
+      const status = within(page).getByRole("status", {
+        name: "PDF 페이지를 불러오는 중입니다",
+      });
+      expect(status.querySelector('[data-slot="spinner"]')).not.toBeNull();
       expect(page).toHaveAttribute(
         "data-error-copy",
         "PDF 페이지를 불러오지 못했습니다."
