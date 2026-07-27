@@ -5,6 +5,7 @@ import {
     EformsignDocCompletionClaimParams,
     EformsignDocCompletionClaimResult,
     EformsignDocClientSummary,
+    EformsignDocDisplayFields,
     IEformsignDocRepository,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -157,6 +158,31 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             select: { documentId: true },
         });
         return docs.map((doc) => doc.documentId);
+    }
+
+    async findDisplayFieldsByDocumentIds(
+        branchid: string,
+        documentIds: string[],
+    ): Promise<EformsignDocDisplayFields[]> {
+        if (documentIds.length === 0) {
+            return [];
+        }
+
+        const docs = await this.prismaService.eformsign_doc.findMany({
+            where: {
+                branchId: branchid,
+                documentId: { in: documentIds },
+            },
+            select: {
+                documentId: true,
+                stepRecipientName: true,
+            },
+        });
+
+        return docs.map((doc) => ({
+            documentId: doc.documentId,
+            customerName: doc.stepRecipientName.trim() || null,
+        }));
     }
 
     async findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]> {

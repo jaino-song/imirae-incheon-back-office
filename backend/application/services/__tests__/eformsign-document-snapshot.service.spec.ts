@@ -255,6 +255,44 @@ describe("EformsignDocumentSnapshotService", () => {
         expect(build).toHaveBeenCalledTimes(2);
     });
 
+    it("should cache document display fields for exactly one hour", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-07-27T00:00:00.000Z"));
+        const service = new EformsignDocumentSnapshotService();
+        const enrichment = {
+            fields: [{ id: "이용자 성명", value: "김고객" }],
+            detail_template_info: [{ field_values: { "이용자 성명": "김고객" } }],
+        };
+
+        await service.setDisplayFieldEnrichment("document-1", enrichment);
+
+        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toEqual(enrichment);
+        jest.advanceTimersByTime(3_599_999);
+        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toEqual(enrichment);
+        jest.advanceTimersByTime(1);
+        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toBeNull();
+    });
+
+    it("should store document display fields in Valkey with a one hour TTL", async () => {
+        const redis = createRedisStub();
+        useRedisStub(redis);
+        const service = new EformsignDocumentSnapshotService();
+        const enrichment = {
+            fields: [{ id: "이용자 성명", value: "김고객" }],
+        };
+
+        await service.setDisplayFieldEnrichment("document-1", enrichment);
+        redis.get.mockResolvedValue(JSON.stringify(enrichment));
+
+        await expect(service.getDisplayFieldEnrichment("document-1")).resolves.toEqual(enrichment);
+        expect(redis.set).toHaveBeenCalledWith(
+            "eformsign:doc-display-fields:v1:document-1",
+            JSON.stringify(enrichment),
+            "EX",
+            3_600,
+        );
+    });
+
     it("should rebuild with a different snapshot version after bumpVersion", async () => {
         const service = new EformsignDocumentSnapshotService();
         const firstPageBuild = jest.fn().mockResolvedValue([createEntry("page-1-document")]);

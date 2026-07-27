@@ -56,6 +56,7 @@ describe("EformsignDocService", () => {
     const findEformsignDocsByClientIdUsecase = { execute: jest.fn() };
     const listEformsignDocsUsecase = { execute: jest.fn() };
     const listOtherBranchDocumentIdsUsecase = { execute: jest.fn() };
+    const listEformsignDocDisplayFieldsUsecase = { execute: jest.fn() };
     const createEformsignDocUsecase = { execute: jest.fn() };
     const updateEformsignDocStatusUsecase = { execute: jest.fn() };
     const linkDocumentToClientUsecase = { execute: jest.fn() };
@@ -74,6 +75,7 @@ describe("EformsignDocService", () => {
             findEformsignDocsByClientIdUsecase as never,
             listEformsignDocsUsecase as never,
             listOtherBranchDocumentIdsUsecase as never,
+            listEformsignDocDisplayFieldsUsecase as never,
             createEformsignDocUsecase as never,
             updateEformsignDocStatusUsecase as never,
             linkDocumentToClientUsecase as never,
@@ -185,6 +187,20 @@ describe("EformsignDocService", () => {
             await expect(service.findDocumentIdsForOtherBranches(branchId)).resolves.toBe(ids);
 
             expect(listOtherBranchDocumentIdsUsecase.execute).toHaveBeenCalledWith(branchId);
+        });
+
+        it("findDisplayFieldsByDocumentIds scopes the page lookup to the supplied branch", async () => {
+            const displayFields = [{ documentId, customerName: "고객" }];
+            listEformsignDocDisplayFieldsUsecase.execute.mockResolvedValue(displayFields);
+
+            await expect(
+                service.findDisplayFieldsByDocumentIds(branchId, [documentId]),
+            ).resolves.toBe(displayFields);
+
+            expect(listEformsignDocDisplayFieldsUsecase.execute).toHaveBeenCalledWith(
+                branchId,
+                [documentId],
+            );
         });
 
         it("createAndSendContract forwards branchid and params", async () => {

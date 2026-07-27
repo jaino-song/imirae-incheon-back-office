@@ -37,6 +37,11 @@ export interface DocumentSnapshotKeyParams {
     isHeadquarters?: boolean;
 }
 
+export interface DocumentDisplayFieldEnrichment {
+    fields?: unknown;
+    detail_template_info?: unknown;
+}
+
 interface StoredSnapshot<TDoc> {
     version: number;
     builtAt: number;
@@ -56,6 +61,7 @@ interface MemoryEntry {
 
 const SNAPSHOT_KEY_PREFIX = "eformsign:doclist";
 const VERSION_KEY_PREFIX = "eformsign:doclist-version";
+const DISPLAY_FIELD_KEY_PREFIX = "eformsign:doc-display-fields:v1";
 /**
  * 회사 전체 세대(epoch). 본사(HQ) 뷰는 "다른 지점 소유분 제외 + 미배정 포함"이라
  * 어느 지점의 변이든 본사 목록을 바꿀 수 있다 — 본사 키에는 이 값이 함께 들어가
@@ -63,12 +69,15 @@ const VERSION_KEY_PREFIX = "eformsign:doclist-version";
  */
 const COMPANY_EPOCH_KEY = "eformsign:doclist-epoch";
 const SNAPSHOT_TTL_SECONDS = 5 * 60;
+const DISPLAY_FIELD_TTL_SECONDS = 60 * 60;
 /** 목록 스냅샷 하나가 이보다 커지면 저장을 건너뛴다(Valkey 메모리 보호). */
 const SNAPSHOT_MAX_BYTES = 4_000_000;
+const DISPLAY_FIELD_MAX_BYTES = 64_000;
 /** 스냅샷 페이로드·검색 인덱스 구조가 바뀔 때 올린다 — 배포 직후 이전 구조 스냅샷 재사용을 차단. */
 const SNAPSHOT_SCHEMA_VERSION = 1;
 /** in-memory 저장소 상한(FIFO 축출) — Valkey 없는 환경에서 무한 성장으로 인한 OOM 방지. */
 const MEMORY_STORE_MAX_ENTRIES = 32;
+const DISPLAY_FIELD_MEMORY_STORE_MAX_ENTRIES = 512;
 
 /**
  * 지점 단위 eformsign 문서 목록 스냅샷 캐시.
@@ -89,6 +98,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     private readonly logger = new Logger(EformsignDocumentSnapshotService.name);
     private readonly redis: Redis | null;
     private readonly memoryStore = new Map<string, MemoryEntry>();
+    private readonly displayFieldMemoryStore = new Map<string, MemoryEntry>();
     private readonly memoryVersions = new Map<string, number>();
     private memoryCompanyEpoch = 0;
     /** 같은 키에 대한 동시 미스는 스캔 promise 하나를 공유한다(프로세스 단위 single-flight). */
@@ -114,6 +124,94 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     async onModuleDestroy(): Promise<void> {
         if (this.redis) {
             this.redis.disconnect();
+        }
+    }
+
+    async getDisplayFieldEnrichment(
+        documentId: string,
+    ): Promise<DocumentDisplayFieldEnrichment | null> {
+        const key = this.displayFieldKey(documentId);
+        let payload: string | null;
+
+        if (!this.redis) {
+            const entry = this.displayFieldMemoryStore.get(key);
+            if (!entry) {
+                return null;
+            }
+            if (entry.expiresAt <= Date.now()) {
+                this.displayFieldMemoryStore.delete(key);
+                return null;
+            }
+            payload = entry.payload;
+        } else {
+            try {
+                await this.ensureRedisConnected();
+                payload = await this.redis.get(key);
+            } catch (error) {
+                this.logger.warn(
+                    `Display field cache read failed; bypassing cache: ${describeError(error)}`,
+                );
+                return null;
+            }
+        }
+
+        if (payload === null) {
+            return null;
+        }
+
+        try {
+            const parsed = JSON.parse(payload) as unknown;
+            if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+                return null;
+            }
+            return parsed as DocumentDisplayFieldEnrichment;
+        } catch {
+            return null;
+        }
+    }
+
+    async setDisplayFieldEnrichment(
+        documentId: string,
+        enrichment: DocumentDisplayFieldEnrichment,
+    ): Promise<void> {
+        const key = this.displayFieldKey(documentId);
+        let payload: string;
+        try {
+            payload = JSON.stringify(enrichment);
+        } catch (error) {
+            this.logger.warn(
+                `Document display fields could not be serialized for caching: ${describeError(error)}`,
+            );
+            return;
+        }
+        if (Buffer.byteLength(payload, "utf8") > DISPLAY_FIELD_MAX_BYTES) {
+            this.logger.warn("Document display fields are too large to cache");
+            return;
+        }
+
+        if (!this.redis) {
+            this.pruneDisplayFieldMemoryStore();
+            while (this.displayFieldMemoryStore.size >= DISPLAY_FIELD_MEMORY_STORE_MAX_ENTRIES) {
+                const oldestKey = this.displayFieldMemoryStore.keys().next().value;
+                if (oldestKey === undefined) {
+                    break;
+                }
+                this.displayFieldMemoryStore.delete(oldestKey);
+            }
+            this.displayFieldMemoryStore.set(key, {
+                expiresAt: Date.now() + DISPLAY_FIELD_TTL_SECONDS * 1_000,
+                payload,
+            });
+            return;
+        }
+
+        try {
+            await this.ensureRedisConnected();
+            await this.redis.set(key, payload, "EX", DISPLAY_FIELD_TTL_SECONDS);
+        } catch (error) {
+            this.logger.warn(
+                `Display field cache write failed; result not cached: ${describeError(error)}`,
+            );
         }
     }
 
@@ -369,6 +467,10 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         return `${VERSION_KEY_PREFIX}:${branchId}`;
     }
 
+    private displayFieldKey(documentId: string): string {
+        return `${DISPLAY_FIELD_KEY_PREFIX}:${documentId}`;
+    }
+
     private dropMemoryEntriesForBranch(branchId: string): void {
         const prefix = `${SNAPSHOT_KEY_PREFIX}:${branchId}:`;
         for (const key of this.memoryStore.keys()) {
@@ -383,6 +485,15 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         for (const [key, entry] of this.memoryStore) {
             if (entry.expiresAt <= now) {
                 this.memoryStore.delete(key);
+            }
+        }
+    }
+
+    private pruneDisplayFieldMemoryStore(): void {
+        const now = Date.now();
+        for (const [key, entry] of this.displayFieldMemoryStore) {
+            if (entry.expiresAt <= now) {
+                this.displayFieldMemoryStore.delete(key);
             }
         }
     }

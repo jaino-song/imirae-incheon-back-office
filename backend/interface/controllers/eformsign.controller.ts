@@ -19,6 +19,7 @@ import {
 } from "interface/dto/eformsign.dto";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import {
+    DocumentDisplayFieldEnrichment,
     DocumentSnapshotEntry,
     DocumentSnapshotResult,
     DocumentSnapshotScope,
@@ -324,7 +325,15 @@ const CUSTOMER_NAME_FIELD_IDS = [
     "userName",
 ] as const;
 
-const DETAIL_ENRICHMENT_CONCURRENCY = 4;
+const DEFAULT_DETAIL_ENRICHMENT_CONCURRENCY = 8;
+const DETAIL_ENRICHMENT_CONCURRENCY_ENV = "EFORMSIGN_DETAIL_ENRICHMENT_CONCURRENCY";
+
+function getDetailEnrichmentConcurrency(): number {
+    const configured = Number(process.env[DETAIL_ENRICHMENT_CONCURRENCY_ENV]);
+    return Number.isInteger(configured) && configured > 0
+        ? configured
+        : DEFAULT_DETAIL_ENRICHMENT_CONCURRENCY;
+}
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -454,6 +463,34 @@ function documentSearchIndex(document: EformsignListDoc): string[] {
 
 function hasCollectionValues(value: unknown): boolean {
     return Array.isArray(value) ? value.length > 0 : value != null;
+}
+
+function applyDisplayFieldEnrichment(
+    document: EformsignListDoc,
+    enrichment: DocumentDisplayFieldEnrichment,
+): EformsignListDoc {
+    return {
+        ...document,
+        fields: hasCollectionValues(enrichment.fields)
+            ? enrichment.fields
+            : document.fields,
+        detail_template_info: hasCollectionValues(enrichment.detail_template_info)
+            ? enrichment.detail_template_info
+            : document.detail_template_info,
+    };
+}
+
+function addLocalCustomerNameField(
+    document: EformsignListDoc,
+    customerName: string,
+): EformsignListDoc {
+    const customerField = { id: "이용자 성명", value: customerName };
+    const fields = Array.isArray(document.fields)
+        ? [...document.fields, customerField]
+        : hasCollectionValues(document.fields)
+            ? [document.fields, customerField]
+            : [customerField];
+    return { ...document, fields };
 }
 
 async function mapWithConcurrency<T, R>(
@@ -735,7 +772,11 @@ export class EformsignController {
         );
         const pageDocuments = filteredDocuments.slice(skip, skip + limit);
         return {
-            documents: await this.enrichDocumentsWithDisplayFields(accessToken, pageDocuments),
+            documents: await this.enrichDocumentsWithDisplayFields(
+                branchId,
+                accessToken,
+                pageDocuments,
+            ),
             total_rows: filteredDocuments.length,
             limit,
             skip,
@@ -813,24 +854,73 @@ export class EformsignController {
     }
 
     private async enrichDocumentsWithDisplayFields(
+        branchId: string,
         accessToken: string,
         documents: EformsignListDoc[],
     ): Promise<EformsignListDoc[]> {
         const enrichStartedAt = Date.now();
-        const enriched = await mapWithConcurrency(documents, DETAIL_ENRICHMENT_CONCURRENCY, async (doc) => {
+        const candidateDocumentIds = Array.from(new Set(
+            documents
+                .filter((document) => !documentHasCustomerNameField(document))
+                .map((document) => document.id),
+        ));
+        const localCustomerNameByDocumentId = new Map<string, string>();
+        if (candidateDocumentIds.length > 0) {
+            try {
+                const localDisplayFields = await this.eformsignDocService.findDisplayFieldsByDocumentIds(
+                    branchId,
+                    candidateDocumentIds,
+                );
+                for (const localDisplayField of localDisplayFields) {
+                    if (localDisplayField.customerName) {
+                        localCustomerNameByDocumentId.set(
+                            localDisplayField.documentId,
+                            localDisplayField.customerName,
+                        );
+                    }
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "Unknown error";
+                this.logger.warn(
+                    `Local eformsign display-field lookup failed docs=${candidateDocumentIds.length}; falling back: ${message}`,
+                );
+            }
+        }
+
+        let localHits = 0;
+        let cacheHits = 0;
+        let apiFallbacks = 0;
+        const enriched = await mapWithConcurrency(documents, getDetailEnrichmentConcurrency(), async (doc) => {
             if (documentHasCustomerNameField(doc)) {
                 return doc;
             }
 
+            const localCustomerName = localCustomerNameByDocumentId.get(doc.id);
+            if (localCustomerName) {
+                localHits += 1;
+                return addLocalCustomerNameField(doc, localCustomerName);
+            }
+
+            const cached = await this.documentSnapshotService.getDisplayFieldEnrichment(doc.id);
+            if (cached !== null) {
+                cacheHits += 1;
+                return applyDisplayFieldEnrichment(doc, cached);
+            }
+
+            apiFallbacks += 1;
             try {
                 const detail = await this.eformsignService.getDocumentById(accessToken, doc.id);
-                return {
-                    ...doc,
-                    fields: hasCollectionValues(detail?.fields) ? detail.fields : doc.fields,
-                    detail_template_info: hasCollectionValues(detail?.detail_template_info)
-                        ? detail.detail_template_info
-                        : doc.detail_template_info,
+                const detailEnrichment: DocumentDisplayFieldEnrichment = {
+                    ...(hasCollectionValues(detail?.fields) ? { fields: detail.fields } : {}),
+                    ...(hasCollectionValues(detail?.detail_template_info)
+                        ? { detail_template_info: detail.detail_template_info }
+                        : {}),
                 };
+                await this.documentSnapshotService.setDisplayFieldEnrichment(
+                    doc.id,
+                    detailEnrichment,
+                );
+                return applyDisplayFieldEnrichment(doc, detailEnrichment);
             } catch (error) {
                 const message = error instanceof Error ? error.message : "Unknown error";
                 this.logger.warn(`Failed to enrich eformsign document ${doc.id}: ${message}`);
@@ -838,7 +928,7 @@ export class EformsignController {
             }
         });
         this.logger.log(
-            `enrichDocumentsWithDisplayFields docs=${documents.length} tookMs=${Date.now() - enrichStartedAt}`,
+            `enrichDocumentsWithDisplayFields docs=${documents.length} localHits=${localHits} cacheHits=${cacheHits} apiFallbacks=${apiFallbacks} tookMs=${Date.now() - enrichStartedAt}`,
         );
         return enriched;
     }
