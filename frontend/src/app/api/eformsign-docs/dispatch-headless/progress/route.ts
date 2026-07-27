@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
+
+import { proxySseStream } from "@/lib/api/sse-proxy";
 import { getAuthToken } from "@/lib/api/route-utils";
 import { createServerApiUrl } from "@/lib/api/server-base-url";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
     const token = getAuthToken(request);
@@ -20,27 +23,12 @@ export async function GET(request: NextRequest) {
         `/eformsign-docs/dispatch-headless/progress?progressId=${encodeURIComponent(progressId)}`,
     );
 
-    const upstream = await fetch(upstreamUrl, {
-        method: "GET",
+    return proxySseStream({
+        upstreamUrl,
+        requestSignal: request.signal,
         headers: {
             Authorization: `Bearer ${token}`,
             Accept: "text/event-stream",
-        },
-        signal: request.signal,
-        cache: "no-store",
-    });
-
-    if (!upstream.ok || !upstream.body) {
-        return new Response(null, { status: upstream.status });
-    }
-
-    return new Response(upstream.body, {
-        status: 200,
-        headers: {
-            "Content-Type": "text/event-stream; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
         },
     });
 }

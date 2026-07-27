@@ -7,6 +7,7 @@ import { Check, X } from "lucide-react";
 import { getApiErrorMessage } from "@babyjamjam/shared";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n/translations";
+import { createReconnectingEventSource } from "@/lib/sse/reconnecting-event-source";
 import { useFormStore } from "@/stores/form-store";
 import { useLocale } from "@/providers/LocaleProvider";
 import { eformsignApi } from "@/services/api";
@@ -799,42 +800,43 @@ export const ContractCreationForm = ({
       // user can retry the backend run or choose the manual iframe fallback.
       if (shouldAttemptHeadless) {
         const progressId = createHeadlessProgressId();
-        let progressSource: EventSource | null = null;
+        let progressSource: ReturnType<typeof createReconnectingEventSource> | null = null;
 
         try {
           setCreationProgress({ step: "client-started", completed: false, failed: false });
-          progressSource = new EventSource(
-            `/api/eformsign-docs/dispatch-headless/progress?progressId=${encodeURIComponent(progressId)}`,
-          );
-          progressSource.addEventListener("progress", (event) => {
-            let data: HeadlessProgressEvent;
-            try {
-              data = JSON.parse(event.data) as HeadlessProgressEvent;
-            } catch {
-              return;
-            }
-            if (data.step === "failed") {
-              setSubmitError(getSafeHeadlessFailureMessage(data.reason));
-              setCreationProgress((current) => ({
-                step: data.failedStep && isHeadlessProgressStepKey(data.failedStep)
-                  ? data.failedStep
-                  : current.step ?? "client-started",
-                completed: false,
-                failed: true,
-              }));
-              return;
-            }
-            if (!isHeadlessProgressStepKey(data.step)) return;
-            const nextStep = data.step;
-            setCreationProgress((current) =>
-              current.failed
-                ? current
-                : {
-                  step: nextStep,
-                  completed: nextStep === "sent",
-                  failed: false,
-                },
-            );
+          progressSource = createReconnectingEventSource({
+            eventName: "progress",
+            url: `/api/eformsign-docs/dispatch-headless/progress?progressId=${encodeURIComponent(progressId)}`,
+            onEvent: (event) => {
+              let data: HeadlessProgressEvent;
+              try {
+                data = JSON.parse(event.data) as HeadlessProgressEvent;
+              } catch {
+                return;
+              }
+              if (data.step === "failed") {
+                setSubmitError(getSafeHeadlessFailureMessage(data.reason));
+                setCreationProgress((current) => ({
+                  step: data.failedStep && isHeadlessProgressStepKey(data.failedStep)
+                    ? data.failedStep
+                    : current.step ?? "client-started",
+                  completed: false,
+                  failed: true,
+                }));
+                return;
+              }
+              if (!isHeadlessProgressStepKey(data.step)) return;
+              const nextStep = data.step;
+              setCreationProgress((current) =>
+                current.failed
+                  ? current
+                  : {
+                    step: nextStep,
+                    completed: nextStep === "sent",
+                    failed: false,
+                  },
+              );
+            },
           });
 
           const headless = await eformsignApi.dispatchHeadless(
