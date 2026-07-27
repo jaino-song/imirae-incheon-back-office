@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { ComponentProps, CSSProperties, ReactNode, RefObject } from "react";
 import { ChevronDown, ChevronRight, FileCheck2, type LucideIcon } from "lucide-react";
@@ -333,17 +333,44 @@ export function FilterPills({
 }) {
   const initialActive = items.find((item) => item.active)?.label ?? items[0]?.label;
   const [uncontrolledActive, setUncontrolledActive] = useState(initialActive);
+  const [hasRightOverflow, setHasRightOverflow] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
   const activeLabel = controlledActive ?? uncontrolledActive;
   const handleClick = (label: string) => {
     if (onChange) onChange(label);
     else setUncontrolledActive(label);
   };
+  const updateOverflow = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+
+    const remainingWidth = row.scrollWidth - row.clientWidth - row.scrollLeft;
+    setHasRightOverflow(remainingWidth > 1);
+  }, []);
+
+  useEffect(() => {
+    updateOverflow();
+
+    const row = rowRef.current;
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateOverflow);
+    if (row) resizeObserver?.observe(row);
+    window.addEventListener("resize", updateOverflow);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateOverflow);
+    };
+  }, [items, updateOverflow]);
 
   return (
     <div
-      className="filter-row"
+      ref={rowRef}
+      className={`filter-row${hasRightOverflow ? " has-right-overflow" : ""}`}
       data-component={dataComponent}
       data-source-component={FILTER_PILLS_SOURCE_COMPONENT}
+      onScroll={updateOverflow}
     >
       {items.map((item) => (
         item.skeleton ? (

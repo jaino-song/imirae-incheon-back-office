@@ -692,28 +692,28 @@ export function useChatStream(): UseChatStreamReturn {
 
                             for (const event of events) {
                                 switch (event.type) {
-	                                    case "chunk":
-	                                        if (event.content) {
-	                                            pendingAssistantAppendRef.current += event.content;
-	                                            scheduleFlushPendingAssistant();
-	                                        }
-	                                        break;
+                                    case "chunk":
+                                        if (event.content) {
+                                            pendingAssistantAppendRef.current += event.content;
+                                            scheduleFlushPendingAssistant();
+                                        }
+                                        break;
 
                                     case "tool_call":
                                         setIsToolExecuting(true);
                                         setCurrentTool(event.toolName || null);
                                         break;
 
-	                                    case "confirmation":
-	                                        setIsToolExecuting(false);
-	                                        setCurrentTool(null);
-	                                        clearScheduledFlush();
-	                                        flushPendingAssistant();
-	                                        if (event.confirmationMessage) {
-	                                            setMessages((prev) => {
-	                                                const updated = [...prev];
-	                                                const lastIdx = updated.length - 1;
-	                                                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                                    case "confirmation":
+                                        setIsToolExecuting(false);
+                                        setCurrentTool(null);
+                                        clearScheduledFlush();
+                                        flushPendingAssistant();
+                                        if (event.confirmationMessage) {
+                                            setMessages((prev) => {
+                                                const updated = [...prev];
+                                                const lastIdx = updated.length - 1;
+                                                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
                                                     updated[lastIdx] = {
                                                         ...updated[lastIdx],
                                                         content: event.confirmationMessage || "",
@@ -725,15 +725,15 @@ export function useChatStream(): UseChatStreamReturn {
                                         }
                                         break;
 
-	                                    case "done":
-	                                        setIsToolExecuting(false);
-	                                        setCurrentTool(null);
-	                                        clearScheduledFlush();
-	                                        flushPendingAssistant();
-	                                        if (event.sessionId) {
-	                                            setSessionId(event.sessionId);
-	                                            safeStorageSetItem("local", SESSION_STORAGE_KEY, event.sessionId);
-	                                        }
+                                    case "done":
+                                        setIsToolExecuting(false);
+                                        setCurrentTool(null);
+                                        clearScheduledFlush();
+                                        flushPendingAssistant();
+                                        if (event.sessionId) {
+                                            setSessionId(event.sessionId);
+                                            safeStorageSetItem("local", SESSION_STORAGE_KEY, event.sessionId);
+                                        }
                                         setMessages((prev) => {
                                             const updated = [...prev];
                                             const lastIdx = updated.length - 1;
@@ -748,22 +748,22 @@ export function useChatStream(): UseChatStreamReturn {
                                         setState("complete");
                                         break;
 
-		                                    case "error":
-                                                console.error("[chat] retried stream event reported an error");
-		                                        setIsToolExecuting(false);
-		                                        setCurrentTool(null);
-		                                        setError(CHAT_TEMPORARY_ERROR_MESSAGE);
-		                                        setState("error");
-	                                        clearScheduledFlush();
-	                                        flushPendingAssistant();
-	                                        setMessages((prev) => {
-	                                            const updated = [...prev];
-	                                            const lastIdx = updated.length - 1;
-	                                            if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-		                                                updated[lastIdx] = {
-		                                                    ...updated[lastIdx],
-		                                                    content: CHAT_TEMPORARY_ERROR_MESSAGE,
-		                                                    isStreaming: false,
+                                    case "error":
+                                        console.error("[chat] retried stream event reported an error");
+                                        setIsToolExecuting(false);
+                                        setCurrentTool(null);
+                                        setError(CHAT_TEMPORARY_ERROR_MESSAGE);
+                                        setState("error");
+                                        clearScheduledFlush();
+                                        flushPendingAssistant();
+                                        setMessages((prev) => {
+                                            const updated = [...prev];
+                                            const lastIdx = updated.length - 1;
+                                            if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                                                updated[lastIdx] = {
+                                                    ...updated[lastIdx],
+                                                    content: CHAT_TEMPORARY_ERROR_MESSAGE,
+                                                    isStreaming: false,
                                                 };
                                             }
                                             return updated;
@@ -777,26 +777,26 @@ export function useChatStream(): UseChatStreamReturn {
                             const { events } = parseSSEBuffer(`${buffer}\n\n`);
                             for (const event of events) {
                                 switch (event.type) {
-	                                    case "chunk":
-	                                        if (event.content) {
-	                                            pendingAssistantAppendRef.current += event.content;
-	                                            scheduleFlushPendingAssistant();
-	                                        }
-	                                        break;
+                                    case "chunk":
+                                        if (event.content) {
+                                            pendingAssistantAppendRef.current += event.content;
+                                            scheduleFlushPendingAssistant();
+                                        }
+                                        break;
                                     case "tool_call":
                                         setIsToolExecuting(true);
                                         setCurrentTool(event.toolName || null);
                                         break;
-	                                    case "confirmation":
-	                                        setIsToolExecuting(false);
-	                                        setCurrentTool(null);
-	                                        clearScheduledFlush();
-	                                        flushPendingAssistant();
-	                                        if (event.confirmationMessage) {
-	                                            setMessages((prev) => {
-	                                                const updated = [...prev];
-	                                                const lastIdx = updated.length - 1;
-	                                                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                                    case "confirmation":
+                                        setIsToolExecuting(false);
+                                        setCurrentTool(null);
+                                        clearScheduledFlush();
+                                        flushPendingAssistant();
+                                        if (event.confirmationMessage) {
+                                            setMessages((prev) => {
+                                                const updated = [...prev];
+                                                const lastIdx = updated.length - 1;
+                                                if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
                                                     updated[lastIdx] = {
                                                         ...updated[lastIdx],
                                                         content: event.confirmationMessage || "",
@@ -807,15 +807,15 @@ export function useChatStream(): UseChatStreamReturn {
                                             });
                                         }
                                         break;
-	                                    case "done":
-	                                        setIsToolExecuting(false);
-	                                        setCurrentTool(null);
-	                                        clearScheduledFlush();
-	                                        flushPendingAssistant();
-	                                        if (event.sessionId) {
-	                                            setSessionId(event.sessionId);
-	                                            safeStorageSetItem("local", SESSION_STORAGE_KEY, event.sessionId);
-	                                        }
+                                    case "done":
+                                        setIsToolExecuting(false);
+                                        setCurrentTool(null);
+                                        clearScheduledFlush();
+                                        flushPendingAssistant();
+                                        if (event.sessionId) {
+                                            setSessionId(event.sessionId);
+                                            safeStorageSetItem("local", SESSION_STORAGE_KEY, event.sessionId);
+                                        }
                                         setMessages((prev) => {
                                             const updated = [...prev];
                                             const lastIdx = updated.length - 1;
@@ -829,22 +829,22 @@ export function useChatStream(): UseChatStreamReturn {
                                         });
                                         setState("complete");
                                         break;
-		                                    case "error":
-                                                console.error("[chat] buffered retried stream event reported an error");
-		                                        setIsToolExecuting(false);
-		                                        setCurrentTool(null);
-		                                        setError(CHAT_TEMPORARY_ERROR_MESSAGE);
-		                                        setState("error");
-	                                        clearScheduledFlush();
-	                                        flushPendingAssistant();
-	                                        setMessages((prev) => {
-	                                            const updated = [...prev];
-	                                            const lastIdx = updated.length - 1;
-	                                            if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-		                                                updated[lastIdx] = {
-		                                                    ...updated[lastIdx],
-		                                                    content: CHAT_TEMPORARY_ERROR_MESSAGE,
-		                                                    isStreaming: false,
+                                    case "error":
+                                        console.error("[chat] buffered retried stream event reported an error");
+                                        setIsToolExecuting(false);
+                                        setCurrentTool(null);
+                                        setError(CHAT_TEMPORARY_ERROR_MESSAGE);
+                                        setState("error");
+                                        clearScheduledFlush();
+                                        flushPendingAssistant();
+                                        setMessages((prev) => {
+                                            const updated = [...prev];
+                                            const lastIdx = updated.length - 1;
+                                            if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                                                updated[lastIdx] = {
+                                                    ...updated[lastIdx],
+                                                    content: CHAT_TEMPORARY_ERROR_MESSAGE,
+                                                    isStreaming: false,
                                                 };
                                             }
                                             return updated;

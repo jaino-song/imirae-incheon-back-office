@@ -4,6 +4,7 @@ import React from "react";
 import type { LucideIcon } from "lucide-react";
 
 const SOURCE_COMPONENT = "SectionNav";
+export const SECTION_NAV_RAIL_WIDTH_PX = 132;
 
 export interface SectionNavItem {
   id: string;

@@ -99,7 +99,7 @@ function resolveState(step: StepperStep, index: number, activeStep?: number): St
 const STATE_CIRCLE: Record<StepState, string> = {
   done:    "bg-v3-primary text-white",
   active:  "bg-v3-primary text-white ring-2 ring-v3-primary/30 ring-offset-1",
-  pending: "bg-v3-dim-white text-v3-text-muted",
+  pending: "border-2 border-v3-border bg-v3-dim-white text-v3-text-muted",
 };
 
 interface RenderedStepperStep {

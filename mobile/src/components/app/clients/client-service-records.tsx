@@ -441,7 +441,10 @@ function ServiceHeaderCard({
                         value={header.momBirth ? formatBirthdayYYMMDD(header.momBirth) : "-"}
                     />
                     <InfoRow label="신생아 성명" value={header.babyName ?? "-"} />
-                    <InfoRow label="신생아 출생일자" value={header.babyBirth ?? "-"} />
+                    <InfoRow
+                        label="신생아 출생일자"
+                        value={header.babyBirth ? formatBirthdayYYMMDD(header.babyBirth) : "-"}
+                    />
                     <InfoRow label="분만형태" value={header.deliveryType ?? "-"} />
                     <InfoRow label="신생아 몸무게" value={formatBabyWeight(header.babyWeight)} />
                 </>

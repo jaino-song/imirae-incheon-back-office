@@ -1,9 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Clock3, Send } from "lucide-react";
 
-import { SectionNav } from "../SectionNav";
+import { SECTION_NAV_RAIL_WIDTH_PX, SectionNav } from "../SectionNav";
 
 describe("SectionNav", () => {
+  it("owns the desktop rail width used by aligned content", () => {
+    expect(SECTION_NAV_RAIL_WIDTH_PX).toBe(132);
+  });
+
   it("labels the navigation and exposes the selected section state", () => {
     render(
       <SectionNav

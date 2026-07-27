@@ -6,7 +6,13 @@ import {
   isProviderReviewWorkflowStep,
 } from "../../src/lib/eformsign/status-codes";
 
-const DEFAULT_FEEDBACK_TEMPLATE_ID = "service-record-template";
+export const DEFAULT_FEEDBACK_TEMPLATE_IDS = [
+  "service-record-template",
+  "service-record-template-10",
+  "service-record-template-15",
+  "service-record-template-20",
+] as const;
+const DEFAULT_FEEDBACK_TEMPLATE_ID = DEFAULT_FEEDBACK_TEMPLATE_IDS[0];
 const DEFAULT_FIRST_PAGE_LIMIT = 9;
 const DEFAULT_SKIP = 0;
 const SNAPSHOT_VERSION = "e2e-contracts-snapshot";
@@ -97,8 +103,14 @@ export interface ContractListRequest {
 export interface RouteContractsApiOptions {
   getDocuments: () => readonly ContractMockDocument[];
   templateId?: string;
+  templateIds?: readonly string[];
+  omitTemplateIds?: boolean;
+  feedbackTemplateStatus?: number;
+  listStatus?: number;
+  statusCountsStatus?: number;
   beforeListResponse?: (request: ContractListRequest) => Promise<void> | void;
   onListRequest?: (request: ContractListRequest) => Promise<void> | void;
+  onStatusCountsRequest?: (request: ContractListRequest) => Promise<void> | void;
 }
 
 function parsePositiveInteger(value: string | null, fallback: number): number {
@@ -318,25 +330,47 @@ export async function routeContractsApi(
   {
     getDocuments,
     templateId = DEFAULT_FEEDBACK_TEMPLATE_ID,
+    // 앱은 templateIds를 우선하므로 templateId만 오버라이드한 스펙에서
+    // 기본 4개 목록이 남아 오버라이드가 무시되는 일이 없도록 파생시킨다.
+    templateIds = templateId === DEFAULT_FEEDBACK_TEMPLATE_ID
+      ? DEFAULT_FEEDBACK_TEMPLATE_IDS
+      : [templateId],
+    omitTemplateIds = false,
+    feedbackTemplateStatus = 200,
+    listStatus = 200,
+    statusCountsStatus = 200,
     beforeListResponse,
     onListRequest,
+    onStatusCountsRequest,
   }: RouteContractsApiOptions,
 ): Promise<void> {
   await page.route(FEEDBACK_TEMPLATE_ROUTE, async (route) => {
     await route.fulfill({
-      status: 200,
+      status: feedbackTemplateStatus,
       contentType: "application/json",
-      body: JSON.stringify({ templateId }),
+      body: JSON.stringify(
+        feedbackTemplateStatus === 200
+          ? {
+              templateId,
+              ...(!omitTemplateIds && { templateIds }),
+            }
+          : { error: "feedback template unavailable" },
+      ),
     });
   });
 
   await page.route(STATUS_COUNTS_ROUTE, async (route) => {
     const url = new URL(route.request().url());
+    await onStatusCountsRequest?.(parseListRequest(url));
     const documents = filterContractDocuments(getDocuments(), url.searchParams);
     await route.fulfill({
-      status: 200,
+      status: statusCountsStatus,
       contentType: "application/json",
-      body: JSON.stringify({ documents: documents.map(toStatusSignal) }),
+      body: JSON.stringify(
+        statusCountsStatus === 200
+          ? { documents: documents.map(toStatusSignal) }
+          : { error: "status counts unavailable" },
+      ),
     });
   });
 
@@ -354,16 +388,20 @@ export async function routeContractsApi(
     const filteredDocuments = filterContractDocuments(getDocuments(), url.searchParams);
     const documents = filteredDocuments.slice(request.skip, request.skip + request.limit);
     await route.fulfill({
-      status: 200,
+      status: listStatus,
       contentType: "application/json",
-      body: JSON.stringify({
-        documents,
-        total_rows: filteredDocuments.length,
-        limit: request.limit,
-        skip: request.skip,
-        has_more: request.skip + request.limit < filteredDocuments.length,
-        snapshot_version: SNAPSHOT_VERSION,
-      }),
+      body: JSON.stringify(
+        listStatus === 200
+          ? {
+              documents,
+              total_rows: filteredDocuments.length,
+              limit: request.limit,
+              skip: request.skip,
+              has_more: request.skip + request.limit < filteredDocuments.length,
+              snapshot_version: SNAPSHOT_VERSION,
+            }
+          : { error: "documents unavailable" },
+      ),
     });
   });
 }

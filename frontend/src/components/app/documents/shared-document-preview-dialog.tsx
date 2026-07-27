@@ -168,11 +168,13 @@ export function SharedDocumentPreviewDialog({
   const previewDialogContentRef = useRef<HTMLDivElement | null>(null);
   const previewCanvasRef = useRef<HTMLDivElement | null>(null);
   const previewViewportRef = useRef<HTMLDivElement | null>(null);
+  const pdfPageRefs = useRef<Array<HTMLDivElement | null>>([]);
   const pinchWheelRemainderRef = useRef(0);
   const lastPointerPositionRef = useRef<PointerPosition | null>(null);
   const pendingZoomAnchorRef = useRef<ZoomViewportAnchor | null>(null);
   const [zoomPercent, setZoomPercent] = useState(DEFAULT_ZOOM_PERCENT);
   const [numPages, setNumPages] = useState(0);
+  const [currentPdfPage, setCurrentPdfPage] = useState(1);
   const [previewWidth, setPreviewWidth] = useState(0);
   const [imageLoadStatus, setImageLoadStatus] = useState<ImageLoadStatus>("loading");
   const isPdf = previewKind === "pdf";
@@ -185,6 +187,31 @@ export function SharedDocumentPreviewDialog({
   const pageWidth = Math.max(previewWidth, 320) * zoomScale;
   const zoomPercentRef = useRef(DEFAULT_ZOOM_PERCENT);
   const isPreviewReady = !isZoomablePreview || previewAvailabilityStatus === "ready";
+
+  const updateCurrentPdfPage = useCallback((viewport: HTMLDivElement) => {
+    if (pdfPageRefs.current.length === 0) {
+      return;
+    }
+
+    const viewportCenter = viewport.scrollTop + viewport.clientHeight / 2;
+    let closestPage = 1;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    pdfPageRefs.current.forEach((page, index) => {
+      if (!page) {
+        return;
+      }
+
+      const pageCenter = page.offsetTop + page.offsetHeight / 2;
+      const distance = Math.abs(pageCenter - viewportCenter);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestPage = index + 1;
+      }
+    });
+
+    setCurrentPdfPage(closestPage);
+  }, []);
 
   const setZoomPercentPreservingAnchor = useCallback(
     (getNextZoomPercent: (currentZoomPercent: number) => number) => {
@@ -299,6 +326,8 @@ export function SharedDocumentPreviewDialog({
       queueMicrotask(() => {
         if (isActive) {
           setNumPages(0);
+          setCurrentPdfPage(1);
+          pdfPageRefs.current = [];
         }
       });
     };
@@ -481,6 +510,8 @@ export function SharedDocumentPreviewDialog({
     pinchWheelRemainderRef.current = 0;
     pendingZoomAnchorRef.current = null;
     setNumPages(0);
+    setCurrentPdfPage(1);
+    pdfPageRefs.current = [];
     setImageLoadStatus("loading");
     setPreviewAvailabilityStatus("idle");
     onClose();
@@ -660,7 +691,11 @@ export function SharedDocumentPreviewDialog({
             {isZoomablePreview && !isPreviewReady && renderPreviewAvailabilityMessage()}
 
             {isPdf && isPreviewReady && (
-              <div ref={previewViewportRef} className="h-full overflow-auto px-6 pb-24 pt-6">
+              <div
+                ref={previewViewportRef}
+                className="h-full overflow-auto px-6 pb-24 pt-6"
+                onScroll={(event) => updateCurrentPdfPage(event.currentTarget)}
+              >
                 <PdfDocument
                   key={previewKey}
                   file={previewUrl}
@@ -679,12 +714,18 @@ export function SharedDocumentPreviewDialog({
                       </div>
                     </div>
                   }
-                  onLoadSuccess={({ numPages: nextNumPages }) => setNumPages(nextNumPages)}
+                  onLoadSuccess={({ numPages: nextNumPages }) => {
+                    setNumPages(nextNumPages);
+                    setCurrentPdfPage(1);
+                  }}
                 >
                   <div className="flex min-h-full flex-col items-center gap-6">
                     {Array.from({ length: numPages }, (_, index) => (
                       <div
                         key={`${previewKey ?? title}-page-${index + 1}`}
+                        ref={(node) => {
+                          pdfPageRefs.current[index] = node;
+                        }}
                         className="overflow-hidden rounded-[20px] bg-white shadow-[0_16px_40px_rgba(15,23,42,0.08)]"
                       >
                         <Page
@@ -767,6 +808,14 @@ export function SharedDocumentPreviewDialog({
 
             {isZoomablePreview && isPreviewReady && (
               <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-[18px] border border-border bg-white px-4 py-3 opacity-90 shadow-[0_16px_40px_rgba(15,23,42,0.12)] backdrop-blur-sm transition-opacity hover:opacity-100 focus-within:opacity-100">
+                {isPdf && numPages > 0 ? (
+                  <div
+                    aria-live="polite"
+                    className="min-w-[3.5rem] rounded-full bg-v3-dim-white px-2.5 py-1 text-center text-xs font-semibold text-v3-dark"
+                  >
+                    {currentPdfPage} / {numPages}
+                  </div>
+                ) : null}
                 <div className="min-w-[3rem] text-right text-xs font-semibold text-v3-text">
                   확대
                 </div>

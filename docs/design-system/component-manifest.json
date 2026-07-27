@@ -1396,6 +1396,36 @@
         ]
       },
       {
+        "name": "ContractPdfViewer",
+        "layer": "organism",
+        "import": "@/components/app/contracts/contract-pdf-viewer",
+        "file": "mobile/src/components/app/contracts/contract-pdf-viewer.tsx",
+        "exports": [
+          "ContractPdfViewer"
+        ],
+        "replaces": [
+          "iframe-based PDF preview"
+        ],
+        "requiredFor": [
+          "mobile contract PDF preview"
+        ]
+      },
+      {
+        "name": "ContractPdfViewerPlaceholder",
+        "layer": "molecule",
+        "import": "@/components/app/contracts/contract-pdf-viewer-placeholder",
+        "file": "mobile/src/components/app/contracts/contract-pdf-viewer-placeholder.tsx",
+        "exports": [
+          "ContractPdfViewerPlaceholder"
+        ],
+        "replaces": [
+          "page-local PDF viewer loading markup"
+        ],
+        "requiredFor": [
+          "mobile contract PDF viewer dynamic loading state"
+        ]
+      },
+      {
         "name": "ActivityTimeline",
         "layer": "organism",
         "import": "@/components/app/v3",

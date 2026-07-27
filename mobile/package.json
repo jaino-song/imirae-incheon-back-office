@@ -7,7 +7,10 @@
     "pnpm": ">=10 <11"
   },
   "scripts": {
+    "prepare:pdf-worker": "node scripts/copy-pdf-worker.mjs",
+    "predev": "pnpm prepare:pdf-worker",
     "dev": "next dev",
+    "prebuild": "pnpm prepare:pdf-worker",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

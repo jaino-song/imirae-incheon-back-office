@@ -112,6 +112,8 @@ export default function WebsiteAdminPage() {
         <ListPanel data-component="desktop_website-admin_split-layout_list-panel"
           title="홈페이지 관리"
           subtitle="홈페이지에 노출되는 콘텐츠와 설정을 관리합니다."
+          headerPadding="detail"
+          className="h-fit flex-none self-start"
         >
           <AnimatedSlotList<(typeof SECTIONS)[number]>
             items={SECTIONS}

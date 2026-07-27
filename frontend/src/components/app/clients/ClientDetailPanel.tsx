@@ -6,6 +6,7 @@ import { MESSAGE_HISTORY_STATUS_LABELS } from "@babyjamjam/shared";
 import { formatBirthdayYYMMDD } from "@babyjamjam/shared/utils/birthday";
 
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/app/ui/status-badge";
 import {
     useApproveScheduleChange,
     useRejectScheduleChange,
@@ -18,11 +19,11 @@ import type { MessageLogRecord } from "@/features/message-triggers/types";
 import {
     getMessageHistoryTimestamp,
     MessageHistoryDetailPanel,
-    MESSAGE_HISTORY_STATUS_META,
     normalizeMessageHistoryRecord,
     type MessageHistoryRecord,
 } from "@/components/app/messages/MessageHistoryDetailPanel";
 import { ClientServiceRecordsTab } from "@/components/app/clients/ClientServiceRecordsTab";
+import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { clientKeys } from "@/features/clients/hooks/keys";
 import { useClientServiceRecords } from "@/features/service-records/hooks/use-service-records";
 import { dashboardQueryKeys } from "@/hooks/useDashboardStats";
@@ -65,6 +66,12 @@ type ClientDetailTabKey =
 
 const CLIENT_MESSAGE_HISTORY_LIMIT = 500;
 const CLIENT_MESSAGE_DETAIL_SLIDE_DURATION_MS = 300;
+const CLIENT_MESSAGE_STATUS_VARIANT = {
+    sent: "success",
+    pending: "warning",
+    failed: "danger",
+    canceled: "neutral",
+} as const;
 const formatDate = (dateStr: string | null): string => {
     return formatDateForDisplay(dateStr);
 };
@@ -134,7 +141,7 @@ const formatPrice = (price: string | null): string => {
 export function getClientDetailSubtitle(
     client: Pick<Client, "type" | "duration" | "serviceStatus">,
 ): string {
-    const clientType = client.type || "일반";
+    const clientType = getClientDisplayLabel(client.type || "일반");
     const hasDuration = client.duration !== null;
 
     if (client.serviceStatus === "pre_booking" && !hasDuration) {
@@ -238,13 +245,6 @@ function ClientMessageHistoryList({
                         recipientNameFallback: clientName,
                         recipientListLabelFallback: clientName,
                     });
-                    const statusMeta = MESSAGE_HISTORY_STATUS_META[normalizedRecord.status] ?? MESSAGE_HISTORY_STATUS_META.failed;
-                    const statusBorderClassName =
-                        normalizedRecord.status === "sent"
-                            ? "border-[hsl(137,34%,84%)]"
-                            : normalizedRecord.status === "pending"
-                                ? "border-amber-100"
-                                : "border-red-100";
                     const ItemIcon = normalizedRecord.icon;
 
                     return (
@@ -259,16 +259,13 @@ function ClientMessageHistoryList({
                                     data-component={`${dataComponentPrefix}-messages-list-item-meta`}
                                     className="flex shrink-0 flex-col items-end justify-end gap-1 text-right"
                                 >
-                                    <span
+                                    <StatusPill
                                         data-component={`${dataComponentPrefix}-messages-list-item-status`}
-                                        className={cn(
-                                            "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[50px] border px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(4px*var(--glint-ui-scale,1))] text-[calc(10.4px*var(--glint-ui-scale,1))] font-semibold whitespace-nowrap transition-colors",
-                                            statusMeta.tone,
-                                            statusBorderClassName
-                                        )}
+                                        variant={CLIENT_MESSAGE_STATUS_VARIANT[normalizedRecord.status]}
+                                        size="sm"
                                     >
                                         {MESSAGE_HISTORY_STATUS_LABELS[normalizedRecord.status]}
-                                    </span>
+                                    </StatusPill>
                                 </div>
                             }
                         />
@@ -745,7 +742,7 @@ function ClientDetailPanelBody({
                                 <StatusBadge
                                     key={badge.key}
                                     status={badge.status}
-                                    label={badge.label}
+                                    label={badge.label ? getClientDisplayLabel(badge.label) : undefined}
                                 />
                             ))}
                     </>
@@ -758,7 +755,7 @@ function ClientDetailPanelBody({
                                 <StatusBadge
                                     key={badge.key}
                                     status={badge.status}
-                                    label={badge.label}
+                                    label={badge.label ? getClientDisplayLabel(badge.label) : undefined}
                                 />
                             ))}
                     </>
@@ -904,7 +901,7 @@ function ClientDetailPanelBody({
                                     <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_service-card`} title="서비스 정보" className="col-start-2 row-start-1 row-end-5">
                                         <InfoRow
                                             label={t(locale, "clients.form.voucher-type")}
-                                            value={client.type || "-"}
+                                            value={client.type ? getClientDisplayLabel(client.type) : "-"}
                                         />
                                         <InfoRow
                                             label={t(locale, "clients.form.duration")}

@@ -21,6 +21,7 @@ import {
   ListPanel,
   SplitLayout,
 } from "@/components/app/v3";
+import { SECTION_NAV_RAIL_WIDTH_PX } from "@/components/app/v3/SectionNav";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -33,9 +34,6 @@ interface TemplateListItem {
   subtitle?: string;
   icon: typeof FileText;
 }
-
-// Align the standalone template manager with the content column after the messages SectionNav rail.
-const MESSAGE_SECTION_NAV_CONTENT_OFFSET_PX = 132;
 
 const formatDate = (dateString: string): string => {
   return formatDateForDisplay(dateString);
@@ -228,7 +226,7 @@ export default function TemplatesPage() {
       data-component="desktop_messages_sections_templates"
       className="flex h-full min-h-0 flex-1 flex-col lg:pl-[calc(var(--message-section-nav-content-offset)*var(--glint-ui-scale,1))]"
       style={{
-        "--message-section-nav-content-offset": `${MESSAGE_SECTION_NAV_CONTENT_OFFSET_PX}px`,
+        "--message-section-nav-content-offset": `${SECTION_NAV_RAIL_WIDTH_PX}px`,
       } as CSSProperties}
     >
       <SplitLayout data-component="desktop_messages_sections_templates_split-layout" hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>

@@ -100,6 +100,9 @@ describe("ClientFormPanel voucher pricing", () => {
     const grant = screen.getByLabelText("정부지원금");
     const actualPrice = screen.getByLabelText("본인부담금");
 
+    expect(screen.getByRole("option", { name: "A통합1형" })).toHaveValue("A통합1형");
+    expect(screen.queryByRole("option", { name: "A통합-1형" })).not.toBeInTheDocument();
+
     for (const input of [fullPrice, grant, actualPrice]) {
       expect(input).toBeDisabled();
       expect(input).toHaveValue("");

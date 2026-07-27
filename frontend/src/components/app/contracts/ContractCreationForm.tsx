@@ -1096,7 +1096,7 @@ export const ContractCreationForm = ({
             label={t(locale, "contract-msg.birthday-label")}
             value={birthday}
             onValueChange={setBirthday}
-            placeholder="YYMMDD"
+            placeholder="예: YYMMDD"
             dataComponent="desktop_contracts_creation_client-birthday-input"
           />
           <TitleTextInputMolecule
@@ -1114,7 +1114,7 @@ export const ContractCreationForm = ({
             label={t(locale, "clients.form.due-date")}
             value={dueDateInput}
             onValueChange={handleDueDateInputChange}
-            placeholder="YYMMDD"
+            placeholder="예: YYMMDD"
             dataComponent="desktop_contracts_creation_client-due-date-input"
           />
 
@@ -1383,7 +1383,7 @@ export const ContractCreationForm = ({
               inputMode="numeric"
               pattern="\d{4}-\d{2}-\d{2}"
               maxLength={10}
-              placeholder="YYYY-MM-DD"
+              placeholder="예: YYYY-MM-DD"
               value={startDateInput}
               onChange={(e) => {
                 const formatted = formatIsoDateInput(e.target.value);
@@ -1402,7 +1402,7 @@ export const ContractCreationForm = ({
               inputMode="numeric"
               pattern="\d{4}-\d{2}-\d{2}"
               maxLength={10}
-              placeholder="YYYY-MM-DD"
+              placeholder="예: YYYY-MM-DD"
               value={endDateInput}
               onChange={(e) => {
                 const formatted = formatIsoDateInput(e.target.value);
@@ -1421,7 +1421,7 @@ export const ContractCreationForm = ({
               inputMode="numeric"
               pattern="\d{4}-\d{2}-\d{2}"
               maxLength={10}
-              placeholder="YYYY-MM-DD"
+              placeholder="예: YYYY-MM-DD"
               value={paymentDateInput}
               onChange={(e) => {
                 const formatted = formatIsoDateInput(e.target.value);

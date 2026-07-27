@@ -15,7 +15,14 @@ export function NotificationPermissionPrompt() {
     useEffect(() => {
         if (typeof window === 'undefined') return;
         if (!('Notification' in window)) return;
-        if (Notification.permission !== 'default') return;
+        if (Notification.permission !== 'default') {
+            try {
+                window.localStorage.removeItem(NOTIFICATION_PROMPT_DISMISSED_AT_KEY);
+            } catch {
+                // Ignore unavailable storage after the browser has resolved permission.
+            }
+            return;
+        }
 
         try {
             const dismissedAt = Number(
@@ -42,8 +49,19 @@ export function NotificationPermissionPrompt() {
 
     const handleEnable = async () => {
         const permission = await Notification.requestPermission();
-        if (permission !== 'default') {
-            setShowBanner(false);
+        setShowBanner(false);
+
+        try {
+            if (permission === 'default') {
+                window.localStorage.setItem(
+                    NOTIFICATION_PROMPT_DISMISSED_AT_KEY,
+                    String(Date.now()),
+                );
+            } else {
+                window.localStorage.removeItem(NOTIFICATION_PROMPT_DISMISSED_AT_KEY);
+            }
+        } catch {
+            // Keep the current-session dismissal when storage is unavailable.
         }
     };
 
