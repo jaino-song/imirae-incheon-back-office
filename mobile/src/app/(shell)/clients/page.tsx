@@ -483,6 +483,7 @@ export default function ClientsPage() {
       <MobileDetailSheet
         data-component="mobile_clients_detail-sheet"
         name="clients"
+        sheetTitle={(syncedDetailClient ?? detailClient)?.name}
         isOpen={Boolean(detailClient)}
         onClose={handleCloseDetailSheet}
         list={

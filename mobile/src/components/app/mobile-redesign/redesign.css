@@ -663,6 +663,10 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   gap: 0.5rem; /* Tailwind gap-2 — section-header/list-item/contract-item 간 균일 간격 */
 }
 .list-card-scroll::-webkit-scrollbar { display: none; }
+.list-card-scroll.has-top-overflow {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
+}
 
 /* ===== Filter pills ===== */
 .filter-row {
@@ -673,6 +677,10 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   scrollbar-width: none;
 }
 .filter-row::-webkit-scrollbar { display: none; }
+.filter-row.has-right-overflow {
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
 .filter-pill {
   flex-shrink: 0;
   padding: 6px 12px;
@@ -790,15 +798,31 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   align-items: center;
   gap: 5px;
 }
+.list-name,
+.list-meta {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: keep-all;
+}
 .list-row-badges {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
 }
 .list-row-badges .badge {
-  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.list-row-badges:has(.list-row-badges-more) .badge {
+  max-width: calc(100% - 24px);
 }
 .list-row-badges-more {
   flex-shrink: 0;
@@ -822,8 +846,9 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   flex-direction: column;
   align-items: flex-end;
   gap: 3px;
-  flex-shrink: 0;
-  min-width: 52px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 56%;
 }
 .dday {
   font-size: 0.72rem;
@@ -927,7 +952,7 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
 .menu-content {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 14px 96px;
+  padding: 14px 14px calc(112px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1666,6 +1691,18 @@ body.mobile-all-route .menu-row {
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
+  position: relative;
+  z-index: 3;
+  background: white;
+}
+.sheet-title {
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--v3-dark));
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sheet-close {
   background: transparent;
@@ -1937,6 +1974,12 @@ body.mobile-all-route .menu-row {
   position: relative;
   padding: 0;
   border-bottom: 1px solid hsl(var(--v3-border));
+  background: white;
+}
+body.mobile-clients-route .detail-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 .detail-tabs .filter-pill {
   flex: 1 1 0;
@@ -4274,6 +4317,20 @@ body.mobile-contracts-route .search-bar {
 
 body.mobile-contracts-route .search-bar input {
   line-height: normal;
+}
+
+/* 자동화 목록의 sticky section header가 스크롤 행보다 항상 위에서 덮도록
+   컴포넌트 자체에 paint/overflow 경계를 둔다. */
+.message-trigger-list {
+  display: block;
+  position: relative;
+  min-width: 0;
+  overflow-x: clip;
+}
+.message-trigger-list-header {
+  z-index: 3;
+  padding-top: 8px;
+  box-shadow: 0 1px 0 hsl(var(--v3-border));
 }
 
 /* 카드 하단에 핀되는 load-more 컨트롤. isInitialLoad === true 인 동안만 mount.

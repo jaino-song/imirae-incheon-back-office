@@ -1,6 +1,28 @@
 import { render, screen } from "@testing-library/react";
 
-import { MobileDetailActions } from "../detail-sheet";
+import { MobileDetailActions, MobileDetailSheet } from "../detail-sheet";
+
+describe("MobileDetailSheet", () => {
+  it("keeps the selected item title in the sheet header", () => {
+    render(
+      <MobileDetailSheet
+        data-component="mobile_tests_detail-sheet"
+        name="clients"
+        sheetTitle="고명순"
+        isOpen
+        onClose={jest.fn()}
+        list={<div>목록</div>}
+        detail={<div>상세</div>}
+      />,
+    );
+
+    expect(screen.getByText("고명순")).toHaveClass("sheet-title");
+    expect(
+      screen.getAllByRole("button", { name: "상세 닫기" })
+        .find((button) => button.classList.contains("sheet-close")),
+    ).toBeInTheDocument();
+  });
+});
 
 describe("MobileDetailActions", () => {
   it("disables button actions without a click handler or href", () => {

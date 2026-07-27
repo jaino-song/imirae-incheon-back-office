@@ -65,6 +65,7 @@ export function MobileDetailStack({
   detailAriaDescribedBy,
   sheetHeaderDataComponent,
   sheetHeaderClassName,
+  sheetTitle,
   closeLabel = "상세 닫기",
   closeDisabled,
 }: {
@@ -95,6 +96,7 @@ export function MobileDetailStack({
   detailAriaDescribedBy?: string;
   sheetHeaderDataComponent?: string;
   sheetHeaderClassName?: string;
+  sheetTitle?: ReactNode;
   closeLabel?: string;
   closeDisabled?: boolean;
 }) {
@@ -141,6 +143,7 @@ export function MobileDetailStack({
         >
           <div data-component={`${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_handle`} className="sheet-handle" />
           <div className={cn("sheet-header", sheetHeaderClassName)} data-component={sheetHeaderDataComponent ?? `${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_header`}>
+            {sheetTitle ? <span className="sheet-title">{sheetTitle}</span> : null}
             <button
               data-component={`${sheetHeaderDataComponent ?? `${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_header`}_close`}
               type="button"
@@ -168,6 +171,7 @@ export function MobileDetailSheet({
   list,
   detail,
   detailDataComponent,
+  sheetTitle,
 }: {
   "data-component": string;
   name: string;
@@ -175,6 +179,7 @@ export function MobileDetailSheet({
   onClose: () => void;
   list: ReactNode;
   detail: ReactNode;
+  sheetTitle?: ReactNode;
   /**
    * Explicit name for the sliding detail pane. Pass it when the page also
    * annotates its own detail body, so the two elements do not end up sharing
@@ -191,6 +196,7 @@ export function MobileDetailSheet({
       onClose={onClose}
       list={list}
       detailDataComponent={detailDataComponent}
+      sheetTitle={sheetTitle}
       sectionClassName="mobile-detail-sheet relative flex flex-col flex-1 min-h-0 overflow-hidden -mx-4 -mb-24"
       sectionStyle={{ minHeight: "var(--mobile-detail-sheet-min-height, calc(100dvh - 80px))" }}
     >

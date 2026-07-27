@@ -1818,7 +1818,7 @@ export default function ContractsPage() {
     onDocsChanged: refreshContractsFromEvent,
   });
 
-  const { data: feedbackTemplateData, isLoading: isFeedbackTemplateLoading } = useQuery({
+  const { data: feedbackTemplateData } = useQuery({
     queryKey: ["eformsign-docs", "feedback-template-id"],
     queryFn: eformsignApi.getFeedbackTemplateId,
     enabled: isAuthenticated,
@@ -1842,6 +1842,7 @@ export default function ContractsPage() {
     totalRows,
     branchId,
     isLoading: isDocumentsLoading,
+    isSuccess: isDocumentsSuccess,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
@@ -1855,7 +1856,10 @@ export default function ContractsPage() {
   });
 
   // 필터 pill 카운터: 목록과 동일한 선(先)필터가 적용된 상태 신호를 받아 클라이언트에서 접는다.
-  const { data: statusCountsData } = useQuery({
+  const {
+    data: statusCountsData,
+    isSuccess: isStatusCountsSuccess,
+  } = useQuery({
     // "eformsign-documents" 아래에 중첩 — 문서 변이가 광역 prefix 무효화만 해도
     // (삭제 훅, 생성 플로우, 지점 전환 removeQueries) 카운터가 함께 갱신된다.
     queryKey: [
@@ -1881,8 +1885,16 @@ export default function ContractsPage() {
 
   const isContractsLoading =
     isAuthLoading ||
-    (isAuthenticated && isDocumentsLoading) ||
-    (isAuthenticated && isFeedbackTemplateLoading && !feedbackTemplateData);
+    (isAuthenticated && !isFeedbackTemplateResolved) ||
+    (
+      isAuthenticated
+      && sectionFilterReady
+      && (
+        isDocumentsLoading
+        || !isDocumentsSuccess
+        || (Boolean(branchId) && !isStatusCountsSuccess)
+      )
+    );
   const { data: documentClientSummaries = [] } = useQuery({
     queryKey: ["eformsign-doc-client-names"],
     queryFn: eformsignApi.getDocumentClientNames,
@@ -1989,20 +2001,20 @@ export default function ContractsPage() {
   );
 
   const filterItems = useMemo(() => {
-    if (isContractsLoading || !statusCountsData) {
+    if (isContractsLoading) {
       return FILTER_LABELS.map((label) => ({ label, count: "00", skeleton: true }));
     }
 
     // 목록과 동일한 선(先)필터가 적용된 신호를 문서와 같은 규칙으로 접는다.
     const counts: Record<FilterKey, number> = {
-      전체: statusCountsData.documents.length,
+      전체: statusCountsData?.documents.length ?? 0,
       대기: 0,
       "검토 필요": 0,
       완료: 0,
       "기간 만료": 0,
       "상태 확인": 0,
     };
-    for (const signal of statusCountsData.documents) {
+    for (const signal of statusCountsData?.documents ?? []) {
       counts[FILTER_BY_CATEGORY[categorizeSignal(signal)]] += 1;
     }
     return FILTER_LABELS.map((label) => ({ label, count: String(counts[label]) }));
