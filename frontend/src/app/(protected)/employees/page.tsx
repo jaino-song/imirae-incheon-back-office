@@ -196,8 +196,8 @@ export default function EmployeesPage() {
                 items={[
                     { icon: Users, value: stats.total, label: "전체 직원", counter: "명" },
                     { icon: Briefcase, value: stats.working, label: "근무 중", counter: "명", colorIndex: 2 },
-                    { icon: Clock, value: stats.available, label: EMPLOYEE_STATUS_LABELS.available, counter: "명", colorIndex: 1 },
-                    { icon: CircleOff, value: stats.unavailable, label: EMPLOYEE_STATUS_LABELS.unavailable, counter: "명", colorIndex: 3 },
+                    { icon: Clock, value: stats.available, label: EMPLOYEE_STATUS_LABELS.available, counter: "명", colorIndex: 2 },
+                    { icon: CircleOff, value: stats.unavailable, label: EMPLOYEE_STATUS_LABELS.unavailable, counter: "명", colorIndex: 0 },
                 ]}
             />
 

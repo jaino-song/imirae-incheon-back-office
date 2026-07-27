@@ -23,7 +23,7 @@ export function ContractReviewActionButton({
 
   return (
     <Button
-      variant="positive"
+      variant={opensPreview ? "positive-outline" : "positive"}
       size="sm"
       data-component={dataComponent}
       data-review-action={action}
@@ -35,7 +35,7 @@ export function ContractReviewActionButton({
       ) : (
         <CheckCircle2 className="h-4 w-4" />
       )}
-      검토하기
+      {opensPreview ? "검토하기" : "검토 완료 확인"}
     </Button>
   );
 }

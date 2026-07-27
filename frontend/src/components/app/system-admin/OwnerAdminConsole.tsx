@@ -443,7 +443,7 @@ function buildAccountStats(users: readonly SystemAdminUser[]): readonly StatsBar
       value: incompleteUsers,
       label: "추가 정보 필요",
       counter: "명",
-      colorIndex: 2,
+      colorIndex: 3,
     },
   ];
 }

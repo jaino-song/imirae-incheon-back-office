@@ -13,4 +13,13 @@ describe("EmployeesPage deletion conflicts", () => {
     expect(handler).toContain("getApiErrorMessage");
     expect(source).toContain('dataComponent="desktop_employees_delete-error-notification"');
   });
+
+  it("uses semantic stat colors for assignment availability", () => {
+    expect(source).toContain(
+      'label: EMPLOYEE_STATUS_LABELS.available, counter: "명", colorIndex: 2',
+    );
+    expect(source).toContain(
+      'label: EMPLOYEE_STATUS_LABELS.unavailable, counter: "명", colorIndex: 0',
+    );
+  });
 });

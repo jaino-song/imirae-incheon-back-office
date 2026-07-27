@@ -146,10 +146,16 @@ export function VoucherPriceTable() {
     ? years
     : [currentYear - 1, currentYear, currentYear + 1];
 
-  const [selectedCategories, toggleCategory] = useToggleSet<string>([]);
-  const [selectedSubtypes, toggleSubtype] = useToggleSet<string>([]);
-  const [selectedGrades, toggleGrade] = useToggleSet<string>([]);
+  const [selectedCategories, toggleCategory, clearCategories] = useToggleSet<string>([]);
+  const [selectedSubtypes, toggleSubtype, clearSubtypes] = useToggleSet<string>([]);
+  const [selectedGrades, toggleGrade, clearGrades] = useToggleSet<string>([]);
   const [selectedDurations, toggleDuration, clearDurations] = useToggleSet<number>([]);
+  const clearAllFilters = useCallback(() => {
+    clearCategories();
+    clearSubtypes();
+    clearGrades();
+    clearDurations();
+  }, [clearCategories, clearSubtypes, clearGrades, clearDurations]);
 
   const sortedPrices = useMemo(
     () => [...prices].sort((a, b) => {
@@ -272,7 +278,7 @@ export function VoucherPriceTable() {
           <div className="flex-1" />
           <button
             type="button"
-            onClick={clearDurations}
+            onClick={clearAllFilters}
             className="rounded-full border border-[hsl(var(--v3-primary))]/30 px-2 py-0.5 text-[0.7rem] font-medium text-[hsl(var(--v3-primary))] hover:bg-[hsl(var(--v3-primary))]/10 transition-colors xl:px-3 xl:py-1 xl:text-xs"
           >
             모두 해제

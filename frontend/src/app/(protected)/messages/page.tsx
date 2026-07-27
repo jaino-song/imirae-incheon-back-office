@@ -1618,6 +1618,7 @@ export default function MessagesPage() {
   const isBuiltin = activeTemplateId?.startsWith("builtin:") ?? false;
   const builtinType = isBuiltin && activeTemplateId ? (activeTemplateId.replace("builtin:", "") as BuiltinTemplateType) : null;
   const userTemplateId = !isBuiltin && activeTemplateId?.startsWith("user:") ? activeTemplateId.replace("user:", "") : null;
+  const isBranchTemplate = userTemplateId !== null;
   const selectedUserTemplate = userTemplateId ? userTemplates.find((template) => template.id === userTemplateId) : null;
   const SelectedBuiltinForm = builtinType ? FormComponents[builtinType] : null;
   const selectedTemplateItem = useMemo(
@@ -1627,8 +1628,10 @@ export default function MessagesPage() {
   const selectedTemplateIcon = selectedTemplateItem?.icon ?? FileText;
   const SelectedTemplateIcon = selectedTemplateIcon;
   const selectedTemplateTitle = selectedTemplateItem?.label ?? selectedUserTemplate?.name ?? "메시지 템플릿";
-  const selectedTemplateSubtitle = selectedUserTemplate
-    ? `지점 템플릿 · ${selectedUserTemplate.variables.length}개 변수`
+  const selectedTemplateSubtitle = isBranchTemplate
+    ? selectedUserTemplate
+      ? `지점 템플릿 · ${selectedUserTemplate.variables.length}개 변수`
+      : "지점 템플릿 · 정보를 불러오지 못했습니다."
     : "기본 템플릿은 오너 관리자 페이지에서 관리됩니다.";
   const selectedBuiltinSystemKey = builtinType ? BUILTIN_TEMPLATE_SYSTEM_KEYS[builtinType] : "";
   const { data: selectedBuiltinSystemTemplate } = useSystemTemplate(selectedBuiltinSystemKey);
@@ -1638,8 +1641,8 @@ export default function MessagesPage() {
     selectedUserTemplate?.content ??
     selectedBuiltinSystemTemplate?.content ??
     "";
-  const templatePreviewHeadline = selectedUserTemplate ? selectedTemplateTitle : builtinPreviewMeta?.headline;
-  const templatePreviewSubtitle = selectedUserTemplate ? "지점 템플릿" : builtinPreviewMeta?.subtitle;
+  const templatePreviewHeadline = isBranchTemplate ? selectedTemplateTitle : builtinPreviewMeta?.headline;
+  const templatePreviewSubtitle = isBranchTemplate ? "지점 템플릿" : builtinPreviewMeta?.subtitle;
   const templatePreviewGeneratedTitle = t(locale, "common.generated-message-title");
   const templatePreviewMetaItems = useMemo(
     () => [
@@ -1904,12 +1907,12 @@ export default function MessagesPage() {
                         data-component="desktop_messages_sections_template-detail-badge"
                         className={cn(
                           "inline-flex items-center rounded-full px-3 py-1 text-[0.68rem] font-semibold",
-                          selectedUserTemplate
+                          isBranchTemplate
                             ? "bg-v3-dim-white text-v3-text-muted"
                             : "bg-v3-primary-light text-v3-primary"
                         )}
                       >
-                        {selectedUserTemplate ? "지점 템플릿" : "기본 템플릿"}
+                        {isBranchTemplate ? "지점 템플릿" : "기본 템플릿"}
                       </span>
                     ) : undefined
                   }

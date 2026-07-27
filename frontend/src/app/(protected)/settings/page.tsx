@@ -17,6 +17,7 @@ import { SectionNav } from "@/components/app/v3";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
 import { usePushNotification } from "@/hooks/usePushNotification";
 import { getRoleLabel } from "@/lib/constants/roles";
+import { useInitialUser } from "@/providers/UserProvider";
 import { settingsApi } from "@/services/api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
@@ -73,7 +74,8 @@ const THEME_OPTIONS = [
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("profile");
   const [selectedTheme, setSelectedTheme] = useState<string>("light");
-  const authUserQuery = useGetAuthUser();
+  const initialUser = useInitialUser();
+  const authUserQuery = useGetAuthUser({ initialData: initialUser });
   const { data: user } = authUserQuery;
   const queryClient = useQueryClient();
   const notificationPreferencesQuery = useQuery({

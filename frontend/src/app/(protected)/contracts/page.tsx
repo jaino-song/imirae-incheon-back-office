@@ -1151,36 +1151,44 @@ function ContractDetail({
       "산모 생년월일",
       "산모생년월일",
     ]) ?? "–";
-  const provider1Name =
-    extractDocumentFieldValue(detailedDocument, [
+  const provider1Names =
+    extractDocumentFieldValues(detailedDocument, [
       "제공인력 1 성명",
       "제공인력1성명",
       "제공인력 성명",
       "제공인력성명",
-    ]) ?? "–";
-  const provider1Contact = formatOptionalPhoneNumber(
-    extractDocumentFieldValue(detailedDocument, [
-      "제공인력 1 연락처",
-      "제공인력1연락처",
-      "제공인력 연락처",
-      "제공인력연락처",
-    ])
-  );
-  const provider2Name =
-    extractDocumentFieldValue(detailedDocument, [
+    ]);
+  const provider1Contact = extractDocumentFieldValue(detailedDocument, [
+    "제공인력 1 연락처",
+    "제공인력1연락처",
+    "제공인력 연락처",
+    "제공인력연락처",
+  ]);
+  const provider2Names =
+    extractDocumentFieldValues(detailedDocument, [
       "제공인력 2 성명",
       "제공인력2성명",
       "추가 제공인력 성명",
       "추가제공인력성명",
-    ]) ?? "–";
-  const provider2Contact = formatOptionalPhoneNumber(
-    extractDocumentFieldValue(detailedDocument, [
-      "제공인력 2 연락처",
-      "제공인력2연락처",
-      "추가 제공인력 연락처",
-      "추가제공인력연락처",
-    ])
-  );
+    ]);
+  const provider2Contact = extractDocumentFieldValue(detailedDocument, [
+    "제공인력 2 연락처",
+    "제공인력2연락처",
+    "추가 제공인력 연락처",
+    "추가제공인력연락처",
+  ]);
+  const provider1Name = provider1Names.join(", ");
+  const provider2Name = provider2Names.join(", ");
+  const providers = [
+    {
+      name: provider1Name,
+      contact: provider1Contact,
+    },
+    {
+      name: provider2Name,
+      contact: provider2Contact,
+    },
+  ].filter((provider) => provider.name || provider.contact);
   const servicePriceValue = extractDocumentFieldValue(detailedDocument, [
     "서비스 비용",
     "서비스비용",
@@ -1705,26 +1713,30 @@ function ContractDetail({
   ];
 
   const providerTabCards = [
+    provider1Name || provider1Contact ? (
     <InfoRowsCard
       data-component={`${dataComponent}_content_provider_primary-card`}
       key="provider-primary"
-      title="제공인력 1"
+      title={providers.length === 1 ? "제공인력" : "제공인력 1"}
       loading={isBaseDetailLoading}
       rows={[
-        { label: "성명", value: provider1Name },
-        { label: "연락처", value: provider1Contact },
+        { label: "성명", value: provider1Name || "–" },
+        { label: "연락처", value: formatOptionalPhoneNumber(provider1Contact) },
       ]}
-    />,
+    />
+    ) : null,
+    provider2Name || provider2Contact ? (
     <InfoRowsCard
       data-component={`${dataComponent}_content_provider_secondary-card`}
       key="provider-secondary"
-      title="제공인력 2"
+      title={providers.length === 1 ? "제공인력" : "제공인력 2"}
       loading={isBaseDetailLoading}
       rows={[
-        { label: "성명", value: provider2Name },
-        { label: "연락처", value: provider2Contact },
+        { label: "성명", value: provider2Name || "–" },
+        { label: "연락처", value: formatOptionalPhoneNumber(provider2Contact) },
       ]}
-    />,
+    />
+    ) : null,
   ];
 
   const serviceTabCards = [

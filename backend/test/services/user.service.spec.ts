@@ -146,6 +146,76 @@ describe("UserService", () => {
                 }),
             );
         });
+
+        it("should map branch roles from each user's membership without manager ownership overriding them", async () => {
+            const sharedFields = {
+                kakaoId: null,
+                phone: "010-1234-5678",
+                birthDate: null,
+                profileImage: null,
+                createdAt: new Date("2026-07-27"),
+                emailVerified: true,
+                authProvider: "email",
+                approvalStatus: "approved",
+                requestedRole: null,
+            };
+
+            prismaService.user.findMany.mockResolvedValue([
+                {
+                    ...sharedFields,
+                    id: "owner-user-id",
+                    email: "owner@example.com",
+                    name: "송진호",
+                    role: "owner",
+                    ownedBranches: [],
+                    userBranches: [
+                        {
+                            role: "admin",
+                            branch: { id: "owner-branch-id", name: "인천 아이미래로" },
+                        },
+                    ],
+                },
+                {
+                    ...sharedFields,
+                    id: "manager-user-id",
+                    email: "manager@example.com",
+                    name: "송진호",
+                    role: "admin",
+                    ownedBranches: [
+                        { id: "manager-branch-id", name: "인천 서구점" },
+                    ],
+                    userBranches: [
+                        {
+                            role: "admin",
+                            branch: { id: "manager-branch-id", name: "인천 서구점" },
+                        },
+                    ],
+                },
+            ]);
+
+            const result = await service.findDirectory();
+
+            expect(result).toEqual([
+                expect.objectContaining({
+                    id: "owner-user-id",
+                    branches: [
+                        expect.objectContaining({
+                            id: "owner-branch-id",
+                            role: "owner",
+                        }),
+                    ],
+                }),
+                expect.objectContaining({
+                    id: "manager-user-id",
+                    branches: [
+                        expect.objectContaining({
+                            id: "manager-branch-id",
+                            role: "admin",
+                        }),
+                    ],
+                }),
+            ]);
+        });
     });
 
     // ============================================

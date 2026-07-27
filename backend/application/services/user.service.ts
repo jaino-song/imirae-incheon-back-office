@@ -111,13 +111,6 @@ export class UserService {
                 authProvider: true,
                 approvalStatus: true,
                 requestedRole: true,
-                ownedBranches: {
-                    orderBy: { createdAt: "asc" },
-                    select: {
-                        id: true,
-                        name: true,
-                    },
-                },
                 userBranches: {
                     orderBy: { joinedAt: "asc" },
                     select: {
@@ -134,25 +127,11 @@ export class UserService {
         });
 
         return users.map((user) => {
-            const branches = new Map<string, UserDirectoryBranch>();
-
-            user.ownedBranches.forEach((branch) => {
-                branches.set(branch.id, {
-                    id: branch.id,
-                    name: branch.name,
-                    role: "owner",
-                });
-            });
-
-            user.userBranches.forEach((membership) => {
-                if (!branches.has(membership.branch.id)) {
-                    branches.set(membership.branch.id, {
-                        id: membership.branch.id,
-                        name: membership.branch.name,
-                        role: membership.role ?? null,
-                    });
-                }
-            });
+            const branches = user.userBranches.map((membership) => ({
+                id: membership.branch.id,
+                name: membership.branch.name,
+                role: user.role === "owner" ? "owner" : membership.role ?? null,
+            }));
 
             return {
                 id: user.id,
@@ -168,7 +147,7 @@ export class UserService {
                 authProvider: user.authProvider,
                 approvalStatus: user.approvalStatus,
                 requestedRole: user.requestedRole,
-                branches: Array.from(branches.values()),
+                branches,
             };
         });
     }
