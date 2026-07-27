@@ -12,6 +12,10 @@ import { useListInfiniteScroll } from "@/hooks/useListInfiniteScroll";
 import { useClientMessageHistory } from "@/hooks/useClientMessageHistory";
 import { Client } from "@/lib/client/types";
 import { getMobileClientBadges } from "@/lib/client/badges";
+import {
+  buildAllClientRowsForList,
+  groupForClient,
+} from "@/lib/client/list-helpers";
 import { getStatusCategory } from "@/lib/eformsign/status-codes";
 import { useLocale } from "@/providers/LocaleProvider";
 import { eformsignApi, withEformsignReauth } from "@/services/api";
@@ -128,12 +132,6 @@ function clientMeta(c: Client) {
   }
 }
 
-// "최근 활동순" 정렬 키 — clients는 활동 timestamp가 없어 서비스 시작일(startDate) 기준, 동률은 최신 id.
-function clientRecency(c: Client): number {
-  const t = c.startDate ? new Date(c.startDate).getTime() : NaN;
-  return Number.isFinite(t) ? t : 0;
-}
-
 function documentStatusFromStatusType(statusType: string | null | undefined): Client["documentStatus"] {
   const normalized = statusType?.trim().padStart(3, "0");
   if (!normalized) return null;
@@ -145,24 +143,6 @@ function documentStatusFromStatusType(statusType: string | null | undefined): Cl
   if (["001", "002", "010", "043"].includes(normalized)) return "created";
   if (["030", "060", "070"].includes(normalized)) return "requested";
   return null;
-}
-
-export function buildAllClientRowsForList(clients: Client[]): Client[] {
-  return [...clients].sort((a, b) => clientRecency(b) - clientRecency(a) || b.id - a.id);
-}
-
-const UNKNOWN_CLIENT_GROUP: ClientGroup = {
-  key: "unknown",
-  title: "상태 미정",
-  badge: "상태 미정",
-  badgeTone: "muted",
-  badgeMini: "muted",
-  match: () => false,
-  counter: "명",
-};
-
-export function groupForClient(c: Client): ClientGroup {
-  return GROUPS.find((g) => g.match(c)) ?? UNKNOWN_CLIENT_GROUP;
 }
 
 function hasContractRequiredBadge(c: Client): boolean {

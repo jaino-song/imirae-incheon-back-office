@@ -51,6 +51,8 @@ interface UseChatStreamReturn {
 const SESSION_STORAGE_KEY = "ai_chat_session_id";
 const CHAT_SESSION_EXPIRED_MESSAGE =
     "세션이 만료되었습니다. 페이지를 새로고침하거나 다시 로그인해 주세요.";
+const CHAT_PERMISSION_DENIED_MESSAGE =
+    "이 기능에 접근할 권한이 없습니다. 관리자에게 문의해 주세요.";
 const CHAT_TEMPORARY_ERROR_MESSAGE =
     "일시적인 오류로 응답을 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.";
 
@@ -67,9 +69,13 @@ function isChatStreamAuthError(error: unknown): boolean {
 }
 
 function getChatStreamErrorMessage(error: unknown): string {
-    return isChatStreamAuthError(error)
-        ? CHAT_SESSION_EXPIRED_MESSAGE
-        : CHAT_TEMPORARY_ERROR_MESSAGE;
+    if (error instanceof ChatStreamResponseError && error.status === 403) {
+        return CHAT_PERMISSION_DENIED_MESSAGE;
+    }
+    if (isChatStreamAuthError(error)) {
+        return CHAT_SESSION_EXPIRED_MESSAGE;
+    }
+    return CHAT_TEMPORARY_ERROR_MESSAGE;
 }
 
 function logChatStreamError(context: string, error: unknown): void {

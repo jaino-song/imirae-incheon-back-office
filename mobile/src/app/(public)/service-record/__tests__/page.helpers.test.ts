@@ -1,4 +1,7 @@
-import { isDayButtonDisabled, isServiceDateMismatch } from "../[token]/page";
+import {
+    isDayButtonDisabled,
+    isServiceDateMismatch,
+} from "@/lib/service-records/page-helpers";
 
 describe("isServiceDateMismatch", () => {
     it("detects when the service date differs from today", () => {

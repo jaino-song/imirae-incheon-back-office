@@ -1,7 +1,10 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 
-import { upstreamSseErrorResponse } from "@/lib/api/route-utils";
+import {
+    logUpstreamError,
+    upstreamSseErrorResponse,
+} from "@/lib/api/route-utils";
 
 const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "preview";
 const BACKEND_URL = isProduction
@@ -31,10 +34,12 @@ export async function POST(request: NextRequest) {
     });
 
     if (!backendResponse.ok) {
-        await backendResponse.text().catch(() => "");
-        console.error("[chat] upstream stream request failed:", {
-            status: backendResponse.status,
-        });
+        const upstreamBody = await backendResponse.text().catch(() => "");
+        logUpstreamError(
+            "chat upstream stream request",
+            { response: { status: backendResponse.status } },
+            upstreamBody,
+        );
         return upstreamSseErrorResponse(backendResponse.status);
     }
 

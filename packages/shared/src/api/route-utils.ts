@@ -240,7 +240,11 @@ export function sanitizeUpstreamClientError(
     return payload;
 }
 
-export function logUpstreamError(context: string, error: unknown): void {
+export function logUpstreamError(
+    context: string,
+    error: unknown,
+    upstreamBody?: string,
+): void {
     const data = getUpstreamErrorData(error);
     const upstreamCode = data && typeof data === "object"
         ? safeErrorCode((data as { code?: unknown }).code)
@@ -254,6 +258,7 @@ export function logUpstreamError(context: string, error: unknown): void {
         status: getUpstreamErrorStatus(error),
         code: upstreamCode ?? transportCode,
         name: errorName,
+        ...(upstreamBody === undefined ? {} : { body: upstreamBody }),
     });
 }
 

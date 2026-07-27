@@ -10,6 +10,10 @@ import { SignaturePad } from "@/components/app/service-record/SignaturePad";
 import { DEFAULT_PROVIDER_NAME, ProviderInfo } from "@/components/service-record/provider-info";
 import { isBusinessDayKr, isoDateInKorea, nextBusinessDayKr } from "@/lib/date/business-days";
 import {
+    isDayButtonDisabled,
+    isServiceDateMismatch,
+} from "@/lib/service-records/page-helpers";
+import {
     captureServiceRecordError,
     captureServiceRecordResponseError,
     getServiceRecordOperation,
@@ -179,23 +183,6 @@ const hasDisplayValue = (value: unknown): boolean => {
     if (typeof value === "string") return value.trim().length > 0;
     return true;
 };
-
-export function isServiceDateMismatch(
-    serviceDate: string,
-    today = isoDateInKorea(),
-): boolean {
-    return serviceDate !== today;
-}
-
-interface DayButtonState {
-    done: boolean;
-    open: boolean;
-    isRecordFinalized: boolean;
-}
-
-export function isDayButtonDisabled({ done, open, isRecordFinalized }: DayButtonState): boolean {
-    return (!done && !open) || isRecordFinalized;
-}
 
 function isRecordFinalizedStatus(recordStatus?: string | null): boolean {
     return Boolean(recordStatus && FINALIZED_RECORD_STATUSES.has(recordStatus));

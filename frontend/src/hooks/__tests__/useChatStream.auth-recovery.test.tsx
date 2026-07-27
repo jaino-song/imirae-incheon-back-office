@@ -12,6 +12,8 @@ jest.mock("@/lib/api/client", () => ({
 
 const SESSION_EXPIRED_MESSAGE =
     "세션이 만료되었습니다. 페이지를 새로고침하거나 다시 로그인해 주세요.";
+const PERMISSION_DENIED_MESSAGE =
+    "이 기능에 접근할 권한이 없습니다. 관리자에게 문의해 주세요.";
 const TEMPORARY_ERROR_MESSAGE =
     "일시적인 오류로 응답을 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.";
 
@@ -110,6 +112,26 @@ describe("useChatStream auth recovery", () => {
         expect(refreshAppAuthSessionMock).toHaveBeenCalledTimes(1);
         expect(result.current.messages.at(-1)?.content).toBe(SESSION_EXPIRED_MESSAGE);
         expect(result.current.error).toBe(SESSION_EXPIRED_MESSAGE);
+        expect(result.current.state).toBe("error");
+    });
+
+    test("shows a permission message without refreshing or retrying when access is forbidden", async () => {
+        const fetchMock = jest
+            .fn()
+            .mockResolvedValueOnce(createResponse({ ok: false, status: 403 }));
+        globalThis.fetch = fetchMock as typeof fetch;
+        jest.spyOn(console, "error").mockImplementation(() => undefined);
+
+        const { result } = renderHook(() => useChatStream());
+
+        await act(async () => {
+            await result.current.sendMessage("안녕");
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(refreshAppAuthSessionMock).not.toHaveBeenCalled();
+        expect(result.current.messages.at(-1)?.content).toBe(PERMISSION_DENIED_MESSAGE);
+        expect(result.current.error).toBe(PERMISSION_DENIED_MESSAGE);
         expect(result.current.state).toBe("error");
     });
 
