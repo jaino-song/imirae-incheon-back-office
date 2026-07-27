@@ -1818,7 +1818,10 @@ export default function ContractsPage() {
     onDocsChanged: refreshContractsFromEvent,
   });
 
-  const { data: feedbackTemplateData } = useQuery({
+  const {
+    data: feedbackTemplateData,
+    isError: isFeedbackTemplateError,
+  } = useQuery({
     queryKey: ["eformsign-docs", "feedback-template-id"],
     queryFn: eformsignApi.getFeedbackTemplateId,
     enabled: isAuthenticated,
@@ -1829,7 +1832,8 @@ export default function ContractsPage() {
   // template id가 미설정(null)인 설치에서는 모든 문서를 산모 계약서로 취급한다 —
   // 산모 섹션은 템플릿 필터 없이 조회하고, 제공기록지 섹션만 비활성(빈 목록)으로 남긴다.
   const serviceRecordTemplateId = feedbackTemplateData?.templateId ?? null;
-  const isFeedbackTemplateResolved = feedbackTemplateData !== undefined;
+  const isFeedbackTemplateResolved =
+    feedbackTemplateData !== undefined || isFeedbackTemplateError;
   const sectionTemplateMatch = activeSection === "service-records" ? "include" : "exclude";
   const sectionFilterReady =
     isFeedbackTemplateResolved
@@ -1843,6 +1847,7 @@ export default function ContractsPage() {
     branchId,
     isLoading: isDocumentsLoading,
     isSuccess: isDocumentsSuccess,
+    isError: isDocumentsError,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
@@ -1859,6 +1864,7 @@ export default function ContractsPage() {
   const {
     data: statusCountsData,
     isSuccess: isStatusCountsSuccess,
+    isError: isStatusCountsError,
   } = useQuery({
     // "eformsign-documents" 아래에 중첩 — 문서 변이가 광역 prefix 무효화만 해도
     // (삭제 훅, 생성 플로우, 지점 전환 removeQueries) 카운터가 함께 갱신된다.
@@ -1891,8 +1897,12 @@ export default function ContractsPage() {
       && sectionFilterReady
       && (
         isDocumentsLoading
-        || !isDocumentsSuccess
-        || (Boolean(branchId) && !isStatusCountsSuccess)
+        || (!isDocumentsSuccess && !isDocumentsError)
+        || (
+          Boolean(branchId)
+          && !isStatusCountsSuccess
+          && !isStatusCountsError
+        )
       )
     );
   const { data: documentClientSummaries = [] } = useQuery({

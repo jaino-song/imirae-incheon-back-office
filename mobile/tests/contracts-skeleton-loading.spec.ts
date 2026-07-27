@@ -184,11 +184,71 @@ test.describe('Contracts Page Skeleton Loading', () => {
     await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header"]')).toContainText('2건');
   });
 
-  // NOTE (review follow-up, 2026-06-08): a dedicated documents-API error
-  // state does not exist post-redesign (the old MuiAlert tests covered dead
-  // UI). Observed current behavior on a hard documents 500: the eformsign
-  // reauth path ends in a LOGOUT/login redirect — encode no test until the
-  // intended failure UX is decided (tracked as a product/UX finding).
+  test('renders documents when status counts fail instead of keeping the skeleton', async ({ page }) => {
+    await page.route('**/api/access-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      statusCountsStatus: 500,
+    });
+    await routeSharedContractDependencies(page);
+
+    await page.goto('/contracts');
+
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+  });
+
+  test('renders the existing empty state when documents fail instead of keeping the skeleton', async ({ page }) => {
+    await page.route('**/api/access-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      listStatus: 500,
+    });
+    await routeSharedContractDependencies(page);
+
+    await page.goto('/contracts');
+
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"]')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+  });
+
+  test('falls back to the maternal contract filter when feedback template lookup fails', async ({ page }) => {
+    await page.route('**/api/access-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      feedbackTemplateStatus: 500,
+    });
+    await routeSharedContractDependencies(page);
+
+    await page.goto('/contracts');
+
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+  });
 
   test('shows the current empty-state copy when no contracts exist', async ({ page }) => {
     await page.route('**/api/access-token', async (route) => {

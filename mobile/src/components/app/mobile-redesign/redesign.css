@@ -663,9 +663,18 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   gap: 0.5rem; /* Tailwind gap-2 — section-header/list-item/contract-item 간 균일 간격 */
 }
 .list-card-scroll::-webkit-scrollbar { display: none; }
-.list-card-scroll.has-top-overflow {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
+.list-card-scroll.has-top-overflow::before {
+  content: "";
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: block;
+  align-self: stretch;
+  height: 18px;
+  flex: 0 0 18px;
+  margin-bottom: calc(-18px - 0.5rem);
+  background: linear-gradient(to bottom, white, transparent);
+  pointer-events: none;
 }
 
 /* ===== Filter pills ===== */
@@ -745,7 +754,7 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   background: white;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3;
 }
 
 /* ===== List item rows (dense) ===== */

@@ -97,6 +97,9 @@ export interface ContractListRequest {
 export interface RouteContractsApiOptions {
   getDocuments: () => readonly ContractMockDocument[];
   templateId?: string;
+  feedbackTemplateStatus?: number;
+  listStatus?: number;
+  statusCountsStatus?: number;
   beforeListResponse?: (request: ContractListRequest) => Promise<void> | void;
   onListRequest?: (request: ContractListRequest) => Promise<void> | void;
 }
@@ -318,15 +321,22 @@ export async function routeContractsApi(
   {
     getDocuments,
     templateId = DEFAULT_FEEDBACK_TEMPLATE_ID,
+    feedbackTemplateStatus = 200,
+    listStatus = 200,
+    statusCountsStatus = 200,
     beforeListResponse,
     onListRequest,
   }: RouteContractsApiOptions,
 ): Promise<void> {
   await page.route(FEEDBACK_TEMPLATE_ROUTE, async (route) => {
     await route.fulfill({
-      status: 200,
+      status: feedbackTemplateStatus,
       contentType: "application/json",
-      body: JSON.stringify({ templateId }),
+      body: JSON.stringify(
+        feedbackTemplateStatus === 200
+          ? { templateId }
+          : { error: "feedback template unavailable" },
+      ),
     });
   });
 
@@ -334,9 +344,13 @@ export async function routeContractsApi(
     const url = new URL(route.request().url());
     const documents = filterContractDocuments(getDocuments(), url.searchParams);
     await route.fulfill({
-      status: 200,
+      status: statusCountsStatus,
       contentType: "application/json",
-      body: JSON.stringify({ documents: documents.map(toStatusSignal) }),
+      body: JSON.stringify(
+        statusCountsStatus === 200
+          ? { documents: documents.map(toStatusSignal) }
+          : { error: "status counts unavailable" },
+      ),
     });
   });
 
@@ -354,16 +368,20 @@ export async function routeContractsApi(
     const filteredDocuments = filterContractDocuments(getDocuments(), url.searchParams);
     const documents = filteredDocuments.slice(request.skip, request.skip + request.limit);
     await route.fulfill({
-      status: 200,
+      status: listStatus,
       contentType: "application/json",
-      body: JSON.stringify({
-        documents,
-        total_rows: filteredDocuments.length,
-        limit: request.limit,
-        skip: request.skip,
-        has_more: request.skip + request.limit < filteredDocuments.length,
-        snapshot_version: SNAPSHOT_VERSION,
-      }),
+      body: JSON.stringify(
+        listStatus === 200
+          ? {
+              documents,
+              total_rows: filteredDocuments.length,
+              limit: request.limit,
+              skip: request.skip,
+              has_more: request.skip + request.limit < filteredDocuments.length,
+              snapshot_version: SNAPSHOT_VERSION,
+            }
+          : { error: "documents unavailable" },
+      ),
     });
   });
 }

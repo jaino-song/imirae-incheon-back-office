@@ -327,6 +327,7 @@ const CUSTOMER_NAME_FIELD_IDS = [
 
 const DEFAULT_DETAIL_ENRICHMENT_CONCURRENCY = 8;
 const DETAIL_ENRICHMENT_CONCURRENCY_ENV = "EFORMSIGN_DETAIL_ENRICHMENT_CONCURRENCY";
+const DETAIL_ENRICHMENT_BUDGET_MS = 5_000;
 const DETAIL_ENRICHMENT_RETRY_DELAYS_MS = [500, 1_500] as const;
 
 function getDetailEnrichmentConcurrency(): number {
@@ -345,7 +346,8 @@ function isEformsignRateLimitError(error: unknown): boolean {
         }
     }
 
-    return error instanceof Error && /\b429\b/.test(error.message);
+    return error instanceof Error
+        && /^Failed to get document:\s*429(?:\s*-|$)/.test(error.message);
 }
 
 async function waitForDetailEnrichmentRetry(delayMs: number): Promise<void> {
@@ -878,6 +880,7 @@ export class EformsignController {
         documents: EformsignListDoc[],
     ): Promise<EformsignListDoc[]> {
         const enrichStartedAt = Date.now();
+        const retryDeadline = enrichStartedAt + DETAIL_ENRICHMENT_BUDGET_MS;
         const candidateDocumentIds = Array.from(new Set(
             documents
                 .filter((document) => !documentHasCustomerNameField(document))
@@ -935,7 +938,11 @@ export class EformsignController {
 
             apiFallbacks += 1;
             try {
-                const detail = await this.getDocumentDetailForEnrichment(accessToken, doc.id);
+                const detail = await this.getDocumentDetailForEnrichment(
+                    accessToken,
+                    doc.id,
+                    retryDeadline,
+                );
                 const detailEnrichment: DocumentDisplayFieldEnrichment = {
                     ...(hasCollectionValues(detail?.fields) ? { fields: detail.fields } : {}),
                     ...(hasCollectionValues(detail?.detail_template_info)
@@ -963,13 +970,18 @@ export class EformsignController {
     private async getDocumentDetailForEnrichment(
         accessToken: string,
         documentId: string,
+        retryDeadline: number,
     ): Promise<EformsignListDoc> {
         for (let attempt = 0; ; attempt += 1) {
             try {
                 return await this.eformsignService.getDocumentById(accessToken, documentId);
             } catch (error) {
                 const retryDelay = DETAIL_ENRICHMENT_RETRY_DELAYS_MS[attempt];
-                if (retryDelay === undefined || !isEformsignRateLimitError(error)) {
+                if (
+                    retryDelay === undefined
+                    || !isEformsignRateLimitError(error)
+                    || Date.now() + retryDelay > retryDeadline
+                ) {
                     throw error;
                 }
                 await waitForDetailEnrichmentRetry(retryDelay);

@@ -45,6 +45,7 @@ describe("EformsignController display-field enrichment", () => {
     });
 
     afterEach(async () => {
+        jest.useRealTimers();
         jest.restoreAllMocks();
         jest.clearAllMocks();
         await snapshotService.onModuleDestroy();
@@ -166,7 +167,43 @@ describe("EformsignController display-field enrichment", () => {
             },
         ]);
         expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(3);
-        jest.useRealTimers();
+    });
+
+    it("should skip a 429 retry when the shared enrichment budget is exhausted", async () => {
+        jest.useFakeTimers();
+        jest.spyOn(Date, "now")
+            .mockReturnValueOnce(0)
+            .mockReturnValue(5_000);
+        eformsignService.getDocumentById.mockRejectedValue(
+            new Error("Failed to get document: 429 - rate limited"),
+        );
+
+        const enrichment = controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token",
+            [{ id: "doc-1" }],
+        );
+        await jest.advanceTimersByTimeAsync(2_000);
+
+        await expect(enrichment).resolves.toEqual([{ id: "doc-1" }]);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not retry a non-rate-limit error that only mentions 429", async () => {
+        jest.useFakeTimers();
+        eformsignService.getDocumentById.mockRejectedValue(
+            new Error("Document doc-429 failed"),
+        );
+
+        const enrichment = controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token",
+            [{ id: "doc-1" }],
+        );
+        await jest.advanceTimersByTimeAsync(2_000);
+
+        await expect(enrichment).resolves.toEqual([{ id: "doc-1" }]);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
     });
 
     it("should preserve the list document when the API fallback fails", async () => {
