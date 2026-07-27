@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
     },
     // Workspace package ships TS source; Next transpiles it in-app.
     transpilePackages: ["@babyjamjam/shared"],
+    // Testing on a real phone means loading the dev server over the LAN, and Next
+    // blocks dev resources from any origin it was not told about — the page renders
+    // but never hydrates. Set NEXT_DEV_ALLOWED_ORIGINS to the machine's LAN IP.
+    allowedDevOrigins: (process.env.NEXT_DEV_ALLOWED_ORIGINS ?? "")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
     turbopack: {
         root: path.resolve(__dirname, ".."),
     },

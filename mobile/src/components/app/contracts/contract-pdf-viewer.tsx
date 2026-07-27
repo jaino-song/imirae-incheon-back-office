@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Document as PdfDocument, Page } from "react-pdf";
 
+import { Spinner } from "@/components/ui/spinner";
+
 import "@/lib/pdf-config";
 import { cn } from "@/lib/utils";
 
@@ -502,8 +504,9 @@ export function ContractPdfViewer({
               className="contract-pdf-status"
               data-slot="contract-pdf-status"
               role="status"
+              aria-label="PDF를 불러오는 중입니다"
             >
-              PDF를 불러오는 중입니다
+              <Spinner size="lg" className="contract-pdf-spinner" />
             </div>
           }
           error={
@@ -548,7 +551,16 @@ export function ContractPdfViewer({
                         pageNumber={index + 1}
                         width={baseWidth}
                         devicePixelRatio={renderDpr}
-                        loading="PDF 페이지를 불러오는 중입니다"
+                        loading={
+                          <div
+                            className="contract-pdf-status"
+                            data-slot="contract-pdf-status"
+                            role="status"
+                            aria-label="PDF 페이지를 불러오는 중입니다"
+                          >
+                            <Spinner size="lg" className="contract-pdf-spinner" />
+                          </div>
+                        }
                         error="PDF 페이지를 불러오지 못했습니다."
                         renderTextLayer={false}
                         renderAnnotationLayer={false}
