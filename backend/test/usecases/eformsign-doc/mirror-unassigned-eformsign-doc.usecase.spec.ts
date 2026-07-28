@@ -252,4 +252,50 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
             },
         );
     });
+
+    it("uses the shared template id fallback chain for list response shapes", async () => {
+        const getAccessTokenUsecase = { execute: jest.fn() };
+        const fetchEformsignDocFromApiUsecase = { execute: jest.fn() };
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            getAccessTokenUsecase as never,
+            fetchEformsignDocFromApiUsecase as never,
+            repository as never,
+        );
+
+        await usecase.mirrorRemoteDocument({
+            ...{
+                id: "listed-doc",
+                document_number: "DOC-100",
+                document_name: "목록 문서",
+                created_date: Date.parse("2026-07-01T00:00:00.000Z"),
+                updated_date: Date.parse("2026-07-02T00:00:00.000Z"),
+                template: { id: "", name: "계약서" },
+                detail_template_info: { id: "detail-template" },
+                template_id: "flat-template",
+                creator: { recipient_type: "01", id: "creator", name: "생성자" },
+                current_status: {
+                    status_type: "060",
+                    status_doc_type: "",
+                    status_doc_detail: "서명 요청",
+                    step_type: "05",
+                    step_index: "1",
+                    step_name: "이용자",
+                    step_recipients: [],
+                    step_group: 1,
+                    expired_date: 0,
+                    _expired: false,
+                },
+            },
+        } as never);
+
+        expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ templateId: "detail-template" }),
+            { updateListDisplayFields: true },
+        );
+    });
 });

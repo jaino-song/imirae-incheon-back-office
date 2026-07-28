@@ -3,6 +3,8 @@
  *
  * Run from backend with production environment variables:
  *   pnpm backfill:eformsign-docs
+ * The first run prints the exact target and required
+ * EFORMSIGN_BACKFILL_CONFIRM_TARGET=<environment>@<database-host> value, then exits.
  *
  * The command fails closed unless VALKEY_URL is configured. It never triggers
  * notification, client-linking, end-date sync, or service-record snapshot paths.
@@ -20,6 +22,10 @@ import {
     EformsignDocsBackfillProgress,
     EformsignDocsBackfillSummary,
 } from "application/usecases/eformsign-doc/backfill-eformsign-docs.usecase";
+import {
+    assertEformsignBackfillConfirmation,
+    resolveEformsignBackfillTarget,
+} from "application/utils/eformsign-backfill-safety";
 import { EformsignBackfillLockService } from "infrastructure/locking/eformsign-backfill-lock.service";
 import { EformsignDocModule } from "module/eformsign-doc.module";
 
@@ -57,7 +63,25 @@ function logSummary(
     }));
 }
 
+function confirmOperatorTarget(): void {
+    const target = resolveEformsignBackfillTarget({
+        railwayEnvironmentName: process.env["RAILWAY_ENVIRONMENT_NAME"],
+        nodeEnv: process.env["NODE_ENV"],
+        databaseUrl: process.env["DATABASE_URL"],
+    });
+    logger.warn(
+        `Target environment=${target.environment} databaseHost=${target.databaseHost}`,
+    );
+    assertEformsignBackfillConfirmation(
+        target,
+        process.env["EFORMSIGN_BACKFILL_CONFIRM_TARGET"],
+    );
+}
+
 async function main(): Promise<void> {
+    // ConfigModule.forRoot loads ENV_FILE_PATHS while this module is evaluated.
+    // Keep confirmation before Nest bootstrap because Prisma connects during bootstrap.
+    confirmOperatorTarget();
     const app = await NestFactory.createApplicationContext(
         EformsignBackfillCliModule,
         { logger: ["error", "warn", "log"] },
@@ -96,4 +120,3 @@ void main().catch((error: unknown) => {
     process.stderr.write(`Eformsign backfill failed: ${message}\n`);
     process.exitCode = 1;
 });
-

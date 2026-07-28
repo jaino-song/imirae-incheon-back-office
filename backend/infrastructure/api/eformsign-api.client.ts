@@ -224,6 +224,30 @@ export class EformsignApiClient implements IEformsignClientRepository {
         );
     }
 
+    async getRejectedDocuments(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiDocumentResponse[]> {
+        const data = await this.getRejectedDocumentsPage(accessToken, limit, skip);
+        return data.documents;
+    }
+
+    async getRejectedDocumentsPage(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiListResponse> {
+        return this.listDocumentsPage(
+            "getRejectedDocuments",
+            accessToken,
+            "04",
+            limit,
+            skip,
+            "Failed to get rejected documents",
+        );
+    }
+
     /**
      * Get all documents (both in-progress and completed)
      */
@@ -279,7 +303,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
     private async listDocumentsPage(
         operation: string,
         accessToken: string,
-        type: "01" | "03",
+        type: "01" | "03" | "04",
         limit: number,
         skip: number,
         errorPrefix: string,

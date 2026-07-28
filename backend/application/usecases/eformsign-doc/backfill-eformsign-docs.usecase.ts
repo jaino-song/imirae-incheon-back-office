@@ -16,6 +16,19 @@ import { MirrorUnassignedEformsignDocUsecase } from "./mirror-unassigned-eformsi
 
 const BACKFILL_PAGE_SIZE = 100;
 
+export type EformsignBackfillDocumentType = "01" | "03" | "04";
+
+export interface EformsignDocsBackfillTypeSummary {
+    status: "pending" | "completed" | "failed";
+    fetched: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    pages: number;
+    error: string | null;
+}
+
 export interface EformsignDocsBackfillSummary {
     fetched: number;
     created: number;
@@ -23,11 +36,15 @@ export interface EformsignDocsBackfillSummary {
     skipped: number;
     failed: number;
     pages: number;
+    byDocumentType: Record<
+        EformsignBackfillDocumentType,
+        EformsignDocsBackfillTypeSummary
+    >;
 }
 
 export interface EformsignDocsBackfillProgress {
     phase: "started" | "page" | "completed" | "failed";
-    documentType?: "01" | "03";
+    documentType?: EformsignBackfillDocumentType;
     skip?: number;
     totalCount?: number;
     summary: EformsignDocsBackfillSummary;
@@ -50,8 +67,34 @@ export class BackfillEformsignDocsError extends Error {
         super(message);
         this.name = BackfillEformsignDocsError.name;
         this.cause = cause;
-        this.summary = { ...summary };
+        this.summary = cloneSummary(summary);
     }
+}
+
+class EformsignBackfillLeaseLostError extends BackfillEformsignDocsError {}
+
+function createTypeSummary(): EformsignDocsBackfillTypeSummary {
+    return {
+        status: "pending",
+        fetched: 0,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        pages: 0,
+        error: null,
+    };
+}
+
+function cloneSummary(summary: EformsignDocsBackfillSummary): EformsignDocsBackfillSummary {
+    return {
+        ...summary,
+        byDocumentType: {
+            "01": { ...summary.byDocumentType["01"] },
+            "03": { ...summary.byDocumentType["03"] },
+            "04": { ...summary.byDocumentType["04"] },
+        },
+    };
 }
 
 @Injectable()
@@ -76,10 +119,15 @@ export class BackfillEformsignDocsUsecase {
             skipped: 0,
             failed: 0,
             pages: 0,
+            byDocumentType: {
+                "01": createTypeSummary(),
+                "03": createTypeSummary(),
+                "04": createTypeSummary(),
+            },
         };
         options.onProgress?.({
             phase: "started",
-            summary: { ...summary },
+            summary: cloneSummary(summary),
         });
 
         try {
@@ -87,34 +135,84 @@ export class BackfillEformsignDocsUsecase {
             const tokenResponse = await this.eformsignClient.getAccessToken(Date.now());
             const accessToken = tokenResponse.oauth_token.access_token;
 
-            await this.scanDocumentType({
-                documentType: "01",
-                fetchPage: (limit, skip) =>
-                    this.eformsignClient.getInProgressDocumentsPage(
-                        accessToken,
-                        limit,
-                        skip,
-                    ),
-                options,
-                summary,
-            });
-            await this.scanDocumentType({
-                documentType: "03",
-                fetchPage: (limit, skip) =>
-                    this.eformsignClient.getCompletedDocumentsPage(
-                        accessToken,
-                        limit,
-                        skip,
-                    ),
-                options,
-                summary,
-            });
+            const scans: Array<{
+                documentType: EformsignBackfillDocumentType;
+                fetchPage: (limit: number, skip: number) => Promise<EformsignApiListResponse>;
+            }> = [
+                {
+                    documentType: "01",
+                    fetchPage: (limit, skip) =>
+                        this.eformsignClient.getInProgressDocumentsPage(
+                            accessToken,
+                            limit,
+                            skip,
+                        ),
+                },
+                {
+                    documentType: "03",
+                    fetchPage: (limit, skip) =>
+                        this.eformsignClient.getCompletedDocumentsPage(
+                            accessToken,
+                            limit,
+                            skip,
+                        ),
+                },
+                {
+                    documentType: "04",
+                    fetchPage: (limit, skip) =>
+                        this.eformsignClient.getRejectedDocumentsPage(
+                            accessToken,
+                            limit,
+                            skip,
+                        ),
+                },
+            ];
+            const scanFailures: BackfillEformsignDocsError[] = [];
+            for (const scan of scans) {
+                const typeSummary = summary.byDocumentType[scan.documentType];
+                try {
+                    await this.scanDocumentType({
+                        ...scan,
+                        options,
+                        summary,
+                        typeSummary,
+                    });
+                    typeSummary.status = "completed";
+                } catch (error) {
+                    if (error instanceof EformsignBackfillLeaseLostError) {
+                        throw error;
+                    }
+                    const scanError = error instanceof BackfillEformsignDocsError
+                        ? error
+                        : new BackfillEformsignDocsError(
+                            `Eformsign document backfill failed for type=${scan.documentType}`,
+                            summary,
+                            error,
+                        );
+                    typeSummary.status = "failed";
+                    typeSummary.error = scanError.message;
+                    scanFailures.push(scanError);
+                }
+            }
+
+            if (scanFailures.length > 0) {
+                const failedTypes = scans
+                    .filter(({ documentType }) =>
+                        summary.byDocumentType[documentType].status === "failed")
+                    .map(({ documentType }) => documentType)
+                    .join(",");
+                throw new BackfillEformsignDocsError(
+                    `Eformsign document backfill failed for types=${failedTypes}`,
+                    summary,
+                    scanFailures,
+                );
+            }
 
             options.onProgress?.({
                 phase: "completed",
-                summary: { ...summary },
+                summary: cloneSummary(summary),
             });
-            return { ...summary };
+            return cloneSummary(summary);
         } catch (error) {
             const backfillError = error instanceof BackfillEformsignDocsError
                 ? error
@@ -132,10 +230,11 @@ export class BackfillEformsignDocsUsecase {
     }
 
     private async scanDocumentType(params: {
-        documentType: "01" | "03";
+        documentType: EformsignBackfillDocumentType;
         fetchPage: (limit: number, skip: number) => Promise<EformsignApiListResponse>;
         options: BackfillEformsignDocsOptions;
         summary: EformsignDocsBackfillSummary;
+        typeSummary: EformsignDocsBackfillTypeSummary;
     }): Promise<void> {
         let skip = 0;
         const seenDocumentIds = new Set<string>();
@@ -157,6 +256,8 @@ export class BackfillEformsignDocsUsecase {
             this.assertValidTotalCount(page.total_count, params.documentType, skip, params.summary);
             params.summary.pages += 1;
             params.summary.fetched += page.documents.length;
+            params.typeSummary.pages += 1;
+            params.typeSummary.fetched += page.documents.length;
 
             if (page.documents.length === 0) {
                 if (skip < page.total_count) {
@@ -182,7 +283,7 @@ export class BackfillEformsignDocsUsecase {
             for (const document of newDocuments) {
                 seenDocumentIds.add(document.id);
                 this.assertCanContinue(params.options, params.summary);
-                await this.persistDocument(document, params.summary);
+                await this.persistDocument(document, params.summary, params.typeSummary);
             }
 
             const nextSkip = skip + page.documents.length;
@@ -204,6 +305,7 @@ export class BackfillEformsignDocsUsecase {
     private async persistDocument(
         document: EformsignApiDocumentResponse,
         summary: EformsignDocsBackfillSummary,
+        typeSummary: EformsignDocsBackfillTypeSummary,
     ): Promise<void> {
         try {
             const existing = await this.eformsignDocRepository.findByDocumentIdUnscoped(
@@ -214,16 +316,20 @@ export class BackfillEformsignDocsUsecase {
             });
             if (existing) {
                 summary.updated += 1;
+                typeSummary.updated += 1;
             } else {
                 summary.created += 1;
+                typeSummary.created += 1;
             }
         } catch (error) {
             if (error instanceof EformsignDocStaleUpdateError) {
                 summary.skipped += 1;
+                typeSummary.skipped += 1;
                 return;
             }
 
             summary.failed += 1;
+            typeSummary.failed += 1;
             this.logger.warn(
                 `Failed to mirror eformsign document ${document.id}: ${
                     error instanceof Error ? error.message : String(error)
@@ -237,7 +343,7 @@ export class BackfillEformsignDocsUsecase {
         summary: EformsignDocsBackfillSummary,
     ): void {
         if (options.shouldContinue?.() === false) {
-            throw new BackfillEformsignDocsError(
+            throw new EformsignBackfillLeaseLostError(
                 "Eformsign document backfill lost its execution lease",
                 summary,
             );
@@ -246,7 +352,7 @@ export class BackfillEformsignDocsUsecase {
 
     private assertValidTotalCount(
         totalCount: number,
-        documentType: "01" | "03",
+        documentType: EformsignBackfillDocumentType,
         skip: number,
         summary: EformsignDocsBackfillSummary,
     ): void {
@@ -262,7 +368,7 @@ export class BackfillEformsignDocsUsecase {
 
     private emitPageProgress(
         params: {
-            documentType: "01" | "03";
+            documentType: EformsignBackfillDocumentType;
             options: BackfillEformsignDocsOptions;
             summary: EformsignDocsBackfillSummary;
         },
@@ -274,7 +380,7 @@ export class BackfillEformsignDocsUsecase {
             documentType: params.documentType,
             skip,
             totalCount,
-            summary: { ...params.summary },
+            summary: cloneSummary(params.summary),
         });
     }
 }

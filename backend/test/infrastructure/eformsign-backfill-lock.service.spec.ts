@@ -9,6 +9,7 @@ import {
 class FakeRedisLockClient {
     status = "ready";
     private owner: string | null = null;
+    private readonly renewalOutcomes: Array<Error | number> = [];
 
     connect = jest.fn().mockResolvedValue(undefined);
     disconnect = jest.fn();
@@ -25,6 +26,13 @@ class FakeRedisLockClient {
 
     eval = jest.fn((script: string, _keyCount: number, _key: string, token: string) => {
         if (script.includes("PEXPIRE")) {
+            const outcome = this.renewalOutcomes.shift();
+            if (outcome instanceof Error) {
+                return Promise.reject(outcome);
+            }
+            if (outcome !== undefined) {
+                return Promise.resolve(outcome);
+            }
             return Promise.resolve(this.owner === token ? 1 : 0);
         }
         if (script.includes("DEL") && this.owner === token) {
@@ -36,6 +44,10 @@ class FakeRedisLockClient {
 
     loseOwnership(): void {
         this.owner = "another-run";
+    }
+
+    queueRenewalOutcomes(...outcomes: Array<Error | number>): void {
+        this.renewalOutcomes.push(...outcomes);
     }
 }
 
@@ -96,5 +108,62 @@ describe("EformsignBackfillLockService", () => {
         finishWork?.();
         await run;
         expect(isHeld).toBe(false);
+    });
+
+    it("keeps the lease held when a transient renewal failure recovers before expiry", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-07-28T00:00:00.000Z"));
+        jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+        const redis = new FakeRedisLockClient();
+        redis.queueRenewalOutcomes(new Error("temporary network failure"), 1);
+        const service = new EformsignBackfillLockService(redis as never);
+        let finishWork: (() => void) | undefined;
+        let leaseProbe: (() => boolean) | undefined;
+        const run = service.runExclusive(async (lease) => {
+            leaseProbe = lease.isHeld;
+            await new Promise<void>((resolve) => {
+                finishWork = resolve;
+            });
+        });
+        await Promise.resolve();
+
+        await jest.advanceTimersByTimeAsync(20_000);
+        expect(leaseProbe?.()).toBe(true);
+        await jest.advanceTimersByTimeAsync(20_000);
+        expect(leaseProbe?.()).toBe(true);
+
+        finishWork?.();
+        await run;
+    });
+
+    it("marks the lease lost after renewal failures continue through the actual expiry", async () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-07-28T00:00:00.000Z"));
+        jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+        jest.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+        const redis = new FakeRedisLockClient();
+        redis.queueRenewalOutcomes(
+            new Error("network failure 1"),
+            new Error("network failure 2"),
+            new Error("network failure 3"),
+        );
+        const service = new EformsignBackfillLockService(redis as never);
+        let finishWork: (() => void) | undefined;
+        let leaseProbe: (() => boolean) | undefined;
+        const run = service.runExclusive(async (lease) => {
+            leaseProbe = lease.isHeld;
+            await new Promise<void>((resolve) => {
+                finishWork = resolve;
+            });
+        });
+        await Promise.resolve();
+
+        await jest.advanceTimersByTimeAsync(59_999);
+        expect(leaseProbe?.()).toBe(true);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(leaseProbe?.()).toBe(false);
+
+        finishWork?.();
+        await run;
     });
 });

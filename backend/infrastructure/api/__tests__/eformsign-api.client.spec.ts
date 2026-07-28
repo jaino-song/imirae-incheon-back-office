@@ -95,6 +95,43 @@ describe("EformsignApiClient retry policy", () => {
         }));
     });
 
+    it("requests rejected documents with type 04 and preserves page metadata", async () => {
+        const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                documents: [{ id: "rejected-document" }],
+                total_count: 17,
+            }),
+            { status: 200 },
+        ));
+
+        await expect(
+            createClient().getRejectedDocumentsPage("access-token", 25, 50),
+        ).resolves.toEqual({
+            documents: [{ id: "rejected-document" }],
+            total_count: 17,
+        });
+
+        const request = fetchMock.mock.calls[0]?.[1];
+        expect(JSON.parse(String(request?.body))).toEqual(expect.objectContaining({
+            type: "04",
+            limit: "25",
+            skip: "50",
+        }));
+    });
+
+    it("keeps getAllDocuments on its existing in-progress and completed calls", async () => {
+        const fetchMock = jest.spyOn(global, "fetch")
+            .mockResolvedValueOnce(listSuccessResponse())
+            .mockResolvedValueOnce(listSuccessResponse());
+
+        await expect(createClient().getAllDocuments("access-token")).resolves.toEqual([]);
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls.map(([, request]) =>
+            JSON.parse(String(request?.body)).type
+        )).toEqual(["01", "03"]);
+    });
+
     it("retries a 429 response and succeeds", async () => {
         jest.useFakeTimers();
         jest.spyOn(Math, "random").mockReturnValue(0);

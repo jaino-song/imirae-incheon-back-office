@@ -31,6 +31,7 @@ import {
     stringFromUnknown,
     type UnknownRecord,
 } from "application/utils/eformsign-document-customer-name";
+import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 function throwHttpOrInternalError(error: unknown): never {
@@ -165,19 +166,6 @@ function parseTemplateMatch(value: string | undefined): TemplateMatch {
     throw new BadRequestException("templateMatch must be include or exclude");
 }
 
-function getDocumentTemplateId(document: EformsignListDoc): string | null {
-    const template = isRecord(document["template"]) ? document["template"] : null;
-    const detailTemplate = isRecord(document.detail_template_info)
-        ? document.detail_template_info
-        : null;
-    const candidates = [template?.["id"], detailTemplate?.["id"], document["template_id"]];
-    const templateId = candidates.find(
-        (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
-    );
-
-    return templateId ?? null;
-}
-
 /**
  * `templateId` may be a single id or a comma-separated list (BJJ-multi-tier: the UI passes every
  * configured 제공기록지 tier so documents created on any tier's template are matched). A single id
@@ -199,7 +187,7 @@ function filterDocumentsByTemplate(
     }
 
     return documents.filter((document) => {
-        const documentTemplateId = getDocumentTemplateId(document);
+        const documentTemplateId = eformsignDocumentTemplateId(document);
         const matches = documentTemplateId !== null && templateIds.has(documentTemplateId);
         return templateMatch === "include" ? matches : !matches;
     });

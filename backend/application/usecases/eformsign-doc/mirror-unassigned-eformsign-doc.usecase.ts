@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
+import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EFORMSIGN_DOC_REPOSITORY,
@@ -114,7 +115,7 @@ export class MirrorUnassignedEformsignDocUsecase {
             clientId: null,
             documentKind: null,
             employeeScheduleId: null,
-            templateId: remote.template?.id ?? null,
+            templateId: eformsignDocumentTemplateId(remote),
         });
 
         return this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {

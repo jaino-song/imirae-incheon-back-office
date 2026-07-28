@@ -1,5 +1,6 @@
 import { SbEformsignDocRepository } from "infrastructure/database/repositories/sb.eformsign-doc.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { UNASSIGNED_TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EformsignDocOwnershipConflictError,
@@ -589,6 +590,70 @@ describe("SbEformsignDocRepository", () => {
                 }),
             ]),
         );
+    });
+
+    it("allows an unassigned 062 document to advance to 070 in the updateMany predicate", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            statusType: "070",
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+        const incoming = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            statusType: "070",
+            statusDetail: "검토 요청",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(incoming);
+
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard).toEqual({
+            updatedDate: { lte: legacyRow.updatedDate },
+            statusType: { notIn: [...UNASSIGNED_TERMINAL_STATUS_CODES] },
+        });
+        expect(staleGuard.statusType.notIn).not.toContain("062");
+        expect(staleGuard.statusType.notIn).toEqual(
+            expect.arrayContaining(["050", "080", "099"]),
+        );
+    });
+
+    it("upserts the same document twice without creating a duplicate row", async () => {
+        let storedRow: Record<string, unknown> | null = null;
+        eformsignDocModel.updateMany.mockImplementation(
+            ({ data }: { data: Record<string, unknown> }) => {
+                if (!storedRow) {
+                    return Promise.resolve({ count: 0 });
+                }
+                storedRow = { ...storedRow, ...data };
+                return Promise.resolve({ count: 1 });
+            },
+        );
+        eformsignDocModel.create.mockImplementation(
+            ({ data }: { data: Record<string, unknown> }) => {
+                storedRow = { id: 1, ...data };
+                return Promise.resolve(storedRow);
+            },
+        );
+        eformsignDocModel.findFirst.mockImplementation(() => Promise.resolve(storedRow));
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            allowAssignedUpdate: true,
+        });
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            allowAssignedUpdate: true,
+        });
+
+        expect(eformsignDocModel.create).toHaveBeenCalledTimes(1);
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledTimes(2);
+        expect(storedRow).toEqual(expect.objectContaining({ documentId: "doc-1" }));
     });
 
     it("does not update a branch-owned row when an unassigned mirror loses the ownership race", async () => {

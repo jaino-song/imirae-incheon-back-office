@@ -108,6 +108,7 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
 
         await this.ensureConnected(redis);
         const token = randomUUID();
+        const acquisitionStartedAt = Date.now();
         const acquired = await redis.set(
             BACKFILL_LOCK_KEY,
             token,
@@ -120,12 +121,14 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
         }
 
         let held = true;
+        let leaseExpiresAt = acquisitionStartedAt + BACKFILL_LOCK_LEASE_MS;
         let renewalInFlight = false;
         const heartbeat = setInterval(() => {
             if (!held || renewalInFlight) {
                 return;
             }
             renewalInFlight = true;
+            const renewalStartedAt = Date.now();
             void this.renew(redis, token)
                 .then((renewed) => {
                     if (!renewed) {
@@ -133,11 +136,16 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
                         this.logger.error(
                             "Lost the distributed eformsign backfill execution lease",
                         );
+                        return;
                     }
+                    leaseExpiresAt = renewalStartedAt + BACKFILL_LOCK_LEASE_MS;
                 })
                 .catch((error: unknown) => {
-                    held = false;
-                    this.logger.error(
+                    const leaseExpired = Date.now() >= leaseExpiresAt;
+                    if (leaseExpired) {
+                        held = false;
+                    }
+                    this.logger[leaseExpired ? "error" : "warn"](
                         `Failed to renew the eformsign backfill execution lease: ${
                             error instanceof Error ? error.message : String(error)
                         }`,
@@ -150,7 +158,9 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
         heartbeat.unref();
 
         try {
-            return await work({ isHeld: () => held });
+            return await work({
+                isHeld: () => held && Date.now() < leaseExpiresAt,
+            });
         } finally {
             clearInterval(heartbeat);
             try {

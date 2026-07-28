@@ -2,7 +2,9 @@ import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
 import { UpdateEformsignDocStatusUsecase } from "application/usecases/eformsign-doc/update-eformsign-doc-status.usecase";
 import { LinkDocumentToClientUsecase } from "application/usecases/eformsign-doc/link-document-to-client.usecase";
 import { MirrorUnassignedEformsignDocUsecase } from "application/usecases/eformsign-doc/mirror-unassigned-eformsign-doc.usecase";
-import { TERMINAL_STATUS_CODES } from "application/usecases/eformsign-doc/eformsign-doc-status.constants";
+import {
+    UNASSIGNED_TERMINAL_STATUS_CODES,
+} from "domain/constants/eformsign-doc-status.constants";
 import {
     SyncClientEndDateUsecase,
     type SyncedClientEndDate,
@@ -103,9 +105,6 @@ const STATUS_NAME_TO_CODE: Record<string, string> = {
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
-const UNASSIGNED_TERMINAL_STATUS_CODES = new Set(
-    [...TERMINAL_STATUS_CODES].filter((statusCode) => statusCode !== "062"),
-);
 const UNASSIGNED_FORWARD_STATUS_CODES_AFTER_062 = new Set([
     ...UNASSIGNED_TERMINAL_STATUS_CODES,
     "070",

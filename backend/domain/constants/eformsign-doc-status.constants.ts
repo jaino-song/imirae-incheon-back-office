@@ -31,3 +31,7 @@ export const TERMINAL_STATUS_CODES = new Set<string>([
     "099",
 ]);
 
+// 미배정 문서는 이용자 서명 완료(062) 뒤 제공기관 검토(070)로 진행할 수 있다.
+export const UNASSIGNED_TERMINAL_STATUS_CODES = new Set<string>(
+    [...TERMINAL_STATUS_CODES].filter((statusCode) => statusCode !== "062"),
+);

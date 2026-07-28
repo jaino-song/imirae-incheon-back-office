@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
+import { UNASSIGNED_TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EformsignDocCompletionClaimParams,
@@ -422,9 +422,9 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             // carries no time of its own — it reuses the stored value — still applies.
             staleGuard: {
                 updatedDate: { lte: doc.updatedDate },
-                ...(TERMINAL_STATUS_CODES.has(doc.statusType)
+                ...(UNASSIGNED_TERMINAL_STATUS_CODES.has(doc.statusType)
                     ? {}
-                    : { statusType: { notIn: [...TERMINAL_STATUS_CODES] } }),
+                    : { statusType: { notIn: [...UNASSIGNED_TERMINAL_STATUS_CODES] } }),
             },
         });
     }

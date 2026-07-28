@@ -131,6 +131,16 @@ export interface IEformsignClientRepository {
         limit?: number,
         skip?: number,
     ): Promise<EformsignApiListResponse>;
+    getRejectedDocuments(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiDocumentResponse[]>;
+    getRejectedDocumentsPage(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiListResponse>;
     getAllDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]>;
     /** Narrow remote lookup used to reconcile an ambiguous document-creation attempt. */
     findDocumentsByTitle?(

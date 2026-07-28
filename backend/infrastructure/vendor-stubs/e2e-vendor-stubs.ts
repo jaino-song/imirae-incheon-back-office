@@ -528,6 +528,29 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         });
     }
 
+    getRejectedDocuments(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiDocumentResponse[]> {
+        return this.getRejectedDocumentsPage(accessToken, limit, skip)
+            .then((page) => page.documents);
+    }
+
+    getRejectedDocumentsPage(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiListResponse> {
+        void accessToken;
+        void limit;
+        void skip;
+        return Promise.resolve({
+            documents: [],
+            total_count: 0,
+        });
+    }
+
     getAllDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
         void accessToken;
         return Promise.resolve(buildEformsignStubDocuments());
