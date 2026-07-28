@@ -88,7 +88,11 @@ describe("CreateAndSendContractUsecase", () => {
         );
         expect(persistDocument).toHaveBeenCalledWith(
             "branch-1",
-            expect.objectContaining({ documentName: "표준계약서 - 김고객" }),
+            expect.objectContaining({
+                documentName: "표준계약서 - 김고객",
+                templateName: "표준계약서",
+                customerName: "김고객",
+            }),
         );
     });
 });

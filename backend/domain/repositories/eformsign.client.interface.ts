@@ -14,6 +14,11 @@ export interface EformsignApiDocumentResponse {
         id: string;
         name: string;
     };
+    last_editor?: {
+        recipient_type?: string;
+        id?: string;
+        name?: string;
+    };
     created_date: number; // epoch ms
     updated_date: number; // epoch ms
     current_status: {
@@ -37,6 +42,7 @@ export interface EformsignApiDocumentResponse {
         value: string;
         type: string;
     }>;
+    detail_template_info?: unknown;
     next_status?: Array<{
         step_type: string;
         step_name?: string;

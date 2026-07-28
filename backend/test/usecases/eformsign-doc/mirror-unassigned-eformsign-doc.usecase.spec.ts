@@ -21,14 +21,20 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 document_name: "외부 생성 계약서",
                 created_date: Date.parse("2026-07-01T01:00:00.000Z"),
                 updated_date: Date.parse("2026-07-02T02:00:00.000Z"),
-                template: { id: "template-1", name: "계약서" },
+                template: { id: "template-1", name: "표준 계약서" },
+                creator: { recipient_type: "01", id: "creator-id", name: "생성 담당자" },
+                last_editor: { name: "최종 편집자" },
+                fields: [{ id: "이용자 성명", value: "김고객", type: "text" }],
                 current_status: {
                     status_type: "060",
                     status_doc_detail: "서명 요청됨",
                     step_type: "",
                     step_index: "",
                     step_name: "",
-                    step_recipients: [],
+                    step_recipients: [
+                        { recipient_type: "05", id: "01012345678", name: "김고객" },
+                        { recipient_type: "06", id: "reviewer", name: "검토자" },
+                    ],
                     expired_date: 0,
                     _expired: false,
                 },
@@ -61,17 +67,23 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 documentKind: null,
                 documentName: "외부 생성 계약서",
                 documentNumber: "DOC-2026-001",
+                templateName: "표준 계약서",
+                customerName: "김고객",
+                creatorName: "생성 담당자",
+                lastEditorName: "최종 편집자",
+                stepRecipientTypes: ["05", "06"],
                 templateId: "template-1",
                 createdDate: new Date("2026-07-01T01:00:00.000Z"),
                 updatedDate: new Date("2026-07-02T02:00:00.000Z"),
                 stepType: "01",
                 stepIndex: "1",
                 stepName: "서명 요청",
-                stepRecipientType: "01",
-                stepRecipientName: "외부 생성 계약서",
-                stepRecipientSms: "미확인",
+                stepRecipientType: "05",
+                stepRecipientName: "김고객",
+                stepRecipientSms: "01012345678",
                 expiredDate: new Date(now + 30 * 24 * 60 * 60 * 1000),
             }),
+            { updateListDisplayFields: true },
         );
         expect(result.documentId).toBe("remote-doc");
     });
@@ -122,6 +134,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 createdDate: new Date(updatedDate),
                 updatedDate: new Date(updatedDate),
             }),
+            { updateListDisplayFields: true },
         );
         expect(warn).toHaveBeenCalledWith(
             expect.stringContaining("remote-doc"),
@@ -178,6 +191,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 createdDate: new Date(createdDate),
                 updatedDate: new Date(createdDate),
             }),
+            { updateListDisplayFields: true },
         );
         expect(warn).toHaveBeenCalledWith(
             expect.stringContaining("reversed-doc"),

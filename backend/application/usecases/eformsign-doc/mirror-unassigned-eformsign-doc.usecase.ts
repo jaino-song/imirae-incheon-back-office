@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 
+import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EFORMSIGN_DOC_REPOSITORY,
@@ -67,6 +68,13 @@ export class MirrorUnassignedEformsignDocUsecase {
             documentId: remote.id || documentId,
             documentName: remote.document_name || null,
             documentNumber: remote.document_number || null,
+            templateName: remote.template?.name?.trim() || null,
+            customerName: documentCustomerNameValue(remote),
+            creatorName: remote.creator?.name?.trim() || null,
+            lastEditorName: remote.last_editor?.name?.trim() || null,
+            stepRecipientTypes: remote.current_status.step_recipients?.length
+                ? remote.current_status.step_recipients.map((item) => item.recipient_type)
+                : null,
             createdDate,
             updatedDate: clampedUpdatedDate,
             statusType: remote.current_status.status_type || "000",
@@ -90,6 +98,8 @@ export class MirrorUnassignedEformsignDocUsecase {
             templateId: remote.template?.id ?? null,
         });
 
-        return this.eformsignDocRepository.upsertUnassignedByDocumentId(doc);
+        return this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {
+            updateListDisplayFields: true,
+        });
     }
 }

@@ -12,6 +12,11 @@ import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client
 export interface CreateEformsignDocParams {
     documentId: string;
     documentName?: string | null;
+    templateName?: string | null;
+    customerName?: string | null;
+    creatorName?: string | null;
+    lastEditorName?: string | null;
+    stepRecipientTypes?: string[] | null;
     clientId: number;
     statusType: string;
     statusDetail: string;
@@ -57,6 +62,11 @@ export class CreateEformsignDocUsecase {
             documentId: params.documentId,
             documentName: params.documentName?.trim() || null,
             documentNumber: null,
+            templateName: params.templateName?.trim() || null,
+            customerName: params.customerName?.trim() || linkedClient?.name.trim() || null,
+            creatorName: params.creatorName?.trim() || null,
+            lastEditorName: params.lastEditorName?.trim() || null,
+            stepRecipientTypes: params.stepRecipientTypes ?? null,
             clientId,
             createdDate: now,
             statusType: params.statusType,

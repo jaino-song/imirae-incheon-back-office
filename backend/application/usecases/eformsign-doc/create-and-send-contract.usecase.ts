@@ -124,6 +124,8 @@ export class CreateAndSendContractUsecase {
                 expiredDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
                 documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
                 templateId,
+                templateName: templateName ?? null,
+                customerName: client.name,
             });
 
             this.logger.log(`Contract created and sent: documentId=${result.documentId}, clientId=${clientId}`);

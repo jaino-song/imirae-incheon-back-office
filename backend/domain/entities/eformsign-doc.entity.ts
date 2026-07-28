@@ -13,6 +13,11 @@ interface EformsignDocProps {
     documentId: string;
     documentName?: string | null;
     documentNumber?: string | null;
+    templateName?: string | null;
+    customerName?: string | null;
+    creatorName?: string | null;
+    lastEditorName?: string | null;
+    stepRecipientTypes?: string[] | null;
     createdDate: Date;
     updatedDate: Date;
     // doc status code example: 060 = pending, 050 = completed, 080 = rejected
@@ -53,6 +58,11 @@ export class EformsignDocEntity {
             ...props,
             documentName: props.documentName ?? null,
             documentNumber: props.documentNumber ?? null,
+            templateName: props.templateName ?? null,
+            customerName: props.customerName ?? null,
+            creatorName: props.creatorName ?? null,
+            lastEditorName: props.lastEditorName ?? null,
+            stepRecipientTypes: props.stepRecipientTypes ?? null,
             documentKind: props.documentKind ?? null,
             employeeScheduleId: props.employeeScheduleId ?? null,
             templateId: props.templateId ?? null,
@@ -124,6 +134,11 @@ export class EformsignDocEntity {
     get documentId(): string { return this.props.documentId; }
     get documentName(): string | null { return this.props.documentName ?? null; }
     get documentNumber(): string | null { return this.props.documentNumber ?? null; }
+    get templateName(): string | null { return this.props.templateName ?? null; }
+    get customerName(): string | null { return this.props.customerName ?? null; }
+    get creatorName(): string | null { return this.props.creatorName ?? null; }
+    get lastEditorName(): string | null { return this.props.lastEditorName ?? null; }
+    get stepRecipientTypes(): string[] | null { return this.props.stepRecipientTypes ?? null; }
     get createdDate(): Date { return this.props.createdDate; }
     get updatedDate(): Date { return this.props.updatedDate; }
     get statusType(): string { return this.props.statusType; }
@@ -147,6 +162,11 @@ export class EformsignDocEntity {
             documentId: this.documentId,
             documentName: this.documentName,
             documentNumber: this.documentNumber,
+            templateName: this.templateName,
+            customerName: this.customerName,
+            creatorName: this.creatorName,
+            lastEditorName: this.lastEditorName,
+            stepRecipientTypes: this.stepRecipientTypes,
             createdDate: this.createdDate,
             updatedDate: this.updatedDate,
             statusType: this.statusType,

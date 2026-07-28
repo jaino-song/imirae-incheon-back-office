@@ -144,6 +144,7 @@ function setup() {
         template: { id: "template-1", name: "제공기록지" },
         document_name: "서비스 제공기록지 - 김고객 (1/1) [SR-11111111-v1]",
         creator: { recipient_type: "01", id: "reviewer@example.com", name: "검토자" },
+        last_editor: { recipient_type: "01", id: "editor@example.com", name: "최종 편집자" },
         created_date: Date.now(),
         updated_date: Date.now(),
         current_status: {
@@ -369,9 +370,19 @@ describe("client-owned service record snapshot", () => {
             where: { documentId: remoteDocument.id },
             create: expect.objectContaining({
                 documentName: chunk.documentName,
+                templateName: "제공기록지",
+                customerName: "김고객",
+                creatorName: "검토자",
+                lastEditorName: "최종 편집자",
+                stepRecipientTypes: "01",
             }),
             update: expect.objectContaining({
                 documentName: chunk.documentName,
+                templateName: "제공기록지",
+                customerName: "김고객",
+                creatorName: "검토자",
+                lastEditorName: "최종 편집자",
+                stepRecipientTypes: "01",
                 statusType: "070",
                 statusDetail: "검토 요청",
                 stepType: "06",

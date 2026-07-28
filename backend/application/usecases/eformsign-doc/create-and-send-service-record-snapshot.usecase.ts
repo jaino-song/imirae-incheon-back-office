@@ -11,6 +11,7 @@ import { Prisma } from "@prisma/client";
 import { createHash } from "crypto";
 import { EFORMSIGN_CLIENT_REPOSITORY, IEformsignClientRepository } from "domain/repositories/eformsign.client.interface";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import { encodeEformsignStepRecipientTypes } from "domain/value-objects/eformsign-step-recipient-types";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
@@ -739,6 +740,13 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         const now = new Date();
         const remoteStatus = params.remoteDocument?.current_status;
         const recipient = remoteStatus?.step_recipients?.[0];
+        const templateName = params.remoteDocument?.template.name?.trim() || null;
+        const customerName = params.record.client?.name.trim() || null;
+        const creatorName = params.remoteDocument?.creator.name?.trim() || null;
+        const lastEditorName = params.remoteDocument?.last_editor?.name?.trim() || null;
+        const stepRecipientTypes = encodeEformsignStepRecipientTypes(
+            remoteStatus?.step_recipients?.map((item) => item.recipient_type),
+        );
         const createdDate = params.remoteDocument?.created_date
             ? new Date(params.remoteDocument.created_date)
             : now;
@@ -756,6 +764,11 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 create: {
                     documentId: params.documentId,
                     documentName: params.chunk.documentName,
+                    templateName,
+                    customerName,
+                    creatorName,
+                    lastEditorName,
+                    stepRecipientTypes,
                     createdDate,
                     updatedDate,
                     statusType: remoteStatus?.status_type ?? "070",
@@ -779,6 +792,11 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 },
                 update: {
                     documentName: params.chunk.documentName,
+                    ...(templateName ? { templateName } : {}),
+                    ...(customerName ? { customerName } : {}),
+                    ...(creatorName ? { creatorName } : {}),
+                    ...(lastEditorName ? { lastEditorName } : {}),
+                    ...(stepRecipientTypes ? { stepRecipientTypes } : {}),
                     ...(remoteStatus ? {
                         updatedDate,
                         statusType: remoteStatus.status_type,

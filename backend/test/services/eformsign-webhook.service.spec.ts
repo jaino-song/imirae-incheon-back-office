@@ -15,11 +15,17 @@ describe("EformsignWebhookService", () => {
         clientId: number | null;
         documentName: string | null;
         statusType: string;
+        templateName: string | null;
     }> = {}): EformsignDocEntity =>
         EformsignDocEntity.reconstitute({
             id: 1,
             documentId,
             documentName: overrides.documentName ?? null,
+            templateName: overrides.templateName ?? "기존 템플릿명",
+            customerName: "기존 고객명",
+            creatorName: "기존 생성자",
+            lastEditorName: "기존 편집자",
+            stepRecipientTypes: ["05", "06"],
             createdDate: new Date("2026-05-01T00:00:00.000Z"),
             updatedDate: new Date("2026-05-02T00:00:00.000Z"),
             statusType: overrides.statusType ?? "060",
@@ -267,6 +273,7 @@ describe("EformsignWebhookService", () => {
                 documentId,
                 statusType: "060",
                 documentName: "산모신생아건강관리서비스 계약서",
+                templateName: "template",
                 templateId: "template-1",
             }),
         );
@@ -380,6 +387,43 @@ describe("EformsignWebhookService", () => {
 
         expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({ documentName: null }),
+        );
+    });
+
+    it("updates an unassigned document templateName without changing other list display fields", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null }),
+            branchId: null,
+        });
+
+        await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({
+                templateName: "template",
+                customerName: "기존 고객명",
+                creatorName: "기존 생성자",
+                lastEditorName: "기존 편집자",
+                stepRecipientTypes: ["05", "06"],
+            }),
+        );
+    });
+
+    it("keeps an unassigned document templateName when webhook template_name is blank", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.template_name = "   ";
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ templateName: null }),
         );
     });
 

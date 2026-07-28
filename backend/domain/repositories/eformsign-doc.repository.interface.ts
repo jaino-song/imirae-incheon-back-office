@@ -37,9 +37,14 @@ export interface EformsignDocCompletionClaimParams {
     stepName: string;
     expired: boolean;
     documentName?: string;
+    templateName?: string;
 }
 
 export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missing";
+
+export interface UpsertUnassignedEformsignDocOptions {
+    updateListDisplayFields?: boolean;
+}
 
 export interface IEformsignDocRepository {
     findById(branchid: string, id: number): Promise<EformsignDocEntity | null>;
@@ -61,7 +66,10 @@ export interface IEformsignDocRepository {
     create(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     update(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
-    upsertUnassignedByDocumentId(doc: EformsignDocEntity): Promise<EformsignDocEntity>;
+    upsertUnassignedByDocumentId(
+        doc: EformsignDocEntity,
+        options?: UpsertUnassignedEformsignDocOptions,
+    ): Promise<EformsignDocEntity>;
     delete(branchid: string, id: number): Promise<void>;
     deleteByDocumentId(branchid: string, documentId: string): Promise<void>;
 }

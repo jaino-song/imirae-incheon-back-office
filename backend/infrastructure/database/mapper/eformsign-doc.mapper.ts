@@ -1,10 +1,19 @@
 import { EformsignDocEntity, EformsignDocumentKind } from "domain/entities/eformsign-doc.entity";
+import {
+    decodeEformsignStepRecipientTypes,
+    encodeEformsignStepRecipientTypes,
+} from "domain/value-objects/eformsign-step-recipient-types";
 
 type EformsignDocRow = {
     id: number;
     documentId: string;
     documentName: string | null;
     documentNumber: string | null;
+    templateName: string | null;
+    customerName: string | null;
+    creatorName: string | null;
+    lastEditorName: string | null;
+    stepRecipientTypes: string | null;
     createdDate: Date;
     updatedDate: Date;
     statusType: string;
@@ -30,6 +39,11 @@ export class EformsignDocMapper {
             documentId: row.documentId,
             documentName: row.documentName,
             documentNumber: row.documentNumber,
+            templateName: row.templateName,
+            customerName: row.customerName,
+            creatorName: row.creatorName,
+            lastEditorName: row.lastEditorName,
+            stepRecipientTypes: decodeEformsignStepRecipientTypes(row.stepRecipientTypes),
             createdDate: row.createdDate,
             updatedDate: row.updatedDate,
             statusType: row.statusType,
@@ -54,6 +68,11 @@ export class EformsignDocMapper {
             documentId: entity.documentId,
             documentName: entity.documentName,
             documentNumber: entity.documentNumber,
+            templateName: entity.templateName,
+            customerName: entity.customerName,
+            creatorName: entity.creatorName,
+            lastEditorName: entity.lastEditorName,
+            stepRecipientTypes: encodeEformsignStepRecipientTypes(entity.stepRecipientTypes),
             createdDate: entity.createdDate,
             updatedDate: entity.updatedDate,
             statusType: entity.statusType,
@@ -77,10 +96,18 @@ export class EformsignDocMapper {
         return {
             documentId: entity.documentId,
             // Null means "the caller did not carry this value", not "clear it": several
-            // callers rebuild the entity without these two and would otherwise wipe a
-            // stored name. Nothing needs to clear them, so omission is the safe default.
+            // callers rebuild the entity without optional mirror metadata and would
+            // otherwise wipe stored values. Nothing needs to clear them, so omission is
+            // the safe default.
             ...(entity.documentName == null ? {} : { documentName: entity.documentName }),
             ...(entity.documentNumber == null ? {} : { documentNumber: entity.documentNumber }),
+            ...(entity.templateName == null ? {} : { templateName: entity.templateName }),
+            ...(entity.customerName == null ? {} : { customerName: entity.customerName }),
+            ...(entity.creatorName == null ? {} : { creatorName: entity.creatorName }),
+            ...(entity.lastEditorName == null ? {} : { lastEditorName: entity.lastEditorName }),
+            ...(entity.stepRecipientTypes == null
+                ? {}
+                : { stepRecipientTypes: encodeEformsignStepRecipientTypes(entity.stepRecipientTypes) }),
             createdDate: entity.createdDate,
             updatedDate: entity.updatedDate,
             statusType: entity.statusType,

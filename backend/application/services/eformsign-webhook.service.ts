@@ -227,6 +227,7 @@ export class EformsignWebhookService {
             document_title,
             document_status: status,
             template_id,
+            template_name,
             workflow_seq,
             workflow_name,
         } = pdfEvent;
@@ -241,6 +242,7 @@ export class EformsignWebhookService {
                 workflow_name,
                 "ready_document_pdf",
                 document_title,
+                template_name,
             );
             if (!claimed) {
                 if (this.isServiceRecordTemplate(template_id)) {
@@ -272,6 +274,7 @@ export class EformsignWebhookService {
                 stepName: workflow_name,
                 expired: false,
                 documentName: document_title,
+                templateName: template_name,
             });
 
             this.logger.log(`Document ${documentId} status updated from PDF event: ${status} -> ${statusDetail}`);
@@ -299,6 +302,7 @@ export class EformsignWebhookService {
             id: documentId,
             action,
             document_title,
+            template_name,
             workflow_seq,
             workflow_name,
         } = document;
@@ -319,6 +323,7 @@ export class EformsignWebhookService {
                 stepName: workflow_name || "unknown",
                 expired: false,
                 documentName: document_title,
+                templateName: template_name,
             });
 
             this.logger.log(`Document ${documentId} action recorded: ${action}`);
@@ -337,7 +342,15 @@ export class EformsignWebhookService {
         branchid: string,
         document: NonNullable<EformsignWebhookPayloadDto["document"]>
     ): Promise<void> {
-        const { id: documentId, status, document_title, template_id, workflow_seq, workflow_name } = document;
+        const {
+            id: documentId,
+            status,
+            document_title,
+            template_id,
+            template_name,
+            workflow_seq,
+            workflow_name,
+        } = document;
 
         this.logger.log(`Document event: ${documentId} -> status=${status}, title=${document_title}`);
 
@@ -351,6 +364,7 @@ export class EformsignWebhookService {
                 workflow_name,
                 status,
                 document_title,
+                template_name,
             );
             if (!claimed) {
                 if (this.isServiceRecordTemplate(template_id)) {
@@ -369,6 +383,7 @@ export class EformsignWebhookService {
                     stepName: workflow_name,
                     expired: false,
                     documentName: document_title,
+                    templateName: template_name,
                 });
 
                 this.logger.log(`Document ${documentId} status updated: ${status} -> ${statusDetail}`);
@@ -404,6 +419,7 @@ export class EformsignWebhookService {
         workflowName: string,
         source: string,
         documentName?: string,
+        templateName?: string,
     ): Promise<boolean> {
         const claimResult = await this.eformsignDocRepository.claimCompletionStatus(branchid, {
             documentId,
@@ -414,6 +430,7 @@ export class EformsignWebhookService {
             stepName: workflowName,
             expired: false,
             documentName: documentName?.trim() || undefined,
+            templateName: templateName?.trim() || undefined,
         });
 
         if (claimResult === "claimed") {
@@ -634,6 +651,7 @@ export class EformsignWebhookService {
         let updatedTimestamp: number;
         let documentName: string | undefined;
         let templateId: string | undefined;
+        let templateName: string | undefined;
 
         if (event_type === EVENT_TYPES.DOCUMENT && document) {
             ({ statusType, statusDetail } = this.mapStatus(document.status));
@@ -643,6 +661,7 @@ export class EformsignWebhookService {
             updatedTimestamp = document.updated_date;
             documentName = document.document_title?.trim() || undefined;
             templateId = document.template_id?.trim() || undefined;
+            templateName = document.template_name?.trim() || undefined;
         } else if (event_type === EVENT_TYPES.DOCUMENT_ACTION && document) {
             const isOpenAction = document.action?.includes("open");
             statusType = "020";
@@ -653,6 +672,7 @@ export class EformsignWebhookService {
             updatedTimestamp = document.updated_date;
             documentName = document.document_title?.trim() || undefined;
             templateId = document.template_id?.trim() || undefined;
+            templateName = document.template_name?.trim() || undefined;
         } else if (event_type === EVENT_TYPES.READY_DOCUMENT_PDF && ready_document_pdf) {
             ({ statusType, statusDetail } = this.mapStatus(ready_document_pdf.document_status));
             stepType = String(ready_document_pdf.workflow_seq);
@@ -661,6 +681,7 @@ export class EformsignWebhookService {
             updatedTimestamp = Date.now();
             documentName = ready_document_pdf.document_title?.trim() || undefined;
             templateId = ready_document_pdf.template_id?.trim() || undefined;
+            templateName = ready_document_pdf.template_name?.trim() || undefined;
         } else {
             this.logger.warn(
                 `Unknown webhook event type for unassigned document ${existing.documentId}: ${event_type}`,
@@ -683,6 +704,7 @@ export class EformsignWebhookService {
             ...existing.toJSON(),
             documentName: documentName ?? null,
             templateId: templateId ?? null,
+            templateName: templateName ?? null,
             updatedDate,
             statusType,
             statusDetail,

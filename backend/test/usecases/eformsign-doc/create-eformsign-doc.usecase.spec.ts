@@ -154,4 +154,16 @@ describe("CreateEformsignDocUsecase", () => {
         expect(result.documentName).toBe("서비스 제공기록지 - 김고객");
         expect(clientRepository.update).not.toHaveBeenCalled();
     });
+
+    it("stores a known template name and the linked client name", async () => {
+        const client = createClient(7, "010-1234-5678");
+        clientRepository.findById.mockResolvedValue(client);
+
+        const result = await usecase.execute(branchId, createParams({
+            templateName: "표준 계약서",
+        }));
+
+        expect(result.templateName).toBe("표준 계약서");
+        expect(result.customerName).toBe("고객 7");
+    });
 });

@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 
+import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 
@@ -56,6 +57,13 @@ export class AdoptEformsignDocUsecase {
             documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
             templateId: remote.template?.id ?? null,
             documentName: remote.document_name,
+            templateName: remote.template?.name ?? null,
+            customerName: documentCustomerNameValue(remote),
+            creatorName: remote.creator?.name ?? null,
+            lastEditorName: remote.last_editor?.name ?? null,
+            stepRecipientTypes: remote.current_status.step_recipients
+                ?.map((item) => item.recipient_type)
+                ?? null,
         });
     }
 }

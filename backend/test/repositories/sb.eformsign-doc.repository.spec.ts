@@ -137,6 +137,11 @@ describe("SbEformsignDocRepository", () => {
             templateId: "template-1",
             documentName: "외부 문서",
             documentNumber: "DOC-001",
+            templateName: "표준 계약서",
+            customerName: "김고객",
+            creatorName: "생성자",
+            lastEditorName: "편집자",
+            stepRecipientTypes: "05,06",
         });
 
         const result = await repository.findByDocumentIdUnscoped("doc-1");
@@ -352,6 +357,11 @@ describe("SbEformsignDocRepository", () => {
             templateId: "template-1",
             documentName: "외부 문서",
             documentNumber: "DOC-001",
+            templateName: "표준 계약서",
+            customerName: "김고객",
+            creatorName: "생성자",
+            lastEditorName: "편집자",
+            stepRecipientTypes: "05,06",
         });
         const doc = EformsignDocEntity.reconstitute({
             ...legacyRow,
@@ -361,6 +371,11 @@ describe("SbEformsignDocRepository", () => {
             templateId: "template-1",
             documentName: "외부 문서",
             documentNumber: "DOC-001",
+            templateName: "표준 계약서",
+            customerName: "김고객",
+            creatorName: "생성자",
+            lastEditorName: "편집자",
+            stepRecipientTypes: ["05", "06"],
         });
 
         await repository.upsertUnassignedByDocumentId(doc);
@@ -384,12 +399,57 @@ describe("SbEformsignDocRepository", () => {
             updatedDate: legacyRow.updatedDate,
             documentName: "외부 문서",
             templateId: "template-1",
+            templateName: "표준 계약서",
         });
         expect(args.update).not.toHaveProperty("branchId");
         expect(args.update).not.toHaveProperty("clientId");
         expect(args.update).not.toHaveProperty("documentKind");
         expect(args.update).not.toHaveProperty("expiredDate");
         expect(args.update).not.toHaveProperty("stepRecipientName");
+        expect(args.update).not.toHaveProperty("customerName");
+        expect(args.update).not.toHaveProperty("creatorName");
+        expect(args.update).not.toHaveProperty("lastEditorName");
+        expect(args.update).not.toHaveProperty("stepRecipientTypes");
+    });
+
+    it("updates all list display fields only for the mirror path", async () => {
+        eformsignDocModel.upsert.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "template-1",
+            documentName: "외부 문서",
+            documentNumber: "DOC-001",
+            templateName: "표준 계약서",
+            customerName: "김고객",
+            creatorName: "생성자",
+            lastEditorName: "편집자",
+            stepRecipientTypes: "05,06",
+        });
+        const doc = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            clientId: null,
+            templateName: "표준 계약서",
+            customerName: "김고객",
+            creatorName: "생성자",
+            lastEditorName: "편집자",
+            stepRecipientTypes: ["05", "06"],
+        });
+
+        await repository.upsertUnassignedByDocumentId(doc, {
+            updateListDisplayFields: true,
+        });
+
+        expect(eformsignDocModel.upsert.mock.calls[0][0].update).toEqual(
+            expect.objectContaining({
+                templateName: "표준 계약서",
+                customerName: "김고객",
+                creatorName: "생성자",
+                lastEditorName: "편집자",
+                stepRecipientTypes: "05,06",
+            }),
+        );
     });
 
     it("omits blank optional metadata when updating an unassigned document", async () => {
@@ -411,6 +471,7 @@ describe("SbEformsignDocRepository", () => {
             templateId: "   ",
             documentName: "   ",
             documentNumber: null,
+            templateName: "   ",
         });
 
         await repository.upsertUnassignedByDocumentId(doc);
@@ -418,6 +479,7 @@ describe("SbEformsignDocRepository", () => {
         const update = eformsignDocModel.upsert.mock.calls[0][0].update;
         expect(update).not.toHaveProperty("documentName");
         expect(update).not.toHaveProperty("templateId");
+        expect(update).not.toHaveProperty("templateName");
     });
 
     it.each(["", "   "])(
@@ -434,9 +496,11 @@ describe("SbEformsignDocRepository", () => {
                 stepName: "이용자",
                 expired: false,
                 documentName,
+                templateName: documentName,
             });
 
             expect(eformsignDocModel.updateMany.mock.calls[0][0].data.documentName).toBeUndefined();
+            expect(eformsignDocModel.updateMany.mock.calls[0][0].data.templateName).toBeUndefined();
         },
     );
 
