@@ -15,6 +15,8 @@ import {
 import { MirrorUnassignedEformsignDocUsecase } from "./mirror-unassigned-eformsign-doc.usecase";
 
 const BACKFILL_PAGE_SIZE = 100;
+// Slack for very small lists, where doubling the page count barely adds anything.
+const BACKFILL_MIN_PAGE_BUDGET = 20;
 
 export type EformsignBackfillDocumentType = "01" | "03" | "04";
 
@@ -134,7 +136,6 @@ export class BackfillEformsignDocsUsecase {
             this.assertCanContinue(options, summary);
             const tokenResponse = await this.eformsignClient.getAccessToken(Date.now());
             let accessToken = tokenResponse.oauth_token.access_token;
-            let refreshToken = tokenResponse.oauth_token.refresh_token;
 
             const scans: Array<{
                 documentType: EformsignBackfillDocumentType;
@@ -180,12 +181,10 @@ export class BackfillEformsignDocsUsecase {
                         throw error;
                     }
 
-                    const refreshedTokenResponse = await this.eformsignClient.refreshAccessToken(
+                    const reissuedTokenResponse = await this.eformsignClient.getAccessToken(
                         Date.now(),
-                        refreshToken,
                     );
-                    accessToken = refreshedTokenResponse.oauth_token.access_token;
-                    refreshToken = refreshedTokenResponse.oauth_token.refresh_token;
+                    accessToken = reissuedTokenResponse.oauth_token.access_token;
                     return fetchPage(limit, skip);
                 }
             };
@@ -201,6 +200,18 @@ export class BackfillEformsignDocsUsecase {
                         summary,
                         typeSummary,
                     });
+                    // Swallowing a single document's write error to finish the sweep is
+                    // deliberate, but the run still left the mirror incomplete and nothing
+                    // reconciles it yet. Calling that "completed" is the same silent
+                    // success the coverage check exists to prevent.
+                    if (typeSummary.failed > 0) {
+                        throw new BackfillEformsignDocsError(
+                            `Eformsign document backfill could not mirror every document`
+                            + ` type=${scan.documentType} failed=${typeSummary.failed};`
+                            + " rerun the backfill",
+                            summary,
+                        );
+                    }
                     typeSummary.status = "completed";
                 } catch (error) {
                     if (error instanceof EformsignBackfillLeaseLostError) {
@@ -253,6 +264,17 @@ export class BackfillEformsignDocsUsecase {
         }
     }
 
+    /**
+     * Pages needed to cover the total we were first quoted, doubled so a sweep is not
+     * failed by ordinary growth, plus a floor so tiny lists still get some slack.
+     */
+    private maxPagesFor(initialTotalRows: number): number {
+        const pagesForInitialTotal = Math.ceil(
+            initialTotalRows / BACKFILL_PAGE_SIZE,
+        );
+        return Math.max(BACKFILL_MIN_PAGE_BUDGET, pagesForInitialTotal * 2);
+    }
+
     private async scanDocumentType(params: {
         documentType: EformsignBackfillDocumentType;
         fetchPage: (limit: number, skip: number) => Promise<EformsignApiListResponse>;
@@ -261,9 +283,25 @@ export class BackfillEformsignDocsUsecase {
         typeSummary: EformsignDocsBackfillTypeSummary;
     }): Promise<void> {
         let skip = 0;
+        let initialTotalRows: number | undefined;
+        let pagesFetched = 0;
         const seenDocumentIds = new Set<string>();
 
         while (true) {
+            // A list that keeps growing faster than we page through it would otherwise
+            // loop forever, and this runs as an operator job. Bound it against the total
+            // we were first told, with room for documents arriving mid-sweep.
+            if (
+                initialTotalRows !== undefined
+                && pagesFetched >= this.maxPagesFor(initialTotalRows)
+            ) {
+                throw new BackfillEformsignDocsError(
+                    `Eformsign pagination exceeded its page budget type=${params.documentType}`
+                    + ` pages=${pagesFetched} initialTotal=${initialTotalRows};`
+                    + " the list is growing faster than the sweep — retry when it settles",
+                    params.summary,
+                );
+            }
             this.assertCanContinue(params.options, params.summary);
 
             let page: EformsignApiListResponse;
@@ -278,6 +316,15 @@ export class BackfillEformsignDocsUsecase {
             }
 
             this.assertValidTotalRows(page.total_rows, params.documentType, skip, params.summary);
+            pagesFetched += 1;
+            if (initialTotalRows === undefined) {
+                initialTotalRows = page.total_rows;
+            } else if (page.total_rows < initialTotalRows) {
+                throw new BackfillEformsignDocsError(
+                    `Eformsign total_rows decreased during pagination type=${params.documentType} skip=${skip} initialTotal=${initialTotalRows} currentTotal=${page.total_rows}`,
+                    params.summary,
+                );
+            }
             params.summary.pages += 1;
             params.summary.fetched += page.documents.length;
             params.typeSummary.pages += 1;
@@ -290,6 +337,17 @@ export class BackfillEformsignDocsUsecase {
                         params.summary,
                     );
                 }
+                this.assertCompleteCoverage(
+                    params.documentType,
+                    seenDocumentIds.size,
+                    page.total_rows,
+                    params.summary,
+                );
+                // The lease is only ever checked before a write, so losing it during the
+                // last one would still report success. This cannot stop the overlap — that
+                // needs a fence carried into the write itself — but it stops us claiming a
+                // sweep we no longer owned.
+                this.assertCanContinue(params.options, params.summary);
                 this.emitPageProgress(params, skip, page.total_rows);
                 return;
             }
@@ -321,9 +379,33 @@ export class BackfillEformsignDocsUsecase {
             skip = nextSkip;
             this.emitPageProgress(params, skip, page.total_rows);
             if (skip >= page.total_rows) {
+                this.assertCompleteCoverage(
+                    params.documentType,
+                    seenDocumentIds.size,
+                    page.total_rows,
+                    params.summary,
+                );
+                this.assertCanContinue(params.options, params.summary);
                 return;
             }
         }
+    }
+
+    private assertCompleteCoverage(
+        documentType: EformsignBackfillDocumentType,
+        uniqueSeen: number,
+        currentTotal: number,
+        summary: EformsignDocsBackfillSummary,
+    ): void {
+        const missing = currentTotal - uniqueSeen;
+        if (missing <= 0) {
+            return;
+        }
+
+        throw new BackfillEformsignDocsError(
+            `Eformsign document coverage incomplete type=${documentType} uniqueSeen=${uniqueSeen} currentTotal=${currentTotal} missing=${missing}; documents may have moved between folders during pagination, so rerun the backfill`,
+            summary,
+        );
     }
 
     private async persistDocument(

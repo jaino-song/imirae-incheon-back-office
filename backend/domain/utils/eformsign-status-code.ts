@@ -29,13 +29,27 @@ const STATUS_NAME_TO_CODE: Readonly<Record<string, string>> = {
     face_signature_complete: "092",
 };
 
-export function normalizeEformsignStatusCode(
-    statusType: string | null | undefined,
+function normalizeEformsignCode(
+    code: string | number | null | undefined,
+    width: number,
 ): string {
-    const normalized = statusType?.trim().toLowerCase();
+    const normalized = String(code ?? "").trim().toLowerCase();
+    return normalized ? normalized.padStart(width, "0") : "";
+}
+
+export function normalizeEformsignStatusCode(
+    statusType: string | number | null | undefined,
+): string {
+    const normalized = normalizeEformsignCode(statusType, 3);
     if (!normalized) {
         return "000";
     }
 
-    return STATUS_NAME_TO_CODE[normalized] ?? normalized.padStart(3, "0");
+    return STATUS_NAME_TO_CODE[normalized] ?? normalized;
+}
+
+export function normalizeEformsignStepType(
+    stepType: string | number | null | undefined,
+): string {
+    return normalizeEformsignCode(stepType, 2);
 }

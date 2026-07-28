@@ -4,7 +4,8 @@
  * Run from backend with production environment variables:
  *   pnpm backfill:eformsign-docs
  * The first run prints the exact target and required
- * EFORMSIGN_BACKFILL_CONFIRM_TARGET=<environment>@<database-host> value, then exits.
+ * EFORMSIGN_BACKFILL_CONFIRM_TARGET=<environment>@<host>:<port>/<db>?schema=<schema>&tenant=<project-or-user-fingerprint>,
+ * then exits.
  *
  * The command fails closed unless VALKEY_URL is configured. It never triggers
  * notification, client-linking, end-date sync, or service-record snapshot paths.
@@ -70,7 +71,7 @@ function confirmOperatorTarget(): void {
         databaseUrl: process.env["DATABASE_URL"],
     });
     logger.warn(
-        `Target environment=${target.environment} databaseHost=${target.databaseHost}`,
+        `Target environment=${target.environment} databaseTarget=${target.databaseTarget}`,
     );
     assertEformsignBackfillConfirmation(
         target,
@@ -101,10 +102,9 @@ async function main(): Promise<void> {
                 shouldContinue: lease.isHeld,
             }),
         );
+        // Reaching here means every document was mirrored: the usecase now throws rather
+        // than returning a summary that carries failures.
         logSummary("completed", summary);
-        if (summary.failed > 0) {
-            process.exitCode = 1;
-        }
     } catch (error) {
         if (error instanceof BackfillEformsignDocsError) {
             logSummary("failed", error.summary);

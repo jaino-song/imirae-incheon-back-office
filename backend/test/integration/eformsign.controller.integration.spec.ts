@@ -20,6 +20,7 @@ jest.retryTimes(1, { logErrorsBeforeRetry: true });
 
 describe("EformsignController (Integration)", () => {
     let app: INestApplication;
+    let controller: EformsignController;
     let eformsignService: jest.Mocked<Pick<
         EformsignService,
         | "generateSignature"
@@ -121,6 +122,7 @@ describe("EformsignController (Integration)", () => {
         await app.init();
 
         eformsignService = moduleFixture.get(EformsignService);
+        controller = moduleFixture.get(EformsignController);
         areaTemplateService = moduleFixture.get(AreaTemplateService);
         eformsignDocService = moduleFixture.get(EformsignDocService);
         assignmentGuard = moduleFixture.get(ContractClientAssignmentGuardService);
@@ -926,8 +928,8 @@ describe("EformsignController (Integration)", () => {
                             id: "d1",
                             created_date: "200",
                             current_status: {
-                                status_type: "060",
-                                step_type: "05",
+                                status_type: 60,
+                                step_type: 5,
                                 step_name: "이용자",
                                 step_recipients: [{ recipient_type: "01" }],
                             },
@@ -947,8 +949,8 @@ describe("EformsignController (Integration)", () => {
                             id: "d2",
                             created_date: "100",
                             current_status: {
-                                status_type: "001",
-                                step_type: "05",
+                                status_type: 1,
+                                step_type: 5,
                                 step_name: "이용자",
                                 step_recipients: [{ recipient_type: "02" }],
                             },
@@ -983,6 +985,54 @@ describe("EformsignController (Integration)", () => {
             },
         ]);
         expect(eformsignDocService.findAll).toHaveBeenCalledWith("branch-1");
+    });
+
+    it("normalizes raw numeric vendor codes in status signals without an HTTP socket", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "d1" },
+        ] as any);
+        eformsignService.getAllDocuments.mockImplementation((async (
+            _token: string,
+            _limit?: number,
+            skip?: number,
+        ) => {
+            if (skip === 0) {
+                return {
+                    documents: [
+                        {
+                            id: "d1",
+                            created_date: "200",
+                            current_status: {
+                                status_type: 60,
+                                step_type: 5,
+                                step_name: "이용자",
+                                step_recipients: [{ recipient_type: "01" }],
+                            },
+                        },
+                    ],
+                    total_rows: 1,
+                    limit: 100,
+                    skip: 0,
+                };
+            }
+            return { documents: [], total_rows: 0, limit: 100, skip: skip ?? 0 };
+        }) as any);
+
+        const response = await controller.getStatusCounts(
+            { branchId: "branch-1" },
+            "access-token",
+        );
+
+        expect(response).toEqual({
+            documents: [
+                {
+                    status_type: "060",
+                    step_type: "05",
+                    step_name: "이용자",
+                    step_recipient_types: ["01"],
+                },
+            ],
+        });
     });
 
     it("excludes other branches' docs from the incheon (HQ) status signals (status-counts)", async () => {

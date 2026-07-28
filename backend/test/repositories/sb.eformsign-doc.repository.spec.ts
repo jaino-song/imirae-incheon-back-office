@@ -1,6 +1,10 @@
 import { SbEformsignDocRepository } from "infrastructure/database/repositories/sb.eformsign-doc.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { UNASSIGNED_TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
+import {
+    UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
+    UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
+    UNASSIGNED_TERMINAL_STATUS_CODES,
+} from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EformsignDocOwnershipConflictError,
@@ -474,6 +478,7 @@ describe("SbEformsignDocRepository", () => {
             expired: false,
             updatedDate: legacyRow.updatedDate,
             documentName: "외부 문서",
+            documentNumber: "DOC-001",
             templateId: "template-1",
             templateName: "표준 계약서",
         });
@@ -583,11 +588,14 @@ describe("SbEformsignDocRepository", () => {
             }),
         ).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
 
-        expect(eformsignDocModel.updateMany.mock.calls[0][0].where.AND).toEqual(
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard.AND).toEqual(
             expect.arrayContaining([
-                expect.objectContaining({
-                    statusType: { notIn: expect.arrayContaining(["050", "080", "099"]) },
-                }),
+                {
+                    statusType: {
+                        notIn: expect.arrayContaining(["050", "080", "099"]),
+                    },
+                },
             ]),
         );
     });
@@ -623,6 +631,105 @@ describe("SbEformsignDocRepository", () => {
         expect(staleGuard.statusType.notIn).toEqual(
             expect.arrayContaining(["050", "080", "099"]),
         );
+    });
+
+    it.each([
+        ["062", "060"],
+        ["062", "063"],
+        ["071", "060"],
+        ["071", "063"],
+    ])(
+        "blocks review-stage status %s from transitioning backward to %s in the updateMany predicate",
+        async (storedStatus, incomingStatus) => {
+            eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+            eformsignDocModel.create.mockRejectedValue(
+                Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+            );
+            eformsignDocModel.count.mockResolvedValue(1);
+            const incoming = EformsignDocEntity.reconstitute({
+                ...legacyRow,
+                statusType: incomingStatus,
+                statusDetail: "서명 요청",
+                updatedDate: new Date("2026-07-02T00:00:00.000Z"),
+                documentKind: null,
+                employeeScheduleId: null,
+                templateId: null,
+            });
+
+            await expect(
+                repository.upsertUnassignedByDocumentId(incoming, {
+                    allowAssignedUpdate: true,
+                }),
+            ).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+            const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+            expect(staleGuard.AND).toEqual(expect.arrayContaining([
+                {
+                    OR: [
+                        {
+                            statusType: {
+                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_CODES],
+                            },
+                        },
+                        { statusType: incomingStatus },
+                    ],
+                },
+            ]));
+            expect(staleGuard.AND[1].OR[0].statusType.notIn).toContain(storedStatus);
+        },
+    );
+
+    it.each(["070", "080"])(
+        "allows review-stage rows to advance to %s in the updateMany predicate",
+        async (statusType) => {
+            eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+            eformsignDocModel.findFirst.mockResolvedValue({
+                ...legacyRow,
+                statusType,
+                branchId: null,
+                clientId: null,
+                documentKind: null,
+                employeeScheduleId: null,
+                templateId: null,
+            });
+            const incoming = EformsignDocEntity.reconstitute({
+                ...legacyRow,
+                statusType,
+                documentKind: null,
+                employeeScheduleId: null,
+                templateId: null,
+            });
+
+            await repository.upsertUnassignedByDocumentId(incoming);
+
+            const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+            expect(
+                UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE.has(statusType),
+            ).toBe(true);
+            expect(JSON.stringify(staleGuard)).not.toContain(
+                JSON.stringify([...UNASSIGNED_REVIEW_STAGE_STATUS_CODES]),
+            );
+        },
+    );
+
+    it("omits expired from list-sourced updates so an existing expired row is preserved", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            expired: true,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            updateExpired: false,
+        });
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
+            .not.toHaveProperty("expired");
     });
 
     it("upserts the same document twice without creating a duplicate row", async () => {
@@ -789,6 +896,7 @@ describe("SbEformsignDocRepository", () => {
         const doc = EformsignDocEntity.reconstitute({
             ...legacyRow,
             clientId: null,
+            documentNumber: "DOC-001",
             templateName: "표준 계약서",
             customerName: "김고객",
             creatorName: "생성자",
@@ -802,6 +910,7 @@ describe("SbEformsignDocRepository", () => {
 
         expect(eformsignDocModel.updateMany.mock.calls[0][0].data).toEqual(
             expect.objectContaining({
+                documentNumber: "DOC-001",
                 templateName: "표준 계약서",
                 customerName: "김고객",
                 creatorName: "생성자",
@@ -838,6 +947,7 @@ describe("SbEformsignDocRepository", () => {
 
         const update = eformsignDocModel.updateMany.mock.calls[0][0].data;
         expect(update).not.toHaveProperty("documentName");
+        expect(update).not.toHaveProperty("documentNumber");
         expect(update).not.toHaveProperty("templateId");
         expect(update).not.toHaveProperty("templateName");
     });

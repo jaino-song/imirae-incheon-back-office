@@ -8,12 +8,11 @@ import {
     IEformsignDocRepository,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
+import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
-
-const DEFAULT_DOCUMENT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface MirrorRemoteEformsignDocumentOptions {
     allowAssignedUpdate?: boolean;
@@ -52,6 +51,7 @@ export class MirrorUnassignedEformsignDocUsecase {
         const now = options.now ?? Date.now();
         const fallbackDocumentId = options.fallbackDocumentId ?? remote.id;
         const recipient = remote.current_status.step_recipients?.[0];
+        const hasRemoteExpiredState = remote.current_status._expired !== undefined;
         const remoteUpdatedDate = new Date(remote.updated_date);
         const updatedDate = Number.isNaN(remoteUpdatedDate.getTime())
             ? new Date(now)
@@ -103,15 +103,16 @@ export class MirrorUnassignedEformsignDocUsecase {
                 remote.current_status.status_doc_detail
                 || remote.current_status.step_name
                 || "진행중",
-            stepType: remote.current_status.step_type || "01",
-            stepIndex: remote.current_status.step_index || "1",
-            stepName: remote.current_status.step_name || "서명 요청",
-            stepRecipientType: recipient?.recipient_type || "01",
-            stepRecipientName: recipient?.name || remote.document_name || "수신자",
-            stepRecipientSms: recipient?.id || "미확인",
-            expiredDate: remote.current_status.expired_date
-                ? new Date(remote.current_status.expired_date)
-                : new Date(now + DEFAULT_DOCUMENT_EXPIRY_MS),
+            stepType: remote.current_status.step_type.trim() || "01",
+            stepIndex: remote.current_status.step_index.trim() || "1",
+            stepName: remote.current_status.step_name.trim() || "서명 요청",
+            stepRecipientType: recipient?.recipient_type.trim() || "01",
+            stepRecipientName: recipient?.name.trim() || remote.document_name || "수신자",
+            stepRecipientSms: recipient?.id.trim() || "미확인",
+            expiredDate: eformsignExpiryDateFromRemainingDays(
+                remote.current_status.expired_date,
+                now,
+            ),
             expired: remote.current_status._expired ?? false,
             clientId: null,
             documentKind: null,
@@ -122,6 +123,7 @@ export class MirrorUnassignedEformsignDocUsecase {
         return this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {
             ...(options.allowAssignedUpdate ? { allowAssignedUpdate: true } : {}),
             updateListDisplayFields: true,
+            ...(hasRemoteExpiredState ? {} : { updateExpired: false }),
         });
     }
 }

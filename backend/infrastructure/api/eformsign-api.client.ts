@@ -11,6 +11,10 @@ import {
     EformsignReviewerMember,
 } from "domain/repositories/eformsign.client.interface";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+import {
+    normalizeEformsignDocumentResponse,
+    normalizeEformsignListResponse,
+} from "infrastructure/api/eformsign-response.normalizer";
 
 const EFORMSIGN_MAX_ATTEMPTS = 4;
 const EFORMSIGN_REQUEST_TIMEOUT_MS = 10_000;
@@ -277,7 +281,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
         type: "01" | "03",
         title: string,
     ): Promise<EformsignApiDocumentResponse[]> {
-        const data = await this.request<EformsignApiListResponse>(
+        const data = await this.request<unknown>(
             "listDocumentsByTitle",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
             {
@@ -297,7 +301,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to find document by title",
         );
-        return data.documents ?? [];
+        return normalizeEformsignListResponse(data).documents;
     }
 
     private async listDocumentsPage(
@@ -309,7 +313,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
         errorPrefix: string,
     ): Promise<EformsignApiListResponse> {
         this.assertConfigured();
-        const data = await this.request<EformsignApiListResponse>(
+        const data = await this.request<unknown>(
             operation,
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
             {
@@ -329,10 +333,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             errorPrefix,
         );
-        return {
-            documents: data.documents ?? [],
-            total_rows: data.total_rows,
-        };
+        return normalizeEformsignListResponse(data);
     }
 
     /**
@@ -350,7 +351,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
             include_detail_template_info: "true",
         });
 
-        return this.request<EformsignApiDocumentResponse>(
+        const data = await this.request<unknown>(
             "getDocument",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/${documentId}?${includeParams.toString()}`,
             {
@@ -362,6 +363,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to get document",
         );
+        return normalizeEformsignDocumentResponse(data);
     }
 
     async createDocument(accessToken: string, payload: CreateDocumentPayload): Promise<CreateDocumentResponse> {

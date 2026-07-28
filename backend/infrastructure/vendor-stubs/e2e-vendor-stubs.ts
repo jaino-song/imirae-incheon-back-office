@@ -23,6 +23,10 @@ import {
 import { AligoApiClient } from "infrastructure/api/aligo-api.client";
 import { EformsignApiClient } from "infrastructure/api/eformsign-api.client";
 import {
+    normalizeEformsignDocumentResponse,
+    normalizeEformsignListResponse,
+} from "infrastructure/api/eformsign-response.normalizer";
+import {
     ChatMessage,
     FunctionCall,
     FunctionDeclaration,
@@ -64,7 +68,11 @@ function buildGeminiStubText(messages: ChatMessage[]): string {
     return `${GEMINI_STUB_PREFIX}${normalizeGeminiStubText(lastUserMessage)}`;
 }
 
-type EformsignStubDocument = EformsignApiDocumentResponse & {
+type EformsignStubWireDocument = Omit<
+    EformsignApiDocumentResponse,
+    "created_date" | "current_status" | "updated_date"
+> & {
+    created_date: string;
     detail_template_info?: {
         id: string;
         name: string;
@@ -77,9 +85,35 @@ type EformsignStubDocument = EformsignApiDocumentResponse & {
     };
     previous_status?: unknown[];
     recipients?: unknown[];
+    updated_date: string;
+    current_status: Omit<
+        EformsignApiDocumentResponse["current_status"],
+        "status_type" | "step_index" | "step_type"
+    > & {
+        status_type: number;
+        step_index: number;
+        step_type: number;
+    };
 };
 
-const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
+/**
+ * The list response is genuinely narrower than a single-document fetch: the vendor schema
+ * carries no expiry pair at all, and lists step_recipients and fields as optional — the
+ * vendor leaves them out unless asked. Typing the absences keeps the stub honest.
+ */
+type EformsignStubWireListDocument = Omit<EformsignStubWireDocument, "current_status" | "fields"> & {
+    current_status: Omit<
+        EformsignStubWireDocument["current_status"],
+        "step_recipients" | "expired_date" | "_expired"
+    >;
+};
+
+interface EformsignStubWireListResponse {
+    documents: EformsignStubWireListDocument[];
+    total_rows: string;
+}
+
+const STUB_EFORMSIGN_DOCUMENTS: EformsignStubWireDocument[] = [
     {
         id: "doc-finalize-test",
         document_number: "E2E-20260602-0002",
@@ -97,19 +131,19 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
-        created_date: Date.parse("2026-06-02T09:00:00.000Z"),
-        updated_date: Date.parse("2026-06-02T09:00:00.000Z"),
+        created_date: String(Date.parse("2026-06-02T09:00:00.000Z")),
+        updated_date: String(Date.parse("2026-06-02T09:00:00.000Z")),
         last_editor: {
             recipient_type: "01",
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
         current_status: {
-            status_type: "060",
+            status_type: 60,
             status_doc_type: "진행중",
             status_doc_detail: "검토 필요",
-            step_type: "05",
-            step_index: "3",
+            step_type: 5,
+            step_index: 3,
             step_name: "이용자 서명",
             step_recipients: [
                 {
@@ -119,7 +153,7 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
                 },
             ],
             step_group: 0,
-            expired_date: Date.parse("2026-06-30T09:00:00.000Z"),
+            expired_date: 0,
             _expired: false,
         },
         fields: [],
@@ -145,19 +179,19 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
-        created_date: Date.parse("2026-06-03T09:00:00.000Z"),
-        updated_date: Date.parse("2026-06-03T09:00:00.000Z"),
+        created_date: String(Date.parse("2026-06-03T09:00:00.000Z")),
+        updated_date: String(Date.parse("2026-06-03T09:00:00.000Z")),
         last_editor: {
             recipient_type: "01",
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
         current_status: {
-            status_type: "002",
+            status_type: 2,
             status_doc_type: "진행중",
             status_doc_detail: "대기",
-            step_type: "01",
-            step_index: "1",
+            step_type: 1,
+            step_index: 1,
             step_name: "발송 대기",
             step_recipients: [
                 {
@@ -167,7 +201,7 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
                 },
             ],
             step_group: 0,
-            expired_date: Date.parse("2026-07-03T09:00:00.000Z"),
+            expired_date: 30,
             _expired: false,
         },
         fields: [],
@@ -193,19 +227,19 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
-        created_date: Date.parse("2026-06-02T09:00:00.000Z"),
-        updated_date: Date.parse("2026-06-02T09:00:00.000Z"),
+        created_date: String(Date.parse("2026-06-02T09:00:00.000Z")),
+        updated_date: String(Date.parse("2026-06-02T09:00:00.000Z")),
         last_editor: {
             recipient_type: "01",
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
         current_status: {
-            status_type: "002",
+            status_type: 2,
             status_doc_type: "진행중",
             status_doc_detail: "대기",
-            step_type: "01",
-            step_index: "1",
+            step_type: 1,
+            step_index: 1,
             step_name: "발송 대기",
             step_recipients: [
                 {
@@ -215,7 +249,7 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
                 },
             ],
             step_group: 0,
-            expired_date: Date.parse("2026-07-02T09:00:00.000Z"),
+            expired_date: 29,
             _expired: false,
         },
         fields: [],
@@ -241,19 +275,19 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
-        created_date: Date.parse("2026-05-01T09:00:00.000Z"),
-        updated_date: Date.parse("2026-05-01T09:00:00.000Z"),
+        created_date: String(Date.parse("2026-05-01T09:00:00.000Z")),
+        updated_date: String(Date.parse("2026-05-01T09:00:00.000Z")),
         last_editor: {
             recipient_type: "01",
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
         current_status: {
-            status_type: "060",
+            status_type: 60,
             status_doc_type: "진행중",
             status_doc_detail: "대기",
-            step_type: "05",
-            step_index: "2",
+            step_type: 5,
+            step_index: 2,
             step_name: "이용자 서명",
             step_recipients: [
                 {
@@ -263,7 +297,7 @@ const STUB_EFORMSIGN_DOCUMENTS: EformsignStubDocument[] = [
                 },
             ],
             step_group: 0,
-            expired_date: Date.parse("2026-06-30T09:00:00.000Z"),
+            expired_date: 60,
             _expired: false,
         },
         fields: [],
@@ -278,7 +312,7 @@ function cloneStubDocument<T>(value: T): T {
     return structuredClone(value);
 }
 
-function buildFallbackStubDocument(documentId: string): EformsignStubDocument {
+function buildFallbackStubDocument(documentId: string): EformsignStubWireDocument {
     return {
         id: documentId,
         document_number: `E2E-${documentId}`,
@@ -296,19 +330,19 @@ function buildFallbackStubDocument(documentId: string): EformsignStubDocument {
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
-        created_date: Date.parse("2026-06-06T00:00:00.000Z"),
-        updated_date: Date.parse("2026-06-06T00:00:00.000Z"),
+        created_date: String(Date.parse("2026-06-06T00:00:00.000Z")),
+        updated_date: String(Date.parse("2026-06-06T00:00:00.000Z")),
         last_editor: {
             recipient_type: "01",
             id: EFORMSIGN_STUB_USER_EMAIL,
             name: "E2E Stub Staff",
         },
         current_status: {
-            status_type: "002",
+            status_type: 2,
             status_doc_type: "진행중",
             status_doc_detail: "대기",
-            step_type: "01",
-            step_index: "1",
+            step_type: 1,
+            step_index: 1,
             step_name: "발송 대기",
             step_recipients: [
                 {
@@ -318,7 +352,7 @@ function buildFallbackStubDocument(documentId: string): EformsignStubDocument {
                 },
             ],
             step_group: 0,
-            expired_date: Date.parse("2026-07-06T00:00:00.000Z"),
+            expired_date: 30,
             _expired: false,
         },
         fields: [],
@@ -401,30 +435,58 @@ export function buildEformsignStubTokenResponse(): EformsignTokenResponse {
     };
 }
 
-export function buildEformsignStubDocuments(): EformsignStubDocument[] {
+function buildEformsignStubWireDocuments(): EformsignStubWireDocument[] {
     return STUB_EFORMSIGN_DOCUMENTS
         .map((document) => cloneStubDocument(document))
-        .sort((left, right) => right.created_date - left.created_date);
+        .sort((left, right) => Number(right.created_date) - Number(left.created_date));
+}
+
+function buildEformsignStubWireDocument(documentId: string): EformsignStubWireDocument {
+    const existing = STUB_EFORMSIGN_DOCUMENTS.find((document) => document.id === documentId);
+    return cloneStubDocument(existing ?? buildFallbackStubDocument(documentId));
+}
+
+export function buildEformsignStubDocuments(): EformsignApiDocumentResponse[] {
+    return buildEformsignStubWireDocuments().map(normalizeEformsignDocumentResponse);
 }
 
 export function buildEformsignStubListResponse(
     documentType: "01" | "03" | "04",
     limit: number,
     skip: number,
-): EformsignApiListResponse {
+): EformsignStubWireListResponse {
     const documents = documentType === "01"
-        ? buildEformsignStubDocuments().slice(skip, skip + limit)
+        ? buildEformsignStubWireDocuments().slice(skip, skip + limit)
         : [];
 
-    return {
+    return buildSpecShapedEformsignListResponse(
         documents,
-        total_rows: documentType === "01" ? STUB_EFORMSIGN_DOCUMENTS.length : 0,
+        documentType === "01" ? STUB_EFORMSIGN_DOCUMENTS.length : 0,
+    );
+}
+
+function buildSpecShapedEformsignListResponse(
+    documents: EformsignStubWireDocument[],
+    totalRows = documents.length,
+): EformsignStubWireListResponse {
+    return {
+        documents: documents.map((document) => {
+            // The list response is a narrower shape than a single-document fetch. The
+            // expiry pair is absent from the list schema outright; step_recipients and
+            // fields are in it but optional, and the vendor omits them unless asked.
+            // Omitting all four is the shape our readers actually have to survive.
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars -- named only to drop them
+            const { step_recipients, expired_date, _expired, ...current_status } = document.current_status;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars -- named only to drop it
+            const { fields, ...listDocument } = { ...document, current_status };
+            return listDocument;
+        }),
+        total_rows: String(totalRows),
     };
 }
 
-export function buildEformsignStubDocument(documentId: string): EformsignStubDocument {
-    const existing = STUB_EFORMSIGN_DOCUMENTS.find((document) => document.id === documentId);
-    return cloneStubDocument(existing ?? buildFallbackStubDocument(documentId));
+export function buildEformsignStubDocument(documentId: string): EformsignStubWireDocument {
+    return buildEformsignStubWireDocument(documentId);
 }
 
 export function buildEformsignStubCreateDocumentResponse(
@@ -499,11 +561,13 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         skip = 0,
     ): Promise<EformsignApiListResponse> {
         void accessToken;
-        const documents = buildEformsignStubDocuments();
-        return Promise.resolve({
-            documents: documents.slice(skip, skip + limit),
-            total_rows: documents.length,
-        });
+        const documents = buildEformsignStubWireDocuments();
+        return Promise.resolve(normalizeEformsignListResponse(
+            buildSpecShapedEformsignListResponse(
+                documents.slice(skip, skip + limit),
+                documents.length,
+            ),
+        ));
     }
 
     getCompletedDocuments(
@@ -521,11 +585,13 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         skip = 0,
     ): Promise<EformsignApiListResponse> {
         void accessToken;
-        const documents = buildEformsignStubDocuments();
-        return Promise.resolve({
-            documents: documents.slice(skip, skip + limit),
-            total_rows: documents.length,
-        });
+        const documents = buildEformsignStubWireDocuments();
+        return Promise.resolve(normalizeEformsignListResponse(
+            buildSpecShapedEformsignListResponse(
+                documents.slice(skip, skip + limit),
+                documents.length,
+            ),
+        ));
     }
 
     getRejectedDocuments(
@@ -545,10 +611,9 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         void accessToken;
         void limit;
         void skip;
-        return Promise.resolve({
-            documents: [],
-            total_rows: 0,
-        });
+        return Promise.resolve(normalizeEformsignListResponse(
+            buildSpecShapedEformsignListResponse([], 0),
+        ));
     }
 
     getAllDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
@@ -568,7 +633,9 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
 
     getDocument(accessToken: string, documentId: string): Promise<EformsignApiDocumentResponse> {
         void accessToken;
-        return Promise.resolve(buildEformsignStubDocument(documentId));
+        return Promise.resolve(
+            normalizeEformsignDocumentResponse(buildEformsignStubWireDocument(documentId)),
+        );
     }
 
     createDocument(accessToken: string, payload: CreateDocumentPayload): Promise<CreateDocumentResponse> {

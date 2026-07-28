@@ -71,27 +71,145 @@ describe("EformsignApiClient retry policy", () => {
         }));
     });
 
-    it("returns total_rows from the page method and forwards limit and skip", async () => {
+    it("normalizes the vendor list response before returning it to consumers", async () => {
         const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
             JSON.stringify({
-                documents: [{ id: "document-201" }],
-                total_rows: 1_205,
+                documents: [{
+                    id: "document-201",
+                    document_number: "DOC-201",
+                    document_name: "문서 201",
+                    template: { id: "template-1", name: "계약서" },
+                    creator: { recipient_type: "01", id: "creator", name: "생성자" },
+                    created_date: "1628500286702",
+                    updated_date: "1628500287046",
+                    current_status: {
+                        status_type: 60,
+                        status_doc_type: "진행중",
+                        status_doc_detail: "검토 필요",
+                        step_type: 5,
+                        step_index: 0,
+                        step_name: "계약 상",
+                        step_recipients: [{
+                            recipient_type: 1,
+                            id: 0,
+                            name: "홍길동",
+                        }],
+                        step_group: 3,
+                    },
+                }],
+                total_rows: "2",
             }),
             { status: 200 },
         ));
 
-        await expect(
-            createClient().getCompletedDocumentsPage("access-token", 75, 1_125),
-        ).resolves.toEqual({
-            documents: [{ id: "document-201" }],
-            total_rows: 1_205,
+        const page = await createClient()
+            .getCompletedDocumentsPage("access-token", 75, 1_125);
+        expect(page).toEqual({
+            documents: [expect.objectContaining({
+                id: "document-201",
+                created_date: 1_628_500_286_702,
+                updated_date: 1_628_500_287_046,
+                current_status: expect.objectContaining({
+                    status_type: "060",
+                    step_type: "05",
+                    step_index: "0",
+                    step_recipients: [{
+                        recipient_type: "1",
+                        id: "0",
+                        name: "홍길동",
+                    }],
+                }),
+            })],
+            total_rows: 2,
         });
+        const [document] = page.documents;
+        expect(document?.current_status).not.toHaveProperty("expired_date");
+        expect(document?.current_status).not.toHaveProperty("_expired");
 
         const request = fetchMock.mock.calls[0]?.[1];
         expect(JSON.parse(String(request?.body))).toEqual(expect.objectContaining({
             type: "03",
             limit: "75",
             skip: "1125",
+        }));
+    });
+
+    it.each(["", "not-a-number", "-1", null, false])(
+        "rejects invalid total_rows value %p at the API boundary",
+        async (totalRows) => {
+            jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+                JSON.stringify({ documents: [], total_rows: totalRows }),
+                { status: 200 },
+            ));
+
+            await expect(
+                createClient().getInProgressDocumentsPage("access-token"),
+            ).rejects.toThrow("Invalid eformsign total_rows");
+        },
+    );
+
+    it("normalizes dates and preserves remaining expiry days on detail responses", async () => {
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                id: "detail-document",
+                document_number: "DOC-DETAIL",
+                document_name: "상세 문서",
+                template: { id: "template-1", name: "계약서" },
+                creator: { recipient_type: "01", id: "creator", name: "생성자" },
+                created_date: "1628500286702",
+                updated_date: "1628500287046",
+                current_status: {
+                    status_type: 80,
+                    status_doc_type: "완료",
+                    status_doc_detail: "만료",
+                    step_type: 5,
+                    step_index: 0,
+                    step_name: "완료",
+                    step_recipients: [],
+                    step_group: 3,
+                    expired_date: "3",
+                    _expired: true,
+                },
+            }),
+            { status: 200 },
+        ));
+
+        await expect(
+            createClient().getDocument("access-token", "detail-document"),
+        ).resolves.toEqual(expect.objectContaining({
+            created_date: 1_628_500_286_702,
+            updated_date: 1_628_500_287_046,
+            current_status: expect.objectContaining({
+                status_type: "080",
+                step_type: "05",
+                step_index: "0",
+                expired_date: 3,
+                _expired: true,
+            }),
+        }));
+    });
+
+    it("preserves zero remaining expiry days as the no-expiry sentinel", async () => {
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                id: "no-expiry-document",
+                current_status: {
+                    status_type: 60,
+                    step_type: 6,
+                    expired_date: 0,
+                },
+            }),
+            { status: 200 },
+        ));
+
+        await expect(
+            createClient().getDocument("access-token", "no-expiry-document"),
+        ).resolves.toEqual(expect.objectContaining({
+            current_status: expect.objectContaining({
+                status_type: "060",
+                step_type: "06",
+                expired_date: 0,
+            }),
         }));
     });
 
@@ -107,7 +225,7 @@ describe("EformsignApiClient retry policy", () => {
         await expect(
             createClient().getRejectedDocumentsPage("access-token", 25, 50),
         ).resolves.toEqual({
-            documents: [{ id: "rejected-document" }],
+            documents: [expect.objectContaining({ id: "rejected-document" })],
             total_rows: 17,
         });
 

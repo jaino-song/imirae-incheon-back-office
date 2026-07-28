@@ -64,6 +64,7 @@ export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missi
 export interface UpsertUnassignedEformsignDocOptions {
     allowAssignedUpdate?: boolean;
     updateListDisplayFields?: boolean;
+    updateExpired?: boolean;
 }
 
 export interface IEformsignDocRepository {

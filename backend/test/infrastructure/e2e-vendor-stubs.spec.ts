@@ -6,6 +6,8 @@ import { GeminiChatGateway } from "infrastructure/api/gemini-chat.gateway";
 import { VercelGeminiGateway } from "infrastructure/api/vercel-gemini.gateway";
 import {
     assertVendorStubsConfigured,
+    buildEformsignStubDocument,
+    buildEformsignStubListResponse,
     createAligoPortClient,
     createEformsignClientRepository,
     createGeminiGateway,
@@ -128,6 +130,72 @@ describe("vendor stub factory selection", () => {
             { type: "text", content: "안녕하세요 반가워요" },
             { type: "done" },
         ]);
+    });
+
+    it("returns raw vendor list values from the HTTP-boundary eformsign stub", () => {
+        const page = buildEformsignStubListResponse("01", 1, 0);
+
+        expect(Number(page.total_rows)).toBeGreaterThan(0);
+        expect(typeof page.total_rows).toBe("string");
+        expect(page.documents[0]).toEqual(expect.objectContaining({
+            created_date: expect.stringMatching(/^\d+$/),
+            updated_date: expect.stringMatching(/^\d+$/),
+            current_status: expect.objectContaining({
+                status_type: expect.any(Number),
+                step_type: expect.any(Number),
+                step_index: expect.any(Number),
+            }),
+        }));
+        expect(page.documents[0]?.current_status).not.toHaveProperty("expired_date");
+        expect(page.documents[0]?.current_status).not.toHaveProperty("_expired");
+        // The list schema carries neither of these; only a single-document fetch does.
+        expect(page.documents[0]?.current_status).not.toHaveProperty("step_recipients");
+        expect(page.documents[0]).not.toHaveProperty("fields");
+    });
+
+    it("returns a raw vendor document from the HTTP-boundary eformsign stub", () => {
+        const document = buildEformsignStubDocument("doc-finalize-test");
+
+        expect(document).toEqual(expect.objectContaining({
+            created_date: expect.stringMatching(/^\d+$/),
+            updated_date: expect.stringMatching(/^\d+$/),
+            current_status: expect.objectContaining({
+                status_type: 60,
+                step_type: 5,
+                step_index: 3,
+            }),
+        }));
+    });
+
+    it("keeps API-client stub responses normalized for backfill consumers", async () => {
+        const client = new E2eEformsignClientStub();
+
+        const page = await client.getInProgressDocumentsPage("ignored-token", 1, 0);
+        const document = await client.getDocument("ignored-token", "doc-finalize-test");
+
+        expect(page).toEqual(expect.objectContaining({
+            total_rows: expect.any(Number),
+            documents: [
+                expect.objectContaining({
+                    created_date: expect.any(Number),
+                    updated_date: expect.any(Number),
+                    current_status: expect.objectContaining({
+                        status_type: expect.stringMatching(/^\d{3}$/),
+                        step_type: expect.stringMatching(/^\d{2}$/),
+                        step_index: expect.any(String),
+                    }),
+                }),
+            ],
+        }));
+        expect(document).toEqual(expect.objectContaining({
+            created_date: expect.any(Number),
+            updated_date: expect.any(Number),
+            current_status: expect.objectContaining({
+                status_type: "060",
+                step_type: "05",
+                step_index: "3",
+            }),
+        }));
     });
 });
 

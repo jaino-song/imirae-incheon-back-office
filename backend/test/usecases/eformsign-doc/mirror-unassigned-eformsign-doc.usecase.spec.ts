@@ -81,7 +81,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 stepRecipientType: "05",
                 stepRecipientName: "김고객",
                 stepRecipientSms: "01012345678",
-                expiredDate: new Date(now + 30 * 24 * 60 * 60 * 1000),
+                expiredDate: new Date("9999-12-31T23:59:59.999Z"),
             }),
             { updateListDisplayFields: true },
         );
@@ -225,12 +225,10 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 status_doc_type: "",
                 status_doc_detail: "서명 요청",
                 step_type: "05",
-                step_index: "1",
+                step_index: "0",
                 step_name: "이용자",
                 step_recipients: [],
                 step_group: 1,
-                expired_date: 0,
-                _expired: false,
             },
         }, {
             allowAssignedUpdate: true,
@@ -245,11 +243,102 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 clientId: null,
                 documentKind: null,
                 employeeScheduleId: null,
+                expiredDate: new Date(
+                    Date.parse("2026-07-03T00:00:00.000Z")
+                    + 30 * 24 * 60 * 60 * 1000,
+                ),
+                stepIndex: "0",
             }),
             {
                 allowAssignedUpdate: true,
                 updateListDisplayFields: true,
+                updateExpired: false,
             },
+        );
+    });
+
+    it("uses normalized epoch values instead of replacing numeric strings with now", async () => {
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+        );
+
+        await usecase.mirrorRemoteDocument({
+            id: "numeric-string-dates",
+            document_number: "DOC-101",
+            document_name: "목록 문서",
+            created_date: 1_628_500_286_702,
+            updated_date: 1_628_500_287_046,
+            template: { id: "template-1", name: "계약서" },
+            creator: { recipient_type: "01", id: "creator", name: "생성자" },
+            current_status: {
+                status_type: "060",
+                status_doc_type: "",
+                status_doc_detail: "서명 요청",
+                step_type: "05",
+                step_index: "0",
+                step_name: "이용자",
+                step_recipients: [],
+                step_group: 1,
+            },
+        }, { now: Date.parse("2030-01-01T00:00:00.000Z") });
+
+        expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({
+                createdDate: new Date(1_628_500_286_702),
+                updatedDate: new Date(1_628_500_287_046),
+                stepIndex: "0",
+            }),
+            expect.objectContaining({ updateExpired: false }),
+        );
+    });
+
+    it("converts remaining expiry days to a date from the mirror reference time", async () => {
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+        );
+        const now = Date.parse("2026-07-03T00:00:00.000Z");
+
+        await usecase.mirrorRemoteDocument({
+            id: "expires-in-three-days",
+            document_number: "DOC-102",
+            document_name: "상세 문서",
+            created_date: Date.parse("2026-07-01T00:00:00.000Z"),
+            updated_date: Date.parse("2026-07-02T00:00:00.000Z"),
+            template: { id: "template-1", name: "계약서" },
+            creator: { recipient_type: "01", id: "creator", name: "생성자" },
+            current_status: {
+                status_type: "060",
+                status_doc_type: "",
+                status_doc_detail: "서명 요청",
+                step_type: "05",
+                step_index: "0",
+                step_name: "이용자",
+                step_recipients: [],
+                step_group: 1,
+                expired_date: 3,
+                _expired: false,
+            },
+        }, { now });
+
+        expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({
+                expiredDate: new Date(now + 3 * 24 * 60 * 60 * 1000),
+            }),
+            expect.any(Object),
         );
     });
 

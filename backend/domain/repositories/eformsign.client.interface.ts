@@ -1,6 +1,4 @@
-/**
- * Raw API response types from eformsign API
- */
+/** Normalized eformsign response exposed below the infrastructure boundary. */
 export interface EformsignApiDocumentResponse {
     id: string;
     document_number: string;
@@ -34,8 +32,8 @@ export interface EformsignApiDocumentResponse {
             name: string;
         }>;
         step_group: number;
-        expired_date: number; // epoch ms
-        _expired: boolean;
+        expired_date?: number; // remaining days; 0 means no expiry; detail responses only
+        _expired?: boolean; // detail responses only
     };
     fields?: Array<{
         id: string;

@@ -32,7 +32,10 @@ import {
     type UnknownRecord,
 } from "application/utils/eformsign-document-customer-name";
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
-import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
+import {
+    normalizeEformsignStatusCode,
+    normalizeEformsignStepType,
+} from "domain/utils/eformsign-status-code";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 function throwHttpOrInternalError(error: unknown): never {
@@ -170,7 +173,9 @@ function getCurrentStatus(document: EformsignListDoc): UnknownRecord | null {
 
 function isProviderReviewStep(document: EformsignListDoc): boolean {
     const currentStatus = getCurrentStatus(document);
-    const stepType = stringFromUnknown(currentStatus?.["step_type"]) ?? "";
+    const stepType = normalizeEformsignStepType(
+        stringFromUnknown(currentStatus?.["step_type"]),
+    );
     const stepName = stringFromUnknown(currentStatus?.["step_name"]) ?? "";
 
     if (PROVIDER_REVIEW_STEP_TYPES.has(stepType)) {
@@ -406,11 +411,20 @@ function toStatusSignal(doc: unknown): EformsignStatusSignal {
         };
     }).current_status;
     const stepRecipients = Array.isArray(currentStatus?.step_recipients) ? currentStatus.step_recipients : [];
+    const statusType = stringFromUnknown(currentStatus?.status_type);
+    const stepType = stringFromUnknown(currentStatus?.step_type);
     return {
-        status_type: typeof currentStatus?.status_type === "string" ? currentStatus.status_type : null,
-        step_type: typeof currentStatus?.step_type === "string" ? currentStatus.step_type : null,
-        step_name: typeof currentStatus?.step_name === "string" ? currentStatus.step_name : null,
-        step_recipient_types: stepRecipients.map((r) => (typeof r?.recipient_type === "string" ? r.recipient_type : null)),
+        status_type: statusType === null
+            ? null
+            : normalizeEformsignStatusCode(statusType),
+        step_type: stepType === null
+            ? null
+            : normalizeEformsignStepType(stepType),
+        step_name: stringFromUnknown(currentStatus?.step_name),
+        step_recipient_types: stepRecipients.map((recipient) =>
+            typeof recipient?.recipient_type === "string"
+                ? recipient.recipient_type
+                : null),
     };
 }
 

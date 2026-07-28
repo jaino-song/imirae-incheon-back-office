@@ -6,29 +6,28 @@ import { MirrorUnassignedEformsignDocUsecase } from "application/usecases/eforms
 import { EformsignDocStaleUpdateError } from "domain/repositories/eformsign-doc.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+import { normalizeEformsignDocumentResponse } from "infrastructure/api/eformsign-response.normalizer";
 
 const createRemoteDocument = (
     id: string,
     statusType = "060",
-): EformsignApiDocumentResponse => ({
+): EformsignApiDocumentResponse => normalizeEformsignDocumentResponse({
     id,
     document_number: `NUMBER-${id}`,
     template: { id: "template-1", name: "계약서" },
     document_name: `문서 ${id}`,
     creator: { recipient_type: "01", id: "creator", name: "생성자" },
-    created_date: Date.parse("2026-07-01T00:00:00.000Z"),
-    updated_date: Date.parse("2026-07-02T00:00:00.000Z"),
+    created_date: String(Date.parse("2026-07-01T00:00:00.000Z")),
+    updated_date: String(Date.parse("2026-07-02T00:00:00.000Z")),
     current_status: {
         status_type: statusType,
         status_doc_type: "",
         status_doc_detail: "상태",
-        step_type: "05",
-        step_index: "1",
+        step_type: 5,
+        step_index: 0,
         step_name: "이용자",
         step_recipients: [],
         step_group: 1,
-        expired_date: 0,
-        _expired: false,
     },
 });
 
@@ -281,7 +280,7 @@ describe("BackfillEformsignDocsUsecase", () => {
         );
     });
 
-    it("counts a document write failure and continues with the remaining page", async () => {
+    it("finishes the page after a document write failure but refuses to report success", async () => {
         const client = {
             getAccessToken: jest.fn().mockResolvedValue({
                 oauth_token: { access_token: accessToken },
@@ -316,16 +315,68 @@ describe("BackfillEformsignDocsUsecase", () => {
             mirror as never,
         );
 
-        const summary = await usecase.execute();
+        // The second document must still be written — one bad row may not abort the
+        // sweep — but a mirror missing a document is not a completed backfill.
+        await expect(usecase.execute()).rejects.toMatchObject({
+            summary: expect.objectContaining({
+                fetched: 2,
+                created: 1,
+                updated: 0,
+                skipped: 0,
+                failed: 1,
+                byDocumentType: expect.objectContaining({
+                    "01": expect.objectContaining({
+                        status: "failed",
+                        error: expect.stringContaining("could not mirror every document"),
+                    }),
+                }),
+            }),
+        });
+        expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
+    });
 
-        expect(summary).toEqual(expect.objectContaining({
-            fetched: 2,
-            created: 1,
-            updated: 0,
-            skipped: 0,
-            failed: 1,
-            pages: 3,
-        }));
+    it("fails the sweep when the execution lease is lost during the final write", async () => {
+        // shouldContinue is polled before every write, so a lease lost during the last
+        // one would otherwise be reported as a clean success.
+        let writes = 0;
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [
+                    createRemoteDocument("first-doc"),
+                    createRemoteDocument("last-doc"),
+                ],
+                total_rows: 2,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn((document: EformsignApiDocumentResponse) => {
+                writes += 1;
+                return Promise.resolve({ documentId: document.id });
+            }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        await expect(usecase.execute({
+            shouldContinue: () => writes < 2,
+        })).rejects.toThrow(/lost its execution lease/);
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
     });
 
@@ -366,6 +417,198 @@ describe("BackfillEformsignDocsUsecase", () => {
         expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(1);
         expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(1);
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(1);
+    });
+
+    it("fails the document type when total_rows decreases during offset pagination", async () => {
+        const firstPage = Array.from(
+            { length: 100 },
+            (_, index) => createRemoteDocument(`document-${index + 1}`),
+        );
+        const shiftedSecondPage = Array.from(
+            { length: 99 },
+            (_, index) => createRemoteDocument(`document-${index + 102}`),
+        );
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn()
+                .mockResolvedValueOnce({
+                    documents: firstPage,
+                    total_rows: 200,
+                })
+                .mockResolvedValueOnce({
+                    documents: shiftedSecondPage,
+                    total_rows: 199,
+                }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn(
+                (document: EformsignApiDocumentResponse) =>
+                    Promise.resolve({ documentId: document.id }),
+            ),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        await expect(usecase.execute()).rejects.toMatchObject({
+            summary: {
+                byDocumentType: {
+                    "01": expect.objectContaining({
+                        status: "failed",
+                        error: expect.stringContaining("total_rows decreased"),
+                    }),
+                    "03": expect.objectContaining({ status: "completed" }),
+                    "04": expect.objectContaining({ status: "completed" }),
+                },
+            },
+        });
+
+        expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(2);
+        expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(100);
+    });
+
+    it("fails closed when the list keeps growing faster than the sweep pages through it", async () => {
+        // Every page brings new documents and reports a still-larger total, so the loop
+        // has no natural end. This runs as an operator job; it must stop and say why.
+        let served = 0;
+        const growingPage = () => {
+            const documents = Array.from(
+                { length: 100 },
+                (_, index) => createRemoteDocument(`document-${served + index + 1}`),
+            );
+            served += 100;
+            return { documents, total_rows: served + 101 };
+        };
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn(() => Promise.resolve(growingPage())),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn(
+                (document: EformsignApiDocumentResponse) =>
+                    Promise.resolve({ documentId: document.id }),
+            ),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        await expect(usecase.execute()).rejects.toMatchObject({
+            summary: {
+                byDocumentType: {
+                    "01": expect.objectContaining({
+                        status: "failed",
+                        error: expect.stringContaining("page budget"),
+                    }),
+                },
+            },
+        });
+    });
+
+    it("fails closed when total_rows increases then returns to its initial value with incomplete unique coverage", async () => {
+        const firstPage = Array.from(
+            { length: 100 },
+            (_, index) => createRemoteDocument(`document-${index + 1}`),
+        );
+        const shiftedSecondPage = Array.from(
+            { length: 100 },
+            (_, index) => createRemoteDocument(`document-${index + 100}`),
+        );
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn()
+                .mockResolvedValueOnce({
+                    documents: firstPage,
+                    total_rows: 200,
+                })
+                .mockResolvedValueOnce({
+                    documents: shiftedSecondPage,
+                    total_rows: 201,
+                })
+                .mockResolvedValueOnce({
+                    documents: [],
+                    total_rows: 200,
+                }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn(
+                (document: EformsignApiDocumentResponse) =>
+                    Promise.resolve({ documentId: document.id }),
+            ),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        await expect(usecase.execute()).rejects.toMatchObject({
+            summary: {
+                fetched: 200,
+                created: 199,
+                byDocumentType: {
+                    "01": expect.objectContaining({
+                        status: "failed",
+                        error: expect.stringMatching(
+                            /coverage incomplete.*uniqueSeen=199.*currentTotal=200.*missing=1.*rerun/i,
+                        ),
+                    }),
+                    "03": expect.objectContaining({ status: "completed" }),
+                    "04": expect.objectContaining({ status: "completed" }),
+                },
+            },
+        });
+
+        expect(client.getInProgressDocumentsPage).toHaveBeenNthCalledWith(
+            3,
+            accessToken,
+            100,
+            200,
+        );
+        expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(199);
     });
 
     it("fails fast when total_rows is missing from a list response", async () => {
@@ -414,7 +657,7 @@ describe("BackfillEformsignDocsUsecase", () => {
         expect(mirror.mirrorRemoteDocument).not.toHaveBeenCalled();
     });
 
-    it("refreshes after 401 and resumes the same page without fetching completed pages again", async () => {
+    it("reissues an access token after 401 and resumes the same page", async () => {
         const refreshedAccessToken = "refreshed-access-token";
         const documents = [
             createRemoteDocument("page-1"),
@@ -438,18 +681,13 @@ describe("BackfillEformsignDocsUsecase", () => {
             },
         );
         const client = {
-            getAccessToken: jest.fn().mockResolvedValue({
-                oauth_token: {
-                    access_token: accessToken,
-                    refresh_token: "refresh-token-1",
-                },
-            }),
-            refreshAccessToken: jest.fn().mockResolvedValue({
-                oauth_token: {
-                    access_token: refreshedAccessToken,
-                    refresh_token: "refresh-token-2",
-                },
-            }),
+            getAccessToken: jest.fn()
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: accessToken },
+                })
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: refreshedAccessToken },
+                }),
             getInProgressDocumentsPage,
             getCompletedDocumentsPage: jest.fn().mockResolvedValue({
                 documents: [],
@@ -483,30 +721,22 @@ describe("BackfillEformsignDocsUsecase", () => {
             [accessToken, 100, 1],
             [refreshedAccessToken, 100, 1],
         ]);
-        expect(client.refreshAccessToken).toHaveBeenCalledTimes(1);
-        expect(client.refreshAccessToken).toHaveBeenCalledWith(
-            expect.any(Number),
-            "refresh-token-1",
-        );
+        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
+        expect(client.getAccessToken).toHaveBeenNthCalledWith(2, expect.any(Number));
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
         expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(1);
         expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(1);
     });
 
-    it("stops after one refresh when the retried page is still unauthorized", async () => {
+    it("stops after one token reissue when the retried page is still unauthorized", async () => {
         const client = {
-            getAccessToken: jest.fn().mockResolvedValue({
-                oauth_token: {
-                    access_token: accessToken,
-                    refresh_token: "refresh-token-1",
-                },
-            }),
-            refreshAccessToken: jest.fn().mockResolvedValue({
-                oauth_token: {
-                    access_token: "refreshed-access-token",
-                    refresh_token: "refresh-token-2",
-                },
-            }),
+            getAccessToken: jest.fn()
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: accessToken },
+                })
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: "refreshed-access-token" },
+                }),
             getInProgressDocumentsPage: jest.fn()
                 .mockRejectedValue(new EformsignApiError("unauthorized", 401)),
             getCompletedDocumentsPage: jest.fn().mockResolvedValue({
@@ -535,7 +765,7 @@ describe("BackfillEformsignDocsUsecase", () => {
         );
 
         expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(2);
-        expect(client.refreshAccessToken).toHaveBeenCalledTimes(1);
+        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
         expect(mirror.mirrorRemoteDocument).not.toHaveBeenCalled();
     });
 
@@ -585,6 +815,7 @@ describe("BackfillEformsignDocsUsecase", () => {
             {
                 allowAssignedUpdate: true,
                 updateListDisplayFields: true,
+                updateExpired: false,
             },
         );
     });
