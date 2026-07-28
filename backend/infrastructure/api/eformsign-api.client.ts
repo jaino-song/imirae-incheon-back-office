@@ -331,7 +331,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
         );
         return {
             documents: data.documents ?? [],
-            total_count: data.total_count,
+            total_rows: data.total_rows,
         };
     }
 

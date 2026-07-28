@@ -26,7 +26,7 @@ describe("EformsignApiClient retry policy", () => {
     };
 
     const listSuccessResponse = () => new Response(
-        JSON.stringify({ documents: [], total_count: 0 }),
+        JSON.stringify({ documents: [], total_rows: 0 }),
         { status: 200 },
     );
 
@@ -71,11 +71,11 @@ describe("EformsignApiClient retry policy", () => {
         }));
     });
 
-    it("returns total_count from the page method and forwards limit and skip", async () => {
+    it("returns total_rows from the page method and forwards limit and skip", async () => {
         const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
             JSON.stringify({
                 documents: [{ id: "document-201" }],
-                total_count: 1_205,
+                total_rows: 1_205,
             }),
             { status: 200 },
         ));
@@ -84,7 +84,7 @@ describe("EformsignApiClient retry policy", () => {
             createClient().getCompletedDocumentsPage("access-token", 75, 1_125),
         ).resolves.toEqual({
             documents: [{ id: "document-201" }],
-            total_count: 1_205,
+            total_rows: 1_205,
         });
 
         const request = fetchMock.mock.calls[0]?.[1];
@@ -99,7 +99,7 @@ describe("EformsignApiClient retry policy", () => {
         const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
             JSON.stringify({
                 documents: [{ id: "rejected-document" }],
-                total_count: 17,
+                total_rows: 17,
             }),
             { status: 200 },
         ));
@@ -108,7 +108,7 @@ describe("EformsignApiClient retry policy", () => {
             createClient().getRejectedDocumentsPage("access-token", 25, 50),
         ).resolves.toEqual({
             documents: [{ id: "rejected-document" }],
-            total_count: 17,
+            total_rows: 17,
         });
 
         const request = fetchMock.mock.calls[0]?.[1];

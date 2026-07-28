@@ -28,6 +28,7 @@ import {
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
 import { EformsignDocEntity, EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
     SERVICE_RECORD_CASE_STATUS,
@@ -80,28 +81,6 @@ const REVIEW_REQUIRED_NOTIFICATION_TYPE = "eformsign-review-required";
 type LocalDocumentLookupResult =
     | { branchId: null; document: EformsignDocEntity }
     | { branchId: string; document?: EformsignDocEntity };
-
-const STATUS_NAME_TO_CODE: Record<string, string> = {
-    doc_complete: "003",
-    doc_accept_approval: "012",
-    doc_accept_reception: "022",
-    doc_accept_outsider: "032",
-    doc_request_revoke: "040",
-    doc_revoke: "042",
-    doc_request_reject: "045",
-    doc_request_delete: "047",
-    doc_delete: "049",
-    doc_request_participant: "060",
-    doc_reject_participant: "061",
-    doc_accept_participant: "062",
-    doc_rerequest_participant: "063",
-    doc_open_participant: "064",
-    doc_request_reviewer: "070",
-    doc_reject_reviewer: "071",
-    doc_accept_reviewer: "072",
-    doc_expired: "080",
-    face_signature_complete: "092",
-};
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
@@ -803,17 +782,8 @@ export class EformsignWebhookService {
         );
     }
 
-    private normalizeStatusCode(statusType: string | null | undefined): string {
-        const normalized = statusType?.trim().toLowerCase();
-        if (!normalized) {
-            return "000";
-        }
-
-        return STATUS_NAME_TO_CODE[normalized] ?? normalized.padStart(3, "0");
-    }
-
     private mapUnassignedStatus(status: string): { statusType: string; statusDetail: string } {
-        const statusType = this.normalizeStatusCode(status);
+        const statusType = normalizeEformsignStatusCode(status);
         const statusDetail = UNASSIGNED_REVIEW_STATUS_DETAILS[statusType];
         if (statusDetail) {
             return { statusType, statusDetail };
@@ -825,7 +795,7 @@ export class EformsignWebhookService {
     private isReviewRequiredStatus(
         currentStatus: EformsignApiDocumentResponse["current_status"] | null | undefined
     ): boolean {
-        const statusCode = this.normalizeStatusCode(currentStatus?.status_type);
+        const statusCode = normalizeEformsignStatusCode(currentStatus?.status_type);
         if (COMPLETED_STATUS_CODES.has(statusCode) || REJECTED_STATUS_CODES.has(statusCode)) {
             return false;
         }

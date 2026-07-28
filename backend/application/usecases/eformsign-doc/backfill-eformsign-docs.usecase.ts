@@ -133,7 +133,8 @@ export class BackfillEformsignDocsUsecase {
         try {
             this.assertCanContinue(options, summary);
             const tokenResponse = await this.eformsignClient.getAccessToken(Date.now());
-            const accessToken = tokenResponse.oauth_token.access_token;
+            let accessToken = tokenResponse.oauth_token.access_token;
+            let refreshToken = tokenResponse.oauth_token.refresh_token;
 
             const scans: Array<{
                 documentType: EformsignBackfillDocumentType;
@@ -167,12 +168,35 @@ export class BackfillEformsignDocsUsecase {
                         ),
                 },
             ];
+            const fetchPageWithAuthRecovery = async (
+                fetchPage: (limit: number, skip: number) => Promise<EformsignApiListResponse>,
+                limit: number,
+                skip: number,
+            ): Promise<EformsignApiListResponse> => {
+                try {
+                    return await fetchPage(limit, skip);
+                } catch (error) {
+                    if (!this.isAuthenticationError(error)) {
+                        throw error;
+                    }
+
+                    const refreshedTokenResponse = await this.eformsignClient.refreshAccessToken(
+                        Date.now(),
+                        refreshToken,
+                    );
+                    accessToken = refreshedTokenResponse.oauth_token.access_token;
+                    refreshToken = refreshedTokenResponse.oauth_token.refresh_token;
+                    return fetchPage(limit, skip);
+                }
+            };
             const scanFailures: BackfillEformsignDocsError[] = [];
             for (const scan of scans) {
                 const typeSummary = summary.byDocumentType[scan.documentType];
                 try {
                     await this.scanDocumentType({
                         ...scan,
+                        fetchPage: (limit, skip) =>
+                            fetchPageWithAuthRecovery(scan.fetchPage, limit, skip),
                         options,
                         summary,
                         typeSummary,
@@ -253,20 +277,20 @@ export class BackfillEformsignDocsUsecase {
                 );
             }
 
-            this.assertValidTotalCount(page.total_count, params.documentType, skip, params.summary);
+            this.assertValidTotalRows(page.total_rows, params.documentType, skip, params.summary);
             params.summary.pages += 1;
             params.summary.fetched += page.documents.length;
             params.typeSummary.pages += 1;
             params.typeSummary.fetched += page.documents.length;
 
             if (page.documents.length === 0) {
-                if (skip < page.total_count) {
+                if (skip < page.total_rows) {
                     throw new BackfillEformsignDocsError(
-                        `Eformsign pagination stopped making progress type=${params.documentType} skip=${skip} total=${page.total_count}`,
+                        `Eformsign pagination stopped making progress type=${params.documentType} skip=${skip} total=${page.total_rows}`,
                         params.summary,
                     );
                 }
-                this.emitPageProgress(params, skip, page.total_count);
+                this.emitPageProgress(params, skip, page.total_rows);
                 return;
             }
 
@@ -295,8 +319,8 @@ export class BackfillEformsignDocsUsecase {
             }
 
             skip = nextSkip;
-            this.emitPageProgress(params, skip, page.total_count);
-            if (skip >= page.total_count) {
+            this.emitPageProgress(params, skip, page.total_rows);
+            if (skip >= page.total_rows) {
                 return;
             }
         }
@@ -350,20 +374,28 @@ export class BackfillEformsignDocsUsecase {
         }
     }
 
-    private assertValidTotalCount(
-        totalCount: number,
+    private assertValidTotalRows(
+        totalRows: number,
         documentType: EformsignBackfillDocumentType,
         skip: number,
         summary: EformsignDocsBackfillSummary,
     ): void {
-        if (Number.isInteger(totalCount) && totalCount >= 0) {
+        if (Number.isInteger(totalRows) && totalRows >= 0) {
             return;
         }
 
         throw new BackfillEformsignDocsError(
-            `Invalid eformsign total_count type=${documentType} skip=${skip}`,
+            `Invalid eformsign total_rows type=${documentType} skip=${skip}`,
             summary,
         );
+    }
+
+    private isAuthenticationError(error: unknown): boolean {
+        if (typeof error !== "object" || error === null || !("status" in error)) {
+            return false;
+        }
+
+        return error.status === 401;
     }
 
     private emitPageProgress(

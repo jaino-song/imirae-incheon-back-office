@@ -60,7 +60,7 @@ export interface EformsignApiDocumentResponse {
 
 export interface EformsignApiListResponse {
     documents: EformsignApiDocumentResponse[];
-    total_count: number;
+    total_rows: number;
 }
 
 export interface EformsignTokenResponse {

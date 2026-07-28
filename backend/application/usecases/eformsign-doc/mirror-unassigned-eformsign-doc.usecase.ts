@@ -8,6 +8,7 @@ import {
     IEformsignDocRepository,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
@@ -97,7 +98,7 @@ export class MirrorUnassignedEformsignDocUsecase {
                 : null,
             createdDate,
             updatedDate: clampedUpdatedDate,
-            statusType: remote.current_status.status_type || "000",
+            statusType: normalizeEformsignStatusCode(remote.current_status.status_type),
             statusDetail:
                 remote.current_status.status_doc_detail
                 || remote.current_status.step_name

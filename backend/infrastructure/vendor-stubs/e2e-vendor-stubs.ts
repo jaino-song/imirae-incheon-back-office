@@ -418,7 +418,7 @@ export function buildEformsignStubListResponse(
 
     return {
         documents,
-        total_count: documentType === "01" ? STUB_EFORMSIGN_DOCUMENTS.length : 0,
+        total_rows: documentType === "01" ? STUB_EFORMSIGN_DOCUMENTS.length : 0,
     };
 }
 
@@ -502,7 +502,7 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         const documents = buildEformsignStubDocuments();
         return Promise.resolve({
             documents: documents.slice(skip, skip + limit),
-            total_count: documents.length,
+            total_rows: documents.length,
         });
     }
 
@@ -524,7 +524,7 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         const documents = buildEformsignStubDocuments();
         return Promise.resolve({
             documents: documents.slice(skip, skip + limit),
-            total_count: documents.length,
+            total_rows: documents.length,
         });
     }
 
@@ -547,7 +547,7 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         void skip;
         return Promise.resolve({
             documents: [],
-            total_count: 0,
+            total_rows: 0,
         });
     }
 

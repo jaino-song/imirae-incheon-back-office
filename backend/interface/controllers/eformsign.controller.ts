@@ -32,6 +32,7 @@ import {
     type UnknownRecord,
 } from "application/utils/eformsign-document-customer-name";
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 function throwHttpOrInternalError(error: unknown): never {
@@ -92,36 +93,6 @@ const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
 const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
 const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
 const CUSTOMER_STEP_KEYWORDS = ["이용자", "고객", "산모"];
-const STATUS_NAME_TO_CODE: Record<string, string> = {
-    doc_tempsave: "001",
-    doc_create: "002",
-    doc_complete: "003",
-    doc_request_approval: "010",
-    doc_reject_approval: "011",
-    doc_accept_approval: "012",
-    doc_request_reception: "020",
-    doc_reject_reception: "021",
-    doc_accept_reception: "022",
-    doc_request_outsider: "030",
-    doc_reject_outsider: "031",
-    doc_accept_outsider: "032",
-    doc_request_revoke: "040",
-    doc_revoke: "042",
-    doc_update: "043",
-    doc_request_reject: "045",
-    doc_request_delete: "047",
-    doc_delete: "049",
-    doc_request_participant: "060",
-    doc_reject_participant: "061",
-    doc_accept_participant: "062",
-    doc_rerequest_participant: "063",
-    doc_open_participant: "064",
-    doc_request_reviewer: "070",
-    doc_reject_reviewer: "071",
-    doc_accept_reviewer: "072",
-    doc_expired: "080",
-    face_signature_complete: "092",
-};
 const CHOSUNG_LIST = [
     "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ",
     "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
@@ -193,14 +164,6 @@ function filterDocumentsByTemplate(
     });
 }
 
-function normalizeStatusCode(code: string | null): string {
-    const normalized = code?.trim().toLowerCase();
-    if (!normalized) {
-        return "000";
-    }
-    return STATUS_NAME_TO_CODE[normalized] ?? normalized.padStart(3, "0");
-}
-
 function getCurrentStatus(document: EformsignListDoc): UnknownRecord | null {
     return isRecord(document["current_status"]) ? document["current_status"] : null;
 }
@@ -224,7 +187,7 @@ function isProviderReviewStep(document: EformsignListDoc): boolean {
 
 function getDocumentStatusCategory(document: EformsignListDoc): DocumentStatusCategory {
     const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-    const normalized = normalizeStatusCode(statusType);
+    const normalized = normalizeEformsignStatusCode(statusType);
     if (COMPLETED_STATUS_CODES.has(normalized)) {
         return "completed";
     }
@@ -250,7 +213,7 @@ function filterDocumentsByStatusCategory(
 
     return documents.filter((document) => {
         const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-        if (DELETED_STATUS_CODES.has(normalizeStatusCode(statusType))) {
+        if (DELETED_STATUS_CODES.has(normalizeEformsignStatusCode(statusType))) {
             return false;
         }
         return getDocumentStatusCategory(document) === statusCategory;
@@ -266,7 +229,7 @@ function filterOutDeletedDocuments(
     }
     return documents.filter((document) => {
         const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-        return !DELETED_STATUS_CODES.has(normalizeStatusCode(statusType));
+        return !DELETED_STATUS_CODES.has(normalizeEformsignStatusCode(statusType));
     });
 }
 
