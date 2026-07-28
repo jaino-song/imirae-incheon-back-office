@@ -107,8 +107,8 @@ export function ExpandableSearch({
           className={cn(
             "expandable-search-overlay-surface absolute right-0 top-0 flex h-[calc(40px*var(--glint-ui-scale,1))] items-start justify-start overflow-hidden rounded-[12px]",
             expanded
-              ? "border border-input bg-white shadow-sm focus-within:border-v3-primary focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-v3-primary/10"
-              : "w-[calc(32px*var(--glint-ui-scale,1))] border border-transparent bg-transparent"
+              ? "bg-white shadow-sm focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-v3-primary/10"
+              : "w-[calc(32px*var(--glint-ui-scale,1))] bg-transparent"
           )}
         >
           <Button
