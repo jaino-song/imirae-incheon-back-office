@@ -808,7 +808,11 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
             ...(remoteStatus ? {
                 updatedDate,
                 statusType: remoteStatus.status_type,
-                statusDetail: remoteStatus.status_doc_detail,
+                // Only detail responses carry this. Omit rather than pass undefined so
+                // the intent is the code's, not Prisma's coincidental skip semantics.
+                ...(remoteStatus.status_doc_detail === undefined
+                    ? {}
+                    : { statusDetail: remoteStatus.status_doc_detail }),
                 stepType: remoteStatus.step_type,
                 stepIndex: remoteStatus.step_index,
                 stepName: marker,

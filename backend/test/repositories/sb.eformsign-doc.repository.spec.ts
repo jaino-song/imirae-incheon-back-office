@@ -679,7 +679,9 @@ describe("SbEformsignDocRepository", () => {
         },
     );
 
-    it.each(["070", "080"])(
+    // 071 belongs here because the review stage is a cycle: a reviewer can reject what a
+    // participant accepted, and the 070 in between is exactly what a backfill reconciles.
+    it.each(["070", "071", "080"])(
         "allows review-stage rows to advance to %s in the updateMany predicate",
         async (statusType) => {
             eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
@@ -730,6 +732,28 @@ describe("SbEformsignDocRepository", () => {
 
         expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
             .not.toHaveProperty("expired");
+    });
+
+    it("omits statusDetail from list-sourced updates so a webhook-written detail survives", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            statusDetail: "만료",
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            updateStatusDetail: false,
+        });
+
+        const { data } = eformsignDocModel.updateMany.mock.calls[0][0];
+        expect(data).not.toHaveProperty("statusDetail");
+        // The rest of the status still has to land, or the row would freeze.
+        expect(data).toHaveProperty("statusType");
     });
 
     it("upserts the same document twice without creating a duplicate row", async () => {

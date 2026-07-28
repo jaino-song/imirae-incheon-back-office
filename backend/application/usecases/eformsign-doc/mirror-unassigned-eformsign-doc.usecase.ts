@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
+import { EFORMSIGN_EXPIRED_STATUS_CODE } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EFORMSIGN_DOC_REPOSITORY,
@@ -51,7 +52,14 @@ export class MirrorUnassignedEformsignDocUsecase {
         const now = options.now ?? Date.now();
         const fallbackDocumentId = options.fallbackDocumentId ?? remote.id;
         const recipient = remote.current_status.step_recipients?.[0];
+        const statusType = normalizeEformsignStatusCode(remote.current_status.status_type);
+        // The list schema has no _expired, so a document that expired before we ever
+        // mirrored it would be created as not-expired while its own status says otherwise.
+        // The status still tells us, but only in one direction: 080 means expired, and
+        // anything else means the list simply did not say.
+        const expiredFromStatus = statusType === EFORMSIGN_EXPIRED_STATUS_CODE;
         const hasRemoteExpiredState = remote.current_status._expired !== undefined;
+        const knowsExpiredState = hasRemoteExpiredState || expiredFromStatus;
         const remoteUpdatedDate = new Date(remote.updated_date);
         const updatedDate = Number.isNaN(remoteUpdatedDate.getTime())
             ? new Date(now)
@@ -98,7 +106,7 @@ export class MirrorUnassignedEformsignDocUsecase {
                 : null,
             createdDate,
             updatedDate: clampedUpdatedDate,
-            statusType: normalizeEformsignStatusCode(remote.current_status.status_type),
+            statusType,
             statusDetail:
                 remote.current_status.status_doc_detail
                 || remote.current_status.step_name
@@ -113,7 +121,7 @@ export class MirrorUnassignedEformsignDocUsecase {
                 remote.current_status.expired_date,
                 now,
             ),
-            expired: remote.current_status._expired ?? false,
+            expired: remote.current_status._expired ?? expiredFromStatus,
             clientId: null,
             documentKind: null,
             employeeScheduleId: null,
@@ -123,7 +131,11 @@ export class MirrorUnassignedEformsignDocUsecase {
         return this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {
             ...(options.allowAssignedUpdate ? { allowAssignedUpdate: true } : {}),
             updateListDisplayFields: true,
-            ...(hasRemoteExpiredState ? {} : { updateExpired: false }),
+            ...(knowsExpiredState ? {} : { updateExpired: false }),
+            // A detail derived from the step name must not replace one a webhook wrote.
+            ...(remote.current_status.status_doc_detail === undefined
+                ? { updateStatusDetail: false }
+                : {}),
         });
     }
 }

@@ -393,7 +393,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         };
         const update = {
             statusType: doc.statusType,
-            statusDetail: doc.statusDetail,
+            ...(options?.updateStatusDetail === false ? {} : { statusDetail: doc.statusDetail }),
             stepType: doc.stepType,
             stepIndex: doc.stepIndex,
             stepName: doc.stepName,

@@ -810,13 +810,63 @@ describe("BackfillEformsignDocsUsecase", () => {
 
         await usecase.execute();
 
+        // The list carries no _expired, but an 080 document is expired by definition, so
+        // the row must not be created claiming otherwise — and having derived it, the
+        // write is no longer the blind overwrite updateExpired:false guards against.
         expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
-            expect.objectContaining({ statusType: "080" }),
+            expect.objectContaining({ statusType: "080", expired: true }),
             {
                 allowAssignedUpdate: true,
                 updateListDisplayFields: true,
-                updateExpired: false,
             },
+        );
+    });
+
+    it("keeps a stored status detail when the list response carries none", async () => {
+        // The list schema has no status_doc_detail, so the mirror falls back to the step
+        // name. That derived value may seed a new row but must not replace "만료"/"거부"
+        // on an existing one.
+        const remote = createRemoteDocument("detail-less-doc");
+        delete (remote.current_status as { status_doc_detail?: string }).status_doc_detail;
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [remote],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+            upsertUnassignedByDocumentId: jest.fn(
+                (document) => Promise.resolve(document),
+            ),
+        };
+        const mirror = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+        );
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror,
+        );
+
+        await usecase.execute();
+
+        expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ updateStatusDetail: false }),
         );
     });
 });

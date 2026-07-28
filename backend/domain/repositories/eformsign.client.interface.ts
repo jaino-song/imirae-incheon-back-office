@@ -21,8 +21,8 @@ export interface EformsignApiDocumentResponse {
     updated_date: number; // epoch ms
     current_status: {
         status_type: string;
-        status_doc_type: string;
-        status_doc_detail: string;
+        status_doc_type?: string; // detail responses only
+        status_doc_detail?: string; // detail responses only
         step_type: string;
         step_index: string;
         step_name: string;

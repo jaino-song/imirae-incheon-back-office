@@ -402,6 +402,28 @@ describe("EformsignWebhookService", () => {
         );
     });
 
+    it("lets a reviewer rejection land on an unassigned 062 acceptance", async () => {
+        // A reviewer rejects what a participant accepted. If the 070 in between was
+        // missed — the exact gap the backfill exists to close — 071 is the next state we
+        // ever observe, and refusing it freezes the row at 062 for good.
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null, statusType: "062" }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_reject_reviewer";
+        payload.document.updated_date = new Date("2026-05-03T00:00:00.000Z").getTime();
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ statusType: "071", statusDetail: "검토 반려" }),
+        );
+    });
+
     it("still refuses a backward transition after an unassigned 071 rejection", async () => {
         eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
             document: createDocEntity({ clientId: null, statusType: "071" }),

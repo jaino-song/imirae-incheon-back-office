@@ -90,8 +90,15 @@ export function normalizeEformsignDocumentResponse(
         status_type: normalizeEformsignStatusCode(
             normalizeString(currentStatus["status_type"]),
         ),
-        status_doc_type: normalizeString(currentStatus["status_doc_type"]),
-        status_doc_detail: normalizeString(currentStatus["status_doc_detail"]),
+        // Absent in the list schema. Manufacturing "" here would read as "the vendor
+        // says it has no detail", and callers would then overwrite a stored detail with
+        // whatever they fall back to. Keep the absence so they can tell.
+        ...(currentStatus["status_doc_type"] === undefined
+            ? {}
+            : { status_doc_type: normalizeString(currentStatus["status_doc_type"]) }),
+        ...(currentStatus["status_doc_detail"] === undefined
+            ? {}
+            : { status_doc_detail: normalizeString(currentStatus["status_doc_detail"]) }),
         step_type: normalizeEformsignStepType(
             normalizeString(currentStatus["step_type"]),
         ),

@@ -46,8 +46,18 @@ export const UNASSIGNED_TERMINAL_STATUS_CODES = new Set<string>(
     ),
 );
 
-/** What may follow a review-stage code: the real terminals, or the review request. */
+/**
+ * What may follow a review-stage code: a real terminal, the review request, or the other
+ * review-stage code. The review stage is a cycle — a reviewer can reject (071) what a
+ * participant accepted (062), and a corrected document can be accepted again after a
+ * rejection — and the intermediate 070 is exactly the webhook a backfill exists to
+ * reconcile. Only the earlier in-progress codes are genuinely backward from here.
+ */
 export const UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE = new Set<string>([
     ...UNASSIGNED_TERMINAL_STATUS_CODES,
+    ...UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
     "070",
 ]);
+
+/** The one code that means the document passed its expiry date. */
+export const EFORMSIGN_EXPIRED_STATUS_CODE = "080";
