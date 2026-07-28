@@ -205,6 +205,68 @@ describe("EformsignApiClient retry policy", () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    // Headers arrive, then the body stalls or the connection drops. fetch has already
+    // resolved at that point, so this used to happen outside the retry loop entirely.
+    const bodyFailureResponse = (error: Error) => new Response(
+        new ReadableStream({
+            start(controller) {
+                controller.error(error);
+            },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+
+    it("retries a body-stream failure for idempotent requests", async () => {
+        jest.useFakeTimers();
+        jest.spyOn(Math, "random").mockReturnValue(0);
+        jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+        const fetchMock = jest.spyOn(global, "fetch")
+            .mockResolvedValueOnce(bodyFailureResponse(new TypeError("body stream reset")))
+            .mockResolvedValueOnce(listSuccessResponse());
+
+        const request = createClient().getCompletedDocuments("access-token");
+        await jest.advanceTimersByTimeAsync(250);
+
+        await expect(request).resolves.toEqual([]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not retry createDocument when the body fails", async () => {
+        // A body that starts arriving and then dies is the worst case for a send: the
+        // server plainly accepted the request, so the customer may already have it.
+        const bodyError = new TypeError("body stream reset");
+        const fetchMock = jest.spyOn(global, "fetch")
+            .mockResolvedValue(bodyFailureResponse(bodyError));
+
+        await expect(
+            createClient().createDocument("access-token", createDocumentPayload),
+        ).rejects.toThrow();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries when reading an error response body fails", async () => {
+        jest.useFakeTimers();
+        jest.spyOn(Math, "random").mockReturnValue(0);
+        jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+        const failingErrorBody = new Response(
+            new ReadableStream({
+                start(controller) {
+                    controller.error(new TypeError("error body reset"));
+                },
+            }),
+            { status: 503 },
+        );
+        const fetchMock = jest.spyOn(global, "fetch")
+            .mockResolvedValueOnce(failingErrorBody)
+            .mockResolvedValueOnce(listSuccessResponse());
+
+        const request = createClient().getCompletedDocuments("access-token");
+        await jest.advanceTimersByTimeAsync(250);
+
+        await expect(request).resolves.toEqual([]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it("does not retry createDocument after a timeout", async () => {
         // AbortSignal.timeout rejects with a TimeoutError rather than producing a
         // response, so this lands in the same branch as a network error — but it is the

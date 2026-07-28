@@ -30,6 +30,30 @@ interface EformsignRequestOptions {
     timeoutMs?: number;
 }
 
+// These two responses were read as implicit `any` off response.json(). Now that the
+// request helper parses the body, they get the shapes the call sites actually use —
+// every field stays optional because the fallbacks below rely on that.
+interface CreateDocumentApiResponse {
+    template_id?: string;
+    document?: { id?: string; document_name?: string; document_status?: string };
+    document_id?: string;
+    id?: string;
+    status?: string;
+}
+
+interface EformsignTemplateConfigResponse {
+    config?: {
+        step_settings?: Array<{
+            type?: string;
+            option?: {
+                receipients?: Array<{
+                    member?: { name?: string; id?: string; sms?: { phone_number?: string } };
+                }>;
+            };
+        }>;
+    };
+}
+
 /**
  * Infrastructure repository that calls eformsign external API.
  * Uses EFORMSIGN_DOC_API_URL for document-related calls (not token endpoints).
@@ -98,7 +122,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
         // API key must be Base64 encoded according to eformsign docs
         const encodedApiKey = Buffer.from(this.EFORMSIGN_API_KEY).toString("base64");
 
-        const response = await this.request(
+        return this.request<EformsignTokenResponse>(
             "getAccessToken",
             `${this.EFORMSIGN_API_URL}/v2.0/api_auth/access_token`,
             {
@@ -115,8 +139,6 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to get access token",
         );
-
-        return await response.json();
     }
 
     /**
@@ -127,7 +149,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
         this.assertConfigured();
         const signature = this.generateSignature(executionTime);
 
-        const response = await this.request(
+        return this.request<EformsignTokenResponse>(
             "refreshAccessToken",
             `${this.EFORMSIGN_API_URL}/v2.0/api_auth/refresh_token`,
             {
@@ -144,8 +166,6 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to refresh token",
         );
-
-        return await response.json();
     }
 
     /**
@@ -154,7 +174,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
      */
     async getInProgressDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
         this.assertConfigured();
-        const response = await this.request(
+        const data = await this.request<EformsignApiListResponse>(
             "getInProgressDocuments",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
             {
@@ -174,8 +194,6 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to get in-progress documents",
         );
-
-        const data: EformsignApiListResponse = await response.json();
         return data.documents || [];
     }
 
@@ -185,7 +203,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
      */
     async getCompletedDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
         this.assertConfigured();
-        const response = await this.request(
+        const data = await this.request<EformsignApiListResponse>(
             "getCompletedDocuments",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
             {
@@ -205,8 +223,6 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to get completed documents",
         );
-
-        const data: EformsignApiListResponse = await response.json();
         return data.documents || [];
     }
 
@@ -239,7 +255,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
         type: "01" | "03",
         title: string,
     ): Promise<EformsignApiDocumentResponse[]> {
-        const response = await this.request(
+        const data = await this.request<EformsignApiListResponse>(
             "listDocumentsByTitle",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
             {
@@ -259,7 +275,6 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to find document by title",
         );
-        const data: EformsignApiListResponse = await response.json();
         return data.documents ?? [];
     }
 
@@ -278,7 +293,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
             include_detail_template_info: "true",
         });
 
-        const response = await this.request(
+        return this.request<EformsignApiDocumentResponse>(
             "getDocument",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/${documentId}?${includeParams.toString()}`,
             {
@@ -290,8 +305,6 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
             "Failed to get document",
         );
-
-        return await response.json();
     }
 
     async createDocument(accessToken: string, payload: CreateDocumentPayload): Promise<CreateDocumentResponse> {
@@ -346,7 +359,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
         // ("Required String parameter 'template_id' is not present"). Verified against the live
         // tenant. Kept in the body too (harmless, ignored) so the contract flow is unaffected.
         const url = `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents?template_id=${encodeURIComponent(payload.templateId)}`;
-        const response = await this.request(
+        const data = await this.request<CreateDocumentApiResponse>(
             "createDocument",
             url,
             {
@@ -367,7 +380,6 @@ export class EformsignApiClient implements IEformsignClientRepository {
             },
         );
 
-        const data = await response.json();
         // Live response shape: { template_id, document: { id, document_name, document_status } }.
         const documentId = data.document?.id ?? data.document_id ?? data.id ?? "";
         if (!documentId) {
@@ -385,13 +397,12 @@ export class EformsignApiClient implements IEformsignClientRepository {
      */
     async getTemplateReviewer(accessToken: string, templateId: string): Promise<EformsignReviewerMember | null> {
         this.assertConfigured();
-        const response = await this.request(
+        const data = await this.request<EformsignTemplateConfigResponse>(
             "getTemplateReviewer",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/forms/${encodeURIComponent(templateId)}?is_include_config=true`,
             { headers: { "Authorization": `Bearer ${accessToken}` } },
             "Failed to get template config",
         );
-        const data = await response.json();
         const steps: Array<{ type?: string; option?: { receipients?: Array<{ member?: { name?: string; id?: string; sms?: { phone_number?: string } } }> } }> =
             data?.config?.step_settings ?? [];
         const reviewerStep = steps.find(s => s.type === "reviewer");
@@ -404,13 +415,21 @@ export class EformsignApiClient implements IEformsignClientRepository {
         };
     }
 
-    private async request(
+    /**
+     * Reads the body inside the retry loop, not after it. A response whose headers
+     * arrived but whose body then stalls or resets fails at the json()/text() call, and
+     * leaving that outside meant one transient body failure killed a run that the retry
+     * policy was supposed to survive. Body failures now follow the same policy as the
+     * request itself — including the idempotency rule, so a createDocument whose body
+     * fails is never retried: the customer may already have the document.
+     */
+    private async request<T>(
         operation: string,
         url: string,
         init: RequestInit,
         errorPrefix: string,
         options: EformsignRequestOptions = {},
-    ): Promise<Response> {
+    ): Promise<T> {
         const idempotent = options.idempotent ?? true;
         const requestTimeoutMs = options.timeoutMs ?? EFORMSIGN_REQUEST_TIMEOUT_MS;
         // A non-idempotent call is never retried, so the multi-attempt budget does not
@@ -430,50 +449,69 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 1,
                 Math.min(requestTimeoutMs, remainingMs),
             );
-            let response: Response;
+            let response: Response | undefined;
+            let payload: T | undefined;
+            let httpError: EformsignApiError | undefined;
+            let transportError: unknown;
+            let hasPayload = false;
 
             try {
                 response = await fetch(url, {
                     ...init,
                     signal: AbortSignal.timeout(attemptTimeoutMs),
                 });
+                if (response.ok) {
+                    payload = await response.json() as T;
+                    hasPayload = true;
+                } else {
+                    const errorData = await response.text();
+                    httpError = new EformsignApiError(
+                        `${errorPrefix}: ${response.status} - ${errorData}`,
+                        response.status,
+                    );
+                }
             } catch (error) {
+                transportError = error;
+            }
+
+            if (transportError !== undefined) {
                 if (!idempotent || attempt === EFORMSIGN_MAX_ATTEMPTS) {
-                    throw error;
+                    throw transportError;
                 }
 
                 const delayMs = this.getExponentialBackoffMs(attempt);
                 if (Date.now() + delayMs >= deadline) {
-                    throw error;
+                    throw transportError;
                 }
-                lastError = error;
-                this.logRetry(operation, attempt + 1, delayMs, this.getNetworkErrorCause(error));
+                lastError = transportError;
+                this.logRetry(
+                    operation,
+                    attempt + 1,
+                    delayMs,
+                    this.getNetworkErrorCause(transportError),
+                );
                 await this.waitForRetry(delayMs);
                 continue;
             }
 
-            if (response.ok) {
-                return response;
+            if (hasPayload) {
+                return payload as T;
             }
 
-            const errorData = await response.text();
-            const error = new EformsignApiError(
-                `${errorPrefix}: ${response.status} - ${errorData}`,
-                response.status,
-            );
-            const retryableStatus = response.status === 429
-                || (idempotent && response.status >= 500 && response.status <= 599);
+            const error = httpError as EformsignApiError;
+            const retryableStatus = error.status === 429
+                || (idempotent && error.status >= 500 && error.status <= 599);
 
             if (!retryableStatus || attempt === EFORMSIGN_MAX_ATTEMPTS) {
                 throw error;
             }
 
-            const delayMs = this.getRetryDelayMs(response, attempt);
+            const delayMs = this.getRetryDelayMs(response as Response, attempt);
             if (Date.now() + delayMs >= deadline) {
                 throw error;
             }
             lastError = error;
-            this.logRetry(operation, attempt + 1, delayMs, `status=${response.status}`);
+            this.logRetry(operation, attempt + 1, delayMs, `status=${error.status}`);
             await this.waitForRetry(delayMs);
         }
 
