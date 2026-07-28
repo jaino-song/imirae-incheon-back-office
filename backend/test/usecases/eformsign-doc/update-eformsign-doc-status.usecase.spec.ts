@@ -73,6 +73,19 @@ describe("UpdateEformsignDocStatusUsecase", () => {
         expect(eformsignDocRepository.update).not.toHaveBeenCalled();
     });
 
+    it("keeps the existing branch-owned 062 terminal guard unchanged", async () => {
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(createDocEntity("062"));
+
+        const result = await usecase.execute(branchId, {
+            documentId,
+            statusType: "070",
+            statusDetail: "검토 요청",
+        });
+
+        expect(result.statusType).toBe("062");
+        expect(eformsignDocRepository.update).not.toHaveBeenCalled();
+    });
+
     it("allows a normal non-terminal -> non-terminal transition", async () => {
         eformsignDocRepository.findByDocumentId.mockResolvedValue(createDocEntity("060"));
         eformsignDocRepository.update.mockImplementation((_branchid, doc) => Promise.resolve(doc));

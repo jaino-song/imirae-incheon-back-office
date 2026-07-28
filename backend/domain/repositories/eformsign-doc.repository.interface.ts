@@ -28,6 +28,25 @@ export class EformsignDocMappingError extends Error {
     }
 }
 
+export class EformsignDocOwnershipConflictError extends Error {
+    constructor(documentId: string) {
+        super(`Eformsign document ${documentId} belongs to another branch`);
+        this.name = EformsignDocOwnershipConflictError.name;
+    }
+}
+
+/**
+ * The row is still ours to write, but it already holds state at least as new as the
+ * event we were given. Distinct from an ownership conflict because the caller must do
+ * nothing at all here — retrying as branch-owned would apply a stale event.
+ */
+export class EformsignDocStaleUpdateError extends Error {
+    constructor(documentId: string) {
+        super(`Eformsign document ${documentId} already holds newer state`);
+        this.name = EformsignDocStaleUpdateError.name;
+    }
+}
+
 export interface EformsignDocCompletionClaimParams {
     documentId: string;
     statusType: string;

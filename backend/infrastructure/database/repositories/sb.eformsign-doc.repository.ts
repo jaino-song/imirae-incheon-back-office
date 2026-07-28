@@ -7,6 +7,8 @@ import {
     EformsignDocClientSummary,
     EformsignDocDisplayFields,
     EformsignDocMappingError,
+    EformsignDocOwnershipConflictError,
+    EformsignDocStaleUpdateError,
     EformsignDocUnscopedResult,
     IEformsignDocRepository,
     UpsertUnassignedEformsignDocOptions,
@@ -19,6 +21,12 @@ import {
 } from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EformsignDocMapper } from "infrastructure/database/mapper/eformsign-doc.mapper";
+
+const isUniqueConstraintError = (error: unknown): boolean =>
+    typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: unknown }).code === "P2002";
 
 const toUnscopedResult = (
     documentId: string,
@@ -333,14 +341,6 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
     }
 
     async upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity> {
-        const existingOwner = await this.prismaService.eformsign_doc.findUnique({
-            where: { documentId: doc.documentId },
-            select: { branchId: true },
-        });
-        if (existingOwner?.branchId && existingOwner.branchId !== branchid) {
-            throw new Error(`Eformsign document ${doc.documentId} belongs to another branch`);
-        }
-
         const create = {
             ...EformsignDocMapper.toPrismaCreate(doc),
             branchId: branchid,
@@ -353,26 +353,18 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         };
         delete update.documentId;
 
-        try {
-            const upserted = await this.prismaService.eformsign_doc.upsert({
-                where: { documentId: doc.documentId },
-                create,
-                update,
-            });
-            return EformsignDocMapper.toDomain(upserted);
-        } catch (error) {
-            if (!isPendingEformsignDocColumnError(error)) {
-                throw error;
-            }
-
-            const upserted = await this.prismaService.eformsign_doc.upsert({
-                where: { documentId: doc.documentId },
-                create: omitPendingEformsignDocColumns(create, error),
-                update: omitPendingEformsignDocColumns(update, error),
-                select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
-            });
-            return EformsignDocMapper.toDomain(toCompatDomainRow(upserted));
-        }
+        return this.conditionalUpsertByDocumentId({
+            documentId: doc.documentId,
+            create,
+            update,
+            allowedWhere: {
+                documentId: doc.documentId,
+                OR: [
+                    { branchId: null },
+                    { branchId: branchid },
+                ],
+            },
+        });
     }
 
     async upsertUnassignedByDocumentId(
@@ -413,26 +405,112 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 : {}),
         };
 
+        return this.conditionalUpsertByDocumentId({
+            documentId: doc.documentId,
+            create,
+            update,
+            allowedWhere: {
+                documentId: doc.documentId,
+                branchId: null,
+            },
+            // Monotonicity has to live in the write, not in a prior read: two webhooks for
+            // the same document can both read the same stored updatedDate, both decide they
+            // are newer, and the older one land last. lte rather than lt so an event that
+            // carries no time of its own — it reuses the stored value — still applies.
+            staleGuard: { updatedDate: { lte: doc.updatedDate } },
+        });
+    }
+
+    private async conditionalUpsertByDocumentId(params: {
+        documentId: string;
+        create: Prisma.eformsign_docUncheckedCreateInput;
+        update: Prisma.eformsign_docUpdateManyMutationInput;
+        allowedWhere: Prisma.eformsign_docWhereInput;
+        staleGuard?: Prisma.eformsign_docWhereInput;
+    }): Promise<EformsignDocEntity> {
         try {
-            const upserted = await this.prismaService.eformsign_doc.upsert({
-                where: { documentId: doc.documentId },
-                create,
-                update,
-            });
-            return EformsignDocMapper.toDomain(upserted);
+            return await this.attemptConditionalUpsertByDocumentId(params, false);
         } catch (error) {
             if (!isPendingEformsignDocColumnError(error)) {
                 throw error;
             }
 
-            const upserted = await this.prismaService.eformsign_doc.upsert({
-                where: { documentId: doc.documentId },
-                create: omitPendingEformsignDocColumns(create, error),
-                update: omitPendingEformsignDocColumns(update, error),
-                select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
-            });
-            return EformsignDocMapper.toDomain(toCompatDomainRow(upserted));
+            return this.attemptConditionalUpsertByDocumentId({
+                ...params,
+                create: omitPendingEformsignDocColumns(params.create, error),
+                update: omitPendingEformsignDocColumns(params.update, error),
+            }, true);
         }
+    }
+
+    private async attemptConditionalUpsertByDocumentId(
+        params: {
+            documentId: string;
+            create: Prisma.eformsign_docUncheckedCreateInput;
+            update: Prisma.eformsign_docUpdateManyMutationInput;
+            allowedWhere: Prisma.eformsign_docWhereInput;
+            staleGuard?: Prisma.eformsign_docWhereInput;
+        },
+        compatibilityMode: boolean,
+    ): Promise<EformsignDocEntity> {
+        // Ownership is enforced by the UPDATE predicate itself. If no row matches,
+        // create under the unique documentId constraint; a racing create surfaces as
+        // P2002, after which the same predicate decides whether this caller may update
+        // the winner. This keeps the read/check and write from becoming separate races.
+        const updateWhere = params.staleGuard
+            ? { AND: [params.allowedWhere, params.staleGuard] }
+            : params.allowedWhere;
+        const updateExisting = () => this.prismaService.eformsign_doc.updateMany({
+            where: updateWhere,
+            data: params.update,
+        });
+        // Zero rows now means one of two things. If a row still matches the ownership
+        // predicate on its own, the write was refused for being stale and the caller must
+        // do nothing; otherwise ownership moved and the caller has to handle it.
+        const noRowsMatched = async () => {
+            if (!params.staleGuard) {
+                throw new EformsignDocOwnershipConflictError(params.documentId);
+            }
+            const ownedCount = await this.prismaService.eformsign_doc.count({
+                where: params.allowedWhere,
+            });
+            throw ownedCount > 0
+                ? new EformsignDocStaleUpdateError(params.documentId)
+                : new EformsignDocOwnershipConflictError(params.documentId);
+        };
+
+        let updated = await updateExisting();
+        if (updated.count === 0) {
+            try {
+                if (compatibilityMode) {
+                    const created = await this.prismaService.eformsign_doc.create({
+                        data: params.create,
+                        select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
+                    });
+                    return EformsignDocMapper.toDomain(toCompatDomainRow(created));
+                }
+
+                const created = await this.prismaService.eformsign_doc.create({
+                    data: params.create,
+                });
+                return EformsignDocMapper.toDomain(created);
+            } catch (error) {
+                if (!isUniqueConstraintError(error)) {
+                    throw error;
+                }
+            }
+
+            updated = await updateExisting();
+            if (updated.count === 0) {
+                await noRowsMatched();
+            }
+        }
+
+        const result = await this.findFirstDomain(params.allowedWhere);
+        if (!result) {
+            throw new EformsignDocOwnershipConflictError(params.documentId);
+        }
+        return result;
     }
 
     async delete(branchid: string, id: number): Promise<void> {
