@@ -397,4 +397,137 @@ describe("client-owned service record snapshot", () => {
             }),
         }));
     });
+
+    it("selects every field consumed from existing snapshot documents", async () => {
+        const record = makeRecord();
+        record.requiredSessionCount = 1;
+        record.days = [record.days[0]!];
+        record.assignments = [record.assignments[0]!];
+        const snapshotChunk = {
+            findMany: jest.fn()
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{
+                    id: "chunk-1",
+                    chunkIndex: 1,
+                }]),
+            deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockResolvedValue({}),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        };
+        const eformsignDoc = {
+            findMany: jest.fn().mockResolvedValue([{
+                documentId: "existing-doc-1",
+                snapshotChunkIndex: 1,
+            }]),
+        };
+        const prisma = {
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue(record),
+            },
+            service_record_snapshot_chunk: snapshotChunk,
+            eformsign_doc: eformsignDoc,
+        };
+        const prismaWithTransaction = Object.assign(prisma, {
+            $transaction: jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma)),
+        });
+        const usecase = new CreateAndSendServiceRecordSnapshotUsecase(
+            {} as never,
+            prismaWithTransaction as never,
+            { execute: jest.fn() } as never,
+            {
+                get: jest.fn((key: string) => (
+                    key === "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID" ? "template-1" : undefined
+                )),
+            } as never,
+        );
+
+        await expect(usecase.executeCase("branch-1", record.id)).resolves.toEqual({
+            documentIds: ["existing-doc-1"],
+            documentId: "existing-doc-1",
+            chunkCount: 1,
+        });
+
+        expect(eformsignDoc.findMany).toHaveBeenCalledWith({
+            where: {
+                serviceRecordCaseId: record.id,
+                snapshotVersion: record.formVersion,
+                documentKind: "service_record_snapshot",
+            },
+            select: {
+                documentId: true,
+                snapshotChunkIndex: true,
+            },
+            orderBy: { snapshotChunkIndex: "asc" },
+        });
+    });
+
+    it("retries the whole snapshot persistence transaction without pending columns after P2022", async () => {
+        const { usecase, prisma, remoteDocument } = setup();
+        const record = makeRecord();
+        record.requiredSessionCount = 1;
+        record.days = [record.days[0]!];
+        record.assignments = [record.assignments[0]!];
+        const chunk = callBuildCaseChunks(
+            usecase,
+            record,
+            BASE_ONLY_TIERS,
+            BASE_ONLY_TEMPLATE_BY_TIER,
+        )[0]!;
+        const pendingColumnError = Object.assign(
+            new Error("The column `eformsign_doc.document_name` does not exist"),
+            { code: "P2022" },
+        );
+        prisma.eformsign_doc.upsert
+            .mockRejectedValueOnce(pendingColumnError)
+            .mockResolvedValueOnce({ id: 1 });
+        const persister = usecase as unknown as {
+            persistRemoteDocument(params: Record<string, unknown>): Promise<void>;
+        };
+
+        await expect(persister.persistRemoteDocument({
+            record,
+            chunk,
+            chunkId: "chunk-1",
+            templateId: "template-1",
+            reviewer: {
+                name: "검토자",
+                id: "reviewer@example.com",
+                phoneNumber: "01012345678",
+            },
+            documentId: remoteDocument.id,
+            remoteDocument,
+        })).resolves.toBeUndefined();
+
+        expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+        expect(prisma.eformsign_doc.upsert).toHaveBeenCalledTimes(2);
+        const retry = prisma.eformsign_doc.upsert.mock.calls[1]![0];
+        expect(retry.select).toEqual({ id: true });
+        for (const column of [
+            "documentKind",
+            "employeeScheduleId",
+            "templateId",
+            "documentName",
+            "documentNumber",
+            "templateName",
+            "customerName",
+            "creatorName",
+            "lastEditorName",
+            "stepRecipientTypes",
+        ]) {
+            expect(retry.create).not.toHaveProperty(column);
+            expect(retry.update).not.toHaveProperty(column);
+        }
+        expect(prisma.service_record_snapshot_chunk.update).toHaveBeenCalledTimes(1);
+        expect(prisma.service_record_snapshot_chunk.update).toHaveBeenCalledWith({
+            where: { id: "chunk-1" },
+            data: {
+                status: "CREATED",
+                eformsignDocumentId: remoteDocument.id,
+                nextAttemptAt: null,
+                lastError: null,
+            },
+        });
+    });
 });

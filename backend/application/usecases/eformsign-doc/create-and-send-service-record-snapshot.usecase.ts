@@ -12,6 +12,10 @@ import { createHash } from "crypto";
 import { EFORMSIGN_CLIENT_REPOSITORY, IEformsignClientRepository } from "domain/repositories/eformsign.client.interface";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { encodeEformsignStepRecipientTypes } from "domain/value-objects/eformsign-step-recipient-types";
+import {
+    isPendingEformsignDocColumnError,
+    omitPendingEformsignDocColumns,
+} from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
@@ -184,6 +188,12 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 serviceRecordCaseId: record.id,
                 snapshotVersion: record.formVersion,
                 documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
+            },
+            // Keep this projection pinned to fields consumed below so future schema columns
+            // cannot break snapshot creation during an application-before-database deploy window.
+            select: {
+                documentId: true,
+                snapshotChunkIndex: true,
             },
             orderBy: { snapshotChunkIndex: "asc" },
         });
@@ -757,79 +767,100 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
             ? new Date(remoteStatus.expired_date)
             : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
         const marker = `제공기록지 C${params.record.id.slice(0, 8)} V${params.record.formVersion} ${params.chunk.chunkIndex}/${params.chunk.chunkCount}`;
+        const create = {
+            documentId: params.documentId,
+            documentName: params.chunk.documentName,
+            templateName,
+            customerName,
+            creatorName,
+            lastEditorName,
+            stepRecipientTypes,
+            createdDate,
+            updatedDate,
+            statusType: remoteStatus?.status_type ?? "070",
+            statusDetail: remoteStatus?.status_doc_detail ?? "검토 요청",
+            stepType: remoteStatus?.step_type ?? "06",
+            stepIndex: remoteStatus?.step_index ?? "2",
+            stepName: marker,
+            stepRecipientType: recipient?.recipient_type ?? "reviewer",
+            stepRecipientName: recipient?.name ?? params.reviewer.name,
+            stepRecipientSms: params.reviewer.phoneNumber ?? "-",
+            expiredDate,
+            expired: remoteStatus?._expired ?? false,
+            clientId: params.record.clientId,
+            branchId: params.record.branchId,
+            documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
+            employeeScheduleId: params.chunk.scheduleId,
+            templateId: params.templateId,
+            serviceRecordCaseId: params.record.id,
+            snapshotVersion: params.record.formVersion,
+            snapshotChunkIndex: params.chunk.chunkIndex,
+        };
+        const update = {
+            documentName: params.chunk.documentName,
+            ...(templateName ? { templateName } : {}),
+            ...(customerName ? { customerName } : {}),
+            ...(creatorName ? { creatorName } : {}),
+            ...(lastEditorName ? { lastEditorName } : {}),
+            ...(stepRecipientTypes ? { stepRecipientTypes } : {}),
+            ...(remoteStatus ? {
+                updatedDate,
+                statusType: remoteStatus.status_type,
+                statusDetail: remoteStatus.status_doc_detail,
+                stepType: remoteStatus.step_type,
+                stepIndex: remoteStatus.step_index,
+                stepName: marker,
+                stepRecipientType: recipient?.recipient_type ?? "reviewer",
+                stepRecipientName: recipient?.name ?? params.reviewer.name,
+                stepRecipientSms: params.reviewer.phoneNumber ?? "-",
+                expiredDate,
+                expired: remoteStatus._expired ?? false,
+            } : {}),
+            clientId: params.record.clientId,
+            branchId: params.record.branchId,
+            documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
+            employeeScheduleId: params.chunk.scheduleId,
+            templateId: params.templateId,
+            serviceRecordCaseId: params.record.id,
+            snapshotVersion: params.record.formVersion,
+            snapshotChunkIndex: params.chunk.chunkIndex,
+        };
+        const persistInTransaction = async (
+            upsertCreate: typeof create,
+            upsertUpdate: typeof update,
+        ): Promise<void> => {
+            await this.prisma.$transaction(async (tx) => {
+                await tx.eformsign_doc.upsert({
+                    where: { documentId: params.documentId },
+                    create: upsertCreate,
+                    update: upsertUpdate,
+                    select: { id: true },
+                });
+                await tx.service_record_snapshot_chunk.update({
+                    where: { id: params.chunkId },
+                    data: {
+                        status: "CREATED",
+                        eformsignDocumentId: params.documentId,
+                        nextAttemptAt: null,
+                        lastError: null,
+                    },
+                });
+            });
+        };
 
-        await this.prisma.$transaction(async (tx) => {
-            await tx.eformsign_doc.upsert({
-                where: { documentId: params.documentId },
-                create: {
-                    documentId: params.documentId,
-                    documentName: params.chunk.documentName,
-                    templateName,
-                    customerName,
-                    creatorName,
-                    lastEditorName,
-                    stepRecipientTypes,
-                    createdDate,
-                    updatedDate,
-                    statusType: remoteStatus?.status_type ?? "070",
-                    statusDetail: remoteStatus?.status_doc_detail ?? "검토 요청",
-                    stepType: remoteStatus?.step_type ?? "06",
-                    stepIndex: remoteStatus?.step_index ?? "2",
-                    stepName: marker,
-                    stepRecipientType: recipient?.recipient_type ?? "reviewer",
-                    stepRecipientName: recipient?.name ?? params.reviewer.name,
-                    stepRecipientSms: params.reviewer.phoneNumber ?? "-",
-                    expiredDate,
-                    expired: remoteStatus?._expired ?? false,
-                    clientId: params.record.clientId,
-                    branchId: params.record.branchId,
-                    documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
-                    employeeScheduleId: params.chunk.scheduleId,
-                    templateId: params.templateId,
-                    serviceRecordCaseId: params.record.id,
-                    snapshotVersion: params.record.formVersion,
-                    snapshotChunkIndex: params.chunk.chunkIndex,
-                },
-                update: {
-                    documentName: params.chunk.documentName,
-                    ...(templateName ? { templateName } : {}),
-                    ...(customerName ? { customerName } : {}),
-                    ...(creatorName ? { creatorName } : {}),
-                    ...(lastEditorName ? { lastEditorName } : {}),
-                    ...(stepRecipientTypes ? { stepRecipientTypes } : {}),
-                    ...(remoteStatus ? {
-                        updatedDate,
-                        statusType: remoteStatus.status_type,
-                        statusDetail: remoteStatus.status_doc_detail,
-                        stepType: remoteStatus.step_type,
-                        stepIndex: remoteStatus.step_index,
-                        stepName: marker,
-                        stepRecipientType: recipient?.recipient_type ?? "reviewer",
-                        stepRecipientName: recipient?.name ?? params.reviewer.name,
-                        stepRecipientSms: params.reviewer.phoneNumber ?? "-",
-                        expiredDate,
-                        expired: remoteStatus._expired ?? false,
-                    } : {}),
-                    clientId: params.record.clientId,
-                    branchId: params.record.branchId,
-                    documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
-                    employeeScheduleId: params.chunk.scheduleId,
-                    templateId: params.templateId,
-                    serviceRecordCaseId: params.record.id,
-                    snapshotVersion: params.record.formVersion,
-                    snapshotChunkIndex: params.chunk.chunkIndex,
-                },
-            });
-            await tx.service_record_snapshot_chunk.update({
-                where: { id: params.chunkId },
-                data: {
-                    status: "CREATED",
-                    eformsignDocumentId: params.documentId,
-                    nextAttemptAt: null,
-                    lastError: null,
-                },
-            });
-        });
+        try {
+            await persistInTransaction(create, update);
+        } catch (error) {
+            if (!isPendingEformsignDocColumnError(error)) {
+                throw error;
+            }
+            // PostgreSQL aborts a transaction after a statement error. Retry the complete
+            // atomic write in a fresh transaction instead of reusing the failed tx client.
+            await persistInTransaction(
+                omitPendingEformsignDocColumns(create),
+                omitPendingEformsignDocColumns(update),
+            );
+        }
         this.logger.log(
             `Service record snapshot chunk created: case=${params.record.id}, chunk=${params.chunk.chunkIndex}/${params.chunk.chunkCount}, document=${params.documentId}`,
         );
