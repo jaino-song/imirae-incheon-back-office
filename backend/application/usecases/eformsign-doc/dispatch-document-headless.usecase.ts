@@ -52,6 +52,7 @@ interface CreatedDocumentStatus {
     stepIndex: string;
     stepName: string;
     expiredDate: Date;
+    templateName?: string;
 }
 
 /**
@@ -94,9 +95,11 @@ export class DispatchDocumentHeadlessUsecase {
             const refreshToken = tokenResponse.oauth_token.refresh_token;
 
             let templateId: string | undefined;
+            let templateName: string | null = null;
             if (params.contractData.area) {
                 const areaTemplate = await this.areaTemplateService.findByArea(branchId, params.contractData.area);
                 templateId = areaTemplate?.templateId;
+                templateName = areaTemplate?.templateName ?? null;
             }
 
             if (!params.force) {
@@ -198,6 +201,8 @@ export class DispatchDocumentHeadlessUsecase {
                     linkToClient: true,
                     documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
                     templateId: templateId ?? null,
+                    templateName: createdDocumentStatus.templateName ?? templateName,
+                    customerName: params.contractData.customerName,
                     });
                 } catch (error) {
                     this.logger.error(`Failed to persist doc record for ${documentId}: ${error}`);
@@ -276,6 +281,7 @@ export class DispatchDocumentHeadlessUsecase {
                 stepIndex: currentStatus?.step_index?.trim() || fallback.stepIndex,
                 stepName: currentStatus?.step_name?.trim() || fallback.stepName,
                 expiredDate: this.expiredDateFromEpoch(currentStatus?.expired_date) ?? fallback.expiredDate,
+                templateName: document.template?.name?.trim() || undefined,
             };
         } catch (error) {
             const reason = error instanceof Error ? error.message : "unknown error";

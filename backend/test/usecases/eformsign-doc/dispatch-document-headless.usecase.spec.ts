@@ -96,6 +96,8 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 stepType: "01",
                 stepIndex: "4",
                 stepName: "완료",
+                templateName: "서구 계약서 (검토 단계)",
+                customerName: "김고객",
             }),
         );
     });

@@ -9,90 +9,16 @@ import {
     EformsignDocMappingError,
     EformsignDocUnscopedResult,
     IEformsignDocRepository,
+    UpsertUnassignedEformsignDocOptions,
 } from "domain/repositories/eformsign-doc.repository.interface";
+import {
+    EFORMSIGN_DOC_COMPAT_READ_SELECT,
+    isPendingEformsignDocColumnError,
+    omitPendingEformsignDocColumns,
+    toCompatDomainRow,
+} from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EformsignDocMapper } from "infrastructure/database/mapper/eformsign-doc.mapper";
-
-const EFORMSIGN_DOC_COMPAT_READ_SELECT = {
-    id: true,
-    documentId: true,
-    createdDate: true,
-    updatedDate: true,
-    statusType: true,
-    statusDetail: true,
-    stepType: true,
-    stepIndex: true,
-    stepName: true,
-    stepRecipientType: true,
-    stepRecipientName: true,
-    stepRecipientSms: true,
-    expiredDate: true,
-    expired: true,
-    clientId: true,
-} satisfies Prisma.eformsign_docSelect;
-
-type EformsignDocCompatReadRow = Prisma.eformsign_docGetPayload<{
-    select: typeof EFORMSIGN_DOC_COMPAT_READ_SELECT;
-}>;
-
-const PENDING_EFORMSIGN_DOC_COLUMN_NAMES = [
-    "document_kind",
-    "employee_schedule_id",
-    "template_id",
-    "document_name",
-    "document_number",
-    "documentKind",
-    "employeeScheduleId",
-    "templateId",
-    "documentName",
-    "documentNumber",
-];
-
-const isPendingEformsignDocColumnError = (error: unknown): boolean => {
-    const code = typeof error === "object" && error !== null && "code" in error
-        ? (error as { code?: unknown }).code
-        : undefined;
-    const column = typeof error === "object" && error !== null && "meta" in error
-        ? (error as { meta?: { column?: unknown } }).meta?.column
-        : undefined;
-    const message = error instanceof Error ? error.message : String(error);
-    const haystack = `${message} ${typeof column === "string" ? column : ""}`;
-
-    if (code === "P2022") {
-        return true;
-    }
-
-    if (!/column|does not exist/i.test(haystack)) {
-        return false;
-    }
-
-    return PENDING_EFORMSIGN_DOC_COLUMN_NAMES.some((columnName) => haystack.includes(columnName));
-};
-
-const toCompatDomainRow = (row: EformsignDocCompatReadRow) => ({
-    ...row,
-    documentKind: null,
-    employeeScheduleId: null,
-    templateId: null,
-    documentName: null,
-    documentNumber: null,
-});
-
-const omitPendingEformsignDocColumns = <T extends {
-    documentKind?: unknown;
-    employeeScheduleId?: unknown;
-    templateId?: unknown;
-    documentName?: unknown;
-    documentNumber?: unknown;
-}>(data: T) => {
-    const legacyData = { ...data };
-    delete legacyData.documentKind;
-    delete legacyData.employeeScheduleId;
-    delete legacyData.templateId;
-    delete legacyData.documentName;
-    delete legacyData.documentNumber;
-    return legacyData;
-};
 
 const toUnscopedResult = (
     documentId: string,
@@ -163,6 +89,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         params: EformsignDocCompletionClaimParams,
     ): Promise<EformsignDocCompletionClaimResult> {
         const documentName = params.documentName?.trim() || undefined;
+        const templateName = params.templateName?.trim() || undefined;
         const data = {
             statusType: params.statusType,
             statusDetail: params.statusDetail,
@@ -172,6 +99,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             expired: params.expired,
             updatedDate: new Date(),
             documentName,
+            templateName,
         };
         const where = {
             branchId: branchid,
@@ -188,7 +116,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
             result = await this.prismaService.eformsign_doc.updateMany({
                 where,
-                data: omitPendingEformsignDocColumns(data),
+                data: omitPendingEformsignDocColumns(data, error),
             });
         }
 
@@ -208,15 +136,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             return "missing";
         }
 
-        if (documentName) {
+        if (documentName || templateName) {
+            const metadata = {
+                ...(documentName ? { documentName } : {}),
+                ...(templateName ? { templateName } : {}),
+            };
             try {
                 await this.prismaService.eformsign_doc.updateMany({
                     where: { id: existing.id, branchId: branchid },
-                    data: { documentName },
+                    data: metadata,
                 });
             } catch (error) {
                 if (!isPendingEformsignDocColumnError(error)) {
                     throw error;
+                }
+                const compatMetadata = omitPendingEformsignDocColumns(metadata, error);
+                if (Object.keys(compatMetadata).length > 0) {
+                    await this.prismaService.eformsign_doc.updateMany({
+                        where: { id: existing.id, branchId: branchid },
+                        data: compatMetadata,
+                    });
                 }
             }
         }
@@ -353,7 +292,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
 
             const created = await this.prismaService.eformsign_doc.create({
-                data: omitPendingEformsignDocColumns(data),
+                data: omitPendingEformsignDocColumns(data, error),
                 select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
             });
             return EformsignDocMapper.toDomain(toCompatDomainRow(created));
@@ -379,7 +318,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             result = await this.prismaService.eformsign_doc.updateMany({
                 where: { id: doc.id, branchId: branchid },
-                data: omitPendingEformsignDocColumns(data),
+                data: omitPendingEformsignDocColumns(data, error),
             });
         }
 
@@ -428,18 +367,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             const upserted = await this.prismaService.eformsign_doc.upsert({
                 where: { documentId: doc.documentId },
-                create: omitPendingEformsignDocColumns(create),
-                update: omitPendingEformsignDocColumns(update),
+                create: omitPendingEformsignDocColumns(create, error),
+                update: omitPendingEformsignDocColumns(update, error),
                 select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
             });
             return EformsignDocMapper.toDomain(toCompatDomainRow(upserted));
         }
     }
 
-    async upsertUnassignedByDocumentId(doc: EformsignDocEntity): Promise<EformsignDocEntity> {
+    async upsertUnassignedByDocumentId(
+        doc: EformsignDocEntity,
+        options?: UpsertUnassignedEformsignDocOptions,
+    ): Promise<EformsignDocEntity> {
         const documentName = doc.documentName?.trim() || undefined;
         const documentNumber = doc.documentNumber?.trim() || undefined;
         const templateId = doc.templateId?.trim() || undefined;
+        const templateName = doc.templateName?.trim() || undefined;
+        const customerName = doc.customerName?.trim() || undefined;
+        const creatorName = doc.creatorName?.trim() || undefined;
+        const lastEditorName = doc.lastEditorName?.trim() || undefined;
+        const stepRecipientTypes = EformsignDocMapper.toPrismaUpdate(doc).stepRecipientTypes;
         const create = {
             ...EformsignDocMapper.toPrismaCreate(doc),
             documentName: documentName ?? null,
@@ -457,6 +404,13 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             updatedDate: doc.updatedDate,
             ...(documentName ? { documentName } : {}),
             ...(templateId ? { templateId } : {}),
+            ...(templateName ? { templateName } : {}),
+            ...(options?.updateListDisplayFields && customerName ? { customerName } : {}),
+            ...(options?.updateListDisplayFields && creatorName ? { creatorName } : {}),
+            ...(options?.updateListDisplayFields && lastEditorName ? { lastEditorName } : {}),
+            ...(options?.updateListDisplayFields && stepRecipientTypes
+                ? { stepRecipientTypes }
+                : {}),
         };
 
         try {
@@ -473,8 +427,8 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             const upserted = await this.prismaService.eformsign_doc.upsert({
                 where: { documentId: doc.documentId },
-                create: omitPendingEformsignDocColumns(create),
-                update: omitPendingEformsignDocColumns(update),
+                create: omitPendingEformsignDocColumns(create, error),
+                update: omitPendingEformsignDocColumns(update, error),
                 select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
             });
             return EformsignDocMapper.toDomain(toCompatDomainRow(upserted));

@@ -13,6 +13,7 @@ export interface UpdateEformsignDocStatusParams {
     stepName?: string;
     expired?: boolean;
     documentName?: string;
+    templateName?: string;
 }
 
 @Injectable()
@@ -51,6 +52,11 @@ export class UpdateEformsignDocStatusUsecase {
             documentId: existing.documentId,
             documentName: params.documentName?.trim() || existing.documentName,
             documentNumber: existing.documentNumber,
+            templateName: params.templateName?.trim() || existing.templateName,
+            customerName: existing.customerName,
+            creatorName: existing.creatorName,
+            lastEditorName: existing.lastEditorName,
+            stepRecipientTypes: existing.stepRecipientTypes,
             createdDate: existing.createdDate,
             updatedDate: new Date(),
             statusType: params.statusType,

@@ -8,14 +8,20 @@ describe("AdoptEformsignDocUsecase", () => {
             { execute: jest.fn().mockResolvedValue({
                 id: "doc-1",
                 document_name: "계약서 - 고객",
-                template: { id: "template-1" },
+                template: { id: "template-1", name: "표준 계약서" },
+                creator: { name: "생성자" },
+                last_editor: { name: "최종 편집자" },
+                fields: [{ id: "이용자 성명", value: "김고객" }],
                 current_status: {
                     status_type: "060",
                     status_doc_detail: "서명 요청됨",
                     step_type: "01",
                     step_index: "1",
                     step_name: "서명 요청",
-                    step_recipients: [{ recipient_type: "01", id: "01012345678", name: "고객" }],
+                    step_recipients: [
+                        { recipient_type: "01", id: "01012345678", name: "고객" },
+                        { recipient_type: "06", id: "reviewer", name: "검토자" },
+                    ],
                     expired_date: 0,
                 },
             }) } as never,
@@ -30,6 +36,11 @@ describe("AdoptEformsignDocUsecase", () => {
         expect(create.execute).toHaveBeenNthCalledWith(2, "branch-1", expect.objectContaining({
             documentId: "doc-1",
             clientId: 7,
+            templateName: "표준 계약서",
+            customerName: "김고객",
+            creatorName: "생성자",
+            lastEditorName: "최종 편집자",
+            stepRecipientTypes: ["01", "06"],
         }));
     });
 });
