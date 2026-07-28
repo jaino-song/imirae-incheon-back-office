@@ -186,7 +186,14 @@ export class EformsignWebhookService {
         branchid: string,
         pdfEvent: NonNullable<EformsignWebhookPayloadDto["ready_document_pdf"]>
     ): Promise<void> {
-        const { document_id: documentId, document_status: status, template_id, workflow_seq, workflow_name } = pdfEvent;
+        const {
+            document_id: documentId,
+            document_title,
+            document_status: status,
+            template_id,
+            workflow_seq,
+            workflow_name,
+        } = pdfEvent;
 
         this.logger.log(`PDF ready event: ${documentId} -> status=${status}, workflow=${workflow_name}`);
 
@@ -197,6 +204,7 @@ export class EformsignWebhookService {
                 workflow_seq,
                 workflow_name,
                 "ready_document_pdf",
+                document_title,
             );
             if (!claimed) {
                 if (this.isServiceRecordTemplate(template_id)) {
@@ -227,6 +235,7 @@ export class EformsignWebhookService {
                 stepIndex: String(workflow_seq),
                 stepName: workflow_name,
                 expired: false,
+                documentName: document_title,
             });
 
             this.logger.log(`Document ${documentId} status updated from PDF event: ${status} -> ${statusDetail}`);
@@ -250,7 +259,13 @@ export class EformsignWebhookService {
         branchid: string,
         document: NonNullable<EformsignWebhookPayloadDto["document"]>
     ): Promise<void> {
-        const { id: documentId, action, workflow_seq, workflow_name } = document;
+        const {
+            id: documentId,
+            action,
+            document_title,
+            workflow_seq,
+            workflow_name,
+        } = document;
 
         this.logger.log(`Document action event: ${documentId} -> action=${action}, workflow=${workflow_name}`);
 
@@ -267,6 +282,7 @@ export class EformsignWebhookService {
                 stepIndex: String(workflow_seq || 0),
                 stepName: workflow_name || "unknown",
                 expired: false,
+                documentName: document_title,
             });
 
             this.logger.log(`Document ${documentId} action recorded: ${action}`);
@@ -298,6 +314,7 @@ export class EformsignWebhookService {
                 workflow_seq,
                 workflow_name,
                 status,
+                document_title,
             );
             if (!claimed) {
                 if (this.isServiceRecordTemplate(template_id)) {
@@ -315,6 +332,7 @@ export class EformsignWebhookService {
                     stepIndex: String(workflow_seq),
                     stepName: workflow_name,
                     expired: false,
+                    documentName: document_title,
                 });
 
                 this.logger.log(`Document ${documentId} status updated: ${status} -> ${statusDetail}`);
@@ -349,6 +367,7 @@ export class EformsignWebhookService {
         workflowSeq: number,
         workflowName: string,
         source: string,
+        documentName?: string,
     ): Promise<boolean> {
         const claimResult = await this.eformsignDocRepository.claimCompletionStatus(branchid, {
             documentId,
@@ -358,6 +377,7 @@ export class EformsignWebhookService {
             stepIndex: String(workflowSeq),
             stepName: workflowName,
             expired: false,
+            documentName: documentName?.trim() || undefined,
         });
 
         if (claimResult === "claimed") {

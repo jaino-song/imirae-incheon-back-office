@@ -3,6 +3,8 @@ import { EformsignDocEntity, EformsignDocumentKind } from "domain/entities/eform
 type EformsignDocRow = {
     id: number;
     documentId: string;
+    documentName: string | null;
+    documentNumber: string | null;
     createdDate: Date;
     updatedDate: Date;
     statusType: string;
@@ -26,6 +28,8 @@ export class EformsignDocMapper {
         return EformsignDocEntity.reconstitute({
             id: row.id,
             documentId: row.documentId,
+            documentName: row.documentName,
+            documentNumber: row.documentNumber,
             createdDate: row.createdDate,
             updatedDate: row.updatedDate,
             statusType: row.statusType,
@@ -48,6 +52,8 @@ export class EformsignDocMapper {
     static toPrismaCreate(entity: EformsignDocEntity) {
         return {
             documentId: entity.documentId,
+            documentName: entity.documentName,
+            documentNumber: entity.documentNumber,
             createdDate: entity.createdDate,
             updatedDate: entity.updatedDate,
             statusType: entity.statusType,
@@ -70,6 +76,11 @@ export class EformsignDocMapper {
     static toPrismaUpdate(entity: EformsignDocEntity) {
         return {
             documentId: entity.documentId,
+            // Null means "the caller did not carry this value", not "clear it": several
+            // callers rebuild the entity without these two and would otherwise wipe a
+            // stored name. Nothing needs to clear them, so omission is the safe default.
+            ...(entity.documentName == null ? {} : { documentName: entity.documentName }),
+            ...(entity.documentNumber == null ? {} : { documentNumber: entity.documentNumber }),
             createdDate: entity.createdDate,
             updatedDate: entity.updatedDate,
             statusType: entity.statusType,

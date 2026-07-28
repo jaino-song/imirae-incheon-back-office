@@ -76,6 +76,8 @@ export class LinkDocumentToClientUsecase {
         return EformsignDocEntity.reconstitute({
             id: doc.id,
             documentId: doc.documentId,
+            documentName: doc.documentName,
+            documentNumber: doc.documentNumber,
             createdDate: doc.createdDate,
             updatedDate: new Date(),
             statusType: doc.statusType,

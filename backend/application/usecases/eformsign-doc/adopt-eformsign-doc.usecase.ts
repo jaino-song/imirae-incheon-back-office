@@ -55,6 +55,7 @@ export class AdoptEformsignDocUsecase {
             linkToClient: true,
             documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
             templateId: remote.template?.id ?? null,
+            documentName: remote.document_name,
         });
     }
 }

@@ -1,17 +1,23 @@
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
+import { LinkDocumentToClientUsecase } from "application/usecases/eformsign-doc/link-document-to-client.usecase";
 import { UpdateEformsignDocStatusUsecase } from "application/usecases/eformsign-doc/update-eformsign-doc-status.usecase";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
+import { EformsignDocMapper } from "infrastructure/database/mapper/eformsign-doc.mapper";
 import { EformsignWebhookPayloadDto } from "interface/dto/eformsign-webhook.dto";
 
 describe("EformsignWebhookService", () => {
     const branchId = "test-branch";
     const documentId = "doc-123";
 
-    const createDocEntity = (): EformsignDocEntity =>
+    const createDocEntity = (overrides: Partial<{
+        clientId: number | null;
+        documentName: string | null;
+    }> = {}): EformsignDocEntity =>
         EformsignDocEntity.reconstitute({
             id: 1,
             documentId,
+            documentName: overrides.documentName ?? null,
             createdDate: new Date("2026-05-01T00:00:00.000Z"),
             updatedDate: new Date("2026-05-02T00:00:00.000Z"),
             statusType: "060",
@@ -24,7 +30,7 @@ describe("EformsignWebhookService", () => {
             stepRecipientSms: "01012345678",
             expiredDate: new Date("2026-06-01T00:00:00.000Z"),
             expired: false,
-            clientId: 9,
+            clientId: overrides.clientId ?? 9,
         });
 
     const createClientEntity = (): ClientEntity =>
@@ -203,7 +209,10 @@ describe("EformsignWebhookService", () => {
         expect(eformsignDocRepository.findBranchIdByDocumentId).toHaveBeenCalledWith(documentId);
         expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
             branchId,
-            expect.objectContaining({ documentId }),
+            expect.objectContaining({
+                documentId,
+                documentName: "산모신생아건강관리서비스 계약서",
+            }),
         );
     });
 
@@ -308,9 +317,69 @@ describe("EformsignWebhookService", () => {
             expect.objectContaining({
                 documentId,
                 statusType: "060",
+                documentName: "산모신생아건강관리서비스 계약서",
             }),
         );
         expect(linkDocumentUsecase.execute).toHaveBeenCalledWith(branchId, documentId);
+    });
+
+    it("preserves the webhook documentName when status persistence is followed by client reassignment", async () => {
+        let storedDoc = createDocEntity({
+            clientId: 7,
+            documentName: "기존 문서명",
+        });
+        const statefulDocRepository = {
+            findBranchIdByDocumentId: jest.fn().mockResolvedValue(branchId),
+            findByDocumentId: jest.fn().mockImplementation(() => Promise.resolve(storedDoc)),
+            update: jest.fn().mockImplementation((_branchid, doc: EformsignDocEntity) => {
+                const storedId = storedDoc.id;
+                if (storedId === undefined) {
+                    throw new Error("stored document id is required");
+                }
+                storedDoc = EformsignDocMapper.toDomain({
+                    id: storedId,
+                    ...EformsignDocMapper.toPrismaCreate(storedDoc),
+                    ...EformsignDocMapper.toPrismaUpdate(doc),
+                });
+                return Promise.resolve(storedDoc);
+            }),
+        };
+        const phoneMatchedClient = createClientEntity();
+        const statefulClientRepository = {
+            findByPhone: jest.fn().mockResolvedValue(phoneMatchedClient),
+            findById: jest.fn(),
+            update: jest.fn().mockResolvedValue(phoneMatchedClient),
+        };
+        const realUpdateStatusUsecase = new UpdateEformsignDocStatusUsecase(
+            statefulDocRepository as never,
+        );
+        const realLinkDocumentUsecase = new LinkDocumentToClientUsecase(
+            statefulDocRepository as never,
+            statefulClientRepository as never,
+        );
+        const statefulService = new EformsignWebhookService(
+            realUpdateStatusUsecase,
+            realLinkDocumentUsecase,
+            syncClientEndDateUsecase as never,
+            eventBus as never,
+            notificationService as never,
+            eformsignApiClient as never,
+            statefulClientRepository as never,
+            statefulDocRepository as never,
+            employeeScheduleRepository as never,
+            employeeRepository as never,
+        );
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_request_participant";
+
+        await statefulService.processWebhook(payload);
+
+        expect(statefulDocRepository.update).toHaveBeenCalledTimes(2);
+        expect(storedDoc.clientId).toBe(9);
+        expect(storedDoc.documentName).toBe("산모신생아건강관리서비스 계약서");
     });
 
     it("should not notify branch users for a user participant step even when eformsign reports recipient_type 01", async () => {

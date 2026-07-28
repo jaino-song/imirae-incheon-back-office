@@ -23,6 +23,8 @@ describe("UpdateEformsignDocStatusUsecase", () => {
             expiredDate: new Date("2026-06-01T00:00:00.000Z"),
             expired: false,
             clientId: 9,
+            documentName: "기존 문서명",
+            templateId: "existing-template",
         });
 
     const eformsignDocRepository = {
@@ -92,5 +94,35 @@ describe("UpdateEformsignDocStatusUsecase", () => {
 
         expect(result.statusType).toBe("080");
         expect(eformsignDocRepository.update).toHaveBeenCalledTimes(1);
+    });
+
+    it("stores webhook documentName without replacing the locally selected templateId", async () => {
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(createDocEntity("060"));
+        eformsignDocRepository.update.mockImplementation((_branchid, doc) => Promise.resolve(doc));
+
+        const result = await usecase.execute(branchId, {
+            documentId,
+            statusType: "070",
+            statusDetail: "검토 요청",
+            documentName: "새 문서명",
+        });
+
+        expect(result.documentName).toBe("새 문서명");
+        expect(result.templateId).toBe("existing-template");
+    });
+
+    it("keeps existing documentName when the webhook value is empty", async () => {
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(createDocEntity("060"));
+        eformsignDocRepository.update.mockImplementation((_branchid, doc) => Promise.resolve(doc));
+
+        const result = await usecase.execute(branchId, {
+            documentId,
+            statusType: "070",
+            statusDetail: "검토 요청",
+            documentName: "   ",
+        });
+
+        expect(result.documentName).toBe("기존 문서명");
+        expect(result.templateId).toBe("existing-template");
     });
 });

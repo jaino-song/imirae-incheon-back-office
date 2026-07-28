@@ -96,9 +96,10 @@ export class CreateAndSendContractUsecase {
                 { id: "서비스 기간", value: `${client.duration || 0}일` },
             ];
 
+            const documentName = `${templateName || "계약서"} - ${client.name}`;
             const result = await this.eformsignClient.createDocument(accessToken, {
                 templateId,
-                documentName: `${templateName || "계약서"} - ${client.name}`,
+                documentName,
                 prefillFields,
                 recipient: {
                     name: client.name,
@@ -109,6 +110,7 @@ export class CreateAndSendContractUsecase {
 
             await this.createEformsignDocUsecase.execute(branchid, {
                 documentId: result.documentId,
+                documentName,
                 clientId,
                 linkToClient: true,
                 statusType: "010",

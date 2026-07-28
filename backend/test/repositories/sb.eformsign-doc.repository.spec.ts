@@ -36,6 +36,8 @@ describe("SbEformsignDocRepository", () => {
             documentKind: null,
             employeeScheduleId: null,
             templateId: null,
+            documentName: null,
+            documentNumber: null,
         });
 
     const createMockPrismaEformsignDoc = () => ({
@@ -184,8 +186,52 @@ describe("SbEformsignDocRepository", () => {
         expect(retryData).not.toHaveProperty("documentKind");
         expect(retryData).not.toHaveProperty("employeeScheduleId");
         expect(retryData).not.toHaveProperty("templateId");
+        expect(retryData).not.toHaveProperty("documentName");
+        expect(retryData).not.toHaveProperty("documentNumber");
         expect(result.statusType).toBe("050");
     });
+
+    it("preserves stored document metadata when upserting without documentName", async () => {
+        eformsignDocModel.findFirst
+            .mockResolvedValueOnce({ id: 1 })
+            .mockResolvedValueOnce({
+                ...legacyRow,
+                documentKind: null,
+                employeeScheduleId: null,
+                templateId: null,
+                documentName: "기존 문서명",
+                documentNumber: "DOC-001",
+            });
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+
+        const result = await repository.upsertByDocumentId("branch-1", createEntity());
+
+        const updateData = eformsignDocModel.updateMany.mock.calls[0][0].data;
+        expect(updateData).not.toHaveProperty("documentName");
+        expect(updateData).not.toHaveProperty("documentNumber");
+        expect(result.documentName).toBe("기존 문서명");
+        expect(result.documentNumber).toBe("DOC-001");
+    });
+
+    it.each(["", "   "])(
+        "omits documentName when claiming completion with blank input %p",
+        async (documentName) => {
+            eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+
+            await repository.claimCompletionStatus("branch-1", {
+                documentId: "doc-1",
+                statusType: "050",
+                statusDetail: "완료",
+                stepType: "05",
+                stepIndex: "1",
+                stepName: "이용자",
+                expired: false,
+                documentName,
+            });
+
+            expect(eformsignDocModel.updateMany.mock.calls[0][0].data.documentName).toBeUndefined();
+        },
+    );
 
     it("uses the service record mom name for snapshot document client summaries", async () => {
         const clientFindMany = jest.fn().mockResolvedValue([
