@@ -367,7 +367,11 @@ describe("client-owned service record snapshot", () => {
         );
         expect(prisma.eformsign_doc.upsert).toHaveBeenCalledWith(expect.objectContaining({
             where: { documentId: remoteDocument.id },
+            create: expect.objectContaining({
+                documentName: chunk.documentName,
+            }),
             update: expect.objectContaining({
+                documentName: chunk.documentName,
                 statusType: "070",
                 statusDetail: "검토 요청",
                 stepType: "06",

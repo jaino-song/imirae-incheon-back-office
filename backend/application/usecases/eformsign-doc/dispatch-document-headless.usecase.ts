@@ -123,6 +123,9 @@ export class DispatchDocumentHeadlessUsecase {
                 refreshToken,
                 templateId,
             ) as Record<string, unknown>;
+            const documentName = (
+                documentOption["prefill"] as { document_name?: unknown } | undefined
+            )?.document_name;
 
             const result = await this.headlessService.dispatchCreation({
                 documentOption,
@@ -181,6 +184,7 @@ export class DispatchDocumentHeadlessUsecase {
                 try {
                     await this.createEformsignDocUsecase.execute(branchId, {
                     documentId,
+                    documentName: typeof documentName === "string" ? documentName : null,
                     clientId: params.clientId,
                     statusType: createdDocumentStatus.statusType,
                     statusDetail: createdDocumentStatus.statusDetail,

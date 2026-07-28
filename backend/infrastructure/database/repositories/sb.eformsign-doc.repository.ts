@@ -37,9 +37,13 @@ const PENDING_EFORMSIGN_DOC_COLUMN_NAMES = [
     "document_kind",
     "employee_schedule_id",
     "template_id",
+    "document_name",
+    "document_number",
     "documentKind",
     "employeeScheduleId",
     "templateId",
+    "documentName",
+    "documentNumber",
 ];
 
 const isPendingEformsignDocColumnError = (error: unknown): boolean => {
@@ -68,17 +72,23 @@ const toCompatDomainRow = (row: EformsignDocCompatReadRow) => ({
     documentKind: null,
     employeeScheduleId: null,
     templateId: null,
+    documentName: null,
+    documentNumber: null,
 });
 
 const omitPendingEformsignDocColumns = <T extends {
     documentKind?: unknown;
     employeeScheduleId?: unknown;
     templateId?: unknown;
+    documentName?: unknown;
+    documentNumber?: unknown;
 }>(data: T) => {
     const legacyData = { ...data };
     delete legacyData.documentKind;
     delete legacyData.employeeScheduleId;
     delete legacyData.templateId;
+    delete legacyData.documentName;
+    delete legacyData.documentNumber;
     return legacyData;
 };
 
@@ -106,22 +116,35 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         branchid: string,
         params: EformsignDocCompletionClaimParams,
     ): Promise<EformsignDocCompletionClaimResult> {
-        const result = await this.prismaService.eformsign_doc.updateMany({
-            where: {
-                branchId: branchid,
-                documentId: params.documentId,
-                statusType: { not: params.statusType },
-            },
-            data: {
-                statusType: params.statusType,
-                statusDetail: params.statusDetail,
-                stepType: params.stepType,
-                stepIndex: params.stepIndex,
-                stepName: params.stepName,
-                expired: params.expired,
-                updatedDate: new Date(),
-            },
-        });
+        const documentName = params.documentName?.trim() || undefined;
+        const data = {
+            statusType: params.statusType,
+            statusDetail: params.statusDetail,
+            stepType: params.stepType,
+            stepIndex: params.stepIndex,
+            stepName: params.stepName,
+            expired: params.expired,
+            updatedDate: new Date(),
+            documentName,
+        };
+        const where = {
+            branchId: branchid,
+            documentId: params.documentId,
+            statusType: { not: params.statusType },
+        };
+        let result: Prisma.BatchPayload;
+
+        try {
+            result = await this.prismaService.eformsign_doc.updateMany({ where, data });
+        } catch (error) {
+            if (!isPendingEformsignDocColumnError(error)) {
+                throw error;
+            }
+            result = await this.prismaService.eformsign_doc.updateMany({
+                where,
+                data: omitPendingEformsignDocColumns(data),
+            });
+        }
 
         if (result.count === 1) {
             return "claimed";
@@ -135,7 +158,24 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             select: { id: true },
         });
 
-        return existing ? "duplicate" : "missing";
+        if (!existing) {
+            return "missing";
+        }
+
+        if (documentName) {
+            try {
+                await this.prismaService.eformsign_doc.updateMany({
+                    where: { id: existing.id, branchId: branchid },
+                    data: { documentName },
+                });
+            } catch (error) {
+                if (!isPendingEformsignDocColumnError(error)) {
+                    throw error;
+                }
+            }
+        }
+
+        return "duplicate";
     }
 
     async findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]> {
@@ -308,7 +348,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
     }
 
     async upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity> {
-        const data = {
+        const createData = {
             ...EformsignDocMapper.toPrismaCreate(doc),
             branchId: branchid,
         };
@@ -317,12 +357,16 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             select: { id: true },
         });
         if (existing) {
+            const updateData = {
+                ...EformsignDocMapper.toPrismaUpdate(doc),
+                branchId: branchid,
+            };
             let result: Prisma.BatchPayload;
 
             try {
                 result = await this.prismaService.eformsign_doc.updateMany({
                     where: { id: existing.id, branchId: branchid },
-                    data,
+                    data: updateData,
                 });
             } catch (error) {
                 if (!isPendingEformsignDocColumnError(error)) {
@@ -331,7 +375,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
                 result = await this.prismaService.eformsign_doc.updateMany({
                     where: { id: existing.id, branchId: branchid },
-                    data: omitPendingEformsignDocColumns(data),
+                    data: omitPendingEformsignDocColumns(updateData),
                 });
             }
 
@@ -346,7 +390,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         }
 
         try {
-            const created = await this.prismaService.eformsign_doc.create({ data });
+            const created = await this.prismaService.eformsign_doc.create({ data: createData });
             return EformsignDocMapper.toDomain(created);
         } catch (error) {
             if (!isPendingEformsignDocColumnError(error)) {
@@ -354,7 +398,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
 
             const created = await this.prismaService.eformsign_doc.create({
-                data: omitPendingEformsignDocColumns(data),
+                data: omitPendingEformsignDocColumns(createData),
                 select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
             });
             return EformsignDocMapper.toDomain(toCompatDomainRow(created));

@@ -755,6 +755,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 where: { documentId: params.documentId },
                 create: {
                     documentId: params.documentId,
+                    documentName: params.chunk.documentName,
                     createdDate,
                     updatedDate,
                     statusType: remoteStatus?.status_type ?? "070",
@@ -777,6 +778,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                     snapshotChunkIndex: params.chunk.chunkIndex,
                 },
                 update: {
+                    documentName: params.chunk.documentName,
                     ...(remoteStatus ? {
                         updatedDate,
                         statusType: remoteStatus.status_type,

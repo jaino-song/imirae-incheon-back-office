@@ -141,6 +141,7 @@ describe("CreateEformsignDocUsecase", () => {
     it("stores service-record snapshot linkage without updating the client contract pointer", async () => {
         const result = await usecase.execute(branchId, createParams({
             documentId: "service-record-doc-1",
+            documentName: "서비스 제공기록지 - 김고객",
             linkToClient: false,
             documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
             employeeScheduleId: 33,
@@ -150,6 +151,7 @@ describe("CreateEformsignDocUsecase", () => {
         expect(result.documentKind).toBe(EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT);
         expect(result.employeeScheduleId).toBe(33);
         expect(result.templateId).toBe("service-record-template-1");
+        expect(result.documentName).toBe("서비스 제공기록지 - 김고객");
         expect(clientRepository.update).not.toHaveBeenCalled();
     });
 });

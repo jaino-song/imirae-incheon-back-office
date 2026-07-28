@@ -151,6 +151,14 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-delete-document-preservation.sql
 
+      - name: Apply eformsign document name and number patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260728120000_add_eformsign_doc_document_name_and_number/migration.sql
+
+      - name: Verify eformsign document name and number patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-document-name-and-number.sql
+
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -428,6 +436,14 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-incheon-districts-operational.sql
 
+      - name: Apply eformsign document name and number patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260728120000_add_eformsign_doc_document_name_and_number/migration.sql
+
+      - name: Verify eformsign document name and number patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-document-name-and-number.sql
+
   apply-production:
     name: apply production database patches
     needs: [apply-preview]
@@ -684,3 +700,11 @@ jobs:
       - name: Verify client deletion document preservation
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-delete-document-preservation.sql
+
+      - name: Apply eformsign document name and number patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260728120000_add_eformsign_doc_document_name_and_number/migration.sql
+
+      - name: Verify eformsign document name and number patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-document-name-and-number.sql

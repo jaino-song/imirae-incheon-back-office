@@ -21,6 +21,7 @@ export interface EformsignDocCompletionClaimParams {
     stepIndex: string;
     stepName: string;
     expired: boolean;
+    documentName?: string;
 }
 
 export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missing";

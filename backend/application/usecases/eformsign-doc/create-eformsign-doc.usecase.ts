@@ -11,6 +11,7 @@ import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client
 
 export interface CreateEformsignDocParams {
     documentId: string;
+    documentName?: string | null;
     clientId: number;
     statusType: string;
     statusDetail: string;
@@ -54,6 +55,8 @@ export class CreateEformsignDocUsecase {
 
         const entity = EformsignDocEntity.create({
             documentId: params.documentId,
+            documentName: params.documentName?.trim() || null,
+            documentNumber: null,
             clientId,
             createdDate: now,
             statusType: params.statusType,

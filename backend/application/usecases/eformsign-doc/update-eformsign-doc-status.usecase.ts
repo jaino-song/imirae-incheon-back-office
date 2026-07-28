@@ -10,6 +10,7 @@ export interface UpdateEformsignDocStatusParams {
     stepIndex?: string;
     stepName?: string;
     expired?: boolean;
+    documentName?: string;
 }
 
 /**
@@ -62,6 +63,8 @@ export class UpdateEformsignDocStatusUsecase {
         const updated = EformsignDocEntity.reconstitute({
             id: existing.id,
             documentId: existing.documentId,
+            documentName: params.documentName?.trim() || existing.documentName,
+            documentNumber: existing.documentNumber,
             createdDate: existing.createdDate,
             updatedDate: new Date(),
             statusType: params.statusType,
