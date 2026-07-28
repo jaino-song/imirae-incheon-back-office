@@ -51,7 +51,6 @@ const DOCUMENT_STATUS = {
     // Approval actions
     DOC_ACCEPT_APPROVAL: "doc_accept_approval",        // 결재 승인
     DOC_REJECT_APPROVAL: "doc_reject_approval",        // 결재 거부
-    DOC_REQUEST_REVIEWER: "doc_request_reviewer",      // 검토 요청
 
     // Final states
     DOC_COMPLETE: "doc_complete",                   // 문서 완료
@@ -106,6 +105,15 @@ const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045",
 const UNASSIGNED_TERMINAL_STATUS_CODES = new Set(
     [...TERMINAL_STATUS_CODES].filter((statusCode) => statusCode !== "062"),
 );
+const UNASSIGNED_FORWARD_STATUS_CODES_AFTER_062 = new Set([
+    ...UNASSIGNED_TERMINAL_STATUS_CODES,
+    "070",
+]);
+const UNASSIGNED_REVIEW_STATUS_DETAILS: Record<string, string> = {
+    "070": "검토 요청",
+    "071": "검토 반려",
+    "072": "검토 완료",
+};
 const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
 const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
 const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
@@ -688,14 +696,14 @@ export class EformsignWebhookService {
         let stepType: string;
         let stepIndex: string;
         let stepName: string;
-        let updatedTimestamp: number;
+        let updatedTimestamp: number | undefined;
         let documentName: string | undefined;
         let templateId: string | undefined;
         let templateName: string | undefined;
         let expired: boolean;
 
         if (event_type === EVENT_TYPES.DOCUMENT && document) {
-            ({ statusType, statusDetail } = this.mapStatus(document.status));
+            ({ statusType, statusDetail } = this.mapUnassignedStatus(document.status));
             stepType = String(document.workflow_seq);
             stepIndex = String(document.workflow_seq);
             stepName = document.workflow_name;
@@ -717,11 +725,10 @@ export class EformsignWebhookService {
             templateName = document.template_name?.trim() || undefined;
             expired = false;
         } else if (event_type === EVENT_TYPES.READY_DOCUMENT_PDF && ready_document_pdf) {
-            ({ statusType, statusDetail } = this.mapStatus(ready_document_pdf.document_status));
+            ({ statusType, statusDetail } = this.mapUnassignedStatus(ready_document_pdf.document_status));
             stepType = String(ready_document_pdf.workflow_seq);
             stepIndex = String(ready_document_pdf.workflow_seq);
             stepName = ready_document_pdf.workflow_name;
-            updatedTimestamp = Date.now();
             documentName = ready_document_pdf.document_title?.trim() || undefined;
             templateId = ready_document_pdf.template_id?.trim() || undefined;
             templateName = ready_document_pdf.template_name?.trim() || undefined;
@@ -733,10 +740,22 @@ export class EformsignWebhookService {
             return;
         }
 
-        if (updatedTimestamp < existing.updatedDate.getTime()) {
+        if (
+            updatedTimestamp !== undefined
+            && updatedTimestamp < existing.updatedDate.getTime()
+        ) {
             this.logger.log(
                 `Ignoring stale webhook ${webhook_id} for ${existing.documentId}: event timestamp ${updatedTimestamp} precedes stored updatedDate ${existing.updatedDate.getTime()}`,
             );
+            return;
+        }
+
+        if (
+            existing.statusType === "062"
+            && statusType !== "062"
+            && !UNASSIGNED_FORWARD_STATUS_CODES_AFTER_062.has(statusType)
+        ) {
+            this.logger.log(`ignoring backward transition ${statusType} after 062 for ${existing.documentId}`);
             return;
         }
 
@@ -748,9 +767,9 @@ export class EformsignWebhookService {
             return;
         }
 
-        const updatedDate = new Date(
-            Math.max(updatedTimestamp, existing.createdDate.getTime()),
-        );
+        const updatedDate = updatedTimestamp === undefined
+            ? existing.updatedDate
+            : new Date(Math.max(updatedTimestamp, existing.createdDate.getTime()));
         const updated = EformsignDocEntity.reconstitute({
             ...existing.toJSON(),
             documentName: documentName ?? null,
@@ -777,6 +796,16 @@ export class EformsignWebhookService {
         }
 
         return STATUS_NAME_TO_CODE[normalized] ?? normalized.padStart(3, "0");
+    }
+
+    private mapUnassignedStatus(status: string): { statusType: string; statusDetail: string } {
+        const statusType = this.normalizeStatusCode(status);
+        const statusDetail = UNASSIGNED_REVIEW_STATUS_DETAILS[statusType];
+        if (statusDetail) {
+            return { statusType, statusDetail };
+        }
+
+        return this.mapStatus(status);
     }
 
     private isReviewRequiredStatus(
@@ -897,8 +926,6 @@ export class EformsignWebhookService {
                 return { statusType: "060", statusDetail: "서명 진행중" };
             case DOCUMENT_STATUS.DOC_ACCEPT_APPROVAL:
                 return { statusType: "060", statusDetail: "결재 승인" };
-            case DOCUMENT_STATUS.DOC_REQUEST_REVIEWER:
-                return { statusType: "070", statusDetail: "검토 요청" };
             case DOCUMENT_STATUS.DOC_TEMPSAVE_PARTICIPANT:
                 return { statusType: "060", statusDetail: "임시 저장" };
 
