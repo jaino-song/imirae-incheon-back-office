@@ -31,6 +31,7 @@ import {
     stringFromUnknown,
     type UnknownRecord,
 } from "application/utils/eformsign-document-customer-name";
+import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 function throwHttpOrInternalError(error: unknown): never {
     if (error instanceof HttpException) {
@@ -329,6 +330,10 @@ function getDetailEnrichmentConcurrency(): number {
 }
 
 function isEformsignRateLimitError(error: unknown): boolean {
+    if (error instanceof EformsignApiError && error.status === 429) {
+        return true;
+    }
+
     if (error && typeof error === "object") {
         const directStatus = (error as { status?: unknown }).status;
         const responseStatus = (error as { response?: { status?: unknown } }).response?.status;
