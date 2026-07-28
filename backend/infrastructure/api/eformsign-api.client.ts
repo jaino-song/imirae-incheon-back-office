@@ -10,6 +10,18 @@ import {
     CreateDocumentResponse,
     EformsignReviewerMember,
 } from "domain/repositories/eformsign.client.interface";
+import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+
+const EFORMSIGN_MAX_ATTEMPTS = 4;
+const EFORMSIGN_REQUEST_TIMEOUT_MS = 10_000;
+const EFORMSIGN_TOTAL_DEADLINE_MS = 30_000;
+const EFORMSIGN_BACKOFF_BASE_MS = 500;
+const EFORMSIGN_BACKOFF_MAX_MS = 4_000;
+const EFORMSIGN_RETRY_AFTER_MAX_MS = 10_000;
+
+interface EformsignRequestOptions {
+    idempotent?: boolean;
+}
 
 /**
  * Infrastructure repository that calls eformsign external API.
@@ -79,23 +91,23 @@ export class EformsignApiClient implements IEformsignClientRepository {
         // API key must be Base64 encoded according to eformsign docs
         const encodedApiKey = Buffer.from(this.EFORMSIGN_API_KEY).toString("base64");
 
-        const response = await fetch(`${this.EFORMSIGN_API_URL}/v2.0/api_auth/access_token`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "eformsign_signature": signature,
-                "Authorization": `Bearer ${encodedApiKey}`,
+        const response = await this.request(
+            "getAccessToken",
+            `${this.EFORMSIGN_API_URL}/v2.0/api_auth/access_token`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "eformsign_signature": signature,
+                    "Authorization": `Bearer ${encodedApiKey}`,
+                },
+                body: JSON.stringify({
+                    execution_time: executionTime,
+                    member_id: email,
+                }),
             },
-            body: JSON.stringify({
-                execution_time: executionTime,
-                member_id: email,
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to get access token: ${response.status} - ${errorData}`);
-        }
+            "Failed to get access token",
+        );
 
         return await response.json();
     }
@@ -108,23 +120,23 @@ export class EformsignApiClient implements IEformsignClientRepository {
         this.assertConfigured();
         const signature = this.generateSignature(executionTime);
 
-        const response = await fetch(`${this.EFORMSIGN_API_URL}/v2.0/api_auth/refresh_token`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "eformsign_signature": signature,
-                "api_key": this.EFORMSIGN_API_KEY,
+        const response = await this.request(
+            "refreshAccessToken",
+            `${this.EFORMSIGN_API_URL}/v2.0/api_auth/refresh_token`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "eformsign_signature": signature,
+                    "api_key": this.EFORMSIGN_API_KEY,
+                },
+                body: JSON.stringify({
+                    execution_time: executionTime,
+                    refresh_token: refreshToken,
+                }),
             },
-            body: JSON.stringify({
-                execution_time: executionTime,
-                refresh_token: refreshToken,
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to refresh token: ${response.status} - ${errorData}`);
-        }
+            "Failed to refresh token",
+        );
 
         return await response.json();
     }
@@ -135,26 +147,26 @@ export class EformsignApiClient implements IEformsignClientRepository {
      */
     async getInProgressDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
         this.assertConfigured();
-        const response = await fetch(`${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${accessToken}`,
+        const response = await this.request(
+            "getInProgressDocuments",
+            `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({
+                    type: "01",
+                    title_and_content: "",
+                    title: "",
+                    content: "",
+                    limit: "100",
+                    skip: "0",
+                }),
             },
-            body: JSON.stringify({
-                type: "01",
-                title_and_content: "",
-                title: "",
-                content: "",
-                limit: "100",
-                skip: "0",
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to get in-progress documents: ${response.status} - ${errorData}`);
-        }
+            "Failed to get in-progress documents",
+        );
 
         const data: EformsignApiListResponse = await response.json();
         return data.documents || [];
@@ -166,26 +178,26 @@ export class EformsignApiClient implements IEformsignClientRepository {
      */
     async getCompletedDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
         this.assertConfigured();
-        const response = await fetch(`${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${accessToken}`,
+        const response = await this.request(
+            "getCompletedDocuments",
+            `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({
+                    type: "03",
+                    title_and_content: "",
+                    title: "",
+                    content: "",
+                    limit: "100",
+                    skip: "0",
+                }),
             },
-            body: JSON.stringify({
-                type: "03",
-                title_and_content: "",
-                title: "",
-                content: "",
-                limit: "100",
-                skip: "0",
-            }),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to get completed documents: ${response.status} - ${errorData}`);
-        }
+            "Failed to get completed documents",
+        );
 
         const data: EformsignApiListResponse = await response.json();
         return data.documents || [];
@@ -220,25 +232,26 @@ export class EformsignApiClient implements IEformsignClientRepository {
         type: "01" | "03",
         title: string,
     ): Promise<EformsignApiDocumentResponse[]> {
-        const response = await fetch(`${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${accessToken}`,
+        const response = await this.request(
+            "listDocumentsByTitle",
+            `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({
+                    type,
+                    title_and_content: title,
+                    title,
+                    content: "",
+                    limit: "100",
+                    skip: "0",
+                }),
             },
-            body: JSON.stringify({
-                type,
-                title_and_content: title,
-                title,
-                content: "",
-                limit: "100",
-                skip: "0",
-            }),
-        });
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to find document by title: ${response.status} - ${errorData}`);
-        }
+            "Failed to find document by title",
+        );
         const data: EformsignApiListResponse = await response.json();
         return data.documents ?? [];
     }
@@ -258,20 +271,18 @@ export class EformsignApiClient implements IEformsignClientRepository {
             include_detail_template_info: "true",
         });
 
-        const response = await fetch(
+        const response = await this.request(
+            "getDocument",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/${documentId}?${includeParams.toString()}`,
             {
-            method: "GET",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${accessToken}`,
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${accessToken}`,
+                },
             },
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to get document: ${response.status} - ${errorData}`);
-        }
+            "Failed to get document",
+        );
 
         return await response.json();
     }
@@ -328,19 +339,25 @@ export class EformsignApiClient implements IEformsignClientRepository {
         // ("Required String parameter 'template_id' is not present"). Verified against the live
         // tenant. Kept in the body too (harmless, ignored) so the contract flow is unaffected.
         const url = `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents?template_id=${encodeURIComponent(payload.templateId)}`;
-        const response = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${accessToken}`,
+        const response = await this.request(
+            "createDocument",
+            url,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify(requestBody),
             },
-            body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to create document: ${response.status} - ${errorData}`);
-        }
+            "Failed to create document",
+            {
+                // Creating a document also sends it to the customer. A 5xx, timeout, or network
+                // error has an ambiguous outcome and retrying could create/send a duplicate.
+                // A 429 is safe because the server explicitly rejected the request before work.
+                idempotent: false,
+            },
+        );
 
         const data = await response.json();
         // Live response shape: { template_id, document: { id, document_name, document_status } }.
@@ -360,14 +377,12 @@ export class EformsignApiClient implements IEformsignClientRepository {
      */
     async getTemplateReviewer(accessToken: string, templateId: string): Promise<EformsignReviewerMember | null> {
         this.assertConfigured();
-        const response = await fetch(
+        const response = await this.request(
+            "getTemplateReviewer",
             `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/forms/${encodeURIComponent(templateId)}?is_include_config=true`,
             { headers: { "Authorization": `Bearer ${accessToken}` } },
+            "Failed to get template config",
         );
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to get template config: ${response.status} - ${errorData}`);
-        }
         const data = await response.json();
         const steps: Array<{ type?: string; option?: { receipients?: Array<{ member?: { name?: string; id?: string; sms?: { phone_number?: string } } }> } }> =
             data?.config?.step_settings ?? [];
@@ -379,6 +394,116 @@ export class EformsignApiClient implements IEformsignClientRepository {
             id: member.id,
             phoneNumber: member.sms?.phone_number || undefined,
         };
+    }
+
+    private async request(
+        operation: string,
+        url: string,
+        init: RequestInit,
+        errorPrefix: string,
+        options: EformsignRequestOptions = {},
+    ): Promise<Response> {
+        const deadline = Date.now() + EFORMSIGN_TOTAL_DEADLINE_MS;
+        const idempotent = options.idempotent ?? true;
+
+        for (let attempt = 1; attempt <= EFORMSIGN_MAX_ATTEMPTS; attempt += 1) {
+            const remainingMs = deadline - Date.now();
+            const attemptTimeoutMs = Math.max(
+                1,
+                Math.min(EFORMSIGN_REQUEST_TIMEOUT_MS, remainingMs),
+            );
+            let response: Response;
+
+            try {
+                response = await fetch(url, {
+                    ...init,
+                    signal: AbortSignal.timeout(attemptTimeoutMs),
+                });
+            } catch (error) {
+                if (!idempotent || attempt === EFORMSIGN_MAX_ATTEMPTS) {
+                    throw error;
+                }
+
+                const delayMs = this.getExponentialBackoffMs(attempt);
+                if (Date.now() + delayMs >= deadline) {
+                    throw error;
+                }
+                this.logRetry(operation, attempt + 1, delayMs, this.getNetworkErrorCause(error));
+                await this.waitForRetry(delayMs);
+                continue;
+            }
+
+            if (response.ok) {
+                return response;
+            }
+
+            const errorData = await response.text();
+            const error = new EformsignApiError(
+                `${errorPrefix}: ${response.status} - ${errorData}`,
+                response.status,
+            );
+            const retryableStatus = response.status === 429
+                || (idempotent && response.status >= 500 && response.status <= 599);
+
+            if (!retryableStatus || attempt === EFORMSIGN_MAX_ATTEMPTS) {
+                throw error;
+            }
+
+            const delayMs = this.getRetryDelayMs(response, attempt);
+            if (Date.now() + delayMs >= deadline) {
+                throw error;
+            }
+            this.logRetry(operation, attempt + 1, delayMs, `status=${response.status}`);
+            await this.waitForRetry(delayMs);
+        }
+
+        throw new Error(`Eformsign ${operation} exhausted retry attempts.`);
+    }
+
+    private getRetryDelayMs(response: Response, attempt: number): number {
+        const retryAfter = response.headers.get("Retry-After");
+        if (retryAfter !== null) {
+            const seconds = Number(retryAfter);
+            const parsedDelayMs = Number.isFinite(seconds) && seconds >= 0
+                ? seconds * 1_000
+                : Date.parse(retryAfter) - Date.now();
+
+            if (Number.isFinite(parsedDelayMs) && parsedDelayMs >= 0) {
+                return Math.min(parsedDelayMs, EFORMSIGN_RETRY_AFTER_MAX_MS);
+            }
+        }
+
+        return this.getExponentialBackoffMs(attempt);
+    }
+
+    private getExponentialBackoffMs(attempt: number): number {
+        const exponentialDelay = Math.min(
+            EFORMSIGN_BACKOFF_BASE_MS * (2 ** (attempt - 1)),
+            EFORMSIGN_BACKOFF_MAX_MS,
+        );
+        const halfDelay = exponentialDelay / 2;
+        return Math.round(halfDelay + (Math.random() * halfDelay));
+    }
+
+    private logRetry(
+        operation: string,
+        nextAttempt: number,
+        delayMs: number,
+        cause: string,
+    ): void {
+        this.logger.warn(
+            `Eformsign ${operation} retry nextAttempt=${nextAttempt}/${EFORMSIGN_MAX_ATTEMPTS} waitMs=${delayMs} ${cause}`,
+        );
+    }
+
+    private getNetworkErrorCause(error: unknown): string {
+        return `cause=${error instanceof Error ? error.name : "network-error"}`;
+    }
+
+    private async waitForRetry(delayMs: number): Promise<void> {
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, delayMs);
+        });
     }
 
     private assertConfigured() {
