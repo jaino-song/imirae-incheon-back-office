@@ -164,6 +164,8 @@ describe("ListPanel", () => {
     );
     expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).not.toHaveClass(
       "border",
+      "focus-within:ring-[3px]",
+      "focus-within:ring-inset",
     );
     expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).toHaveStyle({
       width: "12rem",
