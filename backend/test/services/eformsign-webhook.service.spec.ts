@@ -380,6 +380,45 @@ describe("EformsignWebhookService", () => {
         );
     });
 
+    it("advances an unassigned 071 rejection to a later 070 reviewer re-request", async () => {
+        // 071 sits in the rejected family, so treating it as terminal froze the mirror
+        // there permanently — a re-request could never land, and nothing re-mirrors a
+        // document that already has a local row.
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null, statusType: "071" }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_request_reviewer";
+        payload.document.updated_date = new Date("2026-05-03T00:00:00.000Z").getTime();
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ statusType: "070" }),
+        );
+    });
+
+    it("still refuses a backward transition after an unassigned 071 rejection", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null, statusType: "071" }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_request_participant";
+        payload.document.updated_date = new Date("2026-05-03T00:00:00.000Z").getTime();
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).not.toHaveBeenCalled();
+    });
+
     it("advances an unassigned 062 document to a later 072 reviewer completion", async () => {
         eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
             document: createDocEntity({ clientId: null, statusType: "062" }),

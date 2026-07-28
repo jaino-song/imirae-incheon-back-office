@@ -3,6 +3,8 @@ import { UpdateEformsignDocStatusUsecase } from "application/usecases/eformsign-
 import { LinkDocumentToClientUsecase } from "application/usecases/eformsign-doc/link-document-to-client.usecase";
 import { MirrorUnassignedEformsignDocUsecase } from "application/usecases/eformsign-doc/mirror-unassigned-eformsign-doc.usecase";
 import {
+    UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
+    UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
 } from "domain/constants/eformsign-doc-status.constants";
 import {
@@ -84,10 +86,6 @@ type LocalDocumentLookupResult =
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
-const UNASSIGNED_FORWARD_STATUS_CODES_AFTER_062 = new Set([
-    ...UNASSIGNED_TERMINAL_STATUS_CODES,
-    "070",
-]);
 const UNASSIGNED_REVIEW_STATUS_DETAILS: Record<string, string> = {
     "070": "검토 요청",
     "071": "검토 반려",
@@ -744,11 +742,13 @@ export class EformsignWebhookService {
         }
 
         if (
-            existing.statusType === "062"
-            && statusType !== "062"
-            && !UNASSIGNED_FORWARD_STATUS_CODES_AFTER_062.has(statusType)
+            UNASSIGNED_REVIEW_STAGE_STATUS_CODES.has(existing.statusType)
+            && statusType !== existing.statusType
+            && !UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE.has(statusType)
         ) {
-            this.logger.log(`ignoring backward transition ${statusType} after 062 for ${existing.documentId}`);
+            this.logger.log(
+                `ignoring backward transition ${statusType} after ${existing.statusType} for ${existing.documentId}`,
+            );
             return;
         }
 
