@@ -371,7 +371,7 @@ describe("client-owned service record snapshot", () => {
             create: expect.objectContaining({
                 documentName: chunk.documentName,
                 templateName: "제공기록지",
-                customerName: "김고객",
+                customerName: "김산모",
                 creatorName: "검토자",
                 lastEditorName: "최종 편집자",
                 stepRecipientTypes: "01",
@@ -379,7 +379,7 @@ describe("client-owned service record snapshot", () => {
             update: expect.objectContaining({
                 documentName: chunk.documentName,
                 templateName: "제공기록지",
-                customerName: "김고객",
+                customerName: "김산모",
                 creatorName: "검토자",
                 lastEditorName: "최종 편집자",
                 stepRecipientTypes: "01",
@@ -463,7 +463,126 @@ describe("client-owned service record snapshot", () => {
         });
     });
 
-    it("retries the whole snapshot persistence transaction without pending columns after P2022", async () => {
+    it.each([
+        {
+            name: "only list display columns are pending",
+            column: "\"eformsign_doc\".\"template_name\"",
+            omittedColumns: [
+                "templateName",
+                "customerName",
+                "creatorName",
+                "lastEditorName",
+                "stepRecipientTypes",
+            ],
+            preservedColumns: {
+                documentKind: "service_record_snapshot",
+                templateId: "template-1",
+                documentName: expect.any(String),
+            },
+        },
+        {
+            name: "document name and number columns are also pending",
+            column: "eformsign_doc.document_name",
+            omittedColumns: [
+                "documentName",
+                "documentNumber",
+                "templateName",
+                "customerName",
+                "creatorName",
+                "lastEditorName",
+                "stepRecipientTypes",
+            ],
+            preservedColumns: {
+                documentKind: "service_record_snapshot",
+                templateId: "template-1",
+            },
+        },
+        {
+            name: "all compatibility columns are pending",
+            column: "eformsign_doc.document_kind",
+            omittedColumns: [
+                "documentKind",
+                "employeeScheduleId",
+                "templateId",
+                "documentName",
+                "documentNumber",
+                "templateName",
+                "customerName",
+                "creatorName",
+                "lastEditorName",
+                "stepRecipientTypes",
+            ],
+            preservedColumns: {},
+        },
+    ])(
+        "retries snapshot persistence with the applicable migration groups when $name",
+        async ({ column, omittedColumns, preservedColumns }) => {
+            const { usecase, prisma, remoteDocument } = setup();
+            const record = makeRecord();
+            record.requiredSessionCount = 1;
+            record.days = [record.days[0]!];
+            record.assignments = [record.assignments[0]!];
+            const chunk = callBuildCaseChunks(
+                usecase,
+                record,
+                BASE_ONLY_TIERS,
+                BASE_ONLY_TEMPLATE_BY_TIER,
+            )[0]!;
+            const pendingColumnError = Object.assign(
+                new Error(`The column ${column} does not exist`),
+                {
+                    code: "P2022",
+                    meta: { column },
+                },
+            );
+            prisma.eformsign_doc.upsert
+                .mockRejectedValueOnce(pendingColumnError)
+                .mockResolvedValueOnce({ id: 1 });
+            const persister = usecase as unknown as {
+                persistRemoteDocument(params: Record<string, unknown>): Promise<void>;
+            };
+
+            await expect(persister.persistRemoteDocument({
+                record,
+                chunk,
+                chunkId: "chunk-1",
+                templateId: "template-1",
+                reviewer: {
+                    name: "검토자",
+                    id: "reviewer@example.com",
+                    phoneNumber: "01012345678",
+                },
+                documentId: remoteDocument.id,
+                remoteDocument,
+            })).resolves.toBeUndefined();
+
+            expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+            expect(prisma.eformsign_doc.upsert).toHaveBeenCalledTimes(2);
+            const retry = prisma.eformsign_doc.upsert.mock.calls[1]![0];
+            expect(retry.select).toEqual({ id: true });
+            expect(retry.create).toEqual(expect.objectContaining(preservedColumns));
+            expect(retry.update).toEqual(expect.objectContaining(preservedColumns));
+            for (const omittedColumn of omittedColumns) {
+                expect(retry.create).not.toHaveProperty(omittedColumn);
+                expect(retry.update).not.toHaveProperty(omittedColumn);
+            }
+            expect(prisma.service_record_snapshot_chunk.update).toHaveBeenCalledTimes(1);
+            expect(prisma.service_record_snapshot_chunk.update).toHaveBeenCalledWith({
+                where: { id: "chunk-1" },
+                data: {
+                    status: "CREATED",
+                    eformsignDocumentId: remoteDocument.id,
+                    nextAttemptAt: null,
+                    lastError: null,
+                },
+            });
+        },
+    );
+
+    it.each([
+        ["missing column metadata", undefined],
+        ["an unknown column", "eformsign_doc.some_future_column"],
+    ])("does not retry snapshot persistence when P2022 has %s", async (_name, column) => {
         const { usecase, prisma, remoteDocument } = setup();
         const record = makeRecord();
         record.requiredSessionCount = 1;
@@ -476,12 +595,13 @@ describe("client-owned service record snapshot", () => {
             BASE_ONLY_TEMPLATE_BY_TIER,
         )[0]!;
         const pendingColumnError = Object.assign(
-            new Error("The column `eformsign_doc.document_name` does not exist"),
-            { code: "P2022" },
+            new Error("A required column does not exist"),
+            {
+                code: "P2022",
+                ...(column ? { meta: { column } } : {}),
+            },
         );
-        prisma.eformsign_doc.upsert
-            .mockRejectedValueOnce(pendingColumnError)
-            .mockResolvedValueOnce({ id: 1 });
+        prisma.eformsign_doc.upsert.mockRejectedValueOnce(pendingColumnError);
         const persister = usecase as unknown as {
             persistRemoteDocument(params: Record<string, unknown>): Promise<void>;
         };
@@ -498,36 +618,10 @@ describe("client-owned service record snapshot", () => {
             },
             documentId: remoteDocument.id,
             remoteDocument,
-        })).resolves.toBeUndefined();
+        })).rejects.toBe(pendingColumnError);
 
-        expect(prisma.$transaction).toHaveBeenCalledTimes(2);
-        expect(prisma.eformsign_doc.upsert).toHaveBeenCalledTimes(2);
-        const retry = prisma.eformsign_doc.upsert.mock.calls[1]![0];
-        expect(retry.select).toEqual({ id: true });
-        for (const column of [
-            "documentKind",
-            "employeeScheduleId",
-            "templateId",
-            "documentName",
-            "documentNumber",
-            "templateName",
-            "customerName",
-            "creatorName",
-            "lastEditorName",
-            "stepRecipientTypes",
-        ]) {
-            expect(retry.create).not.toHaveProperty(column);
-            expect(retry.update).not.toHaveProperty(column);
-        }
-        expect(prisma.service_record_snapshot_chunk.update).toHaveBeenCalledTimes(1);
-        expect(prisma.service_record_snapshot_chunk.update).toHaveBeenCalledWith({
-            where: { id: "chunk-1" },
-            data: {
-                status: "CREATED",
-                eformsignDocumentId: remoteDocument.id,
-                nextAttemptAt: null,
-                lastError: null,
-            },
-        });
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(prisma.eformsign_doc.upsert).toHaveBeenCalledTimes(1);
+        expect(prisma.service_record_snapshot_chunk.update).not.toHaveBeenCalled();
     });
 });

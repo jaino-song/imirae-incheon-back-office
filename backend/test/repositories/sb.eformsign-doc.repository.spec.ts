@@ -5,7 +5,10 @@ import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 describe("SbEformsignDocRepository", () => {
     const pendingColumnError = Object.assign(
         new Error("The column `eformsign_doc.document_kind` does not exist"),
-        { code: "P2022" },
+        {
+            code: "P2022",
+            meta: { column: "eformsign_doc.document_kind" },
+        },
     );
     const pendingColumnWithoutFieldError = Object.assign(
         new Error("[PrismaException] Code: P2022, Field: N/A"),
@@ -503,6 +506,39 @@ describe("SbEformsignDocRepository", () => {
             expect(eformsignDocModel.updateMany.mock.calls[0][0].data.templateName).toBeUndefined();
         },
     );
+
+    it("preserves earlier metadata when duplicate completion hits a pending list display column", async () => {
+        const pendingTemplateNameError = Object.assign(
+            new Error("The column `eformsign_doc.template_name` does not exist"),
+            {
+                code: "P2022",
+                meta: { column: "eformsign_doc.template_name" },
+            },
+        );
+        eformsignDocModel.updateMany
+            .mockResolvedValueOnce({ count: 0 })
+            .mockRejectedValueOnce(pendingTemplateNameError)
+            .mockResolvedValueOnce({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({ id: 1 });
+
+        const result = await repository.claimCompletionStatus("branch-1", {
+            documentId: "doc-1",
+            statusType: "050",
+            statusDetail: "완료",
+            stepType: "05",
+            stepIndex: "1",
+            stepName: "이용자",
+            expired: false,
+            documentName: "제공기록지",
+            templateName: "템플릿",
+        });
+
+        expect(result).toBe("duplicate");
+        expect(eformsignDocModel.updateMany).toHaveBeenNthCalledWith(3, {
+            where: { id: 1, branchId: "branch-1" },
+            data: { documentName: "제공기록지" },
+        });
+    });
 
     it("uses the service record mom name for snapshot document client summaries", async () => {
         const clientFindMany = jest.fn().mockResolvedValue([

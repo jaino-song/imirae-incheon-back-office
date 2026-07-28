@@ -751,7 +751,9 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         const remoteStatus = params.remoteDocument?.current_status;
         const recipient = remoteStatus?.step_recipients?.[0];
         const templateName = params.remoteDocument?.template.name?.trim() || null;
-        const customerName = params.record.client?.name.trim() || null;
+        const customerName = params.record.momName?.trim()
+            || params.record.client?.name.trim()
+            || "삭제된 고객";
         const creatorName = params.remoteDocument?.creator.name?.trim() || null;
         const lastEditorName = params.remoteDocument?.last_editor?.name?.trim() || null;
         const stepRecipientTypes = encodeEformsignStepRecipientTypes(
@@ -857,8 +859,8 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
             // PostgreSQL aborts a transaction after a statement error. Retry the complete
             // atomic write in a fresh transaction instead of reusing the failed tx client.
             await persistInTransaction(
-                omitPendingEformsignDocColumns(create),
-                omitPendingEformsignDocColumns(update),
+                omitPendingEformsignDocColumns(create, error),
+                omitPendingEformsignDocColumns(update, error),
             );
         }
         this.logger.log(
