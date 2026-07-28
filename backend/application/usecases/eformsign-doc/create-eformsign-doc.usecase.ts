@@ -63,7 +63,12 @@ export class CreateEformsignDocUsecase {
             documentName: params.documentName?.trim() || null,
             documentNumber: null,
             templateName: params.templateName?.trim() || null,
-            customerName: params.customerName?.trim() || linkedClient?.name.trim() || null,
+            // No fallback to the linked client's name. The contract paths already pass the
+            // same value they wrote into the document, and adopt passes what it extracted —
+            // so a null here means the document genuinely carries no customer-name field,
+            // and the list resolves those through its own chain rather than the client row.
+            // Substituting would make the mirror disagree with what the list shows.
+            customerName: params.customerName?.trim() || null,
             creatorName: params.creatorName?.trim() || null,
             lastEditorName: params.lastEditorName?.trim() || null,
             stepRecipientTypes: params.stepRecipientTypes ?? null,

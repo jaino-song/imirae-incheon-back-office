@@ -93,6 +93,13 @@ export class EformsignDocMapper {
     }
 
     static toPrismaUpdate(entity: EformsignDocEntity) {
+        // Decide omission on the encoded value, not the entity value: an empty array is
+        // not null, so it would slip past the check below, and encoding it produces null —
+        // which is exactly the wipe the omission contract exists to prevent. A finished
+        // document returns no recipients, so an adopt of a mirrored row hits this.
+        const encodedStepRecipientTypes = entity.stepRecipientTypes == null
+            ? null
+            : encodeEformsignStepRecipientTypes(entity.stepRecipientTypes);
         return {
             documentId: entity.documentId,
             // Null means "the caller did not carry this value", not "clear it": several
@@ -105,9 +112,9 @@ export class EformsignDocMapper {
             ...(entity.customerName == null ? {} : { customerName: entity.customerName }),
             ...(entity.creatorName == null ? {} : { creatorName: entity.creatorName }),
             ...(entity.lastEditorName == null ? {} : { lastEditorName: entity.lastEditorName }),
-            ...(entity.stepRecipientTypes == null
+            ...(encodedStepRecipientTypes == null
                 ? {}
-                : { stepRecipientTypes: encodeEformsignStepRecipientTypes(entity.stepRecipientTypes) }),
+                : { stepRecipientTypes: encodedStepRecipientTypes }),
             createdDate: entity.createdDate,
             updatedDate: entity.updatedDate,
             statusType: entity.statusType,

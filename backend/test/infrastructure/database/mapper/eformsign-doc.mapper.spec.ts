@@ -67,4 +67,31 @@ describe("EformsignDocMapper", () => {
         expect(update).not.toHaveProperty("lastEditorName");
         expect(update).not.toHaveProperty("stepRecipientTypes");
     });
+
+    it("omits stepRecipientTypes when the caller carries an empty list", () => {
+        // The omission contract keys on null, but an empty array is not null and encodes
+        // to null — so it slipped through and wiped the stored value. A finished document
+        // returns no recipients, which is exactly what an adopt of a mirrored row sees.
+        const update = EformsignDocMapper.toPrismaUpdate(
+            createEntity({ stepRecipientTypes: [] }),
+        );
+
+        expect(update).not.toHaveProperty("stepRecipientTypes");
+    });
+
+    it("omits stepRecipientTypes when every carried value is blank", () => {
+        const update = EformsignDocMapper.toPrismaUpdate(
+            createEntity({ stepRecipientTypes: ["", "   "] }),
+        );
+
+        expect(update).not.toHaveProperty("stepRecipientTypes");
+    });
+
+    it("writes stepRecipientTypes when the caller carries real values", () => {
+        const update = EformsignDocMapper.toPrismaUpdate(
+            createEntity({ stepRecipientTypes: ["05", "06"] }),
+        );
+
+        expect(update).toMatchObject({ stepRecipientTypes: "05,06" });
+    });
 });

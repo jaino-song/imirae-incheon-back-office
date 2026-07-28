@@ -11,6 +11,17 @@ export function encodeEformsignStepRecipientTypes(
         .map((value) => value?.trim())
         .filter((value): value is string => Boolean(value));
 
+    // The delimiter is only safe because eformsign recipient types are short codes. If one
+    // ever contains it, decoding would silently split it into two values.
+    const unsafe = normalized.find(
+        (value) => value.includes(EFORMSIGN_STEP_RECIPIENT_TYPE_DELIMITER),
+    );
+    if (unsafe !== undefined) {
+        throw new Error(
+            `eformsign recipient type "${unsafe}" contains the "${EFORMSIGN_STEP_RECIPIENT_TYPE_DELIMITER}" delimiter and cannot be encoded.`,
+        );
+    }
+
     return normalized.length > 0
         ? normalized.join(EFORMSIGN_STEP_RECIPIENT_TYPE_DELIMITER)
         : null;

@@ -155,7 +155,7 @@ describe("CreateEformsignDocUsecase", () => {
         expect(clientRepository.update).not.toHaveBeenCalled();
     });
 
-    it("stores a known template name and the linked client name", async () => {
+    it("stores a known template name", async () => {
         const client = createClient(7, "010-1234-5678");
         clientRepository.findById.mockResolvedValue(client);
 
@@ -164,6 +164,28 @@ describe("CreateEformsignDocUsecase", () => {
         }));
 
         expect(result.templateName).toBe("표준 계약서");
-        expect(result.customerName).toBe("고객 7");
+    });
+
+    it("stores the customer name the caller carried", async () => {
+        const client = createClient(7, "010-1234-5678");
+        clientRepository.findById.mockResolvedValue(client);
+
+        const result = await usecase.execute(branchId, createParams({
+            customerName: "김산모",
+        }));
+
+        expect(result.customerName).toBe("김산모");
+    });
+
+    it("leaves the customer name null rather than substituting the linked client", async () => {
+        // A document with no customer-name field is resolved by the list's own chain, not
+        // from the client row — so filling it in here would make the mirror disagree with
+        // what the list shows.
+        const client = createClient(7, "010-1234-5678");
+        clientRepository.findById.mockResolvedValue(client);
+
+        const result = await usecase.execute(branchId, createParams({}));
+
+        expect(result.customerName).toBeNull();
     });
 });
