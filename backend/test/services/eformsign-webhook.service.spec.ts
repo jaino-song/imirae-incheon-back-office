@@ -1,6 +1,7 @@
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
 import { LinkDocumentToClientUsecase } from "application/usecases/eformsign-doc/link-document-to-client.usecase";
 import { UpdateEformsignDocStatusUsecase } from "application/usecases/eformsign-doc/update-eformsign-doc-status.usecase";
+import { EformsignDocMappingError } from "domain/repositories/eformsign-doc.repository.interface";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import { EformsignDocMapper } from "infrastructure/database/mapper/eformsign-doc.mapper";
@@ -13,6 +14,7 @@ describe("EformsignWebhookService", () => {
     const createDocEntity = (overrides: Partial<{
         clientId: number | null;
         documentName: string | null;
+        statusType: string;
     }> = {}): EformsignDocEntity =>
         EformsignDocEntity.reconstitute({
             id: 1,
@@ -20,7 +22,7 @@ describe("EformsignWebhookService", () => {
             documentName: overrides.documentName ?? null,
             createdDate: new Date("2026-05-01T00:00:00.000Z"),
             updatedDate: new Date("2026-05-02T00:00:00.000Z"),
-            statusType: "060",
+            statusType: overrides.statusType ?? "060",
             statusDetail: "서명 요청됨",
             stepType: "06",
             stepIndex: "3",
@@ -110,9 +112,14 @@ describe("EformsignWebhookService", () => {
     };
     const eformsignDocRepository = {
         findByDocumentId: jest.fn(),
+        findByDocumentIdUnscoped: jest.fn(),
         findBranchIdByDocumentId: jest.fn(),
         claimCompletionStatus: jest.fn(),
+        upsertUnassignedByDocumentId: jest.fn(),
         update: jest.fn(),
+    };
+    const mirrorUnassignedDocUsecase = {
+        execute: jest.fn(),
     };
     const employeeScheduleRepository = {
         findByClientId: jest.fn(),
@@ -142,6 +149,7 @@ describe("EformsignWebhookService", () => {
             eformsignDocRepository as never,
             employeeScheduleRepository as never,
             employeeRepository as never,
+            mirrorUnassignedDocUsecase as never,
             undefined,
             serviceRecordLifecycle as never,
         );
@@ -164,9 +172,17 @@ describe("EformsignWebhookService", () => {
             },
         });
         notificationService.sendToBranchUsers.mockResolvedValue({ sent: 1, failed: 0 });
-        eformsignDocRepository.findBranchIdByDocumentId.mockResolvedValue(branchId);
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity(),
+            branchId,
+        });
         eformsignDocRepository.findByDocumentId.mockResolvedValue(createDocEntity());
+        eformsignDocRepository.findBranchIdByDocumentId.mockResolvedValue(branchId);
         eformsignDocRepository.claimCompletionStatus.mockResolvedValue("claimed");
+        eformsignDocRepository.upsertUnassignedByDocumentId.mockImplementation(
+            (doc: EformsignDocEntity) => Promise.resolve(doc),
+        );
+        mirrorUnassignedDocUsecase.execute.mockResolvedValue(createDocEntity({ clientId: null }));
         clientRepository.findById.mockResolvedValue(createClientEntity());
         employeeScheduleRepository.findByClientId.mockResolvedValue([]);
         employeeRepository.findById.mockResolvedValue(null);
@@ -206,7 +222,7 @@ describe("EformsignWebhookService", () => {
     it("should resolve the branch from the local document before processing webhook status", async () => {
         await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
 
-        expect(eformsignDocRepository.findBranchIdByDocumentId).toHaveBeenCalledWith(documentId);
+        expect(eformsignDocRepository.findByDocumentIdUnscoped).toHaveBeenCalledWith(documentId);
         expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
             branchId,
             expect.objectContaining({
@@ -214,6 +230,170 @@ describe("EformsignWebhookService", () => {
                 documentName: "산모신생아건강관리서비스 계약서",
             }),
         );
+    });
+
+    it("mirrors a missing document without running branch-owned side effects", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue(null);
+
+        await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
+
+        expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(documentId);
+        expect(eformsignDocRepository.claimCompletionStatus).not.toHaveBeenCalled();
+        expect(updateStatusUsecase.execute).not.toHaveBeenCalled();
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("updates an existing unassigned document from webhook data without an external API call", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null, documentName: "기존 문서명" }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_request_participant";
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(mirrorUnassignedDocUsecase.execute).not.toHaveBeenCalled();
+        expect(eformsignApiClient.getAccessToken).not.toHaveBeenCalled();
+        expect(eformsignApiClient.getDocument).not.toHaveBeenCalled();
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({
+                documentId,
+                statusType: "060",
+                documentName: "산모신생아건강관리서비스 계약서",
+                templateId: "template-1",
+            }),
+        );
+        expect(updateStatusUsecase.execute).not.toHaveBeenCalled();
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("updates an existing unassigned document from ready_document_pdf without branch side effects", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null }),
+            branchId: null,
+        });
+
+        await expect(service.processWebhook(createReadyPdfPayload())).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({
+                documentId,
+                statusType: "050",
+                documentName: "산모신생아건강관리서비스 계약서",
+                templateId: "template-1",
+            }),
+        );
+        expect(eformsignDocRepository.claimCompletionStatus).not.toHaveBeenCalled();
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("ignores a stale non-terminal webhook for a terminal unassigned document", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null, statusType: "050" }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        payload.event_type = "document_action";
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.action = "doc_open_participant";
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).not.toHaveBeenCalled();
+    });
+
+    it("allows a terminal to terminal transition for an unassigned document", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null, statusType: "050" }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_decline";
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ statusType: "080" }),
+        );
+    });
+
+    it("swallows unassigned status update failures", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null }),
+            branchId: null,
+        });
+        eformsignDocRepository.upsertUnassignedByDocumentId.mockRejectedValue(
+            new Error("write failed"),
+        );
+
+        await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalled();
+        expect(eformsignDocRepository.claimCompletionStatus).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the branch-only lookup when a local row cannot be mapped", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockRejectedValue(
+            new EformsignDocMappingError(documentId, new Error("invalid row")),
+        );
+        eformsignDocRepository.findBranchIdByDocumentId.mockResolvedValue(branchId);
+
+        await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.findBranchIdByDocumentId).toHaveBeenCalledWith(documentId);
+        expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ documentId }),
+        );
+    });
+
+    it("omits an unassigned document name update when webhook document_title is blank", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue({
+            document: createDocEntity({ clientId: null, documentName: "기존 문서명" }),
+            branchId: null,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.document_title = "   ";
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ documentName: null }),
+        );
+    });
+
+    it("swallows external API failures while mirroring a missing document", async () => {
+        eformsignDocRepository.findByDocumentIdUnscoped.mockResolvedValue(null);
+        mirrorUnassignedDocUsecase.execute.mockRejectedValue(new Error("rate limited"));
+
+        await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
+
+        expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(documentId);
+        expect(updateStatusUsecase.execute).not.toHaveBeenCalled();
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
     });
 
     it("should keep processing document events when sync throws", async () => {
@@ -329,7 +509,10 @@ describe("EformsignWebhookService", () => {
             documentName: "기존 문서명",
         });
         const statefulDocRepository = {
-            findBranchIdByDocumentId: jest.fn().mockResolvedValue(branchId),
+            findByDocumentIdUnscoped: jest.fn().mockImplementation(() => Promise.resolve({
+                document: storedDoc,
+                branchId,
+            })),
             findByDocumentId: jest.fn().mockImplementation(() => Promise.resolve(storedDoc)),
             update: jest.fn().mockImplementation((_branchid, doc: EformsignDocEntity) => {
                 const storedId = storedDoc.id;
@@ -368,6 +551,7 @@ describe("EformsignWebhookService", () => {
             statefulDocRepository as never,
             employeeScheduleRepository as never,
             employeeRepository as never,
+            mirrorUnassignedDocUsecase as never,
         );
         const payload = createDocumentPayload();
         if (!payload.document) {
@@ -480,6 +664,7 @@ describe("EformsignWebhookService", () => {
             eformsignDocRepository as never,
             employeeScheduleRepository as never,
             employeeRepository as never,
+            mirrorUnassignedDocUsecase as never,
             undefined,
             serviceRecordLifecycle as never,
         );
