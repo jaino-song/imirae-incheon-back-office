@@ -84,11 +84,12 @@ export default async function StatsPage() {
 
   return (
     <section
-      data-component="stats"
+      data-component="desktop_stats_page"
       className="flex flex-col gap-6 pb-10"
     >
-      <Block name="stats-hero" className="shrink-0">
+      <Block name="desktop_stats_page_hero" className="shrink-0">
         <StatsHero
+          dataComponent="desktop_stats_page_hero_content"
           title="오늘 통계"
           subtitle="4개 패널 한눈에 — 오류, 상담, 페이지 이동, 트래픽"
           rightValue={formatDateForDisplay(today)}
@@ -96,9 +97,9 @@ export default async function StatsPage() {
         />
       </Block>
 
-      <Block name="stats-grid" className="flex-1 min-h-0">
+      <Block name="desktop_stats_page_grid" className="flex-1 min-h-0">
         <div
-          data-component="stats-grid-inner"
+          data-component="desktop_stats_page_grid_inner"
           className="grid grid-cols-1 lg:grid-cols-2 gap-4"
         >
           {/* Panel 1: 오류 통계 */}
@@ -107,11 +108,11 @@ export default async function StatsPage() {
             iconEmoji="⚠"
             source="Sentry"
             detailHref="/stats/errors"
-            dataComponent="stats-panel-errors"
+            dataComponent="desktop_stats_page_grid_inner_panel-errors"
           >
             <div className="flex items-baseline gap-3">
               <span
-                data-component="stats-panel-errors-count"
+                data-component="desktop_stats_page_grid_inner_panel-errors-count"
                 className="text-[2.4rem] font-bold leading-none tabular-nums text-red-600"
               >
                 {sentry.openCount}
@@ -155,11 +156,11 @@ export default async function StatsPage() {
             iconEmoji="📝"
             source="PostHog"
             detailHref="/stats/inquiries"
-            dataComponent="stats-panel-inquiries"
+            dataComponent="desktop_stats_page_grid_inner_panel-inquiries"
           >
             <div className="flex items-baseline gap-3">
               <span
-                data-component="stats-panel-inquiries-count"
+                data-component="desktop_stats_page_grid_inner_panel-inquiries-count"
                 className="text-[2.4rem] font-bold leading-none tabular-nums text-v3-primary"
               >
                 {inquiries.today}
@@ -196,9 +197,10 @@ export default async function StatsPage() {
             iconEmoji="🔀"
             source="PostHog"
             detailHref="/stats/funnel"
-            dataComponent="stats-panel-funnel"
+            dataComponent="desktop_stats_page_grid_inner_panel-funnel"
           >
             <FunnelBars
+              dataComponent="desktop_stats_page_grid_panel-funnel_bars"
               steps={funnel.steps}
               biggestDropStep={funnel.biggestDropStep}
               variant="compact"
@@ -228,26 +230,26 @@ export default async function StatsPage() {
             iconEmoji="🌐"
             source="PostHog"
             detailHref="/stats/traffic"
-            dataComponent="stats-panel-traffic"
+            dataComponent="desktop_stats_page_grid_inner_panel-traffic"
           >
             <div className="grid grid-cols-3 gap-3">
-              <div data-component="stats-panel-traffic-pv">
+              <div data-component="desktop_stats_page_grid_inner_panel-traffic-pv">
                 <div className="text-[0.65rem] font-medium text-v3-text-muted">페이지뷰</div>
                 <div className="text-[1.55rem] font-bold tabular-nums leading-none mt-1">
                   {traffic.today.pv.toLocaleString("ko-KR")}
                 </div>
               </div>
-              <div data-component="stats-panel-traffic-unique">
+              <div data-component="desktop_stats_page_grid_inner_panel-traffic-unique">
                 <div className="text-[0.65rem] font-medium text-v3-text-muted">방문자</div>
                 <div className="text-[1.55rem] font-bold tabular-nums leading-none mt-1">
                   {traffic.today.unique.toLocaleString("ko-KR")}
                 </div>
               </div>
-              <div data-component="stats-panel-traffic-session">
+              <div data-component="desktop_stats_page_grid_inner_panel-traffic-session">
                 <div className="text-[0.65rem] font-medium text-v3-text-muted">평균 방문 시간</div>
                 <div className="text-[1.55rem] font-bold tabular-nums leading-none mt-1">
                   {traffic.today.pv === 0
-                    ? "—"
+                    ? "-"
                     : `${Math.floor(traffic.avgSessionSeconds / 60)}:${String(Math.round(traffic.avgSessionSeconds % 60)).padStart(2, "0")}`}
                 </div>
               </div>
@@ -256,7 +258,7 @@ export default async function StatsPage() {
               <div className="text-[0.62rem] font-bold uppercase tracking-wider text-v3-text-muted mb-1.5">
                 인기 페이지
               </div>
-              <div data-component="stats-panel-traffic-top-pages">
+              <div data-component="desktop_stats_page_grid_inner_panel-traffic-top-pages">
                 {topPages.length === 0 ? (
                   <div className="py-2 text-[0.75rem] text-v3-text-muted">데이터 없음</div>
                 ) : (

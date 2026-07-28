@@ -1,95 +1,6 @@
-import { test, expect } from "@playwright/test";
-import * as fs from "fs";
-import * as path from "path";
-import crypto from "crypto";
-
-function readJwtSecret(): string {
-  // CI provides the secret via env; local dev falls back to backend/.env.
-  const fromEnv = process.env.JWT_SECRET?.trim();
-  if (fromEnv) return fromEnv;
-
-  const envPath = path.resolve(process.cwd(), "../backend/.env");
-  const env = fs.readFileSync(envPath, "utf-8");
-  const line = env
-    .split("\n")
-    .find((l) => l.startsWith("JWT_SECRET="))
-    ?.trim();
-  if (!line) {
-    throw new Error("JWT_SECRET not found in env or ../backend/.env");
-  }
-  return line.slice("JWT_SECRET=".length);
-}
-
-function base64url(input: Buffer | string): string {
-  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input, "utf-8");
-  return buf
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function signJwtHS256(payload: Record<string, unknown>, secret: string): string {
-  const header = { alg: "HS256", typ: "JWT" };
-  const h = base64url(JSON.stringify(header));
-  const p = base64url(JSON.stringify(payload));
-  const data = `${h}.${p}`;
-  const sig = crypto.createHmac("sha256", secret).update(data).digest();
-  return `${data}.${base64url(sig)}`;
-}
-
-function makeStorageState() {
-  const secret = readJwtSecret();
-  const now = Math.floor(Date.now() / 1000);
-  const exp = now + 60 * 60;
-
-  // Known valid IDs for local dev (used elsewhere in workspace scripts).
-  const userId = "ac5f25d7-f8cc-4c68-82a5-db6dc2968c5f";
-  const branchId = "33dbe950-1574-4951-b7b4-92d97ab29512";
-
-  const token = signJwtHS256(
-    {
-      sub: userId,
-      role: "owner",
-      branchId,
-      branchRole: "admin",
-      tokenVersion: 0,
-      type: "access",
-      exp,
-    },
-    secret
-  );
-
-  return {
-    cookies: [
-      {
-        name: "auth_token",
-        value: token,
-        domain: "localhost",
-        path: "/",
-        httpOnly: true,
-        secure: false,
-        sameSite: "Lax" as const,
-        expires: exp,
-      },
-      {
-        name: "selected_branch_id",
-        value: branchId,
-        domain: "localhost",
-        path: "/",
-        httpOnly: false,
-        secure: false,
-        sameSite: "Lax" as const,
-        expires: exp,
-      },
-    ],
-    origins: [],
-  };
-}
+import { expect, test } from "@playwright/test";
 
 test.describe("Chat live stream smoke", () => {
-  test.use({ storageState: makeStorageState() });
-
   test.beforeEach(async ({ page }) => {
     // Keep the live test deterministic: don't render persisted wizard markers from backend history.
     await page.addInitScript(() => {
@@ -124,9 +35,9 @@ test.describe("Chat live stream smoke", () => {
     });
 
     await page.goto("/chat");
-    await expect(page.locator('[data-component="chat"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-slot="chat-page"]')).toBeVisible({ timeout: 15000 });
 
-    const input = page.locator('[data-component="chat-input"]');
+    const input = page.locator('[data-component="mobile_chat_page_input-area_input"]');
     await expect(input).toBeVisible({ timeout: 10000 });
 
     const start = Date.now();
@@ -135,7 +46,7 @@ test.describe("Chat live stream smoke", () => {
 
     await expect(page.getByLabel("응답 작성 중")).toBeVisible({ timeout: 5000 });
 
-    const assistantMessages = page.locator('[data-component="chat-message-assistant"]');
+    const assistantMessages = page.locator('[data-component="mobile_chat_page_content_messages_message-assistant"]');
     await expect(assistantMessages.last()).toContainText("[e2e-stub]", { timeout: 15000 });
     await expect(assistantMessages.last()).toContainText("안녕하세요", { timeout: 15000 });
 
@@ -158,19 +69,19 @@ test.describe("Chat live stream smoke", () => {
     });
 
     await page.goto("/chat");
-    await expect(page.locator('[data-component="chat"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-slot="chat-page"]')).toBeVisible({ timeout: 15000 });
 
-    const input = page.locator('[data-component="chat-input"]');
+    const input = page.locator('[data-component="mobile_chat_page_input-area_input"]');
     await expect(input).toBeVisible({ timeout: 10000 });
 
     await input.fill("산모 등록");
     await input.press("Enter");
 
-    await expect(page.locator('[data-component="chat-wizard-registration"]').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-component="mobile_chat_registration-wizard"]').first()).toBeVisible({ timeout: 5000 });
     // "산모 등록" also appears inside the rendered wizard — scope to the
     // user's message bubble to avoid a strict-mode violation.
     await expect(
-      page.locator('[data-component="chat-message-user-bubble"]', { hasText: "산모 등록" }),
+      page.locator('[data-component="mobile_chat_page_content_messages_message-user_body_bubble"]', { hasText: "산모 등록" }),
     ).toBeVisible({ timeout: 5000 });
 
     expect(sseCalled).toBe(0);

@@ -86,25 +86,25 @@ test.describe("Mobile prices skeletons", () => {
     });
 
     await page.goto("/prices");
-    await expect(page.locator('[data-component="prices-page"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-prices-count-skeleton"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-prices-year-filter"] [data-loading="true"]')).toHaveCount(2);
-    await expect(page.locator('[data-component="mobile-redesign-filter-row"] [data-loading="true"]')).toHaveCount(5);
-    await expect(page.locator('[data-component="mobile-prices-loading-skeleton"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-prices-row-skeleton"]')).toHaveCount(5);
+    await expect(page.locator('[data-slot="prices-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter"] [data-loading="true"]')).toHaveCount(2);
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_filters"] [data-loading="true"]')).toHaveCount(5);
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton_row"]')).toHaveCount(5);
 
-    const skeletonFilterGeometry = await page.locator('[data-component="mobile-redesign-filter-row"]').boundingBox();
+    const skeletonFilterGeometry = await page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_filters"]').boundingBox();
 
     releaseYears();
     releasePrices();
 
-    await expect(page.locator('[data-component="mobile-prices-count-skeleton"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-prices-year-filter"] [data-loading="true"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-redesign-filter-row"] [data-loading="true"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-prices-row-skeleton"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-prices-row"]').first()).toBeVisible();
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter"] [data-loading="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_filters"] [data-loading="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton_row"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_row"]').first()).toBeVisible();
 
-    const loadedFilterGeometry = await page.locator('[data-component="mobile-redesign-filter-row"]').boundingBox();
+    const loadedFilterGeometry = await page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_filters"]').boundingBox();
     expect(skeletonFilterGeometry).not.toBeNull();
     expect(loadedFilterGeometry).not.toBeNull();
     expect(Math.abs((loadedFilterGeometry?.y ?? 0) - (skeletonFilterGeometry?.y ?? 0))).toBeLessThanOrEqual(1);
@@ -116,12 +116,12 @@ test.describe("Mobile prices skeletons", () => {
     await mockPricesApi(page);
 
     await page.goto("/prices");
-    await expect(page.locator('[data-component="prices-page"]')).toBeVisible();
+    await expect(page.locator('[data-slot="prices-page"]')).toBeVisible();
 
     const listMetrics = await page.evaluate(() => {
-      const appRoot = document.querySelector('[data-component="app-root"]')?.getBoundingClientRect();
+      const appRoot = document.querySelector('[data-slot="app-root"]')?.getBoundingClientRect();
       const listCard = document
-        .querySelector('[data-component="mobile-redesign-list-card"]')
+        .querySelector('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card"]')
         ?.getBoundingClientRect();
 
       return {
@@ -138,13 +138,16 @@ test.describe("Mobile prices skeletons", () => {
     expect(listMetrics.listCard?.width).toBeGreaterThan(390);
     expect(listMetrics.listCard?.right).toBeLessThanOrEqual(listMetrics.viewportWidth);
 
-    await page.locator('[data-component="mobile-prices-row"]').first().click();
+    await page.locator('[data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_row"]').first().click();
 
-    await expect(page.locator('[data-component="mobile-prices-stack"]')).toHaveClass(/show-detail/);
-    await expect(page.locator('[data-component="mobile-prices-detail-page"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_prices_page_detail-sheet_stack"]')).toHaveClass(/show-detail/);
+    const detailPage = page.locator(
+      '[data-component="mobile_prices_page_detail-sheet_stack_detail-page"][data-slot="mobile-detail-stack-detail-page"]',
+    );
+    await expect(detailPage).toBeVisible();
     await expect
       .poll(async () =>
-        page.locator('[data-component="mobile-prices-detail-page"]').evaluate((element) => {
+        detailPage.evaluate((element) => {
           const transform = window.getComputedStyle(element).transform;
 
           if (transform === "none") {
@@ -156,10 +159,12 @@ test.describe("Mobile prices skeletons", () => {
       )
       .toBe(0);
 
-    const detailMetrics = await page.locator('[data-component="mobile-prices-detail-page"]').evaluate((element) => {
+    const detailMetrics = await detailPage.evaluate((element) => {
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
-      const scrim = document.querySelector('[data-component="mobile-prices-detail-scrim"]');
+      const scrim = document.querySelector(
+        '[data-component="mobile_prices_page_detail-sheet_stack_scrim"]',
+      );
       const scrimStyle = scrim ? window.getComputedStyle(scrim) : null;
       const scrimRect = scrim?.getBoundingClientRect();
 
@@ -201,7 +206,10 @@ test.describe("Mobile prices skeletons", () => {
     expect(detailMetrics.scrim?.width).toBe(detailMetrics.viewportWidth);
     expect(detailMetrics.scrim?.height).toBe(detailMetrics.scrim?.viewportHeight);
 
-    await expect(page.locator('[data-component="mobile-prices-detail"]')).toHaveClass(/detail-body/);
-    await expect(page.locator('[data-component="mobile-prices-detail"]')).toHaveClass(/detail-column/);
+    const detailBody = page.locator(
+      '[data-component="mobile_prices_page_detail-sheet_stack_detail-page_body"]',
+    );
+    await expect(detailBody).toHaveClass(/detail-body/);
+    await expect(detailBody).toHaveClass(/detail-column/);
   });
 });

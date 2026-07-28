@@ -22,6 +22,7 @@ const NAV_ITEMS: Array<{
   { href: "/all", label: "전체", icon: Menu, kind: "normal" },
 ];
 const ALL_NAV_INDEX = NAV_ITEMS.findIndex((item) => item.href === "/all");
+const NAV_BASE = "mobile_shell_bottom-nav";
 interface PressedNavItem {
   href: string;
   pathname: string;
@@ -90,7 +91,8 @@ export function MobileBottomNav() {
 
   return (
     <nav
-      data-component="mobile-bottom-nav"
+      data-component={NAV_BASE}
+      data-slot="mobile-bottom-nav"
       className={cn(
         isChatRoute
           ? "z-[var(--mobile-z-nav,30)]"
@@ -103,17 +105,27 @@ export function MobileBottomNav() {
         bottom: "max(calc(1rem + env(safe-area-inset-bottom)), calc(100dvh - var(--mobile-shell-max-height, 932px) + 1rem))",
       }}
     >
-      <span data-component="mobile-bottom-indicator" role="presentation" style={indicatorStyle} />
+      {/*
+        The indicator deliberately sits OUTSIDE the `mobile-bottom-nav-` slot
+        namespace: CSS/tests use [data-slot^="mobile-bottom-nav-"] to select nav
+        ITEMS only, and must never match the indicator.
+      */}
+      <span
+        data-component={`${NAV_BASE}_indicator`}
+        data-slot="mobile-bottom-indicator"
+        role="presentation"
+        style={indicatorStyle}
+      />
 
       {NAV_ITEMS.map((item, index) => {
         const isActive = isNavItemActive(item.href, pathname);
         const isDisabled = item.disabled === true;
         const isIndicated = !isDisabled && indicatorVisible && index === indicatorIndex;
         const Icon = item.icon;
-        const dataComponent =
-          item.kind === "chat"
-            ? "mobile-bottom-nav-chat"
-            : `mobile-bottom-nav-${item.href.replace("/", "")}`;
+        const itemName =
+          item.kind === "chat" ? "chat" : item.href.replace("/", "");
+        const dataComponent = `${NAV_BASE}_${itemName}`;
+        const dataSlot = `mobile-bottom-nav-${itemName}`;
         const itemClassName = cn(
           "relative z-10 flex h-10 flex-col items-center gap-[2px] rounded-[14px] px-1 py-[5px]",
           prefersReducedMotion ? null : "transition-colors duration-300 ease-out",
@@ -139,6 +151,7 @@ export function MobileBottomNav() {
               key={item.href}
               aria-disabled="true"
               data-component={dataComponent}
+              data-slot={dataSlot}
               data-disabled="true"
               className={itemClassName}
             >
@@ -159,6 +172,7 @@ export function MobileBottomNav() {
               }
             }}
             data-component={dataComponent}
+            data-slot={dataSlot}
             className={itemClassName}
           >
             {itemContent}

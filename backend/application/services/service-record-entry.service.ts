@@ -6,13 +6,15 @@ import {
     ConflictException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { SERVICE_RECORD_TEXT_LIMITS } from "domain/constants/service-record-text-limits";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { SaveServiceHeaderDto, UpsertSessionDto } from "interface/dto/service-record-entry.dto";
+
 import {
     ServiceRecordTokenService,
     ServiceRecordTokenContext,
     VerifyPhoneResult,
 } from "./service-record-token.service";
-import { SaveServiceHeaderDto, UpsertSessionDto } from "interface/dto/service-record-entry.dto";
 import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
@@ -248,8 +250,14 @@ export class ServiceRecordEntryService {
                 sessionIndex,
                 serviceDate,
                 answers: answers as Prisma.InputJsonValue,
-                etcService: this.trimNullable(dto.etcService, 1000),
-                notes: this.trimNullable(dto.notes, 2000),
+                etcService: this.trimNullable(
+                    dto.etcService,
+                    SERVICE_RECORD_TEXT_LIMITS.etcService,
+                ),
+                notes: this.trimNullable(
+                    dto.notes,
+                    SERVICE_RECORD_TEXT_LIMITS.notes,
+                ),
                 paymentConfirmed: dto.paymentConfirmed ?? false,
                 momApproval: dto.momApproval ?? null,
                 locked: Boolean(existing?.locked || lock),
@@ -287,7 +295,7 @@ export class ServiceRecordEntryService {
             return row;
         });
         if (lock) {
-            this.logger.log(`Service feedback session ${sessionIndex} submitted + locked for case ${aggregate.id}`);
+            this.logger.log(`Service-record session ${sessionIndex} submitted + locked for case ${aggregate.id}`);
         }
         return { ...saved, sessionIndex: saved.caseSessionIndex ?? saved.sessionIndex };
     }
@@ -399,12 +407,12 @@ export class ServiceRecordEntryService {
         return answers;
     }
 
-    private trimNullable(value: string | undefined, maxLength: number): string | null {
-        const normalized = value?.trim();
-        if (!normalized) return null;
-        if (normalized.length > maxLength) {
+    private trimNullable(value: string | null | undefined, maxLength: number): string | null {
+        if (value !== null && value !== undefined && value.length > maxLength) {
             throw new BadRequestException(`입력값은 ${maxLength}자를 넘을 수 없습니다.`);
         }
+        const normalized = value?.trim();
+        if (!normalized) return null;
         return normalized;
     }
 }

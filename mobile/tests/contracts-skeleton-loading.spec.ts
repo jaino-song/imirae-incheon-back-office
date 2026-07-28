@@ -1,9 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import {
+  routeContractsApi,
+  type ContractMockDocument,
+} from './helpers/contracts-api-mock';
+
 const FILTER_SKELETON_COUNT = 6;
 const LOADING_ROW_COUNT = 9;
 
-const MOCK_DOCUMENTS = {
+const MOCK_DOCUMENTS: { documents: ContractMockDocument[] } = {
   documents: [
     {
       id: 'doc-1',
@@ -34,16 +39,10 @@ const MOCK_DOCUMENTS = {
       },
     },
   ],
-  total_rows: 2,
-  limit: 100,
-  skip: 0,
 };
 
-const MOCK_EMPTY_DOCUMENTS = {
+const MOCK_EMPTY_DOCUMENTS: { documents: ContractMockDocument[] } = {
   documents: [],
-  total_rows: 0,
-  limit: 100,
-  skip: 0,
 };
 
 async function routeSharedContractDependencies(page: Page): Promise<void> {
@@ -61,6 +60,8 @@ async function routeSharedContractDependencies(page: Page): Promise<void> {
           email: 'test@example.com',
           profile_image: '',
           role: 'admin',
+          branchId: 'e2e-branch',
+          branchName: 'E2E Branch',
         }),
       });
     });
@@ -98,7 +99,7 @@ async function routeSharedContractDependencies(page: Page): Promise<void> {
   });
 }
 
-// The contract list rows ([data-component="mobile-contracts-row"]) only mount
+// The contract list rows ([data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]) only mount
 // in the mobile layout — at the default desktop viewport the row tree is
 // absent (run #7 evidence: page renders, row count stays 0).
 test.use({ viewport: { width: 390, height: 844 } });
@@ -123,42 +124,39 @@ test.describe('Contracts Page Skeleton Loading', () => {
       });
     });
 
-    // Broad glob: the page also lists via /in-progress and /completed subpaths.
-    await page.route('**/api/eformsign/documents**', async (route) => {
-      await documentsReady;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_DOCUMENTS),
-      });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      beforeListResponse: async () => {
+        await documentsReady;
+      },
     });
 
     await routeSharedContractDependencies(page);
 
     await page.goto('/contracts');
 
-    await expect(page.locator('[data-component="mobile-contracts-search"]')).toBeVisible({
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"]')).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.locator('[data-component="mobile-redesign-filter-pill"][data-loading="true"]')).toHaveCount(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters_pill"][data-loading="true"]')).toHaveCount(
       FILTER_SKELETON_COUNT,
     );
-    await expect(page.locator('[data-component="mobile-contracts-loading-row"]')).toHaveCount(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(
       LOADING_ROW_COUNT,
     );
-    await expect(page.locator('[data-component="mobile-contracts-load-more-placeholder"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"]')).toBeVisible();
 
     releaseAuth();
     releaseDocuments();
 
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(2, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
       timeout: 15000,
     });
-    await expect(page.locator('[data-component="mobile-contracts-loading-row"]')).toHaveCount(0);
-    await expect(page.locator('[data-component="mobile-redesign-filter-pill"][data-loading="true"]')).toHaveCount(
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters_pill"][data-loading="true"]')).toHaveCount(
       0,
     );
-    await expect(page.locator('[data-component="mobile-contracts-load-more-placeholder"]')).toHaveCount(0);
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"]')).toHaveCount(0);
   });
 
   test('keeps the search and filter chrome visible after loading completes', async ({ page }) => {
@@ -170,32 +168,87 @@ test.describe('Contracts Page Skeleton Loading', () => {
       });
     });
 
-    // Broad glob: the page also lists via /in-progress and /completed subpaths.
-    await page.route('**/api/eformsign/documents**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_DOCUMENTS),
-      });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
     });
 
     await routeSharedContractDependencies(page);
 
     await page.goto('/contracts');
-    await expect(page.locator('[data-component="mobile-contracts-row"]')).toHaveCount(2, {
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
       timeout: 15000,
     });
 
-    await expect(page.locator('[data-component="mobile-contracts-search"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-filter-row"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile-redesign-list-title"]')).toContainText('2건');
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_search"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters"]')).toBeVisible();
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_header"]')).toContainText('2건');
   });
 
-  // NOTE (review follow-up, 2026-06-08): a dedicated documents-API error
-  // state does not exist post-redesign (the old MuiAlert tests covered dead
-  // UI). Observed current behavior on a hard documents 500: the eformsign
-  // reauth path ends in a LOGOUT/login redirect — encode no test until the
-  // intended failure UX is decided (tracked as a product/UX finding).
+  test('renders documents when status counts fail instead of keeping the skeleton', async ({ page }) => {
+    await page.route('**/api/access-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      statusCountsStatus: 500,
+    });
+    await routeSharedContractDependencies(page);
+
+    await page.goto('/contracts');
+
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+  });
+
+  test('renders the existing empty state when documents fail instead of keeping the skeleton', async ({ page }) => {
+    await page.route('**/api/access-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      listStatus: 500,
+    });
+    await routeSharedContractDependencies(page);
+
+    await page.goto('/contracts');
+
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"]')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+  });
+
+  test('falls back to the maternal contract filter when service-record template lookup fails', async ({ page }) => {
+    await page.route('**/api/access-token', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
+    });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_DOCUMENTS.documents,
+      serviceRecordTemplateStatus: 500,
+    });
+    await routeSharedContractDependencies(page);
+
+    await page.goto('/contracts');
+
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row"]')).toHaveCount(2, {
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_loading-row"]')).toHaveCount(0);
+  });
 
   test('shows the current empty-state copy when no contracts exist', async ({ page }) => {
     await page.route('**/api/access-token', async (route) => {
@@ -206,20 +259,16 @@ test.describe('Contracts Page Skeleton Loading', () => {
       });
     });
 
-    // Broad glob: the page also lists via /in-progress and /completed subpaths.
-    await page.route('**/api/eformsign/documents**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_EMPTY_DOCUMENTS),
-      });
+    await routeContractsApi(page, {
+      getDocuments: () => MOCK_EMPTY_DOCUMENTS.documents,
     });
 
     await routeSharedContractDependencies(page);
 
     await page.goto('/contracts');
-    await expect(page.locator('[data-component="mobile-contracts-empty"]')).toContainText(
-      '등록된 계약서가 없습니다.',
+    // The empty copy is scoped to the active section label ("산모 계약서" by default).
+    await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_empty"]')).toContainText(
+      '등록된 산모 계약서가 없습니다.',
       { timeout: 15000 },
     );
   });

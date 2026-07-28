@@ -17,6 +17,7 @@ import { SectionNav } from "@/components/app/v3";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
 import { usePushNotification } from "@/hooks/usePushNotification";
 import { getRoleLabel } from "@/lib/constants/roles";
+import { useInitialUser } from "@/providers/UserProvider";
 import { settingsApi } from "@/services/api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
@@ -73,7 +74,8 @@ const THEME_OPTIONS = [
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("profile");
   const [selectedTheme, setSelectedTheme] = useState<string>("light");
-  const authUserQuery = useGetAuthUser();
+  const initialUser = useInitialUser();
+  const authUserQuery = useGetAuthUser({ initialData: initialUser });
   const { data: user } = authUserQuery;
   const queryClient = useQueryClient();
   const notificationPreferencesQuery = useQuery({
@@ -117,10 +119,14 @@ export default function SettingsPage() {
   const isProfileSummaryLoading = authUserQuery.isLoading && !user;
 
   return (
-    <section data-component="settings" className="space-y-6">
+    <section data-component="desktop_settings_sections" className="space-y-6">
       <KakaoLinkResultModal />
-      <div data-component="settings-sections" className="flex flex-col lg:flex-row gap-8">
+      <div
+        data-slot="page-sections"
+        className="flex flex-col lg:flex-row gap-8"
+      >
         <SectionNav
+          data-component="desktop_settings_sections_section-nav"
           items={BASE_NAV_SECTIONS}
           activeId={activeSection}
           onSelect={(id) => setActiveSection(id as SectionId)}
@@ -128,24 +134,24 @@ export default function SettingsPage() {
 
         <div className="flex-1 min-w-0">
           {activeSection === "profile" && (
-          <section data-component="settings-profile">
+          <section data-component="desktop_settings_sections_profile">
             <ContentPaper variant="v3">
-              <div data-component="settings-profile-header" className="mb-4 flex items-center gap-3">
-                <div data-component="settings-profile-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-[hsl(var(--v3-primary))]/10">
+              <div data-component="desktop_settings_sections_profile_profile-header" className="mb-4 flex items-center gap-3">
+                <div data-component="desktop_settings_sections_profile_profile-header_profile-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-[hsl(var(--v3-primary))]/10">
                   <UserKeyIcon size={20} className="text-[hsl(var(--v3-primary))]" />
                 </div>
-                <div data-component="settings-profile-title-group">
+                <div data-component="desktop_settings_sections_profile_profile-header_profile-title-group">
                   <h2 className="text-lg font-bold text-foreground">계정</h2>
                   <p className="text-sm text-muted-foreground">회원가입 시 입력한 계정 정보를 관리합니다.</p>
                 </div>
               </div>
               <Separator className="mb-6" />
 
-              <div data-component="settings-profile-summary-wrap" className="flex justify-center">
-                <div data-component="settings-profile-summary" className="mb-6 flex w-full flex-col gap-5 rounded-[24px] bg-[hsl(var(--v3-bg))] p-5 lg:w-1/2">
-                  <div data-component="settings-profile-summary-header" className="flex items-center gap-4">
+              <div data-component="desktop_settings_sections_profile_profile-summary-wrap" className="flex justify-center">
+                <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary" className="mb-6 flex w-full flex-col gap-5 rounded-[24px] bg-[hsl(var(--v3-bg))] p-5 lg:w-1/2">
+                  <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary_profile-summary-header" className="flex items-center gap-4">
                     <Avatar
-                      data-component="settings-profile-summary-avatar"
+                      data-component="desktop_settings_sections_profile-summary-avatar"
                       className="h-16 w-16 rounded-full border border-[hsl(var(--v3-border))]/60 bg-[hsl(var(--v3-primary))]/10"
                     >
                       {!isProfileSummaryLoading ? (
@@ -161,9 +167,9 @@ export default function SettingsPage() {
                         </AvatarFallback>
                       )}
                     </Avatar>
-                    <div data-component="settings-profile-summary-text">
+                    <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary_profile-summary-header_profile-summary-text">
                       {isProfileSummaryLoading ? (
-                        <div data-component="settings-profile-summary-loading" className="space-y-2 pt-1">
+                        <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary_profile-summary-header_profile-summary-text_profile-summary-loading" className="space-y-2 pt-1">
                           <Skeleton className="h-4 w-20 bg-[hsl(var(--v3-border))]/70" />
                           <Skeleton className="h-3 w-12 bg-[hsl(var(--v3-border))]/55" />
                         </div>
@@ -180,8 +186,8 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div data-component="settings-profile-readonly-grid" className="flex flex-col gap-4">
-                    <div data-component="settings-profile-email-field" className="rounded-2xl border border-[hsl(var(--v3-border))] bg-white px-4 py-3">
+                  <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary_profile-readonly-grid" className="flex flex-col gap-4">
+                    <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary_profile-readonly-grid_profile-email-field" className="rounded-2xl border border-[hsl(var(--v3-border))] bg-white px-4 py-3">
                       <p className="text-[0.72rem] font-semibold text-[hsl(var(--v3-text-muted))]">이메일</p>
                       {isProfileSummaryLoading ? (
                         <Skeleton className="mt-2 h-4 w-[78%] bg-[hsl(var(--v3-border))]/60" />
@@ -189,7 +195,7 @@ export default function SettingsPage() {
                         <p className="mt-1 text-sm font-medium text-foreground break-all">{user?.email || "-"}</p>
                       )}
                     </div>
-                    <div data-component="settings-profile-phone-field" className="rounded-2xl border border-[hsl(var(--v3-border))] bg-white px-4 py-3">
+                    <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary_profile-readonly-grid_profile-phone-field" className="rounded-2xl border border-[hsl(var(--v3-border))] bg-white px-4 py-3">
                       <p className="text-[0.72rem] font-semibold text-[hsl(var(--v3-text-muted))]">전화번호</p>
                       {isProfileSummaryLoading ? (
                         <Skeleton className="mt-2 h-4 w-28 bg-[hsl(var(--v3-border))]/60" />
@@ -197,7 +203,7 @@ export default function SettingsPage() {
                         <p className="mt-1 text-sm font-medium text-foreground">{user?.phone || "-"}</p>
                       )}
                     </div>
-                    <div data-component="settings-profile-branch-field" className="rounded-2xl border border-[hsl(var(--v3-border))] bg-white px-4 py-3">
+                    <div data-component="desktop_settings_sections_profile_profile-summary-wrap_profile-summary_profile-readonly-grid_profile-branch-field" className="rounded-2xl border border-[hsl(var(--v3-border))] bg-white px-4 py-3">
                       <p className="text-[0.72rem] font-semibold text-[hsl(var(--v3-text-muted))]">지점</p>
                       {isProfileSummaryLoading ? (
                         <Skeleton className="mt-2 h-4 w-24 bg-[hsl(var(--v3-border))]/60" />
@@ -213,22 +219,22 @@ export default function SettingsPage() {
           )}
 
           {activeSection === "notifications" && (
-          <section data-component="settings-notifications">
+          <section data-component="desktop_settings_sections_notifications">
             <ContentPaper variant="v3">
-              <div data-component="settings-notifications-header" className="mb-4 flex items-center gap-3">
-                <div data-component="settings-notifications-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/10">
+              <div data-component="desktop_settings_sections_notifications_notifications-header" className="mb-4 flex items-center gap-3">
+                <div data-component="desktop_settings_sections_notifications_notifications-header_notifications-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/10">
                   <Bell size={20} className="text-amber-500" />
                 </div>
-                <div data-component="settings-notifications-title-group">
+                <div data-component="desktop_settings_sections_notifications_notifications-header_notifications-title-group">
                   <h2 className="text-lg font-bold text-foreground">알림</h2>
                   <p className="text-sm text-muted-foreground">알림 수신 설정을 관리합니다.</p>
                 </div>
               </div>
               <Separator className="mb-4" />
 
-              <div data-component="settings-notifications-content" className="space-y-4">
-                <div data-component="settings-notifications-email" className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors">
-                  <div data-component="settings-notifications-email-text" className="space-y-0.5">
+              <div data-component="desktop_settings_sections_notifications_notifications-content" className="space-y-4">
+                <div data-component="desktop_settings_sections_notifications_notifications-content_notifications-email" className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors">
+                  <div data-component="desktop_settings_sections_notifications_notifications-content_notifications-email_notifications-email-text" className="space-y-0.5">
                     <Label htmlFor="notif-email" className="text-sm font-medium">
                       이메일 알림
                     </Label>
@@ -244,8 +250,8 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                <div data-component="settings-notifications-browser" className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors">
-                  <div data-component="settings-notifications-browser-text" className="space-y-0.5">
+                <div data-component="desktop_settings_sections_notifications_notifications-content_notifications-browser" className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors">
+                  <div data-component="desktop_settings_sections_notifications_notifications-content_notifications-browser_notifications-browser-text" className="space-y-0.5">
                     <Label htmlFor="notif-browser" className="text-sm font-medium">
                       브라우저 알림
                     </Label>
@@ -286,20 +292,20 @@ export default function SettingsPage() {
           )}
 
           {activeSection === "theme" && (
-          <section data-component="settings-theme">
+          <section data-component="desktop_settings_sections_theme">
             <ContentPaper variant="v3">
-              <div data-component="settings-theme-header" className="mb-4 flex items-center gap-3">
-                <div data-component="settings-theme-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-violet-500/10">
+              <div data-component="desktop_settings_sections_theme_theme-header" className="mb-4 flex items-center gap-3">
+                <div data-component="desktop_settings_sections_theme_theme-header_theme-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-violet-500/10">
                   <Palette size={20} className="text-violet-500" />
                 </div>
-                <div data-component="settings-theme-title-group">
+                <div data-component="desktop_settings_sections_theme_theme-header_theme-title-group">
                   <h2 className="text-lg font-bold text-foreground">테마</h2>
                   <p className="text-sm text-muted-foreground">화면 테마를 선택합니다.</p>
                 </div>
               </div>
               <Separator className="mb-6" />
 
-              <div data-component="settings-theme-options" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div data-component="desktop_settings_sections_theme_theme-options" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {THEME_OPTIONS.map((theme) => {
                   const Icon = theme.icon;
                   const isSelected = selectedTheme === theme.id;
@@ -315,7 +321,7 @@ export default function SettingsPage() {
                       } ${theme.id === "dark" ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                     >
                       <div
-                        data-component="settings-theme-option-icon"
+                        data-component="desktop_settings_sections_theme_theme-options_theme-option-icon"
                         className={`w-12 h-12 rounded-full flex items-center justify-center ${
                           isSelected
                             ? "bg-[hsl(var(--v3-primary))]/10"
@@ -331,7 +337,7 @@ export default function SettingsPage() {
                           }
                         />
                       </div>
-                      <div data-component="settings-theme-option-text" className="text-center">
+                      <div data-component="desktop_settings_sections_theme_theme-options_theme-option-text" className="text-center">
                         <p className="text-sm font-medium">{theme.label}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {theme.description}
@@ -351,21 +357,21 @@ export default function SettingsPage() {
           )}
 
           {activeSection === "security" && (
-          <section data-component="settings-security">
+          <section data-component="desktop_settings_sections_security">
             <ContentPaper variant="v3">
-              <div data-component="settings-security-header" className="mb-4 flex items-center gap-3">
-                <div data-component="settings-security-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-500/10">
+              <div data-component="desktop_settings_sections_security_security-header" className="mb-4 flex items-center gap-3">
+                <div data-component="desktop_settings_sections_security_security-header_security-icon" className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-500/10">
                   <Shield size={20} className="text-red-500" />
                 </div>
-                <div data-component="settings-security-title-group">
+                <div data-component="desktop_settings_sections_security_security-header_security-title-group">
                   <h2 className="text-lg font-bold text-foreground">보안</h2>
                   <p className="text-sm text-muted-foreground">계정 보안 설정을 관리합니다.</p>
                 </div>
               </div>
               <Separator className="mb-6" />
 
-              <div data-component="settings-security-content" className="space-y-4">
-                <div data-component="settings-security-current-password-field">
+              <div data-component="desktop_settings_sections_security_security-content" className="space-y-4">
+                <div data-component="desktop_settings_sections_security_security-content_security-current-password-field">
                   <Label htmlFor="current-password" className="text-sm font-medium">
                     현재 비밀번호
                   </Label>
@@ -376,7 +382,7 @@ export default function SettingsPage() {
                     className="mt-1.5 w-full px-4 py-2.5 rounded-xl border border-[hsl(var(--v3-border))] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--v3-primary))]/20 focus:border-[hsl(var(--v3-primary))] transition-all"
                   />
                 </div>
-                <div data-component="settings-security-new-password-field">
+                <div data-component="desktop_settings_sections_security_security-content_security-new-password-field">
                   <Label htmlFor="new-password" className="text-sm font-medium">
                     새 비밀번호
                   </Label>
@@ -387,7 +393,7 @@ export default function SettingsPage() {
                     className="mt-1.5 w-full px-4 py-2.5 rounded-xl border border-[hsl(var(--v3-border))] bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--v3-primary))]/20 focus:border-[hsl(var(--v3-primary))] transition-all"
                   />
                 </div>
-                <div data-component="settings-security-confirm-password-field">
+                <div data-component="desktop_settings_sections_security_security-content_security-confirm-password-field">
                   <Label htmlFor="confirm-password" className="text-sm font-medium">
                     비밀번호 확인
                   </Label>
@@ -401,8 +407,8 @@ export default function SettingsPage() {
 
                 <Separator className="my-2" />
 
-                <div data-component="settings-security-two-factor" className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors">
-                  <div data-component="settings-security-two-factor-text" className="space-y-0.5">
+                <div data-component="desktop_settings_sections_security_security-content_security-two-factor" className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors">
+                  <div data-component="desktop_settings_sections_security_security-content_security-two-factor_security-two-factor-text" className="space-y-0.5">
                     <Label htmlFor="two-factor" className="text-sm font-medium text-muted-foreground">
                       2단계 인증 (준비 중)
                     </Label>

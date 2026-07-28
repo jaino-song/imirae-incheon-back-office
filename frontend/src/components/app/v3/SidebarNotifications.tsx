@@ -214,27 +214,27 @@ export function SidebarNotifications() {
           <button
             type="button"
             aria-label="알림 닫기"
-            data-component="sidebar-notifications-backdrop"
+            data-component="desktop_chrome_sidebar_notifications-backdrop"
             className="fixed inset-0 z-[999] bg-slate-950/34 backdrop-blur-[2px]"
             onClick={() => setOpen(false)}
           />
 
           {modalPosition ? (
             <div
-              data-component="sidebar-notifications-modal"
+              data-component="desktop_chrome_sidebar_notifications-modal"
               className="fixed z-[1000] w-[25rem] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] bg-white rounded-[28px] shadow-v3 flex flex-col overflow-hidden"
               style={{ top: modalPosition.top, left: modalPosition.left }}
             >
               <div className="flex items-start justify-between p-6 pb-4 shrink-0">
                 <PanelTitleGroup
-                  component="list-panel"
+                  data-component="desktop_chrome_sidebar_notifications-modal_title-group"
                   title="알림"
                   titleClassName="text-xl"
                 />
                 <button
                   type="button"
                   aria-label="알림 닫기"
-                  data-component="sidebar-notifications-close"
+                  data-component="desktop_chrome_sidebar_notifications-modal_close"
                   className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-v3-text-muted transition-colors hover:bg-v3-dim-white hover:text-v3-dark"
                   onClick={() => setOpen(false)}
                 >
@@ -251,7 +251,7 @@ export function SidebarNotifications() {
                   <AnimatedSlotList<SidebarNotificationItem>
                     items={notifications}
                     isLoading={false}
-                    itemDataComponent="sidebar-notifications-item"
+                    itemDataComponent="desktop_chrome_sidebar_notifications-modal_item"
                     getItemKey={(notification) => notification.id}
                     onSlotClick={(notification) => handleNotificationClick(notification)}
                     getSlotState={({ item }) => ({
@@ -270,7 +270,7 @@ export function SidebarNotifications() {
 
                       return (
                         <AnimatedSlotListItemContent
-                          dataComponent="sidebar-notifications-item-content"
+                          dataComponent="desktop_chrome_sidebar_notifications-modal_item-content"
                           icon={Icon}
                           iconContainerClassName={getNotificationIconContainerClassName(item)}
                           title={item.name}
@@ -296,7 +296,7 @@ export function SidebarNotifications() {
                   />
                 ) : (
                   <div
-                    data-component="sidebar-notifications-empty"
+                    data-component="desktop_chrome_sidebar_notifications-modal_empty"
                     className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center"
                   >
                     <div className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-v3-dim-white text-v3-text-muted">
@@ -320,13 +320,13 @@ export function SidebarNotifications() {
     : null;
 
   return (
-    <div data-component="sidebar-notifications" className="relative ml-auto">
+    <div data-component="desktop_chrome_sidebar_notifications" className="relative ml-auto">
       <Button
         ref={triggerRef}
         type="button"
         size="icon"
         variant="ghost"
-        data-component="sidebar-notifications-trigger"
+        data-component="desktop_chrome_sidebar_notifications_trigger"
         aria-label="알림 열기"
         aria-expanded={open}
         className={cn(
@@ -338,7 +338,7 @@ export function SidebarNotifications() {
         <Bell size={20} />
         {unreadCount > 0 ? (
           <span
-            data-component="sidebar-notifications-badge"
+            data-component="desktop_chrome_sidebar_notifications_trigger_badge"
             className="absolute -right-[calc(4px*var(--glint-ui-scale,1))] -top-[calc(4px*var(--glint-ui-scale,1))] inline-flex h-[calc(16px*var(--glint-ui-scale,1))] w-[calc(16px*var(--glint-ui-scale,1))] items-center justify-center rounded-full bg-v3-primary p-0 text-[calc(8.8px*var(--glint-ui-scale,1))] font-bold leading-none text-white"
           >
             {unreadCount > 9 ? "9+" : unreadCount}

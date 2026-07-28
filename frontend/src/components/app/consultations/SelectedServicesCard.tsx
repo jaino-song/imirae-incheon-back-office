@@ -19,14 +19,14 @@ export function SelectedServicesCard({
 
   if (!hasPlan && !hasAddons) {
     return (
-      <InfoCard title="서비스 정보" className={className}>
+      <InfoCard data-component="desktop_consultations_detail-panel_info-card" title="서비스 정보" className={className}>
         <InfoRow label="서비스" value="선택 서비스 없음" />
       </InfoCard>
     );
   }
 
   return (
-    <InfoCard title="서비스 정보" className={className}>
+    <InfoCard data-component="desktop_consultations_detail-panel_info-card-2" title="서비스 정보" className={className}>
       {selectedServices?.plan && (
         <>
           <InfoRow

@@ -11,7 +11,7 @@ describe("EmployeeScheduleService", () => {
         const updateUsecase = { execute: jest.fn() };
         const deleteUsecase = { execute: jest.fn() };
         const triggerService = { syncEmployeeAssignmentRulesForSchedule: jest.fn() };
-        const feedbackLinkService = {
+        const serviceRecordLinkService = {
             scheduleForServiceStart: jest.fn().mockResolvedValue(undefined),
             extendExpiryForEndDate: jest.fn().mockResolvedValue(undefined),
         };
@@ -26,16 +26,16 @@ describe("EmployeeScheduleService", () => {
                 updateUsecase as never,
                 deleteUsecase as never,
                 triggerService as never,
-                feedbackLinkService as never,
+                serviceRecordLinkService as never,
             ),
             createUsecase,
             updateUsecase,
-            feedbackLinkService,
+            serviceRecordLinkService,
         };
     };
 
-    it("schedules the feedback link SMS when a service schedule is created", async () => {
-        const { service, createUsecase, feedbackLinkService } = createService();
+    it("schedules the service-record link SMS when a service schedule is created", async () => {
+        const { service, createUsecase, serviceRecordLinkService } = createService();
         createUsecase.execute.mockResolvedValue({ id: 10 } as EmployeeScheduleEntity);
 
         await service.create("branch-1", {
@@ -47,11 +47,11 @@ describe("EmployeeScheduleService", () => {
             endDate: "2026-07-12",
         });
 
-        expect(feedbackLinkService.scheduleForServiceStart).toHaveBeenCalledWith(10);
+        expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(10);
     });
 
-    it("extends feedback token expiry when a service schedule end date changes", async () => {
-        const { service, updateUsecase, feedbackLinkService } = createService();
+    it("extends service-record token expiry when a service schedule end date changes", async () => {
+        const { service, updateUsecase, serviceRecordLinkService } = createService();
         const endDate = new Date("2026-07-20T00:00:00.000Z");
         updateUsecase.execute.mockResolvedValue({
             id: 10,
@@ -62,17 +62,17 @@ describe("EmployeeScheduleService", () => {
             endDate: "2026-07-20",
         });
 
-        expect(feedbackLinkService.extendExpiryForEndDate).toHaveBeenCalledWith(10, endDate);
+        expect(serviceRecordLinkService.extendExpiryForEndDate).toHaveBeenCalledWith(10, endDate);
     });
 
-    it("does not touch feedback token expiry when end date is unchanged", async () => {
-        const { service, updateUsecase, feedbackLinkService } = createService();
+    it("does not touch service-record token expiry when end date is unchanged", async () => {
+        const { service, updateUsecase, serviceRecordLinkService } = createService();
         updateUsecase.execute.mockResolvedValue({ id: 10 } as EmployeeScheduleEntity);
 
         await service.update("branch-1", 10, {
             workAddress: "서울",
         });
 
-        expect(feedbackLinkService.extendExpiryForEndDate).not.toHaveBeenCalled();
+        expect(serviceRecordLinkService.extendExpiryForEndDate).not.toHaveBeenCalled();
     });
 });

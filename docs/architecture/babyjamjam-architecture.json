@@ -1,0 +1,643 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifact": {
+    "name": "BabyJamJam Application Architecture",
+    "purpose": "Machine-readable orientation map for agents and engineers changing the BabyJamJam operations platform.",
+    "generatedAt": "2026-07-22",
+    "source": {
+      "repositoryRoot": "/Users/jaino/Development/babyjamjam-admin/dev",
+      "branch": "feat/mobile-admin-ui-polish",
+      "commit": "5674c6553f3ec73ecb66e99b2da65970e2787dc1"
+    },
+    "humanMap": "docs/architecture/babyjamjam-architecture.html"
+  },
+  "coverage": {
+    "scope": "All deployable application surfaces, shared contracts, backend layers, business-domain clusters, persistence, vendor adapters, scheduled control-plane work, and critical end-to-end journeys.",
+    "abstraction": "Nodes represent architectural owners or cohesive domains, not every source file or endpoint.",
+    "includedApplications": [
+      "frontend desktop admin",
+      "mobile admin PWA",
+      "native Android/iOS clients",
+      "public service-record wizard",
+      "NestJS backend",
+      "shared TypeScript contracts"
+    ],
+    "excludedFromNodeLevel": [
+      "individual tests and fixtures",
+      "historical migrations and patch bodies",
+      "individual visual atoms",
+      "every BFF route handler",
+      "runtime secrets and environment values"
+    ],
+    "confidence": {
+      "confirmed": "Directly evidenced in the current checkout.",
+      "inferred": "Supported by composition and naming, but not runtime-traced in this snapshot."
+    }
+  },
+  "workspace": {
+    "packageManager": "pnpm",
+    "rootPackage": "babyjamjam-admin-workspace",
+    "applications": [
+      {
+        "id": "frontend",
+        "name": "babyjamjam-admin",
+        "path": "frontend",
+        "runtime": "Next.js 16 + React 19",
+        "role": "Desktop administrative back office and BFF",
+        "commands": {
+          "dev": "pnpm --filter ./frontend dev",
+          "build": "pnpm --filter ./frontend build",
+          "test": "pnpm --filter ./frontend test",
+          "lint": "pnpm --filter ./frontend lint",
+          "typecheck": "pnpm --filter ./frontend type-check"
+        }
+      },
+      {
+        "id": "mobile",
+        "name": "babyjamjam-admin-mobile",
+        "path": "mobile",
+        "runtime": "Next.js 16 + React 19",
+        "role": "Mobile-first admin PWA, field operations, and public service-record wizard",
+        "commands": {
+          "dev": "pnpm --filter ./mobile dev",
+          "build": "pnpm --filter ./mobile build",
+          "test": "pnpm --filter ./mobile test",
+          "lint": "pnpm --filter ./mobile lint",
+          "typecheck": "pnpm --filter ./mobile type-check"
+        }
+      },
+      {
+        "id": "backend",
+        "name": "babyjamjam-admin-backend",
+        "path": "backend",
+        "runtime": "NestJS + Prisma",
+        "role": "REST API, clean-architecture domain core, schedulers, and vendor adapters",
+        "commands": {
+          "dev": "pnpm --filter ./backend start:dev",
+          "build": "pnpm --filter ./backend build",
+          "test": "pnpm --filter ./backend test",
+          "lint": "pnpm --filter ./backend lint",
+          "typecheck": "pnpm --filter ./backend type-check"
+        }
+      },
+      {
+        "id": "native",
+        "name": "BabyJamJam native clients",
+        "path": "native",
+        "runtime": "Kotlin Multiplatform + Jetpack Compose + SwiftUI",
+        "role": "Android and iOS application shells over shared Kotlin auth/network/view-model code"
+      },
+      {
+        "id": "shared",
+        "name": "@babyjamjam/shared",
+        "path": "packages/shared",
+        "runtime": "TypeScript",
+        "role": "Cross-client API route utilities and canonical message, eformsign, and service-record contracts"
+      }
+    ]
+  },
+  "layers": [
+    { "id": "surface", "label": "User surfaces", "description": "Desktop, mobile, public, and native entry points." },
+    { "id": "gateway", "label": "Gateway and session", "description": "Next.js BFFs, native networking, cookies, refresh, branch selection, and shared contracts." },
+    { "id": "interface", "label": "Backend interface", "description": "NestJS controllers, validation, guards, webhooks, SSE, and public token endpoints." },
+    { "id": "domain", "label": "Application and domain", "description": "Use cases, services, entities, ports, and domain clusters." },
+    { "id": "infrastructure", "label": "Infrastructure", "description": "Prisma repositories, mappers, storage, automation, and schedulers." },
+    { "id": "external", "label": "External systems", "description": "Identity, documents, messaging, AI, email, and push providers." }
+  ],
+  "nodes": [
+    {
+      "id": "desktop-admin",
+      "label": "Desktop Admin",
+      "layer": "surface",
+      "system": "frontend",
+      "kind": "application",
+      "status": "confirmed",
+      "summary": "Protected back-office shell for operations, configuration, analytics, and owner-only system administration.",
+      "responsibilities": ["route composition", "desktop and responsive UI", "server-rendered auth gates", "TanStack Query orchestration"],
+      "sourcePaths": ["frontend/src/app/layout.tsx", "frontend/src/app/(protected)/layout.tsx", "frontend/src/app/(protected)"]
+    },
+    {
+      "id": "mobile-admin",
+      "label": "Mobile Admin PWA",
+      "layer": "surface",
+      "system": "mobile",
+      "kind": "application",
+      "status": "confirmed",
+      "summary": "Mobile-first operations shell with field-focused clients, employees, contracts, calls, messaging, files, and notifications.",
+      "responsibilities": ["mobile route shell", "branch-aware navigation", "field workflows", "PWA interactions"],
+      "sourcePaths": ["mobile/src/app/(shell)/layout.tsx", "mobile/src/app/(shell)", "mobile/src/middleware.ts"]
+    },
+    {
+      "id": "public-service-record",
+      "label": "Public Service Record Wizard",
+      "layer": "surface",
+      "system": "mobile",
+      "kind": "public-application",
+      "status": "confirmed",
+      "summary": "Token-based, no-login service-record experience for recipients, isolated from the authenticated mobile shell.",
+      "responsibilities": ["link verification", "session-by-session submission", "schedule-change request", "finalization"],
+      "sourcePaths": ["mobile/src/app/(public)/service-record/[token]/page.tsx", "mobile/src/app/api/service-record/[token]", "mobile/src/lib/auth/routes.ts"]
+    },
+    {
+      "id": "native-apps",
+      "label": "Native Android + iOS",
+      "layer": "surface",
+      "system": "native",
+      "kind": "application",
+      "status": "confirmed",
+      "summary": "Platform shells in Compose and SwiftUI backed by Kotlin Multiplatform auth, networking, deep-link, and shared logic.",
+      "responsibilities": ["native navigation", "push handling", "deep links", "platform UI"],
+      "sourcePaths": ["native/androidApp/src/main/kotlin/com/imirae/incheon/App.kt", "native/iosApp/iosApp/imirae_incheonApp.swift", "native/shared/src/commonMain/kotlin"]
+    },
+    {
+      "id": "desktop-bff",
+      "label": "Desktop Next.js BFF",
+      "layer": "gateway",
+      "system": "frontend",
+      "kind": "gateway",
+      "status": "confirmed",
+      "summary": "Same-origin /api boundary that centralizes browser/server clients, cookie forwarding, refresh behavior, and backend proxy helpers.",
+      "responsibilities": ["same-origin API", "server-side cookie forwarding", "401 refresh queue", "backend error normalization"],
+      "sourcePaths": ["frontend/src/app/api", "frontend/src/lib/api/client.ts", "frontend/src/lib/api/server.ts", "frontend/src/lib/api/route-utils.ts"]
+    },
+    {
+      "id": "mobile-bff",
+      "label": "Mobile Next.js BFF",
+      "layer": "gateway",
+      "system": "mobile",
+      "kind": "gateway",
+      "status": "confirmed",
+      "summary": "Mobile same-origin API boundary with cookie/refresh coordination and route families matching field workflows.",
+      "responsibilities": ["mobile /api proxy", "session refresh", "branch gate support", "public token proxy"],
+      "sourcePaths": ["mobile/src/app/api", "mobile/src/lib/api/client.ts", "mobile/src/lib/api/server.ts", "mobile/src/lib/api/route-utils.ts"]
+    },
+    {
+      "id": "native-network",
+      "label": "KMP Network + Deep Links",
+      "layer": "gateway",
+      "system": "native",
+      "kind": "gateway",
+      "status": "confirmed",
+      "summary": "Shared Kotlin client boundary for API calls, authentication, and deep-link routing across both native platforms.",
+      "responsibilities": ["HTTP client", "auth state", "deep-link parsing", "shared view models"],
+      "sourcePaths": ["native/shared/src/commonMain/kotlin/com/imirae/incheon/network/ApiClient.kt", "native/shared/src/commonMain/kotlin/com/imirae/incheon/deeplink/DeepLinkRouter.kt"]
+    },
+    {
+      "id": "shared-contracts",
+      "label": "Shared TypeScript Contracts",
+      "layer": "gateway",
+      "system": "shared",
+      "kind": "contract",
+      "status": "confirmed",
+      "summary": "Canonical cross-web contracts for route proxying and message, eformsign, and service-record status/DTO shapes.",
+      "responsibilities": ["DTO/status types", "route utilities", "contract reuse", "cross-client consistency"],
+      "sourcePaths": ["packages/shared/src/index.ts", "packages/shared/src/api/route-utils.ts", "packages/shared/src/types/message.ts", "packages/shared/src/types/eformsign.ts", "packages/shared/src/types/service-record.ts"]
+    },
+    {
+      "id": "backend-interface",
+      "label": "NestJS Controllers",
+      "layer": "interface",
+      "system": "backend",
+      "kind": "interface",
+      "status": "confirmed",
+      "summary": "HTTP, webhook, SSE, and public-token entry points with global validation and Prisma error translation.",
+      "responsibilities": ["REST controllers", "DTO validation", "SSE progress", "webhook ingress"],
+      "sourcePaths": ["backend/interface/controllers", "backend/interface/pipes/global-validation.pipe.ts", "backend/infrastructure/filters/prisma-exception.filter.ts"]
+    },
+    {
+      "id": "auth-tenant",
+      "label": "Auth + Tenant Boundary",
+      "layer": "interface",
+      "system": "backend",
+      "kind": "security-boundary",
+      "status": "confirmed",
+      "summary": "JWT, refresh/session, rate-limit, branch membership, tenant principal, webhook, and public-token guards.",
+      "responsibilities": ["identity", "session rotation", "RBAC/ownership", "branch isolation", "rate limiting"],
+      "sourcePaths": ["backend/infrastructure/auth", "backend/infrastructure/tenant/tenant.guard.ts", "docs/adr/ADR-001-auth-session-and-tenant-principal.md"]
+    },
+    {
+      "id": "schedulers",
+      "label": "Scheduler Control Plane",
+      "layer": "interface",
+      "system": "backend",
+      "kind": "background-control",
+      "status": "confirmed",
+      "summary": "Cron-driven retries, triggers, finalization, due dates, notification delivery, cleanup, and email outbox work.",
+      "responsibilities": ["message retries", "automation triggers", "call extraction retries", "service-record finalization", "PWA notifications"],
+      "sourcePaths": ["backend/application/services", "backend/module/message.module.ts", "backend/module/service-record-entry.module.ts", "backend/module/call-inbox.module.ts", "backend/module/notification.module.ts"]
+    },
+    {
+      "id": "care-operations",
+      "label": "Care Operations",
+      "layer": "domain",
+      "system": "backend",
+      "kind": "domain-cluster",
+      "status": "confirmed",
+      "summary": "Branches, users, clients, employees, schedules, areas, bank accounts, and voucher/out-of-pocket pricing.",
+      "responsibilities": ["client lifecycle", "employee assignment", "schedule management", "branch-scoped pricing"],
+      "sourcePaths": ["backend/module/client.module.ts", "backend/module/employee.module.ts", "backend/module/employee-schedule.module.ts", "backend/module/voucher-price-info.module.ts"]
+    },
+    {
+      "id": "contracts-documents",
+      "label": "Contracts + Documents",
+      "layer": "domain",
+      "system": "backend",
+      "kind": "domain-cluster",
+      "status": "confirmed",
+      "summary": "Document templates, generated files, eformsign documents, headless dispatch/finalization, status sync, and webhook adoption.",
+      "responsibilities": ["document generation", "signature workflows", "status projection", "file retrieval"],
+      "sourcePaths": ["backend/module/document.module.ts", "backend/module/eformsign-doc.module.ts", "backend/module/eformsign-webhook.module.ts", "backend/infrastructure/automation"]
+    },
+    {
+      "id": "messaging-automation",
+      "label": "Messaging + Automation",
+      "layer": "domain",
+      "system": "backend",
+      "kind": "domain-cluster",
+      "status": "confirmed",
+      "summary": "Message templates, system templates, deliveries, logs, trigger rules/jobs, sender approval, and retry orchestration.",
+      "responsibilities": ["template management", "SMS delivery", "scheduled sends", "trigger automation", "delivery history"],
+      "sourcePaths": ["backend/module/message.module.ts", "backend/module/message-template.module.ts", "backend/module/message-delivery.module.ts"]
+    },
+    {
+      "id": "service-record-domain",
+      "label": "Service Record Lifecycle",
+      "layer": "domain",
+      "system": "backend",
+      "kind": "domain-cluster",
+      "status": "confirmed",
+      "summary": "Admin link preparation and delivery plus token verification, daily/session data, snapshots, schedule changes, and finalization.",
+      "responsibilities": ["token lifecycle", "record cases and days", "assignment", "snapshot chunks", "schedule-change requests"],
+      "sourcePaths": ["backend/module/service-record-entry.module.ts", "backend/interface/controllers/service-record-entry.controller.ts", "backend/prisma/schema.prisma"]
+    },
+    {
+      "id": "communications-ai",
+      "label": "Calls + Consultations + AI",
+      "layer": "domain",
+      "system": "backend",
+      "kind": "domain-cluster",
+      "status": "confirmed",
+      "summary": "Call inbox ingestion/extraction, client drafts, public consultation inquiries, and streamed AI chat sessions/feedback.",
+      "responsibilities": ["call ingestion", "AI extraction", "draft review", "consultation intake", "chat streaming and persistence"],
+      "sourcePaths": ["backend/module/call-inbox.module.ts", "backend/module/consultation-inquiry.module.ts", "backend/module/ai-chat.module.ts"]
+    },
+    {
+      "id": "platform-admin",
+      "label": "Platform Admin + Notifications",
+      "layer": "domain",
+      "system": "backend",
+      "kind": "domain-cluster",
+      "status": "confirmed",
+      "summary": "Owner-level branch administration, settings/templates, feedback, files, notifications, and subscriptions.",
+      "responsibilities": ["branch governance", "system templates", "user feedback", "file metadata", "notification inbox"],
+      "sourcePaths": ["backend/module/system-admin.module.ts", "backend/module/notification.module.ts", "backend/module/document.module.ts"]
+    },
+    {
+      "id": "clean-architecture-core",
+      "label": "Use Cases + Domain Ports",
+      "layer": "domain",
+      "system": "backend",
+      "kind": "architecture-core",
+      "status": "confirmed",
+      "summary": "Application services orchestrate single-purpose use cases over framework-independent entities and repository interfaces.",
+      "responsibilities": ["business invariants", "use-case orchestration", "port contracts", "dependency inversion"],
+      "sourcePaths": ["backend/application", "backend/domain", "backend/README.md"]
+    },
+    {
+      "id": "prisma-repositories",
+      "label": "Prisma Repositories + Mappers",
+      "layer": "infrastructure",
+      "system": "backend",
+      "kind": "persistence-adapter",
+      "status": "confirmed",
+      "summary": "Repository implementations translate Prisma rows into domain entities and satisfy domain repository ports.",
+      "responsibilities": ["data access", "entity mapping", "transactions", "tenant-scoped queries"],
+      "sourcePaths": ["backend/infrastructure/database/repositories", "backend/infrastructure/database/mapper", "backend/infrastructure/database/prisma.service.ts"]
+    },
+    {
+      "id": "postgres",
+      "label": "PostgreSQL via Prisma",
+      "layer": "infrastructure",
+      "system": "backend",
+      "kind": "database",
+      "status": "confirmed",
+      "summary": "Persistent tenant, identity, care operations, messaging, eformsign, service-record, call, consultation, AI, and notification state.",
+      "responsibilities": ["transactional source of truth", "relations and indexes", "migration history"],
+      "sourcePaths": ["backend/prisma/schema.prisma", "backend/prisma/migrations"]
+    },
+    {
+      "id": "storage",
+      "label": "Supabase Storage",
+      "layer": "infrastructure",
+      "system": "backend",
+      "kind": "storage-adapter",
+      "status": "confirmed",
+      "summary": "Object storage adapter used by file and document workflows while metadata remains in PostgreSQL.",
+      "responsibilities": ["object upload", "download", "deletion", "storage bootstrap"],
+      "sourcePaths": ["backend/infrastructure/adapters/supabase-storage.adapter.ts", "frontend/src/app/api/file-storage", "mobile/src/app/api/file-storage"]
+    },
+    {
+      "id": "kakao",
+      "label": "Kakao OAuth",
+      "layer": "external",
+      "system": "external",
+      "kind": "identity-provider",
+      "status": "confirmed",
+      "summary": "External identity provider feeding backend authentication and onboarding flows.",
+      "sourcePaths": ["backend/interface/controllers/auth.controller.ts", "backend/infrastructure/auth", "frontend/src/app/api/auth/kakao/route.ts"]
+    },
+    {
+      "id": "eformsign",
+      "label": "eformsign",
+      "layer": "external",
+      "system": "external",
+      "kind": "document-provider",
+      "status": "confirmed",
+      "summary": "External electronic document/signature API plus signed webhook callbacks.",
+      "sourcePaths": ["backend/infrastructure/api/eformsign-api.client.ts", "backend/interface/controllers/webhooks/eformsign-webhook.controller.ts"]
+    },
+    {
+      "id": "aligo",
+      "label": "Aligo SMS / AlimTalk",
+      "layer": "external",
+      "system": "external",
+      "kind": "messaging-provider",
+      "status": "confirmed",
+      "summary": "Outbound SMS/AlimTalk provider for manual, automated, and service-record link delivery.",
+      "sourcePaths": ["backend/infrastructure/api/aligo-api.client.ts", "docs/aligo-preparation.md"]
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini / Vercel AI",
+      "layer": "external",
+      "system": "external",
+      "kind": "ai-provider",
+      "status": "confirmed",
+      "summary": "Chat and call-extraction gateways with tool adapters and persisted feedback/session state.",
+      "sourcePaths": ["backend/infrastructure/api/gemini-api.client.ts", "backend/infrastructure/api/gemini-chat.gateway.ts", "backend/infrastructure/api/vercel-gemini.gateway.ts"]
+    },
+    {
+      "id": "email",
+      "label": "SMTP / Resend Email",
+      "layer": "external",
+      "system": "external",
+      "kind": "email-provider",
+      "status": "confirmed",
+      "summary": "Adapter-selected transactional email channel supporting auth and outbox workflows.",
+      "sourcePaths": ["backend/infrastructure/adapters/smtp-email.adapter.ts", "backend/infrastructure/adapters/resend-email.adapter.ts"]
+    },
+    {
+      "id": "web-push",
+      "label": "Web Push / VAPID",
+      "layer": "external",
+      "system": "external",
+      "kind": "push-provider",
+      "status": "confirmed",
+      "summary": "Browser push delivery backed by stored subscriptions and scheduled notification processing.",
+      "sourcePaths": ["backend/infrastructure/api/web-push.adapter.ts", "docs/PWA_PUSH_NOTIFICATION_GUIDE.md"]
+    },
+    {
+      "id": "ci-delivery",
+      "label": "CI + Environment Delivery",
+      "layer": "infrastructure",
+      "system": "workspace",
+      "kind": "operations",
+      "status": "confirmed",
+      "summary": "Per-app CI, security scanning, Playwright lifecycle, database patching, and migration drift gates across dev/preview/prod.",
+      "sourcePaths": [".github/workflows/backend-ci.yml", ".github/workflows/frontend-ci.yml", ".github/workflows/mobile-ci.yml", ".github/workflows/playwright.yml", ".github/workflows/security.yml", ".github/workflows/database-patches.yml"]
+    }
+  ],
+  "edges": [
+    { "id": "desktop-to-bff", "from": "desktop-admin", "to": "desktop-bff", "type": "request", "label": "same-origin /api", "protocol": "HTTPS/JSON" },
+    { "id": "mobile-to-bff", "from": "mobile-admin", "to": "mobile-bff", "type": "request", "label": "same-origin /api", "protocol": "HTTPS/JSON" },
+    { "id": "public-to-bff", "from": "public-service-record", "to": "mobile-bff", "type": "request", "label": "token-scoped /api", "protocol": "HTTPS/JSON" },
+    { "id": "native-to-network", "from": "native-apps", "to": "native-network", "type": "request", "label": "shared KMP client", "protocol": "HTTPS/JSON" },
+    { "id": "desktop-contracts", "from": "desktop-admin", "to": "shared-contracts", "type": "compile-time", "label": "typed contracts" },
+    { "id": "mobile-contracts", "from": "mobile-admin", "to": "shared-contracts", "type": "compile-time", "label": "typed contracts" },
+    { "id": "desktop-backend", "from": "desktop-bff", "to": "backend-interface", "type": "proxy", "label": "cookie-forwarded backend request", "protocol": "HTTPS/JSON" },
+    { "id": "mobile-backend", "from": "mobile-bff", "to": "backend-interface", "type": "proxy", "label": "cookie/token backend request", "protocol": "HTTPS/JSON" },
+    { "id": "native-backend", "from": "native-network", "to": "backend-interface", "type": "request", "label": "native API request", "protocol": "HTTPS/JSON" },
+    { "id": "interface-auth", "from": "backend-interface", "to": "auth-tenant", "type": "guard", "label": "JWT / tenant / webhook / token checks" },
+    { "id": "interface-core", "from": "backend-interface", "to": "clean-architecture-core", "type": "invoke", "label": "services and use cases" },
+    { "id": "core-care", "from": "clean-architecture-core", "to": "care-operations", "type": "orchestrate", "label": "care operations" },
+    { "id": "core-contracts", "from": "clean-architecture-core", "to": "contracts-documents", "type": "orchestrate", "label": "document lifecycle" },
+    { "id": "core-messages", "from": "clean-architecture-core", "to": "messaging-automation", "type": "orchestrate", "label": "message lifecycle" },
+    { "id": "core-records", "from": "clean-architecture-core", "to": "service-record-domain", "type": "orchestrate", "label": "service records" },
+    { "id": "core-ai", "from": "clean-architecture-core", "to": "communications-ai", "type": "orchestrate", "label": "call and AI flows" },
+    { "id": "core-platform", "from": "clean-architecture-core", "to": "platform-admin", "type": "orchestrate", "label": "platform operations" },
+    { "id": "core-repositories", "from": "clean-architecture-core", "to": "prisma-repositories", "type": "port", "label": "repository interfaces" },
+    { "id": "repositories-db", "from": "prisma-repositories", "to": "postgres", "type": "persistence", "label": "Prisma queries and transactions", "protocol": "PostgreSQL" },
+    { "id": "documents-storage", "from": "contracts-documents", "to": "storage", "type": "adapter", "label": "file objects" },
+    { "id": "platform-storage", "from": "platform-admin", "to": "storage", "type": "adapter", "label": "managed files" },
+    { "id": "auth-kakao", "from": "auth-tenant", "to": "kakao", "type": "oauth", "label": "authorization code exchange", "protocol": "OAuth 2.0" },
+    { "id": "auth-email", "from": "auth-tenant", "to": "email", "type": "adapter", "label": "verification and recovery mail" },
+    { "id": "contracts-eformsign", "from": "contracts-documents", "to": "eformsign", "type": "adapter", "label": "documents and signatures", "protocol": "REST + signed webhook" },
+    { "id": "messages-aligo", "from": "messaging-automation", "to": "aligo", "type": "adapter", "label": "SMS / AlimTalk" },
+    { "id": "records-aligo", "from": "service-record-domain", "to": "aligo", "type": "adapter", "label": "public link delivery" },
+    { "id": "ai-gemini", "from": "communications-ai", "to": "gemini", "type": "adapter", "label": "chat and extraction" },
+    { "id": "notifications-push", "from": "platform-admin", "to": "web-push", "type": "adapter", "label": "VAPID notifications" },
+    { "id": "scheduler-messages", "from": "schedulers", "to": "messaging-automation", "type": "background", "label": "triggers and retries" },
+    { "id": "scheduler-records", "from": "schedulers", "to": "service-record-domain", "type": "background", "label": "finalization" },
+    { "id": "scheduler-ai", "from": "schedulers", "to": "communications-ai", "type": "background", "label": "call extraction retry" },
+    { "id": "scheduler-platform", "from": "schedulers", "to": "platform-admin", "type": "background", "label": "push and cleanup" },
+    { "id": "ci-apps", "from": "ci-delivery", "to": "desktop-admin", "type": "delivery", "label": "frontend CI" },
+    { "id": "ci-mobile", "from": "ci-delivery", "to": "mobile-admin", "type": "delivery", "label": "mobile CI" },
+    { "id": "ci-backend", "from": "ci-delivery", "to": "backend-interface", "type": "delivery", "label": "backend CI and DB gates" }
+  ],
+  "domainCatalog": [
+    {
+      "id": "identity-tenant",
+      "label": "Identity and tenancy",
+      "backendModules": ["AuthModule", "UserModule", "TenantModule", "SystemAdminModule"],
+      "models": ["user", "branch", "user_branch", "auth_session", "auth_refresh_token", "auth_email_outbox", "auth_rate_limit", "auth_flow_state"],
+      "routeFamilies": ["/auth", "/users", "/system-admin"]
+    },
+    {
+      "id": "care-operations",
+      "label": "Care operations",
+      "backendModules": ["ClientModule", "EmployeeModule", "EmployeeScheduleModule", "AreaTemplateModule", "BankAccountInfoModule", "VoucherPriceInfoModule", "OutOfPocketPriceInfoModule"],
+      "models": ["client", "employee", "employee_schedule", "area", "bank_account_info", "voucher_price_info", "out_of_pocket_price_info"],
+      "routeFamilies": ["/clients", "/employees", "/employee-schedules", "/area-templates", "/voucher-price-infos"]
+    },
+    {
+      "id": "documents-signatures",
+      "label": "Documents and signatures",
+      "backendModules": ["DocumentModule", "EformsignDocModule", "EformsignWebhookModule"],
+      "models": ["doc_template", "document", "document_category", "eformsign_doc"],
+      "routeFamilies": ["/documents", "/document-categories", "/eformsign-docs", "/api", "/webhooks/eformsign"]
+    },
+    {
+      "id": "messaging",
+      "label": "Messaging and automation",
+      "backendModules": ["MessageModule", "MessageTemplateModule", "MessageDeliveryModule"],
+      "models": ["message", "message_template", "message_log", "message_trigger_rule", "message_trigger_job"],
+      "routeFamilies": ["/messages", "/message-templates", "/message-deliveries", "/message-trigger-rules"]
+    },
+    {
+      "id": "service-records",
+      "label": "Service records and schedule changes",
+      "backendModules": ["ServiceRecordEntryModule"],
+      "models": ["service_record_token", "service_record", "service_record_day", "service_record_case", "service_record_assignment", "service_record_snapshot_chunk", "schedule_change_request"],
+      "routeFamilies": ["/service-record", "/admin/service-records", "/schedule-change-requests"]
+    },
+    {
+      "id": "communications-ai",
+      "label": "Calls, consultations, and AI",
+      "backendModules": ["CallInboxModule", "ConsultationInquiryModule", "AIChatModule"],
+      "models": ["call_ingest_token", "call_record", "client_draft", "consultation_inquiry", "chat_session", "chat_message", "chat_feedback"],
+      "routeFamilies": ["/call-records", "/public/consultation-inquiries", "/consultation-inquiries", "/ai/chat"]
+    },
+    {
+      "id": "notifications-platform",
+      "label": "Notifications and platform configuration",
+      "backendModules": ["NotificationModule", "SystemAdminModule"],
+      "models": ["notification", "push_subscription", "system_setting", "system_template", "system_template_version"],
+      "routeFamilies": ["/notifications", "/settings", "/system-templates", "/system-admin"]
+    }
+  ],
+  "routeCatalog": {
+    "frontend": {
+      "entryAndAuth": ["/", "/login", "/callback", "/register", "/forgot-password", "/reset-password", "/verify-email", "/onboarding", "/kakao/onboarding", "/logout"],
+      "protected": ["/dashboard", "/all", "/clients", "/clients/new", "/clients/filtered", "/employees", "/contracts", "/messages", "/messages/templates", "/messages/system-templates", "/consultations", "/files", "/prices", "/settings", "/settings/general", "/settings/voucher-price", "/stats", "/stats/errors", "/stats/funnel", "/stats/inquiries", "/stats/traffic", "/chat", "/admin", "/admin/feedback/[id]", "/system-admin", "/website-admin", "/select-branch"],
+      "routeOwner": "frontend/src/app",
+      "bffFamilies": ["auth", "clients", "employees", "documents", "eformsign", "messages", "message automation", "service records", "schedule changes", "notifications", "consultations", "files", "settings", "system admin", "AI chat"]
+    },
+    "mobile": {
+      "entryAndAuth": ["/", "/login", "/callback", "/register", "/forgot-password", "/reset-password", "/verify-email", "/logout", "/select-branch"],
+      "shell": ["/dashboard", "/dashboard/analytics", "/all", "/clients", "/clients/new", "/employees", "/employees/new", "/employees/schedule", "/contracts", "/contracts/new", "/contracts/creation", "/calls", "/messages", "/messages/new", "/messages/history", "/messages/scheduled", "/messages/automation", "/messages/sender-approval", "/messages/templates", "/messages/system-templates", "/consultations", "/files", "/files/upload", "/notification", "/notifications", "/prices", "/settings", "/chat", "/admin", "/admin/feedback", "/privacy", "/terms"],
+      "public": ["/service-record/[token]"],
+      "routeOwner": "mobile/src/app",
+      "bffFamilies": ["auth", "clients and drafts", "employees", "documents and eformsign", "calls", "messages and automation", "service records", "schedule changes", "notifications", "consultations", "files", "settings", "system templates", "AI chat"]
+    },
+    "native": {
+      "owners": ["native/androidApp", "native/iosApp", "native/shared"],
+      "navigation": ["native/androidApp/src/main/kotlin/com/imirae/incheon/navigation/NavGraph.kt", "native/iosApp/Navigation/AppNavigation.swift"],
+      "deepLinks": ["HTTPS app links", "ximae:// custom scheme"]
+    },
+    "backend": {
+      "bootstrap": "backend/main.ts",
+      "moduleRoot": "backend/app.module.ts",
+      "interfaceOwner": "backend/interface/controllers",
+      "families": ["auth and users", "tenant and system admin", "clients and employees", "schedules and pricing", "messages and templates", "documents and eformsign", "service records and schedule changes", "notifications", "calls and client drafts", "consultation inquiries", "AI chat"]
+    }
+  },
+  "flows": [
+    {
+      "id": "auth-to-branch",
+      "label": "Authenticate, establish tenant, open dashboard",
+      "summary": "A browser or native client authenticates, receives server-managed session state, selects a branch, and enters a tenant-scoped shell.",
+      "steps": ["desktop-admin", "desktop-bff", "backend-interface", "auth-tenant", "kakao", "auth-tenant", "postgres", "desktop-admin"],
+      "criticalControls": ["rate limit", "HTTP-only session cookies on web", "refresh rotation", "active branch membership", "owner-only route guard"]
+    },
+    {
+      "id": "client-lifecycle",
+      "label": "Create and operate a client",
+      "summary": "Admin surfaces submit branch-scoped client changes through BFF routes into use cases and Prisma repositories.",
+      "steps": ["desktop-admin", "desktop-bff", "backend-interface", "auth-tenant", "care-operations", "clean-architecture-core", "prisma-repositories", "postgres"]
+    },
+    {
+      "id": "contract-eformsign",
+      "label": "Generate, send, and synchronize a contract",
+      "summary": "Contract pages create documents, dispatch through eformsign, accept signed webhooks, project status, and stream headless progress back to clients.",
+      "steps": ["mobile-admin", "mobile-bff", "backend-interface", "contracts-documents", "storage", "eformsign", "backend-interface", "postgres"]
+    },
+    {
+      "id": "message-automation",
+      "label": "Trigger and deliver an automated message",
+      "summary": "Template/rule configuration persists trigger jobs; schedulers claim due work, Aligo delivers it, and logs feed history/status screens.",
+      "steps": ["desktop-admin", "desktop-bff", "backend-interface", "messaging-automation", "postgres", "schedulers", "messaging-automation", "aligo", "postgres"]
+    },
+    {
+      "id": "service-record",
+      "label": "Prepare, send, complete, and finalize a service record",
+      "summary": "An admin prepares a token and sends a link; the recipient completes public sessions without login; finalization materializes the record and document state.",
+      "steps": ["mobile-admin", "mobile-bff", "service-record-domain", "aligo", "public-service-record", "mobile-bff", "backend-interface", "service-record-domain", "postgres", "schedulers", "contracts-documents"]
+    },
+    {
+      "id": "schedule-change",
+      "label": "Request and apply a service schedule change",
+      "summary": "The public wizard previews and submits a change request; an authenticated admin approves/rejects and applies it to schedules and service-record projections.",
+      "steps": ["public-service-record", "mobile-bff", "backend-interface", "service-record-domain", "postgres", "mobile-admin", "care-operations"]
+    },
+    {
+      "id": "call-extraction",
+      "label": "Ingest a call, extract facts, review a client draft",
+      "summary": "Call data enters the inbox, Gemini extracts structured facts, retry schedulers recover failures, and staff confirm or discard a client draft.",
+      "steps": ["mobile-admin", "mobile-bff", "backend-interface", "communications-ai", "gemini", "communications-ai", "postgres", "schedulers", "care-operations"]
+    },
+    {
+      "id": "ai-chat",
+      "label": "Stream and persist an AI operations chat",
+      "summary": "Chat UI opens a streamed BFF request, backend gateways call Gemini/Vercel AI tools, and sessions/messages/feedback are persisted.",
+      "steps": ["desktop-admin", "desktop-bff", "backend-interface", "communications-ai", "gemini", "communications-ai", "postgres"]
+    },
+    {
+      "id": "notification-push",
+      "label": "Create inbox notification and deliver web push",
+      "summary": "Domain/background work creates notifications, schedules push delivery to stored subscriptions, and clients reconcile unread/read state.",
+      "steps": ["schedulers", "platform-admin", "postgres", "web-push", "mobile-admin", "mobile-bff", "backend-interface"]
+    },
+    {
+      "id": "file-storage",
+      "label": "Upload and retrieve a managed file",
+      "summary": "Admin clients proxy file operations to backend metadata services and Supabase object storage.",
+      "steps": ["desktop-admin", "desktop-bff", "backend-interface", "platform-admin", "storage", "postgres"]
+    }
+  ],
+  "agentHandoff": {
+    "readOrder": [
+      "docs/architecture/babyjamjam-architecture.json",
+      "AGENTS.md and the relevant ~/.agents playbook domain rules",
+      "the route/page named by the feature",
+      "its frontend or mobile /app/api route and lib/api boundary",
+      "the backend controller and feature module",
+      "application service/use case",
+      "domain port/entity",
+      "repository/adapter and Prisma models"
+    ],
+    "changeMatrix": [
+      { "change": "Desktop UI", "start": "frontend/src/app/(protected) or frontend/src/features", "alsoCheck": ["frontend/src/app/api", "frontend/src/lib/api", "packages/shared"] },
+      { "change": "Mobile/PWA UI", "start": "mobile/src/app/(shell) or mobile/src/components", "alsoCheck": ["mobile/src/app/api", "mobile/src/middleware.ts", "packages/shared"] },
+      { "change": "Public service record", "start": "mobile/src/app/(public)/service-record/[token]", "alsoCheck": ["mobile/src/app/api/service-record/[token]", "backend/interface/controllers/service-record-entry.controller.ts", "backend/module/service-record-entry.module.ts"] },
+      { "change": "Backend behavior", "start": "backend/interface/controllers and backend/module", "alsoCheck": ["backend/application", "backend/domain", "backend/infrastructure", "backend/prisma/schema.prisma"] },
+      { "change": "Cross-client DTO/status", "start": "packages/shared/src/types", "alsoCheck": ["frontend", "mobile", "backend"] },
+      { "change": "Native behavior", "start": "native/shared/src/commonMain", "alsoCheck": ["native/androidApp", "native/iosApp", "backend interface"] },
+      { "change": "Vendor integration", "start": "backend/infrastructure/api or backend/infrastructure/adapters", "alsoCheck": ["port/provider binding in backend/module", "retry/idempotency", "vendor stubs", "webhook guards"] }
+    ],
+    "safetyBoundaries": [
+      "Do not treat frontend or mobile authorization as a security boundary; backend guards and tenant checks are authoritative.",
+      "Do not expose or copy .env values into issues, logs, tests, or this map.",
+      "Treat prisma/schema.prisma, dependencies, tsconfig, env files, and core auth logic as approval-required changes under the local playbook.",
+      "Preserve branchId/tenant filters through controllers, services, repositories, schedulers, and vendor callbacks.",
+      "Keep public service-record token flows separate from authenticated admin sessions.",
+      "Vendor calls, webhooks, scheduler retries, and finalization must remain idempotent.",
+      "Keep shared contract changes backward-compatible across frontend, mobile, and backend or change all consumers together."
+    ],
+    "verification": [
+      "Run targeted tests for the changed domain first.",
+      "Run the changed package lint and type-check.",
+      "Run package build when defined.",
+      "For UI changes, verify the actual authenticated route and rendered data-component surface.",
+      "For cross-layer changes, prove the browser/native request through BFF/controller/use-case/repository or adapter.",
+      "For public-token, webhook, scheduler, or vendor flows, include negative authorization and idempotency cases.",
+      "Finish with the repository security-review workflow."
+    ],
+    "knownAmbiguities": [
+      {
+        "item": "frontend proxy runtime binding",
+        "status": "inferred",
+        "detail": "frontend/src/proxy.ts contains matcher/proxy behavior, but its effective Next.js runtime binding was not proven in this static pass."
+      },
+      {
+        "item": "development ports",
+        "status": "runtime-dependent",
+        "detail": "Next.js scripts do not pin ports; local process owners and CLI overrides must be verified before browser QA. Backend main.ts binds 3001 in this snapshot."
+      },
+      {
+        "item": "failure ordering",
+        "status": "inferred",
+        "detail": "Exact ordering under duplicate webhooks, vendor timeouts, and scheduler retries needs focused runtime/log verification per flow."
+      }
+    ]
+  }
+}

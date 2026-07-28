@@ -4,11 +4,12 @@ import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { cn } from "@/lib/utils";
 
+/** @deprecated @/components/ui/tabs를 사용할 것 — 중복 구현 (BJJ-254, manifest deprecatedBy 참조) */
 const Tabs = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root>
 >(({ ...props }, ref) => (
-  <TabsPrimitive.Root ref={ref} data-component="tabs" {...props} />
+  <TabsPrimitive.Root ref={ref} data-slot="tabs" {...props} />
 ));
 Tabs.displayName = "Tabs";
 

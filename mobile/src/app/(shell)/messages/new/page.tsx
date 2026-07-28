@@ -1066,23 +1066,29 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
 
   return (
     <section
-      data-component="messages"
+      data-component="mobile_messages_new_page"
+      data-slot="messages-page"
       data-page="messages-new"
       className={`messages-page ${styles.pageRoot}`}
     >
-      <div data-component="messages-new-screen" className={styles.phoneScreen}>
+      <div data-component="mobile_messages_new_page_screen" className={styles.phoneScreen}>
         <form
-          data-component="messages-content"
+          data-component="mobile_messages_new_page_screen_form"
+          data-slot="messages-content"
           data-form="messages-new-form"
           onSubmit={handleSubmit}
           className={`shell-content gap-[calc(8px*var(--glint-ui-scale,1))] ${styles.navPage}`}
         >
-          <div data-component="messages-new-section-nav" className="shrink-0">
-            <MessageSectionNav activeId="send" />
+          <div data-component="mobile_messages_new_page_screen_form_section-nav" className="shrink-0">
+            <MessageSectionNav
+              data-component="mobile_messages_new_page_screen_form_section-nav_nav"
+              activeId="send"
+            />
           </div>
 
-          <div data-component="messages-new-scroll" className={styles.msgScroll}>
+          <div data-component="mobile_messages_new_page_screen_form_scroll" className={styles.msgScroll}>
             <ListCard
+              data-component="mobile_messages_new_page_screen_form_scroll_list-card"
               title="새 메시지"
               actionLabel="즉시 발송"
               actionIcon={null}
@@ -1090,13 +1096,13 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
               actionDisabled={isSubmitDisabled}
               filters={[]}
             >
-            <div data-component="messages-new-form-card" className={styles.recipientCard}>
+            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card" className={styles.recipientCard}>
               <div
-                data-component="messages-new-form-card-content"
+                data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content"
                 className={styles.unifiedFormCardContent}
               >
-                <div data-component="messages-new-template-card" className={styles.formCardSection}>
-                  <div data-component="messages-new-template-row" className={styles.formSection}>
+                <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_template" className={styles.formCardSection}>
+                  <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_template_row" className={styles.formSection}>
                     <label id="template-select-label" htmlFor="template-select" className={styles.formLabel}>
                       템플릿 선택 <span className={styles.required}>*</span>
                     </label>
@@ -1109,7 +1115,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                     >
                       <SelectTrigger
                         id="template-select"
-                        data-component="messages-new-template-select"
+                        data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_template_row_select"
                         aria-labelledby="template-select-label"
                         className={styles.templateSelectTrigger}
                       >
@@ -1129,15 +1135,16 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                   </div>
                 </div>
 
-                <div data-component="messages-new-recipient-card" className={styles.formCardSection}>
+                <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient" className={styles.formCardSection}>
                   {recipientNameVariable ? (
-                    <div data-component="messages-new-recipient-name-row" className={styles.formSection}>
+                    <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_name-row" className={styles.formSection}>
                       <label htmlFor="recipient-name" className={styles.formLabel}>
                         산모님 성함
                         {recipientNameVariable.required ? <span className={styles.required}>*</span> : null}
                       </label>
                       {isPriceInfoTemplateSelected ? (
                         <ClientAutocomplete
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_name-row_autocomplete"
                           inputId="recipient-name"
                           value={null}
                           onChange={handleClientRecipientSelect}
@@ -1152,7 +1159,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                       ) : (
                         <Input
                           id="recipient-name"
-                          data-component="messages-new-recipient-name-input"
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_name-row_input"
                           value={templateVariableValues.name ?? ""}
                           placeholder="산모님 성함"
                           onChange={(event) => handleTemplateVariableChange("name", event.target.value)}
@@ -1161,7 +1168,11 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                     </div>
                   ) : null}
 
-                  <div data-component="messages-new-recipient-row" className={styles.formSection}>
+                  <div
+                    data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_row"
+                    data-slot="messages-recipient-row"
+                    className={styles.formSection}
+                  >
                     <label htmlFor="receiver" className={styles.formLabel}>
                       휴대 전화번호 <span className={styles.required}>*</span>
                     </label>
@@ -1174,10 +1185,11 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                         onChange={(event) => setReceiver(event.target.value)}
                         onKeyDown={handleReceiverKeyDown}
                         placeholder="010-0000-0000"
-                        data-component="messages-new-recipient-input"
+                        data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_row_input"
                       />
                     ) : (
                       <ClientAutocomplete
+                        data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_row_autocomplete"
                         inputId="receiver"
                         value={null}
                         onChange={handleClientRecipientSelect}
@@ -1191,7 +1203,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                         onManualEntry={addManualRecipient}
                       />
                     )}
-                    <div data-component="messages-new-recipient-chips" className={styles.recipientChips}>
+                    <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_recipient_row_chips" className={styles.recipientChips}>
                       {recipients.map((recipient) => (
                         <span key={recipient.id} className={styles.recipientChip}>
                           <span className={cn(styles.recipientChipAvatar, styles[`recipient_${recipient.tone}`])}>
@@ -1213,13 +1225,13 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                 </div>
 
                 {renderedTemplateVariables.length > 0 || isPriceInfoTemplateSelected ? (
-                  <div data-component="messages-new-template-variables-card" className={styles.formCardSection}>
+                  <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables" className={styles.formCardSection}>
                     {renderedTemplateVariables.map((variable) => {
                       const inputId = getVariableInputId(variable.key);
                       return (
                         <div
                           key={variable.key}
-                          data-component="messages-new-template-variable-row"
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_row"
                           data-template-variable-key={variable.key}
                           className={styles.formSection}
                         >
@@ -1229,7 +1241,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                           </label>
                           <Input
                             id={inputId}
-                            data-component="messages-new-template-variable-input"
+                            data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_row_input"
                             data-template-variable-key={variable.key}
                             inputMode={getVariableInputMode(variable)}
                             value={templateVariableValues[variable.key] ?? ""}
@@ -1241,11 +1253,11 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                     })}
                     {isPriceInfoTemplateSelected ? (
                       <div
-                        data-component="messages-new-price-info-controls"
+                        data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info"
                         className={styles.priceInfoControls}
                       >
                         <div
-                          data-component="messages-new-template-variable-row"
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row"
                           data-template-variable-key="type"
                           className={styles.formSection}
                         >
@@ -1257,7 +1269,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                             onValueChange={handlePriceInfoTypeChange}
                           >
                             <SelectTrigger
-                              data-component="messages-new-price-info-type-select"
+                              data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row_type-select"
                               aria-labelledby="price-info-type-label"
                               className={styles.variableSelectTrigger}
                             >
@@ -1269,9 +1281,9 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                             </SelectTrigger>
                             <SelectContent className={styles.templateSelectContent}>
                               {Object.entries(voucherOptions.voucherOptions).map(([groupName, types]) => (
-                                <div key={groupName} data-component="messages-new-price-info-type-group">
+                                <div key={groupName} data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row_type-group">
                                   <div
-                                    data-component="messages-new-price-info-type-group-label"
+                                    data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row_type-group_label"
                                     className={styles.selectGroupLabel}
                                   >
                                     {groupName}
@@ -1288,7 +1300,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                         </div>
 
                         <div
-                          data-component="messages-new-template-variable-row"
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row"
                           data-template-variable-key="duration"
                           className={styles.formSection}
                         >
@@ -1301,7 +1313,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                             disabled={!templateVariableValues.type || voucherPriceInfos.length === 0}
                           >
                             <SelectTrigger
-                              data-component="messages-new-price-info-duration-select"
+                              data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row_duration-select"
                               aria-labelledby="price-info-duration-label"
                               className={styles.variableSelectTrigger}
                             >
@@ -1328,7 +1340,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                         </div>
 
                         <div
-                          data-component="messages-new-template-variable-row"
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row"
                           data-template-variable-key="bankAccount"
                           className={styles.formSection}
                         >
@@ -1341,7 +1353,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                             disabled={isBankAccountInfosLoading || bankAccountInfos.length === 0}
                           >
                             <SelectTrigger
-                              data-component="messages-new-price-info-bank-account-select"
+                              data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row_bank-account-select"
                               aria-labelledby="price-info-bank-account-label"
                               className={styles.variableSelectTrigger}
                             >
@@ -1368,7 +1380,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                         </div>
 
                         <div
-                          data-component="messages-new-template-variable-row"
+                          data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row"
                           data-template-variable-key="voucherYear"
                           className={styles.formSection}
                         >
@@ -1380,7 +1392,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                             onValueChange={handlePriceInfoYearChange}
                           >
                             <SelectTrigger
-                              data-component="messages-new-price-info-year-select"
+                              data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_row_year-select"
                               aria-labelledby="price-info-year-label"
                               className={styles.variableSelectTrigger}
                             >
@@ -1398,26 +1410,26 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
 
                         {selectedPriceInfoSummary ? (
                           <div
-                            data-component="messages-new-price-info-summary"
+                            data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_summary"
                             className={styles.priceInfoSummary}
                           >
-                            <div data-component="messages-new-price-info-summary-row" className={styles.priceInfoSummaryRow}>
+                            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_summary_row" className={styles.priceInfoSummaryRow}>
                               <span>바우처</span>
                               <strong>{getVoucherTypeLabel(templateVariableValues.type ?? "")}</strong>
                             </div>
-                            <div data-component="messages-new-price-info-summary-row" className={styles.priceInfoSummaryRow}>
+                            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_summary_row" className={styles.priceInfoSummaryRow}>
                               <span>총 서비스 금액</span>
                               <strong>{selectedPriceInfoSummary.fullPrice || "-"}</strong>
                             </div>
-                            <div data-component="messages-new-price-info-summary-row" className={styles.priceInfoSummaryRow}>
+                            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_summary_row" className={styles.priceInfoSummaryRow}>
                               <span>정부지원금</span>
                               <strong>{selectedPriceInfoSummary.grant || "-"}</strong>
                             </div>
-                            <div data-component="messages-new-price-info-summary-row" className={styles.priceInfoSummaryRow}>
+                            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_summary_row" className={styles.priceInfoSummaryRow}>
                               <span>본인부담금</span>
                               <strong>{selectedPriceInfoSummary.actualPrice || "-"}</strong>
                             </div>
-                            <div data-component="messages-new-price-info-summary-row" className={styles.priceInfoSummaryRow}>
+                            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_variables_price-info_summary_row" className={styles.priceInfoSummaryRow}>
                               <span>계좌</span>
                               <strong>
                                 {selectedPriceInfoSummary.bankName && selectedPriceInfoSummary.accNum
@@ -1432,15 +1444,15 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                   </div>
                 ) : null}
 
-                <div data-component="messages-new-body-card" className={styles.formCardSection}>
-                  <div data-component="messages-new-body-row" className={styles.formSection}>
-                    <div data-component="messages-new-body-header" className={styles.formSectionHeader}>
+                <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body" className={styles.formCardSection}>
+                  <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body_row" className={styles.formSection}>
+                    <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body_row_header" className={styles.formSectionHeader}>
                       <label htmlFor="body" className={styles.formLabel}>
                         메시지 본문
                       </label>
                       <button
                         type="button"
-                        data-component="messages-new-body-copy"
+                        data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body_row_header_copy"
                         className="list-action ml-auto justify-end"
                         onClick={() => void navigator.clipboard.writeText(body)}
                       >
@@ -1448,6 +1460,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                       </button>
                     </div>
                     <MsgField
+                      data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body_row_field"
                       inputId="body"
                       ariaLabel="메시지 본문"
                       value={body}
@@ -1457,7 +1470,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
                       textareaClassName={styles.messageFieldTextarea}
                     />
                     {showVariableHint ? (
-                      <p data-component="messages-new-variable-hint" className={styles.screenReaderNote}>
+                      <p data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content_message-body_row_hint" className={styles.screenReaderNote}>
                         템플릿 변수가 포함되어 있습니다.
                       </p>
                     ) : null}
@@ -1468,7 +1481,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
 
             {errorMessage ? (
               <Alert
-                data-component="messages-new-error"
+                data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_error"
                 variant="destructive"
                 className={styles.feedbackAlert}
               >
@@ -1478,7 +1491,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
 
             {successMessage ? (
               <Alert
-                data-component="messages-new-success"
+                data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_success"
                 variant="success"
                 className={styles.feedbackAlert}
               >

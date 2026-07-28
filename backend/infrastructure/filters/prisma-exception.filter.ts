@@ -6,6 +6,12 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { Response } from "express";
+import type { Request } from "express";
+import {
+    captureServiceRecordError,
+    getServiceRecordOperation,
+    isServiceRecordSignal,
+} from "infrastructure/observability/service-record-sentry";
 
 // Prisma 에러 코드별 HTTP 상태 매핑 (메시지는 프론트엔드에서 처리)
 const PRISMA_ERROR_STATUS: Record<string, HttpStatus> = {
@@ -24,11 +30,20 @@ export class PrismaExceptionFilter implements ExceptionFilter {
     catch(exception: Prisma.PrismaClientKnownRequestError, host: ArgumentsHost) {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse<Response>();
+        const request = ctx.getRequest<Request>();
 
         const status = PRISMA_ERROR_STATUS[exception.code] || HttpStatus.INTERNAL_SERVER_ERROR;
         const field = this.extractField(exception);
 
         console.error(`[PrismaException] Code: ${exception.code}, Field: ${field || 'N/A'}`);
+
+        if (status >= 500 && isServiceRecordSignal(request.originalUrl || request.url)) {
+            captureServiceRecordError(exception, {
+                operation: getServiceRecordOperation(request.originalUrl || request.url),
+                handled: true,
+                statusCode: status,
+            });
+        }
 
         return response.status(status).json({
             statusCode: status,

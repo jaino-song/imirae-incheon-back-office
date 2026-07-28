@@ -29,7 +29,7 @@ export function HeroBanner({
 }: HeroBannerProps) {
   return (
     <div
-      data-component="dashboard-hero"
+      data-component="desktop_dashboard_hero"
       className={cn(
         "relative overflow-hidden rounded-[24px] p-8",
         "bg-gradient-to-br from-primary via-primary to-accent",
@@ -40,8 +40,8 @@ export function HeroBanner({
       <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
       <div className="absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-white/5 blur-xl" />
 
-      <div data-component="dashboard-hero-content" className="relative z-10 space-y-4">
-        <div data-component="dashboard-hero-greeting" className="space-y-1">
+      <div data-component="desktop_dashboard_hero_content" className="relative z-10 space-y-4">
+        <div data-component="desktop_dashboard_hero_content_greeting" className="space-y-1">
           <h4
             className="text-lg font-medium text-primary-foreground/80 opacity-0 animate-fade-in"
             style={{ animationDelay: "100ms" }}
@@ -65,13 +65,13 @@ export function HeroBanner({
         </div>
 
         <div
-          data-component="dashboard-hero-actions"
+          data-component="desktop_dashboard_hero_content_actions"
           className="flex gap-3 opacity-0 animate-fade-in"
           style={{ animationDelay: "200ms" }}
         >
           {primaryActionLabel ? (
             <Button
-              data-component="dashboard-hero-primary-action"
+              data-component="desktop_dashboard_hero_content_actions_primary"
               variant="outline"
               asChild={!primaryActionDisabled}
               disabled={primaryActionDisabled}
@@ -98,7 +98,7 @@ export function HeroBanner({
 
           {secondaryActionLabel ? (
             <Button
-              data-component="dashboard-hero-secondary-action"
+              data-component="desktop_dashboard_hero_content_actions_secondary"
               variant="outline"
               asChild={!secondaryActionDisabled}
               disabled={secondaryActionDisabled}

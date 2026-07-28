@@ -16,6 +16,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ParsedVoucherPriceItem } from "@/hooks/useVoucherPriceImageParsing";
 
 interface PriceEditModalProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
   open: boolean;
   item: ParsedVoucherPriceItem | null;
   onClose: () => void;
@@ -41,6 +44,7 @@ function getPriceFormDefaults(item: ParsedVoucherPriceItem | null) {
 }
 
 export function PriceEditModal({
+  "data-component": dataComponent,
   open,
   item,
   onClose,
@@ -89,7 +93,7 @@ export function PriceEditModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen: boolean) => !isOpen && onClose()}>
-      <DialogContent data-component="settings-price-edit-modal" className="sm:max-w-md rounded-2xl">
+      <DialogContent data-component={dataComponent} className="sm:max-w-md rounded-2xl">
         <DialogHeader>
           <DialogTitle>가격 수정</DialogTitle>
           <DialogDescription>

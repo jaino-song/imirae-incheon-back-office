@@ -167,7 +167,7 @@ test("resets the service-record link without resending a message and shows the U
     await page.getByRole("button", { name: "고객 작업 메뉴 열기" }).click();
     await page.getByText("제공기록지 링크 재설정", { exact: true }).click();
 
-    const approval = page.locator('[data-component="clients-detail-reset-service-record-link-approval"]');
+    const approval = page.locator('[data-component="desktop_clients_modals_reset-service-record-link-approval"]');
     await expect(approval).toContainText("메시지는 발송되지 않습니다.");
     await approval.getByRole("button", { name: "링크 재설정" }).click();
 

@@ -7,9 +7,9 @@ import {
   DetailTabPills,
   InfoCard,
   InfoRow,
-  MobileDetailActions,
   MobileDetailHeader,
   MobileDetailPage,
+  MobileSearchBar,
   MobileDetailSheet,
   MobileDetailTabPanel,
 } from "@/components/app/mobile-redesign/detail-sheet";
@@ -51,6 +51,9 @@ interface ConsultationRow {
   additionalNotes: string | null;
   confirmedAtLabel: string | null;
   dueDateLabel: string;
+  branchName: string;
+  privacyAcceptedAtLabel: string;
+  createdAtLabel: string;
 }
 
 const ALL_FILTER = "전체";
@@ -85,9 +88,17 @@ function formatConfirmedAt(iso: string | null): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${date.getMonth() + 1}/${date.getDate()} ${hour}:${minute}`;
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+function normalizeSearchValue(value: string): string {
+  return value.toLocaleLowerCase("ko-KR").replace(/[\s-]/g, "");
 }
 
 function humanizeSource(source: string): string {
@@ -155,6 +166,9 @@ function toRow(inquiry: ConsultationInquiry): ConsultationRow {
     additionalNotes: inquiry.additionalNotes?.trim() || null,
     confirmedAtLabel: formatConfirmedAt(inquiry.readAt),
     dueDateLabel: due.long,
+    branchName: inquiry.branchName ?? "-",
+    privacyAcceptedAtLabel: formatConfirmedAt(inquiry.privacyAcceptedAt) ?? "-",
+    createdAtLabel: formatConfirmedAt(inquiry.createdAt) ?? "-",
   };
 }
 
@@ -162,16 +176,16 @@ function ConsultationDetail({
   row,
   activeTab,
   onTabChange,
+  previousConsultationDates,
 }: {
   row: ConsultationRow;
   activeTab: DetailTabId;
   onTabChange: (id: DetailTabId) => void;
+  previousConsultationDates: string[];
 }) {
-  const [actionStatus, setActionStatus] = useState("");
-
   return (
-    <MobileDetailPage name="consultations">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile_consultations_detail-sheet_stack_detail-page_body" name="consultations">
+      <MobileDetailHeader data-component="mobile_consultations_detail-sheet_stack_detail-page_body_header"
         name="consultations"
         avatar={row.initial}
         avatarTone={row.status === "unread" ? "burgundy" : "green"}
@@ -185,30 +199,8 @@ function ConsultationDetail({
         ]}
       />
 
-      <MobileDetailActions
-        name="consultations"
-        actions={[
-          {
-            label: "답장",
-            variant: "secondary",
-            onClick: () => setActionStatus(`${row.name} 고객에게 답장 패널을 열었습니다.`),
-            dataComponent: "mobile-consultations-reply",
-          },
-          {
-            label: "고객 등록",
-            variant: "primary",
-            onClick: () => setActionStatus(`${row.name} 고객을 등록 화면으로 이동합니다.`),
-            dataComponent: "mobile-consultations-register",
-          },
-        ]}
-      />
-      {actionStatus && (
-        <div className="action-feedback" role="status">
-          {actionStatus}
-        </div>
-      )}
-
       <DetailTabPills
+        data-component="mobile_consultations_detail-sheet_stack_detail-page_body_tabs"
         tabs={[
           { id: "info", label: "고객 정보" },
           { id: "inquiry", label: "상담 내용" },
@@ -217,9 +209,14 @@ function ConsultationDetail({
         onTabChange={(id) => onTabChange(id as DetailTabId)}
       />
 
-      <MobileDetailTabPanel name="consultations" tabId="inquiry" activeTab={activeTab}>
-        <InfoCard title="문의 정보">
+      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_body_tab-panel" name="consultations" tabId="inquiry" activeTab={activeTab}>
+        <InfoCard data-component="mobile_consultations_detail-panel_info-card" title="문의 정보">
           <InfoRow label="근무 지역" value={row.region} />
+          <InfoRow label="담당 지점" value={row.branchName} />
+          <InfoRow
+            label="서비스 플랜"
+            value={row.selectedPlan ? `${row.selectedPlan} · ${row.selectedPlanPrice ?? "-"}` : "선택 서비스 없음"}
+          />
           <InfoRow label="서비스 기간" value={serviceDurationLabel(row.selectedDurationDays)} />
           <InfoRow
             label="추가 서비스"
@@ -241,6 +238,16 @@ function ConsultationDetail({
           />
           <InfoRow label="추천 경로" value={row.referralSource || "-"} />
           <InfoRow label="선호 매니저" value={row.preferredCaregiverName || "-"} />
+          {previousConsultationDates.length > 0 ? (
+            <InfoRow
+              label="이전 상담"
+              value={(
+                <span className="status-value-with-time">
+                  {previousConsultationDates.map((date) => <span key={date}>{date}</span>)}
+                </span>
+              )}
+            />
+          ) : null}
           <InfoRow
             label="추가 사항"
             value={
@@ -254,8 +261,8 @@ function ConsultationDetail({
         </InfoCard>
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel name="consultations" tabId="info" activeTab={activeTab}>
-        <InfoCard title="기본 정보">
+      <MobileDetailTabPanel data-component="mobile_consultations_detail-sheet_stack_detail-page_body_tab-panel-2" name="consultations" tabId="info" activeTab={activeTab}>
+        <InfoCard data-component="mobile_consultations_detail-panel_info-card-2" title="기본 정보">
           <InfoRow label="이름" value={row.name} />
           <InfoRow label="연락처" value={row.contact} />
           <InfoRow label="주소" value={row.address || "-"} />
@@ -263,7 +270,7 @@ function ConsultationDetail({
           <InfoRow label="출산 경험" value={row.birthExperience || "-"} />
           <InfoRow label="바우처 유형" value={row.voucher} />
         </InfoCard>
-        <InfoCard title="문의 상태" delay={60}>
+        <InfoCard data-component="mobile_consultations_detail-panel_info-card-3" title="문의 상태" delay={60}>
           <InfoRow label="출처" value={row.source} />
           <InfoRow
             label="확인 여부"
@@ -282,6 +289,7 @@ function ConsultationDetail({
             tone={row.status === "unread" ? "burgundy" : "green"}
           />
           <InfoRow label="진행 상태" value={inquiryStatusLabel(row.inquiryStatus)} />
+          <InfoRow label="개인정보 동의" value={row.privacyAcceptedAtLabel} />
         </InfoCard>
       </MobileDetailTabPanel>
 
@@ -291,6 +299,7 @@ function ConsultationDetail({
 
 export default function ConsultationsPage() {
   const [activeFilter, setActiveFilter] = useState<string>(ALL_FILTER);
+  const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTabId>("info");
 
@@ -307,6 +316,13 @@ export default function ConsultationsPage() {
 
   const unreadRows = useMemo(() => rows.filter((r) => r.status === "unread"), [rows]);
   const confirmedRows = useMemo(() => rows.filter((r) => r.status === "confirmed"), [rows]);
+  const searchedRows = useMemo(() => {
+    const query = normalizeSearchValue(search);
+    if (!query) return rows;
+    return rows.filter((row) => normalizeSearchValue(
+      `${row.name} ${row.contact} ${row.address}`,
+    ).includes(query));
+  }, [rows, search]);
 
   const filterItems = [
     { label: ALL_FILTER, count: String(rows.length) },
@@ -318,16 +334,18 @@ export default function ConsultationsPage() {
     const sections: Array<{ title: string; fullRows: ConsultationRow[]; fullCount: number }> = [];
     // 전체: 미확인/확인 grouping 없이 최근 활동순(createdAt) 단일 리스트 (총 8개부터 teaser).
     if (activeFilter === ALL_FILTER) {
-      return rows.length > 0 ? [{ title: "", fullRows: rows, fullCount: rows.length }] : [];
+      return searchedRows.length > 0 ? [{ title: "", fullRows: searchedRows, fullCount: searchedRows.length }] : [];
     }
-    if (activeFilter === "미확인" && unreadRows.length > 0) {
-      sections.push({ title: `미확인 · ${unreadRows.length}건`, fullRows: unreadRows, fullCount: unreadRows.length });
+    const searchedUnreadRows = searchedRows.filter((row) => row.status === "unread");
+    const searchedConfirmedRows = searchedRows.filter((row) => row.status === "confirmed");
+    if (activeFilter === "미확인" && searchedUnreadRows.length > 0) {
+      sections.push({ title: `미확인 · ${searchedUnreadRows.length}건`, fullRows: searchedUnreadRows, fullCount: searchedUnreadRows.length });
     }
-    if (activeFilter === "확인" && confirmedRows.length > 0) {
-      sections.push({ title: `확인 완료 · ${confirmedRows.length}건`, fullRows: confirmedRows, fullCount: confirmedRows.length });
+    if (activeFilter === "확인" && searchedConfirmedRows.length > 0) {
+      sections.push({ title: `확인 완료 · ${searchedConfirmedRows.length}건`, fullRows: searchedConfirmedRows, fullCount: searchedConfirmedRows.length });
     }
     return sections;
-  }, [activeFilter, rows, unreadRows, confirmedRows]);
+  }, [activeFilter, searchedRows]);
 
   const maxFullCount = useMemo(
     () => sectionsFull.reduce((m, s) => Math.max(m, s.fullCount), 0),
@@ -336,7 +354,7 @@ export default function ConsultationsPage() {
 
   const { visibleCount, isInitialLoad, hasMore, sentinelRef, scrollContainerRef, loadMore } =
     useListInfiniteScroll({
-      resetKey: activeFilter,
+      resetKey: `${activeFilter}:${search}`,
       totalItems: maxFullCount,
     });
 
@@ -352,6 +370,13 @@ export default function ConsultationsPage() {
     () => (selectedId ? rows.find((r) => r.id === selectedId) ?? null : null),
     [selectedId, rows],
   );
+  const previousConsultationDates = useMemo(() => {
+    if (!selectedRow) return [];
+    const selectedPhone = normalizeSearchValue(selectedRow.contact);
+    return rows
+      .filter((row) => row.id !== selectedRow.id && normalizeSearchValue(row.contact) === selectedPhone)
+      .map((row) => row.createdAtLabel);
+  }, [rows, selectedRow]);
 
   const handleSelectRow = (row: ConsultationRow) => {
     setSelectedId(row.id);
@@ -362,24 +387,34 @@ export default function ConsultationsPage() {
   };
 
   return (
-    <MobileDetailSheet
+    <MobileDetailSheet data-component="mobile_consultations_detail-sheet"
       name="consultations"
       isOpen={selectedRow !== null}
       onClose={() => setSelectedId(null)}
       list={
-        <div className="shell-content" data-component="mobile-consultations-content">
+        <div className="shell-content" data-component="mobile_consultations_detail-sheet_stack_list-page_content">
           <ListCard
+            data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card"
             title="상담 조회"
             count={`${rows.length}건`}
             filters={filterItems}
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
+            beforeFilters={(
+              <MobileSearchBar
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_search"
+                label="consultations"
+                placeholder="이름, 연락처, 주소 검색"
+                value={search}
+                onChange={setSearch}
+              />
+            )}
             scrollRef={scrollContainerRef}
             loadMore={
               isInitialLoad && hasMore ? (
                 <ListLoadMoreButton
+                  data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_load-more_button"
                   onLoadMore={loadMore}
-                  dataComponentPrefix="mobile-consultations"
                 />
               ) : null
             }
@@ -392,7 +427,7 @@ export default function ConsultationsPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-text-muted))",
                 }}
-                data-component="mobile-consultations-loading"
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_loading"
               >
                 불러오는 중...
               </div>
@@ -404,7 +439,7 @@ export default function ConsultationsPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-burgundy))",
                 }}
-                data-component="mobile-consultations-error"
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_error"
               >
                 상담 문의를 불러오지 못했습니다.
               </div>
@@ -416,23 +451,26 @@ export default function ConsultationsPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-text-muted))",
                 }}
-                data-component="mobile-consultations-empty"
+                data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_empty"
               >
                 상담 문의가 없습니다.
               </div>
             ) : (
               <>
               {visibleSections.map((section) => (
-                <div className="section-block" key={section.title || "all"}>
-                  {section.title && <div className="section-header">{section.title}</div>}
+                <div className="section-block" key={section.title || "all"} data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section">
+                  {section.title && <div className="section-header" data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section_header">{section.title}</div>}
                   {section.rows.map((row, idx) => (
                     <ListItemRow
                       key={row.id}
-                      dataComponent="mobile-consultations-row"
+                      data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section_row"
                       style={{ animationDelay: `${Math.min(idx, 4) * 40}ms` }}
                       className={row.status === "unread" ? "unread-row" : undefined}
                       left={
-                        <div className={`list-avatar av-${row.status === "unread" ? "burgundy" : "green"}`}>
+                        <div
+                          className={`list-avatar av-${row.status === "unread" ? "burgundy" : "green"}`}
+                          data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_section_row_avatar"
+                        >
                           {row.initial}
                         </div>
                       }
@@ -453,8 +491,8 @@ export default function ConsultationsPage() {
               ))}
               {!isInitialLoad && hasMore && (
                 <ListLoadMoreSentinel
+                  data-component="mobile_consultations_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                   sentinelRef={sentinelRef}
-                  dataComponentPrefix="mobile-consultations"
                 />
               )}
               </>
@@ -468,9 +506,10 @@ export default function ConsultationsPage() {
             row={selectedRow}
             activeTab={activeTab}
             onTabChange={setActiveTab}
+            previousConsultationDates={previousConsultationDates}
           />
         ) : (
-          <div className="detail-body" />
+          <div className="detail-body" data-component="mobile_consultations_detail-sheet_stack_detail-page_empty" />
         )
       }
     />

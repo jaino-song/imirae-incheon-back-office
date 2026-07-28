@@ -79,22 +79,22 @@ export function AutoFillMsgCardSide({
 
   return (
     <div
-      data-component="messages-generated-msg-detail-side"
+      data-component="desktop_messages_sections_generated-msg-detail-side"
       className={cn("flex flex-col gap-3 self-start", className)}
     >
       <InfoCard
-        data-component="messages-generated-msg-detail-meta"
+        data-component="desktop_messages_sections_generated-msg-detail-meta"
         title={metaTitle}
         className="h-fit"
       >
         <div
-          data-component="messages-generated-msg-detail-meta-list"
+          data-component="desktop_messages_sections_generated-msg-detail-meta_list"
           className="-mt-1"
         >
           {resolvedMetaItems.map((item) => (
             <InfoRow
               key={`${item.label}`}
-              data-component="messages-generated-msg-detail-meta-item"
+              data-component="desktop_messages_sections_generated-msg-detail-meta_list_item"
               label={item.label}
               value={item.value}
             />
@@ -103,44 +103,44 @@ export function AutoFillMsgCardSide({
       </InfoCard>
 
       <InfoCard
-        data-component="messages-generated-msg-detail-variables"
+        data-component="desktop_messages_sections_generated-msg-detail-variables"
         title={variableTitle}
         className="h-fit"
       >
         <div
-          data-component="messages-generated-msg-detail-variables-body"
+          data-component="desktop_messages_sections_generated-msg-detail-variables_body"
           className="-mt-1"
         >
           {hasVariableItems ? (
             <div
-              data-component="messages-generated-msg-detail-variable-list"
+              data-component="desktop_messages_sections_generated-msg-detail-variables_body_list"
               className="space-y-1"
             >
               {variableItems?.map((item) => (
                 <div
                   key={`${item.token}-${item.label}`}
-                  data-component="messages-generated-msg-detail-variable-item"
+                  data-component="desktop_messages_sections_generated-msg-detail-variables_body_list_item"
                   className="flex items-center justify-between gap-3 border-b border-v3-border py-2.5 text-[calc(12px*var(--glint-ui-scale,1))] last:border-b-0"
                 >
                   <div
-                    data-component="messages-generated-msg-detail-variable-meta"
+                    data-component="desktop_messages_sections_generated-msg-detail-variables_body_list_item_meta"
                     className="flex min-w-0 flex-wrap items-center gap-2"
                   >
                     <span
-                      data-component="messages-generated-msg-detail-variable-label"
+                      data-component="desktop_messages_sections_generated-msg-detail-variables_body_list_item_meta_label"
                       className="text-v3-text-muted"
                     >
                       {item.label}
                     </span>
                     <span
-                      data-component="messages-generated-msg-detail-variable-token"
+                      data-component="desktop_messages_sections_generated-msg-detail-variables_body_list_item_meta_token"
                       className="inline-flex items-center rounded-full bg-v3-primary-light px-3 py-1 text-[calc(11.52px*var(--glint-ui-scale,1))] font-semibold text-v3-primary"
                     >
                       {item.token}
                     </span>
                   </div>
                   <p
-                    data-component="messages-generated-msg-detail-variable-value"
+                    data-component="desktop_messages_sections_generated-msg-detail-variables_body_list_item_value"
                     className="shrink-0 text-right text-[calc(12px*var(--glint-ui-scale,1))] font-semibold text-v3-dark"
                   >
                     {item.value}
@@ -186,7 +186,7 @@ export const AutoFillMsgCard = memo(function AutoFillMsgCard({
     <NotificationOneButtonModal
       open={isCopySuccessOpen}
       onOpenChange={setIsCopySuccessOpen}
-      dataComponent="messages-copy-success-notification"
+      dataComponent="desktop_messages_sections_copy-success-notification"
       title={copySuccessMessage}
       description="복사한 내용을 원하는 곳에 붙여넣을 수 있습니다."
       onAcknowledge={() => setIsCopySuccessOpen(false)}
@@ -196,17 +196,17 @@ export const AutoFillMsgCard = memo(function AutoFillMsgCard({
   const detailGridContent = (
     <>
       <div
-        data-component="messages-generated-msg-detail-content"
+        data-component="desktop_messages_sections_generated-msg-detail-content"
         className={cn(
           "scrollbar-hide flex h-full min-h-0 flex-col",
           APP_CONTENT_CARD_MUTED_CLASS_NAME,
         )}
       >
         <div
-          data-component="messages-generated-msg-detail-content-header"
+          data-component="desktop_messages_sections_generated-msg-detail-content_header"
           className="mb-4 flex items-start justify-between gap-4"
         >
-          <div data-component="messages-generated-msg-detail-content-title" className="min-w-0">
+          <div data-component="desktop_messages_sections_generated-msg-detail-content_header_title" className="min-w-0">
             <h3 className="text-[calc(14.4px*var(--glint-ui-scale,1))] font-bold text-v3-dark">{bodyTitle}</h3>
             <p className="mt-0.5 text-[calc(12px*var(--glint-ui-scale,1))] text-v3-text-muted">{bodyDescription}</p>
           </div>
@@ -214,13 +214,13 @@ export const AutoFillMsgCard = memo(function AutoFillMsgCard({
             icon={Copy}
             label={copyButtonText}
             onClick={handleCopyClick}
-            data-component="messages-generated-msg-copy"
+            data-component="desktop_messages_sections_generated-msg-copy"
             className="shrink-0 whitespace-nowrap text-[calc(12px*var(--glint-ui-scale,1))]"
           />
         </div>
 
         <div
-          data-component="messages-generated-msg-detail-content-body"
+          data-component="desktop_messages_sections_generated-msg-detail-content_body"
           className={cn(
             "flex min-h-[calc(320px*var(--glint-ui-scale,1))] flex-1",
             APP_CONTENT_BODY_CARD_CLASS_NAME,
@@ -251,7 +251,7 @@ export const AutoFillMsgCard = memo(function AutoFillMsgCard({
         {detailGridContent}
         {children ? (
           <AppContentCard
-            data-component="messages-generated-msg-actions"
+            data-component="desktop_messages_sections_generated-msg-actions"
             variant="outlined"
             className="xl:col-span-2"
             contentClassName="block"
@@ -270,11 +270,11 @@ export const AutoFillMsgCard = memo(function AutoFillMsgCard({
         initial={{ opacity: 0, filter: "blur(10px)" }}
         animate={{ opacity: 1, filter: "blur(0px)" }}
         transition={{ duration: 0.8 }}
-        data-component="messages-generated-msg-panel"
+        data-component="desktop_messages_sections_generated-msg-panel"
         className="min-h-0 space-y-4"
       >
         <div
-          data-component="messages-generated-msg-detail-grid"
+          data-component="desktop_messages_sections_generated-msg-panel_detail-grid"
           className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]"
         >
           {detailGridContent}
@@ -282,7 +282,7 @@ export const AutoFillMsgCard = memo(function AutoFillMsgCard({
 
         {children ? (
           <AppContentCard
-            data-component="messages-generated-msg-actions"
+            data-component="desktop_messages_sections_generated-msg-actions"
             variant="outlined"
             contentClassName="block"
           >

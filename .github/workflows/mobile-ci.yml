@@ -53,6 +53,19 @@ jobs:
       - name: Lint
         run: pnpm --filter ./mobile run lint
 
+      - name: data-component re-entry guard
+        run: |
+          if grep -rln '\[data-component' mobile/src --include='*.css'; then
+            echo '::error::CSS must not select on data-component — use data-slot or a semantic class'; exit 1
+          fi
+          if grep -rln 'querySelector([^)]*\[data-component' mobile/src --include='*.ts' --include='*.tsx' \
+            | grep -v -e '\.test\.' -e '__tests__'; then
+            echo '::error::Imperative DOM hooks must not target data-component — use data-slot'; exit 1
+          fi
+
+      - name: UI architecture gate
+        run: pnpm lint:ui-architecture --platform mobile
+
       - name: Unit tests
         run: pnpm --filter ./mobile test
         env:
@@ -74,7 +87,7 @@ jobs:
   # must stay truthful (red when it fails) for the signal to be worth anything.
   e2e:
     name: playwright e2e (advisory · real backend)
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     needs: verify
     # 90: the full 266-test suite against the real stack needs headroom —
     # two 60-minute runs were cancelled mid-suite before any report upload.
@@ -85,6 +98,8 @@ jobs:
       CI: true
       DATABASE_URL: postgresql://postgres@localhost:5432/postgres
       DEVELOPMENT_API_BASE_URL: http://localhost:3001
+      # required by mobile env validation when the app builds/serves as production
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
       DEVELOPMENT_FRONTEND_URL: http://localhost:3000
       DEVELOPMENT_MOBILE_FRONTEND_URL: http://localhost:3002
       DIRECT_URL: postgresql://postgres@localhost:5432/postgres
@@ -130,6 +145,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history; the changed-spec selection below no longer depends on it
+          # (it asks the API instead), but keep it so any future git-based step works.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -172,11 +191,55 @@ jobs:
           cat /tmp/bjj-backend.log
           exit 1
 
+      - name: Build mobile app (production, E2E flags inlined)
+        env:
+          NEXT_PUBLIC_E2E_TEST: 'true'
+          # the job-level NODE_ENV=development is for the backend; the Next build
+          # and the `next start` webServer must run as production
+          NODE_ENV: production
+        run: pnpm --filter ./mobile exec next build
+
       - name: Install Playwright browsers
         run: pnpm --filter ./mobile exec playwright install --with-deps chromium
 
       - name: Playwright tests
-        run: pnpm --filter ./mobile run test:e2e
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # PR runs are advisory: execute only specs the PR itself touched —
+          # the full suite runs on every push to dev (post-merge) instead.
+          #
+          # The file list comes from the API rather than a local `git diff` against
+          # the base ref. A PR that changed four specs was once reported as "no spec
+          # files changed" and passed green without running anything, so the job
+          # certified nothing. The API answer does not depend on which refs the
+          # runner happens to have fetched, and an API failure is fatal below
+          # instead of collapsing into an empty list.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if ! PR_FILES=$(gh api --paginate \
+              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+              --jq '.[] | select(.status != "removed") | .filename'); then
+              echo "::error::Could not list the files this PR changes; refusing to report a green run that tested nothing."
+              exit 1
+            fi
+            if [ -z "$PR_FILES" ]; then
+              echo "::error::The API reported no files for this PR, which cannot be right."
+              exit 1
+            fi
+            CHANGED_SPECS=$(printf '%s\n' "$PR_FILES" \
+              | { grep -E '^mobile/tests/.+\.spec\.ts$' || true; } \
+              | sed 's|^mobile/||' | tr '\n' ' ')
+            if [ -n "$CHANGED_SPECS" ]; then
+              echo "PR mode — running changed specs only: $CHANGED_SPECS"
+              pnpm --filter ./mobile exec playwright test $CHANGED_SPECS
+            else
+              echo "PR mode — this PR changes no spec files, so nothing runs here."
+              echo "The full suite runs on the push to dev after merge."
+            fi
+          else
+            pnpm --filter ./mobile run test:e2e
+          fi
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

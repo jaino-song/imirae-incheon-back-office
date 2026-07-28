@@ -1,9 +1,18 @@
 import { AxiosError } from "axios";
 
+import { captureServiceRecordError } from "@/lib/observability/capture-service-record-error";
+
 import {
+    api,
     isConcurrentAuthRefreshError,
     isEformsignTokenEndpoint,
 } from "../client";
+
+jest.mock("@/lib/observability/capture-service-record-error", () => ({
+    captureServiceRecordError: jest.fn(),
+}));
+
+const mockCaptureServiceRecordError = jest.mocked(captureServiceRecordError);
 
 describe("isEformsignTokenEndpoint", () => {
     it.each([
@@ -52,5 +61,63 @@ describe("isConcurrentAuthRefreshError", () => {
         );
 
         expect(isConcurrentAuthRefreshError(error)).toBe(true);
+    });
+});
+
+describe("service-record API error monitoring", () => {
+    const originalAdapter = api.defaults.adapter;
+
+    afterEach(() => {
+        api.defaults.adapter = originalAdapter;
+        mockCaptureServiceRecordError.mockReset();
+    });
+
+    it("captures a service-record network failure once after the retry is exhausted", async () => {
+        const adapter = jest.fn(async (config) => {
+            throw new AxiosError("Network Error", "ERR_NETWORK", config);
+        });
+        api.defaults.adapter = adapter;
+
+        await expect(api.get("/admin/service-records/client/42")).rejects.toMatchObject({
+            code: "ERR_NETWORK",
+        });
+
+        expect(adapter).toHaveBeenCalledTimes(2);
+        expect(mockCaptureServiceRecordError).toHaveBeenCalledTimes(1);
+        expect(mockCaptureServiceRecordError).toHaveBeenCalledWith(
+            expect.objectContaining({
+                code: "ERR_NETWORK",
+                config: expect.objectContaining({
+                    method: "get",
+                    url: "/admin/service-records/client/42",
+                }),
+            }),
+        );
+    });
+
+    it("captures a resolved service-record 5xx failure without retrying", async () => {
+        const adapter = jest.fn(async (config) => {
+            throw new AxiosError(
+                "Request failed with status code 503",
+                "ERR_BAD_RESPONSE",
+                config,
+                undefined,
+                {
+                    status: 503,
+                    statusText: "Service Unavailable",
+                    headers: {},
+                    config,
+                    data: {},
+                },
+            );
+        });
+        api.defaults.adapter = adapter;
+
+        await expect(api.get("/admin/service-records/client/42")).rejects.toMatchObject({
+            response: expect.objectContaining({ status: 503 }),
+        });
+
+        expect(adapter).toHaveBeenCalledTimes(1);
+        expect(mockCaptureServiceRecordError).toHaveBeenCalledTimes(1);
     });
 });

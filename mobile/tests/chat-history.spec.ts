@@ -18,9 +18,9 @@ const MOCK_AUTH_RESPONSE = {
     role: 'admin',
 };
 
-const CHAT_INPUT = '[data-component="chat-input"]';
-const CHAT_MESSAGES = '[data-component="chat-messages"]';
-const ANY_BUBBLE = '[data-component="chat-message-user"], [data-component="chat-message-assistant"]';
+const CHAT_INPUT = '[data-component="mobile_chat_page_input-area_input"]';
+const CHAT_MESSAGES = '[data-component="mobile_chat_page_content_messages"]';
+const ANY_BUBBLE = '[data-component="mobile_chat_page_content_messages_message-user"], [data-component="mobile_chat_page_content_messages_message-assistant"]';
 
 const setupAuthMocks = async (page: Page) => {
     await page.addInitScript(() => {

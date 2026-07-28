@@ -1,14 +1,14 @@
 import { EformsignWebhookService } from "../../application/services/eformsign-webhook.service";
 
 /**
- * BJJ-247 contract-isolation guarantee: completing a FEEDBACK snapshot document must NOT run
+ * BJJ-247 contract-isolation guarantee: completing a SERVICE_RECORD snapshot document must NOT run
  * the contract-completion side effects (link eDocId / sync endDate), which
  * all funnel through handleCompletedDocument(). The gate keys on the document's template_id.
  */
-const FEEDBACK_TPL = "tpl_feedback_123";
-const FEEDBACK_TPL_10 = "tpl_feedback_10";
-const FEEDBACK_TPL_15 = "tpl_feedback_15";
-const FEEDBACK_TPL_20 = "tpl_feedback_20";
+const SERVICE_RECORD_TPL = "tpl_service_record_123";
+const SERVICE_RECORD_TPL_10 = "tpl_service_record_10";
+const SERVICE_RECORD_TPL_15 = "tpl_service_record_15";
+const SERVICE_RECORD_TPL_20 = "tpl_service_record_20";
 const CONTRACT_TPL = "tpl_contract_999";
 
 function makeService() {
@@ -53,13 +53,13 @@ const pdfEvent = (template_id: string) => ({
     document_id: "doc1", document_status: "doc_complete", template_id, workflow_seq: 1, workflow_name: "wf",
 });
 
-describe("EformsignWebhookService — feedback template_id gate", () => {
+describe("EformsignWebhookService — service-record template_id gate", () => {
     // BJJ-multi-tier: the gate must match documents created on ANY configured tier's template.
     const TIER_ENV = {
-        EFORMSIGN_FEEDBACK_TEMPLATE_ID: FEEDBACK_TPL,
-        EFORMSIGN_FEEDBACK_TEMPLATE_ID_10: FEEDBACK_TPL_10,
-        EFORMSIGN_FEEDBACK_TEMPLATE_ID_15: FEEDBACK_TPL_15,
-        EFORMSIGN_FEEDBACK_TEMPLATE_ID_20: FEEDBACK_TPL_20,
+        EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID: SERVICE_RECORD_TPL,
+        EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_10: SERVICE_RECORD_TPL_10,
+        EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_15: SERVICE_RECORD_TPL_15,
+        EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_20: SERVICE_RECORD_TPL_20,
     } as const;
     const OLD: Record<string, string | undefined> = {};
     beforeAll(() => {
@@ -81,9 +81,9 @@ describe("EformsignWebhookService — feedback template_id gate", () => {
         expect(handleCompleted).toHaveBeenCalledTimes(1);
     });
 
-    it("document event + feedback template → SKIPS contract-completion side effects", async () => {
+    it("document event + service-record template → SKIPS contract-completion side effects", async () => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleDocumentEvent("branch1", docEvent(FEEDBACK_TPL));
+        await (service as any).handleDocumentEvent("branch1", docEvent(SERVICE_RECORD_TPL));
         expect(handleCompleted).not.toHaveBeenCalled();
     });
 
@@ -93,16 +93,16 @@ describe("EformsignWebhookService — feedback template_id gate", () => {
         expect(handleCompleted).toHaveBeenCalledTimes(1);
     });
 
-    it("ready_document_pdf + feedback template → SKIPS contract-completion side effects", async () => {
+    it("ready_document_pdf + service-record template → SKIPS contract-completion side effects", async () => {
         const { service, handleCompleted } = makeService();
-        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(FEEDBACK_TPL));
+        await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(SERVICE_RECORD_TPL));
         expect(handleCompleted).not.toHaveBeenCalled();
     });
 
     it.each([
-        ["10회", FEEDBACK_TPL_10],
-        ["15회", FEEDBACK_TPL_15],
-        ["20회", FEEDBACK_TPL_20],
+        ["10회", SERVICE_RECORD_TPL_10],
+        ["15회", SERVICE_RECORD_TPL_15],
+        ["20회", SERVICE_RECORD_TPL_20],
     ])("document event + %s tier template → SKIPS contract-completion side effects", async (_tier, templateId) => {
         const { service, handleCompleted } = makeService();
         await (service as any).handleDocumentEvent("branch1", docEvent(templateId));
@@ -110,9 +110,9 @@ describe("EformsignWebhookService — feedback template_id gate", () => {
     });
 
     it.each([
-        ["10회", FEEDBACK_TPL_10],
-        ["15회", FEEDBACK_TPL_15],
-        ["20회", FEEDBACK_TPL_20],
+        ["10회", SERVICE_RECORD_TPL_10],
+        ["15회", SERVICE_RECORD_TPL_15],
+        ["20회", SERVICE_RECORD_TPL_20],
     ])("ready_document_pdf + %s tier template → SKIPS contract-completion side effects", async (_tier, templateId) => {
         const { service, handleCompleted } = makeService();
         await (service as any).handleReadyDocumentPdfEvent("branch1", pdfEvent(templateId));

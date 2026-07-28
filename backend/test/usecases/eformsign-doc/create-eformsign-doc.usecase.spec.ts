@@ -98,6 +98,23 @@ describe("CreateEformsignDocUsecase", () => {
         expect(clientRepository.findByPhone).not.toHaveBeenCalled();
     });
 
+    it("links by normalized recipient phone when the supplied client does not exist", async () => {
+        const phoneMatchedClient = createClient(12, "01012345678");
+        clientRepository.findById.mockResolvedValue(null);
+        clientRepository.findByPhone.mockResolvedValue(phoneMatchedClient);
+
+        const result = await usecase.execute(branchId, createParams());
+
+        expect(clientRepository.findByPhone).toHaveBeenCalledWith(branchId, "01012345678");
+        expect(result.clientId).toBe(12);
+        expect(eformsignDocRepository.upsertByDocumentId).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ clientId: 12, documentId }),
+        );
+        expect(phoneMatchedClient.eDocId).toBe(documentId);
+        expect(clientRepository.update).toHaveBeenCalledWith(branchId, phoneMatchedClient);
+    });
+
     it("returns a warning while keeping the document when client linking fails", async () => {
         const client = createClient(7, "010-1234-5678");
         clientRepository.findById.mockResolvedValue(client);
@@ -121,18 +138,18 @@ describe("CreateEformsignDocUsecase", () => {
         expect(clientRepository.update).toHaveBeenCalledWith(branchId, client);
     });
 
-    it("stores service feedback snapshot linkage without updating the client contract pointer", async () => {
+    it("stores service-record snapshot linkage without updating the client contract pointer", async () => {
         const result = await usecase.execute(branchId, createParams({
-            documentId: "feedback-doc-1",
+            documentId: "service-record-doc-1",
             linkToClient: false,
             documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
             employeeScheduleId: 33,
-            templateId: "feedback-template-1",
+            templateId: "service-record-template-1",
         }));
 
         expect(result.documentKind).toBe(EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT);
         expect(result.employeeScheduleId).toBe(33);
-        expect(result.templateId).toBe("feedback-template-1");
+        expect(result.templateId).toBe("service-record-template-1");
         expect(clientRepository.update).not.toHaveBeenCalled();
     });
 });

@@ -6,6 +6,7 @@ import { MESSAGE_HISTORY_STATUS_LABELS } from "@babyjamjam/shared";
 import { formatBirthdayYYMMDD } from "@babyjamjam/shared/utils/birthday";
 
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/app/ui/status-badge";
 import {
     useApproveScheduleChange,
     useRejectScheduleChange,
@@ -18,11 +19,11 @@ import type { MessageLogRecord } from "@/features/message-triggers/types";
 import {
     getMessageHistoryTimestamp,
     MessageHistoryDetailPanel,
-    MESSAGE_HISTORY_STATUS_META,
     normalizeMessageHistoryRecord,
     type MessageHistoryRecord,
 } from "@/components/app/messages/MessageHistoryDetailPanel";
 import { ClientServiceRecordsTab } from "@/components/app/clients/ClientServiceRecordsTab";
+import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { clientKeys } from "@/features/clients/hooks/keys";
 import { useClientServiceRecords } from "@/features/service-records/hooks/use-service-records";
 import { dashboardQueryKeys } from "@/hooks/useDashboardStats";
@@ -48,6 +49,8 @@ import { mapStatusToLabel, type DocumentStatusLabel } from "@/lib/eformsign/stat
 import { eformsignApi, withEformsignReauth, type LocalEformsignDocRecord } from "@/services/api";
 import { Users } from "lucide-react";
 
+const SOURCE_COMPONENT = "ClientDetailPanel";
+
 const CLIENT_DETAIL_TABS = [
     { key: "basic", label: "기본 정보" },
     { key: "contracts", label: "계약서 정보" },
@@ -63,6 +66,12 @@ type ClientDetailTabKey =
 
 const CLIENT_MESSAGE_HISTORY_LIMIT = 500;
 const CLIENT_MESSAGE_DETAIL_SLIDE_DURATION_MS = 300;
+const CLIENT_MESSAGE_STATUS_VARIANT = {
+    sent: "success",
+    pending: "warning",
+    failed: "danger",
+    canceled: "neutral",
+} as const;
 const formatDate = (dateStr: string | null): string => {
     return formatDateForDisplay(dateStr);
 };
@@ -132,7 +141,7 @@ const formatPrice = (price: string | null): string => {
 export function getClientDetailSubtitle(
     client: Pick<Client, "type" | "duration" | "serviceStatus">,
 ): string {
-    const clientType = client.type || "일반";
+    const clientType = getClientDisplayLabel(client.type || "일반");
     const hasDuration = client.duration !== null;
 
     if (client.serviceStatus === "pre_booking" && !hasDuration) {
@@ -170,7 +179,6 @@ function ClientMessageHistoryList({
     if (!canLookupMessages) {
         return (
             <DetailEmptyState
-                name={`${dataComponentPrefix}-messages-empty`}
                 message="고객 정보가 없어 메시지 발송 내역을 조회할 수 없습니다"
             />
         );
@@ -212,7 +220,6 @@ function ClientMessageHistoryList({
     if (records.length === 0) {
         return (
             <DetailEmptyState
-                name={`${dataComponentPrefix}-messages-empty`}
                 message="메시지 발송 내역이 없습니다"
             />
         );
@@ -238,13 +245,6 @@ function ClientMessageHistoryList({
                         recipientNameFallback: clientName,
                         recipientListLabelFallback: clientName,
                     });
-                    const statusMeta = MESSAGE_HISTORY_STATUS_META[normalizedRecord.status] ?? MESSAGE_HISTORY_STATUS_META.failed;
-                    const statusBorderClassName =
-                        normalizedRecord.status === "sent"
-                            ? "border-[hsl(137,34%,84%)]"
-                            : normalizedRecord.status === "pending"
-                                ? "border-amber-100"
-                                : "border-red-100";
                     const ItemIcon = normalizedRecord.icon;
 
                     return (
@@ -259,16 +259,13 @@ function ClientMessageHistoryList({
                                     data-component={`${dataComponentPrefix}-messages-list-item-meta`}
                                     className="flex shrink-0 flex-col items-end justify-end gap-1 text-right"
                                 >
-                                    <span
+                                    <StatusPill
                                         data-component={`${dataComponentPrefix}-messages-list-item-status`}
-                                        className={cn(
-                                            "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[50px] border px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(4px*var(--glint-ui-scale,1))] text-[calc(10.4px*var(--glint-ui-scale,1))] font-semibold whitespace-nowrap transition-colors",
-                                            statusMeta.tone,
-                                            statusBorderClassName
-                                        )}
+                                        variant={CLIENT_MESSAGE_STATUS_VARIANT[normalizedRecord.status]}
+                                        size="sm"
                                     >
                                         {MESSAGE_HISTORY_STATUS_LABELS[normalizedRecord.status]}
-                                    </span>
+                                    </StatusPill>
                                 </div>
                             }
                         />
@@ -324,7 +321,6 @@ function ClientContractsList({
     if (docs.length === 0) {
         return (
             <DetailEmptyState
-                name={`${dataComponentPrefix}-contracts-empty`}
                 message="계약서 정보가 없습니다"
             />
         );
@@ -461,8 +457,8 @@ function ClientDetailPanelBody({
     client,
     trailing,
     onScheduleChangeDecided,
-    dataComponentPrefix = "clients-detail",
-    messageHistoryDataComponentPrefix = "clients-message-history",
+    dataComponentPrefix = "desktop_clients-detail_panel",
+    messageHistoryDataComponentPrefix = "desktop_clients-detail_panel_message-history",
     idPrefix,
     tabsAriaLabel,
     compactBackLabel,
@@ -723,10 +719,12 @@ function ClientDetailPanelBody({
             messageHistoryDataComponentPrefix={messageHistoryDataComponentPrefix}
         >
             <DetailPanel
+                data-component={dataComponentPrefix}
+                sourceComponent={SOURCE_COMPONENT}
                 compactBackLabel={compactBackLabel}
                 avatar={
                     <div
-                        data-component={`${dataComponentPrefix}-avatar`}
+                        data-component={`${dataComponentPrefix}_header_avatar`}
                         className={cn(
                             "w-16 h-16 rounded-[20px] flex items-center justify-center shadow-lg shrink-0",
                             getClientBadgeAvatarClassName(getPrimaryClientBadge(clientBadges))
@@ -744,7 +742,7 @@ function ClientDetailPanelBody({
                                 <StatusBadge
                                     key={badge.key}
                                     status={badge.status}
-                                    label={badge.label}
+                                    label={badge.label ? getClientDisplayLabel(badge.label) : undefined}
                                 />
                             ))}
                     </>
@@ -757,7 +755,7 @@ function ClientDetailPanelBody({
                                 <StatusBadge
                                     key={badge.key}
                                     status={badge.status}
-                                    label={badge.label}
+                                    label={badge.label ? getClientDisplayLabel(badge.label) : undefined}
                                 />
                             ))}
                     </>
@@ -776,8 +774,8 @@ function ClientDetailPanelBody({
             >
                 <DetailTabPanels
                     activeTab={activeDetailTab}
-                    dataComponent={`${dataComponentPrefix}-content`}
-                    panelDataComponent={`${dataComponentPrefix}-content-panel`}
+                    dataComponent={`${dataComponentPrefix}_content`}
+                    panelDataComponent={`${dataComponentPrefix}_content_panel`}
                     idPrefix={idPrefix}
                     className={tabPanelsClassName}
                     trackClassName={tabPanelsTrackClassName}
@@ -790,7 +788,7 @@ function ClientDetailPanelBody({
                                     children: (
                                         <InfoCard
                                             title="서비스 일정 변경 요청이 있습니다."
-                                            data-component={`${dataComponentPrefix}-schedule-change-card`}
+                                            data-component={`${dataComponentPrefix}_content_schedule-change_info-card`}
                                         >
                                             <InfoRow
                                                 label="기존 날짜"
@@ -813,7 +811,7 @@ function ClientDetailPanelBody({
                                                 size="compact"
                                             />
                                             <div
-                                                data-component={`${dataComponentPrefix}-schedule-change-actions`}
+                                                data-component={`${dataComponentPrefix}_content_schedule-change_info-card_actions`}
                                                 className="mt-[calc(14px*var(--glint-ui-scale,1))] flex flex-wrap items-center justify-end gap-[calc(12px*var(--glint-ui-scale,1))]"
                                             >
                                                 <Button
@@ -845,8 +843,8 @@ function ClientDetailPanelBody({
                         {
                             key: "basic",
                             children: (
-                                <div data-component={`${dataComponentPrefix}-basic-grid`} className="grid grid-cols-2 gap-4">
-                                    <InfoCard title="고객 정보" className="col-start-1 row-start-1 row-end-3">
+                                <div data-component={`${dataComponentPrefix}_content_basic_grid`} className="grid grid-cols-2 gap-4">
+                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_client-card`} title="고객 정보" className="col-start-1 row-start-1 row-end-3">
                                         <InfoRow
                                             label={t(locale, "clients.form.name")}
                                             value={client.name}
@@ -871,7 +869,7 @@ function ClientDetailPanelBody({
                                         />
                                     </InfoCard>
 
-                                    <InfoCard title="담당 관리사" className="col-start-1 row-start-3 row-end-5">
+                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_employee-card`} title="담당 관리사" className="col-start-1 row-start-3 row-end-5">
                                         <InfoRow
                                             label={t(locale, "clients.form.primary-employee")}
                                             value={
@@ -900,10 +898,10 @@ function ClientDetailPanelBody({
                                         />
                                     </InfoCard>
 
-                                    <InfoCard title="서비스 정보" className="col-start-2 row-start-1 row-end-5">
+                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_service-card`} title="서비스 정보" className="col-start-2 row-start-1 row-end-5">
                                         <InfoRow
                                             label={t(locale, "clients.form.voucher-type")}
-                                            value={client.type || "-"}
+                                            value={client.type ? getClientDisplayLabel(client.type) : "-"}
                                         />
                                         <InfoRow
                                             label={t(locale, "clients.form.duration")}
@@ -971,6 +969,7 @@ function ClientDetailPanelBody({
                             key: "service-records",
                             children: (
                                 <ClientServiceRecordsTab
+                                    data-component={`${dataComponentPrefix}_service-records`}
                                     overview={serviceRecordsQuery.data}
                                     clientId={clientId}
                                     isLoading={serviceRecordsQuery.isLoading}

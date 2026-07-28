@@ -12,6 +12,8 @@ const variantStyles = {
   muted: "text-v3-text-muted hover:bg-v3-dim-white",
 } as const;
 
+const SOURCE_COMPONENT = "HeaderActionButton";
+
 export interface HeaderActionButtonProps {
   icon?: React.ComponentType<{ className?: string }>;
   label: string;
@@ -29,8 +31,9 @@ export function HeaderActionButton({
   href,
   onClick,
   variant = "primary",
+  "data-component": dataComponent,
+  "data-testid": dataTestId,
   className,
-  ...rest
 }: HeaderActionButtonProps) {
   const classes = cn(baseStyles, variantStyles[variant], className);
 
@@ -43,14 +46,27 @@ export function HeaderActionButton({
 
   if (href) {
     return (
-      <Link href={href} className={classes} {...rest}>
+      <Link
+        href={href}
+        data-component={dataComponent}
+        data-source-component={SOURCE_COMPONENT}
+        data-testid={dataTestId}
+        className={classes}
+      >
         {content}
       </Link>
     );
   }
 
   return (
-    <button type="button" onClick={onClick} className={classes} {...rest}>
+    <button
+      type="button"
+      onClick={onClick}
+      data-component={dataComponent}
+      data-source-component={SOURCE_COMPONENT}
+      data-testid={dataTestId}
+      className={classes}
+    >
       {content}
     </button>
   );

@@ -22,7 +22,7 @@ export function FormCard({
   titleTrailing,
   className,
   contentClassName,
-  "data-component": dataComponent = "form-card",
+  "data-component": dataComponent = "desktop_v3_form-card",
 }: FormCardProps) {
   return (
     <AppContentCard

@@ -1,6 +1,8 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "SurfaceFrame";
+
 export interface SurfaceFrameProps {
   children: React.ReactNode;
   className?: string;
@@ -20,16 +22,17 @@ export function SurfaceFrame({
   "data-component": dataComponent,
   dataComponents,
 }: SurfaceFrameProps) {
-  const componentName = dataComponent ?? "surface-frame";
+  const componentName = dataComponent ?? "desktop_v3_surface-frame";
   const componentSlots = {
-    container: dataComponents?.container ?? `${componentName}-container`,
-    glow: dataComponents?.glow ?? `${componentName}-glow`,
-    inner: dataComponents?.inner ?? `${componentName}-inner`,
+    container: dataComponents?.container ?? `${componentName}_container`,
+    glow: dataComponents?.glow ?? `${componentName}_glow`,
+    inner: dataComponents?.inner ?? `${componentName}_inner`,
   };
 
   return (
     <div
       data-component={componentSlots.container}
+      data-source-component={SOURCE_COMPONENT}
       className={cn(
         "relative flex !h-auto min-h-[100dvh] w-full items-center justify-center py-4 md:py-8",
         className,

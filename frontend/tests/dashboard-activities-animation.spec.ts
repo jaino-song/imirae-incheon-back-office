@@ -196,7 +196,7 @@ test.describe("Dashboard activities animations", () => {
     const statsResponse = page.waitForResponse("**/api/clients/stats");
     await page.goto("/dashboard");
 
-    const panel = page.locator('[data-component="dashboard-activities-panel"]');
+    const panel = page.locator('[data-component="desktop_dashboard_split_activities-panel"]');
     await expect(panel).toBeVisible();
 
     // Wait for client data to load (names appear)
@@ -212,14 +212,14 @@ test.describe("Dashboard activities animations", () => {
     const afterResolve = await page.evaluate(() => window.__v3AnimEvents ?? []);
 
     // Activities panel must not re-animate when stats resolve
-    const panelBefore = beforeResolve.filter((e) => e.comp === "dashboard-activities-panel").length;
-    const panelAfter = afterResolve.filter((e) => e.comp === "dashboard-activities-panel").length;
+    const panelBefore = beforeResolve.filter((e) => e.comp === "desktop_dashboard_split_activities-panel").length;
+    const panelAfter = afterResolve.filter((e) => e.comp === "desktop_dashboard_split_activities-panel").length;
     expect(panelAfter).toBe(panelBefore);
 
     // No additional pop-up animations after initial render
     const popUpsAfterResolve = afterResolve
       .slice(beforeResolve.length)
-      .filter((e) => e.name === "v3-pop-up" && e.comp === "dashboard-split-list-item");
+      .filter((e) => e.name === "v3-pop-up" && e.comp === "desktop_dashboard_split_activities-panel_list-panel_list_item");
     expect(popUpsAfterResolve.length).toBe(0);
   });
 
@@ -242,7 +242,7 @@ test.describe("Dashboard activities animations", () => {
     await page.goto("/dashboard");
     await expect(page.getByText("조치 필요")).toBeVisible();
 
-    const items = page.locator('[data-component="dashboard-split-list-item"]');
+    const items = page.locator('[data-component="desktop_dashboard_split_activities-panel_list-panel_list_item"]');
     await expect(items).toHaveCount(3);
     await expect(items.nth(0)).toContainText("김교체");
     await expect(items.nth(1)).toContainText("박서명");
@@ -271,7 +271,7 @@ test.describe("Dashboard activities animations", () => {
     await page.goto("/dashboard");
     await expect(page.getByText("곧 시작")).toBeVisible();
 
-    const item = page.locator('[data-component="dashboard-split-list-item"]').filter({
+    const item = page.locator('[data-component="desktop_dashboard_split_activities-panel_list-panel_list_item"]').filter({
       hasText: "내일시작",
     });
     await expect(item).toBeVisible();
@@ -296,18 +296,18 @@ test.describe("Dashboard activities animations", () => {
 
     await page.goto("/dashboard");
 
-    const splitTrack = page.locator('[data-component="split-layout"] > div.flex.transition-transform');
+    const splitTrack = page.locator('[data-component="desktop_dashboard_split-layout"] > [data-slot="split-layout-track"]');
     await expect(splitTrack).toBeVisible();
 
     await expect
       .poll(async () => splitTrack.evaluate((el) => (el as HTMLElement).style.transform))
       .toContain("translateX(0");
 
-    const firstItem = page.locator('[data-component="dashboard-split-list-item"]').first();
+    const firstItem = page.locator('[data-component="desktop_dashboard_split_activities-panel_list-panel_list_item"]').first();
     await expect(firstItem).toBeVisible();
     await firstItem.click();
 
-    const detailPanel = page.locator('[data-component="detail-panel"]');
+    const detailPanel = page.locator('[data-component="desktop_dashboard_split-layout_detail-panel"]');
     await expect(detailPanel).toBeVisible();
     await expect(detailPanel).toContainText("김교체");
 

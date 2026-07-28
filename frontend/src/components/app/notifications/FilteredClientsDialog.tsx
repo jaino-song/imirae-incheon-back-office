@@ -133,10 +133,10 @@ export function FilteredClientsDialog({
         <>
             <Dialog open={open} onOpenChange={(open: boolean) => !open && onClose()}>
                 <DialogContent
-                    data-component="admin-filtered-clients-dialog"
+                    data-component="desktop_admin_filtered-clients-dialog"
                     className={`max-w-lg max-h-[80vh] ${APP_DIALOG_FLUSH_CONTENT_CLASS_NAME}`}
                 >
-                    <DialogHeader data-component="admin-filtered-clients-header" className="px-4 py-3 flex flex-row items-center justify-between border-b">
+                    <DialogHeader data-component="desktop_admin_filtered-clients-dialog_header" className="px-4 py-3 flex flex-row items-center justify-between border-b">
                         <DialogTitle className="font-semibold">{title}</DialogTitle>
                         <DialogDescription className="sr-only">
                             {title}에 해당하는 클라이언트 목록
@@ -146,7 +146,7 @@ export function FilteredClientsDialog({
                         </Button>
                     </DialogHeader>
 
-                    <div data-component="admin-filtered-clients-body" className="overflow-y-auto max-h-[calc(80vh-4rem)]">
+                    <div data-component="desktop_admin_filtered-clients-dialog_body" className="overflow-y-auto max-h-[calc(80vh-4rem)]">
                         {isLoading ? (
                             <div className="flex justify-center py-16">
                                 <Spinner size="default" />
@@ -207,6 +207,7 @@ export function FilteredClientsDialog({
             />
 
             <ClientFormDialog
+                data-component="desktop_admin_filtered-clients-dialog_client-form-dialog"
                 open={formDialogOpen}
                 onClose={handleFormDialogClose}
                 client={editingClient}
@@ -217,7 +218,7 @@ export function FilteredClientsDialog({
                 onOpenChange={(open) => {
                     if (!open) setDeleteTargetClientId(null);
                 }}
-                dataComponent="filtered-clients-delete-approval"
+                dataComponent="desktop_admin_filtered-clients-dialog_delete-approval"
                 title="고객을 삭제하시겠습니까?"
                 description="삭제한 고객 정보는 복구할 수 없습니다."
                 approvalLabel="삭제"

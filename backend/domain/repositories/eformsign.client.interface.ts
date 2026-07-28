@@ -87,7 +87,7 @@ export interface CreateDocumentPayload {
     };
     /**
      * Dispatch to a reviewer step whose recipient is pre-specified in the template
-     * (feedback flow). The member info must MIRROR the template's step settings exactly —
+     * (service record flow). The member info must MIRROR the template's step settings exactly —
      * eformsign rejects mismatches with 4000012 — so obtain it via getTemplateReviewer().
      */
     reviewer?: EformsignReviewerMember;

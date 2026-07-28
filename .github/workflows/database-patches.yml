@@ -209,6 +209,7 @@ jobs:
           ALTER TABLE "message_trigger_job"  ADD COLUMN IF NOT EXISTS "next_attempt_at" TIMESTAMPTZ(6);
           ALTER TABLE "message_trigger_rule" ADD COLUMN IF NOT EXISTS "is_default" BOOLEAN NOT NULL DEFAULT false;
           ALTER TABLE "message_trigger_rule" ADD COLUMN IF NOT EXISTS "jobs_stale" BOOLEAN NOT NULL DEFAULT false;
+          DELETE FROM message_template WHERE id = '';
           UPDATE "message_trigger_rule"
           SET "is_active" = false
           WHERE "is_active" = true
@@ -415,6 +416,18 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-incheon-districts-operational.sql
 
+      # One-shot data/policy patch — runs ONLY when manually dispatched (target=preview),
+      # never on ordinary prisma pushes, so it does not re-assert branch state.
+      - name: Activate Incheon district branches + rename HQ (manual)
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/activate-incheon-districts-and-rename-hq.sql
+
+      - name: Verify Incheon districts operational (manual)
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-incheon-districts-operational.sql
+
   apply-production:
     name: apply production database patches
     needs: [apply-preview]
@@ -477,6 +490,7 @@ jobs:
           ALTER TABLE "message_trigger_job"  ADD COLUMN IF NOT EXISTS "next_attempt_at" TIMESTAMPTZ(6);
           ALTER TABLE "message_trigger_rule" ADD COLUMN IF NOT EXISTS "is_default" BOOLEAN NOT NULL DEFAULT false;
           ALTER TABLE "message_trigger_rule" ADD COLUMN IF NOT EXISTS "jobs_stale" BOOLEAN NOT NULL DEFAULT false;
+          DELETE FROM message_template WHERE id = '';
           UPDATE "message_trigger_rule"
           SET "is_active" = false
           WHERE "is_active" = true

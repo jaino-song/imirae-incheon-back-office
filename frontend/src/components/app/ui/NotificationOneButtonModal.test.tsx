@@ -21,7 +21,7 @@ describe("NotificationOneButtonModal", () => {
     const dialog = screen.getByRole("dialog", { name: "메시지가 복사되었습니다." });
     const button = screen.getByRole("button", { name: "확인" });
 
-    expect(dialog).toHaveAttribute("data-component", "notification-one-button-modal");
+    expect(dialog).toHaveAttribute("data-component", "desktop_v3_notification-one-button-modal");
     expect(dialog).toHaveClass("aspect-[5/3]", "sm:max-w-[300px]");
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(button).toHaveClass("w-full");

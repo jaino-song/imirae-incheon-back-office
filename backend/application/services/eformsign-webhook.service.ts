@@ -23,6 +23,7 @@ import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
 } from "./service-record-lifecycle.service";
+import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
 
 /**
  * Eformsign document status codes (from document.status field)
@@ -116,26 +117,27 @@ export class EformsignWebhookService {
         private readonly employeeRepository: IEmployeeRepository,
         @Optional() private readonly prisma?: PrismaService,
         @Optional() private readonly serviceRecordLifecycle?: ServiceRecordLifecycleService,
+        @Optional() private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
     ) {}
 
     /**
-     * BJJ-247 gate: is this document the daily-feedback snapshot template?
-     * A feedback document's completion must NOT trigger contract-completion side
+     * BJJ-247 gate: is this document the service-record snapshot template?
+     * A service-record document's completion must NOT trigger contract-completion side
      * effects (link eDocId / sync endDate). Checks all configured 제공기록지 tiers
      * (BJJ-multi-tier: base 5회 + optional 10/15/20회), not just the base template —
      * no-op (returns false) when none of the 4 env vars are set, preserving existing behavior.
      */
     private isServiceRecordTemplate(templateId?: string): boolean {
         if (!templateId) return false;
-        const feedbackTemplateIds = new Set(
+        const serviceRecordTemplateIds = new Set(
             [
-                process.env["EFORMSIGN_FEEDBACK_TEMPLATE_ID"],
-                process.env["EFORMSIGN_FEEDBACK_TEMPLATE_ID_10"],
-                process.env["EFORMSIGN_FEEDBACK_TEMPLATE_ID_15"],
-                process.env["EFORMSIGN_FEEDBACK_TEMPLATE_ID_20"],
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"],
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_10"],
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_15"],
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_20"],
             ].filter((id): id is string => Boolean(id)),
         );
-        return feedbackTemplateIds.has(templateId);
+        return serviceRecordTemplateIds.has(templateId);
     }
 
     async processWebhook(payload: EformsignWebhookPayloadDto): Promise<void> {
@@ -205,7 +207,7 @@ export class EformsignWebhookService {
 
             if (this.isServiceRecordTemplate(template_id)) {
                 this.logger.log(
-                    `Document ${documentId} is a feedback snapshot (template ${template_id}); skipping contract-completion side effects (BJJ-247 gate).`
+                    `Document ${documentId} is a service-record snapshot (template ${template_id}); skipping contract-completion side effects (BJJ-247 gate).`
                 );
                 await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
             } else {
@@ -330,7 +332,7 @@ export class EformsignWebhookService {
         if (status === DOCUMENT_STATUS.DOC_COMPLETE) {
             if (this.isServiceRecordTemplate(template_id)) {
                 this.logger.log(
-                    `Document ${documentId} is a feedback snapshot (template ${template_id}); skipping contract-completion side effects (BJJ-247 gate).`
+                    `Document ${documentId} is a service-record snapshot (template ${template_id}); skipping contract-completion side effects (BJJ-247 gate).`
                 );
                 await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
             } else {
@@ -359,6 +361,7 @@ export class EformsignWebhookService {
         });
 
         if (claimResult === "claimed") {
+            await this.bumpDocumentSnapshotVersion(branchid);
             this.logger.log(`Document ${documentId} completion claimed from ${source}`);
             return true;
         }
@@ -379,11 +382,24 @@ export class EformsignWebhookService {
         branchid: string,
         params: Parameters<UpdateEformsignDocStatusUsecase["execute"]>[1],
     ): Promise<void> {
-        await this.updateStatusUsecase.execute(branchid, params);
+        const updated = await this.updateStatusUsecase.execute(branchid, params);
+        if (updated.statusType === params.statusType) {
+            await this.bumpDocumentSnapshotVersion(branchid);
+        }
         try {
             await this.linkDocumentUsecase.execute(branchid, params.documentId);
         } catch (error) {
             this.logger.warn(`Failed to keep client linked for document ${params.documentId}: ${error}`);
+        }
+    }
+
+    private async bumpDocumentSnapshotVersion(branchId: string): Promise<void> {
+        if (!branchId) return;
+
+        try {
+            await this.documentSnapshotService?.bumpVersion(branchId);
+        } catch {
+            // 캐시 무효화 실패가 웹훅 상태 동기화 성공을 되돌리면 안 된다.
         }
     }
 
@@ -396,7 +412,7 @@ export class EformsignWebhookService {
         const doc = await this.eformsignDocRepository.findByDocumentId(branchid, documentId);
         if (doc?.documentKind === EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT) {
             this.logger.log(
-                `Document ${documentId} is a feedback snapshot row; skipping contract-completion side effects (${source}).`,
+                `Document ${documentId} is a service-record snapshot row; skipping contract-completion side effects (${source}).`,
             );
             await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
             return;

@@ -53,7 +53,7 @@ function monthLabel() {
   return new Intl.DateTimeFormat("ko-KR", { month: "numeric" }).format(new Date());
 }
 
-function renderPage() {
+function renderPage(onEdit?: (rule: MessageTriggerRule) => void) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -63,7 +63,7 @@ function renderPage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MessageTriggerList />
+      <MessageTriggerList data-component="mobile_messages_triggers_test_list" onEdit={onEdit} />
     </QueryClientProvider>,
   );
 }
@@ -144,6 +144,11 @@ describe("MessageTriggerList", () => {
       expect(screen.getByText(`${monthLabel()} 2건`)).toBeInTheDocument();
     });
     expect(screen.getByText("서비스 시작 1일 전 · 고객")).toBeInTheDocument();
+    expect(
+      document.querySelector(
+        '[data-component="mobile_messages_triggers_test_list_meta"]',
+      ),
+    ).toHaveTextContent(`${monthLabel()} 2건 · 서비스 시작 1일 전 · 고객 · SMS`);
   });
 
   it("updates the selected real rule when the toggle row is pressed", async () => {
@@ -161,6 +166,21 @@ describe("MessageTriggerList", () => {
       id: "rule-start",
       dto: { isActive: false },
     });
+  });
+
+  it("separates rule editing from the active toggle in management mode", async () => {
+    const onEdit = jest.fn();
+    const rule = createRule({ isActive: true });
+    mockUseMessageTriggerRules.mockReturnValue({ data: [rule], isError: false, isLoading: false });
+
+    renderPage(onEdit);
+
+    fireEvent.click(await screen.findByRole("button", { name: "실제 서비스 시작 규칙 설정" }));
+    expect(onEdit).toHaveBeenCalledWith(rule);
+    expect(updateMutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "실제 서비스 시작 규칙 비활성화" }));
+    expect(updateMutate).toHaveBeenCalledWith({ id: "rule-start", dto: { isActive: false } });
   });
 
   it("renders the service information trigger seven days before service start", async () => {
@@ -183,7 +203,7 @@ describe("MessageTriggerList", () => {
     expect(screen.getByText("서비스 시작 7일 전 · 고객")).toBeInTheDocument();
     const serviceInfoRow = screen.getByRole("button", { name: /서비스 시작 7일 전 서비스 안내/ });
     expect(serviceInfoRow).toHaveAttribute("data-trigger-channel", "SMS");
-    expect(serviceInfoRow.querySelector('[data-component="message-trigger-icon"]'))
+    expect(serviceInfoRow.querySelector('[data-component="mobile_messages_triggers_test_list_icon"]'))
       .toHaveClass("trigger-icon-primary");
     expect(serviceInfoRow.querySelector("svg")).toHaveClass("lucide-message-square-text");
   });

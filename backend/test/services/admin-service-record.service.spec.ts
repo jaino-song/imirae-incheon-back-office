@@ -140,7 +140,7 @@ describe("AdminServiceRecordService", () => {
         prisma.eformsign_doc.findMany.mockResolvedValue([
             {
                 employeeScheduleId: 3,
-                documentId: "feedback-doc-3",
+                documentId: "service-record-doc-3",
                 statusDetail: "완료",
                 stepName: "제공기록지 서명",
                 createdDate: new Date("2026-07-02T07:00:00.000Z"),
@@ -150,7 +150,7 @@ describe("AdminServiceRecordService", () => {
             },
             {
                 employeeScheduleId: 3,
-                documentId: "feedback-doc-3-old",
+                documentId: "service-record-doc-3-old",
                 statusDetail: "대기",
                 stepName: "제공기록지 서명",
                 createdDate: new Date("2026-07-01T07:00:00.000Z"),
@@ -198,7 +198,7 @@ describe("AdminServiceRecordService", () => {
         }));
         expect(overview.assignments.find((assignment) => assignment.scheduleId === 1)?.signatureDoc).toBeNull();
         expect(overview.assignments.find((assignment) => assignment.scheduleId === 3)?.signatureDoc).toEqual({
-            documentId: "feedback-doc-3",
+            documentId: "service-record-doc-3",
             statusDetail: "완료",
             stepName: "제공기록지 서명",
             createdDate: new Date("2026-07-02T07:00:00.000Z"),
@@ -245,7 +245,7 @@ describe("AdminServiceRecordService", () => {
         expect(statuses.get(2)).toBe("none");
     });
 
-    it("keeps overview available when feedback signature doc columns are not migrated yet", async () => {
+    it("keeps overview available when service-record signature doc columns are not migrated yet", async () => {
         const prisma = createPrisma();
         const service = new AdminServiceRecordService(
             prisma as unknown as PrismaService,

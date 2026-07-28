@@ -30,7 +30,7 @@ export default function LogoutPage() {
 
     if (error) {
         return (
-            <div data-component="logout" className="flex flex-col items-center justify-center h-screen gap-4">
+            <div data-component="desktop_logout_page" className="flex flex-col items-center justify-center h-screen gap-4">
                 <p className="text-destructive">{error}</p>
                 <p className="text-sm text-muted-foreground">
                     잠시 후 로그인 페이지로 이동합니다...
@@ -40,7 +40,7 @@ export default function LogoutPage() {
     }
 
     return (
-        <div data-component="logout" className="flex flex-col items-center justify-center h-screen gap-4">
+        <div data-component="desktop_logout_page" className="flex flex-col items-center justify-center h-screen gap-4">
             <Spinner size="lg" />
             <p className="text-foreground">로그아웃 중...</p>
         </div>

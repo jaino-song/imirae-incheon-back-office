@@ -44,7 +44,7 @@ describe("MobileBottomNav", () => {
   it("keeps the All indicator position when fading out on child pages", () => {
     mockUsePathname.mockReturnValue("/all");
     const { container, rerender } = render(<MobileBottomNav />);
-    const indicator = container.querySelector('[data-component="mobile-bottom-indicator"]');
+    const indicator = container.querySelector('[data-slot="mobile-bottom-indicator"]');
 
     expect(indicator).toHaveStyle({
       opacity: "1",
@@ -66,7 +66,7 @@ describe("MobileBottomNav", () => {
     mockUsePathname.mockReturnValue("/calls");
 
     const { container } = render(<MobileBottomNav />);
-    const callsItem = container.querySelector('[data-component="mobile-bottom-nav-chat"]');
+    const callsItem = container.querySelector('[data-slot="mobile-bottom-nav-chat"]');
 
     expect(callsItem).toHaveTextContent("통화요약");
     expect(callsItem).toHaveAttribute("aria-disabled", "true");
@@ -88,7 +88,7 @@ describe("MobileBottomNav", () => {
     mockUsePathname.mockReturnValue("/dashboard");
 
     const { container } = render(<MobileBottomNav />);
-    const items = container.querySelectorAll('[data-component^="mobile-bottom-nav-"]');
+    const items = container.querySelectorAll('[data-slot^="mobile-bottom-nav-"]');
 
     expect(items).toHaveLength(5);
     items.forEach((item) => {

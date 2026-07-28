@@ -46,8 +46,10 @@ import {
     ClientFormPanel,
 } from "@/components/app/clients/ClientFormDialog";
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
+import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { NotificationOneButtonModal } from "@/components/app/ui/NotificationOneButtonModal";
+import { StatusPill } from "@/components/app/ui/status-badge";
 import { ClientDetailModal } from "@/components/app/clients/ClientDetailModal";
 import { ServiceRecordLinkResetResultModal } from "@/components/app/clients/ServiceRecordLinkResetResultModal";
 import { ServiceScheduleChangeModal } from "@/components/app/clients/ServiceScheduleChangeModal";
@@ -178,16 +180,22 @@ function ClientAutomationSection() {
     const selectedAutomationEnabled = selectedAutomation ? policy?.clientAutoRegistration === true : false;
 
     return (
-        <section data-component="clients-automation-section" className="flex h-full min-h-0 flex-1 flex-col">
-            <SplitLayout
+        <section
+            data-component="desktop_clients_sections_section-content_automation-section"
+            className="flex h-full min-h-0 flex-1 flex-col"
+        >
+            <SplitLayout data-component="desktop_clients_sections_section-content_automation-section_split-layout"
                 hasSelection={selectedAutomation !== null}
                 onBack={() => setSelectedAutomationId(null)}
             >
-                <ListPanel
+                <ListPanel data-component="desktop_clients_sections_section-content_automation-section_split-layout_list-panel"
                     title="고객 자동화"
                     subtitle="고객 등록과 문서 흐름을 자동화합니다."
                 >
-                    <div data-component="clients-automation-list" className="space-y-2">
+                    <div
+                        data-component="desktop_clients_sections_section-content_automation-section_split-layout_list-panel_content"
+                        className="space-y-2"
+                    >
                         <AnimatedSlotList<ClientAutomationItem>
                             items={CLIENT_AUTOMATION_ITEMS}
                             isLoading={false}
@@ -204,14 +212,14 @@ function ClientAutomationSection() {
 
                                 return (
                                     <AnimatedSlotListItemContent
-                                        dataComponent="clients-automation-item"
+                                        data-component="desktop_clients_sections_section-content_automation-section_split-layout_list-panel_content_item"
                                         icon={item.icon}
                                         iconContainerClassName="text-v3-primary"
                                         title={item.title}
                                         subtitle={item.subtitle}
                                         status={(
                                             <Switch
-                                                data-component="clients-automation-item-toggle"
+                                                data-component="desktop_clients_sections_section-content_automation-section_split-layout_list-panel_content_item_toggle"
                                                 aria-label={`${item.title} 사용`}
                                                 checked={policy?.clientAutoRegistration === true}
                                                 disabled={isLoading || updatePolicy.isPending}
@@ -228,13 +236,19 @@ function ClientAutomationSection() {
                 </ListPanel>
 
                 {selectedAutomation ? (
-                    <DetailPanel
+                    <DetailPanel data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel"
                         compactBackLabel="자동화 목록으로 돌아가기"
                         title={selectedAutomation.title}
                         subtitle={selectedAutomation.subtitle}
                     >
-                        <InfoCard title="자동화 안내">
-                            <p data-component="clients-automation-detail-temporary-copy" className="text-[0.85rem] leading-6 text-v3-text-muted">
+                        <InfoCard
+                            data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel_info-card"
+                            title="자동화 안내"
+                        >
+                            <p
+                                data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel_info-card_temporary-copy"
+                                className="text-[0.85rem] leading-6 text-v3-text-muted"
+                            >
                                 {selectedAutomationEnabled
                                     ? "전자문서 생성 시에 자동으로 고객이 등록됩니다."
                                     : "자동 고객 등록이 꺼져 있습니다."}
@@ -242,10 +256,9 @@ function ClientAutomationSection() {
                         </InfoCard>
                     </DetailPanel>
                 ) : (
-                    <DetailPanel
+                    <DetailPanel data-component="desktop_clients_sections_section-content_automation-section_split-layout_detail-panel-empty"
                         overlay={(
                             <ListEmptyState
-                                name="clients-automation-detail-empty"
                                 icon={Workflow}
                                 message="왼쪽 목록에서 자동화 항목을 선택해 주세요."
                                 className="flex-none min-h-0"
@@ -625,17 +638,28 @@ export default function ClientsPage() {
                 ]}
             />
 
-            <div data-component="clients-sections" className="flex flex-1 min-h-0 flex-col gap-4 lg:flex-row lg:items-stretch">
+            <div
+                data-component="desktop_clients_sections"
+                data-slot="clients-sections"
+                className="flex flex-1 min-h-0 flex-col gap-4 lg:flex-row lg:items-stretch"
+            >
                 <SectionNav
+                    data-component="desktop_clients_sections_section-nav"
                     items={CLIENT_SECTIONS}
                     activeId={activeSection}
                     onSelect={handleSectionSelect}
                 />
 
-                <div data-component="clients-section-content" className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <div
+                    data-component="desktop_clients_sections_section-content"
+                    className="flex min-h-0 min-w-0 flex-1 flex-col"
+                >
                     {activeSection === "list" ? (
-                        <section data-component="clients-list-section" className="flex min-h-0 flex-1 flex-col">
-                            <SplitLayout
+                        <section
+                            data-component="desktop_clients_sections_section-content_list-section"
+                            className="flex min-h-0 flex-1 flex-col"
+                        >
+                            <SplitLayout data-component="desktop_clients_sections_section-content_list-section_split-layout"
                                 hasSelection={shouldShowClientFormPanel || !!activeSelectedClient}
                                 onBack={() => {
                                     if (shouldShowClientFormPanel) {
@@ -650,7 +674,7 @@ export default function ClientsPage() {
                                     setSelectedClient(null);
                                 }}
                             >
-                <ListPanel
+                <ListPanel data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel"
                     title="고객 목록"
                     tabs={FILTER_CHIPS}
                     activeTab={activeFilter}
@@ -665,19 +689,22 @@ export default function ClientsPage() {
                             label={t(locale, "clients.add")}
                             onClick={handleAddNew}
                             data-testid="add-client-button"
-                            data-component="clients-header-add"
+                            data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_header_add"
                             className={
                                 shouldShowClientFormPanel
-                                    ? "bg-v3-primary text-white hover:bg-v3-primary"
+                                    ? "max-w-full shrink-0 whitespace-nowrap bg-v3-primary px-[calc(10px*var(--glint-ui-scale,1))] text-white hover:bg-v3-primary"
                                     : undefined
                             }
                         />
                     }
                     emptyState={!isLoading && filteredClients.length === 0 ? (
-                        <ListEmptyState message={t(locale, "clients.no-data")} />
+                        <ListEmptyState icon={Users} message={t(locale, "clients.no-data")} />
                     ) : undefined}
                 >
-                    <div data-component="clients-list-content" className="space-y-2">
+                    <div
+                        data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content"
+                        className="space-y-2"
+                    >
                         <AnimatedSlotList<Client>
 	                                    items={filteredClients}
 	                                    isLoading={isLoading}
@@ -694,10 +721,10 @@ export default function ClientsPage() {
 	                                        if (isLoading) {
 	                                            return (
 	                                                <>
-	                                                    <div data-component="clients-list-item-avatar-skeleton" className="flex h-[calc(44px*var(--glint-ui-scale,1))] w-[calc(44px*var(--glint-ui-scale,1))] shrink-0 items-center justify-center rounded-[14px] bg-v3-dim-white shadow-md">
+	                                                    <div data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_avatar-skeleton" className="flex h-[calc(44px*var(--glint-ui-scale,1))] w-[calc(44px*var(--glint-ui-scale,1))] shrink-0 items-center justify-center rounded-[14px] bg-v3-dim-white shadow-md">
 	                                                        <Skeleton className="h-[calc(20px*var(--glint-ui-scale,1))] w-[calc(20px*var(--glint-ui-scale,1))] rounded-md bg-white/70" />
 	                                                    </div>
-	                                                    <div data-component="clients-list-item-info-skeleton" className="flex-1 min-w-0">
+	                                                    <div data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_info-skeleton" className="flex-1 min-w-0">
 	                                                        <Skeleton className="h-[calc(16px*var(--glint-ui-scale,1))] w-[calc(112px*var(--glint-ui-scale,1))] bg-v3-dim-white" />
 	                                                        <Skeleton className="mt-[calc(6px*var(--glint-ui-scale,1))] h-[calc(12px*var(--glint-ui-scale,1))] w-[calc(192px*var(--glint-ui-scale,1))] bg-v3-dim-white" />
 	                                                    </div>
@@ -710,10 +737,11 @@ export default function ClientsPage() {
 	                                        const clientBadges = getClientBadges(client);
 	                                        const sortedClientBadges = prioritizeClientBadges(clientBadges);
 	                                        const primaryClientBadge = getPrimaryClientBadge(clientBadges);
+                                            const [firstClientBadge, ...remainingClientBadges] = sortedClientBadges;
 
 	                                        return (
 	                                            <AnimatedSlotListItemContent
-	                                                dataComponent="clients-list-item"
+	                                                data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item"
 	                                                icon={Users}
 	                                                iconContainerClassName={getClientBadgeAvatarClassName(primaryClientBadge)}
 	                                                title={client.name}
@@ -727,13 +755,27 @@ export default function ClientsPage() {
 	                                                        ) : null}
 	                                                    </>
 	                                                }
-			                                                status={sortedClientBadges.map((badge, badgeIndex) => (
-			                                                    <StatusBadge
-			                                                        key={badge.key ?? `${badge.status}-${badge.label ?? badgeIndex}`}
-			                                                        status={badge.status}
-			                                                        label={badge.label}
-			                                                    />
-			                                                ))}
+                                                    status={firstClientBadge ? (
+                                                        <div className="flex items-center gap-[calc(4px*var(--glint-ui-scale,1))]">
+                                                            <StatusBadge
+                                                                status={firstClientBadge.status}
+                                                                label={
+                                                                    firstClientBadge.label
+                                                                        ? getClientDisplayLabel(firstClientBadge.label)
+                                                                        : undefined
+                                                                }
+                                                            />
+                                                            {remainingClientBadges.length > 0 ? (
+                                                                <StatusPill
+                                                                    data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_status-more"
+                                                                    variant="neutral"
+                                                                    size="sm"
+                                                                >
+                                                                    +{remainingClientBadges.length}
+                                                                </StatusPill>
+                                                            ) : null}
+                                                        </div>
+                                                    ) : undefined}
 			                                            />
 	                                        );
 	                                    }}
@@ -743,13 +785,14 @@ export default function ClientsPage() {
 
                 {shouldShowClientFormPanel ? (
                     <ClientFormPanel
+                        data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-panel_form-panel"
                         client={panelFormClient}
                         onClose={handleClientFormPanelClose}
                         onSuccess={handleClientFormPanelSuccess}
                         activeStep={clientFormActiveStep}
                         onActiveStepChange={setClientFormActiveStep}
                         renderLayout={({ content, footer }) => (
-                            <DetailPanel
+                            <DetailPanel data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-panel-form"
                                 compactBackLabel="고객 목록으로 돌아가기"
                                 title={panelFormClient ? t(locale, "clients.form.edit-title") : t(locale, "clients.form.add-title")}
                                 subtitle={
@@ -772,11 +815,13 @@ export default function ClientsPage() {
                 ) : activeSelectedClient ? (
                     <div
                         key={`clients-detail-${activeSelectedClient.id}`}
-                        data-component="clients-detail-selection-slide-up"
+                        data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection"
                         className="h-full min-h-0 animate-v3-slide-up"
                     >
                         <ClientDetailPanel
                             client={activeSelectedClient}
+                            dataComponentPrefix="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel"
+                            messageHistoryDataComponentPrefix="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_message-history"
                             compactBackLabel="고객 목록으로 돌아가기"
                             onScheduleChangeDecided={clearSelectedClientScheduleChange}
                             trailing={
@@ -796,7 +841,7 @@ export default function ClientsPage() {
                                             {t(locale, "common.edit")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
-                                            data-component="clients-detail-menu-change-service-schedule"
+                                            data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_change-service-schedule"
                                             disabled={isPreparingScheduleChange}
                                             onClick={() => void handleOpenServiceScheduleChange(activeSelectedClient.id)}
                                             className="gap-2"
@@ -805,7 +850,7 @@ export default function ClientsPage() {
                                             서비스 일정 변경
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
-                                            data-component="clients-detail-menu-reset-service-record-link"
+                                            data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_reset-service-record-link"
                                             onClick={() => setResetLinkTargetClientId(activeSelectedClient.id)}
                                             className="gap-2"
                                         >
@@ -813,9 +858,10 @@ export default function ClientsPage() {
                                             제공기록지 링크 재설정
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
-                                            data-component="clients-detail-menu-delete"
+                                            data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_delete"
                                             onClick={() => handleDeleteRequest(activeSelectedClient.id)}
-                                            className="gap-2 text-destructive focus:text-destructive"
+                                            variant="destructive"
+                                            className="gap-2"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                             {t(locale, "common.delete")}
@@ -826,7 +872,10 @@ export default function ClientsPage() {
                         />
                     </div>
                 ) : (
-                    <EmptyState name="clients-empty-state" icon={Users} message="고객을 선택하면 상세 정보가 표시됩니다" />
+                    <EmptyState
+                        icon={Users}
+                        message="고객을 선택하면 상세 정보가 표시됩니다"
+                    />
                 )}
                             </SplitLayout>
                         </section>
@@ -845,6 +894,7 @@ export default function ClientsPage() {
                 />
 
             <ClientFormDialog
+                data-component="desktop_clients_form-dialog"
                 open={formDialogOpen}
                 onClose={handleFormDialogClose}
                 client={editingClient ?? null}
@@ -856,7 +906,7 @@ export default function ClientsPage() {
                 onOpenChange={(open) => {
                     if (!open && !isResettingLink) setResetLinkTargetClientId(null);
                 }}
-                dataComponent="clients-detail-reset-service-record-link-approval"
+                data-component="desktop_clients_modals_reset-service-record-link-approval"
                 title="제공기록지 링크를 재설정하시겠습니까?"
                 description="기존 링크는 만료되고 새 링크가 생성됩니다. 메시지는 발송되지 않습니다."
                 isDescriptionVisuallyHidden={false}
@@ -895,7 +945,7 @@ export default function ClientsPage() {
                 onOpenChange={(open) => {
                     if (!open) setDeleteTargetClientId(null);
                 }}
-                dataComponent="clients-delete-approval"
+                data-component="desktop_clients_modals_delete-approval"
                 title={t(locale, "clients.delete-confirm")}
                 description="삭제한 고객 정보는 복구할 수 없습니다."
                 approvalLabel={t(locale, "common.delete")}
@@ -910,7 +960,7 @@ export default function ClientsPage() {
                 onOpenChange={(open) => {
                     if (!open) setDeleteErrorMessage(null);
                 }}
-                dataComponent="clients-delete-error-notification"
+                data-component="desktop_clients_modals_delete-error-notification"
                 title="고객을 삭제하지 못했습니다."
                 description={deleteErrorMessage ?? ""}
                 isDescriptionVisuallyHidden={false}

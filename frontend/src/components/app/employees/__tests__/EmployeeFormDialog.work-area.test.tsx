@@ -95,16 +95,16 @@ describe("EmployeeFormPanel work area multi-select", () => {
     fireEvent.click(screen.getByRole("button", { name: "완료" }));
 
     const field = document.querySelector<HTMLElement>(
-      '[data-component="employees-form-panel-work-area-field"]',
+      '[data-component="desktop_employees_form-panel_work-area-field"]',
     );
     const openStatusField = document.querySelector<HTMLElement>(
-      '[data-component="employees-form-panel-open-status-field"]',
+      '[data-component="desktop_employees_form-panel_open-status-field"]',
     );
     const openStatusSwitch = document.querySelector<HTMLElement>(
-      '[data-component="employees-form-panel-open-status-switch"]',
+      '[data-component="desktop_employees_form-panel_open-status-switch"]',
     );
     const openStatusSwitchThumb = document.querySelector<HTMLElement>(
-      '[data-component="employees-form-panel-open-status-switch-thumb"]',
+      '[data-component="desktop_employees_form-panel_open-status-switch-thumb"]',
     );
     expect(field).not.toBeNull();
     expect(openStatusField).not.toBeNull();
@@ -115,9 +115,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     const error = within(field!).getByText("근무 지역을 선택해주세요");
 
     expect(label.parentElement).toContainElement(error);
-    expect(label.parentElement).toHaveAttribute(
-      "data-component",
-      "employees-form-panel-work-area-field-label-row",
+    expect(label.parentElement).toHaveAttribute("data-component", "desktop_employees_form-panel_work-area-field_label-row",
     );
     expect(trigger).toHaveAttribute("aria-invalid", "true");
     expect(field!.nextElementSibling).toBe(openStatusField);
@@ -152,7 +150,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     fireEvent.click(screen.getByRole("button", { name: "완료" }));
 
     const field = document.querySelector<HTMLElement>(
-      '[data-component="employees-form-dialog-field-work-area"]',
+      '[data-component="desktop_employees_form-dialog_section-work_grid_field-work-area"]',
     );
     expect(field).not.toBeNull();
 
@@ -160,9 +158,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     const error = within(field!).getByText("근무 지역을 선택해주세요");
 
     expect(label.parentElement).toContainElement(error);
-    expect(label.parentElement).toHaveAttribute(
-      "data-component",
-      "employees-form-dialog-field-work-area-label-row",
+    expect(label.parentElement).toHaveAttribute("data-component", "desktop_employees_form-dialog_section-work_grid_field-work-area_label-row",
     );
     expect(trigger).toHaveAttribute("aria-describedby", "employee-form-work-area-error");
   });
@@ -211,9 +207,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     const phoneLabel = screen.getByText("연락처", { selector: "label" });
 
     expect(phoneLabel.parentElement).toContainElement(duplicateMessage);
-    expect(phoneLabel.parentElement).toHaveAttribute(
-      "data-component",
-      "employees-form-dialog-field-phone-label-row",
+    expect(phoneLabel.parentElement).toHaveAttribute("data-component", "desktop_employees_form-dialog_section-basic_grid_field-phone_label-row",
     );
     expect(phoneInput).toHaveAttribute("aria-invalid", "true");
     expect(phoneInput).toHaveAttribute(
@@ -221,7 +215,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
       "employees-form-dialog-phone-helper",
     );
     expect(
-      document.querySelector('[data-component="employees-form-dialog-submit"]'),
+      document.querySelector('[data-component="desktop_employees_form-dialog_submit"]'),
     ).toBeDisabled();
 
     fireEvent.change(phoneInput, { target: { value: "01012345678" } });
@@ -229,7 +223,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
     await screen.findByText("등록 가능한 번호입니다.");
     await waitFor(() => expect(phoneInput).not.toHaveAttribute("aria-invalid"));
     expect(
-      document.querySelector('[data-component="employees-form-dialog-submit"]'),
+      document.querySelector('[data-component="desktop_employees_form-dialog_submit"]'),
     ).toBeEnabled();
   });
 });

@@ -1,0 +1,1070 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>BabyJamJam Architecture Atlas</title>
+    <style>
+      :root {
+        --bg: #070a0f;
+        --surface: #0d121a;
+        --surface-2: #111925;
+        --surface-3: #172231;
+        --line: #253246;
+        --line-strong: #3b4b63;
+        --text: #f4f7fb;
+        --muted: #9eacbf;
+        --faint: #617087;
+        --surface-layer: #45a3ff;
+        --gateway-layer: #a879ff;
+        --interface-layer: #ffbf48;
+        --domain-layer: #48d7a0;
+        --infrastructure-layer: #ff7d73;
+        --external-layer: #e778e9;
+        --trace: #ffd447;
+        --focus: #8ac7ff;
+        --shadow: 0 24px 80px rgb(0 0 0 / 0.42);
+        --radius: 14px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { min-height: 100%; }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 15% -10%, rgb(69 163 255 / 0.12), transparent 30rem),
+          radial-gradient(circle at 85% 0%, rgb(168 121 255 / 0.10), transparent 28rem),
+          var(--bg);
+        color: var(--text);
+        font-family: "Fira Sans", "Avenir Next", "Pretendard", sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      button, input, select, a { font: inherit; }
+
+      button, a { -webkit-tap-highlight-color: transparent; }
+
+      button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+      }
+
+      .app-shell {
+        display: flex;
+        min-height: 100svh;
+        flex-direction: column;
+      }
+
+      .topbar {
+        position: relative;
+        z-index: 20;
+        display: grid;
+        grid-template-columns: minmax(280px, 1fr) auto;
+        gap: 20px;
+        align-items: center;
+        padding: 20px 24px 16px;
+        border-bottom: 1px solid var(--line);
+        background: rgb(7 10 15 / 0.9);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        min-width: 0;
+      }
+
+      .brand > [data-component="desktop_architecture-atlas_header_title-group"] {
+        min-width: 0;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        flex: 0 0 auto;
+        place-items: center;
+        border: 1px solid rgb(138 199 255 / 0.4);
+        border-radius: 12px;
+        background: linear-gradient(145deg, rgb(69 163 255 / 0.18), rgb(168 121 255 / 0.12));
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+      }
+
+      .brand-mark svg { width: 24px; height: 24px; }
+
+      .eyebrow {
+        color: var(--muted);
+        font-family: "Fira Code", "SFMono-Regular", Consolas, monospace;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 2px 0 0;
+        overflow: hidden;
+        font-size: clamp(20px, 2.4vw, 32px);
+        line-height: 1.08;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .top-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: flex-end;
+      }
+
+      .button, .icon-button, .filter-button, .view-button {
+        min-height: 42px;
+        border: 1px solid var(--line-strong);
+        border-radius: 10px;
+        color: var(--text);
+        background: var(--surface-2);
+        cursor: pointer;
+        transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+      }
+
+      .button:hover, .icon-button:hover, .filter-button:hover, .view-button:hover {
+        border-color: #60728e;
+        background: var(--surface-3);
+      }
+
+      .button {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 14px;
+        text-decoration: none;
+      }
+
+      .button svg, .icon-button svg { width: 17px; height: 17px; }
+
+      .button.primary {
+        border-color: rgb(255 212 71 / 0.5);
+        color: #171200;
+        background: var(--trace);
+        font-weight: 700;
+      }
+
+      .toolbar {
+        position: relative;
+        z-index: 15;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 24px;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line);
+        background: rgb(13 18 26 / 0.94);
+        scrollbar-width: thin;
+      }
+
+      .search-wrap {
+        position: relative;
+        flex: 0 0 min(340px, 42vw);
+      }
+
+      .search-wrap svg {
+        position: absolute;
+        top: 50%;
+        left: 13px;
+        width: 16px;
+        height: 16px;
+        color: var(--faint);
+        transform: translateY(-50%);
+        pointer-events: none;
+      }
+
+      .search-input, .flow-select {
+        width: 100%;
+        min-height: 42px;
+        border: 1px solid var(--line-strong);
+        border-radius: 10px;
+        color: var(--text);
+        background: #0a0f16;
+      }
+
+      .search-input { padding: 0 14px 0 40px; }
+      .flow-select { min-width: 275px; padding: 0 38px 0 12px; }
+
+      .filter-group, .view-group, .zoom-group {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .filter-button, .view-button {
+        min-height: 36px;
+        padding: 0 11px;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .filter-button[aria-pressed="true"], .view-button[aria-pressed="true"] {
+        border-color: rgb(255 212 71 / 0.55);
+        color: var(--text);
+        background: rgb(255 212 71 / 0.11);
+      }
+
+      .toolbar-separator { width: 1px; height: 28px; flex: 0 0 auto; background: var(--line); }
+
+      .workspace {
+        display: grid;
+        min-height: 0;
+        flex: 1;
+        grid-template-columns: minmax(0, 1fr) 360px;
+      }
+
+      .canvas-panel {
+        position: relative;
+        min-width: 0;
+        min-height: 680px;
+        overflow: hidden;
+        background-color: #080c12;
+        background-image:
+          linear-gradient(rgb(90 110 140 / 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(90 110 140 / 0.08) 1px, transparent 1px),
+          radial-gradient(circle at 50% 45%, rgb(17 25 37 / 0.7), transparent 55%);
+        background-size: 32px 32px, 32px 32px, 100% 100%;
+        cursor: grab;
+        touch-action: none;
+      }
+
+      .canvas-panel.dragging { cursor: grabbing; }
+
+      .graph-plane {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 2120px;
+        height: 1040px;
+        transform-origin: 0 0;
+        will-change: transform;
+      }
+
+      .edge-layer {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+        pointer-events: none;
+      }
+
+      .edge {
+        fill: none;
+        stroke: #3c4a5f;
+        stroke-width: 1.5;
+        opacity: 0.68;
+        vector-effect: non-scaling-stroke;
+        transition: stroke 180ms ease, opacity 180ms ease, stroke-width 180ms ease;
+      }
+
+      .edge.active {
+        stroke: var(--trace);
+        stroke-width: 3;
+        opacity: 1;
+        filter: drop-shadow(0 0 5px rgb(255 212 71 / 0.75));
+      }
+
+      .edge.dimmed { opacity: 0.07; }
+
+      .stage-label {
+        position: absolute;
+        top: 38px;
+        width: 224px;
+        color: #74839a;
+        font-family: "Fira Code", "SFMono-Regular", Consolas, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .stage-label::after {
+        display: block;
+        width: 100%;
+        height: 1px;
+        margin-top: 9px;
+        background: linear-gradient(90deg, #344258, transparent);
+        content: "";
+      }
+
+      .node {
+        position: absolute;
+        display: flex;
+        width: 224px;
+        min-height: 88px;
+        flex-direction: column;
+        gap: 7px;
+        align-items: stretch;
+        padding: 12px 13px;
+        border: 1px solid var(--line-strong);
+        border-left: 3px solid var(--node-color);
+        border-radius: 11px;
+        color: var(--text);
+        text-align: left;
+        background: linear-gradient(145deg, rgb(21 31 45 / 0.98), rgb(12 18 27 / 0.98));
+        box-shadow: 0 12px 26px rgb(0 0 0 / 0.24), inset 0 1px 0 rgb(255 255 255 / 0.04);
+        cursor: pointer;
+        transition: border-color 180ms ease, opacity 180ms ease, box-shadow 180ms ease, background 180ms ease;
+      }
+
+      .node:hover, .node.selected {
+        border-color: var(--node-color);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--node-color) 55%, transparent), 0 16px 34px rgb(0 0 0 / 0.34);
+      }
+
+      .node.active {
+        border-color: var(--trace);
+        border-left-color: var(--trace);
+        background: linear-gradient(145deg, rgb(49 43 20 / 0.98), rgb(18 20 20 / 0.98));
+        box-shadow: 0 0 0 1px rgb(255 212 71 / 0.45), 0 0 24px rgb(255 212 71 / 0.12);
+      }
+
+      .node.dimmed { opacity: 0.16; }
+      .node.hidden-by-filter { display: none; }
+
+      .node-kicker {
+        color: var(--node-color);
+        font-family: "Fira Code", "SFMono-Regular", Consolas, monospace;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .node.active .node-kicker { color: var(--trace); }
+
+      .node-title { font-size: 14px; font-weight: 700; line-height: 1.2; }
+      .node-summary { color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+      .canvas-hint {
+        position: absolute;
+        bottom: 16px;
+        left: 18px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        color: var(--muted);
+        background: rgb(7 10 15 / 0.82);
+        font-size: 11px;
+        pointer-events: none;
+      }
+
+      kbd {
+        min-width: 21px;
+        padding: 1px 5px;
+        border: 1px solid var(--line-strong);
+        border-radius: 5px;
+        color: var(--text);
+        background: var(--surface-2);
+        font-family: "Fira Code", monospace;
+        text-align: center;
+      }
+
+      .inspector {
+        min-width: 0;
+        overflow-y: auto;
+        border-left: 1px solid var(--line);
+        background: linear-gradient(180deg, #0d131c, #090e15);
+      }
+
+      .inspector-inner {
+        display: flex;
+        min-height: 100%;
+        flex-direction: column;
+        gap: 22px;
+        padding: 22px;
+      }
+
+      .inspector-header { display: flex; flex-direction: column; gap: 9px; }
+      .inspector-title { margin: 0; font-size: 21px; line-height: 1.2; }
+      .inspector-summary { margin: 0; color: var(--muted); }
+
+      .pill-row { display: flex; flex-wrap: wrap; gap: 7px; }
+
+      .pill {
+        display: inline-flex;
+        min-height: 26px;
+        align-items: center;
+        padding: 0 8px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--muted);
+        background: var(--surface-2);
+        font-family: "Fira Code", monospace;
+        font-size: 10px;
+      }
+
+      .section { display: flex; flex-direction: column; gap: 10px; }
+
+      .section-heading {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 0;
+        color: var(--muted);
+        font-family: "Fira Code", monospace;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .section-heading::after { height: 1px; flex: 1; background: var(--line); content: ""; }
+
+      .plain-list, .path-list, .flow-steps {
+        display: flex;
+        margin: 0;
+        padding: 0;
+        flex-direction: column;
+        gap: 8px;
+        list-style: none;
+      }
+
+      .plain-list li { position: relative; padding-left: 14px; color: #c6d0dd; }
+      .plain-list li::before { position: absolute; top: 0.7em; left: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--trace); content: ""; }
+
+      .path-list code {
+        display: block;
+        padding: 8px 9px;
+        overflow-wrap: anywhere;
+        border: 1px solid #202d3f;
+        border-radius: 7px;
+        color: #aec8e8;
+        background: #080d13;
+        font-family: "Fira Code", "SFMono-Regular", Consolas, monospace;
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .flow-steps { counter-reset: steps; }
+      .flow-steps li { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: center; color: #c6d0dd; }
+      .flow-steps li::before { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid rgb(255 212 71 / 0.45); border-radius: 50%; color: var(--trace); background: rgb(255 212 71 / 0.08); font-family: "Fira Code", monospace; font-size: 10px; counter-increment: steps; content: counter(steps); }
+
+      .overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+      .metric {
+        display: flex;
+        min-height: 78px;
+        flex-direction: column;
+        gap: 4px;
+        justify-content: center;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface);
+      }
+
+      .metric-value { font-family: "Fira Code", monospace; font-size: 22px; font-weight: 700; }
+      .metric-label { color: var(--muted); font-size: 11px; }
+
+      .list-view {
+        display: none;
+        min-height: 680px;
+        padding: 22px;
+        overflow: auto;
+        background: #080c12;
+      }
+
+      .list-view.active { display: block; }
+      .canvas-panel.hidden { display: none; }
+
+      .architecture-table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .architecture-table th, .architecture-table td {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .architecture-table th { position: sticky; top: 0; z-index: 2; color: var(--muted); background: #111925; font-family: "Fira Code", monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+      .architecture-table td { color: #c6d0dd; font-size: 13px; }
+      .architecture-table tr:last-child td { border-bottom: 0; }
+      .architecture-table button { padding: 0; border: 0; color: var(--text); background: transparent; font-weight: 700; text-align: left; cursor: pointer; }
+
+      .statusbar {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 24px;
+        border-top: 1px solid var(--line);
+        color: var(--faint);
+        background: #080c12;
+        font-family: "Fira Code", monospace;
+        font-size: 10px;
+      }
+
+      .status-items { display: flex; gap: 16px; flex-wrap: wrap; }
+      .status-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--domain-layer); box-shadow: 0 0 8px rgb(72 215 160 / 0.55); }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+      @media (max-width: 1050px) {
+        .topbar { grid-template-columns: 1fr; }
+        .top-actions { justify-content: flex-start; }
+        .workspace { grid-template-columns: 1fr; }
+        .inspector { max-height: 520px; border-top: 1px solid var(--line); border-left: 0; }
+      }
+
+      @media (max-width: 680px) {
+        .topbar { padding: 16px; }
+        .top-actions { display: grid; grid-template-columns: 1fr 1fr; }
+        .button { width: 100%; }
+        .toolbar { padding: 10px 16px; }
+        .search-wrap { flex-basis: 78vw; }
+        .canvas-panel, .list-view { min-height: 590px; }
+        .inspector-inner { padding: 18px 16px; }
+        .statusbar { align-items: flex-start; padding: 9px 16px; flex-direction: column; }
+        .architecture-table th:nth-child(2), .architecture-table td:nth-child(2), .architecture-table th:nth-child(4), .architecture-table td:nth-child(4) { display: none; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+      }
+    </style>
+  </head>
+  <body data-component="desktop_architecture-atlas_shell_root">
+    <div class="app-shell" data-component="desktop_architecture-atlas_shell_app">
+      <header class="topbar" data-component="desktop_architecture-atlas_header_root">
+        <div class="brand" data-component="desktop_architecture-atlas_header_brand">
+          <div class="brand-mark" data-component="desktop_architecture-atlas_header_brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M5 7.5 12 3l7 4.5v9L12 21l-7-4.5v-9Z" stroke="currentColor" stroke-width="1.5"/>
+              <path d="m8.5 10 3.5 2 3.5-2M12 12v4.5" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <div data-component="desktop_architecture-atlas_header_title-group">
+            <div class="eyebrow" data-component="desktop_architecture-atlas_header_eyebrow">Repository snapshot · 5674c655</div>
+            <h1 data-component="desktop_architecture-atlas_header_title">BabyJamJam Architecture Atlas</h1>
+          </div>
+        </div>
+        <nav class="top-actions" aria-label="Architecture artifacts" data-component="desktop_architecture-atlas_header_actions">
+          <button class="button" id="copyBrief" type="button" data-component="desktop_architecture-atlas_header_copy-agent-brief">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 8h10v11H8z" stroke="currentColor" stroke-width="1.6"/><path d="M6 16H4V5h10v2" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span data-component="desktop_architecture-atlas_header_copy-label">Copy agent brief</span>
+          </button>
+          <a class="button primary" href="babyjamjam-architecture.json" data-component="desktop_architecture-atlas_header_open-json">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 4H5v16h3M16 4h3v16h-3M11 8l2 4-2 4" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span data-component="desktop_architecture-atlas_header_json-label">Open agent JSON</span>
+          </a>
+        </nav>
+      </header>
+
+      <section class="toolbar" aria-label="Map controls" data-component="desktop_architecture-atlas_toolbar_root">
+        <label class="search-wrap" data-component="desktop_architecture-atlas_toolbar_search">
+          <span class="sr-only">Search architecture nodes</span>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.7"/></svg>
+          <input class="search-input" id="searchInput" type="search" placeholder="Search systems, domains, paths…" autocomplete="off" data-component="desktop_architecture-atlas_toolbar_search-input" />
+        </label>
+        <div class="filter-group" id="filterGroup" aria-label="Filter by layer" data-component="desktop_architecture-atlas_toolbar_filters"></div>
+        <div class="toolbar-separator" data-component="desktop_architecture-atlas_toolbar_separator-one" aria-hidden="true"></div>
+        <label data-component="desktop_architecture-atlas_toolbar_flow-picker">
+          <span class="sr-only">Highlight a critical flow</span>
+          <select class="flow-select" id="flowSelect" data-component="desktop_architecture-atlas_toolbar_flow-select"></select>
+        </label>
+        <div class="toolbar-separator" data-component="desktop_architecture-atlas_toolbar_separator-two" aria-hidden="true"></div>
+        <div class="view-group" aria-label="View mode" data-component="desktop_architecture-atlas_toolbar_view-toggle">
+          <button class="view-button" id="graphViewButton" type="button" aria-pressed="true" data-component="desktop_architecture-atlas_toolbar_graph-view">Graph</button>
+          <button class="view-button" id="listViewButton" type="button" aria-pressed="false" data-component="desktop_architecture-atlas_toolbar_list-view">List</button>
+        </div>
+        <div class="zoom-group" aria-label="Graph zoom" data-component="desktop_architecture-atlas_toolbar_zoom">
+          <button class="icon-button" id="zoomOut" type="button" aria-label="Zoom out" data-component="desktop_architecture-atlas_toolbar_zoom-out">−</button>
+          <button class="icon-button" id="resetView" type="button" aria-label="Reset graph view" data-component="desktop_architecture-atlas_toolbar_zoom-reset">0</button>
+          <button class="icon-button" id="zoomIn" type="button" aria-label="Zoom in" data-component="desktop_architecture-atlas_toolbar_zoom-in">+</button>
+        </div>
+      </section>
+
+      <main class="workspace" data-component="desktop_architecture-atlas_workspace_root">
+        <section class="canvas-panel" id="canvasPanel" aria-label="Interactive architecture graph" data-component="desktop_architecture-atlas_graph_viewport">
+          <div class="graph-plane" id="graphPlane" data-component="desktop_architecture-atlas_graph_plane">
+            <svg class="edge-layer" id="edgeLayer" viewBox="0 0 2120 1040" aria-hidden="true"></svg>
+            <div id="stageLabels" data-component="desktop_architecture-atlas_graph_stage-labels"></div>
+            <div id="nodeLayer" data-component="desktop_architecture-atlas_graph_nodes"></div>
+          </div>
+          <div class="canvas-hint" data-component="desktop_architecture-atlas_graph_hint">
+            <span data-component="desktop_architecture-atlas_graph_hint-pan">Drag to pan</span>
+            <span data-component="desktop_architecture-atlas_graph_hint-zoom"><kbd>+</kbd> <kbd>−</kbd> zoom</span>
+            <span data-component="desktop_architecture-atlas_graph_hint-reset"><kbd>0</kbd> reset</span>
+          </div>
+        </section>
+
+        <section class="list-view" id="listView" aria-label="Architecture adjacency list" data-component="desktop_architecture-atlas_list_root">
+          <table class="architecture-table" data-component="desktop_architecture-atlas_list_table">
+            <thead data-component="desktop_architecture-atlas_list_head"><tr data-component="desktop_architecture-atlas_list_head-row"><th>Component</th><th>Layer</th><th>Summary</th><th>Primary source</th></tr></thead>
+            <tbody id="listBody" data-component="desktop_architecture-atlas_list_body"></tbody>
+          </table>
+        </section>
+
+        <aside class="inspector" aria-live="polite" data-component="desktop_architecture-atlas_inspector_root">
+          <div class="inspector-inner" id="inspectorContent" data-component="desktop_architecture-atlas_inspector_content"></div>
+        </aside>
+      </main>
+
+      <footer class="statusbar" data-component="desktop_architecture-atlas_statusbar_root">
+        <div class="status-items" data-component="desktop_architecture-atlas_statusbar_items">
+          <span data-component="desktop_architecture-atlas_statusbar_health"><span class="status-dot" aria-hidden="true"></span>Static map ready</span>
+          <span id="nodeCount" data-component="desktop_architecture-atlas_statusbar_nodes"></span>
+          <span id="edgeCount" data-component="desktop_architecture-atlas_statusbar_edges"></span>
+          <span id="flowCount" data-component="desktop_architecture-atlas_statusbar_flows"></span>
+        </div>
+        <span data-component="desktop_architecture-atlas_statusbar_scope">Scope: deployable surfaces → domain → vendors</span>
+      </footer>
+    </div>
+
+    <script>
+      const layers = {
+        all: { label: "All layers", color: "#f4f7fb" },
+        surface: { label: "Surfaces", color: "#45a3ff" },
+        gateway: { label: "Gateways", color: "#a879ff" },
+        interface: { label: "Interface", color: "#ffbf48" },
+        domain: { label: "Domain", color: "#48d7a0" },
+        infrastructure: { label: "Infrastructure", color: "#ff7d73" },
+        external: { label: "External", color: "#e778e9" }
+      };
+
+      const nodes = [
+        { id: "desktop-admin", label: "Desktop Admin", layer: "surface", x: 70, y: 120, summary: "Protected back-office for operations, analytics, configuration, and owner controls.", detail: "Next.js route groups separate public auth from protected and owner-only surfaces.", responsibilities: ["desktop route composition", "authenticated operations UI", "TanStack Query orchestration"], paths: ["frontend/src/app/(protected)", "frontend/src/app/(protected)/layout.tsx"] },
+        { id: "mobile-admin", label: "Mobile Admin PWA", layer: "surface", x: 70, y: 275, summary: "Mobile-first field operations for clients, employees, calls, contracts, and messaging.", detail: "A branch-aware shell owns authenticated pages and PWA navigation.", responsibilities: ["field workflows", "mobile shell", "branch-aware navigation"], paths: ["mobile/src/app/(shell)", "mobile/src/app/(shell)/layout.tsx"] },
+        { id: "public-service-record", label: "Public Service Record", layer: "surface", x: 70, y: 430, summary: "Token-based, no-login wizard for service sessions and schedule changes.", detail: "This public route is intentionally isolated from the authenticated mobile shell.", responsibilities: ["link verification", "session submission", "finalization"], paths: ["mobile/src/app/(public)/service-record/[token]/page.tsx", "mobile/src/app/api/service-record/[token]"] },
+        { id: "native-apps", label: "Native Android + iOS", layer: "surface", x: 70, y: 585, summary: "Compose and SwiftUI shells over shared Kotlin networking, auth, and deep links.", detail: "Platform navigation stays separate while KMP owns cross-platform client logic.", responsibilities: ["native navigation", "push and deep links", "platform UI"], paths: ["native/androidApp", "native/iosApp", "native/shared/src/commonMain/kotlin"] },
+
+        { id: "desktop-bff", label: "Desktop Next.js BFF", layer: "gateway", x: 400, y: 120, summary: "Same-origin /api proxy with cookie forwarding and refresh coordination.", detail: "Browser and server API clients converge at shared proxy helpers before calling NestJS.", responsibilities: ["same-origin API", "server cookie forwarding", "401 refresh queue"], paths: ["frontend/src/app/api", "frontend/src/lib/api"] },
+        { id: "mobile-bff", label: "Mobile Next.js BFF", layer: "gateway", x: 400, y: 300, summary: "Mobile /api proxy for authenticated and public-token workflows.", detail: "Middleware, session policy, and route helpers coordinate branch and refresh behavior.", responsibilities: ["mobile proxy", "session refresh", "public token proxy"], paths: ["mobile/src/app/api", "mobile/src/lib/api", "mobile/src/middleware.ts"] },
+        { id: "native-network", label: "KMP Network + Deep Links", layer: "gateway", x: 400, y: 500, summary: "Shared Kotlin API client, auth state, and deep-link parser.", detail: "Android and iOS both delegate cross-platform request and routing concerns here.", responsibilities: ["HTTP client", "auth state", "deep-link parsing"], paths: ["native/shared/src/commonMain/kotlin/com/imirae/incheon/network/ApiClient.kt", "native/shared/src/commonMain/kotlin/com/imirae/incheon/deeplink/DeepLinkRouter.kt"] },
+        { id: "shared-contracts", label: "Shared TS Contracts", layer: "gateway", x: 400, y: 700, summary: "Canonical route utilities and cross-web DTO/status contracts.", detail: "Message, eformsign, and service-record contracts reduce drift between desktop and mobile.", responsibilities: ["DTO/status types", "proxy utilities", "cross-client consistency"], paths: ["packages/shared/src", "packages/shared/src/types"] },
+
+        { id: "backend-interface", label: "NestJS Controllers", layer: "interface", x: 740, y: 140, summary: "REST, webhook, SSE, and public-token entry points.", detail: "Global validation and Prisma error translation wrap thin domain controllers.", responsibilities: ["REST controllers", "DTO validation", "SSE and webhooks"], paths: ["backend/interface/controllers", "backend/main.ts"] },
+        { id: "auth-tenant", label: "Auth + Tenant Boundary", layer: "interface", x: 740, y: 350, summary: "JWT/session, rate-limit, tenant, webhook, and token guards.", detail: "Backend branch membership is authoritative; client-side route gates are only UX.", responsibilities: ["identity and refresh", "branch isolation", "rate limiting"], paths: ["backend/infrastructure/auth", "backend/infrastructure/tenant/tenant.guard.ts"] },
+        { id: "schedulers", label: "Scheduler Control Plane", layer: "interface", x: 740, y: 610, summary: "Cron-driven triggers, retries, finalization, push delivery, and cleanup.", detail: "Schedulers form an asynchronous control plane over multiple domain modules.", responsibilities: ["retries", "automation triggers", "finalization", "notification delivery"], paths: ["backend/application/services", "backend/module"] },
+
+        { id: "clean-core", label: "Use Cases + Domain Ports", layer: "domain", x: 1080, y: 100, summary: "Application services orchestrate pure entities and repository contracts.", detail: "The dependency direction is interface/infrastructure toward application and domain.", responsibilities: ["business invariants", "use-case orchestration", "port contracts"], paths: ["backend/application", "backend/domain", "backend/README.md"] },
+        { id: "care-operations", label: "Care Operations", layer: "domain", x: 1080, y: 235, summary: "Branches, clients, employees, schedules, areas, and pricing.", detail: "The branch-scoped operational core joins client lifecycle with employee scheduling and price configuration.", responsibilities: ["client lifecycle", "employee assignment", "schedules and pricing"], paths: ["backend/module/client.module.ts", "backend/module/employee.module.ts", "backend/module/employee-schedule.module.ts"] },
+        { id: "contracts-documents", label: "Contracts + Documents", layer: "domain", x: 1080, y: 370, summary: "Generated files, eformsign documents, headless automation, and status sync.", detail: "Document state bridges stored metadata, object files, provider APIs, webhooks, and SSE progress.", responsibilities: ["document generation", "signature workflow", "status projection"], paths: ["backend/module/eformsign-doc.module.ts", "backend/module/document.module.ts", "backend/infrastructure/automation"] },
+        { id: "messaging-automation", label: "Messaging + Automation", layer: "domain", x: 1080, y: 505, summary: "Templates, SMS delivery, trigger rules/jobs, logs, and retries.", detail: "Manual and automated sends converge on a logged, retryable Aligo delivery boundary.", responsibilities: ["templates", "trigger automation", "delivery history"], paths: ["backend/module/message.module.ts", "backend/module/message-template.module.ts", "backend/module/message-delivery.module.ts"] },
+        { id: "service-record-domain", label: "Service Record Lifecycle", layer: "domain", x: 1080, y: 640, summary: "Tokens, daily records, snapshots, assignments, changes, and finalization.", detail: "Admin preparation and public recipient work meet in a guarded lifecycle with scheduled finalization.", responsibilities: ["token lifecycle", "records and snapshots", "schedule changes"], paths: ["backend/module/service-record-entry.module.ts", "backend/interface/controllers/service-record-entry.controller.ts"] },
+        { id: "communications-ai", label: "Calls + Consultations + AI", layer: "domain", x: 1080, y: 775, summary: "Call ingestion/extraction, client drafts, inquiries, and streamed chat.", detail: "Gemini-backed extraction and chat persist structured operational state for review and reuse.", responsibilities: ["call extraction", "client drafts", "consultations", "AI chat"], paths: ["backend/module/call-inbox.module.ts", "backend/module/consultation-inquiry.module.ts", "backend/module/ai-chat.module.ts"] },
+
+        { id: "prisma-repositories", label: "Prisma Repositories", layer: "infrastructure", x: 1420, y: 155, summary: "Repository adapters and mappers implementing domain ports.", detail: "Prisma rows are translated at the infrastructure boundary rather than leaking into entities.", responsibilities: ["data access", "entity mapping", "tenant-scoped queries"], paths: ["backend/infrastructure/database/repositories", "backend/infrastructure/database/mapper"] },
+        { id: "postgres", label: "PostgreSQL / Prisma", layer: "infrastructure", x: 1420, y: 330, summary: "Transactional source of truth for all tenant and operational state.", detail: "The schema clusters identity, care, messaging, eformsign, service records, calls, AI, and notifications.", responsibilities: ["relations and indexes", "transactions", "migration history"], paths: ["backend/prisma/schema.prisma", "backend/prisma/migrations"] },
+        { id: "storage", label: "Supabase Storage", layer: "infrastructure", x: 1420, y: 505, summary: "Object storage for managed files and document artifacts.", detail: "File objects live behind a storage adapter while metadata remains transactional.", responsibilities: ["upload", "download", "delete", "bootstrap"], paths: ["backend/infrastructure/adapters/supabase-storage.adapter.ts"] },
+        { id: "platform-admin", label: "Platform + Notifications", layer: "domain", x: 1420, y: 680, summary: "Owner admin, system templates, feedback, files, and notification inbox.", detail: "Platform governance and user notification concerns share system-level configuration boundaries.", responsibilities: ["branch governance", "system templates", "notification state"], paths: ["backend/module/system-admin.module.ts", "backend/module/notification.module.ts"] },
+        { id: "ci-delivery", label: "CI + Delivery Gates", layer: "infrastructure", x: 1420, y: 835, summary: "Per-app CI, security, Playwright, database patch, and drift workflows.", detail: "Environment branches are protected by build/test/security and database-specific workflow gates.", responsibilities: ["package CI", "security scanning", "database gates"], paths: [".github/workflows"] },
+
+        { id: "kakao", label: "Kakao OAuth", layer: "external", x: 1770, y: 95, summary: "External identity and onboarding provider.", detail: "Authorization codes are exchanged by the backend auth boundary.", responsibilities: ["OAuth identity"], paths: ["backend/infrastructure/auth", "frontend/src/app/api/auth/kakao/route.ts"] },
+        { id: "eformsign", label: "eformsign", layer: "external", x: 1770, y: 230, summary: "Electronic documents, signatures, and signed callbacks.", detail: "Provider state is projected into local document records and synchronized via webhook/API.", responsibilities: ["document API", "signatures", "webhooks"], paths: ["backend/infrastructure/api/eformsign-api.client.ts"] },
+        { id: "aligo", label: "Aligo SMS / AlimTalk", layer: "external", x: 1770, y: 365, summary: "Outbound message and public-link delivery provider.", detail: "Manual, automated, and service-record messages converge on this adapter.", responsibilities: ["SMS", "AlimTalk", "delivery result"], paths: ["backend/infrastructure/api/aligo-api.client.ts"] },
+        { id: "gemini", label: "Gemini / Vercel AI", layer: "external", x: 1770, y: 500, summary: "AI chat, tool use, and call extraction provider boundary.", detail: "Gateway implementations isolate provider protocols from domain workflows.", responsibilities: ["chat streaming", "tool calls", "extraction"], paths: ["backend/infrastructure/api/gemini-chat.gateway.ts", "backend/infrastructure/api/vercel-gemini.gateway.ts"] },
+        { id: "email", label: "SMTP / Resend", layer: "external", x: 1770, y: 635, summary: "Transactional authentication and outbox email delivery.", detail: "Adapters are selected behind a backend email port.", responsibilities: ["verification", "recovery", "outbox delivery"], paths: ["backend/infrastructure/adapters/smtp-email.adapter.ts", "backend/infrastructure/adapters/resend-email.adapter.ts"] },
+        { id: "web-push", label: "Web Push / VAPID", layer: "external", x: 1770, y: 770, summary: "Scheduled push delivery to stored browser subscriptions.", detail: "Notification records remain local while push is an external delivery side effect.", responsibilities: ["push delivery", "subscription endpoint"], paths: ["backend/infrastructure/api/web-push.adapter.ts"] }
+      ];
+
+      const edges = [
+        ["desktop-admin", "desktop-bff"], ["mobile-admin", "mobile-bff"], ["public-service-record", "mobile-bff"], ["native-apps", "native-network"],
+        ["desktop-admin", "shared-contracts"], ["mobile-admin", "shared-contracts"],
+        ["desktop-bff", "backend-interface"], ["mobile-bff", "backend-interface"], ["native-network", "backend-interface"],
+        ["backend-interface", "auth-tenant"], ["backend-interface", "clean-core"], ["auth-tenant", "kakao"], ["auth-tenant", "email"],
+        ["clean-core", "care-operations"], ["clean-core", "contracts-documents"], ["clean-core", "messaging-automation"], ["clean-core", "service-record-domain"], ["clean-core", "communications-ai"], ["clean-core", "platform-admin"],
+        ["clean-core", "prisma-repositories"], ["prisma-repositories", "postgres"], ["contracts-documents", "storage"], ["platform-admin", "storage"],
+        ["contracts-documents", "eformsign"], ["messaging-automation", "aligo"], ["service-record-domain", "aligo"], ["communications-ai", "gemini"], ["platform-admin", "web-push"],
+        ["schedulers", "messaging-automation"], ["schedulers", "service-record-domain"], ["schedulers", "communications-ai"], ["schedulers", "platform-admin"],
+        ["ci-delivery", "desktop-admin"], ["ci-delivery", "mobile-admin"], ["ci-delivery", "backend-interface"]
+      ].map(([from, to]) => ({ id: `${from}--${to}`, from, to }));
+
+      const flows = [
+        { id: "overview", label: "Overview — show the whole system", summary: "Select a journey to trace only the systems involved.", nodes: [], edges: [] },
+        { id: "auth", label: "Flow · Auth → branch → dashboard", summary: "Authenticate, rotate session state, enforce membership, and enter a branch-scoped shell.", nodes: ["desktop-admin", "desktop-bff", "backend-interface", "auth-tenant", "kakao", "email", "postgres"], edges: ["desktop-admin--desktop-bff", "desktop-bff--backend-interface", "backend-interface--auth-tenant", "auth-tenant--kakao", "auth-tenant--email"] },
+        { id: "contract", label: "Flow · Contract → eformsign → webhook", summary: "Generate, dispatch, sign, synchronize, and project document status.", nodes: ["mobile-admin", "mobile-bff", "backend-interface", "clean-core", "contracts-documents", "storage", "eformsign", "postgres"], edges: ["mobile-admin--mobile-bff", "mobile-bff--backend-interface", "backend-interface--clean-core", "clean-core--contracts-documents", "contracts-documents--storage", "contracts-documents--eformsign"] },
+        { id: "message", label: "Flow · Message automation → Aligo", summary: "Persist a trigger, claim scheduled work, deliver it, and retain status/history.", nodes: ["desktop-admin", "desktop-bff", "backend-interface", "clean-core", "messaging-automation", "schedulers", "aligo", "postgres"], edges: ["desktop-admin--desktop-bff", "desktop-bff--backend-interface", "backend-interface--clean-core", "clean-core--messaging-automation", "schedulers--messaging-automation", "messaging-automation--aligo"] },
+        { id: "record", label: "Flow · Service record public lifecycle", summary: "Prepare a link, deliver it, collect public sessions, and finalize the record.", nodes: ["mobile-admin", "mobile-bff", "backend-interface", "service-record-domain", "aligo", "public-service-record", "schedulers", "contracts-documents", "postgres"], edges: ["mobile-admin--mobile-bff", "public-service-record--mobile-bff", "mobile-bff--backend-interface", "clean-core--service-record-domain", "service-record-domain--aligo", "schedulers--service-record-domain", "clean-core--contracts-documents"] },
+        { id: "call", label: "Flow · Call intake → Gemini → client draft", summary: "Ingest a call, extract structured facts, retry failures, and review a client draft.", nodes: ["mobile-admin", "mobile-bff", "backend-interface", "communications-ai", "gemini", "schedulers", "care-operations", "postgres"], edges: ["mobile-admin--mobile-bff", "mobile-bff--backend-interface", "clean-core--communications-ai", "communications-ai--gemini", "schedulers--communications-ai", "clean-core--care-operations"] },
+        { id: "push", label: "Flow · Notification → web push → inbox", summary: "Create notification state, schedule delivery, push externally, and reconcile unread state.", nodes: ["schedulers", "platform-admin", "postgres", "web-push", "mobile-admin", "mobile-bff", "backend-interface"], edges: ["schedulers--platform-admin", "platform-admin--web-push", "mobile-admin--mobile-bff", "mobile-bff--backend-interface"] }
+      ];
+
+      const stageLabels = [
+        { label: "01 · User surfaces", x: 70 },
+        { label: "02 · Gateway + session", x: 400 },
+        { label: "03 · Backend interface", x: 740 },
+        { label: "04 · Application + domain", x: 1080 },
+        { label: "05 · Data + operations", x: 1420 },
+        { label: "06 · External systems", x: 1770 }
+      ];
+
+      const nodeById = new Map(nodes.map((node) => [node.id, node]));
+      const nodeElements = new Map();
+      const edgeElements = new Map();
+      const graphPlane = document.getElementById("graphPlane");
+      const canvasPanel = document.getElementById("canvasPanel");
+      const nodeLayer = document.getElementById("nodeLayer");
+      const edgeLayer = document.getElementById("edgeLayer");
+      const stageLabelLayer = document.getElementById("stageLabels");
+      const inspector = document.getElementById("inspectorContent");
+      const searchInput = document.getElementById("searchInput");
+      const flowSelect = document.getElementById("flowSelect");
+      const listView = document.getElementById("listView");
+      const listBody = document.getElementById("listBody");
+      let selectedNodeId = null;
+      let activeLayer = "all";
+      let activeFlowId = "overview";
+      let scale = 0.72;
+      let translateX = 28;
+      let translateY = 18;
+      let dragging = false;
+      let dragStart = null;
+
+      const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+      const componentId = (suffix) => `desktop_architecture-atlas_${suffix}`;
+
+      function layerColor(layer) { return layers[layer]?.color || "#f4f7fb"; }
+
+      function renderStageLabels() {
+        stageLabels.forEach((stage, index) => {
+          const element = document.createElement("div");
+          element.className = "stage-label";
+          element.style.left = `${stage.x}px`;
+          element.textContent = stage.label;
+          element.dataset.component = componentId(`graph_stage-${index + 1}`);
+          stageLabelLayer.appendChild(element);
+        });
+      }
+
+      function renderNodes() {
+        nodes.forEach((node) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "node";
+          button.style.left = `${node.x}px`;
+          button.style.top = `${node.y}px`;
+          button.style.setProperty("--node-color", layerColor(node.layer));
+          button.dataset.nodeId = node.id;
+          button.dataset.component = componentId(`graph_node-${node.id}`);
+          button.setAttribute("aria-label", `${node.label}. ${node.summary}`);
+          button.innerHTML = `<span class="node-kicker" data-component="${componentId(`graph_node-${node.id}_layer`)}">${escapeHtml(layers[node.layer].label)}</span><span class="node-title" data-component="${componentId(`graph_node-${node.id}_title`)}">${escapeHtml(node.label)}</span><span class="node-summary" data-component="${componentId(`graph_node-${node.id}_summary`)}">${escapeHtml(node.summary)}</span>`;
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            selectNode(node.id);
+          });
+          nodeElements.set(node.id, button);
+          nodeLayer.appendChild(button);
+        });
+      }
+
+      function renderEdges() {
+        const width = 224;
+        const height = 88;
+        edges.forEach((edge) => {
+          const source = nodeById.get(edge.from);
+          const target = nodeById.get(edge.to);
+          const x1 = source.x + width;
+          const y1 = source.y + height / 2;
+          const x2 = target.x;
+          const y2 = target.y + height / 2;
+          const direction = Math.max(70, Math.abs(x2 - x1) * 0.45);
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", `M ${x1} ${y1} C ${x1 + direction} ${y1}, ${x2 - direction} ${y2}, ${x2} ${y2}`);
+          path.setAttribute("class", "edge");
+          path.dataset.edgeId = edge.id;
+          edgeElements.set(edge.id, path);
+          edgeLayer.appendChild(path);
+        });
+      }
+
+      function renderFilters() {
+        const group = document.getElementById("filterGroup");
+        Object.entries(layers).forEach(([id, layer]) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "filter-button";
+          button.dataset.layer = id;
+          button.dataset.component = componentId(`toolbar_filter-${id}`);
+          button.setAttribute("aria-pressed", id === "all" ? "true" : "false");
+          button.textContent = layer.label;
+          button.addEventListener("click", () => {
+            activeLayer = id;
+            group.querySelectorAll("button").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+            applyVisibility();
+          });
+          group.appendChild(button);
+        });
+      }
+
+      function renderFlows() {
+        flows.forEach((flow) => {
+          const option = document.createElement("option");
+          option.value = flow.id;
+          option.textContent = flow.label;
+          flowSelect.appendChild(option);
+        });
+        flowSelect.addEventListener("change", () => {
+          activeFlowId = flowSelect.value;
+          selectedNodeId = null;
+          applyVisibility();
+          renderFlowInspector(flows.find((flow) => flow.id === activeFlowId));
+        });
+      }
+
+      function renderList() {
+        listBody.innerHTML = "";
+        nodes.forEach((node) => {
+          const row = document.createElement("tr");
+          row.dataset.layer = node.layer;
+          row.dataset.search = `${node.label} ${node.summary} ${node.paths.join(" ")}`.toLowerCase();
+          row.dataset.component = componentId(`list_row-${node.id}`);
+          row.innerHTML = `<td><button type="button" data-node-id="${node.id}" data-component="${componentId(`list_node-${node.id}`)}">${escapeHtml(node.label)}</button></td><td><span class="pill" style="border-color:${layerColor(node.layer)}66;color:${layerColor(node.layer)}" data-component="${componentId(`list_layer-${node.id}`)}">${escapeHtml(layers[node.layer].label)}</span></td><td data-component="${componentId(`list_summary-${node.id}`)}">${escapeHtml(node.summary)}</td><td><code data-component="${componentId(`list_path-${node.id}`)}">${escapeHtml(node.paths[0])}</code></td>`;
+          row.querySelector("button").addEventListener("click", () => selectNode(node.id));
+          listBody.appendChild(row);
+        });
+      }
+
+      function renderOverview() {
+        inspector.innerHTML = `
+          <header class="inspector-header" data-component="${componentId("inspector_overview-header")}">
+            <span class="eyebrow" data-component="${componentId("inspector_overview-eyebrow")}">System orientation</span>
+            <h2 class="inspector-title" data-component="${componentId("inspector_overview-title")}">One platform, four client surfaces</h2>
+            <p class="inspector-summary" data-component="${componentId("inspector_overview-summary")}">Two Next.js BFF applications and native clients converge on a NestJS clean-architecture core. PostgreSQL is the transactional source of truth; adapters isolate every external side effect.</p>
+          </header>
+          <section class="overview-grid" data-component="${componentId("inspector_overview-metrics")}">
+            <div class="metric" data-component="${componentId("inspector_metric-apps")}"><span class="metric-value">4</span><span class="metric-label">client surfaces</span></div>
+            <div class="metric" data-component="${componentId("inspector_metric-domains")}"><span class="metric-value">7</span><span class="metric-label">domain clusters</span></div>
+            <div class="metric" data-component="${componentId("inspector_metric-models")}"><span class="metric-value">43</span><span class="metric-label">Prisma models</span></div>
+            <div class="metric" data-component="${componentId("inspector_metric-vendors")}"><span class="metric-value">6</span><span class="metric-label">vendor boundaries</span></div>
+          </section>
+          <section class="section" data-component="${componentId("inspector_overview-rules")}">
+            <h3 class="section-heading" data-component="${componentId("inspector_overview-rules-title")}">Read the map</h3>
+            <ul class="plain-list" data-component="${componentId("inspector_overview-rules-list")}">
+              <li data-component="${componentId("inspector_overview-rule-one")}">Pick a flow above to light up an end-to-end path.</li>
+              <li data-component="${componentId("inspector_overview-rule-two")}">Click any node for responsibilities and source owners.</li>
+              <li data-component="${componentId("inspector_overview-rule-three")}">Use List view as the accessible adjacency alternative.</li>
+            </ul>
+          </section>
+          <section class="section" data-component="${componentId("inspector_overview-boundaries")}">
+            <h3 class="section-heading" data-component="${componentId("inspector_overview-boundaries-title")}">Non-negotiable boundaries</h3>
+            <ul class="plain-list" data-component="${componentId("inspector_overview-boundaries-list")}">
+              <li data-component="${componentId("inspector_overview-boundary-auth")}">Backend guards and tenant checks are authoritative.</li>
+              <li data-component="${componentId("inspector_overview-boundary-public")}">Public service-record tokens stay separate from admin sessions.</li>
+              <li data-component="${componentId("inspector_overview-boundary-idempotency")}">Webhooks, schedulers, retries, and finalization remain idempotent.</li>
+              <li data-component="${componentId("inspector_overview-boundary-contract")}">Shared DTO changes move all consumers together.</li>
+            </ul>
+          </section>`;
+      }
+
+      function renderNodeInspector(node) {
+        const incoming = edges.filter((edge) => edge.to === node.id).map((edge) => nodeById.get(edge.from)?.label).filter(Boolean);
+        const outgoing = edges.filter((edge) => edge.from === node.id).map((edge) => nodeById.get(edge.to)?.label).filter(Boolean);
+        inspector.innerHTML = `
+          <header class="inspector-header" data-component="${componentId(`inspector_node-${node.id}_header`)}">
+            <span class="eyebrow" style="color:${layerColor(node.layer)}" data-component="${componentId(`inspector_node-${node.id}_eyebrow`)}">${escapeHtml(layers[node.layer].label)}</span>
+            <h2 class="inspector-title" data-component="${componentId(`inspector_node-${node.id}_title`)}">${escapeHtml(node.label)}</h2>
+            <p class="inspector-summary" data-component="${componentId(`inspector_node-${node.id}_summary`)}">${escapeHtml(node.detail)}</p>
+            <div class="pill-row" data-component="${componentId(`inspector_node-${node.id}_pills`)}"><span class="pill" data-component="${componentId(`inspector_node-${node.id}_status`)}">confirmed</span><span class="pill" data-component="${componentId(`inspector_node-${node.id}_layer`)}">${escapeHtml(node.layer)}</span></div>
+          </header>
+          <section class="section" data-component="${componentId(`inspector_node-${node.id}_responsibilities`)}">
+            <h3 class="section-heading" data-component="${componentId(`inspector_node-${node.id}_responsibilities-title`)}">Responsibilities</h3>
+            <ul class="plain-list">${node.responsibilities.map((item, index) => `<li data-component="${componentId(`inspector_node-${node.id}_responsibility-${index + 1}`)}">${escapeHtml(item)}</li>`).join("")}</ul>
+          </section>
+          <section class="section" data-component="${componentId(`inspector_node-${node.id}_connections`)}">
+            <h3 class="section-heading" data-component="${componentId(`inspector_node-${node.id}_connections-title`)}">Connections</h3>
+            <div class="pill-row" data-component="${componentId(`inspector_node-${node.id}_connections-pills`)}">${[...incoming.map((label) => `← ${label}`), ...outgoing.map((label) => `→ ${label}`)].map((label, index) => `<span class="pill" data-component="${componentId(`inspector_node-${node.id}_connection-${index + 1}`)}">${escapeHtml(label)}</span>`).join("") || '<span class="pill">No mapped edges</span>'}</div>
+          </section>
+          <section class="section" data-component="${componentId(`inspector_node-${node.id}_paths`)}">
+            <h3 class="section-heading" data-component="${componentId(`inspector_node-${node.id}_paths-title`)}">Source owners</h3>
+            <ul class="path-list">${node.paths.map((path, index) => `<li data-component="${componentId(`inspector_node-${node.id}_path-${index + 1}`)}"><code>${escapeHtml(path)}</code></li>`).join("")}</ul>
+          </section>`;
+      }
+
+      function renderFlowInspector(flow) {
+        if (!flow || flow.id === "overview") { renderOverview(); return; }
+        inspector.innerHTML = `
+          <header class="inspector-header" data-component="${componentId(`inspector_flow-${flow.id}_header`)}">
+            <span class="eyebrow" style="color:var(--trace)" data-component="${componentId(`inspector_flow-${flow.id}_eyebrow`)}">Highlighted journey</span>
+            <h2 class="inspector-title" data-component="${componentId(`inspector_flow-${flow.id}_title`)}">${escapeHtml(flow.label.replace("Flow · ", ""))}</h2>
+            <p class="inspector-summary" data-component="${componentId(`inspector_flow-${flow.id}_summary`)}">${escapeHtml(flow.summary)}</p>
+          </header>
+          <section class="section" data-component="${componentId(`inspector_flow-${flow.id}_steps`)}">
+            <h3 class="section-heading" data-component="${componentId(`inspector_flow-${flow.id}_steps-title`)}">Systems in order</h3>
+            <ol class="flow-steps">${flow.nodes.map((nodeId, index) => `<li data-component="${componentId(`inspector_flow-${flow.id}_step-${index + 1}`)}">${escapeHtml(nodeById.get(nodeId)?.label || nodeId)}</li>`).join("")}</ol>
+          </section>
+          <section class="section" data-component="${componentId(`inspector_flow-${flow.id}_handoff`)}">
+            <h3 class="section-heading" data-component="${componentId(`inspector_flow-${flow.id}_handoff-title`)}">Agent handoff</h3>
+            <p class="inspector-summary" data-component="${componentId(`inspector_flow-${flow.id}_handoff-copy`)}">Open the JSON artifact for ordered source paths, route families, safety boundaries, and verification requirements.</p>
+          </section>`;
+      }
+
+      function selectNode(id) {
+        selectedNodeId = id;
+        nodeElements.forEach((element, nodeId) => element.classList.toggle("selected", nodeId === id));
+        renderNodeInspector(nodeById.get(id));
+      }
+
+      function applyVisibility() {
+        const query = searchInput.value.trim().toLowerCase();
+        const flow = flows.find((item) => item.id === activeFlowId);
+        const flowActive = flow && flow.id !== "overview";
+        const flowNodes = new Set(flow?.nodes || []);
+        const flowEdges = new Set(flow?.edges || []);
+
+        nodes.forEach((node) => {
+          const element = nodeElements.get(node.id);
+          const matchesLayer = activeLayer === "all" || node.layer === activeLayer;
+          const searchHaystack = `${node.label} ${node.summary} ${node.detail} ${node.paths.join(" ")}`.toLowerCase();
+          const matchesSearch = !query || searchHaystack.includes(query);
+          element.classList.toggle("hidden-by-filter", !matchesLayer || !matchesSearch);
+          element.classList.toggle("active", flowActive && flowNodes.has(node.id));
+          element.classList.toggle("dimmed", flowActive && !flowNodes.has(node.id));
+        });
+
+        edges.forEach((edge) => {
+          const element = edgeElements.get(edge.id);
+          element.classList.toggle("active", flowActive && flowEdges.has(edge.id));
+          element.classList.toggle("dimmed", flowActive && !flowEdges.has(edge.id));
+        });
+
+        listBody.querySelectorAll("tr").forEach((row) => {
+          const matchesLayer = activeLayer === "all" || row.dataset.layer === activeLayer;
+          const matchesSearch = !query || row.dataset.search.includes(query);
+          row.hidden = !matchesLayer || !matchesSearch;
+        });
+      }
+
+      function updateTransform() {
+        graphPlane.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+      }
+
+      function resetTransform() {
+        const availableWidth = canvasPanel.clientWidth;
+        scale = Math.max(0.48, Math.min(0.78, (availableWidth - 42) / 2120));
+        translateX = 22;
+        translateY = 18;
+        updateTransform();
+      }
+
+      function changeScale(delta, centerX = canvasPanel.clientWidth / 2, centerY = canvasPanel.clientHeight / 2) {
+        const previous = scale;
+        scale = Math.max(0.36, Math.min(1.28, scale + delta));
+        const ratio = scale / previous;
+        translateX = centerX - (centerX - translateX) * ratio;
+        translateY = centerY - (centerY - translateY) * ratio;
+        updateTransform();
+      }
+
+      canvasPanel.addEventListener("pointerdown", (event) => {
+        if (event.target.closest("button")) return;
+        dragging = true;
+        canvasPanel.classList.add("dragging");
+        dragStart = { x: event.clientX - translateX, y: event.clientY - translateY };
+        canvasPanel.setPointerCapture(event.pointerId);
+      });
+
+      canvasPanel.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        translateX = event.clientX - dragStart.x;
+        translateY = event.clientY - dragStart.y;
+        updateTransform();
+      });
+
+      canvasPanel.addEventListener("pointerup", (event) => {
+        dragging = false;
+        canvasPanel.classList.remove("dragging");
+        if (canvasPanel.hasPointerCapture(event.pointerId)) canvasPanel.releasePointerCapture(event.pointerId);
+      });
+
+      canvasPanel.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        const bounds = canvasPanel.getBoundingClientRect();
+        changeScale(event.deltaY < 0 ? 0.08 : -0.08, event.clientX - bounds.left, event.clientY - bounds.top);
+      }, { passive: false });
+
+      canvasPanel.addEventListener("click", (event) => {
+        if (event.target === canvasPanel || event.target === graphPlane) {
+          selectedNodeId = null;
+          nodeElements.forEach((element) => element.classList.remove("selected"));
+          renderFlowInspector(flows.find((flow) => flow.id === activeFlowId));
+        }
+      });
+
+      searchInput.addEventListener("input", applyVisibility);
+      document.getElementById("zoomIn").addEventListener("click", () => changeScale(0.1));
+      document.getElementById("zoomOut").addEventListener("click", () => changeScale(-0.1));
+      document.getElementById("resetView").addEventListener("click", resetTransform);
+
+      document.getElementById("graphViewButton").addEventListener("click", () => {
+        canvasPanel.classList.remove("hidden");
+        listView.classList.remove("active");
+        document.getElementById("graphViewButton").setAttribute("aria-pressed", "true");
+        document.getElementById("listViewButton").setAttribute("aria-pressed", "false");
+      });
+
+      document.getElementById("listViewButton").addEventListener("click", () => {
+        canvasPanel.classList.add("hidden");
+        listView.classList.add("active");
+        document.getElementById("graphViewButton").setAttribute("aria-pressed", "false");
+        document.getElementById("listViewButton").setAttribute("aria-pressed", "true");
+      });
+
+      document.getElementById("copyBrief").addEventListener("click", async (event) => {
+        const brief = "BabyJamJam architecture handoff: read docs/architecture/babyjamjam-architecture.json, then trace the selected surface through its Next.js BFF or KMP client, NestJS controller/guards, application service/use case, domain port/entity, repository/adapter, and Prisma/vendor boundary. Preserve tenant isolation, public-token separation, idempotency, and shared contracts.";
+        try {
+          await navigator.clipboard.writeText(brief);
+          event.currentTarget.querySelector("span").textContent = "Copied";
+        } catch {
+          const textarea = document.createElement("textarea");
+          textarea.value = brief;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          textarea.remove();
+          event.currentTarget.querySelector("span").textContent = "Copied";
+        }
+        window.setTimeout(() => { event.currentTarget.querySelector("span").textContent = "Copy agent brief"; }, 1600);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.target.matches("input, select")) return;
+        if (event.key === "+" || event.key === "=") changeScale(0.1);
+        if (event.key === "-") changeScale(-0.1);
+        if (event.key === "0") resetTransform();
+        if (event.key === "Escape") {
+          activeFlowId = "overview";
+          flowSelect.value = "overview";
+          selectedNodeId = null;
+          applyVisibility();
+          renderOverview();
+        }
+      });
+
+      renderStageLabels();
+      renderNodes();
+      renderEdges();
+      renderFilters();
+      renderFlows();
+      renderList();
+      renderOverview();
+      resetTransform();
+      document.getElementById("nodeCount").textContent = `${nodes.length} nodes`;
+      document.getElementById("edgeCount").textContent = `${edges.length} edges`;
+      document.getElementById("flowCount").textContent = `${flows.length - 1} traced flows`;
+      window.addEventListener("resize", resetTransform);
+    </script>
+  </body>
+</html>

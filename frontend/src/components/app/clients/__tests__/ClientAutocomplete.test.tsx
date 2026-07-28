@@ -78,7 +78,7 @@ describe("ClientAutocomplete", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "고객 선택" }));
 
     expect(screen.queryByText("송진호")).not.toBeInTheDocument();
-    expect(document.querySelector('[data-component="clients-autocomplete-dropdown"]')).toHaveClass(
+    expect(document.querySelector('[data-component="desktop_clients_autocomplete_dropdown"]')).toHaveClass(
       "glint-ui-scale-scope",
     );
     fireEvent.click(await screen.findByRole("button", { name: "새 고객 등록" }));

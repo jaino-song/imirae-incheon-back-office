@@ -72,27 +72,54 @@ const HISTORY_DETAIL_TONE: Record<MessageLogStatus, MessageHistoryDetailTone> = 
   canceled: "muted",
 };
 
+/**
+ * Canonical data-component bases for the /messages/scheduled and
+ * /messages/history routes. `data-slot` carries the CSS/route hooks so the
+ * stylesheet never keys off `data-component`.
+ */
+const SCHEDULED_BASE = "mobile_messages_scheduled_page";
+const SCHEDULED_ROW_BASE = `${SCHEDULED_BASE}_content_list-card_body_item`;
+const HISTORY_SHEET_BASE = "mobile_messages_history_detail-sheet";
+const HISTORY_LIST_BASE = `${HISTORY_SHEET_BASE}_stack_list-page_shell`;
+const HISTORY_ROW_BASE = `${HISTORY_LIST_BASE}_content_list-card_body_item`;
+const HISTORY_DETAIL_BASE = `${HISTORY_SHEET_BASE}_stack_detail-page_body`;
+
 function MessagePageShell({
   title,
   count,
   activeSection,
   children,
-  dataComponent = "messages",
+  dataComponent,
+  dataSlot = "messages-page",
 }: {
   title: string;
   count: React.ReactNode;
   activeSection: MessageSectionId;
   children: React.ReactNode;
-  dataComponent?: string;
+  dataComponent: string;
+  dataSlot?: string;
 }) {
   return (
-    <section data-component={dataComponent} className="messages-page message-page-shell">
+    <section
+      data-component={dataComponent}
+      data-slot={dataSlot}
+      className="messages-page message-page-shell"
+    >
       <div
         className="shell-content flex-col gap-[calc(8px*var(--glint-ui-scale,1))]"
-        data-component="messages-content"
+        data-component={`${dataComponent}_content`}
+        data-slot="messages-content"
       >
-        <MessageSectionNav activeId={activeSection} />
-        <ListCard title={title} count={count} filters={[]}>
+        <MessageSectionNav
+          data-component={`${dataComponent}_content_section-nav`}
+          activeId={activeSection}
+        />
+        <ListCard
+          data-component={`${dataComponent}_content_list-card`}
+          title={title}
+          count={count}
+          filters={[]}
+        >
           {children}
         </ListCard>
       </div>
@@ -124,7 +151,7 @@ function ScheduledRow({ job }: { job: UpcomingMessageTriggerJob }) {
   const recipientName = job.payload.recipientName || job.payload.clientName || job.payload.employeeName || "수신자";
 
   return (
-    <article className="message-data-row" data-component="mobile-messages-scheduled-item">
+    <article className="message-data-row" data-component={SCHEDULED_ROW_BASE}>
       <span className="message-navigation-icon message-navigation-icon-orange">
         <Clock3 size={18} aria-hidden="true" />
       </span>
@@ -164,21 +191,22 @@ function HistoryRow({
     <button
       type="button"
       className="message-data-row message-data-row-button"
-      data-component="mobile-messages-history-item"
+      data-component={HISTORY_ROW_BASE}
       onClick={() => onSelect(record)}
     >
       <span className="message-navigation-icon message-navigation-icon-green">
         <History size={18} aria-hidden="true" />
       </span>
-      <div className="message-data-row-copy">
-        <div className="message-data-row-title">
-          <strong>{normalized.templateLabel}</strong>
-          <span className={`message-data-status message-data-status-${meta.tone}`}>
-            <StatusIcon size={12} aria-hidden="true" />
-            {meta.label}
-          </span>
+        <div className="message-data-row-copy">
+        <div className="message-data-row-info">
+          <strong className="message-data-row-title">{normalized.templateLabel}</strong>
+          <p className="message-data-row-subtitle">{normalized.recipientName}</p>
+          <small className="message-data-row-subtitle">{formatMessageDateTimeCompact(normalized.sentAt)}</small>
         </div>
-        <p>{normalized.recipientName} · {formatMessageDateTimeCompact(normalized.sentAt)}</p>
+        <span className={`message-data-status message-data-status-${meta.tone}`}>
+          <StatusIcon size={12} aria-hidden="true" />
+          {meta.label}
+        </span>
         {normalized.failureReason ? <em>{normalized.failureReason}</em> : null}
       </div>
     </button>
@@ -195,6 +223,7 @@ export function MessagesScheduledPage() {
 
   return (
     <MessagePageShell
+      dataComponent={SCHEDULED_BASE}
       title="발송 예정"
       count={`${jobs.length}건`}
       activeSection="scheduled"
@@ -229,6 +258,7 @@ export function MessagesHistoryPage() {
 
   return (
     <MobileDetailSheet
+      data-component={HISTORY_SHEET_BASE}
       name="messages"
       isOpen={normalizedSelectedRecord !== null}
       onClose={() => setSelectedRecord(null)}
@@ -237,7 +267,8 @@ export function MessagesHistoryPage() {
           title="발송 기록"
           count={`${records.length}건`}
           activeSection="history"
-          dataComponent="mobile-messages-history-list-content"
+          dataComponent={HISTORY_LIST_BASE}
+          dataSlot="messages-history-list"
         >
           {isLoading ? (
             <LoadingState />
@@ -256,10 +287,10 @@ export function MessagesHistoryPage() {
         normalizedSelectedRecord ? (
           <MobileDetailPage
             name="messages"
-            dataComponent="mobile-messages-history-detail-content"
+            data-component={HISTORY_DETAIL_BASE}
           >
             <ClientMessageHistoryDetail
-              dataComponentPrefix="mobile-messages-history"
+              data-component={`${HISTORY_DETAIL_BASE}_content`}
               showBackAction={false}
               view={{
                 title: normalizedSelectedRecord.title,

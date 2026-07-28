@@ -34,7 +34,7 @@ export function MobileOAuthButtons({
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       <Button
-        data-component="login-kakao-button"
+        data-component="desktop_auth_login_kakao-button"
         type="button"
         variant="kakao"
         size="lg"

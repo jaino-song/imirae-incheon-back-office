@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth/cookies";
 import { UserProvider } from "@/providers/UserProvider";
 import { NotificationPermissionPrompt } from "@/components/app/notification-permission-prompt";
 import { Toaster } from "@/components/ui/toaster";
+import { ContractsPrefetchCoordinator } from "@/components/app/root/contracts-prefetch-coordinator";
 import { MobileBottomNav } from "@/components/app/root/mobile-bottom-nav";
 import { V3Sidebar } from "@/components/app/v3/V3Sidebar";
 import { V3MobileHeader } from "@/components/app/v3/V3MobileHeader";
@@ -53,23 +54,40 @@ export default async function RootLayout({
   return (
     <html lang={locale}>
       <body className={`${Pretendard.variable} antialiased min-h-screen bg-v3-dim-white`}>
+        {/*
+          `mobile-app-root` is a styling hook paired with data-slot="app-root" so
+          globals.css's shell-geometry guard keeps its (0,2,2) specificity over
+          redesign.css's (0,2,0) phone-frame rules. Do not drop it.
+        */}
         <div
-          data-component="app-root"
-          className="relative mx-auto h-[min(100dvh,844px)] w-[min(100vw,390px)] max-w-[390px] overflow-x-hidden overflow-y-auto [--mobile-shell-max-height:844px]"
+          data-component="mobile_shell_root"
+          data-slot="app-root"
+          className="mobile-app-root relative h-[100dvh] w-[100vw] max-w-none overflow-hidden [--mobile-shell-max-height:100dvh]"
         >
-          <div data-component="app-providers" className="min-h-full">
+          <div
+            data-component="mobile_shell_root_app-shell"
+            data-slot="app-shell"
+            className="relative h-full min-h-0 w-full overflow-hidden"
+          >
             <QueryProvider>
               <LocaleProvider locale={locale}>
                 <UserProvider user={user}>
-                  <NotificationPermissionPrompt />
-                  <V3Sidebar />
-                  <V3MobileHeader />
-                  <V3MainContent>
-                    {children}
-                  </V3MainContent>
-                  <FloatingQuickActions />
-                  <Toaster />
-                  <MobileBottomNav />
+                  <div
+                    data-component="mobile_shell_root_app-shell_providers"
+                    data-slot="app-content"
+                    className="relative h-full min-h-0 w-full overflow-hidden"
+                  >
+                    <ContractsPrefetchCoordinator />
+                    <NotificationPermissionPrompt />
+                    <V3Sidebar data-component="mobile_shell_sidebar" />
+                    <V3MobileHeader data-component="mobile_shell_header" />
+                    <V3MainContent data-component="mobile_shell_main-content">
+                      {children}
+                    </V3MainContent>
+                    <FloatingQuickActions />
+                    <Toaster />
+                    <MobileBottomNav />
+                  </div>
                 </UserProvider>
               </LocaleProvider>
             </QueryProvider>

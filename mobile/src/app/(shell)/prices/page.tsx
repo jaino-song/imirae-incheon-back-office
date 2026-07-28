@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Calculator,
-  ChevronDown,
   ChevronRight,
   Upload,
 } from "lucide-react";
@@ -20,6 +19,7 @@ import {
   MobileDetailSheet,
 } from "@/components/app/mobile-redesign/detail-sheet";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
+import { VoucherPriceUploadForm } from "@/components/app/settings/VoucherPriceUploadForm";
 import {
   useAllVoucherPrices,
   useVoucherYears,
@@ -191,22 +191,36 @@ export default function PricesPage() {
   const detailContent = selectedRow !== null ? (
     <PriceDetailContent row={selectedRow} year={activeYear ?? 0} />
   ) : uploadOpen ? (
-    <UploadSheetContent year={activeYear} years={yearOptions} onCancel={closeSheet} />
+    <UploadSheetContent year={activeYear} />
   ) : null;
 
   return (
-    <div data-component="prices-page" className="md:hidden">
+    <div data-component="mobile_prices_page" data-slot="prices-page" className="md:hidden">
       <MobileDetailSheet
+        data-component="mobile_prices_page_detail-sheet"
         name="prices"
         isOpen={isOpen}
         onClose={closeSheet}
         list={
-          <div className="shell-content" data-component="mobile-prices-content">
+          <div
+            className="shell-content"
+            data-component="mobile_prices_page_detail-sheet_stack_list-page_content"
+            data-slot="prices-content"
+          >
             <ListCard
+              data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card"
               title="바우처 요금표"
-              count={isLoading ? <ListCountSkeleton dataComponentPrefix="mobile-prices" /> : `${displayRows.length}개`}
+              count={
+                isLoading ? (
+                  <ListCountSkeleton
+                    data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_header_count-skeleton"
+                  />
+                ) : (
+                  `${displayRows.length}개`
+                )
+              }
               actionLabel={isOwner ? "업데이트" : undefined}
-              actionIcon={isOwner ? <Upload size={12} strokeWidth={3} /> : undefined}
+              actionIcon={isOwner ? <Upload size={12} strokeWidth={3} aria-hidden="true" /> : undefined}
               onActionClick={
                 isOwner
                   ? () => {
@@ -221,7 +235,7 @@ export default function PricesPage() {
               beforeFilters={
                 <div
                   className="filter-row"
-                  data-component="mobile-prices-year-filter"
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter"
                   style={{ paddingBottom: 0 }}
                 >
                   {isYearsLoading
@@ -230,7 +244,7 @@ export default function PricesPage() {
                           key={`year-skeleton-${index}`}
                           type="button"
                           className="filter-pill filter-pill-skeleton"
-                          data-component="mobile-redesign-filter-pill"
+                          data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter_pill"
                           data-loading="true"
                           aria-hidden="true"
                           disabled
@@ -244,7 +258,7 @@ export default function PricesPage() {
                           key={year}
                           type="button"
                           className={`filter-pill ${year === activeYear ? "active" : ""}`}
-                          data-component="mobile-redesign-filter-pill"
+                          data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter_pill"
                           aria-pressed={year === activeYear}
                           onClick={() => setYearFilter(year)}
                         >
@@ -255,7 +269,10 @@ export default function PricesPage() {
               }
             >
               {isLoading ? (
-                <ListRowsSkeleton dataComponentPrefix="mobile-prices" rowCount={5} />
+                <ListRowsSkeleton
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_rows-skeleton"
+                  rowCount={5}
+                />
               ) : isError ? (
                 <div
                   style={{
@@ -264,7 +281,7 @@ export default function PricesPage() {
                     fontSize: "0.82rem",
                     color: "hsl(var(--v3-burgundy))",
                   }}
-                  data-component="mobile-prices-error"
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_error"
                 >
                   가격 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.
                 </div>
@@ -276,7 +293,7 @@ export default function PricesPage() {
                     fontSize: "0.82rem",
                     color: "hsl(var(--v3-text-muted))",
                   }}
-                  data-component="mobile-prices-empty"
+                  data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_empty"
                 >
                   {activeYear !== undefined
                     ? "조건에 맞는 가격표가 없습니다."
@@ -287,26 +304,26 @@ export default function PricesPage() {
                   <div
                     className="variant-block"
                     key={variantSection.variant}
-                    data-component="mobile-prices-variant"
+                    data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant"
                   >
                     {typeFilter === "전체" && (
-                      <div className="section-header-variant">{variantSection.variant}</div>
+                      <div className="section-header-variant" data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_header">{variantSection.variant}</div>
                     )}
                     {variantSection.subgroups.map((sub) => (
                       <div
                         className="section-block"
                         key={sub.key}
-                        data-component="mobile-prices-section"
+                        data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section"
                       >
-                        <div className="section-header">{sub.key}</div>
+                        <div className="section-header" data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_header">{sub.key}</div>
                         {sub.rows.map((row, idx) => (
                           <ListItemRow
                             key={row.name}
-                            dataComponent="mobile-prices-row"
+                            data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_row"
                             style={{ animationDelay: `${Math.min(idx, 4) * 40}ms` }}
                             left={
-                              <div className="duration-badge">
-                                <Calculator size={20} strokeWidth={2.5} />
+                              <div className="duration-badge" data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_body_variant_section_row_icon">
+                                <Calculator size={20} strokeWidth={2.5} aria-hidden="true" />
                               </div>
                             }
                             name={row.name}
@@ -317,6 +334,7 @@ export default function PricesPage() {
                                 size={16}
                                 strokeWidth={2}
                                 color="hsl(var(--v3-text-muted))"
+                                aria-hidden="true"
                               />
                             }
                             onClick={() => {
@@ -341,10 +359,10 @@ export default function PricesPage() {
 
 function PriceDetailContent({ row, year }: { row: DisplayRow; year: number }) {
   return (
-    <MobileDetailPage name="prices">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile_prices_page_detail-sheet_stack_detail-page_body" name="prices">
+      <MobileDetailHeader data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_header"
         name="prices"
-        avatar={<Calculator size={24} strokeWidth={2.5} />}
+        avatar={<Calculator size={24} strokeWidth={2.5} aria-hidden="true" />}
         avatarClassName="price-detail-avatar"
         title={row.name}
         badges={[
@@ -354,20 +372,20 @@ function PriceDetailContent({ row, year }: { row: DisplayRow; year: number }) {
       />
 
       {row.durations.map((d) => (
-        <div key={d.id} className="price-breakdown pop-up">
-          <div className="price-breakdown-row">
+        <div key={d.id} className="price-breakdown pop-up" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown">
+          <div className="price-breakdown-row" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_duration">
             <span className="label">기간</span>
             <span className="value">{d.durationDays}일</span>
           </div>
-          <div className="price-breakdown-row">
+          <div className="price-breakdown-row" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_total">
             <span className="label">서비스가격 (총액)</span>
             <span className="value">{formatWon(d.totalPrice)}</span>
           </div>
-          <div className="price-breakdown-row grant">
+          <div className="price-breakdown-row grant" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_grant">
             <span className="label">정부지원금</span>
             <span className="value">{formatWon(d.grantAmount)}</span>
           </div>
-          <div className="price-breakdown-row own">
+          <div className="price-breakdown-row own" data-component="mobile_prices_page_detail-sheet_stack_detail-page_body_breakdown_own">
             <span className="label">본인부담금</span>
             <span className="value">{formatWon(d.ownAmount)}</span>
           </div>
@@ -380,76 +398,16 @@ function PriceDetailContent({ row, year }: { row: DisplayRow; year: number }) {
 
 function UploadSheetContent({
   year,
-  years,
-  onCancel,
 }: {
   year: number | undefined;
-  years: number[];
-  onCancel: () => void;
 }) {
-  const yearLabel = year !== undefined ? `${year}년` : "연도 미정";
   return (
     <div
       className="detail-body"
-      data-component="mobile-prices-upload"
+      data-component="mobile_prices_page_detail-sheet_stack_detail-page_upload"
       style={{ display: "flex", flexDirection: "column", gap: 12 }}
     >
-      <div className="upload-sheet">
-        <div className="stepper">
-          <span className="step active">
-            <span className="num">1</span>이미지 업로드
-          </span>
-          <span className="sep">›</span>
-          <span className="step">
-            <span className="num">2</span>데이터 확인
-          </span>
-          <span className="sep">›</span>
-          <span className="step">
-            <span className="num">3</span>완료
-          </span>
-        </div>
-
-        <div className="upload-year-select">
-          <label>적용 연도</label>
-          <select defaultValue={year}>
-            {years.length === 0 && <option value="">연도 없음</option>}
-            {years.map((y) => (
-              <option key={y} value={y}>
-                {y}년
-              </option>
-            ))}
-          </select>
-          <ChevronDown size={14} strokeWidth={2.5} color="hsl(var(--v3-text-muted))" />
-        </div>
-
-        <button type="button" className="upload-dropzone">
-          <div className="upload-dropzone-icon">
-            <Upload size={22} strokeWidth={2.5} />
-          </div>
-          <div className="upload-dropzone-title">바우처 요금표 이미지를 업로드하세요</div>
-          <div className="upload-dropzone-sub">
-            <b>탭하여 파일 선택</b> · 최대 10MB
-            <br />
-            PNG, JPG, JPEG, PDF 지원
-          </div>
-        </button>
-
-        <div className="upload-guide">
-          <b>업로드 가이드</b>· 표 전체가 보이도록 캡처해주세요
-          <br />· 단위 표시(천원/원)가 포함되어야 합니다
-          <br />· 단축 / 표준 / 연장 헤더가 보여야 합니다
-        </div>
-
-        <div className="detail-actions" style={{ marginTop: 0, padding: 0 }}>
-          <button type="button" className="btn btn-secondary" onClick={onCancel}>
-            취소
-          </button>
-          <button type="button" className="btn btn-primary">
-            <Upload size={14} strokeWidth={2.5} style={{ marginRight: 4 }} />
-            {yearLabel} 요금표 업데이트
-          </button>
-        </div>
-      </div>
+      <VoucherPriceUploadForm initialYear={year} />
     </div>
   );
 }

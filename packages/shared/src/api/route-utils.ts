@@ -150,10 +150,22 @@ export function getAuthHeaders(token: string | null): Record<string, string> {
     return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function getProxyGetParams(request: NextRequest, accessToken: string): Record<string, string> {
-    const { searchParams } = new URL(request.url);
+function getProxyGetParams(
+    request: NextRequest,
+    accessToken: string,
+    backendPathHasQuery: boolean,
+): Record<string, string> {
     const params: Record<string, string> = { accessToken };
 
+    // When the route handler pre-encoded its own query string into backendPath,
+    // forwarding the incoming request's params again would duplicate keys —
+    // the upstream then parses them as arrays and rejects them (e.g.
+    // "limit must be an integer").
+    if (backendPathHasQuery) {
+        return params;
+    }
+
+    const { searchParams } = new URL(request.url);
     for (const [key, value] of searchParams.entries()) {
         if (key === "accessToken") {
             continue;
@@ -228,7 +240,15 @@ export function sanitizeUpstreamClientError(
     return payload;
 }
 
-export function logUpstreamError(context: string, error: unknown): void {
+export function logUpstreamError(
+    context: string,
+    error: unknown,
+    upstreamBody?: string,
+): void {
+    const maxUpstreamBodyLength = 2_000;
+    const loggedUpstreamBody = upstreamBody !== undefined && upstreamBody.length > maxUpstreamBodyLength
+        ? `${upstreamBody.slice(0, maxUpstreamBodyLength)}…(truncated)`
+        : upstreamBody;
     const data = getUpstreamErrorData(error);
     const upstreamCode = data && typeof data === "object"
         ? safeErrorCode((data as { code?: unknown }).code)
@@ -242,6 +262,7 @@ export function logUpstreamError(context: string, error: unknown): void {
         status: getUpstreamErrorStatus(error),
         code: upstreamCode ?? transportCode,
         name: errorName,
+        ...(loggedUpstreamBody === undefined ? {} : { body: loggedUpstreamBody }),
     });
 }
 
@@ -368,7 +389,7 @@ export function createRouteUtils({
 
         try {
             const response = await serverAPIClient.get(backendPath, {
-                params: getProxyGetParams(request, accessToken),
+                params: getProxyGetParams(request, accessToken, backendPath.includes("?")),
                 headers: getAuthHeaders(authToken),
             });
 

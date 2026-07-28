@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { SentryModule } from "@sentry/nestjs/setup";
 import { resolve } from "node:path";
 import { JwtModule } from "@nestjs/jwt";
 import { JwtStrategy } from "./infrastructure/auth/jwt.strategy";
@@ -46,6 +47,7 @@ const ENV_FILE_PATHS = [
 
 @Module({
     imports: [
+        SentryModule.forRoot(),
         ConfigModule.forRoot({
             isGlobal: true,
             envFilePath: ENV_FILE_PATHS,
@@ -81,6 +83,10 @@ const ENV_FILE_PATHS = [
         ServiceRecordEntryModule,
     ],
     controllers: [EformsignController],
-    providers: [EformsignService, JwtStrategy, ContractClientAssignmentGuardService],
+    providers: [
+        EformsignService,
+        JwtStrategy,
+        ContractClientAssignmentGuardService,
+    ],
 })
 export class AppModule {}

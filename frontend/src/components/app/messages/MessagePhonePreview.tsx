@@ -13,7 +13,7 @@ interface MessagePhonePreviewProps {
   channelName?: string;
   className?: string;
   panelDataComponent?: string;
-  dataComponentPrefix?: string;
+  dataComponentPrefix: string;
 }
 
 export function MessagePhonePreview({
@@ -24,9 +24,9 @@ export function MessagePhonePreview({
   channelName = "아가잼잼",
   className,
   panelDataComponent,
-  dataComponentPrefix = "message",
+  dataComponentPrefix,
 }: MessagePhonePreviewProps) {
-  const component = (suffix: string) => `${dataComponentPrefix}-${suffix}`;
+  const component = (suffix: string) => `${dataComponentPrefix}_${suffix}`;
   const resolvedPanelDataComponent = panelDataComponent ?? component("templates-preview-panel");
   const timeText =
     timestamp && timestamp.trim().length > 0

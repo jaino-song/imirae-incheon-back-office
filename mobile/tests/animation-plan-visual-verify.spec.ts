@@ -19,6 +19,8 @@ fs.mkdirSync(path.join(SCREENSHOT_DIR, "phase-2-badge"), { recursive: true });
 fs.mkdirSync(path.join(SCREENSHOT_DIR, "reduced-motion"), { recursive: true });
 
 const MOBILE_VIEWPORT = { width: 375, height: 812 } as const;
+const CLIENT_DETAIL_TABS =
+  "mobile_clients_detail-sheet_stack_detail-page_content_tabs";
 
 type MockClient = {
   id: number;
@@ -132,11 +134,11 @@ test.describe("Animation plan — visual verification", () => {
     await mockBaseRoutes(page);
 
     await page.goto("/dashboard");
-    await expect(page.locator('[data-component="mobile-bottom-nav"]')).toBeVisible();
+    await expect(page.locator('[data-slot="mobile-bottom-nav"]')).toBeVisible();
 
     // Find the indicator div (first child of nav with absolute positioning + transform)
     const indicator = page
-      .locator('[data-component="mobile-bottom-nav"] > div[aria-hidden="true"]')
+      .locator('[data-slot="mobile-bottom-nav"] > div[aria-hidden="true"]')
       .first();
     await expect(indicator).toBeVisible();
 
@@ -147,13 +149,13 @@ test.describe("Animation plan — visual verification", () => {
     expect(transitionAtRest).toMatch(/0\.32s|320ms/); // duration-spatial = 320ms
 
     // ---- Screenshot at /dashboard (Home tab active) ----
-    const nav = page.locator('[data-component="mobile-bottom-nav"]');
+    const nav = page.locator('[data-slot="mobile-bottom-nav"]');
     await nav.screenshot({
       path: path.join(SCREENSHOT_DIR, "phase-1-bottom-nav", "01-home-active.png"),
     });
 
     // ---- Navigate to /clients and screenshot ----
-    await page.click('[data-component="mobile-bottom-nav-clients"]');
+    await page.click('[data-slot="mobile-bottom-nav-clients"]');
     await page.waitForURL("**/clients", { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(400); // let the indicator settle
     await nav.screenshot({
@@ -161,7 +163,7 @@ test.describe("Animation plan — visual verification", () => {
     });
 
     // ---- Navigate to /contracts ----
-    await page.click('[data-component="mobile-bottom-nav-contracts"]');
+    await page.click('[data-slot="mobile-bottom-nav-contracts"]');
     await page.waitForURL("**/contracts", { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(400);
     await nav.screenshot({
@@ -169,7 +171,7 @@ test.describe("Animation plan — visual verification", () => {
     });
 
     // ---- Navigate to /all ----
-    await page.click('[data-component="mobile-bottom-nav-all"]');
+    await page.click('[data-slot="mobile-bottom-nav-all"]');
     await page.waitForURL("**/all", { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(400);
     await nav.screenshot({
@@ -177,7 +179,7 @@ test.describe("Animation plan — visual verification", () => {
     });
 
     // ---- Capture mid-transition: navigate, wait 100ms (< 320ms duration) ----
-    await page.click('[data-component="mobile-bottom-nav-dashboard"]');
+    await page.click('[data-slot="mobile-bottom-nav-dashboard"]');
     await page.waitForTimeout(120); // mid-slide
     await nav.screenshot({
       path: path.join(SCREENSHOT_DIR, "phase-1-bottom-nav", "05-mid-slide-to-home.png"),
@@ -286,7 +288,9 @@ test.describe("Animation plan — visual verification", () => {
     await page.waitForTimeout(500); // nav-page slide
 
     // Look for DetailTabPills
-    const detailTabs = page.locator('[data-component="mobile-redesign-detail-tabs"]');
+    const detailTabs = page.locator(
+      `[data-component="${CLIENT_DETAIL_TABS}"]`
+    );
     if (!(await detailTabs.count())) {
       console.log("[phase 2.3] no DetailTabPills present on /clients detail; skipping");
       return;
@@ -298,7 +302,9 @@ test.describe("Animation plan — visual verification", () => {
     });
 
     // Indicator should exist on the active tab
-    const indicator = page.locator('[data-component="mobile-redesign-detail-tabs-indicator"]');
+    const indicator = page.locator(
+      `[data-component="${CLIENT_DETAIL_TABS}_indicator"]`
+    );
     await expect(indicator).toHaveCount(1);
     const indicatorBox1 = await indicator.boundingBox();
     console.log(`[indicator initial position] ${JSON.stringify(indicatorBox1)}`);
@@ -426,7 +432,7 @@ test.describe("Animation plan — visual verification", () => {
 
     // Bottom-nav indicator transition should also be effectively 0
     const indicator = page
-      .locator('[data-component="mobile-bottom-nav"] > div[aria-hidden="true"]')
+      .locator('[data-slot="mobile-bottom-nav"] > div[aria-hidden="true"]')
       .first();
     if (await indicator.count()) {
       const transition = await indicator.evaluate((el) => getComputedStyle(el).transitionDuration);

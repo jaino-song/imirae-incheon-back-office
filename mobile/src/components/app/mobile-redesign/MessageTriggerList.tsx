@@ -117,7 +117,14 @@ function compareTriggerRules(first: MessageTriggerRule, second: MessageTriggerRu
   return getRuleTitle(first).localeCompare(getRuleTitle(second), "ko-KR");
 }
 
-export function MessageTriggerList() {
+export function MessageTriggerList({
+  "data-component": dataComponent,
+  onEdit,
+}: {
+  "data-component": string;
+  onEdit?: (rule: MessageTriggerRule) => void;
+}) {
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
   const {
     data: rulesResponse = [],
     isError: isRulesError,
@@ -176,8 +183,8 @@ export function MessageTriggerList() {
   }, [updateRuleMutation]);
 
   return (
-    <div className="section-block" data-component="message-trigger-section">
-        <div className="section-header" data-component="message-trigger-section-header">자동 전송 트리거</div>
+    <div className="section-block message-trigger-list" data-component={dataComponent}>
+        <div className="section-header message-trigger-list-header" data-component={sub("header")}>자동 전송 트리거</div>
 
         {displayRows.map((row) => {
           const Icon = row.icon;
@@ -186,29 +193,18 @@ export function MessageTriggerList() {
           const triggerKey = row.rule.templateKey;
           const triggerId = row.rule.id;
 
-          return (
-            <button
-              key={rowKey}
-              type="button"
-              className="list-item message-trigger-row"
-              aria-pressed={rowActive}
-              data-component="message-trigger-row"
-              data-trigger-id={triggerId}
-              data-trigger-key={triggerKey}
-              data-trigger-channel={row.channelLabel}
-              disabled={updateRuleMutation.isPending}
-              onClick={() => handleToggle(row)}
-            >
+          const iconAndInfo = (
+            <>
               <div
                 className={`trigger-icon trigger-icon-${row.tone}`}
-                data-component="message-trigger-icon"
+                data-component={sub("icon")}
               >
                 <Icon size={18} strokeWidth={2.5} />
               </div>
 
-              <div className="trigger-info" data-component="message-trigger-info">
-                <div className="trigger-title" data-component="message-trigger-title">{row.title}</div>
-                <div className="trigger-meta" data-component="message-trigger-meta">
+              <div className="trigger-info" data-component={sub("info")}>
+                <div className="trigger-title" data-component={sub("title")}>{row.title}</div>
+                <div className="trigger-meta" data-component={sub("meta")}>
                   <span className={`send-stat ${isLogsError || (row.failedCount ?? 0) > 0 ? "fail" : ""}`}>
                     {isLogsLoading ? (
                       <span className="message-count-skeleton" aria-label="발송 건수 집계 중" />
@@ -218,13 +214,57 @@ export function MessageTriggerList() {
                       `${monthLabel} ${row.monthlyCount ?? 0}건`
                     )}
                   </span>
-                  <span className="sep">·</span>
+                  {" · "}
                   <span>{row.timingLabel}</span>
-                  <span className="sep">·</span>
+                  {" · "}
                   <span>{row.channelLabel}</span>
                 </div>
               </div>
+            </>
+          );
 
+          return onEdit ? (
+            <div
+              key={rowKey}
+              className="list-item message-trigger-row"
+              data-component={sub("row")}
+              data-trigger-id={triggerId}
+              data-trigger-key={triggerKey}
+              data-trigger-channel={row.channelLabel}
+            >
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                aria-label={`${row.title} 설정`}
+                onClick={() => onEdit(row.rule)}
+              >
+                {iconAndInfo}
+              </button>
+              <button
+                type="button"
+                className="flex min-h-11 min-w-11 items-center justify-end"
+                aria-label={`${row.title} ${rowActive ? "비활성화" : "활성화"}`}
+                aria-pressed={rowActive}
+                disabled={updateRuleMutation.isPending}
+                onClick={() => handleToggle(row)}
+              >
+                <span className={`toggle ${rowActive ? "on" : ""}`} aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
+            <button
+              key={rowKey}
+              type="button"
+              className="list-item message-trigger-row"
+              aria-pressed={rowActive}
+              data-component={sub("row")}
+              data-trigger-id={triggerId}
+              data-trigger-key={triggerKey}
+              data-trigger-channel={row.channelLabel}
+              disabled={updateRuleMutation.isPending}
+              onClick={() => handleToggle(row)}
+            >
+              {iconAndInfo}
               <span className={`toggle ${rowActive ? "on" : ""}`} aria-hidden="true" />
             </button>
           );
@@ -235,11 +275,11 @@ export function MessageTriggerList() {
             <div
               key={`message-trigger-skeleton-${index}`}
               className="list-item message-trigger-row message-trigger-row-skeleton"
-              data-component="message-trigger-row-skeleton"
+              data-component={sub("row-skeleton")}
               aria-hidden="true"
             >
               <Skeleton className="trigger-icon bg-v3-dim-white animate-pulse" />
-              <div className="trigger-info" data-component="message-trigger-skeleton-info">
+              <div className="trigger-info" data-component={sub("row-skeleton_info")}>
                 <Skeleton className="h-4 w-28 bg-v3-dim-white animate-pulse" />
                 <Skeleton className="mt-2 h-3 w-36 bg-v3-dim-white animate-pulse" />
               </div>
@@ -249,13 +289,13 @@ export function MessageTriggerList() {
         )}
 
         {!isRulesLoading && isRulesError && (
-          <div className="message-empty-state" data-component="message-trigger-error">
+          <div className="message-empty-state" data-component={sub("error")}>
             자동 전송 트리거를 불러오지 못했습니다.
           </div>
         )}
 
         {!isRulesLoading && !isRulesError && displayRows.length === 0 && (
-          <div className="message-empty-state" data-component="message-trigger-empty">
+          <div className="message-empty-state" data-component={sub("empty")}>
             등록된 자동 전송 트리거가 없습니다.
           </div>
         )}

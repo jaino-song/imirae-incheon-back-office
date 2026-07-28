@@ -5,6 +5,7 @@ import {
     isTransientPrismaConnectivityError,
     summarizePrismaError,
 } from "infrastructure/database/prisma-error.utils";
+import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
 import { ServiceRecordFinalizationService } from "./service-record-finalization.service";
 
@@ -42,6 +43,10 @@ export class ServiceRecordFinalizationSchedulerService {
                 this.logger.log(`[Service Record Finalization] Finalized ${count} service records`);
             }
         } catch (error) {
+            captureServiceRecordError(error, {
+                operation: "auto-finalize",
+                handled: true,
+            });
             if (isTransientPrismaConnectivityError(error)) {
                 this.executionGuard.enterCooldown(summarizePrismaError(error));
                 return;

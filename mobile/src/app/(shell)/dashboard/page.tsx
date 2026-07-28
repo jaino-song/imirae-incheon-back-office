@@ -445,7 +445,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <MobileDetailSheet
+      <MobileDetailSheet data-component="mobile_dashboard_detail-sheet"
         name="dashboard"
         isOpen={Boolean(selectedClient)}
         onClose={closeDetail}
@@ -463,6 +463,7 @@ export default function DashboardPage() {
         detail={
           selectedClient ? (
             <ClientDetailContent
+              data-component="mobile_dashboard_detail-sheet_stack_detail-page_content"
               client={selectedClient}
               activeTab={detailTab}
               notificationLogs={detailNotificationLogs}
@@ -479,12 +480,16 @@ export default function DashboardPage() {
               onClientUpdated={handleClientUpdated}
             />
           ) : (
-            <div className="detail-body" data-component="mobile-dashboard-detail-empty" />
+            <div
+              className="detail-body"
+              data-component="mobile_dashboard_detail-sheet_stack_detail-page_empty"
+            />
           )
         }
       />
 
       <MobileTwoButtonModal
+        data-component="mobile_dashboard_detail-sheet_delete-modal"
         open={deleteTargetClientId != null}
         title={t(locale, "common.delete")}
         description={t(locale, "clients.delete-confirm")}

@@ -45,7 +45,7 @@ export function SearchFilterBar({
   }, []);
 
   return (
-    <div data-component="search-filter-bar" className="flex items-center gap-3 rounded-[50px] bg-white px-5 py-3 shadow-v3 border border-v3-border transition-all duration-200 focus-within:shadow-v3-hover animate-v3-slide-up">
+    <div data-component="desktop_v3_search-filter-bar" className="flex items-center gap-3 rounded-[50px] bg-white px-5 py-3 shadow-v3 border border-v3-border transition-all duration-200 focus-within:shadow-v3-hover animate-v3-slide-up">
       <ExpandableSearch
         placeholder={searchPlaceholder}
         value={searchValue}

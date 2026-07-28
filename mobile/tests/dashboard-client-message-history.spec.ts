@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const DASHBOARD_LIST_ROW =
+  "mobile_dashboard_page_content_list-card_body_section-1_row-1";
+const DASHBOARD_DETAIL_TABS =
+  "mobile_dashboard_detail-sheet_stack_detail-page_content_tabs";
+
 const CLIENT = {
   id: 62,
   name: "송진호",
@@ -110,10 +115,18 @@ test("dashboard client detail uses the same message history as the clients page"
   });
 
   await page.goto("/dashboard");
-  await page.locator('[data-component="mobile-redesign-list-row"]', { hasText: CLIENT.name }).click();
-  await page.locator('[data-component="mobile-redesign-detail-tabs"] [data-tab="message"]').click();
+  await page
+    .locator(`[data-component="${DASHBOARD_LIST_ROW}"]`, {
+      hasText: CLIENT.name,
+    })
+    .click();
+  await page
+    .locator(
+      `[data-component="${DASHBOARD_DETAIL_TABS}"] [data-tab="message"]`
+    )
+    .click();
 
-  const messageTab = page.locator('[data-component="mobile-clients-message-tab"]');
+  const messageTab = page.locator('[data-component="mobile_dashboard_detail-sheet_stack_detail-page_content_tab-panel_message"]');
   await expect(messageTab).toContainText("메시지 · 메시지");
   await expect(messageTab).not.toContainText("발송 내역이 없습니다.");
 });

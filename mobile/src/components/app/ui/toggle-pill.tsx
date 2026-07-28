@@ -4,6 +4,8 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+const SOURCE_COMPONENT = "TogglePill";
+
 export interface TogglePillProps extends React.HTMLAttributes<HTMLDivElement> {
   value: boolean;
   onValueChange: (value: boolean) => void;
@@ -56,7 +58,7 @@ function TogglePill({
   return (
     <div
       data-component={dataComponent}
-      data-source-component="TogglePill"
+      data-source-component={SOURCE_COMPONENT}
       role="tablist"
       aria-label={ariaLabel}
       className={cn(

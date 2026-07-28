@@ -1,0 +1,9 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "buildCommand": "pnpm run build:sentry && pnpm exec playwright-core install --with-deps chromium"
+  },
+  "deploy": {
+    "startCommand": "pnpm run start"
+  }
+}

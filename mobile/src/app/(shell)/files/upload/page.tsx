@@ -226,24 +226,28 @@ export default function FileUploadPage() {
   };
 
   return (
-    <section data-component="files-upload-page" className={styles.page}>
-      <header data-component="files-upload-header" className={styles.detailHeader}>
+    <section
+      data-component="mobile_files-upload_screen_root"
+      data-slot="files-upload-page-shell"
+      className={styles.page}
+    >
+      <header data-component="mobile_files-upload_screen_root_header" className={styles.detailHeader}>
         <button type="button" className={styles.detailBack} onClick={() => router.push("/files")}>
           <ChevronLeft size={22} strokeWidth={2.5} />
           <span>파일</span>
         </button>
-        <div data-component="files-upload-title" className={styles.detailTitle}>파일 업로드</div>
+        <div data-component="mobile_files-upload_screen_root_header_title" className={styles.detailTitle}>파일 업로드</div>
       </header>
 
-      <main data-component="files-upload-scroll" className={styles.uploadScroll}>
+      <main data-component="mobile_files-upload_screen_root_scroll" className={styles.uploadScroll}>
         {validationError && (
-          <div data-component="files-upload-validation-error" className={styles.validationError} role="alert">
+          <div data-component="mobile_files-upload_screen_root_scroll_validation-error" className={styles.validationError} role="alert">
             {validationError}
           </div>
         )}
 
         <div
-          data-component="files-upload-dropzone"
+          data-component="mobile_files-upload_screen_root_scroll_dropzone"
           role="button"
           tabIndex={0}
           className={`${styles.dropzone} ${selectedFile ? styles.hasFile : ""}`}
@@ -266,9 +270,9 @@ export default function FileUploadPage() {
 
           {selectedFile ? (
             <>
-              <div data-component="files-upload-file-preview" className={styles.filePreview}>
+              <div data-component="mobile_files-upload_screen_root_scroll_dropzone_file-preview" className={styles.filePreview}>
                 <div
-                  data-component="files-upload-file-preview-icon"
+                  data-component="mobile_files-upload_screen_root_scroll_dropzone_file-preview_icon"
                   className={`${styles.filePreviewIcon} ${selectedFile.type.startsWith("image/") ? styles.imageFile : styles.pdfFile}`}
                 >
                   {selectedFile.type.startsWith("image/") ? (
@@ -277,9 +281,9 @@ export default function FileUploadPage() {
                     <FileText size={24} strokeWidth={2.5} />
                   )}
                 </div>
-                <div data-component="files-upload-file-preview-info" className={styles.filePreviewInfo}>
-                  <div data-component="files-upload-file-preview-name" className={styles.filePreviewName}>{selectedFile.name}</div>
-                  <div data-component="files-upload-file-preview-meta" className={styles.filePreviewMeta}>
+                <div data-component="mobile_files-upload_screen_root_scroll_dropzone_file-preview_info" className={styles.filePreviewInfo}>
+                  <div data-component="mobile_files-upload_screen_root_scroll_dropzone_file-preview_info_name" className={styles.filePreviewName}>{selectedFile.name}</div>
+                  <div data-component="mobile_files-upload_screen_root_scroll_dropzone_file-preview_info_meta" className={styles.filePreviewMeta}>
                     {fileSizeLabel(selectedFile.size)} · {extensionLabel(selectedFile.name, selectedFile.type)}
                   </div>
                 </div>
@@ -303,10 +307,10 @@ export default function FileUploadPage() {
                   <X size={14} strokeWidth={2.5} />
                 </span>
               </div>
-              <div data-component="files-upload-progress" className={styles.uploadProgress} aria-hidden="true">
-                <div data-component="files-upload-progress-bar" className={styles.uploadProgressBar} style={{ width: `${progress}%` }} />
+              <div data-component="mobile_files-upload_screen_root_scroll_dropzone_progress" className={styles.uploadProgress} aria-hidden="true">
+                <div data-component="mobile_files-upload_screen_root_scroll_dropzone_progress_bar" className={styles.uploadProgressBar} style={{ width: `${progress}%` }} />
               </div>
-              <div data-component="files-upload-progress-meta" className={styles.uploadProgressMeta}>
+              <div data-component="mobile_files-upload_screen_root_scroll_dropzone_progress-meta" className={styles.uploadProgressMeta}>
                 <span>{uploadMutation.isPending ? "업로드 중..." : "업로드 중..."}</span>
                 <span>
                   {fileSizeCompactLabel(uploadedBytes)} / {fileSizeCompactLabel(selectedFile.size)} · {progress}%
@@ -315,11 +319,11 @@ export default function FileUploadPage() {
             </>
           ) : (
             <>
-              <div data-component="files-upload-empty-icon" className={styles.dropzoneIcon}>
+              <div data-component="mobile_files-upload_screen_root_scroll_dropzone_empty-icon" className={styles.dropzoneIcon}>
                 <UploadCloud size={22} strokeWidth={2.5} />
               </div>
-              <div data-component="files-upload-empty-title" className={styles.dropzoneTitle}>파일을 선택하거나 끌어다 놓으세요</div>
-              <div data-component="files-upload-empty-subtitle" className={styles.dropzoneSub}>
+              <div data-component="mobile_files-upload_screen_root_scroll_dropzone_empty-title" className={styles.dropzoneTitle}>파일을 선택하거나 끌어다 놓으세요</div>
+              <div data-component="mobile_files-upload_screen_root_scroll_dropzone_empty-subtitle" className={styles.dropzoneSub}>
                 <b>탭하여 파일 선택</b> · 최대 25MB
                 <br />
                 PDF, JPG, PNG 지원
@@ -328,12 +332,12 @@ export default function FileUploadPage() {
           )}
         </div>
 
-        <section data-component="files-upload-category-card" className={styles.formCard}>
-          <div data-component="files-upload-category-row" className={styles.formRow}>
+        <section data-component="mobile_files-upload_screen_root_scroll_category-card" className={styles.formCard}>
+          <div data-component="mobile_files-upload_screen_root_scroll_category-card_row" className={styles.formRow}>
             <label className={styles.formLabel}>
               카테고리 <span className={styles.required}>*</span>
             </label>
-            <div data-component="files-upload-category-grid" className={styles.categoryGrid}>
+            <div data-component="mobile_files-upload_screen_root_scroll_category-card_row_grid" className={styles.categoryGrid}>
               {categories.map((category) => (
                 <button
                   key={category.id}
@@ -356,8 +360,8 @@ export default function FileUploadPage() {
           </div>
         </section>
 
-        <section data-component="files-upload-metadata-card" className={styles.formCard}>
-          <div data-component="files-upload-customer-row" className={styles.formRow}>
+        <section data-component="mobile_files-upload_screen_root_scroll_metadata-card" className={styles.formCard}>
+          <div data-component="mobile_files-upload_screen_root_scroll_metadata-card_customer-row" className={styles.formRow}>
             <label htmlFor="related-customer" className={styles.formLabel}>
               관련 고객
             </label>
@@ -368,9 +372,9 @@ export default function FileUploadPage() {
               onChange={(event) => setRelatedCustomer(event.target.value)}
               placeholder="고객 이름 검색 (선택)"
             />
-            <div data-component="files-upload-customer-helper" className={styles.formHelper}>고객 상세 페이지에서도 이 파일을 볼 수 있습니다.</div>
+            <div data-component="mobile_files-upload_screen_root_scroll_metadata-card_customer-row_helper" className={styles.formHelper}>고객 상세 페이지에서도 이 파일을 볼 수 있습니다.</div>
           </div>
-          <div data-component="files-upload-name-row" className={styles.formRow}>
+          <div data-component="mobile_files-upload_screen_root_scroll_metadata-card_name-row" className={styles.formRow}>
             <label htmlFor="file-name" className={styles.formLabel}>
               파일명
             </label>
@@ -381,12 +385,12 @@ export default function FileUploadPage() {
               onChange={(event) => setName(event.target.value)}
               placeholder="파일명을 입력하세요"
             />
-            <div data-component="files-upload-name-helper" className={styles.formHelper}>확장자는 자동으로 추가됩니다.</div>
+            <div data-component="mobile_files-upload_screen_root_scroll_metadata-card_name-row_helper" className={styles.formHelper}>확장자는 자동으로 추가됩니다.</div>
           </div>
         </section>
 
-        <section data-component="files-upload-description-card" className={styles.formCard}>
-          <div data-component="files-upload-description-row" className={styles.formRow}>
+        <section data-component="mobile_files-upload_screen_root_scroll_description-card" className={styles.formCard}>
+          <div data-component="mobile_files-upload_screen_root_scroll_description-card_row" className={styles.formRow}>
             <label htmlFor="file-description" className={styles.formLabel}>
               설명
             </label>
@@ -400,12 +404,12 @@ export default function FileUploadPage() {
           </div>
         </section>
 
-        <section data-component="files-upload-tags-card" className={styles.formCard}>
-          <div data-component="files-upload-tags-row" className={styles.formRow}>
+        <section data-component="mobile_files-upload_screen_root_scroll_tags-card" className={styles.formCard}>
+          <div data-component="mobile_files-upload_screen_root_scroll_tags-card_row" className={styles.formRow}>
             <label htmlFor="file-tags" className={styles.formLabel}>
               태그
             </label>
-            <div data-component="files-upload-tags-input-wrap" className={styles.tagInputWrap}>
+            <div data-component="mobile_files-upload_screen_root_scroll_tags-card_row_input-wrap" className={styles.tagInputWrap}>
               {tags.map((tag) => (
                 <span key={tag} className={styles.tagChip}>
                   {tag}
@@ -428,12 +432,12 @@ export default function FileUploadPage() {
                 placeholder="태그 추가..."
               />
             </div>
-            <div data-component="files-upload-tags-helper" className={styles.formHelper}>엔터 또는 쉼표로 태그를 추가하세요.</div>
+            <div data-component="mobile_files-upload_screen_root_scroll_tags-card_row_helper" className={styles.formHelper}>엔터 또는 쉼표로 태그를 추가하세요.</div>
           </div>
         </section>
       </main>
 
-      <footer data-component="files-upload-actions" className={styles.uploadActions}>
+      <footer data-component="mobile_files-upload_screen_root_actions" className={styles.uploadActions}>
         <button type="button" className={`${styles.uploadBtn} ${styles.secondary}`} onClick={() => router.push("/files")}>
           취소
         </button>

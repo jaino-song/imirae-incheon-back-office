@@ -17,9 +17,7 @@ describe('ContentPaper', () => {
     it('renders with data-component attribute for testing', () => {
       render(<ContentPaper>Content</ContentPaper>);
 
-      expect(screen.getByTestId('ContentPaper')).toHaveAttribute(
-        'data-component',
-        'content-paper'
+      expect(screen.getByTestId('ContentPaper')).toHaveAttribute('data-component', 'desktop_chrome_content-paper'
       );
     });
 

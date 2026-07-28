@@ -4,10 +4,10 @@ const TRIGGER_RULE_APPROVAL_MESSAGE =
   "메시지 발송 승인 후에 설정 가능합니다. 설정에서 메시지 발송 기능을 신청해 주세요.";
 
 export function MessageApprovalRequiredNotice({
-  dataComponent = "message-trigger-rules-disabled-copy",
+  dataComponent,
 }: {
-  dataComponent?: string;
-} = {}) {
+  dataComponent: string;
+}) {
   return (
     <div
       data-component={dataComponent}

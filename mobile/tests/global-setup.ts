@@ -14,14 +14,18 @@ export default async function globalSetup(config: FullConfig) {
       autoLogin: true,
     },
   });
-  if (!response.ok()) {
-    throw new Error(`Real E2E login failed with ${response.status()}`);
+  const loginResult = await response.json().catch(() => null) as { success?: boolean } | null;
+  if (!response.ok() || loginResult?.success !== true) {
+    throw new Error(`Real E2E login failed with ${response.status()} and no successful session`);
   }
 
   const branchId = process.env.E2E_BRANCH_ID
     ?? "20000000-0000-4000-8000-000000000001";
   const url = new URL(baseURL);
   const storageState = await context.storageState();
+  if (!storageState.cookies.some((cookie) => cookie.name === "auth_token")) {
+    throw new Error("Real E2E login returned without an auth_token cookie");
+  }
   storageState.cookies.push({
     name: "selected_branch_id",
     value: branchId,

@@ -58,6 +58,8 @@ interface ClientFormDialogProps {
 }
 
 // Format number with commas (handles comma-formatted strings too)
+const CLIENT_FORM_DIALOG_BASE = "mobile_clients_form-dialog";
+
 const formatPrice = (price: number | string): string => {
     if (!price && price !== 0) return "";
     // Remove existing commas before parsing
@@ -397,7 +399,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
     const isSubmitting = createClient.isPending || updateClient.isPending;
 
     return (
-        <Dialog data-component="clients-form-dialog" open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+        <Dialog data-component={CLIENT_FORM_DIALOG_BASE} open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-xl" data-testid="client-form-dialog">
                 <DialogHeader>
                     <DialogTitle>
@@ -414,7 +416,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
                     </DialogDescription>
                 </DialogHeader>
 
-                <div ref={contentRef} data-component="clients-form-dialog-content" className="space-y-6 py-4">
+                <div ref={contentRef} data-component={`${CLIENT_FORM_DIALOG_BASE}_content`} className="space-y-6 py-4">
                     {error && (
                         <Alert variant="destructive">
                             <AlertDescription>{error}</AlertDescription>
@@ -492,6 +494,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <EmployeeAutocomplete
+                                data-component="mobile_clients_form-dialog_content_employee-grid_primary-autocomplete"
                                 value={formData.primaryEmployeeId}
                                 onChange={(id) => handleChange("primaryEmployeeId", id)}
                                 label={t(locale, "clients.form.primary-employee")}
@@ -503,6 +506,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
                                 }}
                             />
                             <EmployeeAutocomplete
+                                data-component="mobile_clients_form-dialog_content_employee-grid_secondary-autocomplete"
                                 value={formData.secondaryEmployeeId ?? null}
                                 onChange={(id) => handleChange("secondaryEmployeeId", id)}
                                 label={t(locale, "clients.form.secondary-employee")}
@@ -524,9 +528,9 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
                             {t(locale, "clients.form.section-service")}
                         </h4>
 
-                        <div className="flex justify-center" data-component="clients-form-dialog-customer-type-toggle-field">
+                        <div className="flex justify-center" data-component={`${CLIENT_FORM_DIALOG_BASE}_content_customer-type-toggle-field`}>
                             <TogglePill
-                                data-component="clients-form-dialog-customer-type-toggle"
+                                data-component={`${CLIENT_FORM_DIALOG_BASE}_content_customer-type-toggle-field_toggle`}
                                 value={formData.voucherClient}
                                 onValueChange={handleVoucherClientChange}
                                 leftLabel={t(locale, "clients.form.voucher-client")}
@@ -593,7 +597,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
                             </div>
                         </div>
                         {!formData.voucherClient && isOutOfPocketPriceError && (
-                            <p className="text-xs font-medium text-destructive" data-component="clients-form-dialog-out-of-pocket-price-error">
+                            <p className="text-xs font-medium text-destructive" data-component={`${CLIENT_FORM_DIALOG_BASE}_content_out-of-pocket-price-error`}>
                                 자부담 요금 정보를 불러오지 못했습니다.
                             </p>
                         )}
@@ -745,7 +749,7 @@ export function ClientFormDialog({ open, onClose, client, onSuccess }: ClientFor
                     </div>
                 </div>
 
-                <DialogFooter data-component="clients-form-dialog-actions">
+                <DialogFooter data-component={`${CLIENT_FORM_DIALOG_BASE}_actions`}>
                     <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
                         {t(locale, "common.cancel")}
                     </Button>

@@ -26,7 +26,7 @@ export class LinkDocumentToClientUsecase {
         }
 
         if (doc.documentKind === EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT) {
-            this.logger.debug(`Skipping client contract link for feedback document ${documentId}`);
+            this.logger.debug(`Skipping client contract link for service-record document ${documentId}`);
             return;
         }
 

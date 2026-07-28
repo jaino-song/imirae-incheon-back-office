@@ -1,10 +1,11 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import {
     FindEformsignDocByIdUsecase,
     FindEformsignDocByDocumentIdUsecase,
     FindEformsignDocsByClientIdUsecase,
     ListEformsignDocsUsecase,
     ListOtherBranchDocumentIdsUsecase,
+    ListEformsignDocDisplayFieldsUsecase,
     GetEformsignAccessTokenUsecase,
     RefreshEformsignAccessTokenUsecase,
     FetchAllEformsignDocsFromApiUsecase,
@@ -22,6 +23,8 @@ import {
     EformsignTokenResponse,
     EformsignApiDocumentResponse,
 } from "domain/repositories/eformsign.client.interface";
+import { EformsignDocDisplayFields } from "domain/repositories/eformsign-doc.repository.interface";
+import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
@@ -67,6 +70,7 @@ export class EformsignDocService {
         private readonly findEformsignDocsByClientIdUsecase: FindEformsignDocsByClientIdUsecase,
         private readonly listEformsignDocsUsecase: ListEformsignDocsUsecase,
         private readonly listOtherBranchDocumentIdsUsecase: ListOtherBranchDocumentIdsUsecase,
+        private readonly listEformsignDocDisplayFieldsUsecase: ListEformsignDocDisplayFieldsUsecase,
         private readonly createEformsignDocUsecase: CreateEformsignDocUsecase,
         private readonly updateEformsignDocStatusUsecase: UpdateEformsignDocStatusUsecase,
         private readonly linkDocumentToClientUsecase: LinkDocumentToClientUsecase,
@@ -77,6 +81,8 @@ export class EformsignDocService {
         private readonly fetchEformsignDocFromApiUsecase: FetchEformsignDocFromApiUsecase,
         // Contract creation
         private readonly createAndSendContractUsecase: CreateAndSendContractUsecase,
+        @Optional()
+        private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
     ) {}
 
     // ============ Local DB Operations ============
@@ -88,8 +94,19 @@ export class EformsignDocService {
     async create(branchid: string, params: CreateEformsignDocParams): Promise<EformsignDocEntity> {
         this.logger.log(`Creating eformsign doc record: documentId=${params.documentId}, clientId=${params.clientId}, linkToClient=${params.linkToClient}`);
         const result = await this.createEformsignDocUsecase.execute(branchid, params);
+        await this.bumpDocumentSnapshotVersion(branchid);
         this.logger.log(`Successfully created eformsign doc record: id=${result.id}, documentId=${result.documentId}`);
         return result;
+    }
+
+    private async bumpDocumentSnapshotVersion(branchId: string): Promise<void> {
+        if (!branchId) return;
+
+        try {
+            await this.documentSnapshotService?.bumpVersion(branchId);
+        } catch {
+            // 캐시 무효화 실패가 계약 생성 성공을 되돌리면 안 된다.
+        }
     }
 
     /**
@@ -128,6 +145,13 @@ export class EformsignDocService {
      */
     findDocumentIdsForOtherBranches(branchid: string): Promise<string[]> {
         return this.listOtherBranchDocumentIdsUsecase.execute(branchid);
+    }
+
+    findDisplayFieldsByDocumentIds(
+        branchid: string,
+        documentIds: string[],
+    ): Promise<EformsignDocDisplayFields[]> {
+        return this.listEformsignDocDisplayFieldsUsecase.execute(branchid, documentIds);
     }
 
     // ============ External API Operations ============

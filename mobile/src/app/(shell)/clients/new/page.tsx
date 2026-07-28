@@ -62,6 +62,7 @@ const VOUCHER_TYPE_OPTIONS = VOUCHER_TYPE_SELECT_OPTIONS.flatMap((group) => grou
 type HelperTone = "muted" | "ok" | "err" | "pending";
 
 function Field({
+  "data-component": dataComponent,
   label,
   required,
   children,
@@ -69,6 +70,7 @@ function Field({
   helperTone = "muted",
   helperPlacement = "below",
 }: {
+  "data-component": string;
   label: ReactNode;
   required?: boolean;
   children: ReactNode;
@@ -83,15 +85,15 @@ function Field({
         helperPlacement === "label" ? styles.formHelperInline : null,
         styles[`helper_${helperTone}`],
       )}
-      data-component="clients-new-form-helper"
+      data-component={`${dataComponent}_helper`}
     >
       {helper}
     </div>
   ) : null;
 
   return (
-    <div className={styles.formRow} data-component="clients-new-form-row">
-      <div className={styles.formFieldHeader} data-component="clients-new-form-field-header">
+    <div className={styles.formRow} data-component={dataComponent}>
+      <div className={styles.formFieldHeader} data-component={`${dataComponent}_header`}>
         <label className={styles.formLabel}>
           {label}
           {required ? <span className={styles.requiredMark}>*</span> : null}
@@ -822,7 +824,7 @@ export default function NewClientPage() {
         {floatingError && (
           <motion.div
             key="clients-new-floating-error"
-            data-component="clients-new-toast"
+            data-component="mobile_clients-new_feedback_toast"
             className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.75rem)] z-[1001] max-w-[320px] overflow-hidden rounded-2xl bg-v3-burgundy-light px-4 py-3 text-[0.8rem] font-semibold text-v3-burgundy shadow-[0_8px_24px_hsla(349,50%,45%,0.2)] md:top-4"
             initial={
               prefersReducedMotion
@@ -843,7 +845,7 @@ export default function NewClientPage() {
           >
             {!prefersReducedMotion && (
               <motion.div
-                data-component="clients-new-toast-ripple"
+                data-component="mobile_clients-new_feedback_toast_ripple"
                 className="pointer-events-none absolute inset-0 rounded-[inherit] border border-v3-burgundy/50"
                 initial={{ opacity: 0.5, scale: 0.72 }}
                 animate={{ opacity: 0, scale: 1.28 }}
@@ -851,16 +853,20 @@ export default function NewClientPage() {
                 transition={{ duration: 0.52, ease: [0.22, 1, 0.36, 1] }}
               />
             )}
-            <span data-component="clients-new-toast-text" className="relative z-[1]">
+            <span data-component="mobile_clients-new_feedback_toast_message" className="relative z-[1]">
               {floatingError}
             </span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className={styles.pageRoot} data-component="clients-new-page-shell">
-        <div className={styles.navPage} data-component="clients-new-nav-page">
-          <header className={styles.navbar} data-component="clients-new-navbar">
+      <div
+        className={styles.pageRoot}
+        data-component="mobile_clients-new_screen_root"
+        data-slot="clients-new-page-shell"
+      >
+        <div className={styles.navPage} data-component="mobile_clients-new_screen_root_page">
+          <header className={styles.navbar} data-component="mobile_clients-new_screen_root_page_navbar">
             <button
               type="button"
               onClick={goBackToClients}
@@ -870,7 +876,7 @@ export default function NewClientPage() {
               <ChevronLeft aria-hidden="true" size={20} strokeWidth={2.5} />
             </button>
 
-            <div className={styles.navbarTitle} data-component="clients-new-navbar-title">{isEditMode ? "고객 정보 수정" : "새 고객 추가"}</div>
+            <div className={styles.navbarTitle} data-component="mobile_clients-new_screen_root_page_navbar_title">{isEditMode ? "고객 정보 수정" : "새 고객 추가"}</div>
 
             <button
               type="button"
@@ -882,13 +888,13 @@ export default function NewClientPage() {
             </button>
           </header>
 
-          <section className={styles.wizardContent} data-component="clients-new-wizard">
-            <div className={styles.wizardHeader} data-component="clients-new-wizard-header">
-              <div className={styles.progressRow} data-component="clients-new-progress-row">
-                <div className={styles.progressTrack} data-component="clients-new-progress-track" aria-hidden="true">
-                  <div className={styles.progressFill} data-component="clients-new-progress-fill" style={{ width: `${progress}%` }} />
+          <section className={styles.wizardContent} data-component="mobile_clients-new_screen_root_page_wizard">
+            <div className={styles.wizardHeader} data-component="mobile_clients-new_screen_root_page_wizard_header">
+              <div className={styles.progressRow} data-component="mobile_clients-new_screen_root_page_wizard_header_progress-row">
+                <div className={styles.progressTrack} data-component="mobile_clients-new_screen_root_page_wizard_header_progress-row_progress-track" aria-hidden="true">
+                  <div className={styles.progressFill} data-component="mobile_clients-new_screen_root_page_wizard_header_progress-row_progress-track_progress-fill" style={{ width: `${progress}%` }} />
                 </div>
-                <div className={styles.stepCount} data-component="clients-new-step-count">
+                <div className={styles.stepCount} data-component="mobile_clients-new_screen_root_page_wizard_header_progress-row_step-count">
                   <span>{activeStep + 1}</span> / {WIZARD_STEPS.length} 단계
                 </div>
               </div>
@@ -896,21 +902,21 @@ export default function NewClientPage() {
               <p className={styles.stepDesc}>{activeStepMeta.desc}</p>
             </div>
 
-            <div className={styles.formScroll} data-component="clients-new-step-content">
+            <div className={styles.formScroll} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll">
               {activeStep === 0 ? (
                 <>
-                  <div className={styles.formCard} data-component="clients-new-basic-contact-card">
-                    <Field label="이름" required>
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_name-field" label="이름" required>
                       <Input
-                        data-component="clients-new-name-input"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_name-field_name-input"
                         value={store.name}
                         onChange={(e) => setField("name", e.target.value)}
                         placeholder="홍길동"
                       />
                     </Field>
-                    <Field label="연락처" required helper={phoneInlineMessage} helperTone={phoneHelperTone} helperPlacement="label">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_phone-field" label="연락처" required helper={phoneInlineMessage} helperTone={phoneHelperTone} helperPlacement="label">
                       <Input
-                        data-component="clients-new-phone-input"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_phone-field_phone-input"
                         value={store.phone}
                         onChange={(e) => setField("phone", formatPhoneNumber(e.target.value))}
                         type="tel"
@@ -921,10 +927,10 @@ export default function NewClientPage() {
                     </Field>
                   </div>
 
-                  <div className={styles.formCard} data-component="clients-new-basic-details-card">
-                    <Field label="생년월일">
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birthday-field" label="생년월일">
                       <Input
-                        data-component="clients-new-birthday-input"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birthday-field_birthday-input"
                         value={store.birthday}
                         onChange={(e) => setField("birthday", e.target.value)}
                         inputMode="numeric"
@@ -932,9 +938,9 @@ export default function NewClientPage() {
                         placeholder="YYMMDD"
                       />
                     </Field>
-                    <Field label="출산 예정일">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_due-date-field" label="출산 예정일">
                       <Input
-                        data-component="clients-new-due-date-input"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_due-date-field_due-date-input"
                         value={store.dueDate}
                         onChange={(e) => setField("dueDate", e.target.value)}
                         inputMode="numeric"
@@ -942,9 +948,9 @@ export default function NewClientPage() {
                         placeholder="YYMMDD"
                       />
                     </Field>
-                    <Field label="주소">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_address-field" label="주소">
                       <Input
-                        data-component="clients-new-address-input"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_address-field_address-input"
                         value={store.address}
                         onChange={(e) => setField("address", e.target.value)}
                         placeholder="서울시 강남구..."
@@ -956,44 +962,44 @@ export default function NewClientPage() {
 
               {activeStep === 1 ? (
                 <>
-                  <div className={styles.formCard} data-component="clients-new-voucher-card">
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card">
                     <div
-                      data-component="clients-new-customer-type-toggle-field"
+                      data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_customer-type-field"
                       className="flex justify-center pb-3"
                     >
                       <TogglePill
-                        data-component="clients-new-customer-type-toggle"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_customer-type-field_toggle"
                         value={store.voucherClient}
                         onValueChange={handleVoucherClientChange}
                         leftLabel="바우처 고객"
                         rightLabel="자부담 고객"
                         ariaLabel="고객 유형"
-                        indicatorDataComponent="clients-new-customer-type-toggle-indicator"
-                        leftButtonDataComponent="clients-new-customer-type-toggle-voucher"
-                        rightButtonDataComponent="clients-new-customer-type-toggle-self-pay"
+                        indicatorDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_customer-type-field_toggle_indicator"
+                        leftButtonDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_customer-type-field_toggle_voucher-button"
+                        rightButtonDataComponent="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_customer-type-field_toggle_self-pay-button"
                       />
                     </div>
-                    <div className={styles.formCardTitle} data-component="clients-new-form-card-title">
+                    <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_card-title">
                       {store.voucherClient ? "바우처" : "자부담"}
                     </div>
-                    {store.voucherClient ? <Field label="바우처 유형">
+                    {store.voucherClient ? <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field" label="바우처 유형">
                       <FormNativeSelect
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field_select-wrap"
                         value={store.type}
                         onValueChange={handleTypeChange}
                         options={[
                           { value: "", label: "선택하세요" },
                           ...VOUCHER_TYPE_SELECT_OPTIONS,
                         ]}
-                        wrapDataComponent="clients-new-voucher-select-wrap"
-                        selectDataComponent="clients-new-voucher-select"
-                        iconDataComponent="clients-new-voucher-select-icon"
                       />
                     </Field> : null}
                     <Field
+                      data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_duration-field"
                       label="기간"
                       helper={store.voucherClient ? "바우처 유형에 따라 선택 가능한 기간이 달라집니다." : undefined}
                     >
                       <FormNativeSelect
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_duration-field_select-wrap"
                         value={effectiveDuration?.toString() || ""}
                         onValueChange={(value) => {
                           setField("duration", value ? Number(value) : null);
@@ -1013,25 +1019,23 @@ export default function NewClientPage() {
                           { value: "", label: "선택하세요" },
                           ...durationOptions,
                         ]}
-                        wrapDataComponent="clients-new-duration-select-wrap"
-                        selectDataComponent="clients-new-duration-select"
-                        iconDataComponent="clients-new-duration-select-icon"
                       />
                     </Field>
                     {!store.voucherClient && isOutOfPocketPriceError ? (
                       <div
                         className={cn(styles.formHelper, styles.helper_err)}
-                        data-component="clients-new-out-of-pocket-price-error"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_out-of-pocket-price-error"
                       >
                         자부담 요금 정보를 불러오지 못했습니다.
                       </div>
                     ) : null}
                   </div>
 
-                  <div className={styles.formCard} data-component="clients-new-employee-card">
-                    <div className={styles.formCardTitle} data-component="clients-new-form-card-title">제공인력 배정</div>
-                    <Field label="제공인력 1">
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card">
+                    <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_card-title">제공인력 배정</div>
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_primary-field" label="제공인력 1">
                       <EmployeeAutocomplete
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_primary-field_autocomplete"
                         value={store.primaryEmployeeId}
                         onChange={(id) => setField("primaryEmployeeId", id)}
                         label=""
@@ -1043,8 +1047,9 @@ export default function NewClientPage() {
                         }}
                       />
                     </Field>
-                    <Field label="제공인력 2">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_secondary-field" label="제공인력 2">
                       <EmployeeAutocomplete
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_employee-card_secondary-field_autocomplete"
                         value={store.secondaryEmployeeId}
                         onChange={(id) => setField("secondaryEmployeeId", id)}
                         label=""
@@ -1058,17 +1063,17 @@ export default function NewClientPage() {
                     </Field>
                   </div>
 
-                  <div className={styles.formCard} data-component="clients-new-pricing-card">
-                    <div className={styles.formCardTitle} data-component="clients-new-form-card-title">
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card">
+                    <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_card-title">
                       요금 정보
                       {selectedPriceInfo && !pricesManuallyEdited ? (
                         <span className={styles.autoBadge}>자동입력</span>
                       ) : null}
                     </div>
-                    <Field label="총 서비스 금액">
-                      <div className={styles.priceInput} data-component="clients-new-full-price-input-wrap">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_full-price-field" label="총 서비스 금액">
+                      <div className={styles.priceInput} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_full-price-field_input-wrap">
                         <Input
-                          data-component="clients-new-full-price-input"
+                          data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_full-price-field_input-wrap_input"
                           value={arePriceInputsLocked ? "" : formatPrice(store.fullPrice)}
                           onChange={(e) => handlePriceChange("fullPrice", e.target.value.replace(/,/g, ""))}
                           inputMode="numeric"
@@ -1078,10 +1083,10 @@ export default function NewClientPage() {
                         <span>원</span>
                       </div>
                     </Field>
-                    {store.voucherClient ? <Field label="정부지원금">
-                      <div className={styles.priceInput} data-component="clients-new-grant-input-wrap">
+                    {store.voucherClient ? <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_grant-field" label="정부지원금">
+                      <div className={styles.priceInput} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_grant-field_input-wrap">
                         <Input
-                          data-component="clients-new-grant-input"
+                          data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_grant-field_input-wrap_input"
                           value={formatPrice(store.grant)}
                           onChange={(e) => handlePriceChange("grant", e.target.value.replace(/,/g, ""))}
                           inputMode="numeric"
@@ -1090,10 +1095,10 @@ export default function NewClientPage() {
                         <span>원</span>
                       </div>
                     </Field> : null}
-                    {store.voucherClient ? <Field label="본인부담금">
-                      <div className={styles.priceInput} data-component="clients-new-actual-price-input-wrap">
+                    {store.voucherClient ? <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_actual-price-field" label="본인부담금">
+                      <div className={styles.priceInput} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_actual-price-field_input-wrap">
                         <Input
-                          data-component="clients-new-actual-price-input"
+                          data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_pricing-card_actual-price-field_input-wrap_input"
                           value={formatPrice(store.actualPrice)}
                           onChange={(e) => handlePriceChange("actualPrice", e.target.value.replace(/,/g, ""))}
                           inputMode="numeric"
@@ -1104,9 +1109,9 @@ export default function NewClientPage() {
                     </Field> : null}
                   </div>
 
-                  <div className={styles.formCard} data-component="clients-new-options-card">
-                    <div className={styles.formCardTitle} data-component="clients-new-form-card-title">추가 옵션</div>
-                    <div className={styles.toggleChipRow} data-component="clients-new-option-chips">
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_options-card">
+                    <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_options-card_card-title">추가 옵션</div>
+                    <div className={styles.toggleChipRow} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_options-card_option-chips">
                       {([
                         { key: "careCenter" as const, label: "조리원 이용" },
                         { key: "breastPump" as const, label: "유축기 대여" },
@@ -1127,23 +1132,21 @@ export default function NewClientPage() {
 
               {activeStep === 2 ? (
                 <>
-                  <div className={styles.formCard} data-component="clients-new-contract-status-card">
-                    <div className={styles.formCardTitle} data-component="clients-new-form-card-title">계약 상태</div>
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card">
+                    <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card_card-title">계약 상태</div>
                     <FormNativeSelect
+                      data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card_select-wrap"
                       value={store.serviceStatus}
                       onValueChange={(value) => setField("serviceStatus", value as ServiceStatus)}
                       options={SERVICE_STATUS_OPTIONS}
-                      wrapDataComponent="clients-new-status-select-wrap"
-                      selectDataComponent="clients-new-status-select"
-                      iconDataComponent="clients-new-status-select-icon"
                     />
                   </div>
 
-                  <div className={styles.formCard} data-component="clients-new-service-period-card">
-                    <div className={styles.formCardTitle} data-component="clients-new-form-card-title">서비스 기간</div>
-                    <Field label="시작일">
+                  <div className={styles.formCard} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card">
+                    <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_card-title">서비스 기간</div>
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_start-date-field" label="시작일">
                       <Input
-                        data-component="clients-new-start-date-input"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_start-date-field_start-date-input"
                         value={store.startDate}
                         onChange={(e) => setField("startDate", e.target.value)}
                         inputMode="numeric"
@@ -1151,9 +1154,9 @@ export default function NewClientPage() {
                         placeholder="YYMMDD"
                       />
                     </Field>
-                    <Field label="종료일">
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_end-date-field" label="종료일">
                       <Input
-                        data-component="clients-new-end-date-input"
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_end-date-field_end-date-input"
                         value={store.endDate}
                         onChange={(e) => setField("endDate", e.target.value)}
                         inputMode="numeric"
@@ -1166,7 +1169,7 @@ export default function NewClientPage() {
               ) : null}
             </div>
 
-            <div className={styles.wizardActions} data-component="clients-new-actions">
+            <div className={styles.wizardActions} data-component="mobile_clients-new_screen_root_page_wizard_actions">
               <button
                 type="button"
                 onClick={handlePrev}

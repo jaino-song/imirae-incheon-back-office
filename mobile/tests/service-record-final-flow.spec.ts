@@ -27,6 +27,23 @@ async function mockShellRequests(page: import("@playwright/test").Page) {
   await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
 }
 
+async function signServiceRecord(page: import("@playwright/test").Page) {
+  const signaturePad = page.getByLabel("산모 서명 입력");
+  await expect(signaturePad).toBeVisible();
+  // page.mouse works in viewport coordinates and never auto-scrolls, so the pad
+  // has to be brought into view before its box is read — the confirm step is
+  // taller than the viewport and the pad sits below the fold.
+  await signaturePad.scrollIntoViewIfNeeded();
+
+  const box = await signaturePad.boundingBox();
+  if (!box) throw new Error("산모 서명 입력 영역을 찾을 수 없습니다.");
+
+  await page.mouse.move(box.x + 24, box.y + 24);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 96, box.y + 56, { steps: 5 });
+  await page.mouse.up();
+}
+
 test("백엔드 서비스 일수만큼 제공기록표를 생성한다", async ({ page }) => {
   const token = "dynamic-service-days";
 
@@ -45,13 +62,9 @@ test("백엔드 서비스 일수만큼 제공기록표를 생성한다", async (
   }));
 
   await page.goto(`/service-record/${token}`);
-  await expect(page.getByText("인천 아이미래로", { exact: true })).toBeVisible();
-  await page.getByLabel("휴대폰 번호").fill("01012345678");
-  await page.getByRole("button", { name: "확인하기" }).click();
-
   await expect(page.getByText("제공기록표", { exact: true })).toBeVisible();
-  await expect(page.locator('[data-component="service-record-day-grid"] > button')).toHaveCount(20);
-  await expect(page.locator('[data-component="service-record-day-number"]').filter({ hasText: "20" })).toHaveCount(1);
+  await expect(page.locator('[data-component="mobile_service-record_wizard_body_day-grid"] > button')).toHaveCount(20);
+  await expect(page.locator('[data-component="mobile_service-record_wizard_body_day-grid_day_number"]').filter({ hasText: "20" })).toHaveCount(1);
 });
 
 test("서비스 제공일자가 오늘과 달라도 경고만 표시하고 기록을 작성한다", async ({ page }) => {
@@ -77,7 +90,7 @@ test("서비스 제공일자가 오늘과 달라도 경고만 표시하고 기�
   await expect(page.getByText("서비스 제공 기록은 해당 날짜에만 기록이 가능합니다.", { exact: false })).toHaveCount(0);
   await page.getByRole("button", { name: "기록 시작" }).click();
 
-  await expect(page.locator('[data-component="service-record-date-mismatch-notice"]'))
+  await expect(page.locator('[data-component="mobile_service-record_wizard_body_date-mismatch-notice"]'))
     .toHaveText("서비스 제공일자(2026.07.20)가 오늘과 달라요. 한번 더 확인해 주세요.");
   await expect(page.getByRole("button", { name: "열상" })).toBeEnabled();
   await page.getByRole("button", { name: "열상" }).click();
@@ -85,7 +98,7 @@ test("서비스 제공일자가 오늘과 달라도 경고만 표시하고 기�
   await page.getByLabel("간식").fill("2");
   await page.getByRole("button", { name: "다음", exact: true }).click();
 
-  await expect(page.locator('[data-component="service-record-day-title"]')).toHaveText("신생아 기록");
+  await expect(page.locator('[data-component="mobile_service-record_wizard_body_day-title"]')).toHaveText("신생아 기록");
 });
 
 test("마지막 회차 제출 후 별도 버튼 없이 최종 제출을 완료한다", async ({ page }) => {
@@ -125,9 +138,6 @@ test("마지막 회차 제출 후 별도 버튼 없이 최종 제출을 완료�
   }));
 
   await page.goto(`/service-record/${token}`);
-  await page.getByLabel("휴대폰 번호").fill("01012345678");
-  await page.getByRole("button", { name: "확인하기" }).click();
-
   await page.getByPlaceholder("예) 홍길동").fill(header.momName);
   await page.getByPlaceholder("예) 900101").fill(header.momBirth);
   await page.getByPlaceholder("예) 홍아기").fill(header.babyName);
@@ -142,8 +152,8 @@ test("마지막 회차 제출 후 별도 버튼 없이 최종 제출을 완료�
   await page.getByRole("button", { name: "다음", exact: true }).click();
 
   await page.getByLabel("체온").fill("36.5");
-  const breastFeedingField = page.locator('[data-component="service-record-day-field"]').filter({ hasText: "⑧ 모유수유" });
-  const formulaFeedingField = page.locator('[data-component="service-record-day-field"]').filter({ hasText: "⑨ 분유수유" });
+  const breastFeedingField = page.locator('[data-component="mobile_service-record_wizard_body_day-field"]').filter({ hasText: "⑧ 모유수유" });
+  const formulaFeedingField = page.locator('[data-component="mobile_service-record_wizard_body_day-field"]').filter({ hasText: "⑨ 분유수유" });
   await breastFeedingField.getByRole("spinbutton").fill("5");
   await formulaFeedingField.getByLabel("횟수").fill("4");
   await formulaFeedingField.getByLabel("회당").fill("80");
@@ -153,14 +163,20 @@ test("마지막 회차 제출 후 별도 버튼 없이 최종 제출을 완료�
   await page.getByRole("button", { name: "결제 확인 완료" }).click();
   await page.getByRole("button", { name: "다음", exact: true }).click();
 
+  await signServiceRecord(page);
   await page.getByRole("button", { name: "확인", exact: true }).click();
-  await expect(page.getByText("제출하시겠어요?", { exact: true })).toBeVisible();
-  await page.locator('[data-component="feedback-submit-approve"]').click();
+  const submitDialog = page.getByRole("dialog", { name: "제출하시겠어요?" });
+  await expect(submitDialog).toBeVisible();
+  await submitDialog.getByRole("button", { name: "확인", exact: true }).click();
 
   await expect(page.getByText("최종 제출 완료", { exact: true })).toBeVisible();
   await expect(page.getByText("제공기록지 제출이 완료되었습니다.", { exact: true })).toBeVisible();
   expect(finalizeCalls).toBe(0);
-  expect(submittedBody).toMatchObject({ momApproval: "approved", paymentConfirmed: true });
+  expect(submittedBody).toMatchObject({
+    clientSignature: expect.any(String),
+    momApproval: "approved",
+    paymentConfirmed: true,
+  });
 });
 
 test("기본정보 저장 실패 시 입력값을 보존하고 다음 단계로 이동하지 않는다", async ({ page }) => {
@@ -190,8 +206,6 @@ test("기본정보 저장 실패 시 입력값을 보존하고 다음 단계로 
   }));
 
   await page.goto(`/service-record/${token}`);
-  await page.getByLabel("휴대폰 번호").fill("01012345678");
-  await page.getByRole("button", { name: "확인하기" }).click();
   await page.getByPlaceholder("예) 홍길동").fill(header.momName);
   await page.getByPlaceholder("예) 900101").fill(header.momBirth);
   await page.getByPlaceholder("예) 홍아기").fill(header.babyName);
@@ -200,11 +214,9 @@ test("기본정보 저장 실패 시 입력값을 보존하고 다음 단계로 
   await page.getByRole("button", { name: "다음", exact: true }).click();
 
   await expect(page.getByText("기본정보 저장에 실패했습니다.", { exact: true })).toBeVisible();
-  await expect(page.locator('[data-component="service-record-service-title"]')).toHaveText("서비스 기본정보");
+  await expect(page.locator('[data-component="mobile_service-record_wizard_body_service-title"]')).toHaveText("서비스 기본정보");
 
   await page.reload();
-  await page.getByLabel("휴대폰 번호").fill("01012345678");
-  await page.getByRole("button", { name: "확인하기" }).click();
   await expect(page.getByPlaceholder("예) 홍길동")).toHaveValue(header.momName);
   await expect(page.getByPlaceholder("예) 홍아기")).toHaveValue(header.babyName);
 });

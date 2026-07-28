@@ -20,7 +20,7 @@ export const FormCheckboxField = React.forwardRef<HTMLInputElement, FormCheckbox
       className,
       inputClassName,
       disabled,
-      "data-component": dataComponent = "form-checkbox-field",
+      "data-component": dataComponent = "desktop_v3_form-checkbox-field",
       ...inputProps
     },
     ref,

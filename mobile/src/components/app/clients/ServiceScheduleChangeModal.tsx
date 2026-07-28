@@ -4,6 +4,7 @@ import { ApprovalTwoButtonModal } from "@/components/app/ui/ApprovalTwoButtonMod
 import { Input } from "@/components/ui/input";
 
 interface ServiceScheduleChangeModalProps {
+    "data-component": string;
     open: boolean;
     sessionIndex: number;
     currentDate: string;
@@ -36,6 +37,7 @@ function isValidIsoDate(value: string): boolean {
 }
 
 export function ServiceScheduleChangeModal({
+    "data-component": dataComponent,
     open,
     sessionIndex,
     currentDate,
@@ -53,7 +55,7 @@ export function ServiceScheduleChangeModal({
     return (
         <ApprovalTwoButtonModal
             open={open}
-            dataComponent="clients-detail-service-schedule-change-modal"
+            data-component={dataComponent}
             title="서비스 일정 변경"
             description={`${sessionIndex}회차 서비스 제공 날짜를 조정합니다.`}
             isDescriptionVisuallyHidden={false}

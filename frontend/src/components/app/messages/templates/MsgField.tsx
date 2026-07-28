@@ -10,7 +10,7 @@ export const MsgField = ({ value, label, onChange }: MsgFieldProps) => {
   return (
     <Textarea
       aria-label={label}
-      data-component="messages-msg-field"
+      data-component="desktop_messages_sections_msg-field"
       value={value}
       readOnly={!onChange}
       onChange={(e) => onChange?.(e.target.value)}

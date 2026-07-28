@@ -2,6 +2,7 @@ import { Body, Controller, Post, HttpCode, HttpStatus, Logger, ServiceUnavailabl
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
 import { EformsignWebhookPayloadDto } from "interface/dto/eformsign-webhook.dto";
 import { WebhookGuard } from "infrastructure/auth/webhook.guard";
+import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 
 /**
  * Controller for handling eformsign webhook callbacks
@@ -29,6 +30,11 @@ export class EformsignWebhookController {
             await this.webhookService.processWebhook(payload);
             return { success: true };
         } catch (error) {
+            captureServiceRecordError(error, {
+                operation: "webhook",
+                handled: true,
+                statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            });
             this.logger.error(`Webhook processing failed: ${error}`);
             throw new ServiceUnavailableException({
                 success: false,

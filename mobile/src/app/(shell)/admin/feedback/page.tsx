@@ -12,6 +12,10 @@ import { ShortcutGrid } from '@/components/app/v3/ShortcutGrid';
 
 type FilterType = 'all' | 'positive' | 'negative';
 
+const FEEDBACK_BASE = 'mobile_admin_feedback';
+const FEEDBACK_LIST_PANEL = `${FEEDBACK_BASE}_split-layout_list-panel`;
+const FEEDBACK_LIST = `${FEEDBACK_LIST_PANEL}_content_list`;
+
 const filterItems = [
   { label: '전체', value: 'all' },
   { label: '긍정적', value: 'positive' },
@@ -73,8 +77,8 @@ export default function AdminFeedbackPage() {
 
   if (error) {
     return (
-      <div data-component="admin-feedback-error-wrap" className="p-6">
-        <div data-component="admin-error" className="bg-v3-burgundy-light text-v3-burgundy rounded-2xl p-6 text-center">
+      <div data-component={`${FEEDBACK_BASE}_error`} className="p-6">
+        <div data-component={`${FEEDBACK_BASE}_error_message`} className="bg-v3-burgundy-light text-v3-burgundy rounded-2xl p-6 text-center">
           피드백을 불러오는데 실패했습니다.
         </div>
       </div>
@@ -82,9 +86,9 @@ export default function AdminFeedbackPage() {
   }
 
   return (
-    <section data-component="admin-feedback" className="space-y-6">
+    <section data-component={FEEDBACK_BASE} className="space-y-6">
       <StatsBar
-        name="admin"
+        data-component={`${FEEDBACK_BASE}_stats`}
         isLoading={statsLoading}
         items={[
           { icon: MessageSquare, value: stats?.total || 0, label: '전체', counter: '건' },
@@ -93,9 +97,13 @@ export default function AdminFeedbackPage() {
         ]}
       />
 
-      <ShortcutGrid shortcuts={shortcuts} className="bg-white rounded-2xl shadow-v3 p-4" />
+      <ShortcutGrid
+        data-component={`${FEEDBACK_BASE}_shortcuts`}
+        shortcuts={shortcuts}
+        className="bg-white rounded-2xl shadow-v3 p-4"
+      />
 
-      <ListPanel
+      <ListPanel data-component={FEEDBACK_LIST_PANEL}
         title="피드백 목록"
         tabs={filterItems}
         activeTab={filterType}
@@ -108,6 +116,7 @@ export default function AdminFeedbackPage() {
           <ListEmptyState message={searchQuery ? '검색 결과가 없습니다' : '피드백이 없습니다'} />
         ) : (
           <AnimatedSlotList<FeedbackItem>
+            data-component={FEEDBACK_LIST}
             items={filteredList}
             isLoading={feedbackLoading}
             loadingCount={5}
@@ -123,10 +132,10 @@ export default function AdminFeedbackPage() {
               if (slotLoading) {
                 return (
                   <>
-                    <div data-component="admin-feedback-item-skeleton-icon" className="w-9 h-9 rounded-2xl shrink-0 bg-v3-dim-white flex items-center justify-center">
+                    <div data-component={`${FEEDBACK_LIST}_item_skeleton-icon`} className="w-9 h-9 rounded-2xl shrink-0 bg-v3-dim-white flex items-center justify-center">
                       <Skeleton className="w-4 h-4 rounded-2xl bg-white/70" />
                     </div>
-                    <div data-component="admin-feedback-item-skeleton-content" className="flex-1 min-w-0">
+                    <div data-component={`${FEEDBACK_LIST}_item_skeleton-content`} className="flex-1 min-w-0">
                       <Skeleton className="h-4 w-24 mb-1.5 bg-v3-dim-white" />
                       <Skeleton className="h-3 w-32 bg-v3-dim-white" />
                     </div>
@@ -139,7 +148,7 @@ export default function AdminFeedbackPage() {
 
               return (
                 <>
-                  <div data-component="admin-feedback-item-icon" className={cn(
+                  <div data-component={`${FEEDBACK_LIST}_item_icon`} className={cn(
                     'w-9 h-9 rounded-2xl flex items-center justify-center shrink-0',
                     feedback.type === 'positive' ? 'bg-emerald-50' : 'bg-red-50'
                   )}>
@@ -148,7 +157,7 @@ export default function AdminFeedbackPage() {
                       : <ThumbsDown className="w-4 h-4 text-red-500" />
                     }
                   </div>
-                  <div data-component="admin-feedback-item-content" className="flex-1 min-w-0">
+                  <div data-component={`${FEEDBACK_LIST}_item_content`} className="flex-1 min-w-0">
                     <p className="text-[0.8rem] font-semibold text-v3-dark truncate">
                       {feedback.user.name || feedback.user.email || '익명'}
                     </p>

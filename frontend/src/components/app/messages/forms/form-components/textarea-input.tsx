@@ -17,7 +17,7 @@ export const TextareaInput = ({
   required,
 }: TextareaInputProps) => {
   return (
-    <div className="space-y-2" data-component="messages-form-textarea">
+    <div className="space-y-2" data-component="desktop_messages_sections_form-textarea">
       <Label>
         {label}
         {required && <span className="text-destructive ml-1">*</span>}

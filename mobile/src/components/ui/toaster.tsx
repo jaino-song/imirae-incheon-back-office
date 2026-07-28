@@ -9,12 +9,12 @@ export function Toaster() {
 
   return (
     <div
-      data-component="toaster"
+      data-component="mobile_shell_toaster"
       className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] left-1/2 z-[1000] flex w-[calc(100vw-32px)] max-w-[360px] -translate-x-1/2 flex-col-reverse gap-2"
     >
       {toasts.map((toast) => (
         <div
-          data-component="toast"
+          data-component="mobile_shell_toaster_toast"
           key={toast.id}
           className={cn(
             "pointer-events-auto relative flex items-center justify-between gap-4 rounded-2xl border p-4 pr-8 shadow-lg transition-all duration-300",

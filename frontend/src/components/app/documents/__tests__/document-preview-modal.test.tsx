@@ -206,6 +206,7 @@ describe("DocumentPreviewModal", () => {
   it("names the preview dialog actions", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -217,11 +218,13 @@ describe("DocumentPreviewModal", () => {
     expect(screen.getByRole("button", { name: "미리보기 닫기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "문서 작업 더보기" })).toBeInTheDocument();
     await screen.findByTestId("pdf-page-1");
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
   });
 
   it("keeps the print frame mounted until the print preview closes", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -271,6 +274,7 @@ describe("DocumentPreviewModal", () => {
   it("renders a zoom slider for pdf previews and updates the page width", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -293,9 +297,49 @@ describe("DocumentPreviewModal", () => {
     });
   });
 
+  it("keeps the visible document center anchored while zooming", async () => {
+    render(
+      <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
+        open={true}
+        onClose={jest.fn()}
+        doc={baseDocument}
+        categories={categories}
+      />
+    );
+
+    const slider = await screen.findByLabelText("PDF 미리보기 확대/축소");
+    const pdfDocument = await screen.findByTestId("pdf-document");
+    const viewport = pdfDocument.parentElement;
+    if (!viewport) {
+      throw new Error("PDF viewport was not rendered");
+    }
+
+    let scrollWidth = 800;
+    let scrollHeight = 1_000;
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 400 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollWidth: { configurable: true, get: () => scrollWidth },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+    });
+    viewport.scrollLeft = 200;
+    viewport.scrollTop = 100;
+
+    fireEvent.change(slider, { target: { value: "150" } });
+    scrollWidth = 1_200;
+    scrollHeight = 1_500;
+
+    await waitFor(() => {
+      expect(viewport.scrollLeft).toBe(400);
+      expect(viewport.scrollTop).toBe(250);
+    });
+  });
+
   it("zooms when document-targeted pinch wheel hit-tests inside the canvas", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -359,6 +403,7 @@ describe("DocumentPreviewModal", () => {
   it("suppresses ambiguous first pinch wheel while dialog is open", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -395,6 +440,7 @@ describe("DocumentPreviewModal", () => {
   it("does not zoom when pinch wheel hit-tests inside dialog but outside canvas", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={baseDocument}
@@ -407,7 +453,7 @@ describe("DocumentPreviewModal", () => {
       window.requestAnimationFrame(() => resolve());
     });
 
-    const dialogContent = document.querySelector('[data-component="contracts-document-preview"]');
+    const dialogContent = document.querySelector('[data-component="desktop_contracts_document-preview"]');
     expect(dialogContent).not.toBeNull();
     if (!dialogContent) throw new Error("dialog not rendered");
 
@@ -435,6 +481,7 @@ describe("DocumentPreviewModal", () => {
   it("uses the same zoom slider pattern for image previews", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={{
@@ -451,17 +498,47 @@ describe("DocumentPreviewModal", () => {
     const image = await screen.findByAltText("현장사진.jpg");
 
     expect(slider).toHaveValue("100");
-    expect(image).toHaveStyle({ transform: "scale(1)" });
+    expect(screen.getByText("이미지를 불러오는 중입니다")).toBeInTheDocument();
+    expect(image).toHaveStyle({ width: "320px" });
+
+    fireEvent.load(image);
+    expect(screen.queryByText("이미지를 불러오는 중입니다")).not.toBeInTheDocument();
 
     fireEvent.change(slider, { target: { value: "125" } });
 
     expect(screen.getByText("125%")).toBeInTheDocument();
-    expect(image).toHaveStyle({ transform: "scale(1.25)" });
+    expect(image).toHaveStyle({ width: "400px" });
+  });
+
+  it("shows an image-specific error when the image element fails to load", async () => {
+    render(
+      <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
+        open={true}
+        onClose={jest.fn()}
+        doc={{
+          ...baseDocument,
+          id: "img-error",
+          name: "손상된사진.jpg",
+          mimeType: "image/jpeg",
+        }}
+        categories={categories}
+      />
+    );
+
+    const image = await screen.findByAltText("손상된사진.jpg");
+    fireEvent.error(image);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "이미지 미리보기를 불러오지 못했습니다."
+    );
+    expect(screen.queryByText("이미지를 불러오는 중입니다")).not.toBeInTheDocument();
   });
 
   it("renders a Hangul document preview from an HWP storage extension", async () => {
     render(
       <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
         open={true}
         onClose={jest.fn()}
         doc={{
@@ -522,6 +599,7 @@ describe("ContractDocumentPreviewModal", () => {
 
     render(
       <ContractDocumentPreviewModal
+        data-component="desktop_contracts_tests_document-preview"
         open={true}
         onClose={jest.fn()}
         document={contractDocument}
@@ -532,12 +610,14 @@ describe("ContractDocumentPreviewModal", () => {
 
     await screen.findByTestId("pdf-page-1");
 
-    const footer = document.querySelector('[data-component="contracts-document-preview-footer"]');
+    const footer = document.querySelector(
+      '[data-component="desktop_contracts_tests_document-preview_footer"]',
+    );
     const fileActions = document.querySelector(
-      '[data-component="contracts-document-preview-file-actions"]',
+      '[data-component="desktop_contracts_tests_document-preview_footer_file-actions"]',
     );
     const reviewAction = document.querySelector(
-      '[data-component="contracts-document-preview-review-action"]',
+      '[data-component="desktop_contracts_tests_document-preview_footer_review-action"]',
     );
 
     expect(footer).toHaveClass("sm:justify-between");
@@ -563,6 +643,7 @@ describe("ContractDocumentPreviewModal", () => {
   it("disables the review confirmation while automatic processing is pending", async () => {
     render(
       <ContractDocumentPreviewModal
+        data-component="desktop_contracts_tests_document-preview"
         open={true}
         onClose={jest.fn()}
         document={contractDocument}

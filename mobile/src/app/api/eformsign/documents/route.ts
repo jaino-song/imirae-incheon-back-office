@@ -49,6 +49,16 @@ function parseIntegerParam(
     return { value };
 }
 
+// Filter params forwarded verbatim to the backend, which owns their validation
+// (parseStatusCategory / parseTemplateMatch throw BadRequest on bad input).
+// Blank values are dropped so the backend keeps its own defaults.
+const PASSTHROUGH_FILTER_PARAMS = [
+    "templateId",
+    "templateMatch",
+    "statusCategory",
+    "search",
+] as const;
+
 /**
  * GET /api/eformsign/documents
  * Unified endpoint to fetch all eformsign documents (in-progress, completed, rejected)
@@ -56,6 +66,13 @@ function parseIntegerParam(
  * Query params:
  * - limit: number of documents to fetch (default: 100)
  * - skip: number of documents to skip for pagination (default: 0)
+ * - templateId / templateMatch: template include/exclude filter
+ * - statusCategory: drafting | in-progress | completed | expired | unknown
+ * - search: chosung-aware name/title search
+ * - excludeDeleted: "true" removes deleted (047/049) documents
+ *
+ * All filters are applied by the backend BEFORE the limit/skip slice, so they
+ * must be forwarded for server-side pagination to return correct pages.
  */
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
@@ -80,6 +97,17 @@ export async function GET(request: NextRequest) {
         limit: String(limitResult.value),
         skip: String(skipResult.value),
     });
+
+    for (const name of PASSTHROUGH_FILTER_PARAMS) {
+        const value = searchParams.get(name)?.trim();
+        if (value) {
+            backendParams.set(name, value);
+        }
+    }
+
+    if (searchParams.get("excludeDeleted") === "true") {
+        backendParams.set("excludeDeleted", "true");
+    }
 
     return proxyGetRequest(
         request,

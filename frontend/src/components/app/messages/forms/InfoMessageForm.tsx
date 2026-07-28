@@ -60,7 +60,7 @@ export const InfoMessageForm = ({
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-info-form"
+      dataComponent="desktop_messages_sections_info-form"
       fields={null}
       messageCard={messageCard}
       requiresRecipientName={false}

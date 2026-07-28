@@ -8,6 +8,11 @@ export interface EformsignDocClientSummary {
     providerName: string | null;
 }
 
+export interface EformsignDocDisplayFields {
+    documentId: string;
+    customerName: string | null;
+}
+
 export interface EformsignDocCompletionClaimParams {
     documentId: string;
     statusType: string;
@@ -31,6 +36,10 @@ export interface IEformsignDocRepository {
     findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]>;
     findAll(branchid: string): Promise<EformsignDocEntity[]>;
     findDocumentIdsForOtherBranches(branchid: string): Promise<string[]>;
+    findDisplayFieldsByDocumentIds(
+        branchid: string,
+        documentIds: string[],
+    ): Promise<EformsignDocDisplayFields[]>;
     findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]>;
     create(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     update(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;

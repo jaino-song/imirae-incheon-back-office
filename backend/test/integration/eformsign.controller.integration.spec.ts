@@ -8,6 +8,7 @@ import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant";
 import { EformsignController } from "interface/controllers/eformsign.controller";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import request from "supertest";
 
 // Known transport-level flake (~1/8 full-suite runs under parallel-worker
@@ -33,7 +34,10 @@ describe("EformsignController (Integration)", () => {
         | "getDocumentById"
     >>;
     let areaTemplateService: jest.Mocked<Pick<AreaTemplateService, "findByArea">>;
-    let eformsignDocService: jest.Mocked<Pick<EformsignDocService, "findAll" | "findDocumentIdsForOtherBranches">>;
+    let eformsignDocService: jest.Mocked<Pick<
+        EformsignDocService,
+        "findAll" | "findDocumentIdsForOtherBranches" | "findDisplayFieldsByDocumentIds"
+    >>;
     let assignmentGuard: jest.Mocked<Pick<ContractClientAssignmentGuardService, "assertAssignedProvider">>;
     let branchFindUnique: jest.Mock;
 
@@ -86,6 +90,7 @@ describe("EformsignController (Integration)", () => {
                     useValue: {
                         findAll: jest.fn(),
                         findDocumentIdsForOtherBranches: jest.fn(),
+                        findDisplayFieldsByDocumentIds: jest.fn(),
                     },
                 },
                 {
@@ -100,6 +105,9 @@ describe("EformsignController (Integration)", () => {
                         assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }),
                     },
                 },
+                // 실제 구현을 그대로 쓴다. VALKEY_URL이 없는 테스트 환경에서는 프로세스
+                // 로컬 in-memory 스토어로 동작하고, 인스턴스는 테스트마다 새로 만들어진다.
+                EformsignDocumentSnapshotService,
             ],
         })
             .overrideGuard(JwtGuard)
@@ -121,6 +129,7 @@ describe("EformsignController (Integration)", () => {
         branchFindUnique.mockResolvedValue({ slug: "gimpo" });
         // default: no other-branch docs (overridden in incheon/HQ tests)
         eformsignDocService.findDocumentIdsForOtherBranches.mockResolvedValue([]);
+        eformsignDocService.findDisplayFieldsByDocumentIds.mockResolvedValue([]);
         eformsignService.getDocumentById.mockImplementation(async (_accessToken: string, documentId: string) => ({ id: documentId }));
     });
 
@@ -534,6 +543,209 @@ describe("EformsignController (Integration)", () => {
         expect(page2.body.total_rows).toBe(3);
     });
 
+    it.each([
+        { name: "more documents remain", total: 3, limit: 2, skip: 0, expectedHasMore: true },
+        { name: "the page ends at total", total: 2, limit: 2, skip: 0, expectedHasMore: false },
+        { name: "the result is empty", total: 0, limit: 2, skip: 0, expectedHasMore: false },
+    ])("sets has_more when $name", async ({ total, limit, skip, expectedHasMore }) => {
+        const documents = Array.from({ length: total }, (_, index) => ({
+            id: `boundary-${index + 1}`,
+            created_date: String(total - index),
+            fields: [{ id: "고객명", value: `고객 ${index + 1}` }],
+        }));
+        eformsignDocService.findAll.mockResolvedValue(
+            documents.map((document) => ({ documentId: document.id })) as any,
+        );
+        eformsignService.getAllDocuments.mockResolvedValue({
+            documents,
+            total_rows: total,
+            limit: 100,
+            skip: 0,
+        });
+
+        const response = await request(app.getHttpServer())
+            .get(`/api/documents?accessToken=access-token&limit=${limit}&skip=${skip}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({
+            total_rows: total,
+            limit,
+            skip,
+            has_more: expectedHasMore,
+        });
+    });
+
+    it("filters by status category before slicing the page", async () => {
+        const draftingDocuments = Array.from({ length: 7 }, (_, index) => ({
+            id: `drafting-${index + 1}`,
+            created_date: String(1200 - index * 100),
+            current_status: { status_type: "001", step_type: "02", step_name: "이용자 서명" },
+            fields: [{ id: "고객명", value: `대기 고객 ${index + 1}` }],
+        }));
+        const completedDocuments = Array.from({ length: 5 }, (_, index) => ({
+            id: `completed-${index + 1}`,
+            created_date: String(500 - index * 100),
+            current_status: { status_type: "003" },
+            fields: [{ id: "고객명", value: `완료 고객 ${index + 1}` }],
+        }));
+        const documents = [...draftingDocuments, ...completedDocuments];
+        eformsignDocService.findAll.mockResolvedValue(
+            documents.map((document) => ({ documentId: document.id })) as any,
+        );
+        eformsignService.getAllDocuments.mockResolvedValue({
+            documents,
+            total_rows: documents.length,
+            limit: 100,
+            skip: 0,
+        });
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&statusCategory=completed&limit=9&skip=0");
+
+        expect(response.status).toBe(200);
+        expect(response.body.documents.map((document: { id: string }) => document.id)).toEqual(
+            completedDocuments.map((document) => document.id),
+        );
+        expect(response.body).toMatchObject({
+            total_rows: completedDocuments.length,
+            limit: 9,
+            skip: 0,
+            has_more: false,
+        });
+    });
+
+    it("excludes deleted status codes from status category results", async () => {
+        const documents = [
+            {
+                id: "unknown-active",
+                created_date: "300",
+                current_status: { status_type: "999" },
+                fields: [{ id: "고객명", value: "상태 확인 고객" }],
+            },
+            {
+                id: "delete-requested",
+                created_date: "200",
+                current_status: { status_type: "047" },
+                fields: [{ id: "고객명", value: "삭제 요청 고객" }],
+            },
+            {
+                id: "deleted",
+                created_date: "100",
+                current_status: { status_type: "049" },
+                fields: [{ id: "고객명", value: "삭제 고객" }],
+            },
+        ];
+        eformsignDocService.findAll.mockResolvedValue(
+            documents.map((document) => ({ documentId: document.id })) as any,
+        );
+        eformsignService.getAllDocuments.mockResolvedValue({
+            documents,
+            total_rows: documents.length,
+            limit: 100,
+            skip: 0,
+        });
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&statusCategory=unknown");
+
+        expect(response.status).toBe(200);
+        expect(response.body.documents.map((document: { id: string }) => document.id)).toEqual([
+            "unknown-active",
+        ]);
+        expect(response.body).toMatchObject({
+            total_rows: 1,
+            has_more: false,
+        });
+    });
+
+    it("filters search before slicing and matches local stepRecipientName by Korean initials", async () => {
+        const nonMatchingDocuments = Array.from({ length: 9 }, (_, index) => ({
+            id: `non-match-${index + 1}`,
+            created_date: String(1200 - index * 100),
+            document_name: `일반 계약서 ${index + 1}`,
+            fields: [{ id: "고객명", value: `일반 고객 ${index + 1}` }],
+        }));
+        const matchingDocuments = Array.from({ length: 3 }, (_, index) => ({
+            id: `local-match-${index + 1}`,
+            created_date: String(300 - index * 100),
+            document_name: `별도 계약서 ${index + 1}`,
+            fields: [{ id: "고객명", value: `별도 고객 ${index + 1}` }],
+        }));
+        const documents = [...nonMatchingDocuments, ...matchingDocuments];
+        eformsignDocService.findAll.mockResolvedValue(
+            documents.map((document) => ({
+                documentId: document.id,
+                stepRecipientName: document.id.startsWith("local-match") ? "김영희" : "박수진",
+            })) as any,
+        );
+        eformsignService.getAllDocuments.mockResolvedValue({
+            documents,
+            total_rows: documents.length,
+            limit: 100,
+            skip: 0,
+        });
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&search=ㄱㅇㅎ&limit=9&skip=0");
+
+        expect(response.status).toBe(200);
+        expect(response.body.documents.map((document: { id: string }) => document.id)).toEqual(
+            matchingDocuments.map((document) => document.id),
+        );
+        expect(response.body).toMatchObject({
+            total_rows: matchingDocuments.length,
+            limit: 9,
+            skip: 0,
+            has_more: false,
+        });
+        expect(eformsignDocService.findAll).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps filtered page sequences unique with a stable document id tie-breaker", async () => {
+        const expectedIds = Array.from({ length: 21 }, (_, index) =>
+            `sequence-${String(index + 1).padStart(2, "0")}`,
+        );
+        const documents = [...expectedIds].reverse().map((id) => ({
+            id,
+            created_date: "1000",
+            current_status: { status_type: "003" },
+            fields: [{ id: "고객명", value: `고객 ${id}` }],
+        }));
+        eformsignDocService.findAll.mockResolvedValue(
+            documents.map((document) => ({ documentId: document.id })) as any,
+        );
+        eformsignService.getAllDocuments.mockResolvedValue({
+            documents,
+            total_rows: documents.length,
+            limit: 100,
+            skip: 0,
+        });
+
+        const page1 = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&statusCategory=completed&limit=9&skip=0");
+        const page2 = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&statusCategory=completed&limit=6&skip=9");
+        const page3 = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&statusCategory=completed&limit=6&skip=15");
+
+        expect([page1.status, page2.status, page3.status]).toEqual([200, 200, 200]);
+        const pageIds = [page1, page2, page3].map((page) =>
+            page.body.documents.map((document: { id: string }) => document.id),
+        );
+        expect(pageIds).toEqual([
+            expectedIds.slice(0, 9),
+            expectedIds.slice(9, 15),
+            expectedIds.slice(15, 21),
+        ]);
+        expect(new Set(pageIds.flat()).size).toBe(expectedIds.length);
+        expect(pageIds.flat()).toEqual(expectedIds);
+        expect([page1.body.has_more, page2.body.has_more, page3.body.has_more]).toEqual([
+            true,
+            true,
+            false,
+        ]);
+    });
+
     it("enriches only the paginated branch-scoped documents with customer fields", async () => {
         eformsignDocService.findAll.mockResolvedValue([
             { documentId: "d1" },
@@ -576,6 +788,71 @@ describe("EformsignController (Integration)", () => {
         expect(response.body.total_rows).toBe(3);
         expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
         expect(eformsignService.getDocumentById).toHaveBeenCalledWith("access-token", "d2");
+    });
+
+    it("uses one local display-field lookup and skips the eformsign detail API on a local hit", async () => {
+        eformsignDocService.findAll.mockResolvedValue([{ documentId: "d1" }] as any);
+        eformsignDocService.findDisplayFieldsByDocumentIds.mockResolvedValue([
+            { documentId: "d1", customerName: "로컬 고객" },
+        ]);
+        eformsignService.getAllDocuments.mockImplementation((async (_accessToken: string, _limit?: number, skip?: number) => {
+            if (skip === 0) {
+                return {
+                    documents: [{ id: "d1", created_date: "100" }],
+                    total_rows: 1,
+                    limit: 100,
+                    skip: 0,
+                };
+            }
+            return { documents: [], total_rows: 0, limit: 100, skip: skip ?? 0 };
+        }) as any);
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token");
+
+        expect(response.status).toBe(200);
+        expect(response.body.documents).toEqual([
+            {
+                id: "d1",
+                created_date: "100",
+                fields: [{ id: "이용자 성명", value: "로컬 고객" }],
+            },
+        ]);
+        expect(eformsignDocService.findDisplayFieldsByDocumentIds).toHaveBeenCalledTimes(1);
+        expect(eformsignDocService.findDisplayFieldsByDocumentIds).toHaveBeenCalledWith(
+            "branch-1",
+            ["d1"],
+        );
+        expect(eformsignService.getDocumentById).not.toHaveBeenCalled();
+    });
+
+    it("reuses cached API display fields on a repeated page visit", async () => {
+        eformsignDocService.findAll.mockResolvedValue([{ documentId: "d1" }] as any);
+        eformsignService.getAllDocuments.mockImplementation((async (_accessToken: string, _limit?: number, skip?: number) => {
+            if (skip === 0) {
+                return {
+                    documents: [{ id: "d1", created_date: "100" }],
+                    total_rows: 1,
+                    limit: 100,
+                    skip: 0,
+                };
+            }
+            return { documents: [], total_rows: 0, limit: 100, skip: skip ?? 0 };
+        }) as any);
+        eformsignService.getDocumentById.mockResolvedValue({
+            id: "d1",
+            fields: [{ id: "이용자 성명", value: "API 고객" }],
+        });
+
+        const firstResponse = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token");
+        const secondResponse = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token");
+
+        expect(firstResponse.status).toBe(200);
+        expect(secondResponse.status).toBe(200);
+        expect(secondResponse.body.documents).toEqual(firstResponse.body.documents);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(1);
     });
 
     it("keeps the original list document when customer-field enrichment fails", async () => {

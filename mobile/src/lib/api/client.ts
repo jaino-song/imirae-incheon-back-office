@@ -3,6 +3,7 @@ import { parse } from "cookie";
 
 import { isPublicAuthPath } from "@/lib/auth/routes";
 import { getServerRuntimeConfig } from "@/lib/env";
+import { captureServiceRecordError } from "@/lib/observability/capture-service-record-error";
 import { safeStorageRemoveItem, safeStorageSetItem } from "@/lib/safe-storage";
 
 const API_BASE_URL = typeof window === 'undefined'
@@ -87,7 +88,7 @@ api.interceptors.response.use(
         // Network error - single retry
         if (err.message === "Network Error" && originalRequest && !originalRequest._retry) {
             originalRequest._retry = true;
-            return axios(originalRequest);
+            return api(originalRequest);
         }
 
         // 401 Unauthorized
@@ -181,6 +182,7 @@ api.interceptors.response.use(
             }
         }
 
+        captureServiceRecordError(err);
         return Promise.reject(err);
     }
 );

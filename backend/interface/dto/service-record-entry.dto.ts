@@ -1,12 +1,15 @@
 import {
     IsBoolean,
     IsDateString,
+    MaxLength,
     IsObject,
     IsOptional,
     IsString,
     ValidateBy,
     ValidationOptions,
 } from "class-validator";
+
+import { SERVICE_RECORD_TEXT_LIMITS } from "domain/constants/service-record-text-limits";
 
 const PNG_DATA_URI_PREFIX = "data:image/png;base64,";
 const MAX_SIGNATURE_BYTES = 192 * 1024;
@@ -60,8 +63,11 @@ export class UpsertSessionDto {
     /** ①–⑪ structured answers, free-form per the form layout. */
     @IsOptional() @IsObject() answers?: Record<string, unknown>;
 
-    @IsOptional() @IsString() etcService?: string;
-    @IsOptional() @IsString() notes?: string;
+    @IsOptional() @IsString() @MaxLength(SERVICE_RECORD_TEXT_LIMITS.etcService)
+    etcService?: string;
+
+    @IsOptional() @IsString() @MaxLength(SERVICE_RECORD_TEXT_LIMITS.notes)
+    notes?: string;
     @IsOptional() @IsBoolean() paymentConfirmed?: boolean;
     /** 산모 확인 (data URL / storage ref). */
     @IsOptional() @IsString() momApproval?: string;

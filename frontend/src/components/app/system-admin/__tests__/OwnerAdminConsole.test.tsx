@@ -1,7 +1,11 @@
+import fs from "node:fs";
+
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { OwnerAdminConsole } from "../OwnerAdminConsole";
+
+const source = fs.readFileSync(require.resolve("../OwnerAdminConsole"), "utf8");
 
 jest.mock("@/components/app/settings/NotificationTestSection", () => ({
   NotificationTestSection: () => <div>알림 테스트 실행 도구</div>,
@@ -158,6 +162,15 @@ beforeEach(() => {
 });
 
 describe("OwnerAdminConsole", () => {
+  it("uses the warning color family for incomplete account information", () => {
+    const incompleteStat = source.slice(
+      source.indexOf('label: "추가 정보 필요"'),
+      source.indexOf("];", source.indexOf('label: "추가 정보 필요"')),
+    );
+
+    expect(incompleteStat).toContain("colorIndex: 3");
+  });
+
   it("starts with live branch data and omits mock-only sections", async () => {
     render(<OwnerAdminConsole />);
 
@@ -255,9 +268,9 @@ describe("OwnerAdminConsole", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "계정 관리" })[0]);
 
-    expect(container.querySelector('[data-component="split-layout"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="split-layout"]')).toBeInTheDocument();
     expect(
-      container.querySelector('[data-component="system-admin-pending-approvals"]'),
+      container.querySelector('[data-component="desktop_system-admin_sections_pending-approvals"]'),
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "가입 대기" }));

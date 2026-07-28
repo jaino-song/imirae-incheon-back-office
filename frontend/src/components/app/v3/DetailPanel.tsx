@@ -8,7 +8,14 @@ import { PanelTitleGroup } from "./PanelTitleGroup";
 import { useSplitLayoutNavOptional } from "./SplitLayoutContext";
 import { useScrollActivity } from "./useScrollActivity";
 
+const SOURCE_COMPONENT = "DetailPanel";
+
+type DetailPanelSourceComponent = typeof SOURCE_COMPONENT | "ClientDetailPanel";
+
 interface DetailPanelProps {
+  "data-component": string;
+  /** @internal Zero-DOM wrapper ownership only. */
+  sourceComponent?: DetailPanelSourceComponent;
   /** Fully custom header (escape hatch for centered layouts etc.) */
   header?: React.ReactNode;
   /** Optional avatar element on the left */
@@ -62,14 +69,16 @@ function DetailPanelTextSkeleton({
   return (
     <span
       aria-hidden="true"
-      data-slot="skeleton"
       data-component={name}
+      data-slot="skeleton"
       className={cn("block animate-pulse rounded-md bg-v3-dim-white", className)}
     />
   );
 }
 
 export function DetailPanel({
+  "data-component": dataComponent,
+  sourceComponent = SOURCE_COMPONENT,
   header = null,
   avatar,
   title,
@@ -105,14 +114,14 @@ export function DetailPanel({
   const resolvedTitle =
     isLoading && title ? (
       <DetailPanelTextSkeleton
-        name="detail-panel-title-skeleton"
+        name={`${dataComponent}_header_title-group_title-row_title-skeleton`}
         className="h-[calc(18px*var(--glint-ui-scale,1))] w-36"
       />
     ) : title;
   const resolvedSubtitle =
     isLoading && subtitle ? (
       <DetailPanelTextSkeleton
-        name="detail-panel-subtitle-skeleton"
+        name={`${dataComponent}_header_title-group_subtitle-skeleton`}
         className="h-[calc(14px*var(--glint-ui-scale,1))] w-80 max-w-full"
       />
     ) : subtitle;
@@ -130,7 +139,7 @@ export function DetailPanel({
       <div className="flex min-w-0 items-center gap-[calc(12px*var(--glint-ui-scale,1))]">
         {avatar}
         <PanelTitleGroup
-          component="detail-panel"
+          data-component={`${dataComponent}_header_title-group`}
           title={resolvedTitle}
           subtitle={resolvedSubtitle}
           badgesLeft={badgesLeft}
@@ -151,11 +160,17 @@ export function DetailPanel({
   ) : header;
 
   return (
-    <div data-component="detail-panel" className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] bg-white shadow-v3">
+    <div
+      data-component={dataComponent}
+      data-slot="detail-panel"
+      data-source-component={sourceComponent}
+      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] bg-white shadow-v3"
+    >
       {(resolvedBackAction || renderedHeader) && (
-        <header data-component="detail-panel-header" className="px-[calc(24px*var(--glint-ui-scale,1))] py-[calc(20px*var(--glint-ui-scale,1))]">
+        <header data-component={`${dataComponent}_header`} data-slot="detail-panel-header" className="px-[calc(24px*var(--glint-ui-scale,1))] py-[calc(20px*var(--glint-ui-scale,1))]">
           {resolvedBackAction && (
             <button
+              data-component={`${dataComponent}_header_back`}
               type="button"
               className="mb-[calc(16px*var(--glint-ui-scale,1))] inline-flex items-center gap-[calc(6px*var(--glint-ui-scale,1))] self-start text-[calc(12px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted transition-colors hover:text-v3-primary md:mb-[calc(24px*var(--glint-ui-scale,1))] md:text-[calc(12.8px*var(--glint-ui-scale,1))]"
               onClick={resolvedBackAction.onClick}
@@ -167,11 +182,12 @@ export function DetailPanel({
           {renderedHeader}
         </header>
       )}
-      {headerAction && <div className="px-[calc(24px*var(--glint-ui-scale,1))] pb-[calc(24px*var(--glint-ui-scale,1))]">{headerAction}</div>}
-      {renderedTabs && <div className="px-[calc(24px*var(--glint-ui-scale,1))]">{renderedTabs}</div>}
+      {headerAction && <div data-component={`${dataComponent}_header-action`} className="px-[calc(24px*var(--glint-ui-scale,1))] pb-[calc(24px*var(--glint-ui-scale,1))]">{headerAction}</div>}
+      {renderedTabs && <div data-component={`${dataComponent}_tabs`} className="px-[calc(24px*var(--glint-ui-scale,1))]">{renderedTabs}</div>}
       {resolvedOverlay ? (
         <div
-          data-component="detail-panel-overlay"
+          data-component={`${dataComponent}_overlay`}
+          data-slot="detail-panel-overlay"
           className={cn(
             "pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-[calc(24px*var(--glint-ui-scale,1))]",
             overlay ? "-translate-y-[calc(12px*var(--glint-ui-scale,1))]" : undefined,
@@ -182,14 +198,16 @@ export function DetailPanel({
       ) : null}
       <div
         key={shouldAnimateMain ? mainAnimationKey : undefined}
-        data-component="detail-panel-main"
+        data-component={`${dataComponent}_main`}
+        data-slot="detail-panel-main"
         className={cn(
           "glint-ui-scale-scope relative flex min-h-0 flex-1 flex-col",
           shouldAnimateMain && "animate-v3-slide-up",
         )}
       >
         <div
-          data-component="detail-panel-scroll-content"
+          data-component={`${dataComponent}_main_scroll-content`}
+          data-slot="detail-panel-scroll-content"
           className="scrollbar-on-scroll flex min-h-0 flex-1 flex-col overflow-y-auto p-[calc(24px*var(--glint-ui-scale,1))]"
           data-scroll-active={isScrollActive ? "true" : "false"}
           onScroll={handleScroll}
@@ -197,13 +215,15 @@ export function DetailPanel({
           {isLoading ? null : children}
         </div>
         <div
-          data-component="detail-panel-bottom-spacer"
+          data-component={`${dataComponent}_main_bottom-spacer`}
+          data-slot="detail-panel-bottom-spacer"
           className="h-[calc(24px*var(--glint-ui-scale,1))] shrink-0 bg-white"
         />
       </div>
       {footer ? (
         <footer
-          data-component="detail-panel-footer"
+          data-component={`${dataComponent}_footer`}
+          data-slot="detail-panel-footer"
           className={cn(DETAIL_PANEL_FOOTER_CLASS_NAME, footerClassName)}
         >
           {footer}

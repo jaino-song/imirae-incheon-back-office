@@ -138,7 +138,7 @@ function PdfContractPreview({
   };
 
   return (
-    <div className="info-card pdf-preview-card pop-up" data-component="mobile-files-preview-pdf">
+    <div className="info-card pdf-preview-card pop-up" data-component="mobile_files_detail-panel_preview-pdf">
       <span className="zoom-hint">두 손가락으로 확대 · 두 번 탭</span>
       <div className="pdf-slider" ref={sliderRef} onScroll={handleScroll}>
         <PdfPreviewPage>
@@ -293,7 +293,7 @@ function FilePreview({
   }
   if (kind === "img") {
     return (
-      <div className="info-card pdf-preview-card pop-up" data-component="mobile-files-preview-image">
+      <div className="info-card pdf-preview-card pop-up" data-component="mobile_files_detail-panel_preview-image">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={url}
@@ -310,7 +310,7 @@ function FilePreview({
     );
   }
   return (
-    <InfoCard title="미리보기" padded>
+    <InfoCard data-component="mobile_files_detail-panel_info-card" title="미리보기" padded>
       <p
         style={{
           fontSize: "0.82rem",
@@ -368,8 +368,8 @@ function FileDetailContent({
   };
 
   return (
-    <MobileDetailPage name="files">
-      <MobileDetailHeader
+    <MobileDetailPage data-component="mobile_files_detail-sheet_stack_detail-page_body" name="files">
+      <MobileDetailHeader data-component="mobile_files_detail-sheet_stack_detail-page_body_header"
         name="files"
         avatar={<FileKindIconLarge kind={kind} />}
         avatarClassName="file-detail-avatar"
@@ -382,30 +382,35 @@ function FileDetailContent({
         ]}
       />
 
-      <MobileDetailActions
+      <MobileDetailActions data-component="mobile_files_detail-sheet_stack_detail-page_body_actions"
         name="files"
         actions={[
           {
             label: "공유",
             variant: "secondary",
             onClick: handleShare,
-            dataComponent: "mobile-files-share",
+            dataComponent: "mobile_files_detail-sheet_stack_detail-page_body_actions_share",
           },
           {
             label: "다운로드",
             variant: "primary",
             onClick: handleDownload,
-            dataComponent: "mobile-files-download",
+            dataComponent: "mobile_files_detail-sheet_stack_detail-page_body_actions_download",
           },
         ]}
       />
       {actionStatus && (
-        <div className="action-feedback" role="status">
+        <div
+          className="action-feedback"
+          role="status"
+          data-component="mobile_files_detail-sheet_stack_detail-page_body_action-feedback"
+        >
           {actionStatus}
         </div>
       )}
 
       <DetailTabPills
+        data-component="mobile_files_detail-sheet_stack_detail-page_body_tabs"
         tabs={[
           { id: "preview", label: "미리보기" },
           { id: "info", label: "파일 정보" },
@@ -416,28 +421,28 @@ function FileDetailContent({
         onTabChange={(id) => onTabChange(id as DetailTabId)}
       />
 
-      <MobileDetailTabPanel name="files" tabId="preview" activeTab={activeTab}>
+      <MobileDetailTabPanel data-component="mobile_files_detail-sheet_stack_detail-page_body_tab-panel" name="files" tabId="preview" activeTab={activeTab}>
         <FilePreview doc={doc} categoryLabel={categoryLabel} sizeLabel={sizeLabel} />
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel name="files" tabId="info" activeTab={activeTab}>
-        <InfoCard title="파일 정보">
+      <MobileDetailTabPanel data-component="mobile_files_detail-sheet_stack_detail-page_body_tab-panel-2" name="files" tabId="info" activeTab={activeTab}>
+        <InfoCard data-component="mobile_files_detail-panel_info-card-2" title="파일 정보">
           <InfoRow label="파일명" value={<span style={{ fontSize: "0.72rem" }}>{doc.name}</span>} />
           <InfoRow label="형식" value={doc.mimeType} />
           <InfoRow label="카테고리" value={categoryLabel} />
           <InfoRow label="크기" value={sizeLabel} />
         </InfoCard>
-        <InfoCard title="관련 정보" delay={60}>
+        <InfoCard data-component="mobile_files_detail-panel_info-card-3" title="관련 정보" delay={60}>
           <InfoRow label="업로더" value={uploaderLabel} />
         </InfoCard>
-        <InfoCard title="날짜" delay={120}>
+        <InfoCard data-component="mobile_files_detail-panel_info-card-4" title="날짜" delay={120}>
           <InfoRow label="등록일" value={formatDateTime(doc.createdAt)} />
           <InfoRow label="수정일" value={formatDateTime(doc.updatedAt)} />
         </InfoCard>
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel name="files" tabId="description" activeTab={activeTab}>
-        <InfoCard title="설명" padded>
+      <MobileDetailTabPanel data-component="mobile_files_detail-sheet_stack_detail-page_body_tab-panel-3" name="files" tabId="description" activeTab={activeTab}>
+        <InfoCard data-component="mobile_files_detail-panel_info-card-5" title="설명" padded>
           {doc.description?.trim() ? (
             <div
               style={{
@@ -463,8 +468,8 @@ function FileDetailContent({
         </InfoCard>
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel name="files" tabId="tags" activeTab={activeTab}>
-        <InfoCard title="태그">
+      <MobileDetailTabPanel data-component="mobile_files_detail-sheet_stack_detail-page_body_tab-panel-4" name="files" tabId="tags" activeTab={activeTab}>
+        <InfoCard data-component="mobile_files_detail-panel_info-card-6" title="태그">
           {doc.tags.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "4px 0" }}>
               {doc.tags.map((tag) => (
@@ -591,13 +596,14 @@ export default function FilesPage() {
     : "";
 
   return (
-    <MobileDetailSheet
+    <MobileDetailSheet data-component="mobile_files_detail-sheet"
       name="files"
       isOpen={Boolean(selectedDoc)}
       onClose={() => setSelectedDoc(null)}
       list={
-        <div className="shell-content" data-component="mobile-files-content">
+        <div className="shell-content" data-component="mobile_files_detail-sheet_stack_list-page_content">
           <ListCard
+            data-component="mobile_files_detail-sheet_stack_list-page_content_list-card"
             title="파일"
             count={`${documents.length}개`}
             actionLabel="업로드"
@@ -609,13 +615,14 @@ export default function FilesPage() {
             loadMore={
               isInitialLoad && hasMore ? (
                 <ListLoadMoreButton
+                  data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_load-more_button"
                   onLoadMore={loadMore}
-                  dataComponentPrefix="mobile-files"
                 />
               ) : null
             }
             beforeFilters={
               <MobileSearchBar
+                data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_search"
                 placeholder="파일명, 고객명 검색"
                 label="files"
                 value={searchQuery}
@@ -631,7 +638,7 @@ export default function FilesPage() {
                   fontSize: "0.82rem",
                   color: "hsl(var(--v3-text-muted))",
                 }}
-                data-component="mobile-files-empty"
+                data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_body_empty"
               >
                 {searchQuery.trim() || activeFilter !== ALL_FILTER
                   ? "검색 결과가 없습니다."
@@ -640,15 +647,24 @@ export default function FilesPage() {
             ) : (
               <>
               {visibleSections.map((section) => (
-                <div className="section-block" key={section.categoryId}>
-                  <div className="section-header">{section.title}</div>
+                <div
+                  className="section-block"
+                  key={section.categoryId}
+                  data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_body_section"
+                >
+                  <div
+                    className="section-header"
+                    data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_body_section_header"
+                  >
+                    {section.title}
+                  </div>
                   {section.docs.map((doc, idx) => {
                     const kind = fileKindFromMime(doc.mimeType);
                     const extLabel = fileExtensionLabel(doc.name, doc.mimeType);
                     return (
                       <ListItemRow
                         key={doc.id}
-                        dataComponent="mobile-files-row"
+                        data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_body_section_row"
                         style={{ animationDelay: `${Math.min(idx, 4) * 40}ms` }}
                         left={<FileKindIcon kind={kind} />}
                         name={doc.name}
@@ -672,8 +688,8 @@ export default function FilesPage() {
               ))}
               {!isInitialLoad && hasMore && (
                 <ListLoadMoreSentinel
+                  data-component="mobile_files_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                   sentinelRef={sentinelRef}
-                  dataComponentPrefix="mobile-files"
                 />
               )}
               </>
@@ -691,7 +707,7 @@ export default function FilesPage() {
             onTabChange={setActiveTab}
           />
         ) : (
-          <div className="detail-body" />
+          <div className="detail-body" data-component="mobile_files_detail-sheet_stack_detail-page_empty" />
         )
       }
     />

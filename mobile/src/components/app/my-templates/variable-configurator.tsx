@@ -18,11 +18,14 @@ import { useLocale } from "@/providers/LocaleProvider";
 import { t } from "@/lib/i18n/translations";
 
 interface VariableConfiguratorProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
     variable: TemplateVariable;
     onChange: (updatedVar: TemplateVariable) => void;
 }
 
-export const VariableConfigurator = ({ variable, onChange }: VariableConfiguratorProps) => {
+export const VariableConfigurator = ({ "data-component": dataComponent, variable, onChange }: VariableConfiguratorProps) => {
     const locale = useLocale();
 
     const handleChange = (field: keyof TemplateVariable, value: unknown) => {
@@ -30,7 +33,7 @@ export const VariableConfigurator = ({ variable, onChange }: VariableConfigurato
     };
 
     return (
-        <Card data-component="my-templates-variable-config" className="p-4">
+        <Card data-component={dataComponent} className="p-4">
             <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center">
                     <p className="text-base font-semibold text-primary">

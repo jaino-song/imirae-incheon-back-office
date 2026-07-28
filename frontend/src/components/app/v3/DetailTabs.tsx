@@ -66,8 +66,12 @@ export function DetailTabs({
   }, [activeTab]);
 
   useLayoutEffect(() => {
-    measureIndicator();
+    const animationFrameId = requestAnimationFrame(measureIndicator);
 
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [activeTab, measureIndicator]);
+
+  useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
 
@@ -86,7 +90,7 @@ export function DetailTabs({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", measureIndicator);
     };
-  }, [measureIndicator, tabs]);
+  }, [activeTab, measureIndicator, tabs]);
 
   useEffect(() => {
     if (!indicatorMetrics.isReady) return;
@@ -121,14 +125,14 @@ export function DetailTabs({
   return (
     <div
       ref={rootRef}
-      data-component="detail-tabs"
+      data-component="desktop_v3_detail-tabs"
       role="tablist"
       aria-label={ariaLabel}
       className="relative flex gap-[calc(4px*var(--glint-ui-scale,1))] border-b border-v3-border"
     >
       {tabs.map((tab, index) => (
         <button
-          data-component="detail-tabs-button"
+          data-component="desktop_v3_detail-tabs_button"
           type="button"
           role="tab"
           key={tab.key}
@@ -157,7 +161,7 @@ export function DetailTabs({
             <span
               aria-hidden="true"
               data-slot="skeleton"
-              data-component="detail-tabs-text-skeleton"
+              data-component="desktop_v3_detail-tabs_button_text-skeleton"
               className={cn(
                 "block h-[calc(16px*var(--glint-ui-scale,1))] animate-pulse rounded-md bg-v3-dim-white",
                 index === 0 ? "w-16" : "w-14",
@@ -167,7 +171,7 @@ export function DetailTabs({
         </button>
       ))}
       <div
-        data-component="detail-tabs-indicator"
+        data-component="desktop_v3_detail-tabs_indicator"
         className={cn(
           "pointer-events-none absolute bottom-0 left-0 h-[calc(2px*var(--glint-ui-scale,1))] bg-primary",
           isIndicatorTransitionEnabled &&

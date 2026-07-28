@@ -462,6 +462,7 @@ type DetailRowTone = "green" | "primary" | "orange" | "muted" | "burgundy" | "pu
 const CLIENT_GREETING_SMS_TEMPLATE_KEY = "client_greeting_sms";
 
 function DetailDocRow({
+  "data-component": dataComponent,
   icon,
   title,
   meta,
@@ -469,6 +470,7 @@ function DetailDocRow({
   tone,
   onClick,
 }: {
+  "data-component": string;
   icon: ReactNode;
   title: string;
   meta: ReactNode;
@@ -480,7 +482,7 @@ function DetailDocRow({
   return (
     <div
       className={interactive ? "doc-row doc-row-tappable" : "doc-row"}
-      data-component="mobile-clients-doc-row"
+      data-component={dataComponent}
       {...(interactive
         ? {
             role: "button" as const,
@@ -495,14 +497,14 @@ function DetailDocRow({
           }
         : {})}
     >
-      <div className={`doc-icon doc-icon-${tone}`} data-component="mobile-clients-doc-icon">
+      <div className={`doc-icon doc-icon-${tone}`} data-component={`${dataComponent}_icon`}>
         {icon}
       </div>
-      <div className="doc-info" data-component="mobile-clients-doc-info">
-        <div className="doc-title" data-component="mobile-clients-doc-title">
+      <div className="doc-info" data-component={`${dataComponent}_info`}>
+        <div className="doc-title" data-component={`${dataComponent}_info_title`}>
           {title}
         </div>
-        <div className="doc-meta" data-component="mobile-clients-doc-meta">
+        <div className="doc-meta" data-component={`${dataComponent}_info_meta`}>
           {meta}
         </div>
       </div>
@@ -598,6 +600,7 @@ function formatNotificationTime(createdAt: string): string {
 }
 
 export function ClientDetailContent({
+  "data-component": dataComponent,
   client,
   contractDocument,
   activeTab,
@@ -613,6 +616,7 @@ export function ClientDetailContent({
   onDelete,
   onClientUpdated,
 }: {
+  "data-component": string;
   client: Client;
   contractDocument?: EformsignDocument | null;
   activeTab: DetailTabId;
@@ -1027,8 +1031,12 @@ export function ClientDetailContent({
   const servicePeriodLabel = serviceDuration ? `${serviceDuration}일` : "-";
 
   return (
-    <MobileDetailPage name="clients">
-      <MobileDetailHeader
+    <MobileDetailPage
+      data-component={dataComponent}
+      data-source-component="ClientDetailContent"
+      name="clients"
+    >
+      <MobileDetailHeader data-component={`${dataComponent}_header`}
         name="clients"
         avatar={<User size={22} strokeWidth={2} />}
         avatarTone={detailAvatarTone}
@@ -1041,7 +1049,7 @@ export function ClientDetailContent({
                 type="button"
                 className="flex h-[44px] w-[44px] flex-shrink-0 items-center justify-center rounded-xl text-v3-text-muted transition-colors hover:bg-v3-dim-white"
                 aria-label="고객 옵션"
-                data-component="mobile-clients-detail-menu-trigger"
+                data-component={`${dataComponent}_header_menu-trigger`}
               >
                 <MoreVertical size={20} strokeWidth={2} />
               </button>
@@ -1050,12 +1058,12 @@ export function ClientDetailContent({
               align="end"
               sideOffset={4}
               className="z-[200] w-max min-w-[5.5rem] rounded-md p-0"
-              data-component="mobile-clients-detail-menu"
+              data-component={`${dataComponent}_header_menu`}
             >
               <DropdownMenuItem
                 onClick={() => onEdit(client)}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-clients-detail-menu-edit"
+                data-component={`${dataComponent}_header_menu_edit`}
               >
                 <SquarePen className="size-[15px]" strokeWidth={2} />
                 수정
@@ -1064,7 +1072,7 @@ export function ClientDetailContent({
                 disabled={isPreparingScheduleChange}
                 onClick={() => void handleOpenServiceScheduleChange()}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-clients-detail-menu-change-service-schedule"
+                data-component={`${dataComponent}_header_menu_change-service-schedule`}
               >
                 <CalendarDays className="size-[15px]" strokeWidth={2} />
                 서비스 일정 변경
@@ -1072,7 +1080,7 @@ export function ClientDetailContent({
               <DropdownMenuItem
                 onClick={() => setResetLinkModalOpen(true)}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-clients-detail-menu-reset-service-record-link"
+                data-component={`${dataComponent}_header_menu_reset-service-record-link`}
               >
                 <RotateCcw className="size-[15px]" strokeWidth={2} />
                 제공기록지 링크 재설정
@@ -1081,7 +1089,7 @@ export function ClientDetailContent({
                 variant="destructive"
                 onClick={() => onDelete(client.id)}
                 className="min-h-[44px] gap-2 rounded-md px-3 py-2 text-[0.82rem] leading-none"
-                data-component="mobile-clients-detail-menu-delete"
+                data-component={`${dataComponent}_header_menu_delete`}
               >
                 <Trash2 className="size-[15px]" strokeWidth={2} />
                 삭제
@@ -1091,14 +1099,14 @@ export function ClientDetailContent({
         }
       />
 
-      <MobileDetailActions
+      <MobileDetailActions data-component={`${dataComponent}_actions`}
         name="clients"
         actions={[
           {
             label: "메시지",
             variant: "secondary",
             onClick: onMessage,
-            dataComponent: "mobile-clients-message",
+            dataComponent: `${dataComponent}_actions_message`,
           },
           {
             label: isIssuingContract ? "발급 중..." : "계약서 발급",
@@ -1106,7 +1114,7 @@ export function ClientDetailContent({
             onClick: () => onIssueContract(client),
             disabled: isIssuingContract,
             busy: isIssuingContract,
-            dataComponent: "mobile-clients-contract-create",
+            dataComponent: `${dataComponent}_actions_contract-create`,
           },
         ]}
       />
@@ -1118,7 +1126,7 @@ export function ClientDetailContent({
             setResetLinkModalOpen(open);
           }
         }}
-                dataComponent="clients-detail-reset-service-record-link-approval"
+        data-component={`${dataComponent}_reset-link-approval-modal`}
                 title="제공기록지 링크를 재설정하시겠습니까?"
                 description="기존 링크는 만료되고 새 링크가 생성됩니다. 메시지는 발송되지 않습니다."
                 isDescriptionVisuallyHidden={false}
@@ -1129,6 +1137,7 @@ export function ClientDetailContent({
       />
 
       <ServiceRecordLinkResetResultModal
+        data-component={`${dataComponent}_reset-link-result-modal`}
         open={resetServiceRecordUrl !== null}
         serviceRecordUrl={resetServiceRecordUrl ?? ""}
         onClose={() => setResetServiceRecordUrl(null)}
@@ -1137,6 +1146,7 @@ export function ClientDetailContent({
 
       {scheduleChangeTarget ? (
         <ServiceScheduleChangeModal
+          data-component={`${dataComponent}_schedule-change-modal`}
           open
           sessionIndex={scheduleChangeTarget.sessionIndex}
           currentDate={scheduleChangeTarget.currentDate}
@@ -1153,6 +1163,7 @@ export function ClientDetailContent({
       ) : null}
 
       <DetailTabPills
+        data-component={`${dataComponent}_tabs`}
         tabs={[
           ...(client.pendingScheduleChange ? [{ id: "scheduleChange", label: "일정 변경" }] : []),
           { id: "basic", label: "기본 정보" },
@@ -1165,8 +1176,8 @@ export function ClientDetailContent({
       />
 
       {client.pendingScheduleChange ? (
-        <MobileDetailTabPanel name="clients" tabId="scheduleChange" activeTab={activeTab}>
-          <InfoCard title="서비스 일정 변경 요청이 있습니다.">
+        <MobileDetailTabPanel data-component={`${dataComponent}_tab-panel_schedule-change`} name="clients" tabId="scheduleChange" activeTab={activeTab}>
+          <InfoCard data-component={`${dataComponent}_tab-panel_schedule-change_info-card`} title="서비스 일정 변경 요청이 있습니다.">
             <InfoRow
               label="기존 날짜"
               value={formatScheduleChangeMonthDay(client.pendingScheduleChange.fromDate)}
@@ -1186,7 +1197,7 @@ export function ClientDetailContent({
                 className="btn btn-secondary"
                 disabled={isScheduleChangeDecisionPending}
                 onClick={() => void handleScheduleChangeDecision("reject")}
-                data-component="mobile-clients-schedule-change-reject"
+                data-component={`${dataComponent}_tab-panel_schedule-change_info-card_reject`}
               >
                 거부
               </button>
@@ -1195,7 +1206,7 @@ export function ClientDetailContent({
                 className="btn btn-primary"
                 disabled={isScheduleChangeDecisionPending}
                 onClick={() => void handleScheduleChangeDecision("approve")}
-                data-component="mobile-clients-schedule-change-approve"
+                data-component={`${dataComponent}_tab-panel_schedule-change_info-card_approve`}
               >
                 승인
               </button>
@@ -1204,15 +1215,15 @@ export function ClientDetailContent({
         </MobileDetailTabPanel>
       ) : null}
 
-      <MobileDetailTabPanel name="clients" tabId="basic" activeTab={activeTab}>
-        <InfoCard title="고객 정보">
+      <MobileDetailTabPanel data-component={`${dataComponent}_tab-panel_basic`} name="clients" tabId="basic" activeTab={activeTab}>
+        <InfoCard data-component={`${dataComponent}_tab-panel_basic_client-card`} title="고객 정보">
           <InfoRow label="이름" value={client.name} />
           <InfoRow label="생년월일" value={formatDate(birthDate)} />
           <InfoRow label="출산 예정일" value={formatDate(dueDate)} />
           <InfoRow label="연락처" value={phone ? formatKoreanPhoneNumber(phone) : "-"} />
           <InfoRow label="주소" value={address ?? "-"} />
         </InfoCard>
-        <InfoCard title="담당 관리사" delay={60}>
+        <InfoCard data-component={`${dataComponent}_tab-panel_basic_employee-card`} title="담당 관리사" delay={60}>
           <InfoRow label="주 담당 인력" value={primaryEmployeeName ?? "-"} />
           <InfoRow
             label="주 담당 인력 연락처"
@@ -1224,7 +1235,7 @@ export function ClientDetailContent({
             value={secondaryEmployeePhone ? formatKoreanPhoneNumber(secondaryEmployeePhone) : "-"}
           />
         </InfoCard>
-        <InfoCard title="서비스 정보" delay={120}>
+        <InfoCard data-component={`${dataComponent}_tab-panel_basic_service-card`} title="서비스 정보" delay={120}>
           <InfoRow label="바우처 유형" value={serviceType ?? "-"} />
           <InfoRow label="서비스 기간" value={servicePeriodLabel} />
           <InfoRow label="시작일" value={formatDate(serviceStartDate)} />
@@ -1235,11 +1246,12 @@ export function ClientDetailContent({
         </InfoCard>
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel name="clients" tabId="contracts" activeTab={activeTab}>
+      <MobileDetailTabPanel data-component={`${dataComponent}_tab-panel_contracts`} name="clients" tabId="contracts" activeTab={activeTab}>
         {hasContractDocument ? (
           <>
-            <InfoCard title="계약서">
+            <InfoCard data-component={`${dataComponent}_tab-panel_contracts_contract-card`} title="계약서">
               <DetailDocRow
+                data-component={`${dataComponent}_tab-panel_contracts_contract-card_doc-row`}
                 icon={<FileCheck2 size={16} strokeWidth={2.5} />}
                 title="서비스 계약서"
                 meta={
@@ -1252,7 +1264,7 @@ export function ClientDetailContent({
                 tone={docTone}
               />
             </InfoCard>
-            <InfoCard title="최근 진행 상황" delay={60}>
+            <InfoCard data-component={`${dataComponent}_tab-panel_contracts_activity-card`} title="최근 진행 상황" delay={60}>
               <InfoRow label="현재 단계" value={documentStatusLabel(client.documentStatus)} tone={docTone as never} />
               <InfoRow label="서명 대기자" value={client.hasSigned ? "-" : `고객 (${client.name})`} />
               <InfoRow label="발송일" value={formatDate(serviceStartDate)} />
@@ -1260,17 +1272,18 @@ export function ClientDetailContent({
             </InfoCard>
           </>
         ) : (
-          <InfoCard title="계약서">
-            <div className="detail-empty-state" data-component="mobile-clients-contracts-empty">
+          <InfoCard data-component={`${dataComponent}_tab-panel_contracts_contract-card`} title="계약서">
+            <div className="detail-empty-state" data-component={`${dataComponent}_tab-panel_contracts_contract-card_empty`}>
               계약서 정보가 없습니다.
             </div>
           </InfoCard>
         )}
       </MobileDetailTabPanel>
 
-      <MobileDetailTabPanel name="clients" tabId="message" activeTab={activeTab}>
+      <MobileDetailTabPanel data-component={`${dataComponent}_tab-panel_message`} name="clients" tabId="message" activeTab={activeTab}>
         {selectedLog ? (
           <ClientMessageHistoryDetail
+            data-component={`${dataComponent}_tab-panel_message_history-detail`}
             view={{
               title: notificationTitle(selectedLog),
               templateLabel: notificationTitle(selectedLog),
@@ -1288,20 +1301,20 @@ export function ClientDetailContent({
             onBack={() => setSelectedEntry(null)}
           />
         ) : (
-          <InfoCard title="발송 내역">
+          <InfoCard data-component={`${dataComponent}_tab-panel_message_history-card`} title="발송 내역">
             {isNotificationLogsLoading ? (
-              <div className="detail-empty-state" data-component="mobile-clients-message-loading">
+              <div className="detail-empty-state" data-component={`${dataComponent}_tab-panel_message_history-card_loading`}>
                 발송 내역을 불러오는 중입니다.
               </div>
             ) : isNotificationLogsError ? (
-              <div className="detail-empty-state" data-component="mobile-clients-message-error">
+              <div className="detail-empty-state" data-component={`${dataComponent}_tab-panel_message_history-card_error`}>
                 <p>발송 내역을 불러오지 못했습니다.</p>
                 {onRetryNotificationLogs ? (
                   <button
                     type="button"
                     className="btn btn-secondary"
                     onClick={onRetryNotificationLogs}
-                    data-component="mobile-clients-message-retry"
+                    data-component={`${dataComponent}_tab-panel_message_history-card_error_retry`}
                   >
                     다시 시도
                   </button>
@@ -1313,6 +1326,7 @@ export function ClientDetailContent({
                 const channel = notificationChannelLabel(log);
                 return (
                   <DetailDocRow
+                    data-component={`${dataComponent}_tab-panel_message_history-card_log-row`}
                     key={`${channel}-${log.id}`}
                     icon={
                       tone === "burgundy" ? (
@@ -1330,7 +1344,7 @@ export function ClientDetailContent({
                 );
               })
             ) : (
-              <div className="detail-empty-state" data-component="mobile-clients-message-empty">
+              <div className="detail-empty-state" data-component={`${dataComponent}_tab-panel_message_history-card_empty`}>
                 발송 내역이 없습니다.
               </div>
             )}
@@ -1342,9 +1356,10 @@ export function ClientDetailContent({
         name="clients"
         tabId="serviceRecords"
         activeTab={activeTab}
-        dataComponent="mobile-clients-service-records-tab"
+        data-component={`${dataComponent}_tab-panel_service-records`}
       >
         <ClientServiceRecords
+          data-component={`${dataComponent}_tab-panel_service-records_content`}
           client={client}
           activeTab={activeTab}
           overview={serviceRecordsQuery.data}

@@ -89,7 +89,7 @@ function useToggleSet<T>(initial: T[]) {
 
 function TableSkeleton() {
   return (
-    <div data-component="voucher-price-table-skeleton" className="flex-1 overflow-y-auto min-h-0">
+    <div data-component="desktop_settings_voucher-price-table_skeleton" className="flex-1 overflow-y-auto min-h-0">
       <Table className={TABLE_TEXT_CLASS_NAME}>
         <TableHeader className="sticky top-0 bg-card z-10">
           <TableRow>
@@ -102,7 +102,7 @@ function TableSkeleton() {
         </TableHeader>
         <TableBody>
           {Array.from({ length: 10 }).map((_, index) => (
-            <TableRow key={index} data-component="voucher-price-table-skeleton-row">
+            <TableRow key={index} data-component="desktop_settings_voucher-price-table_skeleton_row">
               <TableCell className="px-1.5 py-3 font-medium xl:px-2 xl:py-4">
                 <Skeleton className="h-4 w-20 mx-auto bg-v3-dim-white" />
               </TableCell>
@@ -146,10 +146,16 @@ export function VoucherPriceTable() {
     ? years
     : [currentYear - 1, currentYear, currentYear + 1];
 
-  const [selectedCategories, toggleCategory] = useToggleSet<string>([]);
-  const [selectedSubtypes, toggleSubtype] = useToggleSet<string>([]);
-  const [selectedGrades, toggleGrade] = useToggleSet<string>([]);
+  const [selectedCategories, toggleCategory, clearCategories] = useToggleSet<string>([]);
+  const [selectedSubtypes, toggleSubtype, clearSubtypes] = useToggleSet<string>([]);
+  const [selectedGrades, toggleGrade, clearGrades] = useToggleSet<string>([]);
   const [selectedDurations, toggleDuration, clearDurations] = useToggleSet<number>([]);
+  const clearAllFilters = useCallback(() => {
+    clearCategories();
+    clearSubtypes();
+    clearGrades();
+    clearDurations();
+  }, [clearCategories, clearSubtypes, clearGrades, clearDurations]);
 
   const sortedPrices = useMemo(
     () => [...prices].sort((a, b) => {
@@ -192,7 +198,7 @@ export function VoucherPriceTable() {
       header={(
         <CardHeader
           variant="v3"
-          data-component="voucher-price-table-header"
+          data-component="desktop_settings_voucher-price-table_header"
           className="flex-row items-center gap-2.5 px-6 py-4 xl:gap-3 xl:py-5"
         >
           <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-[hsl(var(--v3-primary))]/10 xl:h-10 xl:w-10">
@@ -219,7 +225,7 @@ export function VoucherPriceTable() {
         </CardHeader>
       )}
     >
-      <div data-component="voucher-price-table" className="flex min-h-0 flex-1 flex-col">
+      <div data-component="desktop_settings_voucher-price-table" className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 mb-4 space-y-3">
         <div className={FILTER_ROW_CLASS_NAME}>
           <Label className={FILTER_LABEL_CLASS_NAME}>유형</Label>
@@ -272,7 +278,7 @@ export function VoucherPriceTable() {
           <div className="flex-1" />
           <button
             type="button"
-            onClick={clearDurations}
+            onClick={clearAllFilters}
             className="rounded-full border border-[hsl(var(--v3-primary))]/30 px-2 py-0.5 text-[0.7rem] font-medium text-[hsl(var(--v3-primary))] hover:bg-[hsl(var(--v3-primary))]/10 transition-colors xl:px-3 xl:py-1 xl:text-xs"
           >
             모두 해제

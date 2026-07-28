@@ -158,8 +158,8 @@ export function ClientsTable() {
     const total = data?.total || 0;
 
     return (
-        <div data-component="clients-table" className="space-y-6 animate-slide-up pb-10">
-            <div data-component="clients-table-header" className="flex justify-between items-center">
+        <div data-component="desktop_clients_table" className="space-y-6 animate-slide-up pb-10">
+            <div data-component="desktop_clients_table_header" className="flex justify-between items-center">
                  <div className="space-y-1">
                     <h1 className="text-2xl font-bold text-[hsl(214,40%,18%)]">고객 관리 👥</h1>
                     <p className="text-sm text-muted-foreground">전체 고객 정보를 확인하고 관리하세요</p>
@@ -173,7 +173,7 @@ export function ClientsTable() {
                  </div>
             </div>
 
-            <div data-component="clients-table-filters" className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+            <div data-component="desktop_clients_table_filters" className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
                 <ExpandableSearch
                     value={searchQuery}
                     onChange={handleSearchChange}
@@ -198,7 +198,7 @@ export function ClientsTable() {
                 </div>
             </div>
 
-            <div data-component="clients-table-stats" className="flex flex-wrap gap-4">
+            <div data-component="desktop_clients_table_stats" className="flex flex-wrap gap-4">
                 <div className="bg-white p-5 rounded-[20px] shadow-[0_4px_24px_hsla(214,50%,20%,0.06)] flex items-center gap-4 hover:-translate-y-1 transition-transform duration-300">
                     <div className="w-12 h-12 rounded-[14px] bg-[hsl(214,80%,95%)] flex items-center justify-center text-xl">👥</div>
                     <div>
@@ -238,7 +238,7 @@ export function ClientsTable() {
                     </div>
                 </div>
                 
-                <div data-component="clients-table-body" className="p-3 bg-[hsl(220,20%,99%)] flex-1 overflow-y-auto">
+                <div data-component="desktop_clients_table_body" className="p-3 bg-[hsl(220,20%,99%)] flex-1 overflow-y-auto">
                     <div className="space-y-2">
                         {isLoading ? (
                              <div className="p-8 text-center text-muted-foreground">Loading...</div>
@@ -249,7 +249,7 @@ export function ClientsTable() {
                                 <Card 
                                     key={client.id} 
                                     variant="v3" 
-                                    data-component="clients-table-row"
+                                    data-component="desktop_clients_table_body_row"
                                     className="flex items-center gap-4 p-5 cursor-pointer animate-pop-in border-2 border-transparent hover:border-[hsl(214,100%,34%)] hover:bg-[hsl(214,80%,98%)] group" 
                                     style={{ animationDelay: `${idx * 0.05}s` }} 
                                     onClick={() => handleRowClick(client)}
@@ -307,6 +307,7 @@ export function ClientsTable() {
             />
 
             <ClientFormDialog
+                data-component="desktop_clients_table_form-dialog"
                 open={formDialogOpen}
                 onClose={handleFormDialogClose}
                 client={editingClient}
@@ -317,7 +318,7 @@ export function ClientsTable() {
                 onOpenChange={(open) => {
                     if (!open) setDeleteTargetClientId(null);
                 }}
-                dataComponent="clients-table-delete-approval"
+                dataComponent="desktop_clients_table_delete-approval"
                 title={t(locale, "clients.delete-confirm")}
                 description="삭제한 고객 정보는 복구할 수 없습니다."
                 approvalLabel={t(locale, "common.delete")}

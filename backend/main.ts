@@ -1,9 +1,12 @@
-import { NestFactory } from "@nestjs/core";
+import "./instrument";
+
+import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import helmet from "helmet";
 import { json } from "express";
 import { AppModule } from "./app.module";
 import cookieParser from "cookie-parser";
 import { PrismaExceptionFilter } from "./infrastructure/filters/prisma-exception.filter";
+import { ServiceRecordSentryExceptionFilter } from "./infrastructure/observability/service-record-sentry-exception.filter";
 import { GlobalValidationPipe } from "./infrastructure/pipes/global-validation.pipe";
 import { assertVendorStubsConfigured } from "./infrastructure/vendor-stubs/e2e-vendor-stubs";
 
@@ -55,7 +58,13 @@ async function bootstrap() {
     // a stricter global pipe would otherwise reject — see the pipe for why a
     // controller-level override can't do this.
     app.useGlobalPipes(new GlobalValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
-    app.useGlobalFilters(new PrismaExceptionFilter());
+    const httpAdapterHost = app.get(HttpAdapterHost);
+    // Nest evaluates global filters in reverse registration order. Register the
+    // catch-all first so Prisma's specific mapping keeps its existing API behavior.
+    app.useGlobalFilters(
+        new ServiceRecordSentryExceptionFilter(httpAdapterHost),
+        new PrismaExceptionFilter(),
+    );
     // CORS configuration - support production, preview, and development origins
     const allowedOrigins = [
         process.env['PRODUCTION_FRONTEND_URL'],

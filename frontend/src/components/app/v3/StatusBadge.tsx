@@ -11,10 +11,11 @@ interface StatusBadgeProps {
   label?: string;
 }
 
+/** @deprecated @/components/app/ui/status-badge의 StatusBadge(variants+StatusPill)를 사용할 것 — 중복 구현 (BJJ-254) */
 export function StatusBadge({ status, label }: StatusBadgeProps) {
   const config = getDefaultClientBadgeStatusToken(status);
   return (
-    <StatusPill data-component="status-badge" variant={config.variant} size="sm">
+    <StatusPill variant={config.variant} size="sm">
       {label || config.defaultLabel}
     </StatusPill>
   );

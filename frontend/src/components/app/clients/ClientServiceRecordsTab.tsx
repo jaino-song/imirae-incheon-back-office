@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
 
@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { calcEndDateBusinessDays } from "@/lib/date/business-days";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
 import { cn } from "@/lib/utils";
+import { ServiceRecordErrorBoundary } from "@/lib/observability/service-record-error-boundary";
 import {
     SERVICE_RECORD_FORM_LAYOUT,
     SERVICE_RECORD_LAYOUT_ANSWER_KEYS,
@@ -31,12 +32,23 @@ import type {
 } from "@/features/service-records/types";
 
 interface ClientServiceRecordsTabProps {
+    "data-component": string;
     overview?: ServiceRecordOverview;
     clientId: number | null;
     isLoading: boolean;
     isError: boolean;
     isRefreshing?: boolean;
     onRefresh?: () => void;
+}
+
+const ClientServiceRecordsDataComponentContext = createContext<string | null>(null);
+
+function useClientServiceRecordsDataComponent(...parts: string[]): string {
+    const root = useContext(ClientServiceRecordsDataComponentContext);
+    if (!root) {
+        throw new Error("ClientServiceRecordsTab requires a data-component owner path.");
+    }
+    return [root, ...parts].join("_");
 }
 
 interface SessionSlot {
@@ -57,13 +69,27 @@ const LINK_STATUS_META: Record<ServiceRecordLinkStatus, {
 };
 
 export function ClientServiceRecordsTab({
+    "data-component": dataComponent,
+    ...props
+}: ClientServiceRecordsTabProps) {
+    return (
+        <ServiceRecordErrorBoundary>
+            <ClientServiceRecordsDataComponentContext.Provider value={dataComponent}>
+                <ClientServiceRecordsTabContent {...props} />
+            </ClientServiceRecordsDataComponentContext.Provider>
+        </ServiceRecordErrorBoundary>
+    );
+}
+
+function ClientServiceRecordsTabContent({
     overview,
     clientId,
     isLoading,
     isError,
     isRefreshing = false,
     onRefresh,
-}: ClientServiceRecordsTabProps) {
+}: Omit<ClientServiceRecordsTabProps, "data-component">) {
+    const dataComponent = useClientServiceRecordsDataComponent();
     const { toast } = useToast();
     const sendLinkMutation = useSendServiceRecordLink();
     const assignments = overview?.assignments ?? [];
@@ -112,7 +138,6 @@ export function ClientServiceRecordsTab({
     if (clientId === null) {
         return (
             <DetailEmptyState
-                name="clients-detail-service-records-empty"
                 message="고객 정보가 없어 제공기록지를 조회할 수 없습니다"
             />
         );
@@ -125,7 +150,7 @@ export function ClientServiceRecordsTab({
     if (isError) {
         return (
             <div
-                data-component="clients-detail-service-records-error"
+                data-component={`${dataComponent}_error`}
                 className="py-12 text-center text-[calc(13px*var(--glint-ui-scale,1))] text-v3-text-muted"
             >
                 제공기록지 정보를 불러오지 못했습니다
@@ -136,7 +161,6 @@ export function ClientServiceRecordsTab({
     if (assignments.length === 0 && !record) {
         return (
             <DetailEmptyState
-                name="clients-detail-service-records-empty"
                 message="제공기록지 배정 정보가 없습니다"
             />
         );
@@ -144,15 +168,19 @@ export function ClientServiceRecordsTab({
 
     return (
         <>
-            <div data-component="clients-detail-service-records" className="space-y-[calc(16px*var(--glint-ui-scale,1))]">
+            <div data-component={dataComponent} data-source-component="ClientServiceRecordsTab" className="space-y-[calc(16px*var(--glint-ui-scale,1))]">
                 {record ? (
                     <>
                         <div
-                            data-component="clients-detail-service-records-overview-grid"
+                            data-component={`${dataComponent}_overview-grid`}
                             className="grid grid-cols-1 items-stretch gap-[calc(16px*var(--glint-ui-scale,1))] lg:grid-cols-3 [&>*]:content-start"
                         >
                             <RecordStatusCard record={record} />
-                            <ServiceRecordHeaderCard header={record.header} showStatusBadge={false} />
+                            <ServiceRecordHeaderCard
+                                data-component={`${dataComponent}_overview-grid_header-card`}
+                                header={record.header}
+                                showStatusBadge={false}
+                            />
                             {activeAssignment ? (
                                 <LinkStatusCard
                                     assignment={activeAssignment}
@@ -163,7 +191,7 @@ export function ClientServiceRecordsTab({
                                 />
                             ) : (
                                 <InfoCard
-                                    data-component="clients-detail-service-records-link-unassigned"
+                                    data-component={`${dataComponent}_overview-grid_link-unassigned`}
                                     title="제공기록지 작성 링크"
                                     description="제공인력 배정 후 작성 링크가 생성됩니다"
                                 >
@@ -186,12 +214,12 @@ export function ClientServiceRecordsTab({
                 ) : assignments.map((assignment, index) => (
                     <div
                         key={assignment.scheduleId}
-                        data-component="clients-detail-service-records-assignment"
+                        data-component={`${dataComponent}_assignment`}
                         className="space-y-[calc(16px*var(--glint-ui-scale,1))]"
                     >
                         {assignments.length > 1 && (
                             <div
-                                data-component="clients-detail-service-records-assignment-period"
+                                data-component={`${dataComponent}_assignment_period`}
                                 className="flex items-center gap-[calc(10px*var(--glint-ui-scale,1))] text-[calc(11.5px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted"
                             >
                                 <span className="h-px flex-1 bg-v3-border" />
@@ -205,7 +233,10 @@ export function ClientServiceRecordsTab({
                                 && sendLinkMutation.variables?.scheduleId === assignment.scheduleId}
                             onSendLink={() => void handleSendLink(assignment)}
                         />
-                        <ServiceRecordHeaderCard header={assignment.header} />
+                        <ServiceRecordHeaderCard
+                            data-component={`${dataComponent}_assignment_header-card`}
+                            header={assignment.header}
+                        />
                         <ServiceSessionsCard
                             startDate={assignment.startDate}
                             totalSessions={assignment.totalSessions}
@@ -226,7 +257,7 @@ export function ClientServiceRecordsTab({
                 onOpenChange={(open) => {
                     if (!open) setPendingResendAssignment(null);
                 }}
-                dataComponent="clients-service-record-resend-approval"
+                dataComponent={`${dataComponent}_resend-approval`}
                 title="제공기록지 메시지를 재전송하시겠습니까?"
                 description="기존 링크가 그대로 포함된 메시지를 다시 전송합니다."
                 isDescriptionVisuallyHidden={false}
@@ -240,15 +271,16 @@ export function ClientServiceRecordsTab({
 }
 
 function ClientServiceRecordsSkeleton() {
+    const dataComponent = useClientServiceRecordsDataComponent();
     return (
-        <div data-component="clients-detail-service-records" className="space-y-[calc(16px*var(--glint-ui-scale,1))]">
+        <div data-component={dataComponent} data-source-component="ClientServiceRecordsTab" className="space-y-[calc(16px*var(--glint-ui-scale,1))]">
             <div
-                data-component="clients-detail-service-records-overview-grid"
+                data-component={`${dataComponent}_overview-grid`}
                 className="grid grid-cols-1 items-stretch gap-[calc(16px*var(--glint-ui-scale,1))] lg:grid-cols-3 [&>*]:content-start"
             >
                 <InfoCard
                     title="제공기록지 진행 상태"
-                    data-component="clients-detail-service-records-status-card"
+                    data-component={`${dataComponent}_overview-grid_status-card`}
                 >
                     {[
                         "상태",
@@ -263,7 +295,7 @@ function ClientServiceRecordsSkeleton() {
 
                 <InfoCard
                     title="서비스 기본정보"
-                    data-component="clients-detail-service-records-header-card"
+                    data-component={`${dataComponent}_overview-grid_header-card`}
                 >
                     {[
                         "산모 성명",
@@ -279,7 +311,7 @@ function ClientServiceRecordsSkeleton() {
 
                 <InfoCard
                     title="제공기록지 작성 링크"
-                    data-component="clients-detail-service-records-link-card"
+                    data-component={`${dataComponent}_overview-grid_link-card`}
                 >
                     {[
                         "제공인력 이름",
@@ -295,7 +327,7 @@ function ClientServiceRecordsSkeleton() {
 
             <InfoCard
                 title="회차별 제공기록"
-                data-component="clients-detail-service-records-sessions"
+                data-component={`${dataComponent}_sessions`}
                 titleTrailing={(
                     <Skeleton className="ml-auto h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(96px*var(--glint-ui-scale,1))] bg-white/70" />
                 )}
@@ -321,9 +353,10 @@ function ClientServiceRecordsSkeleton() {
 }
 
 function ServiceRecordInfoRowSkeleton({ label }: { label: string }) {
+    const dataComponent = useClientServiceRecordsDataComponent("skeleton", "row");
     return (
         <div
-            data-component="info-row"
+            data-component={dataComponent}
             className="flex items-start gap-[calc(16px*var(--glint-ui-scale,1))] border-b border-v3-border py-[calc(10px*var(--glint-ui-scale,1))] last:border-b-0"
         >
             <span className="shrink-0 text-[calc(12px*var(--glint-ui-scale,1))] text-v3-text-muted">
@@ -339,13 +372,14 @@ function ServiceRecordInfoRow({ label, value }: { label: string; value: ReactNod
 }
 
 function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
+    const dataComponent = useClientServiceRecordsDataComponent("overview-grid", "status-card");
     const status = getRecordStatusMeta(record.status);
     const submitted = record.sessions.filter((session) => session.locked).length;
 
     return (
         <InfoCard
             title="제공기록지 진행 상태"
-            data-component="clients-detail-service-records-status-card"
+            data-component={dataComponent}
         >
             <ServiceRecordInfoRow label="상태" value={status.label} />
             <ServiceRecordInfoRow label="서비스 기간" value={`${formatDateKo(record.startDate)} - ${formatDateKo(record.endDate)}`} />
@@ -360,12 +394,13 @@ function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
 }
 
 function AssignmentHistoryCard({ assignments }: { assignments: ServiceRecordAssignment[] }) {
+    const dataComponent = useClientServiceRecordsDataComponent("assignment-history");
     const ordered = [...assignments].sort((left, right) => (
         new Date(left.startDate).getTime() - new Date(right.startDate).getTime()
     ));
     return (
         <InfoCard
-            data-component="clients-detail-service-records-assignment-history"
+            data-component={dataComponent}
             title="제공인력 배정 이력"
             description="담당자가 바뀌어도 회차 기록은 연속해서 이어집니다"
         >
@@ -426,13 +461,14 @@ function LinkStatusCard({
     onSendLink: () => void;
     showStatusBadge?: boolean;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("overview-grid", "link-card");
     const { link, employee } = assignment;
     const statusMeta = LINK_STATUS_META[link.status];
     const isResend = link.status === "sent" || link.status === "failed";
 
     return (
         <InfoCard
-            data-component="clients-detail-service-records-link-card"
+            data-component={dataComponent}
             title="제공기록지 작성 링크"
             titleTrailing={showStatusBadge ? (
                 <div className="ml-auto flex shrink-0 items-center gap-[calc(8px*var(--glint-ui-scale,1))]">
@@ -458,8 +494,8 @@ function LinkStatusCard({
                     disabled={isPending}
                     onClick={onSendLink}
                     data-component={isResend
-                        ? "clients-detail-service-records-link-resend-button"
-                        : "clients-detail-service-records-link-send-button"}
+                        ? `${dataComponent}_actions_resend`
+                        : `${dataComponent}_actions_send`}
                 >
                     {isPending ? "발송 중..." : isResend ? "메시지 재전송" : "링크 수동 전송"}
                 </Button>
@@ -486,6 +522,7 @@ function ServiceSessionsCard({
     isRefreshing: boolean;
     onRefresh?: () => void;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions");
     const slots = useMemo(
         () => buildSessionSlots(startDate, configuredSessions, sessions),
         [configuredSessions, sessions, startDate],
@@ -496,14 +533,14 @@ function ServiceSessionsCard({
 
     return (
         <InfoCard
-            data-component="clients-detail-service-records-sessions"
+            data-component={dataComponent}
             title="회차별 제공기록"
             titleTrailing={
                 <div className="ml-auto flex shrink-0 items-center gap-[calc(4px*var(--glint-ui-scale,1))]">
                     {onRefresh ? (
                         <button
                             type="button"
-                            data-component="clients-detail-service-records-refresh"
+                            data-component={`${dataComponent}_head_refresh`}
                             className="inline-flex h-[calc(24px*var(--glint-ui-scale,1))] w-[calc(24px*var(--glint-ui-scale,1))] cursor-pointer items-center justify-center rounded-full text-v3-text-muted transition-colors hover:bg-white/70 hover:text-v3-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-v3-primary/30 disabled:cursor-wait disabled:opacity-70"
                             aria-label={isRefreshing ? "제공기록 새로고침 중" : "제공기록 새로고침"}
                             aria-busy={isRefreshing}
@@ -526,7 +563,7 @@ function ServiceSessionsCard({
                 </div>
             }
         >
-            <div data-component="clients-detail-service-records-session-list" className="mt-[calc(8px*var(--glint-ui-scale,1))]">
+            <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
                 {slots.map((slot, index) => (
                     <SessionRow
                         key={slot.sessionIndex}
@@ -540,12 +577,13 @@ function ServiceSessionsCard({
 }
 
 function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boolean }) {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row");
     const { record } = slot;
     if (!record) {
         return (
             <Collapsible
                 defaultOpen={defaultOpen}
-                data-component="clients-detail-service-records-session-item"
+                data-component={dataComponent}
                 className="border-b border-v3-dim-white last:border-b-0"
             >
                 <CollapsibleTrigger asChild>
@@ -576,7 +614,7 @@ function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boo
     return (
         <Collapsible
             defaultOpen={defaultOpen}
-            data-component="clients-detail-service-records-session-item"
+            data-component={dataComponent}
             className="border-b border-v3-dim-white last:border-b-0"
         >
             <CollapsibleTrigger asChild>
@@ -627,13 +665,14 @@ function SessionNumber({ index, state }: { index: number; state: "done" | "draft
 }
 
 function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row", "detail");
     const answers = getAnswerObject(record.answers);
     const unknownEntries = Object.entries(answers)
         .filter(([key, value]) => !SERVICE_RECORD_LAYOUT_ANSWER_KEYS.has(key) && hasDisplayValue(value));
 
     return (
         <div
-            data-component="clients-detail-service-records-session-detail"
+            data-component={dataComponent}
             className="px-[calc(4px*var(--glint-ui-scale,1))] pb-[calc(18px*var(--glint-ui-scale,1))] pl-[calc(46px*var(--glint-ui-scale,1))]"
         >
             {SERVICE_RECORD_FORM_LAYOUT.map((section) => (
@@ -642,7 +681,7 @@ function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
                         <span
                             className={cn(
                                 "h-[calc(7px*var(--glint-ui-scale,1))] w-[calc(7px*var(--glint-ui-scale,1))] rounded-full",
-                                section.tone === "mom" && "bg-v3-burgundy",
+                                section.tone === "mom" && "bg-v3-purple",
                                 section.tone === "baby" && "bg-v3-primary",
                                 section.tone === "finish" && "bg-v3-green",
                             )}
@@ -677,9 +716,10 @@ function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
 }
 
 function EmptySessionRecordDetail() {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row", "detail");
     return (
         <div
-            data-component="clients-detail-service-records-session-detail"
+            data-component={dataComponent}
             className="px-[calc(4px*var(--glint-ui-scale,1))] pb-[calc(18px*var(--glint-ui-scale,1))] pl-[calc(46px*var(--glint-ui-scale,1))]"
         >
             {SERVICE_RECORD_FORM_LAYOUT.map((section) => (
@@ -688,7 +728,7 @@ function EmptySessionRecordDetail() {
                         <span
                             className={cn(
                                 "h-[calc(7px*var(--glint-ui-scale,1))] w-[calc(7px*var(--glint-ui-scale,1))] rounded-full",
-                                section.tone === "mom" && "bg-v3-burgundy",
+                                section.tone === "mom" && "bg-v3-purple",
                                 section.tone === "baby" && "bg-v3-primary",
                                 section.tone === "finish" && "bg-v3-green",
                             )}
@@ -706,7 +746,7 @@ function EmptySessionRecordDetail() {
                             >
                                 <span className="shrink-0 text-[calc(12px*var(--glint-ui-scale,1))] text-v3-text-muted">{field.label}</span>
                                 <span
-                                    data-component="clients-detail-service-records-session-empty-value"
+                                    data-component={`${dataComponent}_field_empty-value`}
                                     className="text-right text-[calc(12px*var(--glint-ui-scale,1))] font-medium text-v3-dark"
                                 >
                                     -
@@ -729,6 +769,7 @@ function RecordFieldRow({
     answers: Record<string, unknown>;
     record: ServiceRecordSession;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row", "detail", "field");
     const isWide = field.kind === "text";
     return (
         <div
@@ -739,7 +780,7 @@ function RecordFieldRow({
         >
             <span className="shrink-0 text-[calc(12px*var(--glint-ui-scale,1))] text-v3-text-muted">{field.label}</span>
             <div
-                data-component="clients-detail-service-records-session-value"
+                data-component={`${dataComponent}_value`}
                 className="flex min-w-0 flex-wrap items-center justify-end gap-[calc(5px*var(--glint-ui-scale,1))] text-right text-[calc(12px*var(--glint-ui-scale,1))] font-medium text-v3-dark"
             >
                 {renderFieldValue(field, answers, record)}
@@ -816,9 +857,10 @@ function EmptyValue() {
 }
 
 function SignatureDocCard({ signatureDoc }: { signatureDoc: SignatureDocStatus }) {
+    const dataComponent = useClientServiceRecordsDataComponent("signature-card");
     return (
         <InfoCard
-            data-component="clients-detail-service-records-signature-card"
+            data-component={dataComponent}
             title={signatureDoc.snapshotChunkIndex
                 ? `제공기록지 전자문서 ${signatureDoc.snapshotChunkIndex}`
                 : "제공기록지 전자문서"}
@@ -913,15 +955,17 @@ function formatUnknownValue(value: unknown): string {
 }
 
 function formatSignatureStatus(statusDetail: string): string {
-    if (statusDetail.includes("complete") || statusDetail.includes("completed")) return "서명 완료";
-    if (statusDetail.includes("created")) return "발송됨";
-    return statusDetail || "상태 확인";
+    const normalized = statusDetail.trim().toLowerCase();
+    if (normalized.includes("complete")) return "서명 완료";
+    if (normalized.includes("created")) return "발송됨";
+    return statusDetail.trim() || "상태 확인";
 }
 
 function getSignatureVariant(statusDetail: string): "neutral" | "primary" | "success" | "warning" | "danger" {
-    if (statusDetail.includes("complete") || statusDetail.includes("completed")) return "success";
-    if (statusDetail.includes("reject") || statusDetail.includes("fail")) return "danger";
-    if (statusDetail.includes("created")) return "primary";
+    const normalized = statusDetail.trim().toLowerCase();
+    if (normalized.includes("complete")) return "success";
+    if (normalized.includes("reject") || normalized.includes("fail")) return "danger";
+    if (normalized.includes("created")) return "primary";
     return "neutral";
 }
 

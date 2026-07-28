@@ -73,8 +73,8 @@ export default async function ErrorsDetailPage() {
   const totalIssues = issues.length;
 
   return (
-    <section data-component="stats-errors" className="flex flex-col gap-6 pb-10">
-      <Block name="stats-errors-hero" className="shrink-0">
+    <section data-component="desktop_stats-errors_page" className="flex flex-col gap-6 pb-10">
+      <Block name="desktop_stats-errors_page_hero" className="shrink-0">
         <StatsHero
           title="오류 통계"
           subtitle="Sentry · 미해결 이슈 · 24시간 이내 발생 추이"
@@ -85,13 +85,13 @@ export default async function ErrorsDetailPage() {
           })}
           backHref="/stats"
           backLabel="통계 overview로"
-          dataComponent="stats-errors-hero"
+          dataComponent="desktop_stats-errors_page_hero_content"
         />
       </Block>
 
-      <Block name="stats-errors-kpi" className="shrink-0">
+      <Block name="desktop_stats-errors_page_kpi" className="shrink-0">
         <div
-          data-component="stats-errors-kpi-grid"
+          data-component="desktop_stats-errors_page_kpi_grid"
           className="grid grid-cols-2 lg:grid-cols-5 gap-3"
         >
           <KpiCard
@@ -100,7 +100,7 @@ export default async function ErrorsDetailPage() {
             value={summary.openCount}
             unit="건"
             tone={summary.openCount > 0 ? "warn" : "success"}
-            dataComponent="stats-errors-kpi-open"
+            dataComponent="desktop_stats-errors_page_kpi_grid_card-open"
           />
           <KpiCard
             iconEmoji="+"
@@ -108,34 +108,34 @@ export default async function ErrorsDetailPage() {
             value={summary.newIn24h}
             unit="건"
             tone={summary.newIn24h > 0 ? "warn" : "default"}
-            dataComponent="stats-errors-kpi-new"
+            dataComponent="desktop_stats-errors_page_kpi_grid_card-new"
           />
           <KpiCard
             iconEmoji="∑"
             label="7일 발생"
             value={summary.totalEvents7d.toLocaleString("ko-KR")}
-            dataComponent="stats-errors-kpi-events"
+            dataComponent="desktop_stats-errors_page_kpi_grid_card-events"
           />
           <KpiCard
             iconEmoji="👤"
             label="영향받은 사용자"
             value={`~${summary.affectedUsers}`}
             unit="명"
-            dataComponent="stats-errors-kpi-users"
+            dataComponent="desktop_stats-errors_page_kpi_grid_card-users"
           />
           <KpiCard
             iconEmoji="⏱"
             label="마지막 오류"
             value={formatSentryRelativeTime(summary.lastErrorAt)}
-            dataComponent="stats-errors-kpi-last"
+            dataComponent="desktop_stats-errors_page_kpi_grid_card-last"
             valueSize="sm"
           />
         </div>
       </Block>
 
-      <Block name="stats-errors-chart">
+      <Block name="desktop_stats-errors_page_chart">
         <div
-          data-component="stats-errors-chart-card"
+          data-component="desktop_stats-errors_page_chart_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-4">
@@ -235,9 +235,9 @@ export default async function ErrorsDetailPage() {
         </div>
       </Block>
 
-      <Block name="stats-errors-issues">
+      <Block name="desktop_stats-errors_page_issues">
         <div
-          data-component="stats-errors-issues-card"
+          data-component="desktop_stats-errors_page_issues_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6 overflow-hidden"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -266,7 +266,7 @@ export default async function ErrorsDetailPage() {
                 {issues.map((issue) => (
                   <tr
                     key={issue.id}
-                    data-component="stats-errors-issue-row"
+                    data-component="desktop_stats-errors_page_issues_card_body_row"
                     className="border-b border-v3-border last:border-0 hover:bg-v3-dim-white"
                   >
                     <td className="px-3 py-3">

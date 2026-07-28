@@ -6,7 +6,7 @@ export default function PrivacyPage() {
   return (
     <section
       className="shell-content flex flex-col"
-      data-component="privacy-page"
+      data-component="mobile_privacy_page"
     >
       <div className="list-card">
         <div className="list-title">

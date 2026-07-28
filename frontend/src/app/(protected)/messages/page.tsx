@@ -600,15 +600,15 @@ function MessageScheduledSection() {
   }, []);
 
   return (
-    <div data-component="messages-scheduled-layout" className="flex min-h-[560px] flex-1 flex-col">
-      <SplitLayout
+    <div data-component="desktop_messages_sections_scheduled-layout" className="flex min-h-[560px] flex-1 flex-col">
+      <SplitLayout data-component="desktop_messages_sections_split-layout"
         hasSelection={!!selectedJob}
         onBack={() => {
           setSelectedJobId(null);
           setScheduledDetailTab("info");
         }}
       >
-        <ListPanel
+        <ListPanel data-component="desktop_messages_sections_split-layout_list-panel"
           title="발송 예정"
           subtitle="발송이 예정된 메시지를 확인할 수 있어요."
           tabs={SCHEDULED_PREVIEW_TABS}
@@ -627,7 +627,7 @@ function MessageScheduledSection() {
           searchPlaceholder="이름, 연락처, 템플릿 검색…"
           headerActions={
             <span
-              data-component="messages-scheduled-list-badge"
+              data-component="desktop_messages_sections_scheduled-list-badge"
               className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
             >
               {(hasScheduledFilters ? filteredJobs.length : smsUpcomingJobs.length)}개
@@ -641,13 +641,13 @@ function MessageScheduledSection() {
             />
           ) : undefined}
         >
-          <div data-component="messages-scheduled-list" className="space-y-3 pb-2">
+          <div data-component="desktop_messages_sections_split-layout_list-panel_scheduled-list" className="space-y-3 pb-2">
             <AnimatedSlotList<UpcomingMessageTriggerJob>
                 items={filteredJobs}
                 isLoading={isLoading}
                 loadingCount={5}
                 className="space-y-2"
-                itemDataComponent="messages-scheduled-list-item"
+                itemDataComponent="desktop_messages_sections_scheduled-layout_split-layout_list-panel_scheduled-list_item"
                 getSlotState={({ item, isLoading: slotLoading }) => ({
                   isActive: !slotLoading && item?.id === selectedJobId,
                   isInteractive: !slotLoading && Boolean(item),
@@ -662,18 +662,18 @@ function MessageScheduledSection() {
 
                   return (
                     <AnimatedSlotListItemContent
-                      dataComponent="messages-scheduled-list-item"
+                      dataComponent="desktop_messages_sections_scheduled-list-item"
                       icon={Clock3}
                       iconContainerClassName="text-v3-primary"
                       title={item.payload.recipientName || "-"}
                       subtitle={`${getHistoryTemplateLabel(item.templateKey)} · ${formatScheduledPreviewDate(item.scheduledFor)}`}
                       status={
                         <div
-                          data-component="messages-scheduled-list-item-badges"
+                          data-component="desktop_messages_sections_split-layout_list-panel_scheduled-list_scheduled-list-item-badges"
                           className="flex shrink-0 flex-col items-end gap-1"
                         >
                           <span
-                            data-component="messages-scheduled-list-item-status"
+                            data-component="desktop_messages_sections_scheduled-list-item-status"
                             className={cn(
                               "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.66rem] font-semibold",
                               statusMeta.className,
@@ -685,7 +685,7 @@ function MessageScheduledSection() {
                             {statusMeta.label}
                           </span>
                           <span
-                            data-component="messages-scheduled-list-item-recipient"
+                            data-component="desktop_messages_sections_scheduled-list-item-recipient"
                             className="text-[0.64rem] font-medium text-v3-text-muted"
                           >
                             {getScheduledRecipientBadge(item.recipientType)}
@@ -699,10 +699,10 @@ function MessageScheduledSection() {
             </div>
         </ListPanel>
 
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_sections_scheduled_split-layout_detail-panel"
           avatar={selectedJob ? (
             <div
-              data-component="messages-scheduled-detail-avatar"
+              data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-avatar"
               className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"
             >
               <Clock3 className="h-5 w-5" />
@@ -717,7 +717,7 @@ function MessageScheduledSection() {
           badges={
             selectedJob ? (
               <span
-                data-component="messages-scheduled-detail-status"
+                data-component="desktop_messages_sections_scheduled-detail-status"
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[0.7rem] font-semibold",
                   getScheduledJobStatusMeta(selectedJob.status).className,
@@ -733,7 +733,7 @@ function MessageScheduledSection() {
           trailing={
             selectedJob ? (
               <div
-                data-component="messages-scheduled-detail-scheduled-at"
+                data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-scheduled-at"
                 className="inline-flex items-center gap-1 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
               >
                 <CalendarClock className="h-3.5 w-3.5" />
@@ -753,7 +753,6 @@ function MessageScheduledSection() {
           emptyState={
             !isLoading && !selectedJob ? (
               <DetailEmptyState
-                name="messages-scheduled-detail-empty"
                 icon={Users}
                 message={
                   filteredJobs.length === 0 && hasScheduledFilters
@@ -766,15 +765,15 @@ function MessageScheduledSection() {
           }
         >
           {isLoading ? (
-            <div data-component="messages-scheduled-detail-skeleton" className="space-y-4">
+            <div data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-skeleton" className="space-y-4">
               {[0, 1, 2].map((index) => (
                 <div
                   key={index}
-                  data-component="messages-scheduled-detail-skeleton-card"
+                  data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-skeleton_scheduled-detail-skeleton-card"
                   className="rounded-[18px] bg-v3-dim-white p-4"
                 >
                   <Skeleton className="h-4 w-24 bg-white/80" />
-                  <div data-component="messages-scheduled-detail-skeleton-lines" className="mt-4 space-y-3">
+                  <div data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-skeleton_scheduled-detail-skeleton-card_scheduled-detail-skeleton-lines" className="mt-4 space-y-3">
                     <Skeleton className="h-4 w-full bg-white/80" />
                     <Skeleton className="h-4 w-5/6 bg-white/80" />
                     <Skeleton className="h-4 w-2/3 bg-white/80" />
@@ -785,91 +784,91 @@ function MessageScheduledSection() {
           ) : selectedJob ? (
             <DetailTabPanels
               activeTab={scheduledDetailTab}
-              dataComponent="messages-scheduled-detail-tab-panels"
-              panelDataComponent="messages-scheduled-detail-tab-panel"
+              dataComponent="desktop_messages_sections_scheduled-detail-tab-panels"
+              panelDataComponent="desktop_messages_sections_scheduled-detail-tab-panel"
               panels={[
                 {
                   key: "info",
                   children: (
-                    <div data-component="messages-scheduled-detail" className="space-y-4">
-                      <InfoCard title="예약 개요" data-component="messages-scheduled-detail-overview">
+                    <div data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail" className="space-y-4">
+                      <InfoCard title="예약 개요" data-component="desktop_messages_sections_scheduled-detail-overview">
                         <InfoRow
-                          data-component="messages-scheduled-detail-overview-rule"
+                          data-component="desktop_messages_sections_scheduled-detail-overview-rule"
                           label="발송 규칙"
                           value={selectedJob.ruleName}
                         />
                         <InfoRow
-                          data-component="messages-scheduled-detail-overview-recipient"
+                          data-component="desktop_messages_sections_scheduled-detail-overview-recipient"
                           label="수신자"
                           value={selectedJob.payload.recipientName || "-"}
                         />
                         <InfoRow
-                          data-component="messages-scheduled-detail-overview-scheduled-time"
+                          data-component="desktop_messages_sections_scheduled-detail-overview-scheduled-time"
                           label="발신 예정 시간"
                           value={formatScheduledDetailDate(selectedJob.scheduledFor)}
                         />
                         <InfoRow
-                          data-component="messages-scheduled-detail-overview-template"
+                          data-component="desktop_messages_sections_scheduled-detail-overview-template"
                           label="템플릿"
                           value={getHistoryTemplateLabel(selectedJob.templateKey)}
                         />
                       </InfoCard>
 
                       <div
-                        data-component="messages-scheduled-detail-grid"
+                        data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail_scheduled-detail-grid"
                         className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
                       >
-                        <InfoCard title="메시지 정보" data-component="messages-scheduled-detail-meta">
+                        <InfoCard title="메시지 정보" data-component="desktop_messages_sections_scheduled-detail-meta">
                           <InfoRow
-                            data-component="messages-scheduled-detail-meta-recipient"
+                            data-component="desktop_messages_sections_scheduled-detail-meta-recipient"
                             label="수신자 이름"
                             value={selectedJob.payload.recipientName || "-"}
                           />
                           <InfoRow
-                            data-component="messages-scheduled-detail-meta-phone"
+                            data-component="desktop_messages_sections_scheduled-detail-meta-phone"
                             label="전화번호"
                             value={selectedJobPhone}
                           />
                           <InfoRow
-                            data-component="messages-scheduled-detail-meta-scheduled-time"
+                            data-component="desktop_messages_sections_scheduled-detail-meta-scheduled-time"
                             label="발신 예정 시간"
                             value={formatScheduledDetailDate(selectedJob.scheduledFor)}
                           />
                           <InfoRow
-                            data-component="messages-scheduled-detail-meta-template"
+                            data-component="desktop_messages_sections_scheduled-detail-meta-template"
                             label="메시지 템플릿 이름"
                             value={getHistoryTemplateLabel(selectedJob.templateKey)}
                           />
                           <InfoRow
-                            data-component="messages-scheduled-detail-meta-rule"
+                            data-component="desktop_messages_sections_scheduled-detail-meta-rule"
                             label="발송 규칙명"
                             value={selectedJob.ruleName}
                           />
                           <InfoRow
-                            data-component="messages-scheduled-detail-meta-recipient-type"
+                            data-component="desktop_messages_sections_scheduled-detail-meta-recipient-type"
                             label="수신 유형"
                             value={getScheduledRecipientLabel(selectedJob.recipientType)}
                           />
                           <InfoRow
-                            data-component="messages-scheduled-detail-meta-event"
+                            data-component="desktop_messages_sections_scheduled-detail-meta-event"
                             label="이벤트 기준"
                             value={getScheduledEventLabel(selectedJob.eventType)}
                           />
                         </InfoCard>
 
-                        <InfoCard title="변수" data-component="messages-scheduled-detail-variables">
+                        <InfoCard title="변수" data-component="desktop_messages_sections_scheduled-detail-variables">
                           {selectedJobVariables.length > 0 ? (
                             selectedJobVariables.map(([key, value], index) => (
                               <InfoRow
                                 key={`${selectedJob.id}-${key}`}
-                                data-component={`messages-scheduled-detail-variable-${index + 1}`}
+                                data-component={`desktop_messages_sections_scheduled-detail-variable-${index + 1}`}
                                 label={SCHEDULED_VARIABLE_LABELS[key] ?? key}
                                 value={value || "-"}
                               />
                             ))
                           ) : (
                             <InfoRow
-                              data-component="messages-scheduled-detail-variable-empty"
+                              data-component="desktop_messages_sections_scheduled-detail-variable-empty"
                               label="변수"
                               value={<span className="font-normal text-v3-text-muted">변수 정보가 없습니다.</span>}
                             />
@@ -884,12 +883,12 @@ function MessageScheduledSection() {
                   children: (
                     <InfoCard
                       title="메시지 내용"
-                      data-component="messages-scheduled-detail-message"
+                      data-component="desktop_messages_sections_scheduled-detail-message"
                       className="flex min-h-[420px] flex-col"
                       contentClassName="flex flex-1"
                     >
                       <div
-                        data-component="messages-generated-msg-detail-content-body"
+                        data-component="desktop_messages_sections_scheduled-detail-message_generated-msg-detail-content-body"
                         className={cn(
                           "flex min-h-[320px] flex-1",
                           APP_CONTENT_BODY_CARD_CLASS_NAME,
@@ -956,9 +955,9 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
     : selectedPreview?.detailDescription ?? "왼쪽 목록에서 미리보기 항목을 선택하면 이 영역에 상세 구성 가이드가 표시됩니다.";
 
   return (
-    <div data-component="messages-section-placeholder-layout" className="flex min-h-[560px] flex-1 flex-col">
-      <SplitLayout hasSelection={!!selectedPreview} onBack={() => setSelectedPreviewId(null)}>
-        <ListPanel
+    <div data-component="desktop_messages_sections_section-placeholder-layout" className="flex min-h-[560px] flex-1 flex-col">
+      <SplitLayout data-component="desktop_messages_sections_split-layout-2" hasSelection={!!selectedPreview} onBack={() => setSelectedPreviewId(null)}>
+        <ListPanel data-component="desktop_messages_sections_split-layout_list-panel-2"
           title={section.label}
           subtitle={copy.description}
           tabs={isScheduledSection ? SCHEDULED_PREVIEW_TABS : undefined}
@@ -983,7 +982,7 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
           searchPlaceholder={isScheduledSection ? "이름, 연락처, 템플릿 검색…" : undefined}
           headerActions={
             <span
-              data-component="messages-section-placeholder-list-badge"
+              data-component="desktop_messages_sections_section-placeholder-list-badge"
               className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
             >
               {(isScheduledSection ? filteredPreviewItems.length : copy.items.length)}개
@@ -997,12 +996,12 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
             />
           ) : undefined}
         >
-          <div data-component="messages-section-placeholder-list" className="space-y-3 pb-2">
+          <div data-component="desktop_messages_sections_split-layout_list-panel-2_section-placeholder-list" className="space-y-3 pb-2">
             <AnimatedSlotList<PlaceholderPreviewItem>
                 items={filteredPreviewItems}
                 isLoading={false}
                 className="space-y-2"
-                itemDataComponent="messages-section-placeholder-list-item"
+                itemDataComponent="desktop_messages_sections_section-placeholder-layout_split-layout_list-panel_list_item"
                 getSlotState={({ item }) => ({
                   isActive: item?.id === selectedPreviewId,
                   isInteractive: Boolean(item),
@@ -1021,14 +1020,14 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
 
                   return (
                     <AnimatedSlotListItemContent
-                      dataComponent="messages-section-placeholder-list-item"
+                      dataComponent="desktop_messages_sections_section-placeholder-list-item"
                       icon={Icon}
                       iconContainerClassName="text-v3-primary"
                       title={title}
                       subtitle={summary}
                       status={
                         <span
-                          data-component="messages-section-placeholder-list-item-badge"
+                          data-component="desktop_messages_sections_section-placeholder-list-item-badge"
                           className="inline-flex shrink-0 items-center rounded-full bg-white/85 px-2 py-0.5 text-[0.66rem] font-semibold text-v3-primary"
                         >
                           {badge}
@@ -1041,10 +1040,10 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
             </div>
         </ListPanel>
 
-        <DetailPanel
+        <DetailPanel data-component="desktop_messages_sections_section_split-layout_detail-panel"
           avatar={!isScheduledSection || selectedPreview ? (
             <div
-              data-component="messages-section-placeholder-detail-avatar"
+              data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail-avatar"
               className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"
             >
               <Icon className="h-5 w-5" />
@@ -1055,7 +1054,7 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
           badges={
             isScheduledSection && selectedPreview ? (
               <span
-                data-component="messages-section-placeholder-detail-status"
+                data-component="desktop_messages_sections_section-placeholder-detail-status"
                 className="rounded-full bg-emerald-500/10 px-3 py-1 text-[0.7rem] font-semibold text-emerald-600"
               >
                 발송 예정
@@ -1065,7 +1064,7 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
           trailing={
             isScheduledSection && selectedPreview?.scheduledAt ? (
               <div
-                data-component="messages-section-placeholder-detail-scheduled-at"
+                data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail-scheduled-at"
                 className="inline-flex items-center gap-1 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
               >
                 <CalendarClock className="h-3.5 w-3.5" />
@@ -1076,7 +1075,6 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
           emptyState={
             isScheduledSection && !selectedPreview ? (
               <DetailEmptyState
-                name="messages-section-placeholder-scheduled-detail-empty"
                 icon={Users}
                 message={
                   filteredPreviewItems.length === 0 && hasScheduledFilters
@@ -1090,26 +1088,26 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
         >
           {selectedPreview ? (
             isScheduledSection ? (
-              <div data-component="messages-section-placeholder-detail" className="space-y-4">
+              <div data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail" className="space-y-4">
                 <div
-                  data-component="messages-section-placeholder-scheduled-detail-grid"
+                  data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail_section-placeholder-scheduled-detail-grid"
                   className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]"
                 >
                   <InfoCard
                     title="메시지 본문"
-                    data-component="messages-section-placeholder-scheduled-detail-content"
+                    data-component="desktop_messages_sections_section-placeholder-scheduled-detail-content"
                     className="flex flex-col xl:row-span-2"
                     contentClassName="flex flex-1"
                   >
                     <div
-                      data-component="messages-section-placeholder-scheduled-detail-content-body"
+                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-content_section-placeholder-scheduled-detail-content-body"
                       className={cn(
                         "flex min-h-[240px] flex-1",
                         APP_CONTENT_BODY_CARD_OUTLINED_CLASS_NAME,
                       )}
                     >
                       <pre
-                        data-component="messages-section-placeholder-scheduled-detail-content-text"
+                        data-component="desktop_messages_sections_section-placeholder-scheduled-detail-content-text"
                         className="whitespace-pre-wrap font-sans text-[0.78rem] leading-relaxed text-v3-dark"
                       >
                         {selectedPreview.messageBody ?? selectedPreview.detailDescription}
@@ -1119,25 +1117,25 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
 
                   <InfoCard
                     title="메시지 정보"
-                    data-component="messages-section-placeholder-scheduled-detail-meta"
+                    data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta"
                   >
                     <InfoRow
-                      data-component="messages-section-placeholder-scheduled-detail-meta-recipient"
+                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-recipient"
                       label="수신자 이름"
                       value={selectedPreview.recipientName ?? "-"}
                     />
                     <InfoRow
-                      data-component="messages-section-placeholder-scheduled-detail-meta-phone"
+                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-phone"
                       label="전화번호"
                       value={selectedPreview.recipientPhone ?? "-"}
                     />
                     <InfoRow
-                      data-component="messages-section-placeholder-scheduled-detail-meta-scheduled-time"
+                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-scheduled-time"
                       label="발신 예정 시간"
                       value={selectedPreview.scheduledAt ?? "-"}
                     />
                     <InfoRow
-                      data-component="messages-section-placeholder-scheduled-detail-meta-template"
+                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-template"
                       label="메시지 템플릿 이름"
                       value={selectedPreview.templateTitle ?? "-"}
                     />
@@ -1145,20 +1143,20 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
 
                   <InfoCard
                     title="변수"
-                    data-component="messages-section-placeholder-scheduled-detail-variables"
+                    data-component="desktop_messages_sections_section-placeholder-scheduled-detail-variables"
                   >
                     {selectedPreview.variableAssignments?.length ? (
                       selectedPreview.variableAssignments.map((variable) => (
                         <InfoRow
                           key={`${selectedPreview.id}-${variable.token}`}
-                          data-component={`messages-section-placeholder-scheduled-detail-variable-${variable.token}`}
+                          data-component={`desktop_messages_sections_section-placeholder-scheduled-detail-variable-${variable.token}`}
                           label={variable.label}
                           value={variable.value}
                         />
                       ))
                     ) : (
                       <InfoRow
-                        data-component="messages-section-placeholder-scheduled-detail-variable-empty"
+                        data-component="desktop_messages_sections_section-placeholder-scheduled-detail-variable-empty"
                         label="변수"
                         value={<span className="font-normal text-v3-text-muted">변수 정보가 없습니다.</span>}
                       />
@@ -1167,9 +1165,9 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
                 </div>
               </div>
             ) : (
-              <div data-component="messages-section-placeholder-detail" className="space-y-4">
+              <div data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail" className="space-y-4">
                 <AppContentCard
-                  data-component="messages-section-placeholder-detail-overview"
+                  data-component="desktop_messages_sections_section-placeholder-detail-overview"
                   variant="muted"
                   title="연결 예정 콘텐츠"
                   titleVariant="eyebrow"
@@ -1181,21 +1179,21 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
                 </AppContentCard>
 
                 <AppContentCard
-                  data-component="messages-section-placeholder-detail-checklist"
+                  data-component="desktop_messages_sections_section-placeholder-detail-checklist"
                   variant="muted"
                   title="구성 제안"
                   titleVariant="eyebrow"
                   contentClassName="space-y-3"
                 >
-                  <div data-component="messages-section-placeholder-detail-checklist-items" className="space-y-3">
+                  <div data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items" className="space-y-3">
                     {selectedPreview.checklist.map((item) => (
                       <div
                         key={item}
-                        data-component="messages-section-placeholder-detail-checklist-item"
+                        data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items_section-placeholder-detail-checklist-item"
                         className="flex items-center gap-3 rounded-[16px] bg-white px-4 py-3"
                       >
                         <div
-                          data-component="messages-section-placeholder-detail-checklist-marker"
+                          data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items_section-placeholder-detail-checklist-item_section-placeholder-detail-checklist-marker"
                           className="h-2.5 w-2.5 rounded-full bg-v3-primary"
                         />
                         <p className="text-[0.78rem] text-v3-dark">{item}</p>
@@ -1207,7 +1205,6 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
             )
           ) : isScheduledSection ? null : (
             <DetailEmptyState
-              name="messages-section-placeholder-detail-empty"
               message={detailSubtitle}
             />
           )}
@@ -1359,12 +1356,12 @@ function MessageHistorySection() {
   }, [retryHistory, selectedRecord, toast]);
 
   return (
-    <SplitLayout
+    <SplitLayout data-component="desktop_messages_sections_split-layout-3"
       hasSelection={!!selectedRecord}
       onBack={() => setSelectedRecordId(null)}
       onModeChange={setSplitLayoutMode}
     >
-      <ListPanel
+      <ListPanel data-component="desktop_messages_sections_split-layout_list-panel-3"
         title="발송 기록"
         subtitle="발송된 메시지 기록을 볼 수 있어요."
         tabs={MESSAGE_HISTORY_TABS}
@@ -1378,7 +1375,7 @@ function MessageHistorySection() {
         searchPlaceholder="고객명, 연락처, 템플릿, 내용 검색…"
         headerActions={
           <span
-            data-component="messages-history-list-count"
+            data-component="desktop_messages_sections_history-list-count"
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.72rem] font-semibold",
               activeFilterMeta.badgeTone
@@ -1393,18 +1390,18 @@ function MessageHistorySection() {
         ) : undefined}
         subHeader={
           !isError ? (
-            <div data-component="messages-history-list-filters" className="flex items-center justify-between gap-2">
-              <div data-component="messages-history-list-filter-relative" className="w-[110px] shrink-0">
+            <div data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-filters" className="flex items-center justify-between gap-2">
+              <div data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-filters_history-list-filter-relative" className="w-[110px] shrink-0">
                 <Select value={relativeDateFilter} onValueChange={(value) => setRelativeDateFilter(value as MessageHistoryRelativeDateFilter)}>
                   <SelectTrigger
                     aria-label="발송 기간"
                     size="sm"
-                    data-component="messages-history-list-filter-relative-trigger"
+                    data-component="desktop_messages_sections_history-list-filter-relative-trigger"
                     className="w-full"
                   >
                     <SelectValue placeholder="기간 선택" />
                   </SelectTrigger>
-                  <SelectContent data-component="messages-history-list-filter-relative-content">
+                  <SelectContent data-component="desktop_messages_sections_history-list-filter-relative-content">
                     {MESSAGE_HISTORY_RELATIVE_DATE_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
@@ -1414,7 +1411,7 @@ function MessageHistorySection() {
                 </Select>
               </div>
               <div
-                data-component="messages-history-list-filter-date"
+                data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-filters_history-list-filter-date"
                 className="ml-auto flex flex-1 items-center justify-end gap-1.5"
               >
                 {(hasDatePartFilter || relativeDateFilter !== "all") && (
@@ -1422,7 +1419,7 @@ function MessageHistorySection() {
                     type="button"
                     aria-label="필터 초기화"
                     title="필터 초기화"
-                    data-component="messages-history-list-filter-reset"
+                    data-component="desktop_messages_sections_history-list-filter-reset"
                     onClick={() => {
                       setDateYear("");
                       setDateMonth("");
@@ -1438,8 +1435,8 @@ function MessageHistorySection() {
                   value={dateYear || "year"}
                   onValueChange={handleDateYearChange}
                   placeholder="연"
-                  dataComponent="messages-history-list-filter-date-year"
-                  contentDataComponent="messages-history-list-filter-date-year-content"
+                  dataComponent="desktop_messages_sections_history-list-filter-date-year"
+                  contentDataComponent="desktop_messages_sections_history-list-filters_filter-date_year-content"
                   options={[
                     { label: "연", value: "year" },
                     ...historyYearOptions.map((year) => ({
@@ -1454,8 +1451,8 @@ function MessageHistorySection() {
                   value={dateMonth || "month"}
                   onValueChange={handleDateMonthChange}
                   placeholder="월"
-                  dataComponent="messages-history-list-filter-date-month"
-                  contentDataComponent="messages-history-list-filter-date-month-content"
+                  dataComponent="desktop_messages_sections_history-list-filter-date-month"
+                  contentDataComponent="desktop_messages_sections_history-list-filters_filter-date_month-content"
                   options={[
                     { label: "월", value: "month" },
                     ...MESSAGE_HISTORY_MONTH_OPTIONS,
@@ -1468,7 +1465,7 @@ function MessageHistorySection() {
       >
         {isError ? (
           <div
-            data-component="messages-history-list-error"
+            data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-error"
             className="rounded-[18px] border border-red-200 bg-red-50 p-6 text-center"
           >
             <p className="text-sm font-semibold text-red-700">발송 기록을 불러오지 못했습니다.</p>
@@ -1494,12 +1491,12 @@ function MessageHistorySection() {
                   return (
                     <>
                       <div
-                        data-component="messages-history-list-skeleton-icon"
+                        data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-skeleton-icon"
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-v3-dim-white"
                       >
                         <Skeleton className="h-4 w-4 rounded-md bg-white/80" />
                       </div>
-                      <div data-component="messages-history-list-skeleton-copy" className="min-w-0 flex-1 space-y-1.5">
+                      <div data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-skeleton-copy" className="min-w-0 flex-1 space-y-1.5">
                         <Skeleton className="h-4 w-36 bg-v3-dim-white" />
                         <Skeleton className="h-3 w-44 bg-v3-dim-white" />
                       </div>
@@ -1513,25 +1510,25 @@ function MessageHistorySection() {
 
                 return (
                   <AnimatedSlotListItemContent
-                    dataComponent="messages-history-list-item"
+                    dataComponent="desktop_messages_sections_history-list-item"
                     icon={ItemIcon}
                     iconContainerClassName={getMessageHistoryAvatarClassName(record.status)}
                     title={record.title}
                     subtitle={record.recipientListLabel}
                     status={
                       <div
-                        data-component="messages-history-list-item-meta"
+                        data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-item-meta"
                         className="flex shrink-0 flex-col items-end justify-end gap-1 text-right"
                       >
                         <StatusBadge
-                          data-component="messages-history-list-item-status"
+                          data-component="desktop_messages_sections_history-list-item-status"
                           variant={statusMeta.variant}
                           size="sm"
                         >
                           {statusMeta.label}
                         </StatusBadge>
                         <span
-                          data-component="messages-history-list-item-date"
+                          data-component="desktop_messages_sections_history-list-item-date"
                           className="whitespace-nowrap text-[0.68rem] text-v3-text-muted"
                         >
                           {formatHistoryDate(record.sentAt)}
@@ -1547,6 +1544,7 @@ function MessageHistorySection() {
       </ListPanel>
 
       <MessageHistoryDetailPanel
+        dataComponentPrefix="desktop_messages_sections_section-content_history-section_split-layout_detail-panel"
         selectedRecord={selectedRecord}
         canRetry={canRetry}
         isRetrying={isRetrying}
@@ -1620,6 +1618,7 @@ export default function MessagesPage() {
   const isBuiltin = activeTemplateId?.startsWith("builtin:") ?? false;
   const builtinType = isBuiltin && activeTemplateId ? (activeTemplateId.replace("builtin:", "") as BuiltinTemplateType) : null;
   const userTemplateId = !isBuiltin && activeTemplateId?.startsWith("user:") ? activeTemplateId.replace("user:", "") : null;
+  const isBranchTemplate = userTemplateId !== null;
   const selectedUserTemplate = userTemplateId ? userTemplates.find((template) => template.id === userTemplateId) : null;
   const SelectedBuiltinForm = builtinType ? FormComponents[builtinType] : null;
   const selectedTemplateItem = useMemo(
@@ -1629,8 +1628,10 @@ export default function MessagesPage() {
   const selectedTemplateIcon = selectedTemplateItem?.icon ?? FileText;
   const SelectedTemplateIcon = selectedTemplateIcon;
   const selectedTemplateTitle = selectedTemplateItem?.label ?? selectedUserTemplate?.name ?? "메시지 템플릿";
-  const selectedTemplateSubtitle = selectedUserTemplate
-    ? `지점 템플릿 · ${selectedUserTemplate.variables.length}개 변수`
+  const selectedTemplateSubtitle = isBranchTemplate
+    ? selectedUserTemplate
+      ? `지점 템플릿 · ${selectedUserTemplate.variables.length}개 변수`
+      : "지점 템플릿 · 정보를 불러오지 못했습니다."
     : "기본 템플릿은 오너 관리자 페이지에서 관리됩니다.";
   const selectedBuiltinSystemKey = builtinType ? BUILTIN_TEMPLATE_SYSTEM_KEYS[builtinType] : "";
   const { data: selectedBuiltinSystemTemplate } = useSystemTemplate(selectedBuiltinSystemKey);
@@ -1640,8 +1641,8 @@ export default function MessagesPage() {
     selectedUserTemplate?.content ??
     selectedBuiltinSystemTemplate?.content ??
     "";
-  const templatePreviewHeadline = selectedUserTemplate ? selectedTemplateTitle : builtinPreviewMeta?.headline;
-  const templatePreviewSubtitle = selectedUserTemplate ? "지점 템플릿" : builtinPreviewMeta?.subtitle;
+  const templatePreviewHeadline = isBranchTemplate ? selectedTemplateTitle : builtinPreviewMeta?.headline;
+  const templatePreviewSubtitle = isBranchTemplate ? "지점 템플릿" : builtinPreviewMeta?.subtitle;
   const templatePreviewGeneratedTitle = t(locale, "common.generated-message-title");
   const templatePreviewMetaItems = useMemo(
     () => [
@@ -1700,7 +1701,7 @@ export default function MessagesPage() {
 
     return (
       <div
-        data-component="messages-template-send-layout"
+        data-component="desktop_messages_sections_template-send-layout"
         className="grid h-full min-h-0 items-stretch gap-4 xl:grid-cols-[minmax(14rem,0.85fr)_minmax(0,1.45fr)]"
       >
         <TemplateSendForm
@@ -1728,7 +1729,7 @@ export default function MessagesPage() {
     <>
       {selectedUserTemplate ? (
         <div
-          data-component="messages-template-detail-summary"
+          data-component="desktop_messages_sections_template-detail-summary"
           className="inline-flex items-center gap-1 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
         >
           <FileText className="h-3.5 w-3.5" />
@@ -1774,7 +1775,6 @@ export default function MessagesPage() {
 
       {!SelectedBuiltinForm && !selectedUserTemplate ? (
         <DetailEmptyState
-          name="messages-template-missing"
           message="선택한 템플릿 정보를 불러오지 못했습니다."
         />
       ) : null}
@@ -1782,30 +1782,35 @@ export default function MessagesPage() {
   );
 
   return (
-    <PageSection name="messages">
+    <PageSection name="desktop_messages_sections">
       <div
-        data-component="messages-sections"
+        data-slot="page-sections"
         className="flex flex-1 min-h-0 flex-col gap-4 lg:flex-row lg:items-stretch"
       >
         <SectionNav
+          data-component="desktop_messages_sections_section-nav"
           ariaLabel="메시지 기능"
           items={MESSAGE_SECTIONS}
           activeId={activeSection}
           onSelect={(id) => setActiveSection(id as MessageSectionId)}
         />
 
-        <div data-component="messages-section-content" className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div data-component="desktop_messages_sections_section-content" className="flex min-h-0 min-w-0 flex-1 flex-col">
           {activeSection === "scheduled" ? (
-            <section data-component="messages-scheduled-section" className="flex min-h-0 flex-1 flex-col">
+            <section data-component="desktop_messages_sections_section-content_scheduled-section" className="flex min-h-0 flex-1 flex-col">
               <MessageScheduledSection />
             </section>
           ) : activeSection === "send" || activeSection === "templates" ? (
-            <MessageApprovalGate>
+            <MessageApprovalGate dataComponent="desktop_messages_sections_section-content_templates-section_approval-gate">
             <section
-              data-component={activeSection === "send" ? "messages-send-section" : "messages-templates-section"}
+              data-component={
+                activeSection === "send"
+                  ? "desktop_messages_sections_section-content_send-section"
+                  : "desktop_messages_sections_section-content_templates-section"
+              }
               className="flex min-h-0 flex-1 flex-col"
             >
-              <SplitLayout
+              <SplitLayout data-component="desktop_messages_sections_split-layout-4"
                 hasSelection={!!activeTemplateId}
                 onModeChange={setTemplateSplitLayoutMode}
                 onBack={() => {
@@ -1814,14 +1819,14 @@ export default function MessagesPage() {
                   setTemplatePreviewOverride(null);
                 }}
               >
-                <ListPanel
+                <ListPanel data-component="desktop_messages_sections_split-layout_list-panel-4"
                   title="메시지 템플릿"
                   tabs={TEMPLATE_FILTERS}
                   activeTab={templateFilter}
                   onTabChange={(value) => handleTemplateFilterChange(value as TemplateFilter)}
                   headerActions={
                     templateFilter === "branch" ? (
-                      <div data-component="messages-templates-actions" className="flex items-center gap-1.5">
+                      <div data-component="desktop_messages_sections_split-layout_list-panel-4_templates-actions" className="flex items-center gap-1.5">
                         <HeaderActionButton
                           icon={Plus}
                           label={t(locale, "msg-form.add-template")}
@@ -1841,7 +1846,7 @@ export default function MessagesPage() {
                   ) : undefined}
                 >
                   {isTemplateListLoading || visibleItems.length > 0 ? (
-                    <div data-component="messages-templates-list" className="space-y-2 pb-2">
+                    <div data-component="desktop_messages_sections_split-layout_list-panel-4_templates-list" className="space-y-2 pb-2">
                       <AnimatedSlotList<TemplateListItem>
                         items={visibleItems}
                         isLoading={isTemplateListLoading}
@@ -1856,12 +1861,12 @@ export default function MessagesPage() {
                             return (
                               <>
                                 <div
-                                  data-component="messages-template-skeleton-icon"
+                                  data-component="desktop_messages_sections_split-layout_list-panel-4_templates-list_template-skeleton-icon"
                                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-v3-dim-white"
                                 >
                                   <Skeleton className="h-4 w-4 rounded-md bg-white/70" />
                                 </div>
-                                <div data-component="messages-template-skeleton-copy" className="min-w-0 flex-1">
+                                <div data-component="desktop_messages_sections_split-layout_list-panel-4_templates-list_template-skeleton-copy" className="min-w-0 flex-1">
                                   <Skeleton className="h-4 w-32 bg-v3-dim-white" />
                                 </div>
                               </>
@@ -1872,7 +1877,7 @@ export default function MessagesPage() {
 
                           return (
                             <AnimatedSlotListItemContent
-                              dataComponent="messages-template-item"
+                              dataComponent="desktop_messages_sections_template-item"
                               icon={item.icon}
                               title={item.label}
                             />
@@ -1883,11 +1888,11 @@ export default function MessagesPage() {
                   ) : null}
                 </ListPanel>
 
-                <DetailPanel
+                <DetailPanel data-component="desktop_messages_sections_templates_split-layout_detail-panel"
                   avatar={
                     activeTemplateId ? (
                       <div
-                        data-component="messages-template-detail-avatar"
+                        data-component="desktop_messages_sections_templates_split-layout_detail-panel_template-detail-avatar"
                         className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"
                       >
                         <SelectedTemplateIcon className="h-5 w-5" />
@@ -1899,15 +1904,15 @@ export default function MessagesPage() {
                   badges={
                     activeTemplateId ? (
                       <span
-                        data-component="messages-template-detail-badge"
+                        data-component="desktop_messages_sections_template-detail-badge"
                         className={cn(
                           "inline-flex items-center rounded-full px-3 py-1 text-[0.68rem] font-semibold",
-                          selectedUserTemplate
+                          isBranchTemplate
                             ? "bg-v3-dim-white text-v3-text-muted"
                             : "bg-v3-primary-light text-v3-primary"
                         )}
                       >
-                        {selectedUserTemplate ? "지점 템플릿" : "기본 템플릿"}
+                        {isBranchTemplate ? "지점 템플릿" : "기본 템플릿"}
                       </span>
                     ) : undefined
                   }
@@ -1924,14 +1929,13 @@ export default function MessagesPage() {
                 >
                   {!activeTemplateId ? (
                     <DetailEmptyState
-                      name="messages-template-empty-selection"
                       message="왼쪽 목록에서 템플릿을 선택해 주세요."
                     />
                   ) : (
                     <DetailTabPanels
                       activeTab={templateDetailTab}
-                      dataComponent="messages-template-detail-tabpanes"
-                      panelDataComponent="messages-template-detail-pane"
+                      dataComponent="desktop_messages_sections_template-detail-tabpanes"
+                      panelDataComponent="desktop_messages_sections_template-detail-pane"
                       className={
                         templateDetailTab === "preview" || activeSection === "send"
                           ? "flex min-h-0 flex-1"
@@ -1960,7 +1964,7 @@ export default function MessagesPage() {
                           className: "flex min-h-0 justify-center overflow-y-auto",
                           children: (
                             <div
-                              data-component="messages-template-preview-layout"
+                              data-component="desktop_messages_sections_templates_split-layout_detail-panel_template-preview-layout"
                               className="flex min-h-0 w-full flex-wrap items-start justify-center gap-4"
                             >
                               <MessagePhonePreview
@@ -1969,8 +1973,8 @@ export default function MessagesPage() {
                                 templateName={selectedTemplateTitle}
                                 headline={templatePreviewHeadline}
                                 subtitle={templatePreviewSubtitle}
-                                dataComponentPrefix="message"
-                                panelDataComponent="messages-template-preview-phone-panel"
+                                dataComponentPrefix="desktop_messages_sections_section-content_templates-section_split-layout_detail-panel_preview"
+                                panelDataComponent="desktop_messages_sections_template-preview-phone-panel"
                               />
                               <AutoFillMsgCardSide
                                 title={templatePreviewGeneratedTitle}
@@ -1990,23 +1994,30 @@ export default function MessagesPage() {
             </section>
             </MessageApprovalGate>
           ) : activeSection === "history" ? (
-            <section data-component="messages-history-section" className="flex min-h-0 flex-1 flex-col">
+            <section data-component="desktop_messages_sections_section-content_history-section" className="flex min-h-0 flex-1 flex-col">
               <MessageHistorySection />
             </section>
           ) : activeSection === "triggers" ? (
-            <MessageApprovalGate>
-              <section data-component="messages-triggers-section" className="flex h-full min-h-0 flex-1 flex-col">
-                <TriggerRulesManager dataComponentPrefix="message" channel="sms" />
+            <MessageApprovalGate dataComponent="desktop_messages_sections_section-content_triggers-section_approval-gate">
+              <section
+                data-component="desktop_messages_sections_section-content_triggers-section"
+                data-slot="trigger-rules-section"
+                className="flex h-full min-h-0 flex-1 flex-col"
+              >
+                <TriggerRulesManager
+                  dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules"
+                  channel="sms"
+                />
               </section>
             </MessageApprovalGate>
           ) : activeSection === "settings" ? (
-            <section data-component="messages-settings-section" className="flex min-h-0 flex-1 flex-col">
+            <section data-component="desktop_messages_sections_section-content_settings-section" className="flex min-h-0 flex-1 flex-col">
               <MessageTenantApplicationSettings />
             </section>
           ) : (
-            <MessageApprovalGate>
+            <MessageApprovalGate dataComponent={`desktop_messages_sections_section-content_${activeSection}-section_approval-gate`}>
               <section
-                data-component={`messages-${activeSection}-section`}
+                data-component={`desktop_messages_sections_section-content_${activeSection}-section`}
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <MessageSectionPlaceholder sectionId={activeSection} />

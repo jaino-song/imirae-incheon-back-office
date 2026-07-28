@@ -67,7 +67,7 @@ interface MessageHistoryDetailPanelProps {
   };
   emptyMessage?: string;
   emptyIcon?: LucideIcon;
-  dataComponentPrefix?: string;
+  dataComponentPrefix: string;
 }
 
 export const MESSAGE_HISTORY_STATUS_META: Record<
@@ -247,18 +247,17 @@ export function MessageHistoryDetailPanel({
   backAction,
   emptyMessage = "발송 기록을 선택하면 상세 정보가 표시됩니다.",
   emptyIcon = Users,
-  dataComponentPrefix = "messages-history",
+  dataComponentPrefix,
 }: MessageHistoryDetailPanelProps) {
   const showRetry = !!selectedRecord && canRetry && !!onRetry;
   const displayFailureReason = formatMessageHistoryFailureReason(selectedRecord?.failureReason);
 
   return (
-    <DetailPanel
+    <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel"
       backAction={backAction}
       overlay={
         !selectedRecord ? (
           <ListEmptyState
-            name={`${dataComponentPrefix}-detail-empty`}
             icon={emptyIcon}
             message={emptyMessage}
             className="flex-none min-h-0"
@@ -267,7 +266,7 @@ export function MessageHistoryDetailPanel({
       }
       avatar={
         <div
-          data-component={`${dataComponentPrefix}-detail-avatar`}
+          data-component={`${dataComponentPrefix}_detail-avatar`}
           className={cn(
             "flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px]",
             selectedRecord ? MESSAGE_HISTORY_STATUS_META[selectedRecord.status].avatarClass : "bg-v3-primary-light text-v3-primary"
@@ -285,7 +284,7 @@ export function MessageHistoryDetailPanel({
       badges={
         selectedRecord?.status === "sent" ? (
           <StatusBadge
-            data-component={`${dataComponentPrefix}-detail-status`}
+            data-component={`${dataComponentPrefix}_detail-status`}
             variant="success"
             size="sm"
           >
@@ -293,7 +292,7 @@ export function MessageHistoryDetailPanel({
           </StatusBadge>
         ) : selectedRecord ? (
           <span
-            data-component={`${dataComponentPrefix}-detail-status`}
+            data-component={`${dataComponentPrefix}_detail-status`}
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.68rem] font-semibold",
               MESSAGE_HISTORY_STATUS_META[selectedRecord.status].tone
@@ -310,7 +309,7 @@ export function MessageHistoryDetailPanel({
       trailing={
         showRetry ? (
           <Button
-            data-component={`${dataComponentPrefix}-detail-retry`}
+            data-component={`${dataComponentPrefix}_detail-retry`}
             type="button"
             size="sm"
             variant="outline"
@@ -325,31 +324,31 @@ export function MessageHistoryDetailPanel({
       }
     >
       {!selectedRecord ? null : (
-        <div data-component={`${dataComponentPrefix}-detail-content`} className="space-y-4">
-          <InfoCard title="발송 정보" data-component={`${dataComponentPrefix}-detail-info-card`}>
+        <div data-component={`${dataComponentPrefix}_detail-content`} className="space-y-4">
+          <InfoCard title="발송 정보" data-component={`${dataComponentPrefix}_detail-content_info-card`}>
             <InfoRow
-              data-component={`${dataComponentPrefix}-detail-info-recipient`}
+              data-component={`${dataComponentPrefix}_detail-content_info-card_recipient`}
               label="수신자"
               value={selectedRecord.recipientName}
             />
             <InfoRow
-              data-component={`${dataComponentPrefix}-detail-info-phone`}
+              data-component={`${dataComponentPrefix}_detail-content_info-card_phone`}
               label="연락처"
               value={selectedRecord.recipientPhone}
             />
             <InfoRow
-              data-component={`${dataComponentPrefix}-detail-info-template`}
+              data-component={`${dataComponentPrefix}_detail-content_info-card_template`}
               label="템플릿"
               value={selectedRecord.templateLabel}
             />
             <InfoRow
-              data-component={`${dataComponentPrefix}-detail-info-channel`}
+              data-component={`${dataComponentPrefix}_detail-content_info-card_channel`}
               label="채널"
               value={selectedRecord.channelLabel}
             />
             {displayFailureReason ? (
               <InfoRow
-                data-component={`${dataComponentPrefix}-detail-info-error`}
+                data-component={`${dataComponentPrefix}_detail-content_info-card_error`}
                 label="실패 사유"
                 value={<span className="text-red-700">{displayFailureReason}</span>}
               />
@@ -357,7 +356,7 @@ export function MessageHistoryDetailPanel({
           </InfoCard>
 
           <div
-            data-component={`${dataComponentPrefix}-detail-preview-card`}
+            data-component={`${dataComponentPrefix}_detail-content_preview-card`}
             className="rounded-[18px] bg-v3-dim-white p-4"
           >
             <p className="text-[0.75rem] font-semibold text-v3-text-muted">메시지 내용</p>

@@ -41,7 +41,7 @@ export function MobileInputField({
   };
 
   return (
-    <div data-component="mobile-input-field" className={cn("m-0.5 flex flex-col gap-1.5", className)}>
+    <div data-component="desktop_auth_mobile-input-field" className={cn("m-0.5 flex flex-col gap-1.5", className)}>
       <div className={cn("flex items-center justify-between gap-2", headerClassName)}>
         <label
           htmlFor={typeof inputProps.id === "string" ? inputProps.id : undefined}

@@ -649,7 +649,7 @@
     will-change: transform;
   }
 
-  [data-component="animated-slot-list"] > * {
+  [data-slot="animated-slot-list"] > * {
     margin-bottom: 0 !important;
   }
 
@@ -713,9 +713,9 @@
 }
 
 /* Messages trigger rules must fill the same split-layout height as the templates view. */
-[data-component="messages-triggers-section"],
-[data-component="message-trigger-rules"],
-[data-component="message-trigger-rules-layout"] {
+[data-slot="trigger-rules-section"],
+[data-slot="trigger-rules"],
+[data-slot="trigger-rules-layout"] {
   display: flex;
   flex: 1 1 0%;
   flex-direction: column;
@@ -724,7 +724,7 @@
 }
 
 /* V3 split layout responsive mode. */
-[data-component="split-layout"][data-mode="compact"] {
+[data-slot="split-layout"][data-mode="compact"] {
   display: block;
   height: 100%;
   max-width: 100%;
@@ -733,118 +733,117 @@
   width: var(--compact-viewport-width, 100%);
 }
 
-[data-component="split-layout-track"][data-mode="compact"] {
+[data-slot="split-layout-track"][data-mode="compact"] {
   display: flex;
   gap: var(--compact-panel-gap, 0px);
   height: 100%;
 }
 
-[data-component="split-layout-panel"][data-mode="compact"] {
+[data-slot="split-layout-panel"][data-mode="compact"] {
   flex-shrink: 0;
   height: 100%;
   overflow-y: auto;
 }
 
-[data-component="split-layout-panel"][data-mode="compact"][data-panel="list"] {
+[data-slot="split-layout-panel"][data-mode="compact"][data-panel="list"] {
   width: var(--compact-list-width, 100%);
 }
 
-[data-component="split-layout-panel"][data-mode="compact"][data-panel="detail"] {
+[data-slot="split-layout-panel"][data-mode="compact"][data-panel="detail"] {
   width: var(--compact-detail-width, 100%);
 }
 
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="list-panel"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="detail-panel"] {
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="list-panel"],
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="detail-panel"] {
   width: 100%;
 }
 
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="list-panel"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="detail-panel"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-detail-empty"],
-[data-component="split-layout-panel"][data-mode="compact"] > [data-component="dashboard-activities-panel"] > div {
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="list-panel"],
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="detail-panel"],
+[data-slot="split-layout-panel"][data-mode="compact"] > [data-slot="activities-panel"] > div {
   box-shadow: none;
 }
 
-[data-component="main-content"][data-mode="compact"] {
+[data-slot="main-content"][data-mode="compact"] {
   flex-direction: row;
   padding-top: 16px;
 }
 
-[data-component="main-content"][data-mode="compact"] [data-component="messages-sections"],
-[data-component="main-content"][data-mode="compact"] [data-component="contracts-sections"],
-[data-component="main-content"][data-mode="compact"] [data-component="clients-sections"],
-[data-component="main-content"][data-mode="compact"] [data-component="system-admin-sections"],
-[data-component="main-content"][data-mode="compact"] [data-component="messages-sections"],
-[data-component="main-content"][data-mode="compact"] [data-component="settings-sections"] {
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="contracts-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="clients-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"],
+[data-slot="main-content"][data-mode="compact"] [data-slot="page-sections"] {
   align-items: stretch;
   flex-direction: column;
 }
 
 @media (max-width: 1279px) {
-  [data-component="main-content"]:has(:is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+  [data-slot="main-content"]:has(:is(
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   )) {
     padding-top: 16px;
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
   ) {
     align-items: stretch;
     flex-direction: column;
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="section-nav"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="section-nav"] {
     width: 100%;
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="section-nav-desktop"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="section-nav-desktop"] {
     display: none !important;
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="section-nav-mobile"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="section-nav-mobile"] {
     display: block !important;
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="split-layout"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="split-layout"] {
     display: block;
     height: 100%;
     max-width: 100%;
@@ -854,37 +853,37 @@
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="split-layout-track"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="split-layout-track"] {
     display: flex;
     gap: var(--compact-panel-gap, 16px);
     height: 100%;
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="split-layout"][data-columns="2"][data-has-selection="true"] [data-component="split-layout-track"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="split-layout"][data-columns="2"][data-has-selection="true"] [data-slot="split-layout-track"] {
     transform: translateX(calc(-100% - var(--compact-panel-gap, 16px)));
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="split-layout-panel"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="split-layout-panel"] {
     flex-shrink: 0;
     height: 100%;
     overflow-y: auto;
@@ -892,46 +891,46 @@
   }
 
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="split-layout-panel"] > [data-component="list-panel"],
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="split-layout-panel"] > [data-slot="list-panel"],
   :is(
-    [data-component="messages-sections"],
-    [data-component="contracts-sections"],
-    [data-component="clients-sections"],
-    [data-component="system-admin-sections"],
-    [data-component="messages-sections"],
-    [data-component="settings-sections"]
-  ) [data-component="split-layout-panel"] > [data-component="detail-panel"] {
+    [data-slot="page-sections"],
+    [data-slot="contracts-sections"],
+    [data-slot="clients-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"],
+    [data-slot="page-sections"]
+  ) [data-slot="split-layout-panel"] > [data-slot="detail-panel"] {
     width: 100%;
   }
 }
 
-[data-component="section-nav"][data-mode="compact"] {
+[data-slot="section-nav"][data-mode="compact"] {
   width: 100%;
 }
 
-[data-component="section-nav-desktop"][data-mode="compact"] {
+[data-slot="section-nav-desktop"][data-mode="compact"] {
   display: none !important;
 }
 
-[data-component="section-nav-mobile"][data-mode="compact"] {
+[data-slot="section-nav-mobile"][data-mode="compact"] {
   display: block !important;
 }
 
 @media (max-width: 1279px) {
-  [data-component="floating-quick-actions"] {
+  [data-slot="floating-quick-actions"] {
     display: none !important;
   }
 }
 
 @media (min-width: 1280px) {
-  [data-component="floating-quick-actions"][data-mode="desktop"],
-  [data-component="floating-quick-actions"][data-mode="compact"] {
+  [data-slot="floating-quick-actions"][data-mode="desktop"],
+  [data-slot="floating-quick-actions"][data-mode="compact"] {
     display: flex !important;
   }
 }
@@ -1136,12 +1135,14 @@ body {
   width: calc(32px * var(--glint-ui-scale, 1));
   transition:
     width 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 180ms ease-out;
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    box-shadow 180ms ease-out;
   will-change: width;
 }
 
 .expandable-search-overlay-surface[data-expanded="true"] {
-  width: 7rem;
+  width: 12rem;
 }
 
 .expandable-search-overlay-input {

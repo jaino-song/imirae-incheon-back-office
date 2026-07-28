@@ -1,5 +1,7 @@
-import { MessageTemplateEntity, TemplateVariable } from "domain/entities/message-template.entity";
+import { randomUUID } from "node:crypto";
 import { Prisma, message_template } from "@prisma/client";
+
+import { MessageTemplateEntity, TemplateVariable } from "domain/entities/message-template.entity";
 
 type MessageTemplateRow = message_template;
 
@@ -18,7 +20,7 @@ export class MessageTemplateMapper {
 
     static toPrismaCreate(entity: MessageTemplateEntity): Prisma.message_templateCreateInput {
         return {
-            id: entity.id,
+            id: entity.id.trim() || randomUUID(),
             name: entity.name,
             content: entity.content,
             variables: entity.variables as unknown as Prisma.InputJsonValue,

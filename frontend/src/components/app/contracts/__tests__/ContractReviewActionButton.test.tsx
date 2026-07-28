@@ -9,13 +9,16 @@ describe("ContractReviewActionButton", () => {
 
     render(
       <ContractReviewActionButton
+        data-component="desktop_contracts_tests_review-action"
         action="preview"
         onFinalize={onFinalize}
         onPreview={onPreview}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "검토하기" }));
+    const previewButton = screen.getByRole("button", { name: "검토하기" });
+    expect(previewButton).toHaveAttribute("data-variant", "positive-outline");
+    fireEvent.click(previewButton);
 
     expect(onPreview).toHaveBeenCalledTimes(1);
     expect(onFinalize).not.toHaveBeenCalled();
@@ -27,13 +30,16 @@ describe("ContractReviewActionButton", () => {
 
     render(
       <ContractReviewActionButton
+        data-component="desktop_contracts_tests_review-action"
         action="finalize"
         onFinalize={onFinalize}
         onPreview={onPreview}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "검토하기" }));
+    const finalizeButton = screen.getByRole("button", { name: "검토 완료 확인" });
+    expect(finalizeButton).toHaveAttribute("data-variant", "positive");
+    fireEvent.click(finalizeButton);
 
     expect(onFinalize).toHaveBeenCalledTimes(1);
     expect(onPreview).not.toHaveBeenCalled();

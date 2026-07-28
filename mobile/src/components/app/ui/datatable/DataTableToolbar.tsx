@@ -14,6 +14,7 @@ import {
 import type { DataTableToolbarProps } from "./types";
 
 export function DataTableToolbar({
+  "data-component": dataComponent,
   searchEnabled = true,
   searchPlaceholder = "검색...",
   searchQuery,
@@ -49,7 +50,7 @@ export function DataTableToolbar({
 
   return (
     <div
-      data-component="data-table-toolbar"
+      data-component={dataComponent}
       className="flex items-center justify-end gap-2 py-2"
     >
       {/* Search */}

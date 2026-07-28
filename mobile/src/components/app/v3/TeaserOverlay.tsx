@@ -4,19 +4,23 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TeaserOverlayProps {
+  /** Caller-context canonical value. Composites pass `${base}_teaser-overlay`. */
+  "data-component"?: string;
   onClick: () => void;
   label?: string;
   className?: string;
 }
 
 export function TeaserOverlay({
+  "data-component": dataComponent,
   onClick,
   label = "탭하여 더 보기",
   className,
 }: TeaserOverlayProps) {
   return (
     <button
-      data-component="teaser-overlay"
+      data-component={dataComponent}
+      data-slot="teaser-overlay"
       onClick={onClick}
       className={cn("absolute inset-x-0 bottom-0 h-36 cursor-pointer group", className)}
     >

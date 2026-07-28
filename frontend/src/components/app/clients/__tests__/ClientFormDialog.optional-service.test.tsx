@@ -85,7 +85,7 @@ describe("ClientFormPanel optional service information", () => {
     expect(voucherCustomerTab).toHaveAttribute("aria-selected", "false");
     expect(voucherCustomerTab).toHaveClass("text-v3-text-muted");
     expect(selfPayCustomerTab).toHaveAttribute("aria-selected", "true");
-    const voucherCustomerToggle = container.querySelector('[data-component="clients-form-panel-voucher-client-field"]');
+    const voucherCustomerToggle = container.querySelector('[data-component="desktop_clients_form-panel_voucher-client-field"]');
     const voucherCustomerTogglePositioner = voucherCustomerToggle?.parentElement;
     expect(voucherCustomerToggle)
       .toHaveClass(

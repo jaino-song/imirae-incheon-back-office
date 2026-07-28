@@ -6,7 +6,7 @@ export default function TermsPage() {
   return (
     <section
       className="shell-content flex flex-col"
-      data-component="terms-page"
+      data-component="mobile_terms_page"
     >
       <div className="list-card">
         <div className="list-title">

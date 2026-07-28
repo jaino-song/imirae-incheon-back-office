@@ -1,9 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { ArrowLeft, FileText, Loader2, Plus } from "lucide-react";
-import { useMessageTemplates } from "@/features/message-templates/hooks/use-message-templates";
-import { useMessageTemplate, useUpdateMessageTemplate } from "@/hooks/use-message-templates";
+import { type CSSProperties, useCallback, useMemo, useState } from "react";
+import { ArrowLeft, FileText, Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  useDeleteMessageTemplate,
+  useMessageTemplates,
+} from "@/features/message-templates/hooks/use-message-templates";
+import {
+  useMessageTemplate,
+  useUpdateMessageTemplate,
+} from "@/hooks/use-message-templates";
+import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import {
   AnimatedSlotList,
   AnimatedSlotListItemContent,
@@ -14,6 +21,8 @@ import {
   ListPanel,
   SplitLayout,
 } from "@/components/app/v3";
+import { SECTION_NAV_RAIL_WIDTH_PX } from "@/components/app/v3/SectionNav";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -48,14 +57,22 @@ function TemplateEditorLoadingSkeleton({ name }: { name: string }) {
   );
 }
 
-function BranchTemplateDetail({ templateId }: { templateId: string }) {
+function BranchTemplateDetail({
+  templateId,
+  onDeleted,
+}: {
+  templateId: string;
+  onDeleted: () => void;
+}) {
   const { data: template, isLoading } = useMessageTemplate(templateId);
   const updateMutation = useUpdateMessageTemplate();
+  const deleteMutation = useDeleteMessageTemplate();
   const { toast } = useToast();
 
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
   const [initialized, setInitialized] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   if (template && initialized !== template.id) {
     setName(template.name);
@@ -64,13 +81,12 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
   }
 
   if (isLoading) {
-    return <TemplateEditorLoadingSkeleton name="messages-templates-user-loading" />;
+    return <TemplateEditorLoadingSkeleton name="desktop_messages_sections_templates_user-loading" />;
   }
 
   if (!template) {
     return (
       <DetailEmptyState
-        name="messages-templates-user-error"
         message="지점 템플릿을 불러올 수 없습니다."
       />
     );
@@ -88,9 +104,22 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
     );
   };
 
+  const handleDelete = () => {
+    deleteMutation.mutate(template.id, {
+      onSuccess: () => {
+        setDeleteDialogOpen(false);
+        onDeleted();
+        toast({ description: "지점 템플릿이 삭제되었습니다." });
+      },
+      onError: () => {
+        toast({ variant: "destructive", description: "삭제 중 오류가 발생했습니다." });
+      },
+    });
+  };
+
   return (
-    <div data-component="messages-templates-user-detail" className="flex flex-col gap-6">
-      <div data-component="messages-templates-user-name-field">
+    <div data-component="desktop_messages_sections_templates-user-detail" className="flex flex-col gap-6">
+      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-name-field">
         <p className="mb-2 text-[0.8rem] font-semibold text-v3-dark">
           지점 템플릿 이름 <span className="text-red-500">*</span>
         </p>
@@ -102,7 +131,7 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
         />
       </div>
 
-      <div data-component="messages-templates-user-content-field">
+      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-content-field">
         <p className="mb-2 text-[0.8rem] font-semibold text-v3-dark">
           템플릿 내용 <span className="text-red-500">*</span>
         </p>
@@ -115,7 +144,17 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
         />
       </div>
 
-      <div data-component="messages-templates-user-actions" className="flex justify-end">
+      <div data-component="desktop_messages_sections_templates-user-detail_templates-user-actions" className="flex justify-between gap-3">
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => setDeleteDialogOpen(true)}
+          disabled={deleteMutation.isPending}
+          data-component="desktop_messages_sections_templates-user-detail_templates-user-actions_delete"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          삭제
+        </Button>
         <button
           type="button"
           onClick={handleSave}
@@ -131,6 +170,21 @@ function BranchTemplateDetail({ templateId }: { templateId: string }) {
           {updateMutation.isPending ? "저장 중..." : "저장"}
         </button>
       </div>
+
+      <TwoButtonModal
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="지점 템플릿을 삭제하시겠습니까?"
+        description="삭제한 지점 템플릿은 복구할 수 없습니다."
+        cancelLabel="취소"
+        approvalLabel="삭제"
+        pendingLabel="삭제 중..."
+        approvalVariant="destructive"
+        isPending={deleteMutation.isPending}
+        isDescriptionVisuallyHidden={false}
+        onApprove={handleDelete}
+        data-component="desktop_messages_sections_templates_delete-confirmation"
+      />
     </div>
   );
 }
@@ -168,13 +222,19 @@ export default function TemplatesPage() {
     activeTemplateId?.startsWith("user:") ? activeTemplateId.replace("user:", "") : null;
 
   return (
-    <section data-component="messages-templates">
-      <SplitLayout hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
-        <ListPanel
+    <section
+      data-component="desktop_messages_sections_templates"
+      className="flex h-full min-h-0 flex-1 flex-col lg:pl-[calc(var(--message-section-nav-content-offset)*var(--glint-ui-scale,1))]"
+      style={{
+        "--message-section-nav-content-offset": `${SECTION_NAV_RAIL_WIDTH_PX}px`,
+      } as CSSProperties}
+    >
+      <SplitLayout data-component="desktop_messages_sections_templates_split-layout" hasSelection={!!activeTemplateId} onBack={() => setSelectedValue(null)}>
+        <ListPanel data-component="desktop_messages_sections_templates_split-layout_list-panel"
           title="지점 템플릿 수정"
           subtitle="새로 만든 템플릿은 모두 지점 템플릿으로 저장됩니다."
           headerActions={
-            <div data-component="messages-templates-header-actions" className="flex items-center gap-1.5">
+            <div data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-header-actions" className="flex items-center gap-1.5">
               <HeaderActionButton icon={Plus} label="새 템플릿" href="/messages/templates/new" />
               <HeaderActionButton icon={ArrowLeft} label="돌아가기" href="/messages" variant="muted" />
             </div>
@@ -183,7 +243,7 @@ export default function TemplatesPage() {
             <ListEmptyState message="등록된 지점 템플릿이 없습니다." />
           ) : undefined}
         >
-          <div data-component="messages-templates-list" className="space-y-2 pb-2">
+          <div data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-list" className="space-y-2 pb-2">
             <AnimatedSlotList<TemplateListItem>
                 items={branchItems}
                 isLoading={isLoadingBranchTemplates}
@@ -198,13 +258,13 @@ export default function TemplatesPage() {
                     return (
                       <>
                         <div
-                          data-component="messages-templates-list-skeleton-icon"
+                          data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-list_templates-list-skeleton-icon"
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-v3-dim-white"
                         >
                           <Skeleton className="h-4 w-4 rounded-md bg-white/70" />
                         </div>
                         <div
-                          data-component="messages-templates-list-skeleton-text"
+                          data-component="desktop_messages_sections_templates_split-layout_list-panel_templates-list_templates-list-skeleton-text"
                           className="min-w-0 flex-1 space-y-1.5"
                         >
                           <Skeleton className="h-4 w-32 bg-v3-dim-white" />
@@ -218,7 +278,7 @@ export default function TemplatesPage() {
 
                   return (
                     <AnimatedSlotListItemContent
-                      dataComponent="messages-templates-list-item"
+                      dataComponent="desktop_messages_sections_templates-list-item"
                       icon={item.icon}
                       title={item.label}
                       subtitle={item.subtitle}
@@ -229,15 +289,20 @@ export default function TemplatesPage() {
             </div>
         </ListPanel>
 
-        <DetailPanel>
+        <DetailPanel data-component="desktop_messages_sections_templates_split-layout_detail-panel">
           {!activeTemplateId ? (
             <DetailEmptyState
-              name="messages-templates-detail-empty"
               message="지점 템플릿을 선택하면 상세 정보가 표시됩니다."
             />
           ) : null}
 
-          {branchTemplateId ? <BranchTemplateDetail key={branchTemplateId} templateId={branchTemplateId} /> : null}
+          {branchTemplateId ? (
+            <BranchTemplateDetail
+              key={branchTemplateId}
+              templateId={branchTemplateId}
+              onDeleted={() => setSelectedValue(null)}
+            />
+          ) : null}
         </DetailPanel>
       </SplitLayout>
     </section>

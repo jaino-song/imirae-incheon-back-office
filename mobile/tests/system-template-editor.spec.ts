@@ -54,7 +54,7 @@ test.describe('System Template Detail', () => {
   test('displays the current read-only template content and required variables', async ({ page }) => {
     await expect(page.getByText('감사', { exact: true })).toBeVisible();
     await expect(page.getByText('감사 메시지')).toBeVisible();
-    await expect(page.locator('[data-component="messages-system-template-content"]')).toContainText(
+    await expect(page.locator('[data-component="mobile_messages_system-templates_template-key-detail_detail-panel_info-card_content"]')).toContainText(
       templateFixture.content,
     );
     await expect(page.getByText('필수 변수')).toBeVisible();
@@ -62,7 +62,12 @@ test.describe('System Template Detail', () => {
   });
 
   test('shows the current mobile-only guidance instead of the old editor UI', async ({ page }) => {
-    await expect(page.getByRole('button', { name: '뒤로' })).toBeVisible();
+    // Two controls carry the "상세 닫기" label — the full-bleed scrim behind the
+    // sheet and the sheet's own close button. Scope to the dialog so the
+    // assertion targets the visible close affordance instead of matching both.
+    await expect(
+      page.getByRole('dialog').getByRole('button', { name: '상세 닫기' }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: '이 템플릿으로 보내기' })).toBeVisible();
     await expect(
       page.getByText('시스템 템플릿 본문 편집·버전 롤백은 데스크톱에서만 가능합니다.'),

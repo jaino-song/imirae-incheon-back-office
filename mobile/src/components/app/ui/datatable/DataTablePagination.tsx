@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { DataTablePaginationProps } from "./types";
 
 export function DataTablePagination({
+  "data-component": dataComponent,
   count,
   page,
   rowsPerPage,
@@ -20,7 +21,7 @@ export function DataTablePagination({
   const canGoNext = page < totalPages - 1;
 
   return (
-    <div data-component="data-table-pagination" className="flex items-center justify-end gap-4 py-2 px-2">
+    <div data-component={dataComponent} className="flex items-center justify-end gap-4 py-2 px-2">
       <span className="text-sm text-muted-foreground">
         {count > 0 ? `${startItem}-${endItem} / ${count}` : "0개"}
       </span>

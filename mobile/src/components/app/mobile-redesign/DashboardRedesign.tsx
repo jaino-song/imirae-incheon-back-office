@@ -4,6 +4,19 @@ import type { DashboardAnalytic, SectionRows } from "./mockup-data";
 import { ListCard, SectionedList } from "./primitives";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const DASHBOARD_SOURCE_COMPONENT = "DashboardRedesign";
+
+/**
+ * Canonical data-component base for the /dashboard route. DashboardRedesign is
+ * rendered only by `app/(shell)/dashboard/page.tsx`, so the route base lives
+ * here instead of being threaded through a prop.
+ */
+const DASHBOARD_BASE = "mobile_dashboard_page";
+const DASHBOARD_ANALYTICS_BASE = `${DASHBOARD_BASE}_analytics-grid`;
+const DASHBOARD_LIST_CARD_BASE = `${DASHBOARD_BASE}_content_list-card`;
+const DASHBOARD_LIST_BODY_BASE = `${DASHBOARD_LIST_CARD_BASE}_body`;
+const DASHBOARD_LIST_SKELETON_BASE = `${DASHBOARD_LIST_BODY_BASE}_loading-skeleton`;
+
 const toneClass: Record<DashboardAnalytic["tone"], string> = {
   primary: "bg-v3-primary-light text-v3-primary",
   orange: "bg-v3-orange-light text-v3-orange",
@@ -35,7 +48,7 @@ function DashboardAnalyticsSkeleton() {
         <div
           key={`dashboard-analytic-skeleton-${index}`}
           className="mini-stat mini-stat-skeleton"
-          data-component="mobile-dashboard-analytic-skeleton"
+          data-component={`${DASHBOARD_ANALYTICS_BASE}_stat-skeleton`}
           aria-hidden="true"
         >
           <Skeleton className="mini-stat-icon bg-v3-dim-white" />
@@ -51,21 +64,21 @@ function DashboardAnalyticsSkeleton() {
 
 function DashboardListSkeleton() {
   return (
-    <div className="section-block" data-component="mobile-dashboard-loading-skeleton">
+    <div className="section-block" data-component={DASHBOARD_LIST_SKELETON_BASE}>
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={`dashboard-skeleton-${index}`}
           className="list-item"
-          data-component="mobile-dashboard-row-skeleton"
+          data-component={`${DASHBOARD_LIST_SKELETON_BASE}_row`}
           aria-hidden="true"
           style={{ animationDelay: `${index * 40}ms` }}
         >
           <Skeleton className="list-avatar rounded-full bg-v3-dim-white animate-pulse" />
-          <div className="list-info flex flex-col" data-component="mobile-dashboard-row-skeleton-info">
+          <div className="list-info flex flex-col" data-component={`${DASHBOARD_LIST_SKELETON_BASE}_row_info`}>
             <Skeleton className="h-4 w-24 bg-v3-dim-white animate-pulse" />
             <Skeleton className="mt-1.5 h-3 w-32 bg-v3-dim-white animate-pulse" />
           </div>
-          <div className="list-right" data-component="mobile-dashboard-row-skeleton-right">
+          <div className="list-right" data-component={`${DASHBOARD_LIST_SKELETON_BASE}_row_right`}>
             <Skeleton className="h-4 w-14 bg-v3-dim-white animate-pulse" />
             <Skeleton className="h-3 w-10 bg-v3-dim-white animate-pulse" />
           </div>
@@ -85,15 +98,20 @@ export function DashboardRedesign({
   loading = false,
 }: DashboardRedesignProps) {
   return (
-    <section data-component="dashboard" className="flex h-full min-h-0 flex-col">
-      <div className="stats-grid" data-component="mobile-dashboard-analytics-grid">
+    <section
+      data-component={DASHBOARD_BASE}
+      data-slot="dashboard-page"
+      data-source-component={DASHBOARD_SOURCE_COMPONENT}
+      className="flex h-full min-h-0 flex-col"
+    >
+      <div className="stats-grid" data-component={DASHBOARD_ANALYTICS_BASE}>
         {analyticsLoading ? (
           <DashboardAnalyticsSkeleton />
         ) : (
           analytics.map((item) => {
             const Icon = item.icon;
             return (
-              <div className="mini-stat" key={item.label} data-component="mobile-dashboard-analytic">
+              <div className="mini-stat" key={item.label} data-component={`${DASHBOARD_ANALYTICS_BASE}_stat`}>
                 <div className={`mini-stat-icon ${toneClass[item.tone]}`}>
                   <Icon size={18} strokeWidth={2.5} />
                 </div>
@@ -107,8 +125,13 @@ export function DashboardRedesign({
         )}
       </div>
 
-      <div className="shell-content" data-component="mobile-dashboard-content">
+      <div
+        className="shell-content"
+        data-component={`${DASHBOARD_BASE}_content`}
+        data-slot="dashboard-content"
+      >
         <ListCard
+          data-component={DASHBOARD_LIST_CARD_BASE}
           title="최근 현황"
           count=""
           filters={filters}
@@ -119,6 +142,7 @@ export function DashboardRedesign({
             <DashboardListSkeleton />
           ) : (
             <SectionedList
+              data-component={DASHBOARD_LIST_BODY_BASE}
               sections={sections}
               hideSectionHeader={() => true}
             />

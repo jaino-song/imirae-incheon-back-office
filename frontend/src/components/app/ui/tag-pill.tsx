@@ -43,7 +43,7 @@ export function TagPill({
   ...props
 }: TagPillProps) {
   return (
-    <span data-component="tag-pill" className={cn(tagPillVariants({ variant, size }), className)} {...props}>
+    <span data-slot="tag-pill" className={cn(tagPillVariants({ variant, size }), className)} {...props}>
       {children}
     </span>
   );

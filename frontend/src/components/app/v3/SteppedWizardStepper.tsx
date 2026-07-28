@@ -24,7 +24,7 @@ export function SteppedWizardStepper({
 }: SteppedWizardStepperProps) {
   return (
     <div
-      data-component="stepped-wizard-stepper-desktop"
+      data-component="desktop_v3_stepped-wizard_stepper-desktop"
       className={cn(
         "shrink-0 flex items-start justify-center gap-0 overflow-visible py-[0.225rem]",
         showLabels ? "min-h-[2.6rem]" : "min-h-[2.16rem]",
@@ -38,15 +38,15 @@ export function SteppedWizardStepper({
         return (
           <React.Fragment key={idx}>
             <div
-              data-component="stepped-wizard-stepper-desktop-item"
+              data-component="desktop_v3_stepped-wizard_stepper-desktop_item"
               className={cn(
                 "flex shrink-0 flex-col items-center overflow-visible text-center",
                 showLabels ? "w-[3.65rem] gap-2" : "w-[1.575rem]",
               )}
             >
-              <div data-component="stepped-wizard-stepper-desktop-step" className="flex h-[1.575rem] items-center justify-center overflow-visible">
+              <div data-component="desktop_v3_stepped-wizard_stepper-desktop_item_step" className="flex h-[1.575rem] items-center justify-center overflow-visible">
                 <div
-                  data-component="stepped-wizard-stepper-desktop-circle"
+                  data-component="desktop_v3_stepped-wizard_stepper-desktop_item_step_circle"
                   className={cn(
                     "flex h-[1.575rem] w-[1.575rem] items-center justify-center rounded-full text-[0.612rem] font-bold transition-all duration-300 will-change-transform",
                     isCompleted && "bg-v3-primary text-white shadow-[0_2px_8px_hsla(214,100%,34%,0.2)]",
@@ -59,7 +59,7 @@ export function SteppedWizardStepper({
               </div>
               {showLabels && (
                 <span
-                  data-component="stepped-wizard-stepper-desktop-label"
+                  data-component="desktop_v3_stepped-wizard_stepper-desktop_item_label"
                   className={cn(
                     "block w-full text-center text-[0.535rem] font-semibold leading-none whitespace-nowrap transition-colors",
                     (isCompleted || isCurrent) ? "text-v3-primary" : "text-v3-text-muted",
@@ -71,7 +71,7 @@ export function SteppedWizardStepper({
             </div>
             {idx < steps.length - 1 && (
               <div
-                data-component="stepped-wizard-stepper-desktop-connector"
+                data-component="desktop_v3_stepped-wizard_stepper-desktop_connector"
                 className={cn(
                   "mt-[0.73125rem] h-[0.1125rem] w-[1.45rem] shrink-0 rounded-full",
                   idx < currentStep ? "bg-v3-primary" : "bg-v3-border",

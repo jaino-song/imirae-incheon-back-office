@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
+
+import { proxySseStream } from "@/lib/api/sse-proxy";
 import { getAuthToken } from "@/lib/api/route-utils";
 import { createServerApiUrl } from "@/lib/api/server-base-url";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-// Keep the proxied SSE stream alive longer before Vercel recycles the
-// function. The client (useEformsignDocsLiveStream) reconnects regardless,
-// so this only reduces reconnect churn; 60s is within every Vercel plan's cap.
+// The stream closes itself at 50s; this remains the final platform safety net.
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
@@ -17,27 +17,13 @@ export async function GET(request: NextRequest) {
 
     const upstreamUrl = createServerApiUrl("/eformsign-docs/events");
 
-    const upstream = await fetch(upstreamUrl, {
-        method: "GET",
+    return proxySseStream({
+        upstreamUrl,
+        lastEventId: request.headers.get("Last-Event-ID"),
+        requestSignal: request.signal,
         headers: {
             Authorization: `Bearer ${token}`,
             Accept: "text/event-stream",
-        },
-        signal: request.signal,
-        cache: "no-store",
-    });
-
-    if (!upstream.ok || !upstream.body) {
-        return new Response(null, { status: upstream.status });
-    }
-
-    return new Response(upstream.body, {
-        status: 200,
-        headers: {
-            "Content-Type": "text/event-stream; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
         },
     });
 }

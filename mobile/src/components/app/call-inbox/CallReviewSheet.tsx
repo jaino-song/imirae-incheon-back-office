@@ -26,6 +26,8 @@ import type {
 } from "@/lib/call-inbox/types";
 import { findEvidenceTurnIndex, transcriptTurnId, TranscriptView } from "./TranscriptView";
 
+const REVIEW_BASE = "mobile_call-inbox_detail-sheet_stack_detail-page_review";
+
 const FIELD_LABELS: Record<string, string> = {
   name: "산모명",
   phone: "연락처",
@@ -99,9 +101,9 @@ export function CallReviewSheet({
   if (draftId === null) return null;
 
   return (
-    <MobileDetailPage name="call-inbox" dataComponent="call-inbox-review">
+    <MobileDetailPage name="call-inbox" data-component={REVIEW_BASE}>
       {isLoading || !draft ? (
-        <div className="p-4 text-[0.82rem] text-v3-text-muted" data-component="call-inbox-review-loading">
+        <div className="p-4 text-[0.82rem] text-v3-text-muted" data-component={`${REVIEW_BASE}_loading`}>
           불러오는 중...
         </div>
       ) : draft.type === "NEW_CLIENT" ? (
@@ -131,7 +133,7 @@ function EvidenceChip({
         if (index >= 0) onJump(index);
       }}
       className="mt-1 inline-block rounded-md border border-dashed border-v3-border px-2 py-1 text-left text-[0.68rem] text-v3-text-muted"
-      data-component="call-inbox-evidence-chip"
+      data-component={`${REVIEW_BASE}_evidence-chip`}
     >
       🎙 {proposal.evidence}
     </button>
@@ -143,6 +145,7 @@ function ReviewHeader({ draft, title }: { draft: ClientDraftDetail; title: strin
   return (
     <>
       <MobileDetailHeader
+        data-component={`${REVIEW_BASE}_header`}
         name="call-inbox"
         avatar={<span className="text-[1rem]">📞</span>}
         avatarTone={draft.type === "NEW_CLIENT" ? "green" : "orange"}
@@ -176,7 +179,7 @@ function ReadOnlyBanner({ draft }: { draft: ClientDraftDetail }) {
   return (
     <div
       className="rounded-xl bg-gray-100 px-3 py-2 text-[0.78rem] text-v3-text"
-      data-component="call-inbox-review-readonly-banner"
+      data-component={`${REVIEW_BASE}_readonly-banner`}
     >
       {label}
       {who ? ` · ${who}` : ""}
@@ -195,7 +198,11 @@ function TranscriptSection({
   return (
     <div className="flex flex-col gap-2">
       <div className="text-[0.75rem] font-bold text-v3-text-muted">통화 전문</div>
-      <TranscriptView transcript={draft.callRecord.transcript} highlightIndex={highlight} />
+      <TranscriptView
+        data-component={`${REVIEW_BASE}_transcript`}
+        transcript={draft.callRecord.transcript}
+        highlightIndex={highlight}
+      />
     </div>
   );
 }
@@ -291,7 +298,7 @@ function NewClientReview({
   };
 
   return (
-    <div className="flex flex-col gap-4 px-1 pb-6" data-component="call-inbox-review-new-client">
+    <div className="flex flex-col gap-4 px-1 pb-6" data-component={`${REVIEW_BASE}_new-client`}>
       <ReviewHeader draft={draft} title="신규 상담 검토" />
 
       {!isPending && <ReadOnlyBanner draft={draft} />}
@@ -299,7 +306,7 @@ function NewClientReview({
       {listItem?.phoneMatchesExistingClient && (
         <div
           className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[0.78rem] font-medium text-amber-700"
-          data-component="call-inbox-review-duplicate-banner"
+          data-component={`${REVIEW_BASE}_new-client_duplicate-banner`}
         >
           기존 고객과 전화번호가 일치합니다
         </div>
@@ -355,6 +362,7 @@ function NewClientReview({
 
       {isPending && (
         <MobileDetailActions
+          data-component={`${REVIEW_BASE}_new-client_actions`}
           name="call-inbox"
           actions={[
             {
@@ -455,7 +463,7 @@ function ClientUpdateReview({
   };
 
   return (
-    <div className="flex flex-col gap-4 px-1 pb-6" data-component="call-inbox-review-client-update">
+    <div className="flex flex-col gap-4 px-1 pb-6" data-component={`${REVIEW_BASE}_client-update`}>
       <ReviewHeader draft={draft} title="변경 요청 검토" />
 
       {!isPending && <ReadOnlyBanner draft={draft} />}
@@ -463,7 +471,7 @@ function ClientUpdateReview({
       {draft.client ? (
         <div
           className="flex items-center justify-between rounded-xl bg-blue-50 px-3 py-2.5 text-[0.78rem]"
-          data-component="call-inbox-review-client-card"
+          data-component={`${REVIEW_BASE}_client-update_client-card`}
         >
           <span className="text-v3-dark">
             <b>{draft.client.name}</b>
@@ -475,6 +483,7 @@ function ClientUpdateReview({
         </div>
       ) : (
         <ClientAutocomplete
+          data-component={`${REVIEW_BASE}_client-update_client-autocomplete`}
           label="고객 연결"
           value={draft.clientId}
           placeholder="전화번호 미매칭 — 고객 검색"
@@ -497,7 +506,7 @@ function ClientUpdateReview({
             <div
               key={proposal.field}
               className={`rounded-xl border p-3 ${isIncluded ? "border-v3-border" : "border-v3-border opacity-50"}`}
-              data-component="call-inbox-review-diff-row"
+              data-component={`${REVIEW_BASE}_client-update_diff-row`}
             >
               <div className="mb-1 flex items-center justify-between text-[0.72rem] text-v3-text-muted">
                 <span>{FIELD_LABELS[proposal.field] ?? proposal.field}</span>
@@ -552,6 +561,7 @@ function ClientUpdateReview({
 
       {isPending && (
         <MobileDetailActions
+          data-component={`${REVIEW_BASE}_client-update_actions`}
           name="call-inbox"
           actions={[
             {

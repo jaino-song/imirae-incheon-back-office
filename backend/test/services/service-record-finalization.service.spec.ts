@@ -6,6 +6,12 @@ import {
 import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/eformsign-doc/create-and-send-service-record-snapshot.usecase";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
+const mockCaptureServiceRecordError = jest.fn();
+
+jest.mock("infrastructure/observability/service-record-sentry", () => ({
+    captureServiceRecordError: (...args: unknown[]) => mockCaptureServiceRecordError(...args),
+}));
+
 function setup(options: {
     claimCount?: number;
     snapshotError?: Error;
@@ -61,6 +67,9 @@ function setup(options: {
 }
 
 describe("ServiceRecordFinalizationService", () => {
+    beforeEach(() => {
+        mockCaptureServiceRecordError.mockClear();
+    });
     it("claims a ready case once, creates every chunk, and revokes remaining links", async () => {
         const { service, prisma, snapshot } = setup();
 
@@ -121,7 +130,8 @@ describe("ServiceRecordFinalizationService", () => {
     });
 
     it("records a retryable case failure when snapshot creation fails", async () => {
-        const { service, prisma } = setup({ snapshotError: new Error("network failed") });
+        const snapshotError = new Error("network failed");
+        const { service, prisma } = setup({ snapshotError });
 
         await expect(service.processDueCases()).resolves.toBe(0);
 
@@ -135,6 +145,13 @@ describe("ServiceRecordFinalizationService", () => {
                 }),
             }),
         );
+        expect(mockCaptureServiceRecordError).toHaveBeenCalledTimes(1);
+        expect(mockCaptureServiceRecordError).toHaveBeenCalledWith(snapshotError, {
+            operation: "auto-finalize",
+            handled: true,
+            caseId: "case-1",
+            retryCount: 1,
+        });
     });
 
     it("recovers a stale FINALIZING claim for a later reconciliation run", async () => {

@@ -65,7 +65,16 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-export const V3Sidebar = () => {
+const SOURCE_COMPONENT = "V3Sidebar";
+
+interface V3SidebarProps {
+  /** Canonical caller-context base, e.g. "mobile_shell_sidebar". */
+  "data-component": string;
+}
+
+export const V3Sidebar = ({
+  "data-component": dataComponent,
+}: V3SidebarProps) => {
   const pathname = usePathname();
   const locale = useLocale();
   const user = useInitialUser();
@@ -110,14 +119,17 @@ export const V3Sidebar = () => {
   const initials = user?.name 
     ? user.name.slice(0, 2).toUpperCase() 
     : "USER";
+  const sub = (suffix: string) => `${dataComponent}_${suffix}`;
 
   return (
-    <aside 
+    <aside
+      data-component={dataComponent}
+      data-slot="sidebar"
+      data-source-component={SOURCE_COMPONENT}
       className="hidden flex-col fixed left-0 top-0 h-full w-[280px] bg-white z-40 rounded-tr-2xl rounded-br-2xl shadow-v3 animate-v3-slide-right overflow-hidden"
       aria-label="Sidebar Navigation"
-      data-component="sidebar"
     >
-      <div className="flex items-center gap-3 px-6 pt-8 pb-6" data-component="sidebar-brand">
+      <div className="flex items-center gap-3 px-6 pt-8 pb-6" data-component={sub("brand")} data-slot="sidebar-brand">
         <Image src="/assets/logo.svg" alt="아가잼잼" width={48} height={48} className="w-12 h-12 rounded-2xl shrink-0 shadow-sm" />
         <span className="text-xl font-bold text-gray-900 tracking-tight">
           아가잼잼 관리자
@@ -126,7 +138,8 @@ export const V3Sidebar = () => {
 
       <nav
         className="flex-1 overflow-y-auto px-4 py-2 space-y-6 custom-scrollbar scrollbar-on-scroll"
-        data-component="sidebar-nav"
+        data-component={sub("nav")}
+        data-slot="sidebar-nav"
         data-scroll-active={isNavScrolling ? "true" : "false"}
         onScroll={handleNavScroll}
       >
@@ -142,7 +155,8 @@ export const V3Sidebar = () => {
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      data-component={`sidebar-nav-${getNavItemName(item.href)}`}
+                      data-component={`${dataComponent}_nav_${getNavItemName(item.href)}`}
+                      data-slot={`sidebar-nav-${getNavItemName(item.href)}`}
                       className={`
                         relative group flex items-center gap-3 px-4 py-2.5 rounded-2xl transition-colors overflow-hidden
                         ${active
@@ -173,7 +187,7 @@ export const V3Sidebar = () => {
         ))}
       </nav>
 
-      <div className="p-4 mt-auto" data-component="sidebar-profile">
+      <div className="p-4 mt-auto" data-component={sub("profile")} data-slot="sidebar-profile">
         <div className="flex items-center gap-3 p-3 rounded-2xl bg-v3-dim-white/50 border border-v3-border/50 hover:bg-white hover:shadow-v3-hover transition-all cursor-pointer group">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-v3-primary to-blue-600 flex items-center justify-center shadow-inner shrink-0 text-white font-bold text-sm">
             {initials}

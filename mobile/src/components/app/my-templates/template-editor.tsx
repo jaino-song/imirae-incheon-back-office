@@ -76,7 +76,7 @@ export const TemplateEditor = ({ initialData }: TemplateEditorProps) => {
 
     return (
         <div className="flex flex-col gap-6">
-            <ContentPaper data-component="my-templates-editor" className="p-6" disableAnimation>
+            <ContentPaper data-component="mobile_my-templates_editor" className="p-6" disableAnimation>
                 <div className="flex flex-col gap-5">
                     <div className="flex flex-col gap-2">
                         <Label htmlFor="template-name">
@@ -95,7 +95,7 @@ export const TemplateEditor = ({ initialData }: TemplateEditorProps) => {
                         <p className="text-sm font-medium mb-2">
                             {t(locale, "template-editor.quick-insert")}
                         </p>
-                        <VariableInserter onInsert={insertVariable} />
+                        <VariableInserter data-component="mobile_my-templates_editor_variable-inserter" onInsert={insertVariable} />
                     </div>
 
                     <div className="flex flex-col gap-2">
@@ -122,6 +122,7 @@ export const TemplateEditor = ({ initialData }: TemplateEditorProps) => {
                     <div className="flex flex-col gap-3">
                         {visibleVariables.map((variable) => (
                             <VariableConfigurator
+                                data-component="mobile_my-templates_editor_variable-config"
                                 key={variable.key}
                                 variable={variable}
                                 onChange={handleVariableChange}
@@ -145,7 +146,7 @@ export const TemplateEditor = ({ initialData }: TemplateEditorProps) => {
                     {t(locale, "template-editor.preview")}
                 </h3>
                 <Separator className="mb-4" />
-                <TemplatePreview content={content} variables={visibleVariables} />
+                <TemplatePreview data-component="mobile_my-templates_editor_preview" content={content} variables={visibleVariables} />
             </div>
 
             <div className="flex justify-end gap-3 pb-6">

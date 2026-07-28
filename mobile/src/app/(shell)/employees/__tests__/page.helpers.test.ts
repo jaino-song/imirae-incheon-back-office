@@ -1,6 +1,9 @@
 import type { Employee } from "@/hooks/useEmployees";
 
-import { buildAllEmployeeRowsForList, groupForEmployee } from "../page";
+import {
+  buildAllEmployeeRowsForList,
+  groupForEmployee,
+} from "@/lib/employee/list-helpers";
 
 function createEmployee(id: number, status: Employee["status"]): Employee {
   return {

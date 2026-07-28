@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/eformsign-doc/create-and-send-service-record-snapshot.usecase";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import {
     SERVICE_RECORD_CASE_STATUS,
     ServiceRecordLifecycleService,
@@ -193,6 +194,12 @@ export class ServiceRecordFinalizationService {
         attempt: number,
         error: unknown,
     ): Promise<void> {
+        captureServiceRecordError(error, {
+            operation: "auto-finalize",
+            handled: true,
+            caseId: serviceRecordCaseId,
+            retryCount: attempt,
+        });
         const manualReview = await this.prisma.service_record_snapshot_chunk.count({
             where: { serviceRecordCaseId, status: "MANUAL_REVIEW" },
         });

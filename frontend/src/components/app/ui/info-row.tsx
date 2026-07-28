@@ -10,6 +10,7 @@ export interface InfoRowProps extends React.HTMLAttributes<HTMLDivElement> {
   labelWidth?: string;
 }
 
+/** @deprecated v3 InfoRow(@/components/app/v3)를 사용할 것 — 중복 구현 (BJJ-254, manifest deprecatedBy 참조) */
 function InfoRow({
   label,
   value,
@@ -20,7 +21,7 @@ function InfoRow({
 }: InfoRowProps) {
   return (
     <div
-      data-component="info-row"
+      data-component="desktop_v3_info-row"
       className={cn("flex items-center py-2", className)}
       {...props}
     >

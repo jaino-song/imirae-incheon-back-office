@@ -48,7 +48,7 @@ export function KpiCard({
       data-component={dataComponent}
       className="animate-v3-slide-up bg-white rounded-2xl shadow-v3 p-4.5 px-5 py-5"
     >
-      <div className="flex items-center gap-2 mb-3">
+      <div data-component={`${dataComponent}_head`} className="flex items-center gap-2 mb-3">
         {Icon ? (
           <Icon className="w-4 h-4 text-v3-text-muted" />
         ) : iconEmoji ? (
@@ -59,12 +59,12 @@ export function KpiCard({
           <InfoTooltip
             text={infoText}
             ariaLabel={`${label} 도움말`}
-            dataComponent={`${dataComponent}-info`}
+            dataComponent={`${dataComponent}_head_info`}
             className="-ml-0.5"
           />
         ) : null}
       </div>
-      <div className="flex items-baseline gap-1.5">
+      <div data-component={`${dataComponent}_body`} className="flex items-baseline gap-1.5">
         <span
           className={cn(
             "font-bold leading-none tabular-nums",
@@ -89,7 +89,12 @@ export function KpiCard({
         ) : null}
       </div>
       {meta ? (
-        <div className="mt-1.5 text-[0.68rem] text-v3-text-muted leading-tight">{meta}</div>
+        <div
+          data-component={`${dataComponent}_meta`}
+          className="mt-1.5 text-[0.68rem] text-v3-text-muted leading-tight"
+        >
+          {meta}
+        </div>
       ) : null}
     </div>
   );

@@ -3,8 +3,11 @@ import type { Breadcrumb, ErrorEvent, Event, Log } from "@sentry/nextjs";
 type SentryTransactionEvent = Event & { type: "transaction" };
 
 const FILTERED_VALUE = "[Filtered]";
-const SENTRY_APP_TAG = "babyjamjam-admin";
+const SENTRY_APP_TAG = "frontend";
 const MAX_SANITIZE_DEPTH = 3;
+
+export const SERVICE_RECORD_SENTRY_FEATURE = "service-records";
+export const SERVICE_RECORD_SENTRY_TAG = "feature";
 
 const SENSITIVE_FIELD_PATTERN =
   /authorization|cookie|password|token|secret|api[_-]?key|email|phone|mobile|address|birth|resident|content|message|body/i;
@@ -15,6 +18,18 @@ const PHONE_PATTERN = /(?:\+?82[-\s]?)?0?1[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/g;
 const BEARER_PATTERN = /(bearer\s+)[^\s,;]+/gi;
 const SECRET_ASSIGNMENT_PATTERN =
   /((?:password|token|secret|api[_-]?key|authorization)\s*[:=]\s*)[^\s,;]+/gi;
+const SERVICE_RECORD_ACCESS_TOKEN_PATTERN =
+  /(\/(?:api\/)?service-record\/(?:link\/)?)[^/?#\s]+/gi;
+const SERVICE_RECORD_RESOURCE_ID_PATTERN =
+  /(\/(?:api\/)?(?:admin\/service-records\/(?:client|schedules)|schedule-change-requests\/schedules)\/)[^/?#\s]+/gi;
+const SERVICE_RECORD_SESSION_ID_PATTERN =
+  /(\/(?:api\/)?service-record\/[^/?#\s]+\/sessions\/)[^/?#\s]+/gi;
+const UUID_PATH_SEGMENT_PATTERN =
+  /\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=\/|$)/gi;
+const SERVICE_RECORD_SIGNAL_PATTERN =
+  /service-record(?:s)?|service_record(?:s)?|service-feedback|service_feedback/i;
+const SERVICE_RECORD_SCHEDULE_CHANGE_PATTERN =
+  /\/schedule-change-requests\/schedules\/[^/]+\/(?:preview|apply)(?:\/|$)/i;
 
 function readSampleRate(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -23,12 +38,27 @@ function readSampleRate(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }
 
+export function getSentryEnvironment(): "dev" | "preview" | "production" {
+  const value =
+    process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT
+    ?? process.env.VERCEL_ENV
+    ?? process.env.NODE_ENV;
+
+  if (value === "production") return "production";
+  if (value === "preview") return "preview";
+  return "dev";
+}
+
 export function sanitizeSentryText(value: string): string {
   return value
     .replace(BEARER_PATTERN, `$1${FILTERED_VALUE}`)
     .replace(SECRET_ASSIGNMENT_PATTERN, `$1${FILTERED_VALUE}`)
     .replace(EMAIL_PATTERN, "[Email]")
-    .replace(PHONE_PATTERN, "[Phone]");
+    .replace(PHONE_PATTERN, "[Phone]")
+    .replace(SERVICE_RECORD_ACCESS_TOKEN_PATTERN, `$1${FILTERED_VALUE}`)
+    .replace(SERVICE_RECORD_RESOURCE_ID_PATTERN, `$1${FILTERED_VALUE}`)
+    .replace(SERVICE_RECORD_SESSION_ID_PATTERN, `$1${FILTERED_VALUE}`)
+    .replace(UUID_PATH_SEGMENT_PATTERN, `/${FILTERED_VALUE}`);
 }
 
 export function sanitizeSentryUrl(value: string | undefined): string | undefined {
@@ -37,11 +67,25 @@ export function sanitizeSentryUrl(value: string | undefined): string | undefined
   try {
     const baseUrl = "https://sentry.local";
     const parsed = new URL(value, baseUrl);
-    const path = sanitizeSentryText(parsed.pathname);
+    const path = sanitizeSentryText(parsed.pathname).replace(
+      SERVICE_RECORD_ACCESS_TOKEN_PATTERN,
+      `$1${FILTERED_VALUE}`,
+    );
     return parsed.origin === baseUrl ? path : `${parsed.origin}${path}`;
   } catch {
-    return sanitizeSentryText(value.split(/[?#]/, 1)[0] ?? value);
+    return sanitizeSentryText(value.split(/[?#]/, 1)[0] ?? value).replace(
+      SERVICE_RECORD_ACCESS_TOKEN_PATTERN,
+      `$1${FILTERED_VALUE}`,
+    );
   }
+}
+
+export function isServiceRecordSentrySignal(value: string | undefined): boolean {
+  if (!value) return false;
+
+  const path = value.split(/[?#]/, 1)[0] ?? value;
+  return SERVICE_RECORD_SIGNAL_PATTERN.test(path)
+    || SERVICE_RECORD_SCHEDULE_CHANGE_PATTERN.test(path);
 }
 
 function sanitizeUnknown(value: unknown, depth = 0): unknown {
@@ -97,11 +141,11 @@ export function sanitizeSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {
 export function sanitizeSentryEvent(event: Event): Event {
   return {
     ...event,
-    message: event.message ? sanitizeSentryText(event.message) : event.message,
+    message: event.message ? "Service-record error" : event.message,
     transaction: event.transaction
       ? sanitizeSentryText(event.transaction.replace(/[?#].*$/, ""))
       : event.transaction,
-    user: event.user?.id ? { id: String(event.user.id) } : undefined,
+    user: undefined,
     request: event.request
       ? {
           ...event.request,
@@ -114,10 +158,8 @@ export function sanitizeSentryEvent(event: Event): Event {
       : event.request,
     logentry: event.logentry
       ? {
-          message: event.logentry.message
-            ? sanitizeSentryText(event.logentry.message)
-            : event.logentry.message,
-          params: event.logentry.params?.map((param) => sanitizeUnknown(param)),
+          message: event.logentry.message ? "Service-record error" : event.logentry.message,
+          params: undefined,
         }
       : event.logentry,
     exception: event.exception
@@ -125,16 +167,16 @@ export function sanitizeSentryEvent(event: Event): Event {
           ...event.exception,
           values: event.exception.values?.map((exception) => ({
             ...exception,
-            value: exception.value ? sanitizeSentryText(exception.value) : exception.value,
+            value: exception.value ? "Service-record error" : exception.value,
           })),
         }
       : event.exception,
-    breadcrumbs: event.breadcrumbs?.map(sanitizeSentryBreadcrumb),
+    breadcrumbs: undefined,
     extra: event.extra ? (sanitizeUnknown(event.extra) as Record<string, unknown>) : event.extra,
     spans: event.spans?.map((span) => ({
       ...span,
-      description: span.description ? sanitizeSentryText(span.description) : span.description,
-      data: span.data ? (sanitizeUnknown(span.data) as typeof span.data) : span.data,
+      description: span.op ?? "service-record span",
+      data: {},
     })),
   };
 }
@@ -145,6 +187,44 @@ function sanitizeSentryErrorEvent(event: ErrorEvent): ErrorEvent {
 
 function sanitizeSentryTransactionEvent(event: SentryTransactionEvent): SentryTransactionEvent {
   return sanitizeSentryEvent(event) as SentryTransactionEvent;
+}
+
+function hasServiceRecordStackFrame(event: Event): boolean {
+  return Boolean(
+    event.exception?.values?.some((exception) =>
+      exception.stacktrace?.frames?.some((frame) =>
+        [frame.filename, frame.function, frame.module].some((value) =>
+          isServiceRecordSentrySignal(value),
+        ),
+      ),
+    ),
+  );
+}
+
+export function isServiceRecordSentryEvent(event: Event): boolean {
+  if (event.tags?.[SERVICE_RECORD_SENTRY_TAG] === SERVICE_RECORD_SENTRY_FEATURE) {
+    return true;
+  }
+
+  return [
+    event.transaction,
+    event.request?.url,
+    event.message,
+    event.logentry?.message,
+  ].some((value) => isServiceRecordSentrySignal(value))
+    || hasServiceRecordStackFrame(event);
+}
+
+function filterAndSanitizeSentryErrorEvent(event: ErrorEvent): ErrorEvent | null {
+  if (!isServiceRecordSentryEvent(event)) return null;
+  return sanitizeSentryErrorEvent(event);
+}
+
+function filterAndSanitizeSentryTransactionEvent(
+  event: SentryTransactionEvent,
+): SentryTransactionEvent | null {
+  if (!isServiceRecordSentryEvent(event)) return null;
+  return sanitizeSentryTransactionEvent(event);
 }
 
 export function sanitizeSentryLog(log: Log): Log {
@@ -159,38 +239,42 @@ export function sanitizeSentryLog(log: Log): Log {
 
 export function getSentryRuntimeOptions() {
   const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
-  const isProduction = process.env.NODE_ENV === "production";
+  const environment = getSentryEnvironment();
+  const tracesSampleRate = readSampleRate(
+    process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE,
+    environment === "production" ? 0.1 : 1,
+  );
 
   return {
     dsn,
     enabled: Boolean(dsn),
-    environment:
-      process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ?? process.env.VERCEL_ENV ?? process.env.NODE_ENV,
+    environment,
+    release:
+      process.env.NEXT_PUBLIC_SENTRY_RELEASE
+      ?? process.env.SENTRY_RELEASE
+      ?? process.env.VERCEL_GIT_COMMIT_SHA,
     sampleRate: 1,
-    tracesSampleRate: readSampleRate(
-      process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE,
-      isProduction ? 0.2 : 1,
+    tracesSampler: ({
+      name,
+      inheritOrSampleWith,
+    }: {
+      name: string;
+      inheritOrSampleWith: (sampleRate: number) => number;
+    }) => (
+      isServiceRecordSentrySignal(name)
+        ? inheritOrSampleWith(tracesSampleRate)
+        : 0
     ),
     sendDefaultPii: false,
     attachStacktrace: true,
-    enableLogs: true,
     initialScope: {
       tags: {
         app: SENTRY_APP_TAG,
-        surface: "frontend",
+        runtime: typeof window === "undefined" ? "server" : "browser",
       },
     },
     beforeBreadcrumb: sanitizeSentryBreadcrumb,
-    beforeSend: sanitizeSentryErrorEvent,
-    beforeSendTransaction: sanitizeSentryTransactionEvent,
-    beforeSendLog: sanitizeSentryLog,
+    beforeSend: filterAndSanitizeSentryErrorEvent,
+    beforeSendTransaction: filterAndSanitizeSentryTransactionEvent,
   };
-}
-
-export function getReplaySessionSampleRate(): number {
-  return readSampleRate(process.env.NEXT_PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE, 0.1);
-}
-
-export function getReplayErrorSampleRate(): number {
-  return readSampleRate(process.env.NEXT_PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE, 1);
 }

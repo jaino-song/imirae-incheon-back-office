@@ -5,6 +5,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 interface StatMiniProps {
+  /** Caller-context canonical value. StatsBar passes `${base}_stat-mini-N`. */
+  "data-component": string;
   icon: React.ComponentType<{ className?: string }>;
   value: string | number;
   label: string;
@@ -22,6 +24,7 @@ const colorVariants = [
 ] as const;
 
 export function StatMini({
+  "data-component": dataComponent,
   icon: Icon,
   value,
   label,
@@ -35,7 +38,8 @@ export function StatMini({
 
   return (
     <div
-      data-component="stat-mini"
+      data-component={dataComponent}
+      data-slot="stat-mini"
       className={cn(
         "flex flex-1 items-center justify-start gap-4 rounded-2xl bg-white p-4 shadow-v3 transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.33,1,0.68,1)] will-change-transform hover:-translate-y-1.5 hover:shadow-v3-hover",
         // Component-level animation so stats behave identically across pages.
@@ -44,7 +48,7 @@ export function StatMini({
       style={animationStyle}
     >
       <div
-        data-component="stat-mini-icon"
+        data-component={`${dataComponent}_icon`}
         className={cn(
           "w-12 h-12 rounded-2xl flex items-center justify-center",
           isLoading ? "bg-v3-dim-white" : variant.bg

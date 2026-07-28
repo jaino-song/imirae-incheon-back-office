@@ -67,7 +67,7 @@ export const DynamicInput = ({ variable, value, onChange, forceRequired = false 
                         onValueChange={onChange}
                         placeholder={placeholder}
                         required={fieldRequired}
-                        dataComponent="messages-form-dynamic-text-input"
+                        dataComponent="desktop_messages_sections_form-dynamic-text-input"
                     />
                 );
             }
@@ -80,7 +80,7 @@ export const DynamicInput = ({ variable, value, onChange, forceRequired = false 
                     onValueChange={onChange}
                     placeholder={placeholder}
                     required={fieldRequired}
-                    dataComponent="messages-form-default-text-input"
+                    dataComponent="desktop_messages_sections_form-default-text-input"
                 />
             );
     }

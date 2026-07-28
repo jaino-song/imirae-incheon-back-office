@@ -81,7 +81,7 @@ function isAppAuthNonRetryPath(pathname: string): boolean {
     return APP_AUTH_NON_RETRY_PATHS.some((path) => pathname === path || pathname.endsWith(path));
 }
 
-function refreshAppAuthSession(): Promise<void> {
+export function refreshAppAuthSession(): Promise<void> {
     if (!appAuthRefreshPromise) {
         appAuthRefreshPromise = axios
             .post("/api/auth/refresh", undefined, { withCredentials: true })

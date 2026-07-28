@@ -124,6 +124,40 @@ describe("SbEformsignDocRepository", () => {
         expect(result?.documentKind).toBe("service_record_snapshot");
     });
 
+    it("loads page display fields with one branch-scoped query", async () => {
+        eformsignDocModel.findMany.mockResolvedValue([
+            {
+                documentId: "doc-1",
+                stepRecipientName: "  송진호  ",
+            },
+            {
+                documentId: "doc-2",
+                stepRecipientName: "   ",
+            },
+        ]);
+
+        const result = await repository.findDisplayFieldsByDocumentIds(
+            "branch-1",
+            ["doc-1", "doc-2"],
+        );
+
+        expect(eformsignDocModel.findMany).toHaveBeenCalledTimes(1);
+        expect(eformsignDocModel.findMany).toHaveBeenCalledWith({
+            where: {
+                branchId: "branch-1",
+                documentId: { in: ["doc-1", "doc-2"] },
+            },
+            select: {
+                documentId: true,
+                stepRecipientName: true,
+            },
+        });
+        expect(result).toEqual([
+            { documentId: "doc-1", customerName: "송진호" },
+            { documentId: "doc-2", customerName: null },
+        ]);
+    });
+
     it("retries status updates without pending classification columns", async () => {
         eformsignDocModel.updateMany
             .mockRejectedValueOnce(pendingColumnError)

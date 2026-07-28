@@ -14,16 +14,26 @@ export type {
   HeadlessProgressStepKey,
 } from "@babyjamjam/shared/types/eformsign";
 
-interface HeadlessProgressStepperProps {
+interface HeadlessProgressStepperBaseProps {
   steps: readonly HeadlessProgressStep[];
   progress: HeadlessProgressState;
   ariaLabel: string;
-  dataComponentPrefix: string;
   testIdPrefix: string;
   className?: string;
   errorHint?: string;
   spinnerClassName?: string;
 }
+
+type HeadlessProgressStepperProps = HeadlessProgressStepperBaseProps & (
+  | {
+      "data-component": string;
+      dataComponentPrefix?: never;
+    }
+  | {
+      "data-component"?: never;
+      dataComponentPrefix: string;
+    }
+);
 
 function getProgressIndex(
   steps: readonly HeadlessProgressStep[],
@@ -37,12 +47,18 @@ export function HeadlessProgressStepper({
   steps,
   progress,
   ariaLabel,
-  dataComponentPrefix,
+  "data-component": canonicalDataComponent,
+  dataComponentPrefix: legacyDataComponent,
   testIdPrefix,
   className,
   errorHint,
   spinnerClassName = "animate-spin",
 }: HeadlessProgressStepperProps) {
+  const dataComponent = canonicalDataComponent ?? legacyDataComponent;
+  const sub = (suffix: string) =>
+    canonicalDataComponent
+      ? `${dataComponent}_${suffix}`
+      : `${dataComponent}-${suffix}`;
   const currentIndex = getProgressIndex(steps, progress.step);
 
   if (currentIndex < 0) {
@@ -51,7 +67,7 @@ export function HeadlessProgressStepper({
 
   return (
     <ol
-      data-component={`${dataComponentPrefix}-stepper`}
+      data-component={sub("stepper")}
       data-testid={`${testIdPrefix}-stepper`}
       className={cn("flex flex-col", className)}
       aria-label={ariaLabel}
@@ -65,14 +81,14 @@ export function HeadlessProgressStepper({
         return (
           <li
             key={item.key}
-            data-component={`${dataComponentPrefix}-step`}
+            data-component={sub("step")}
             data-testid={`${testIdPrefix}-step-${item.key}`}
             data-state={state}
             className="relative flex gap-3 pb-4 last:pb-0"
           >
             {idx < steps.length - 1 && (
               <span
-                data-component={`${dataComponentPrefix}-connector`}
+                data-component={sub("connector")}
                 className={cn(
                   "absolute left-[15px] top-8 h-[calc(100%-2rem)] w-0.5 rounded-full",
                   idx < currentIndex ? "bg-v3-primary" : "bg-v3-border",
@@ -81,7 +97,7 @@ export function HeadlessProgressStepper({
               />
             )}
             <span
-              data-component={`${dataComponentPrefix}-circle`}
+              data-component={sub("circle")}
               className={cn(
                 "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[0.7rem] font-bold transition-colors",
                 state === "done" && "bg-v3-primary text-white",
@@ -110,7 +126,7 @@ export function HeadlessProgressStepper({
             </span>
             <span className="flex min-w-0 flex-col pt-1">
               <span
-                data-component={`${dataComponentPrefix}-label`}
+                data-component={sub("label")}
                 className={cn(
                   "text-sm font-semibold leading-5",
                   (state === "done" || state === "active") && "text-v3-dark",

@@ -87,21 +87,21 @@ export default async function TrafficDetailPage() {
   const desktop = devices.find((d) => /desktop/i.test(d.deviceType)) ?? { pct: 0, count: 0 };
 
   return (
-    <section data-component="stats-traffic" className="flex flex-col gap-6 pb-10">
-      <Block name="stats-traffic-hero" className="shrink-0">
+    <section data-component="desktop_stats-traffic_page" className="flex flex-col gap-6 pb-10">
+      <Block name="desktop_stats-traffic_page_hero" className="shrink-0">
         <StatsHero
           title="사이트 트래픽"
           subtitle="PostHog · 페이지뷰/방문자/소스/디바이스/지역 상세 분석"
           rightValue={formatDateForDisplay(todayDate)}
           backHref="/stats"
           backLabel="통계 overview로"
-          dataComponent="stats-traffic-hero"
+          dataComponent="desktop_stats-traffic_page_hero_content"
         />
       </Block>
 
-      <Block name="stats-traffic-kpi" className="shrink-0">
+      <Block name="desktop_stats-traffic_page_kpi" className="shrink-0">
         <div
-          data-component="stats-traffic-kpi-grid"
+          data-component="desktop_stats-traffic_page_kpi_grid"
           className="grid grid-cols-2 lg:grid-cols-5 gap-3"
         >
           <KpiCard
@@ -109,24 +109,24 @@ export default async function TrafficDetailPage() {
             label="조회수 (오늘)"
             value={summary.today.pv.toLocaleString("ko-KR")}
             delta={pvDelta}
-            dataComponent="stats-traffic-kpi-pv"
+            dataComponent="desktop_stats-traffic_page_kpi_grid_card-pv"
           />
           <KpiCard
             iconEmoji="👥"
             label="방문자"
             value={summary.today.unique.toLocaleString("ko-KR")}
             delta={uniqueDelta}
-            dataComponent="stats-traffic-kpi-unique"
+            dataComponent="desktop_stats-traffic_page_kpi_grid_card-unique"
           />
           <KpiCard
             iconEmoji="⏱"
             label="평균 방문 시간"
             value={
               summary.sevenDayTotal.pv === 0
-                ? "—"
+                ? "-"
                 : `${Math.floor(summary.avgSessionSeconds / 60)}:${String(Math.round(summary.avgSessionSeconds % 60)).padStart(2, "0")}`
             }
-            dataComponent="stats-traffic-kpi-session"
+            dataComponent="desktop_stats-traffic_page_kpi_grid_card-session"
             valueSize="sm"
           />
           <KpiCard
@@ -135,7 +135,7 @@ export default async function TrafficDetailPage() {
             value={summary.bounceRate.toFixed(1)}
             unit="%"
             tone={summary.bounceRate > 60 ? "warn" : "default"}
-            dataComponent="stats-traffic-kpi-bounce"
+            dataComponent="desktop_stats-traffic_page_kpi_grid_card-bounce"
           />
           <KpiCard
             iconEmoji="✨"
@@ -143,15 +143,15 @@ export default async function TrafficDetailPage() {
             value={summary.sevenDayTotal.pv.toLocaleString("ko-KR")}
             unit="조회"
             meta={`방문자 ${summary.sevenDayTotal.unique}명`}
-            dataComponent="stats-traffic-kpi-week"
+            dataComponent="desktop_stats-traffic_page_kpi_grid_card-week"
             valueSize="sm"
           />
         </div>
       </Block>
 
-      <Block name="stats-traffic-trend">
+      <Block name="desktop_stats-traffic_page_trend">
         <div
-          data-component="stats-traffic-trend-card"
+          data-component="desktop_stats-traffic_page_trend_card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-4">
@@ -237,11 +237,11 @@ export default async function TrafficDetailPage() {
       </Block>
 
       <Block
-        name="stats-traffic-pages-sources"
+        name="desktop_stats-traffic_page_pages-sources"
         className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4"
       >
         <div
-          data-component="stats-traffic-top-pages-card"
+          data-component="desktop_stats-traffic_page_pages-sources_top-pages-card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -271,7 +271,7 @@ export default async function TrafficDetailPage() {
                   return (
                     <tr
                       key={`${p.path}-${i}`}
-                      data-component="stats-traffic-page-row"
+                      data-component="desktop_stats-traffic_page_pages-sources_top-pages-card_body_row"
                       className="border-b border-v3-border last:border-0 hover:bg-v3-dim-white"
                     >
                       <td className="px-3 py-3 font-mono text-v3-text">{p.path}</td>
@@ -289,7 +289,7 @@ export default async function TrafficDetailPage() {
         </div>
 
         <div
-          data-component="stats-traffic-sources-card"
+          data-component="desktop_stats-traffic_page_pages-sources_sources-card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">
@@ -323,11 +323,11 @@ export default async function TrafficDetailPage() {
       </Block>
 
       <Block
-        name="stats-traffic-device-region"
+        name="desktop_stats-traffic_page_device-region"
         className="grid grid-cols-1 lg:grid-cols-2 gap-4"
       >
         <div
-          data-component="stats-traffic-device-card"
+          data-component="desktop_stats-traffic_page_device-region_device-card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-4">
@@ -380,7 +380,7 @@ export default async function TrafficDetailPage() {
         </div>
 
         <div
-          data-component="stats-traffic-region-card"
+          data-component="desktop_stats-traffic_page_device-region_region-card"
           className="animate-v3-slide-up bg-white rounded-[28px] shadow-v3 p-6"
         >
           <header className="flex items-center gap-2.5 pb-3.5 border-b border-v3-border mb-3">

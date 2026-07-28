@@ -46,8 +46,9 @@ export interface ContractDataDto {
   actualPrice: string;
 }
 
-export interface FeedbackTemplateIdResponse {
+export interface ServiceRecordTemplateIdResponse {
     templateId: string | null;
+    templateIds?: string[];
 }
 
 const HEADLESS_DISPATCH_TIMEOUT_MS = 180_000;
@@ -128,6 +129,68 @@ function normalizeDocumentListResponse(
         limit: params?.limit ?? DEFAULT_EFORMSIGN_LIMIT,
         skip: params?.skip ?? DEFAULT_EFORMSIGN_SKIP,
     };
+}
+
+/**
+ * Status buckets the backend document list endpoints accept as `statusCategory`.
+ * Mirrors `DocumentStatusCategory` in backend/interface/controllers/eformsign.controller.ts.
+ */
+export type EformsignStatusCategoryParam =
+    | "drafting"
+    | "in-progress"
+    | "completed"
+    | "expired"
+    | "unknown";
+
+export type EformsignTemplateMatchParam = "include" | "exclude";
+
+export interface GetAllDocumentsParams {
+    limit?: number;
+    skip?: number;
+    templateId?: string;
+    templateMatch?: EformsignTemplateMatchParam;
+    /** Server-side status bucket filter, applied before the limit/skip slice. */
+    statusCategory?: EformsignStatusCategoryParam;
+    /** Server-side (chosung-aware) name/title search, applied before the slice. */
+    search?: string;
+    /** Drops deleted (047/049) documents before the slice. Sent as "true" only when enabled. */
+    excludeDeleted?: boolean;
+}
+
+/** Raw status signal for one document, as returned by GET /eformsign/documents/status-counts. */
+export interface EformsignStatusSignal {
+    status_type: string | null;
+    step_type: string | null;
+    step_name: string | null;
+    step_recipient_types: Array<string | null>;
+}
+
+export interface EformsignStatusCountsResponse {
+    documents: EformsignStatusSignal[];
+}
+
+/**
+ * Serializes document-list params for the Next.js proxy route.
+ * Undefined/blank values are omitted so the backend keeps its own defaults, and
+ * `excludeDeleted` is sent as the string the backend compares against ("true").
+ */
+function buildDocumentListParams(
+    params?: GetAllDocumentsParams,
+): Record<string, string | number> | undefined {
+    if (!params) return undefined;
+
+    const query: Record<string, string | number> = {};
+    if (params.limit !== undefined) query.limit = params.limit;
+    if (params.skip !== undefined) query.skip = params.skip;
+    if (params.templateId) query.templateId = params.templateId;
+    if (params.templateMatch) query.templateMatch = params.templateMatch;
+    if (params.statusCategory) query.statusCategory = params.statusCategory;
+
+    const search = params.search?.trim();
+    if (search) query.search = search;
+    if (params.excludeDeleted) query.excludeDeleted = "true";
+
+    return query;
 }
 
 export interface AuthResponse {
@@ -327,7 +390,7 @@ export const eformsignApi = {
         const { data } = await api.get('/eformsign-docs/client-names');
         return data;
     },
-    getFeedbackTemplateId: async (): Promise<FeedbackTemplateIdResponse> => {
+    getServiceRecordTemplateId: async (): Promise<ServiceRecordTemplateIdResponse> => {
         const { data } = await api.get('/eformsign-docs/feedback-template-id');
         return data;
     },
@@ -337,9 +400,22 @@ export const eformsignApi = {
     },
     // Documents APIs - token is read from httpOnly cookie on server
     // Note: eformsign routes use /eformsign prefix to avoid conflict with file storage /documents
-    // Unified endpoint - fetches all documents in single request (more efficient)
-    getAllDocuments: async (params?: { limit?: number; skip?: number }): Promise<EformsignDocumentsResponse> => {
-        const { data } = await api.get('/eformsign/documents', { params });
+    // Unified endpoint - server applies filters BEFORE slicing, so limit/skip paginate
+    // the filtered set (see backend eformsign.controller.ts document list handlers).
+    getAllDocuments: async (params?: GetAllDocumentsParams): Promise<EformsignDocumentsResponse> => {
+        const { data } = await api.get('/eformsign/documents', {
+            params: buildDocumentListParams(params),
+        });
+        return data;
+    },
+    // Raw per-document status signals with the same pre-slice filters as the list.
+    // Used to fold filter-pill counts client-side without fetching full documents.
+    getStatusCounts: async (
+        params?: Pick<GetAllDocumentsParams, "templateId" | "templateMatch" | "search" | "excludeDeleted">,
+    ): Promise<EformsignStatusCountsResponse> => {
+        const { data } = await api.get('/eformsign/documents/status-counts', {
+            params: buildDocumentListParams(params),
+        });
         return data;
     },
     getDocument: async (documentId: string): Promise<EformsignDocumentsResponse["documents"][number]> => {
@@ -351,7 +427,7 @@ export const eformsignApi = {
     getDocumentReceiptDownloadUrl: (documentId: string): string =>
         `/api/eformsign/documents/${encodeURIComponent(documentId)}/download_files?fileType=document&page=7`,
     getDocumentPreviewUrl: (documentId: string): string =>
-        `/api/eformsign/documents/${encodeURIComponent(documentId)}/download_files?fileType=document#toolbar=0`,
+        `/api/eformsign/documents/${encodeURIComponent(documentId)}/download_files?fileType=document`,
     getInProgressDocuments: async (): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/in-progress');
         return normalizeDocumentListResponse(data);

@@ -163,6 +163,33 @@ describe("ServiceRecordEntryService.upsertSession", () => {
         }));
     });
 
+    it("accepts 기타서비스 40자와 특이사항 80자를 정확히 입력할 수 있다", async () => {
+        const { service, upsert } = createHarness();
+        const etcService = "기".repeat(40);
+        const notes = "특".repeat(80);
+
+        await service.upsertSession(context, 1, createDto({ etcService, notes }), true);
+
+        expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+            create: expect.objectContaining({ etcService, notes }),
+        }));
+    });
+
+    it.each([
+        ["기타서비스", { etcService: ` ${"기".repeat(40)}` }, 40],
+        ["특이사항", { notes: ` ${"특".repeat(80)}` }, 80],
+    ])("%s 길이 계산에 앞 공백을 포함한다", async (_label, fields, maxLength) => {
+        const { service, upsert } = createHarness();
+
+        await expect(service.upsertSession(
+            context,
+            1,
+            createDto(fields),
+            true,
+        )).rejects.toThrow(`입력값은 ${maxLength}자를 넘을 수 없습니다.`);
+        expect(upsert).not.toHaveBeenCalled();
+    });
+
     it.each([
         SERVICE_RECORD_CASE_STATUS.FINALIZING,
         SERVICE_RECORD_CASE_STATUS.FINALIZATION_FAILED,
@@ -332,5 +359,26 @@ describe("UpsertSessionDto.clientSignature", () => {
         }));
 
         await expect(validate(dto)).resolves.toHaveLength(0);
+    });
+});
+
+describe("UpsertSessionDto service-record text limits", () => {
+    it("accepts 기타서비스 40자와 특이사항 80자", async () => {
+        const dto = Object.assign(new UpsertSessionDto(), createDto({
+            etcService: "기".repeat(40),
+            notes: "특".repeat(80),
+        }));
+
+        await expect(validate(dto)).resolves.toHaveLength(0);
+    });
+
+    it.each([
+        ["etcService", { etcService: ` ${"기".repeat(40)}` }],
+        ["notes", { notes: ` ${"특".repeat(80)}` }],
+    ])("rejects %s when a leading space exceeds its limit", async (property, fields) => {
+        const dto = Object.assign(new UpsertSessionDto(), createDto(fields));
+        const errors = await validate(dto);
+
+        expect(errors.some((error) => error.property === property)).toBe(true);
     });
 });

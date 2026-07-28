@@ -21,22 +21,20 @@ test.describe("mobile messages navigation", () => {
     await mockMessagesApproval(page);
   });
 
-  test("exposes every frontend message section as a navigable mobile destination", async ({ page }) => {
+  test("exposes the currently available message sections as mobile destinations", async ({ page }) => {
     await page.goto("/messages");
 
     const expectedDestinations = [
       ["전송하기", "/messages/new"],
       ["발송 예정", "/messages/scheduled"],
       ["발송 기록", "/messages/history"],
-      ["템플릿", "/messages/templates"],
       ["자동 전송", "/messages/automation"],
       ["설정", "/messages/sender-approval"],
     ] as const;
 
-    await expect(page.locator('[data-component="mobile-messages-navigation"]')).toBeVisible();
-
     const sectionNavigation = page.getByRole("navigation", { name: "메시지 기능" });
-    await expect(sectionNavigation).toHaveAttribute("data-component", "section-nav-mobile");
+    await expect(sectionNavigation).toBeVisible();
+    await expect(page.getByRole("button", { name: "템플릿" })).toBeDisabled();
 
     for (const [label, href] of expectedDestinations) {
       await page.goto("/messages");
@@ -86,20 +84,24 @@ test.describe("mobile messages navigation", () => {
 
     await page.goto("/messages/history");
 
-    await expect(page.getByRole("heading", { name: "발송 기록" })).toBeVisible();
+    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
     await expect(page.getByText("문자 고객")).toBeVisible();
     await expect(page.getByText("1건")).toBeVisible();
 
     await page.getByRole("button", { name: /인사 메시지/ }).click();
 
-    await expect(page.locator('[data-component="mobile-messages-detail-page"]')).toBeVisible();
+    await expect(
+      page.locator('[data-component="mobile_messages_history_detail-sheet_stack_detail-page_body"]'),
+    ).toBeVisible();
     await expect(page.getByText("발송 정보")).toBeVisible();
     await expect(page.getByText("01012345678")).toBeVisible();
     await expect(page.getByText("안녕하세요")).toBeVisible();
 
-    await page.locator('[data-component="mobile-messages-detail-page"] .sheet-close').click();
+    await page
+      .locator('[data-component="mobile_messages_history_detail-sheet_stack_detail-page"] .sheet-close')
+      .click();
 
-    await expect(page.getByRole("heading", { name: "발송 기록" })).toBeVisible();
+    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
     await expect(page.getByText("01012345678")).not.toBeVisible();
   });
 
@@ -141,7 +143,7 @@ test.describe("mobile messages navigation", () => {
 
     await page.goto("/messages/scheduled");
 
-    await expect(page.getByRole("heading", { name: "발송 예정" })).toBeVisible();
+    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 예정");
     await expect(page.getByText("예정 고객")).toBeVisible();
     await expect(page.getByText("1건")).toBeVisible();
   });

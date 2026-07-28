@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ChevronLeft, RefreshCw } from "lucide-react";
+import { createContext, useContext, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { RefreshCw } from "lucide-react";
 
 import {
     SERVICE_RECORD_FORM_LAYOUT,
@@ -30,9 +30,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSendServiceRecordLink } from "@/hooks/useServiceRecords";
 import { toast } from "@/hooks/use-toast";
 import type { Client } from "@/lib/client/types";
+import { ServiceRecordErrorBoundary } from "@/lib/observability/service-record-error-boundary";
 import { cn } from "@/lib/utils";
 
 interface ClientServiceRecordsProps {
+    "data-component": string;
     client: Client;
     activeTab: string;
     overview?: ServiceRecordOverview;
@@ -40,6 +42,14 @@ interface ClientServiceRecordsProps {
     isError: boolean;
     isRefreshing?: boolean;
     onRefresh?: () => void;
+}
+
+const ClientServiceRecordsDataComponentContext = createContext<string | null>(null);
+
+function useClientServiceRecordsDataComponent(...parts: string[]): string {
+    const root = useContext(ClientServiceRecordsDataComponentContext);
+    if (!root) throw new Error("ClientServiceRecords requires a data-component owner path.");
+    return [root, ...parts].join("_");
 }
 
 interface SessionSlot {
@@ -68,6 +78,19 @@ const LINK_STATUS_TEXT_CLASS: Record<LinkBadgeTone, string> = {
 const SERVICE_RECORD_SKELETON_CLASS = "service-record-skeleton-loader";
 
 export function ClientServiceRecords({
+    "data-component": dataComponent,
+    ...props
+}: ClientServiceRecordsProps) {
+    return (
+        <ServiceRecordErrorBoundary>
+            <ClientServiceRecordsDataComponentContext.Provider value={dataComponent}>
+                <ClientServiceRecordsContent {...props} />
+            </ClientServiceRecordsDataComponentContext.Provider>
+        </ServiceRecordErrorBoundary>
+    );
+}
+
+function ClientServiceRecordsContent({
     client,
     activeTab,
     overview,
@@ -75,7 +98,8 @@ export function ClientServiceRecords({
     isError,
     isRefreshing = false,
     onRefresh,
-}: ClientServiceRecordsProps) {
+}: Omit<ClientServiceRecordsProps, "data-component">) {
+    const dataComponent = useClientServiceRecordsDataComponent();
     const record = overview?.record ?? null;
     const assignments = useMemo(
         () => sortAssignmentsNewestFirst(overview?.assignments ?? []),
@@ -101,7 +125,11 @@ export function ClientServiceRecords({
 
     if (isError) {
         return (
-            <div className="detail-empty-state" data-component="mobile-clients-service-records-error">
+            <div
+                data-component={`${dataComponent}_error`}
+                data-slot="client-service-records"
+                className="detail-empty-state"
+            >
                 제공기록지 정보를 불러오지 못했습니다.
             </div>
         );
@@ -109,7 +137,11 @@ export function ClientServiceRecords({
 
     if (assignments.length === 0 && !record) {
         return (
-            <div className="detail-empty-state" data-component="mobile-clients-service-records-empty">
+            <div
+                data-component={`${dataComponent}_empty`}
+                data-slot="client-service-records"
+                className="detail-empty-state"
+            >
                 제공기록지 배정 정보가 없습니다.
             </div>
         );
@@ -119,7 +151,11 @@ export function ClientServiceRecords({
         const selectedSlot = buildSessionSlots(selectedAssignment)
             .find((slot) => slot.sessionIndex === selectedEntry.sessionIndex) ?? null;
         return (
-            <div data-component="mobile-clients-service-records">
+            <div
+                data-component={dataComponent}
+                data-slot="client-service-records"
+                data-source-component="ClientServiceRecords"
+            >
                 <ServiceRecordSessionDetail
                     record={selectedSession ?? null}
                     sessionIndex={selectedEntry.sessionIndex}
@@ -131,13 +167,19 @@ export function ClientServiceRecords({
     }
 
     return (
-        <div className="detail-column" data-component="mobile-clients-service-records">
+        <div
+            data-component={dataComponent}
+            data-slot="client-service-records"
+            data-source-component="ClientServiceRecords"
+            className="detail-column"
+        >
             {record ? <RecordStatusCard record={record} /> : null}
             {assignments.map((assignment, assignmentIndex) => (
                 <div
                     key={assignment.scheduleId}
                     className="detail-column"
-                    data-component="mobile-clients-service-records-assignment"
+                    data-component={`${dataComponent}_assignment`}
+                    data-slot="client-service-records-assignment"
                 >
                     <LinkCard
                         assignment={assignment}
@@ -181,12 +223,13 @@ export function ClientServiceRecords({
 }
 
 function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
+    const dataComponent = useClientServiceRecordsDataComponent("status-card");
     const statusLabel = getRecordStatusLabel(record.status);
     const submitted = record.sessions.filter((session) => session.locked).length;
 
     return (
-        <div data-component="mobile-clients-service-records-status-card">
-            <InfoCard title="제공기록지 진행 상태">
+        <div data-component={dataComponent}>
+            <InfoCard data-component={`${dataComponent}_info-card`} title="제공기록지 진행 상태">
                 <InfoRow label="상태" value={statusLabel} />
                 <InfoRow
                     label="서비스 기간"
@@ -230,6 +273,7 @@ function LinkCard({
     delay: number;
     showStatus: boolean;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("link-card");
     const sendLinkMutation = useSendServiceRecordLink();
     const [resendModalOpen, setResendModalOpen] = useState(false);
     const statusMeta = LINK_STATUS_META[assignment.link.status];
@@ -273,7 +317,7 @@ function LinkCard({
     };
 
     return (
-        <InfoCard title="제공기록지 작성 링크" delay={delay}>
+        <InfoCard data-component={dataComponent} title="제공기록지 작성 링크" delay={delay}>
             {showStatus ? (
                 <InfoRow
                     label="상태"
@@ -322,8 +366,8 @@ function LinkCard({
                     type="button"
                     className={cn("btn", isResend ? "btn-secondary" : "btn-primary")}
                     data-component={isResend
-                        ? "mobile-clients-service-records-resend"
-                        : "mobile-clients-service-records-send"}
+                        ? `${dataComponent}_actions_resend`
+                        : `${dataComponent}_actions_send`}
                     disabled={sendLinkMutation.isPending}
                     onClick={handleSendClick}
                 >
@@ -337,7 +381,7 @@ function LinkCard({
                         setResendModalOpen(open);
                     }
                 }}
-                dataComponent="mobile-clients-service-records-resend-approval"
+                data-component={`${dataComponent}_resend-approval`}
                 title="제공기록지 메시지를 재전송하시겠습니까?"
                 description="기존 링크가 그대로 포함된 메시지를 다시 전송합니다."
                 isDescriptionVisuallyHidden={false}
@@ -351,13 +395,14 @@ function LinkCard({
 }
 
 function SignatureDocumentCard({ signatureDoc }: { signatureDoc: SignatureDocStatus }) {
+    const dataComponent = useClientServiceRecordsDataComponent("signature-card");
     const title = signatureDoc.snapshotChunkIndex
         ? `제공기록지 전자문서 ${signatureDoc.snapshotChunkIndex}`
         : "제공기록지 전자문서";
 
     return (
-        <div data-component="mobile_clients_service-records_signature-card">
-            <InfoCard title={title}>
+        <div data-component={dataComponent}>
+            <InfoCard data-component={`${dataComponent}_info-card`} title={title}>
                 <InfoRow label="상태" value={formatSignatureStatus(signatureDoc.statusDetail)} />
                 <InfoRow label="문서 발송" value={formatDateTimeKo(signatureDoc.createdDate)} />
                 <InfoRow label="상태 갱신" value={formatDateTimeKo(signatureDoc.updatedDate)} />
@@ -369,9 +414,11 @@ function SignatureDocumentCard({ signatureDoc }: { signatureDoc: SignatureDocSta
 }
 
 function formatSignatureStatus(statusDetail: string): string {
-    if (statusDetail.includes("complete") || statusDetail.includes("completed")) return "서명 완료";
-    if (statusDetail.includes("created")) return "발송됨";
-    return statusDetail || "상태 확인";
+    const normalized = statusDetail.trim().toLowerCase();
+    if (!normalized) return "상태 확인";
+    if (normalized.includes("complete")) return "서명 완료";
+    if (normalized.includes("created")) return "발송됨";
+    return statusDetail.trim();
 }
 
 function ServiceHeaderCard({
@@ -381,10 +428,11 @@ function ServiceHeaderCard({
     assignment: ServiceRecordAssignment;
     delay: number;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("header-card");
     const header = assignment.header;
 
     return (
-        <InfoCard title="서비스 기본정보" delay={delay}>
+        <InfoCard data-component={dataComponent} title="서비스 기본정보" delay={delay}>
             {header ? (
                 <>
                     <InfoRow label="산모 성명" value={header.momName ?? "-"} />
@@ -393,14 +441,17 @@ function ServiceHeaderCard({
                         value={header.momBirth ? formatBirthdayYYMMDD(header.momBirth) : "-"}
                     />
                     <InfoRow label="신생아 성명" value={header.babyName ?? "-"} />
-                    <InfoRow label="신생아 출생일자" value={header.babyBirth ?? "-"} />
+                    <InfoRow
+                        label="신생아 출생일자"
+                        value={header.babyBirth ? formatBirthdayYYMMDD(header.babyBirth) : "-"}
+                    />
                     <InfoRow label="분만형태" value={header.deliveryType ?? "-"} />
                     <InfoRow label="신생아 몸무게" value={formatBabyWeight(header.babyWeight)} />
                 </>
             ) : (
                 <div
                     className="detail-empty-state"
-                    data-component="mobile-clients-service-records-header-empty"
+                    data-component={`${dataComponent}_empty`}
                 >
                     아직 작성된 기본정보가 없습니다.<br />제공인력이 링크 접속 후 입력하면 표시됩니다.
                 </div>
@@ -422,6 +473,7 @@ function ServiceSessionsCard({
     onRefresh?: () => void;
     onSelectSession: (sessionIndex: number, trigger: HTMLElement) => void;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions-card");
     const slots = buildSessionSlots(assignment);
     const lockedCount = assignment.sessions.filter((session) => session.locked).length;
     const draftCount = assignment.sessions.filter((session) => !session.locked).length;
@@ -429,23 +481,23 @@ function ServiceSessionsCard({
     return (
         <div
             className="info-card pop-up"
-            data-component="mobile-clients-service-records-session-card"
+            data-component={dataComponent}
             style={{ animationDelay: `${delay}ms` }}
         >
             <div
                 className="service-record-card-title-row"
-                data-component="mobile-clients-service-records-session-card-header"
+                data-component={`${dataComponent}_header`}
             >
                 <div className="info-card-title">회차별 제공기록</div>
                 <div
                     className="service-record-progress-row"
-                    data-component="mobile-clients-service-records-progress"
+                    data-component={`${dataComponent}_header_progress`}
                 >
                     {onRefresh ? (
                         <button
                             type="button"
                             className="service-record-refresh-button"
-                            data-component="mobile-clients-service-records-refresh"
+                            data-component={`${dataComponent}_header_refresh`}
                             aria-label={isRefreshing ? "제공기록 새로고침 중" : "제공기록 새로고침"}
                             aria-busy={isRefreshing}
                             disabled={isRefreshing}
@@ -481,6 +533,7 @@ function SessionRow({
     slot: SessionSlot;
     onSelect: (trigger: HTMLElement) => void;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions-card", "row");
     const record = slot.record;
     const tone: SessionTone = record ? (record.locked ? "green" : "orange") : "muted";
     const badge = record ? (record.locked ? "제출완료" : "임시저장") : "미작성";
@@ -502,7 +555,7 @@ function SessionRow({
             className="doc-row doc-row-tappable"
             role="button"
             tabIndex={0}
-            data-component="mobile-clients-service-records-session-row"
+            data-component={dataComponent}
             onClick={(event) => onSelect(event.currentTarget)}
             onKeyDown={handleKeyDown}
         >
@@ -529,21 +582,22 @@ function ServiceRecordSessionDetail({
     expectedDate: string | null;
     onBack: () => void;
 }) {
+    const dataComponent = useClientServiceRecordsDataComponent("sessions-card", "row", "detail");
     const answers = getAnswerObject(record?.answers ?? {});
     const unknownEntries = Object.entries(answers)
         .filter(([key, value]) => !SERVICE_RECORD_LAYOUT_ANSWER_KEYS.has(key) && hasDisplayValue(value));
     const statusTone: SessionTone = record ? (record.locked ? "green" : "orange") : "muted";
 
     return (
-        <div className="message-detail pop-up" data-component="mobile-clients-service-records-session-detail">
+        <div className="message-detail pop-up" data-component={dataComponent}>
             <button
                 type="button"
                 className="message-detail-back"
-                data-component="mobile-clients-service-records-session-detail-back"
+                data-component={`${dataComponent}_back`}
                 onClick={onBack}
             >
-                <ChevronLeft size={14} aria-hidden="true" />
-                이전
+                <span aria-hidden="true">‹ </span>
+                목록으로
             </button>
 
             <div className="message-detail-head">
@@ -564,7 +618,7 @@ function ServiceRecordSessionDetail({
             </div>
 
             {SERVICE_RECORD_FORM_LAYOUT.map((section) => (
-                <InfoCard key={section.id} title={section.title}>
+                <InfoCard data-component={`${dataComponent}_section-${section.id}`} key={section.id} title={section.title}>
                     {section.fields.map((field) => (
                         <SessionFieldRow
                             key={field.key}
@@ -577,7 +631,7 @@ function ServiceRecordSessionDetail({
             ))}
 
             {unknownEntries.length > 0 ? (
-                <InfoCard title="기타 항목">
+                <InfoCard data-component={`${dataComponent}_other-fields`} title="기타 항목">
                     {unknownEntries.map(([key, value]) => (
                         <InfoRow key={key} label={key} value={formatUnknownValue(value)} />
                     ))}
@@ -811,9 +865,15 @@ function SkeletonInfoRow({
 }
 
 function ServiceRecordsSkeleton() {
+    const dataComponent = useClientServiceRecordsDataComponent("skeleton");
     return (
-        <div className="detail-column" data-component="mobile-clients-service-records-skeleton" aria-hidden>
-            <div className="info-card pop-up" data-component="mobile-clients-service-records-link-skeleton">
+        <div
+            data-component={dataComponent}
+            data-slot="client-service-records"
+            className="detail-column"
+            aria-hidden
+        >
+            <div className="info-card pop-up" data-component={`${dataComponent}_link-card`}>
                 <Skeleton className={cn(SERVICE_RECORD_SKELETON_CLASS, "info-card-title h-3 w-32 rounded-md")} />
                 <SkeletonInfoRow labelClassName="w-8" valueClassName="w-14" />
                 <SkeletonInfoRow labelClassName="w-14" valueClassName="w-36" />
@@ -823,13 +883,13 @@ function ServiceRecordsSkeleton() {
                 <SkeletonInfoRow labelClassName="w-16" valueClassName="w-36" />
                 <Skeleton className={cn(SERVICE_RECORD_SKELETON_CLASS, "mt-3 h-10 w-full rounded-2xl")} />
             </div>
-            <div className="info-card pop-up" data-component="mobile-clients-service-records-header-skeleton">
+            <div className="info-card pop-up" data-component={`${dataComponent}_header-card`}>
                 <Skeleton className={cn(SERVICE_RECORD_SKELETON_CLASS, "info-card-title h-3 w-24 rounded-md")} />
                 {Array.from({ length: 6 }, (_, index) => (
                     <SkeletonInfoRow key={index} labelClassName="w-16" valueClassName="w-28" />
                 ))}
             </div>
-            <div className="info-card pop-up" data-component="mobile-clients-service-records-sessions-skeleton">
+            <div className="info-card pop-up" data-component={`${dataComponent}_sessions-card`}>
                 <div className="service-record-card-title-row">
                     <Skeleton className={cn(SERVICE_RECORD_SKELETON_CLASS, "info-card-title h-3 w-24 rounded-md")} />
                     <Skeleton className={cn(SERVICE_RECORD_SKELETON_CLASS, "h-3 w-20 rounded-md")} />

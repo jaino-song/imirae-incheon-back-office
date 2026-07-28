@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Inject, Logger, NotFoundException, Optional } from "@nestjs/common";
-import { normalizePhone } from "application/utils/normalize-phone";
+import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 import {
     CreateClientUsecase,
     DeleteClientUsecase,
@@ -33,6 +33,7 @@ const CREATED_DOCUMENT_STATUS_TYPES = new Set(["001", "002", "010", "043"]);
 const REQUESTED_DOCUMENT_STATUS_TYPES = new Set(["030", "060", "070"]);
 const CONTRACT_AUTO_REGISTRATION_SOURCE = "contract_auto_registration";
 const DEFAULT_SERVICE_PERIOD_MS = 365 * 24 * 60 * 60 * 1000;
+const PHONE_LOOKUP_SUFFIX_LENGTH = 4;
 
 // Document status type for eformsign documents
 // Maps to eformsign_doc.statusType values:
@@ -171,6 +172,88 @@ export class ClientService {
         if (!isServiceStatus(status)) {
             throw new BadRequestException(
                 `serviceStatus must be one of: ${SERVICE_STATUS_VALUES.join(", ")}`
+            );
+        }
+    }
+
+    private async linkContractDocumentsByPhone(
+        branchid: string,
+        client: ClientEntity,
+        normalizedPhone: string,
+    ): Promise<void> {
+        const phoneLookupSuffix = normalizedPhone.slice(-PHONE_LOOKUP_SUFFIX_LENGTH);
+
+        try {
+            const candidateDocs = await this.prismaService.eformsign_doc.findMany({
+                where: {
+                    branchId: branchid,
+                    serviceRecordCaseId: null,
+                    stepRecipientSms: { contains: phoneLookupSuffix },
+                    OR: [
+                        { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
+                        { documentKind: null },
+                    ],
+                },
+                orderBy: [
+                    { createdDate: "desc" },
+                    { id: "desc" },
+                ],
+                select: {
+                    id: true,
+                    documentId: true,
+                    clientId: true,
+                    stepRecipientSms: true,
+                },
+            });
+            const matchingDocs = candidateDocs.filter((doc) =>
+                extractPhoneCandidates(doc.stepRecipientSms).includes(normalizedPhone),
+            );
+            const documentIdsToReassign = matchingDocs
+                .filter((doc) => doc.clientId !== client.id)
+                .map((doc) => doc.id);
+            const latestContract = matchingDocs[0];
+            const shouldUpdateClientDocument = latestContract !== undefined
+                && client.eDocId !== latestContract.documentId;
+
+            if (documentIdsToReassign.length === 0 && !shouldUpdateClientDocument) {
+                return;
+            }
+
+            await this.prismaService.$transaction(async (transaction) => {
+                if (documentIdsToReassign.length > 0) {
+                    const reassigned = await transaction.eformsign_doc.updateMany({
+                        where: {
+                            branchId: branchid,
+                            id: { in: documentIdsToReassign },
+                        },
+                        data: { clientId: client.id },
+                    });
+                    if (reassigned.count !== documentIdsToReassign.length) {
+                        throw new Error("Contract document reassignment was incomplete");
+                    }
+                }
+
+                if (shouldUpdateClientDocument) {
+                    const updated = await transaction.client.updateMany({
+                        where: {
+                            id: client.id,
+                            branchId: branchid,
+                        },
+                        data: { eDocId: latestContract.documentId },
+                    });
+                    if (updated.count !== 1) {
+                        throw new Error("Client contract pointer update failed");
+                    }
+                }
+            });
+
+            if (shouldUpdateClientDocument) {
+                client.update({ eDocId: latestContract.documentId });
+            }
+        } catch (error) {
+            const errorType = error instanceof Error ? error.name : "UnknownError";
+            this.logger.error(
+                `[CLIENT_CONTRACT_PHONE_LINK_FAILED] 고객 ${client.id} 계약서 자동 연결 실패 (${errorType})`,
             );
         }
     }
@@ -457,10 +540,11 @@ export class ClientService {
                         this.serviceRecordLinkService
                             ?.scheduleForServiceStart(assignment.createdScheduleId)
                             ?.catch((error) => {
-                                this.logger.error(`Failed to schedule feedback link SMS: ${error}`);
+                                this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
                             });
                     }
                 }
+                await this.linkContractDocumentsByPhone(branchid, existing, normalizedPhone);
                 await this.serviceRecordLifecycleService?.ensureForClient(existing.id);
                 return existing;
             }
@@ -516,6 +600,9 @@ export class ClientService {
             client = await this.createClientUsecase.execute(branchid, createParams);
         }
 
+        if (normalizedPhone) {
+            await this.linkContractDocumentsByPhone(branchid, client, normalizedPhone);
+        }
         await this.serviceRecordLifecycleService?.ensureForClient(client.id);
 
         if (this.triggerService && applyMessageAutomation) {
@@ -535,7 +622,7 @@ export class ClientService {
             this.serviceRecordLinkService
                 ?.scheduleForServiceStart(createdScheduleId)
                 ?.catch((error) => {
-                    this.logger.error(`Failed to schedule feedback link SMS: ${error}`);
+                    this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
                 });
         }
 
@@ -974,6 +1061,10 @@ export class ClientService {
         if (!updatedClient) {
             throw new NotFoundException(`Client with id ${id} not found`);
         }
+        const updatedPhone = normalizePhone(updatedClient.phone);
+        if (updatedPhone) {
+            await this.linkContractDocumentsByPhone(branchid, updatedClient, updatedPhone);
+        }
         await this.serviceRecordLifecycleService?.ensureForClient(id);
         if (this.triggerService) {
             await this.triggerService.syncClientRulesForClient(branchid, id, false).catch((error) => {
@@ -989,7 +1080,7 @@ export class ClientService {
             this.serviceRecordLinkService
                 ?.scheduleForServiceStart(createdScheduleId)
                 ?.catch((error) => {
-                    this.logger.error(`Failed to schedule feedback link SMS: ${error}`);
+                    this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
                 });
         }
         return updatedClient;
@@ -1037,7 +1128,7 @@ export class ClientService {
             data: { endDate: new Date() },
         });
 
-        // Revoke any outstanding feedback links for this client's active assignments
+        // Revoke any outstanding service-record links for this client's active assignments
         const activeSchedules = await this.prismaService.employee_schedule.findMany({
             where: { clientId: clientId, replaced: false },
             select: { id: true },
@@ -1129,7 +1220,7 @@ export class ClientService {
         this.serviceRecordLinkService
             ?.scheduleForServiceStart(replacementSchedule.id)
             ?.catch((error) => {
-                this.logger.error(`Failed to schedule replacement feedback link SMS: ${error}`);
+                this.logger.error(`Failed to schedule replacement service-record link SMS: ${error}`);
             });
 
         const updatedClient = await this.findClientByIdUsecase.execute(branchid, clientId);

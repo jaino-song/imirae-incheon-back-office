@@ -24,7 +24,7 @@ type PersistedChunkLayout = {
     employeeNameSnapshot: string;
 };
 
-/** base-only env (only EFORMSIGN_FEEDBACK_TEMPLATE_ID set) — preserves the pre-multi-tier 5-only chunking. */
+/** base-only env (only EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID set) — preserves the pre-multi-tier 5-only chunking. */
 const BASE_ONLY_TIERS = [5];
 const BASE_ONLY_TEMPLATE_BY_TIER = new Map([[5, "template-1"]]);
 
@@ -217,7 +217,7 @@ describe("client-owned service record snapshot", () => {
         );
         const reader = usecase as unknown as { getConfiguredTiers(): unknown };
 
-        expect(() => reader.getConfiguredTiers()).toThrow(/EFORMSIGN_FEEDBACK_TEMPLATE_ID/);
+        expect(() => reader.getConfiguredTiers()).toThrow(/EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID/);
     });
 
     it("sizes each provider segment to the smallest fitting tier and carries that tier's templateId", () => {

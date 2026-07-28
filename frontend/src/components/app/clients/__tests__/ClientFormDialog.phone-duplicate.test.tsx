@@ -64,6 +64,10 @@ describe("ClientFormPanel phone duplicate check", () => {
 
     const nameInput = screen.getByLabelText(/이름/);
     expect(nameInput).toHaveAttribute("placeholder", "홍길동");
+    expect(screen.getByLabelText(/주소/)).toHaveAttribute(
+      "placeholder",
+      "예: 인천광역시 서구",
+    );
     fireEvent.change(nameInput, { target: { value: "홍길동" } });
     fireEvent.change(screen.getByLabelText(/생년월일/), { target: { value: "900101" } });
     fireEvent.change(screen.getByLabelText(/출산 예정일/), { target: { value: "260101" } });
@@ -84,9 +88,7 @@ describe("ClientFormPanel phone duplicate check", () => {
     const phoneLabel = screen.getByText("연락처", { selector: "label" });
 
     expect(phoneLabel.parentElement).toContainElement(availableMessage);
-    expect(phoneLabel.parentElement).toHaveAttribute(
-      "data-component",
-      "clients-form-panel-phone-input-label-row",
+    expect(phoneLabel.parentElement).toHaveAttribute("data-component", "desktop_clients_form-panel_phone-input_label-row",
     );
     await waitFor(() => expect(nextButton).toBeEnabled());
     expect(phoneInput).not.toHaveAttribute("aria-invalid");

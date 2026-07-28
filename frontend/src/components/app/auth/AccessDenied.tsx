@@ -4,7 +4,7 @@ import Link from 'next/link';
 
 export function AccessDenied() {
   return (
-    <div data-component="access-denied" className="flex items-center justify-center min-h-screen bg-background">
+    <div data-component="desktop_shell_access-denied" className="flex items-center justify-center min-h-screen bg-background">
       <div className="text-center px-6 py-12 max-w-md">
         <div className="mb-6 flex justify-center">
           <svg

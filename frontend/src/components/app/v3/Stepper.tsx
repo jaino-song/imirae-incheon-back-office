@@ -99,7 +99,7 @@ function resolveState(step: StepperStep, index: number, activeStep?: number): St
 const STATE_CIRCLE: Record<StepState, string> = {
   done:    "bg-v3-primary text-white",
   active:  "bg-v3-primary text-white ring-2 ring-v3-primary/30 ring-offset-1",
-  pending: "bg-v3-dim-white text-v3-text-muted",
+  pending: "border-2 border-v3-border bg-v3-dim-white text-v3-text-muted",
 };
 
 interface RenderedStepperStep {
@@ -189,9 +189,9 @@ export function Stepper({
 
       return (
         <React.Fragment key={`${originalIndex}-${step.label}`}>
-          <div data-component={exposeDataComponents ? "stepper-step" : undefined} className="relative flex flex-col items-center">
+          <div data-component={exposeDataComponents ? "desktop_v3_stepper_step" : undefined} className="relative flex flex-col items-center">
             <div
-              data-component={exposeDataComponents ? "stepper-circle" : undefined}
+              data-component={exposeDataComponents ? "desktop_v3_stepper_circle" : undefined}
               className={cn(
                 "rounded-full flex items-center justify-center font-bold",
                 tokens.circle,
@@ -202,7 +202,7 @@ export function Stepper({
               {indicator}
             </div>
             <span
-              data-component={exposeDataComponents ? "stepper-label" : undefined}
+              data-component={exposeDataComponents ? "desktop_v3_stepper_label" : undefined}
               className={cn(
                 "mt-[calc(4px*var(--glint-ui-scale,1))] whitespace-nowrap text-center",
                 tokens.label,
@@ -215,7 +215,7 @@ export function Stepper({
 
           {visibleIndex < items.length - 1 && (
             <div
-              data-component={exposeDataComponents ? "stepper-connector" : undefined}
+              data-component={exposeDataComponents ? "desktop_v3_stepper_connector" : undefined}
               className={cn(
                 "flex flex-1 items-center select-none",
                 tokens.connector,
@@ -244,7 +244,7 @@ export function Stepper({
 
     const root = rootRef.current;
     const measurement = measurementRef.current;
-    const header = root?.closest<HTMLElement>('[data-component="detail-panel-header"]');
+    const header = root?.closest<HTMLElement>('[data-slot="detail-panel-header"]');
     const headerRow = header?.firstElementChild instanceof HTMLElement ? header.firstElementChild : null;
     const titleGroup = headerRow?.firstElementChild instanceof HTMLElement ? headerRow.firstElementChild : null;
     const trailingGroup = headerRow?.lastElementChild instanceof HTMLElement ? headerRow.lastElementChild : null;
@@ -262,7 +262,7 @@ export function Stepper({
       const fullStepperWidth = measurement.getBoundingClientRect().width;
       const currentTrailingWidth = trailingGroup.getBoundingClientRect().width;
       const fullTrailingWidth = Math.max(0, currentTrailingWidth - currentStepperWidth) + fullStepperWidth;
-      const subtitle = titleGroup.querySelector<HTMLElement>('[data-component="detail-panel-subtitle"]');
+      const subtitle = titleGroup.querySelector<HTMLElement>('[data-slot="panel-subtitle"]');
       const requiredTitleWidth = Math.max(titleGroup.scrollWidth, subtitle?.scrollWidth ?? 0);
       const requiredWidth = requiredTitleWidth + rowGap + fullTrailingWidth;
 
@@ -290,7 +290,7 @@ export function Stepper({
   return (
     <div
       ref={rootRef}
-      data-component="stepper"
+      data-component="desktop_v3_stepper"
       data-collapsed={isCollapsed ? "true" : "false"}
       className={cn("relative flex items-start", tokens.root, className)}
     >
@@ -298,7 +298,7 @@ export function Stepper({
         // Leading "more" affordance — no connector to the first visible step,
         // so it reads as "earlier steps", not another link.
         <div
-          data-component="stepper-ellipsis"
+          data-component="desktop_v3_stepper_ellipsis"
           title="이전 단계"
           className="flex flex-col items-center"
         >

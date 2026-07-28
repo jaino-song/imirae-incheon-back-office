@@ -8,7 +8,7 @@ const env = {
     DIRECT_URL: databaseUrl,
     NODE_ENV: "test",
     E2E_VENDOR_STUBS: "1",
-    EFORMSIGN_FEEDBACK_TEMPLATE_ID: "tpl-test",
+    EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID: "tpl-test",
 };
 
 function run(command, args, options = {}) {

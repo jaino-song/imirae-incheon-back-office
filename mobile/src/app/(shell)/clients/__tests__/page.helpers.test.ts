@@ -1,6 +1,9 @@
 import type { Client } from "@/lib/client/types";
 
-import { buildAllClientRowsForList, groupForClient } from "../page";
+import {
+  buildAllClientRowsForList,
+  groupForClient,
+} from "@/lib/client/list-helpers";
 
 function createClient(id: number, serviceStatus: Client["serviceStatus"]): Client {
   return {

@@ -4,6 +4,9 @@ import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface VariableInserterProps {
+  /** Caller-context canonical value for this node. */
+  "data-component": string;
+
     onInsert: (key: string) => void;
 }
 
@@ -20,7 +23,7 @@ const PRESET_VARIABLES = [
     { key: "employeeName", label: "직원명" },
 ];
 
-export const VariableInserter = ({ onInsert }: VariableInserterProps) => {
+export const VariableInserter = ({ "data-component": dataComponent, onInsert }: VariableInserterProps) => {
     const handleAddCustom = () => {
         const key = prompt("변수 키를 입력하세요 (영문 권장):");
         if (key) {
@@ -29,7 +32,7 @@ export const VariableInserter = ({ onInsert }: VariableInserterProps) => {
     };
 
     return (
-        <div data-component="my-templates-variable-inserter" className="flex flex-row flex-wrap gap-2">
+        <div data-component={dataComponent} className="flex flex-row flex-wrap gap-2">
             {PRESET_VARIABLES.map((v) => (
                 <Badge
                     key={v.key}

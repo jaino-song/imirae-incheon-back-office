@@ -10,6 +10,8 @@ import type {
 } from "@babyjamjam/shared/types/service-record";
 
 const mockMutateAsync = jest.fn();
+const TEST_COMPONENT =
+    "mobile_clients_detail-sheet_stack_detail-page_content_tab-panel_service-records_content";
 
 jest.mock("@/hooks/useServiceRecords", () => ({
     useSendServiceRecordLink: () => ({
@@ -85,6 +87,7 @@ function renderComponent(
 ) {
     return render(
         <ClientServiceRecords
+            data-component={TEST_COMPONENT}
             client={client}
             activeTab="serviceRecords"
             overview={overview}
@@ -119,6 +122,26 @@ describe("ClientServiceRecords", () => {
         expect(screen.queryAllByText(/메시지 재전송 시/)).toHaveLength(0);
     });
 
+    it("formats the newborn birth date instead of exposing raw YYMMDD", () => {
+        const assignment = createAssignment(1, "sent");
+        assignment.header = {
+            momName: "고명순",
+            momBirth: "900101",
+            babyName: "아가",
+            babyBirth: "260703",
+            deliveryType: "자연분만",
+            babyWeight: "3.2",
+            createdAt: "2026-07-03T00:00:00.000Z",
+            updatedAt: "2026-07-03T00:00:00.000Z",
+        };
+
+        renderComponent({ assignments: [assignment] });
+
+        expect(screen.getByText("신생아 출생일자").closest("div"))
+            .toHaveTextContent("2026.07.03");
+        expect(screen.queryByText("260703")).not.toBeInTheDocument();
+    });
+
     it("uses the document lifecycle as the visible status once a record exists", () => {
         const { container } = renderComponent({
             record: createRecord("COMPLETED"),
@@ -126,7 +149,7 @@ describe("ClientServiceRecords", () => {
         });
 
         const statusCard = container.querySelector(
-            '[data-component="mobile-clients-service-records-status-card"]',
+            `[data-component="${TEST_COMPONENT}_status-card"]`,
         );
 
         expect(statusCard).toHaveTextContent("제공기록지 진행 상태");
@@ -135,11 +158,11 @@ describe("ClientServiceRecords", () => {
         expect(screen.queryByText("발송됨")).not.toBeInTheDocument();
     });
 
-    it("shows the finalized electronic document status like desktop", () => {
+    it("maps completed signature status text to desktop-equivalent label", () => {
         const record = createRecord("COMPLETED");
         record.signatureDocs = [{
             documentId: "service-record-document-1",
-            statusDetail: "완료",
+            statusDetail: "COMPLETED",
             stepName: "완료",
             createdDate: "2099-07-30T18:30:00+09:00",
             updatedDate: "2099-07-30T19:00:00+09:00",
@@ -152,12 +175,29 @@ describe("ClientServiceRecords", () => {
         });
 
         const documentCard = container.querySelector(
-            '[data-component="mobile_clients_service-records_signature-card"]',
+            `[data-component="${TEST_COMPONENT}_signature-card"]`,
         );
 
         expect(documentCard).toHaveTextContent("제공기록지 전자문서 1");
-        expect(documentCard).toHaveTextContent("완료");
+        expect(documentCard).toHaveTextContent("서명 완료");
         expect(documentCard).toHaveTextContent("service-record-document-1");
+    });
+
+    it("normalizes uppercase completed document statuses", () => {
+        const record = createRecord("COMPLETED");
+        record.signatureDocs = [{
+            documentId: "service-record-document-uppercase",
+            statusDetail: "COMPLETED",
+            stepName: "완료",
+            createdDate: "2099-07-30T18:30:00+09:00",
+            updatedDate: "2099-07-30T19:00:00+09:00",
+            snapshotChunkIndex: 1,
+        }];
+
+        renderComponent({ record, assignments: [createAssignment(1, "sent")] });
+
+        expect(screen.getByText("서명 완료")).toBeInTheDocument();
+        expect(screen.queryByText("COMPLETED")).not.toBeInTheDocument();
     });
 
     it("shows the document lifecycle even when no assignment remains", () => {
@@ -242,9 +282,9 @@ describe("ClientServiceRecords", () => {
         await user.click(screen.getByText(/1회차 ·/));
 
         expect(screen.getByText("1회차 제공기록")).toBeInTheDocument();
-        const backButton = screen.getByRole("button", { name: "이전" });
+        const backButton = screen.getByRole("button", { name: "목록으로" });
         expect(backButton).toBeInTheDocument();
-        expect(backButton.querySelector("svg")).toBeInTheDocument();
+        expect(backButton.querySelector("span")).toHaveTextContent("‹");
         expect(screen.getByText("완료")).toBeInTheDocument();
         expect(screen.queryByText("✓ 완료")).not.toBeInTheDocument();
     });
@@ -261,7 +301,7 @@ describe("ClientServiceRecords", () => {
 
         expect(screen.getByText("1회차 제공기록")).toBeInTheDocument();
         expect(screen.getAllByText("-").length).toBeGreaterThan(0);
-        expect(screen.getByRole("button", { name: "이전" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "목록으로" })).toBeInTheDocument();
     });
 
     it("resets the mobile detail scroll before opening a session", async () => {
@@ -275,6 +315,7 @@ describe("ClientServiceRecords", () => {
         const { container } = render(
             <div className="detail-body">
                 <ClientServiceRecords
+                    data-component={TEST_COMPONENT}
                     client={client}
                     activeTab="serviceRecords"
                     overview={{ assignments: [createAssignment(1, "sent")] }}

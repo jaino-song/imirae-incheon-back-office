@@ -1,5 +1,11 @@
 # 아이미래로 인천 백오피스 디자인 시스템
 
+> ⚠️ **부분 노후 문서.** 색상 토큰·타이포·애니메이션 표(§2–§3, §5–§6)는 여전히 참고 가능하지만,
+> §4 컴포넌트 아키텍처의 디렉토리 구조는 Vite 시절 설명으로 현재 코드와 다르다.
+> 현재 canonical은 [`docs/design-system/`](../design-system/AGENT_UI_RULES.md)
+> (작업 규칙 + [component-manifest.json](../design-system/component-manifest.json))과
+> [`frontend/docs/design-system/README.md`](../../frontend/docs/design-system/README.md)(설계 원칙)다.
+
 ## 1. 개요 (Overview)
 
 ### 프로젝트 정보

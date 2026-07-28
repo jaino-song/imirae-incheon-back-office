@@ -28,9 +28,15 @@ type Step = "upload" | "preview" | "success";
 const steps = ["이미지 업로드", "데이터 확인", "완료"];
 
 // 연도 선택 옵션 생성 (현재 연도 기준 -1 ~ +2)
-const generateYearOptions = (): number[] => {
+const generateYearOptions = (initialYear?: number): number[] => {
   const currentYear = new Date().getFullYear();
-  return [currentYear - 1, currentYear, currentYear + 1, currentYear + 2];
+  return Array.from(new Set([
+    currentYear - 1,
+    currentYear,
+    currentYear + 1,
+    currentYear + 2,
+    ...(initialYear === undefined ? [] : [initialYear]),
+  ])).sort((a, b) => a - b);
 };
 
 // 현재 단계의 인덱스 반환
@@ -43,11 +49,14 @@ const getStepIndex = (step: Step): number => {
   }
 };
 
-export function VoucherPriceUploadForm() {
+const VOUCHER_UPLOAD_BASE =
+  "mobile_prices_page_detail-sheet_stack_detail-page_upload_form";
+
+export function VoucherPriceUploadForm({ initialYear }: { initialYear?: number } = {}) {
   const [currentStep, setCurrentStep] = useState<Step>("upload");
   const [parsedData, setParsedData] = useState<ParsedVoucherPriceItem[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState<number>(initialYear ?? new Date().getFullYear());
   const [updateResult, setUpdateResult] = useState<{
     updated: number[];
     created: number[];
@@ -56,7 +65,7 @@ export function VoucherPriceUploadForm() {
 
   const parseImageMutation = useParseVoucherImage();
   const bulkUpdateMutation = useBulkUpdateVoucherPrices();
-  const yearOptions = generateYearOptions();
+  const yearOptions = generateYearOptions(initialYear);
   const activeStep = getStepIndex(currentStep);
 
   const handleFileSelect = useCallback(
@@ -108,11 +117,11 @@ export function VoucherPriceUploadForm() {
     setCurrentStep("upload");
     setParsedData([]);
     setWarnings([]);
-    setSelectedYear(new Date().getFullYear());
+    setSelectedYear(initialYear ?? new Date().getFullYear());
     setUpdateResult(null);
     parseImageMutation.reset();
     bulkUpdateMutation.reset();
-  }, [parseImageMutation, bulkUpdateMutation]);
+  }, [initialYear, parseImageMutation, bulkUpdateMutation]);
 
   const handleBackToUpload = useCallback(() => {
     setCurrentStep("upload");
@@ -122,7 +131,7 @@ export function VoucherPriceUploadForm() {
   }, [parseImageMutation]);
 
   return (
-    <ContentPaper variant="v3" data-component="settings-voucher-upload-form">
+    <ContentPaper variant="v3" data-component={VOUCHER_UPLOAD_BASE}>
       {/* 헤더 */}
       <div className="mb-4">
         <h2 className="text-lg font-bold text-foreground">바우처 요금표 업데이트</h2>
@@ -174,6 +183,7 @@ export function VoucherPriceUploadForm() {
       {currentStep === "upload" && (
         <div className="animate-fade-in" style={{ animationDelay: "100ms" }}>
           <ImageDropzone
+            data-component={`${VOUCHER_UPLOAD_BASE}_image-dropzone`}
             onFileSelect={handleFileSelect}
             isLoading={parseImageMutation.isPending}
             error={
@@ -213,6 +223,7 @@ export function VoucherPriceUploadForm() {
           </div>
 
           <ParsedDataPreview
+            data-component={`${VOUCHER_UPLOAD_BASE}_parsed-data`}
             data={parsedData}
             warnings={warnings}
             onDataChange={handleDataChange}

@@ -62,7 +62,7 @@ export const ServiceInfoMessageForm = ({
           setMessageOverride(null);
         }}
         placeholder={t(locale, "service-info-msg.name-placeholder")}
-        dataComponent="messages-service-info-name-input"
+        dataComponent="desktop_messages_sections_service-info-name-input"
       />
     </TemplateFieldGridItem>
   );
@@ -87,7 +87,7 @@ export const ServiceInfoMessageForm = ({
 
   return (
     <TemplateMessageFormFrame
-      dataComponent="messages-service-info-form"
+      dataComponent="desktop_messages_sections_service-info-form"
       fields={fields}
       messageCard={messageCard}
       requiresRecipientName
