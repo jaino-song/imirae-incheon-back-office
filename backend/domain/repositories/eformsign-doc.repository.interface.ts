@@ -13,6 +13,21 @@ export interface EformsignDocDisplayFields {
     customerName: string | null;
 }
 
+export interface EformsignDocUnscopedResult {
+    document: EformsignDocEntity;
+    branchId: string | null;
+}
+
+export class EformsignDocMappingError extends Error {
+    readonly originalError: unknown;
+
+    constructor(documentId: string, originalError: unknown) {
+        super(`Failed to map eformsign document ${documentId}`);
+        this.name = EformsignDocMappingError.name;
+        this.originalError = originalError;
+    }
+}
+
 export interface EformsignDocCompletionClaimParams {
     documentId: string;
     statusType: string;
@@ -29,6 +44,7 @@ export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missi
 export interface IEformsignDocRepository {
     findById(branchid: string, id: number): Promise<EformsignDocEntity | null>;
     findByDocumentId(branchid: string, documentId: string): Promise<EformsignDocEntity | null>;
+    findByDocumentIdUnscoped(documentId: string): Promise<EformsignDocUnscopedResult | null>;
     findBranchIdByDocumentId(documentId: string): Promise<string | null>;
     claimCompletionStatus(
         branchid: string,
@@ -45,6 +61,7 @@ export interface IEformsignDocRepository {
     create(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     update(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
+    upsertUnassignedByDocumentId(doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     delete(branchid: string, id: number): Promise<void>;
     deleteByDocumentId(branchid: string, documentId: string): Promise<void>;
 }

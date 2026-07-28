@@ -6,6 +6,8 @@ import {
     EformsignDocCompletionClaimResult,
     EformsignDocClientSummary,
     EformsignDocDisplayFields,
+    EformsignDocMappingError,
+    EformsignDocUnscopedResult,
     IEformsignDocRepository,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -92,6 +94,20 @@ const omitPendingEformsignDocColumns = <T extends {
     return legacyData;
 };
 
+const toUnscopedResult = (
+    documentId: string,
+    row: Parameters<typeof EformsignDocMapper.toDomain>[0] & { branchId: string | null },
+): EformsignDocUnscopedResult => {
+    try {
+        return {
+            document: EformsignDocMapper.toDomain(row),
+            branchId: row.branchId,
+        };
+    } catch (error) {
+        throw new EformsignDocMappingError(documentId, error);
+    }
+};
+
 @Injectable()
 export class SbEformsignDocRepository implements IEformsignDocRepository {
     constructor(private readonly prismaService: PrismaService) {}
@@ -102,6 +118,36 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
     async findByDocumentId(branchid: string, documentId: string): Promise<EformsignDocEntity | null> {
         return this.findFirstDomain({ documentId: documentId, branchId: branchid });
+    }
+
+    async findByDocumentIdUnscoped(documentId: string): Promise<EformsignDocUnscopedResult | null> {
+        try {
+            const doc = await this.prismaService.eformsign_doc.findUnique({
+                where: { documentId },
+            });
+            return doc ? toUnscopedResult(documentId, doc) : null;
+        } catch (error) {
+            if (error instanceof EformsignDocMappingError) {
+                throw error;
+            }
+            if (!isPendingEformsignDocColumnError(error)) {
+                throw error;
+            }
+
+            const doc = await this.prismaService.eformsign_doc.findUnique({
+                where: { documentId },
+                select: {
+                    ...EFORMSIGN_DOC_COMPAT_READ_SELECT,
+                    branchId: true,
+                },
+            });
+            return doc
+                ? toUnscopedResult(documentId, {
+                    ...toCompatDomainRow(doc),
+                    branchId: doc.branchId,
+                })
+                : null;
+        }
     }
 
     async findBranchIdByDocumentId(documentId: string): Promise<string | null> {
@@ -348,60 +394,90 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
     }
 
     async upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity> {
-        const createData = {
+        const existingOwner = await this.prismaService.eformsign_doc.findUnique({
+            where: { documentId: doc.documentId },
+            select: { branchId: true },
+        });
+        if (existingOwner?.branchId && existingOwner.branchId !== branchid) {
+            throw new Error(`Eformsign document ${doc.documentId} belongs to another branch`);
+        }
+
+        const create = {
             ...EformsignDocMapper.toPrismaCreate(doc),
             branchId: branchid,
         };
-        const existing = await this.prismaService.eformsign_doc.findFirst({
-            where: { documentId: doc.documentId, branchId: branchid },
-            select: { id: true },
-        });
-        if (existing) {
-            const updateData = {
-                ...EformsignDocMapper.toPrismaUpdate(doc),
-                branchId: branchid,
-            };
-            let result: Prisma.BatchPayload;
-
-            try {
-                result = await this.prismaService.eformsign_doc.updateMany({
-                    where: { id: existing.id, branchId: branchid },
-                    data: updateData,
-                });
-            } catch (error) {
-                if (!isPendingEformsignDocColumnError(error)) {
-                    throw error;
-                }
-
-                result = await this.prismaService.eformsign_doc.updateMany({
-                    where: { id: existing.id, branchId: branchid },
-                    data: omitPendingEformsignDocColumns(updateData),
-                });
-            }
-
-            if (result.count === 0) {
-                throw new Error("Eformsign doc not found for branch");
-            }
-            const updated = await this.findFirstDomain({ id: existing.id, branchId: branchid });
-            if (!updated) {
-                throw new Error("Eformsign doc not found after update");
-            }
-            return updated;
-        }
+        const update: Partial<ReturnType<typeof EformsignDocMapper.toPrismaUpdate>> & {
+            branchId: string;
+        } = {
+            ...EformsignDocMapper.toPrismaUpdate(doc),
+            branchId: branchid,
+        };
+        delete update.documentId;
 
         try {
-            const created = await this.prismaService.eformsign_doc.create({ data: createData });
-            return EformsignDocMapper.toDomain(created);
+            const upserted = await this.prismaService.eformsign_doc.upsert({
+                where: { documentId: doc.documentId },
+                create,
+                update,
+            });
+            return EformsignDocMapper.toDomain(upserted);
         } catch (error) {
             if (!isPendingEformsignDocColumnError(error)) {
                 throw error;
             }
 
-            const created = await this.prismaService.eformsign_doc.create({
-                data: omitPendingEformsignDocColumns(createData),
+            const upserted = await this.prismaService.eformsign_doc.upsert({
+                where: { documentId: doc.documentId },
+                create: omitPendingEformsignDocColumns(create),
+                update: omitPendingEformsignDocColumns(update),
                 select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
             });
-            return EformsignDocMapper.toDomain(toCompatDomainRow(created));
+            return EformsignDocMapper.toDomain(toCompatDomainRow(upserted));
+        }
+    }
+
+    async upsertUnassignedByDocumentId(doc: EformsignDocEntity): Promise<EformsignDocEntity> {
+        const documentName = doc.documentName?.trim() || undefined;
+        const documentNumber = doc.documentNumber?.trim() || undefined;
+        const templateId = doc.templateId?.trim() || undefined;
+        const create = {
+            ...EformsignDocMapper.toPrismaCreate(doc),
+            documentName: documentName ?? null,
+            documentNumber: documentNumber ?? null,
+            templateId: templateId ?? null,
+            branchId: null,
+        };
+        const update = {
+            statusType: doc.statusType,
+            statusDetail: doc.statusDetail,
+            stepType: doc.stepType,
+            stepIndex: doc.stepIndex,
+            stepName: doc.stepName,
+            expired: doc.expired,
+            updatedDate: doc.updatedDate,
+            ...(documentName ? { documentName } : {}),
+            ...(templateId ? { templateId } : {}),
+        };
+
+        try {
+            const upserted = await this.prismaService.eformsign_doc.upsert({
+                where: { documentId: doc.documentId },
+                create,
+                update,
+            });
+            return EformsignDocMapper.toDomain(upserted);
+        } catch (error) {
+            if (!isPendingEformsignDocColumnError(error)) {
+                throw error;
+            }
+
+            const upserted = await this.prismaService.eformsign_doc.upsert({
+                where: { documentId: doc.documentId },
+                create: omitPendingEformsignDocColumns(create),
+                update: omitPendingEformsignDocColumns(update),
+                select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
+            });
+            return EformsignDocMapper.toDomain(toCompatDomainRow(upserted));
         }
     }
 

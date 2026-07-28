@@ -1,6 +1,8 @@
 import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
 import { UpdateEformsignDocStatusUsecase } from "application/usecases/eformsign-doc/update-eformsign-doc-status.usecase";
 import { LinkDocumentToClientUsecase } from "application/usecases/eformsign-doc/link-document-to-client.usecase";
+import { MirrorUnassignedEformsignDocUsecase } from "application/usecases/eformsign-doc/mirror-unassigned-eformsign-doc.usecase";
+import { TERMINAL_STATUS_CODES } from "application/usecases/eformsign-doc/eformsign-doc-status.constants";
 import {
     SyncClientEndDateUsecase,
     type SyncedClientEndDate,
@@ -14,10 +16,14 @@ import {
     type EformsignApiDocumentResponse,
     type IEformsignClientRepository,
 } from "domain/repositories/eformsign.client.interface";
-import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
+import {
+    EFORMSIGN_DOC_REPOSITORY,
+    EformsignDocMappingError,
+    IEformsignDocRepository,
+} from "domain/repositories/eformsign-doc.repository.interface";
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
 import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
-import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import { EformsignDocEntity, EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
     SERVICE_RECORD_CASE_STATUS,
@@ -65,6 +71,10 @@ const EVENT_TYPES = {
 };
 
 const REVIEW_REQUIRED_NOTIFICATION_TYPE = "eformsign-review-required";
+
+type LocalDocumentLookupResult =
+    | { branchId: null; document: EformsignDocEntity }
+    | { branchId: string; document?: EformsignDocEntity };
 
 const STATUS_NAME_TO_CODE: Record<string, string> = {
     doc_complete: "003",
@@ -115,6 +125,7 @@ export class EformsignWebhookService {
         private readonly employeeScheduleRepository: IEmployeeScheduleRepository,
         @Inject(EMPLOYEE_REPOSITORY)
         private readonly employeeRepository: IEmployeeRepository,
+        private readonly mirrorUnassignedDocUsecase: MirrorUnassignedEformsignDocUsecase,
         @Optional() private readonly prisma?: PrismaService,
         @Optional() private readonly serviceRecordLifecycle?: ServiceRecordLifecycleService,
         @Optional() private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
@@ -148,12 +159,37 @@ export class EformsignWebhookService {
             return;
         }
 
-        const resolvedBranchId = await this.resolveBranchIdForDocument(documentId);
-        if (!resolvedBranchId) {
-            this.logger.warn(`Ignoring webhook ${webhook_id}: no local branch mapping for document ${documentId}`);
+        const localDocument = await this.findLocalDocument(documentId);
+        if (localDocument === undefined) {
             return;
         }
 
+        if (localDocument === null) {
+            try {
+                await this.mirrorUnassignedDocUsecase.execute(documentId);
+                this.logger.log(
+                    `Mirrored external document ${documentId} from webhook ${webhook_id} as unassigned`,
+                );
+            } catch (error) {
+                this.logger.warn(
+                    `Failed to mirror external document ${documentId} from webhook ${webhook_id}: ${error}`,
+                );
+            }
+            return;
+        }
+
+        if (localDocument.branchId === null) {
+            try {
+                await this.updateUnassignedDocumentFromWebhook(payload, localDocument.document);
+            } catch (error) {
+                this.logger.warn(
+                    `Failed to update unassigned document ${documentId} from webhook ${webhook_id}: ${error}`,
+                );
+            }
+            return;
+        }
+
+        const resolvedBranchId = localDocument.branchId;
         this.logger.log(`Processing webhook ${webhook_id}: event_type=${event_type}`);
 
         // Handle document events (status changes)
@@ -540,13 +576,125 @@ export class EformsignWebhookService {
         return `${year}-${month}-${day}`;
     }
 
-    private async resolveBranchIdForDocument(documentId: string): Promise<string | null> {
+    private async findLocalDocument(
+        documentId: string,
+    ): Promise<LocalDocumentLookupResult | null | undefined> {
         try {
-            return await this.eformsignDocRepository.findBranchIdByDocumentId(documentId);
+            const localDocument = await this.eformsignDocRepository.findByDocumentIdUnscoped(documentId);
+            if (!localDocument) {
+                return localDocument;
+            }
+            if (localDocument.branchId === null) {
+                return {
+                    branchId: null,
+                    document: localDocument.document,
+                };
+            }
+            return {
+                branchId: localDocument.branchId,
+                document: localDocument.document,
+            };
         } catch (error) {
-            this.logger.warn(`Failed to resolve branch for document ${documentId}: ${error}`);
-            return null;
+            if (!(error instanceof EformsignDocMappingError)) {
+                this.logger.warn(`Failed to query local document ${documentId}: ${error}`);
+                return undefined;
+            }
+
+            this.logger.warn(
+                `Failed to map local document ${documentId}; falling back to branch-only lookup: ${error.originalError}`,
+            );
+            try {
+                const branchId = await this.eformsignDocRepository.findBranchIdByDocumentId(documentId);
+                if (!branchId) {
+                    this.logger.warn(
+                        `Cannot process unmapped unassigned document ${documentId} without a domain entity`,
+                    );
+                    return undefined;
+                }
+                return { branchId };
+            } catch (fallbackError) {
+                this.logger.warn(
+                    `Failed branch-only lookup for document ${documentId}: ${fallbackError}`,
+                );
+                return undefined;
+            }
         }
+    }
+
+    private async updateUnassignedDocumentFromWebhook(
+        payload: EformsignWebhookPayloadDto,
+        existing: EformsignDocEntity,
+    ): Promise<void> {
+        const { event_type, webhook_id, document, ready_document_pdf } = payload;
+        let statusType: string;
+        let statusDetail: string;
+        let stepType: string;
+        let stepIndex: string;
+        let stepName: string;
+        let updatedTimestamp: number;
+        let documentName: string | undefined;
+        let templateId: string | undefined;
+
+        if (event_type === EVENT_TYPES.DOCUMENT && document) {
+            ({ statusType, statusDetail } = this.mapStatus(document.status));
+            stepType = String(document.workflow_seq);
+            stepIndex = String(document.workflow_seq);
+            stepName = document.workflow_name;
+            updatedTimestamp = document.updated_date;
+            documentName = document.document_title?.trim() || undefined;
+            templateId = document.template_id?.trim() || undefined;
+        } else if (event_type === EVENT_TYPES.DOCUMENT_ACTION && document) {
+            const isOpenAction = document.action?.includes("open");
+            statusType = "020";
+            statusDetail = isOpenAction ? "서명 페이지 열림" : `액션: ${document.action}`;
+            stepType = String(document.workflow_seq || 0);
+            stepIndex = String(document.workflow_seq || 0);
+            stepName = document.workflow_name || "unknown";
+            updatedTimestamp = document.updated_date;
+            documentName = document.document_title?.trim() || undefined;
+            templateId = document.template_id?.trim() || undefined;
+        } else if (event_type === EVENT_TYPES.READY_DOCUMENT_PDF && ready_document_pdf) {
+            ({ statusType, statusDetail } = this.mapStatus(ready_document_pdf.document_status));
+            stepType = String(ready_document_pdf.workflow_seq);
+            stepIndex = String(ready_document_pdf.workflow_seq);
+            stepName = ready_document_pdf.workflow_name;
+            updatedTimestamp = Date.now();
+            documentName = ready_document_pdf.document_title?.trim() || undefined;
+            templateId = ready_document_pdf.template_id?.trim() || undefined;
+        } else {
+            this.logger.warn(
+                `Unknown webhook event type for unassigned document ${existing.documentId}: ${event_type}`,
+            );
+            return;
+        }
+
+        if (
+            TERMINAL_STATUS_CODES.has(existing.statusType)
+            && !TERMINAL_STATUS_CODES.has(statusType)
+        ) {
+            this.logger.log(`ignoring stale downgrade ${statusType} for ${existing.documentId}`);
+            return;
+        }
+
+        const updatedDate = new Date(
+            Math.max(updatedTimestamp, existing.createdDate.getTime()),
+        );
+        const updated = EformsignDocEntity.reconstitute({
+            ...existing.toJSON(),
+            documentName: documentName ?? null,
+            templateId: templateId ?? null,
+            updatedDate,
+            statusType,
+            statusDetail,
+            stepType,
+            stepIndex,
+            stepName,
+            expired: false,
+        });
+        await this.eformsignDocRepository.upsertUnassignedByDocumentId(updated);
+        this.logger.log(
+            `Updated unassigned document ${existing.documentId} from webhook ${webhook_id}: event_type=${event_type}`,
+        );
     }
 
     private normalizeStatusCode(statusType: string | null | undefined): string {

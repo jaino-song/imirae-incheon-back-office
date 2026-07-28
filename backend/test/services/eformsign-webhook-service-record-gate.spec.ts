@@ -27,6 +27,7 @@ function makeService() {
         eformsignDocRepository,
         employeeScheduleRepository: {},
         employeeRepository: {},
+        mirrorUnassignedDocUsecase: { execute: jest.fn() },
     };
     const service = new EformsignWebhookService(
         deps.updateStatusUsecase as any,
@@ -39,6 +40,7 @@ function makeService() {
         deps.eformsignDocRepository as any,
         deps.employeeScheduleRepository as any,
         deps.employeeRepository as any,
+        deps.mirrorUnassignedDocUsecase as any,
     );
     // Isolate the units downstream of the gate so the test targets the gate decision only.
     const handleCompleted = jest.spyOn(service as any, "handleCompletedDocument").mockResolvedValue(undefined);

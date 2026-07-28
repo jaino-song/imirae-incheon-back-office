@@ -20,6 +20,7 @@ import {
     DispatchDocumentHeadlessUsecase,
     FinalizeDocumentHeadlessUsecase,
     AdoptEformsignDocUsecase,
+    MirrorUnassignedEformsignDocUsecase,
 } from "application/usecases/eformsign-doc";
 import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_CLIENT_REPOSITORY } from "domain/repositories/eformsign.client.interface";
@@ -68,6 +69,7 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
         DispatchDocumentHeadlessUsecase,
         FinalizeDocumentHeadlessUsecase,
         AdoptEformsignDocUsecase,
+        MirrorUnassignedEformsignDocUsecase,
         // Services
         EformsignDocService,
         EformsignService,
@@ -100,6 +102,7 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
         EFORMSIGN_DOC_REPOSITORY,
         CreateAndSendServiceRecordSnapshotUsecase,
         EformsignDocumentSnapshotService,
+        MirrorUnassignedEformsignDocUsecase,
     ],
 })
 export class EformsignDocModule {}

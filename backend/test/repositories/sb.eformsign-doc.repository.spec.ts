@@ -47,6 +47,7 @@ describe("SbEformsignDocRepository", () => {
         updateMany: jest.fn(),
         deleteMany: jest.fn(),
         findUnique: jest.fn(),
+        upsert: jest.fn(),
     });
 
     let eformsignDocModel: ReturnType<typeof createMockPrismaEformsignDoc>;
@@ -126,6 +127,28 @@ describe("SbEformsignDocRepository", () => {
         expect(result?.documentKind).toBe("service_record_snapshot");
     });
 
+    it("finds a document without adding branchId to the unique where clause", async () => {
+        eformsignDocModel.findUnique.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "template-1",
+            documentName: "외부 문서",
+            documentNumber: "DOC-001",
+        });
+
+        const result = await repository.findByDocumentIdUnscoped("doc-1");
+
+        expect(eformsignDocModel.findUnique).toHaveBeenCalledWith({
+            where: { documentId: "doc-1" },
+        });
+        expect(eformsignDocModel.findUnique.mock.calls[0][0].where).not.toHaveProperty("branchId");
+        expect(result?.branchId).toBeNull();
+        expect(result?.document.documentName).toBe("외부 문서");
+    });
+
     it("loads page display fields with one branch-scoped query", async () => {
         eformsignDocModel.findMany.mockResolvedValue([
             {
@@ -191,26 +214,210 @@ describe("SbEformsignDocRepository", () => {
         expect(result.statusType).toBe("050");
     });
 
-    it("preserves stored document metadata when upserting without documentName", async () => {
-        eformsignDocModel.findFirst
-            .mockResolvedValueOnce({ id: 1 })
-            .mockResolvedValueOnce({
-                ...legacyRow,
-                documentKind: null,
-                employeeScheduleId: null,
-                templateId: null,
-                documentName: "기존 문서명",
-                documentNumber: "DOC-001",
-            });
-        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+    it("adopts an unassigned row for the branch without creating a duplicate", async () => {
+        eformsignDocModel.findUnique.mockResolvedValue({ branchId: null });
+        eformsignDocModel.upsert.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+            documentName: "기존 문서명",
+            documentNumber: "DOC-001",
+        });
 
         const result = await repository.upsertByDocumentId("branch-1", createEntity());
 
-        const updateData = eformsignDocModel.updateMany.mock.calls[0][0].data;
+        expect(eformsignDocModel.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { documentId: "doc-1" },
+                update: expect.objectContaining({ branchId: "branch-1" }),
+            }),
+        );
+        expect(eformsignDocModel.create).not.toHaveBeenCalled();
+        expect(result.documentName).toBe("기존 문서명");
+    });
+
+    it("preserves stored document metadata when adopting without a name or number", async () => {
+        eformsignDocModel.findUnique.mockResolvedValue({ branchId: null });
+        eformsignDocModel.upsert.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+            documentName: "기존 문서명",
+            documentNumber: "DOC-001",
+        });
+
+        const result = await repository.upsertByDocumentId("branch-1", createEntity());
+
+        const updateData = eformsignDocModel.upsert.mock.calls[0][0].update;
+        expect(updateData).not.toHaveProperty("documentId");
         expect(updateData).not.toHaveProperty("documentName");
         expect(updateData).not.toHaveProperty("documentNumber");
         expect(result.documentName).toBe("기존 문서명");
         expect(result.documentNumber).toBe("DOC-001");
+    });
+
+    it("creates a branch-owned row through the documentId upsert when no local row exists", async () => {
+        eformsignDocModel.findUnique.mockResolvedValue(null);
+        eformsignDocModel.upsert.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+            documentName: null,
+            documentNumber: null,
+        });
+
+        await repository.upsertByDocumentId("branch-1", createEntity());
+
+        expect(eformsignDocModel.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { documentId: "doc-1" },
+                create: expect.objectContaining({
+                    documentId: "doc-1",
+                    branchId: "branch-1",
+                }),
+            }),
+        );
+        expect(eformsignDocModel.create).not.toHaveBeenCalled();
+    });
+
+    it("updates an existing row owned by the same branch through the documentId upsert", async () => {
+        eformsignDocModel.findUnique.mockResolvedValue({ branchId: "branch-1" });
+        eformsignDocModel.upsert.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+            documentName: null,
+            documentNumber: null,
+        });
+
+        await repository.upsertByDocumentId("branch-1", createEntity());
+
+        expect(eformsignDocModel.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { documentId: "doc-1" },
+                update: expect.objectContaining({
+                    branchId: "branch-1",
+                    statusType: "050",
+                }),
+            }),
+        );
+        expect(eformsignDocModel.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("retries the documentId upsert without pending columns", async () => {
+        eformsignDocModel.findUnique.mockResolvedValue({ branchId: null });
+        eformsignDocModel.upsert
+            .mockRejectedValueOnce(pendingColumnError)
+            .mockResolvedValueOnce(legacyRow);
+
+        await repository.upsertByDocumentId("branch-1", createEntity());
+
+        const retry = eformsignDocModel.upsert.mock.calls[1][0];
+        expect(retry).toEqual(expect.objectContaining({
+            where: { documentId: "doc-1" },
+            select: expect.objectContaining({ documentId: true }),
+        }));
+        expect(retry.create).not.toHaveProperty("documentKind");
+        expect(retry.create).not.toHaveProperty("employeeScheduleId");
+        expect(retry.update).not.toHaveProperty("documentId");
+        expect(retry.update).not.toHaveProperty("documentKind");
+        expect(retry.update).not.toHaveProperty("employeeScheduleId");
+    });
+
+    it("does not transfer a document already owned by another branch", async () => {
+        eformsignDocModel.findUnique.mockResolvedValue({ branchId: "branch-2" });
+
+        await expect(
+            repository.upsertByDocumentId("branch-1", createEntity()),
+        ).rejects.toThrow("belongs to another branch");
+
+        expect(eformsignDocModel.upsert).not.toHaveBeenCalled();
+    });
+
+    it("atomically upserts an unassigned document by documentId and only updates status fields", async () => {
+        eformsignDocModel.upsert.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "template-1",
+            documentName: "외부 문서",
+            documentNumber: "DOC-001",
+        });
+        const doc = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "template-1",
+            documentName: "외부 문서",
+            documentNumber: "DOC-001",
+        });
+
+        await repository.upsertUnassignedByDocumentId(doc);
+
+        const args = eformsignDocModel.upsert.mock.calls[0][0];
+        expect(args.where).toEqual({ documentId: "doc-1" });
+        expect(args.where).not.toHaveProperty("branchId");
+        expect(args.create).toEqual(expect.objectContaining({
+            documentId: "doc-1",
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+        }));
+        expect(args.update).toEqual({
+            statusType: "050",
+            statusDetail: "완료",
+            stepType: "05",
+            stepIndex: "1",
+            stepName: "이용자",
+            expired: false,
+            updatedDate: legacyRow.updatedDate,
+            documentName: "외부 문서",
+            templateId: "template-1",
+        });
+        expect(args.update).not.toHaveProperty("branchId");
+        expect(args.update).not.toHaveProperty("clientId");
+        expect(args.update).not.toHaveProperty("documentKind");
+        expect(args.update).not.toHaveProperty("expiredDate");
+        expect(args.update).not.toHaveProperty("stepRecipientName");
+    });
+
+    it("omits blank optional metadata when updating an unassigned document", async () => {
+        eformsignDocModel.upsert.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+            documentName: "기존 문서명",
+            documentNumber: null,
+        });
+        const doc = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "   ",
+            documentName: "   ",
+            documentNumber: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(doc);
+
+        const update = eformsignDocModel.upsert.mock.calls[0][0].update;
+        expect(update).not.toHaveProperty("documentName");
+        expect(update).not.toHaveProperty("templateId");
     });
 
     it.each(["", "   "])(
