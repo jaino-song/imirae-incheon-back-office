@@ -41,12 +41,12 @@ const TEST_CLIENT_SIGNATURE =
 
 const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
-(LIVE ? describe : describe.skip)("BJJ-249 live E2E — case-based feedback snapshot pipeline", () => {
+(LIVE ? describe : describe.skip)("BJJ-249 live E2E — case-based service-record snapshot pipeline", () => {
     jest.setTimeout(180_000);
 
     let moduleRef: Awaited<ReturnType<ReturnType<typeof Test.createTestingModule>["compile"]>>;
     let prisma: PrismaService;
-    let feedbackService: ServiceRecordEntryService;
+    let serviceRecordService: ServiceRecordEntryService;
     let lifecycleService: ServiceRecordLifecycleService;
     let finalizationService: ServiceRecordFinalizationService;
     let webhookService: EformsignWebhookService;
@@ -70,7 +70,7 @@ const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
         }).compile();
 
         prisma = moduleRef.get(PrismaService, { strict: false });
-        feedbackService = moduleRef.get(ServiceRecordEntryService, { strict: false });
+        serviceRecordService = moduleRef.get(ServiceRecordEntryService, { strict: false });
         lifecycleService = moduleRef.get(ServiceRecordLifecycleService, { strict: false });
         finalizationService = moduleRef.get(ServiceRecordFinalizationService, { strict: false });
         webhookService = moduleRef.get(EformsignWebhookService, { strict: false });
@@ -164,7 +164,7 @@ const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
     });
 
     it("wizard path: header + 7 approved sessions drive the case to READY_TO_FINALIZE", async () => {
-        await feedbackService.saveHeader(ctx, {
+        await serviceRecordService.saveHeader(ctx, {
             momName: "김산모",
             momBirth: "900101",
             babyName: "김아기",
@@ -192,7 +192,7 @@ const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
         const lightAnswers = { sitzBath: "미실시", sleep: "잘 못 잠", stool: "정상변" };
 
         for (let i = 1; i <= SESSION_COUNT; i++) {
-            await feedbackService.upsertSession(
+            await serviceRecordService.upsertSession(
                 ctx,
                 i,
                 {
@@ -317,7 +317,7 @@ const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
                 id: documentId,
                 status: "doc_complete",
                 document_title: `서비스 제공기록지 - 테스트고객-${TEST_TAG} (${index + 1}/2)`,
-                template_id: process.env["EFORMSIGN_FEEDBACK_TEMPLATE_ID"],
+                template_id: process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"],
                 workflow_seq: 1,
                 workflow_name: "wf",
             });
@@ -328,7 +328,7 @@ const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
         expect(record?.documentsCompletedAt).not.toBeNull();
 
         const after = await prisma.client.findUnique({ where: { id: clientId } });
-        expect(after?.eDocId).toBeNull(); // BJJ-247 invariant: feedback docs never link eDocId
+        expect(after?.eDocId).toBeNull(); // BJJ-247 invariant: service-record docs never link eDocId
         expect(after?.endDate).toEqual(before?.endDate ?? null);
     });
 });

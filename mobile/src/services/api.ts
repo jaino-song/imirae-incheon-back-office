@@ -46,7 +46,7 @@ export interface ContractDataDto {
   actualPrice: string;
 }
 
-export interface FeedbackTemplateIdResponse {
+export interface ServiceRecordTemplateIdResponse {
     templateId: string | null;
     templateIds?: string[];
 }
@@ -390,7 +390,7 @@ export const eformsignApi = {
         const { data } = await api.get('/eformsign-docs/client-names');
         return data;
     },
-    getFeedbackTemplateId: async (): Promise<FeedbackTemplateIdResponse> => {
+    getServiceRecordTemplateId: async (): Promise<ServiceRecordTemplateIdResponse> => {
         const { data } = await api.get('/eformsign-docs/feedback-template-id');
         return data;
     },

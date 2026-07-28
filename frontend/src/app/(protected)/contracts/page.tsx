@@ -485,9 +485,9 @@ export default function ContractsPage() {
   useEformsignDocsLiveStream(isAuthenticated);
   const { toast } = useToast();
   const deleteDocument = useDeleteEformsignDocument();
-  const { data: feedbackTemplateConfig, isLoading: isFeedbackTemplateLoading } = useQuery({
-    queryKey: ["eformsign-docs", "feedback-template-id"],
-    queryFn: () => eformsignApi.getFeedbackTemplateId(),
+  const { data: serviceRecordTemplateConfig, isLoading: isServiceRecordTemplateLoading } = useQuery({
+    queryKey: ["eformsign-docs", "service-record-template-id"],
+    queryFn: () => eformsignApi.getServiceRecordTemplateId(),
     enabled: isAuthenticated,
     staleTime: 1000 * 60 * 60,
   });
@@ -512,26 +512,26 @@ export default function ContractsPage() {
   // BJJ-multi-tier: match documents created on ANY configured 제공기록지 tier's template, not
   // just the base 5회 one. Falls back to the single base id for older backend responses.
   // Memoized so the array identity is stable for the useMemo deps below.
-  const feedbackTemplateIds = useMemo(
-    () => feedbackTemplateConfig?.templateIds
-      ?? (feedbackTemplateConfig?.templateId ? [feedbackTemplateConfig.templateId] : []),
-    [feedbackTemplateConfig],
+  const serviceRecordTemplateIds = useMemo(
+    () => serviceRecordTemplateConfig?.templateIds
+      ?? (serviceRecordTemplateConfig?.templateId ? [serviceRecordTemplateConfig.templateId] : []),
+    [serviceRecordTemplateConfig],
   );
   const activeListTab = activeSection === "service-records" ? serviceRecordActiveTab : activeTab;
   const filterType: DocumentFilterType = activeListTab === "all" ? null : (activeListTab as DocumentFilterType);
   const templateFilter = useMemo(
-    () => feedbackTemplateIds.length > 0
+    () => serviceRecordTemplateIds.length > 0
       ? {
-          templateId: feedbackTemplateIds.join(","),
+          templateId: serviceRecordTemplateIds.join(","),
           templateMatch: activeSection === "service-records" ? "include" as const : "exclude" as const,
         }
       : undefined,
-    [activeSection, feedbackTemplateIds],
+    [activeSection, serviceRecordTemplateIds],
   );
   const canFetchDocuments =
     isAuthenticated &&
-    !isFeedbackTemplateLoading &&
-    (activeSection !== "service-records" || feedbackTemplateIds.length > 0);
+    !isServiceRecordTemplateLoading &&
+    (activeSection !== "service-records" || serviceRecordTemplateIds.length > 0);
 
   // Fetch filtered docs with infinite scroll for the current tab
   const {
@@ -557,7 +557,7 @@ export default function ContractsPage() {
   });
   const isBootstrappingAuth = isLoadingAuth && !isAuthenticated;
   // Initial loading: first auth bootstrap or first "all" data fetch
-  const isInitialLoading = isBootstrappingAuth || isFeedbackTemplateLoading || isLoadingInfinite;
+  const isInitialLoading = isBootstrappingAuth || isServiceRecordTemplateLoading || isLoadingInfinite;
   // Content loading: fetching filtered data after initial load is complete
   const isContentLoading = !isInitialLoading && isLoadingInfinite;
   // Stats are derived from the "전체" tab's data and are independent of which
@@ -575,14 +575,14 @@ export default function ContractsPage() {
   );
 
   const serviceRecordDocuments = useMemo(() => {
-    if (feedbackTemplateIds.length === 0) return [];
+    if (serviceRecordTemplateIds.length === 0) return [];
     return infiniteDocuments.filter(
       (doc) =>
         matchesDocumentStatusTab(doc, serviceRecordActiveTab) &&
         matchesDocumentSearch(doc, serviceRecordSearchQuery, resolveCustomerName(doc)),
     );
   }, [
-    feedbackTemplateIds,
+    serviceRecordTemplateIds,
     infiniteDocuments,
     resolveCustomerName,
     serviceRecordActiveTab,

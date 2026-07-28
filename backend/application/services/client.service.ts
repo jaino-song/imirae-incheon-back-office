@@ -540,7 +540,7 @@ export class ClientService {
                         this.serviceRecordLinkService
                             ?.scheduleForServiceStart(assignment.createdScheduleId)
                             ?.catch((error) => {
-                                this.logger.error(`Failed to schedule feedback link SMS: ${error}`);
+                                this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
                             });
                     }
                 }
@@ -622,7 +622,7 @@ export class ClientService {
             this.serviceRecordLinkService
                 ?.scheduleForServiceStart(createdScheduleId)
                 ?.catch((error) => {
-                    this.logger.error(`Failed to schedule feedback link SMS: ${error}`);
+                    this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
                 });
         }
 
@@ -1080,7 +1080,7 @@ export class ClientService {
             this.serviceRecordLinkService
                 ?.scheduleForServiceStart(createdScheduleId)
                 ?.catch((error) => {
-                    this.logger.error(`Failed to schedule feedback link SMS: ${error}`);
+                    this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
                 });
         }
         return updatedClient;
@@ -1128,7 +1128,7 @@ export class ClientService {
             data: { endDate: new Date() },
         });
 
-        // Revoke any outstanding feedback links for this client's active assignments
+        // Revoke any outstanding service-record links for this client's active assignments
         const activeSchedules = await this.prismaService.employee_schedule.findMany({
             where: { clientId: clientId, replaced: false },
             select: { id: true },
@@ -1220,7 +1220,7 @@ export class ClientService {
         this.serviceRecordLinkService
             ?.scheduleForServiceStart(replacementSchedule.id)
             ?.catch((error) => {
-                this.logger.error(`Failed to schedule replacement feedback link SMS: ${error}`);
+                this.logger.error(`Failed to schedule replacement service-record link SMS: ${error}`);
             });
 
         const updatedClient = await this.findClientByIdUsecase.execute(branchid, clientId);

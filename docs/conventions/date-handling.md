@@ -77,14 +77,14 @@ proper timezone-aware formatter, never through manual millisecond/hour arithmeti
 ## 3. Accepted trade-off: 제공기록지 link token is stored plaintext (P2-10)
 
 `backend/application/services/service-record-token.service.ts` issues two secrets per
-no-login feedback access token row (BJJ-247):
+no-login service-record access token row (BJJ-247):
 
 - **link token** (`efl_...`, carried in the SMS URL): stored **plaintext** in the database, by
   design, so the issued form URL can be recovered/re-sent from admin tooling when needed. It
-  only grants access to the phone-verification challenge, not to feedback data itself.
+  only grants access to the phone-verification challenge, not to service-record data itself.
 - **access token** (minted only after a correct phone number match): stored as a **sha256
   hash**, same as the expected phone number. This is the token that actually grants the
-  feedback/service-record endpoints, until `expiresAt` (= schedule `endDate` + grace buffer via
+  service-record endpoints, until `expiresAt` (= schedule `endDate` + grace buffer via
   `getServiceRecordTokenExpiresAt`).
 
 This is an **accepted design trade-off**, not an oversight: the phone-number check is the

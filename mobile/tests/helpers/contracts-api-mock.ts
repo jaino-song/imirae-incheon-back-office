@@ -6,20 +6,20 @@ import {
   isProviderReviewWorkflowStep,
 } from "../../src/lib/eformsign/status-codes";
 
-export const DEFAULT_FEEDBACK_TEMPLATE_IDS = [
+export const DEFAULT_SERVICE_RECORD_TEMPLATE_IDS = [
   "service-record-template",
   "service-record-template-10",
   "service-record-template-15",
   "service-record-template-20",
 ] as const;
-const DEFAULT_FEEDBACK_TEMPLATE_ID = DEFAULT_FEEDBACK_TEMPLATE_IDS[0];
+const DEFAULT_SERVICE_RECORD_TEMPLATE_ID = DEFAULT_SERVICE_RECORD_TEMPLATE_IDS[0];
 const DEFAULT_FIRST_PAGE_LIMIT = 9;
 const DEFAULT_SKIP = 0;
 const SNAPSHOT_VERSION = "e2e-contracts-snapshot";
 
 const LIST_ROUTE = /\/api\/eformsign\/documents(?:\?.*)?$/;
 const STATUS_COUNTS_ROUTE = /\/api\/eformsign\/documents\/status-counts(?:\?.*)?$/;
-const FEEDBACK_TEMPLATE_ROUTE = /\/api\/eformsign-docs\/feedback-template-id(?:\?.*)?$/;
+const SERVICE_RECORD_TEMPLATE_ROUTE = /\/api\/eformsign-docs\/feedback-template-id(?:\?.*)?$/;
 const CHOSUNG = [
   "ㄱ",
   "ㄲ",
@@ -105,7 +105,7 @@ export interface RouteContractsApiOptions {
   templateId?: string;
   templateIds?: readonly string[];
   omitTemplateIds?: boolean;
-  feedbackTemplateStatus?: number;
+  serviceRecordTemplateStatus?: number;
   listStatus?: number;
   statusCountsStatus?: number;
   beforeListResponse?: (request: ContractListRequest) => Promise<void> | void;
@@ -329,14 +329,14 @@ export async function routeContractsApi(
   page: Page,
   {
     getDocuments,
-    templateId = DEFAULT_FEEDBACK_TEMPLATE_ID,
+    templateId = DEFAULT_SERVICE_RECORD_TEMPLATE_ID,
     // 앱은 templateIds를 우선하므로 templateId만 오버라이드한 스펙에서
     // 기본 4개 목록이 남아 오버라이드가 무시되는 일이 없도록 파생시킨다.
-    templateIds = templateId === DEFAULT_FEEDBACK_TEMPLATE_ID
-      ? DEFAULT_FEEDBACK_TEMPLATE_IDS
+    templateIds = templateId === DEFAULT_SERVICE_RECORD_TEMPLATE_ID
+      ? DEFAULT_SERVICE_RECORD_TEMPLATE_IDS
       : [templateId],
     omitTemplateIds = false,
-    feedbackTemplateStatus = 200,
+    serviceRecordTemplateStatus = 200,
     listStatus = 200,
     statusCountsStatus = 200,
     beforeListResponse,
@@ -344,17 +344,17 @@ export async function routeContractsApi(
     onStatusCountsRequest,
   }: RouteContractsApiOptions,
 ): Promise<void> {
-  await page.route(FEEDBACK_TEMPLATE_ROUTE, async (route) => {
+  await page.route(SERVICE_RECORD_TEMPLATE_ROUTE, async (route) => {
     await route.fulfill({
-      status: feedbackTemplateStatus,
+      status: serviceRecordTemplateStatus,
       contentType: "application/json",
       body: JSON.stringify(
-        feedbackTemplateStatus === 200
+        serviceRecordTemplateStatus === 200
           ? {
               templateId,
               ...(!omitTemplateIds && { templateIds }),
             }
-          : { error: "feedback template unavailable" },
+          : { error: "service-record template unavailable" },
       ),
     });
   });

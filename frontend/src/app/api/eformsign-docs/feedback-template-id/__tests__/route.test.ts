@@ -25,7 +25,7 @@ describe("GET /api/eformsign-docs/feedback-template-id", () => {
     mockServerGet.mockReset();
   });
 
-  it("returns the configured feedback template id", async () => {
+  it("returns the configured service-record template id", async () => {
     mockServerGet.mockResolvedValue({
       status: 200,
       data: { templateId: "f091d768fb2c4a74b429525b428337f7" },

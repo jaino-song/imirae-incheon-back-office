@@ -374,7 +374,7 @@ export class AdminServiceRecordService {
             }
 
             this.logger.warn(
-                "Skipping service feedback signature docs because eformsign_doc feedback columns are not migrated yet.",
+                "Skipping service-record signature docs because eformsign_doc service-record columns are not migrated yet.",
             );
             return [];
         }

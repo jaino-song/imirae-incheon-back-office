@@ -146,7 +146,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # changed-spec selection diffs against the PR base branch
+          # Full history; the changed-spec selection below no longer depends on it
+          # (it asks the API instead), but keep it so any future git-based step works.
           fetch-depth: 0
 
       - name: Setup pnpm
@@ -202,16 +203,39 @@ jobs:
         run: pnpm --filter ./mobile exec playwright install --with-deps chromium
 
       - name: Playwright tests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           # PR runs are advisory: execute only specs the PR itself touched —
           # the full suite runs on every push to dev (post-merge) instead.
+          #
+          # The file list comes from the API rather than a local `git diff` against
+          # the base ref. A PR that changed four specs was once reported as "no spec
+          # files changed" and passed green without running anything, so the job
+          # certified nothing. The API answer does not depend on which refs the
+          # runner happens to have fetched, and an API failure is fatal below
+          # instead of collapsing into an empty list.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CHANGED_SPECS=$(git diff --name-only --diff-filter=d "origin/${{ github.base_ref }}...HEAD" -- 'mobile/tests/*.spec.ts' 'mobile/tests/**/*.spec.ts' | sed 's|^mobile/||' | tr '\n' ' ')
+            if ! PR_FILES=$(gh api --paginate \
+              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+              --jq '.[] | select(.status != "removed") | .filename'); then
+              echo "::error::Could not list the files this PR changes; refusing to report a green run that tested nothing."
+              exit 1
+            fi
+            if [ -z "$PR_FILES" ]; then
+              echo "::error::The API reported no files for this PR, which cannot be right."
+              exit 1
+            fi
+            CHANGED_SPECS=$(printf '%s\n' "$PR_FILES" \
+              | { grep -E '^mobile/tests/.+\.spec\.ts$' || true; } \
+              | sed 's|^mobile/||' | tr '\n' ' ')
             if [ -n "$CHANGED_SPECS" ]; then
               echo "PR mode — running changed specs only: $CHANGED_SPECS"
               pnpm --filter ./mobile exec playwright test $CHANGED_SPECS
             else
-              echo "PR mode — no spec files changed; skipping (full suite runs on dev push)"
+              echo "PR mode — this PR changes no spec files, so nothing runs here."
+              echo "The full suite runs on the push to dev after merge."
             fi
           else
             pnpm --filter ./mobile run test:e2e

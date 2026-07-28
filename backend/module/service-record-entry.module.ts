@@ -17,7 +17,7 @@ import { ServiceRecordFinalizationService } from "application/services/service-r
 import { ServiceRecordFinalizationSchedulerService } from "application/services/service-record-finalization-scheduler.service";
 
 /**
- * No-login daily service feedback capture (BJJ-247).
+ * No-login daily service-record capture (BJJ-247).
  * Exports the token + link services so the assignment / replacement / termination
  * hooks (employee-schedule + client modules) can issue and revoke links.
  */

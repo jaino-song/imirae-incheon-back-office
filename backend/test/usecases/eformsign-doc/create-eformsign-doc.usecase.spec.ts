@@ -138,18 +138,18 @@ describe("CreateEformsignDocUsecase", () => {
         expect(clientRepository.update).toHaveBeenCalledWith(branchId, client);
     });
 
-    it("stores service feedback snapshot linkage without updating the client contract pointer", async () => {
+    it("stores service-record snapshot linkage without updating the client contract pointer", async () => {
         const result = await usecase.execute(branchId, createParams({
-            documentId: "feedback-doc-1",
+            documentId: "service-record-doc-1",
             linkToClient: false,
             documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
             employeeScheduleId: 33,
-            templateId: "feedback-template-1",
+            templateId: "service-record-template-1",
         }));
 
         expect(result.documentKind).toBe(EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT);
         expect(result.employeeScheduleId).toBe(33);
-        expect(result.templateId).toBe("feedback-template-1");
+        expect(result.templateId).toBe("service-record-template-1");
         expect(clientRepository.update).not.toHaveBeenCalled();
     });
 });

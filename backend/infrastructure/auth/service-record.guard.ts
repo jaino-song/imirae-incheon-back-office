@@ -12,7 +12,7 @@ import {
 } from "application/services/service-record-token.service";
 
 /**
- * DB-backed bearer guard for the no-login feedback data endpoints (BJJ-247).
+ * DB-backed bearer guard for the no-login service-record data endpoints (BJJ-247).
  * Expects the minted ACCESS token (post-DOB) as `Authorization: Bearer <token>`;
  * attaches the resolved assignment context to request.serviceRecordContext.
  * The DOB-challenge endpoint itself is NOT guarded by this — it takes the link token in the body.
