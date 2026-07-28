@@ -14,6 +14,12 @@ import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 const EFORMSIGN_MAX_ATTEMPTS = 4;
 const EFORMSIGN_REQUEST_TIMEOUT_MS = 10_000;
+// createDocument uploads the service-record signature images — up to 20 slots of dataURI
+// PNG — and is the one call we refuse to retry, so a timeout here means giving up without
+// knowing whether the customer already received the document. It gets room to finish.
+const EFORMSIGN_CREATE_DOCUMENT_TIMEOUT_MS = 60_000;
+// Below this, an attempt is not worth starting: see the budget check in request().
+const EFORMSIGN_MIN_ATTEMPT_BUDGET_MS = 250;
 const EFORMSIGN_TOTAL_DEADLINE_MS = 30_000;
 const EFORMSIGN_BACKOFF_BASE_MS = 500;
 const EFORMSIGN_BACKOFF_MAX_MS = 4_000;
@@ -21,6 +27,7 @@ const EFORMSIGN_RETRY_AFTER_MAX_MS = 10_000;
 
 interface EformsignRequestOptions {
     idempotent?: boolean;
+    timeoutMs?: number;
 }
 
 /**
@@ -356,6 +363,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 // error has an ambiguous outcome and retrying could create/send a duplicate.
                 // A 429 is safe because the server explicitly rejected the request before work.
                 idempotent: false,
+                timeoutMs: EFORMSIGN_CREATE_DOCUMENT_TIMEOUT_MS,
             },
         );
 
@@ -403,14 +411,24 @@ export class EformsignApiClient implements IEformsignClientRepository {
         errorPrefix: string,
         options: EformsignRequestOptions = {},
     ): Promise<Response> {
-        const deadline = Date.now() + EFORMSIGN_TOTAL_DEADLINE_MS;
         const idempotent = options.idempotent ?? true;
+        const requestTimeoutMs = options.timeoutMs ?? EFORMSIGN_REQUEST_TIMEOUT_MS;
+        // A non-idempotent call is never retried, so the multi-attempt budget does not
+        // apply to it; it gets one attempt and its own timeout.
+        const deadline = Date.now() + (idempotent ? EFORMSIGN_TOTAL_DEADLINE_MS : requestTimeoutMs);
+        let lastError: unknown;
 
         for (let attempt = 1; attempt <= EFORMSIGN_MAX_ATTEMPTS; attempt += 1) {
             const remainingMs = deadline - Date.now();
+            // Backoff already refuses to sleep past the deadline, so arriving here with
+            // almost nothing left means a 1ms attempt whose abort would replace the real
+            // 429/5xx we were retrying — reporting a timeout for a rate limit.
+            if (attempt > 1 && remainingMs < EFORMSIGN_MIN_ATTEMPT_BUDGET_MS) {
+                break;
+            }
             const attemptTimeoutMs = Math.max(
                 1,
-                Math.min(EFORMSIGN_REQUEST_TIMEOUT_MS, remainingMs),
+                Math.min(requestTimeoutMs, remainingMs),
             );
             let response: Response;
 
@@ -428,6 +446,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 if (Date.now() + delayMs >= deadline) {
                     throw error;
                 }
+                lastError = error;
                 this.logRetry(operation, attempt + 1, delayMs, this.getNetworkErrorCause(error));
                 await this.waitForRetry(delayMs);
                 continue;
@@ -453,16 +472,22 @@ export class EformsignApiClient implements IEformsignClientRepository {
             if (Date.now() + delayMs >= deadline) {
                 throw error;
             }
+            lastError = error;
             this.logRetry(operation, attempt + 1, delayMs, `status=${response.status}`);
             await this.waitForRetry(delayMs);
         }
 
+        // Reached only by the out-of-budget break above, which always has a prior failure.
+        if (lastError !== undefined) {
+            throw lastError;
+        }
         throw new Error(`Eformsign ${operation} exhausted retry attempts.`);
     }
 
     private getRetryDelayMs(response: Response, attempt: number): number {
-        const retryAfter = response.headers.get("Retry-After");
-        if (retryAfter !== null) {
+        const retryAfter = response.headers.get("Retry-After")?.trim();
+        // An empty or whitespace header would coerce to 0 and retry with no backoff at all.
+        if (retryAfter) {
             const seconds = Number(retryAfter);
             const parsedDelayMs = Number.isFinite(seconds) && seconds >= 0
                 ? seconds * 1_000

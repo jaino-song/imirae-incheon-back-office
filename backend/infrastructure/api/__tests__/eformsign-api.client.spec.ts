@@ -205,6 +205,52 @@ describe("EformsignApiClient retry policy", () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("does not retry createDocument after a timeout", async () => {
+        // AbortSignal.timeout rejects with a TimeoutError rather than producing a
+        // response, so this lands in the same branch as a network error — but it is the
+        // case that matters most: a timed-out send may already have reached the customer.
+        const timeoutError = new DOMException("The operation timed out.", "TimeoutError");
+        const fetchMock = jest.spyOn(global, "fetch").mockRejectedValue(timeoutError);
+
+        await expect(
+            createClient().createDocument("access-token", createDocumentPayload),
+        ).rejects.toBe(timeoutError);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives createDocument a longer request timeout than the retryable calls", async () => {
+        // It is the one call that never retries, so cutting it short just means giving up
+        // without knowing whether the document was created. Service-record sends upload up
+        // to 20 signature images.
+        const timeoutSpy = jest.spyOn(AbortSignal, "timeout");
+        jest.spyOn(global, "fetch").mockResolvedValue(createSuccessResponse());
+
+        await createClient().createDocument("access-token", createDocumentPayload);
+
+        expect(timeoutSpy).toHaveBeenCalledWith(60_000);
+    });
+
+    it("backs off exponentially when Retry-After is empty", async () => {
+        // Number("") is 0, which would retry instantly with no backoff at all.
+        jest.useFakeTimers();
+        jest.spyOn(Math, "random").mockReturnValue(0);
+        jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+        const fetchMock = jest.spyOn(global, "fetch")
+            .mockResolvedValueOnce(new Response("rate limited", {
+                status: 429,
+                headers: { "Retry-After": "   " },
+            }))
+            .mockResolvedValueOnce(listSuccessResponse());
+
+        const request = createClient().getCompletedDocuments("access-token");
+        await jest.advanceTimersByTimeAsync(249);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        await jest.advanceTimersByTimeAsync(1);
+        await expect(request).resolves.toEqual([]);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it("throws the last HTTP error after reaching the attempt limit", async () => {
         jest.useFakeTimers();
         jest.spyOn(Math, "random").mockReturnValue(0);
