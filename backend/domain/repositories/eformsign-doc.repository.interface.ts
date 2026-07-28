@@ -28,6 +28,13 @@ export class EformsignDocMappingError extends Error {
     }
 }
 
+export class EformsignDocOwnershipConflictError extends Error {
+    constructor(documentId: string) {
+        super(`Eformsign document ${documentId} belongs to another branch`);
+        this.name = EformsignDocOwnershipConflictError.name;
+    }
+}
+
 export interface EformsignDocCompletionClaimParams {
     documentId: string;
     statusType: string;

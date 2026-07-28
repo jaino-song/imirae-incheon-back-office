@@ -19,6 +19,7 @@ import {
 import {
     EFORMSIGN_DOC_REPOSITORY,
     EformsignDocMappingError,
+    EformsignDocOwnershipConflictError,
     IEformsignDocRepository,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
@@ -50,11 +51,13 @@ const DOCUMENT_STATUS = {
     // Approval actions
     DOC_ACCEPT_APPROVAL: "doc_accept_approval",        // 결재 승인
     DOC_REJECT_APPROVAL: "doc_reject_approval",        // 결재 거부
+    DOC_REQUEST_REVIEWER: "doc_request_reviewer",      // 검토 요청
 
     // Final states
     DOC_COMPLETE: "doc_complete",                   // 문서 완료
     DOC_DECLINE: "doc_decline",                     // 거부됨
     DOC_DELETED: "doc_deleted",                     // 삭제됨
+    DOC_EXPIRED: "doc_expired",                     // 만료됨
 
     // Revocation
     DOC_REQUEST_REVOKE: "doc_request_revoke",       // 철회 요청
@@ -100,6 +103,9 @@ const STATUS_NAME_TO_CODE: Record<string, string> = {
 
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
+const UNASSIGNED_TERMINAL_STATUS_CODES = new Set(
+    [...TERMINAL_STATUS_CODES].filter((statusCode) => statusCode !== "062"),
+);
 const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
 const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
 const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
@@ -152,7 +158,7 @@ export class EformsignWebhookService {
     }
 
     async processWebhook(payload: EformsignWebhookPayloadDto): Promise<void> {
-        const { event_type, webhook_id, document, ready_document_pdf, document_action } = payload;
+        const { webhook_id, document, ready_document_pdf, document_action } = payload;
         const documentId = document?.id ?? ready_document_pdf?.document_id ?? document_action?.document_id;
         if (!documentId) {
             this.logger.warn(`Ignoring webhook ${webhook_id}: missing document identifier`);
@@ -171,6 +177,10 @@ export class EformsignWebhookService {
                     `Mirrored external document ${documentId} from webhook ${webhook_id} as unassigned`,
                 );
             } catch (error) {
+                if (error instanceof EformsignDocOwnershipConflictError) {
+                    await this.retryBranchOwnedWebhookAfterOwnershipConflict(payload, documentId);
+                    return;
+                }
                 this.logger.warn(
                     `Failed to mirror external document ${documentId} from webhook ${webhook_id}: ${error}`,
                 );
@@ -182,6 +192,10 @@ export class EformsignWebhookService {
             try {
                 await this.updateUnassignedDocumentFromWebhook(payload, localDocument.document);
             } catch (error) {
+                if (error instanceof EformsignDocOwnershipConflictError) {
+                    await this.retryBranchOwnedWebhookAfterOwnershipConflict(payload, documentId);
+                    return;
+                }
                 this.logger.warn(
                     `Failed to update unassigned document ${documentId} from webhook ${webhook_id}: ${error}`,
                 );
@@ -189,7 +203,33 @@ export class EformsignWebhookService {
             return;
         }
 
-        const resolvedBranchId = localDocument.branchId;
+        await this.processBranchOwnedWebhook(payload, localDocument.branchId);
+    }
+
+    private async retryBranchOwnedWebhookAfterOwnershipConflict(
+        payload: EformsignWebhookPayloadDto,
+        documentId: string,
+    ): Promise<void> {
+        const localDocument = await this.findLocalDocument(documentId);
+        if (!localDocument || localDocument.branchId === null) {
+            this.logger.warn(
+                `Could not retry webhook ${payload.webhook_id} after document ${documentId} ownership changed`,
+            );
+            return;
+        }
+
+        this.logger.log(
+            `Retrying webhook ${payload.webhook_id} through branch-owned path after document ${documentId} ownership changed`,
+        );
+        await this.processBranchOwnedWebhook(payload, localDocument.branchId);
+    }
+
+    private async processBranchOwnedWebhook(
+        payload: EformsignWebhookPayloadDto,
+        branchId: string,
+    ): Promise<void> {
+        const { event_type, webhook_id, document, ready_document_pdf } = payload;
+        const resolvedBranchId = branchId;
         this.logger.log(`Processing webhook ${webhook_id}: event_type=${event_type}`);
 
         // Handle document events (status changes)
@@ -272,7 +312,7 @@ export class EformsignWebhookService {
                 stepType: String(workflow_seq),
                 stepIndex: String(workflow_seq),
                 stepName: workflow_name,
-                expired: false,
+                expired: status === DOCUMENT_STATUS.DOC_EXPIRED,
                 documentName: document_title,
                 templateName: template_name,
             });
@@ -381,7 +421,7 @@ export class EformsignWebhookService {
                     stepType: String(workflow_seq),
                     stepIndex: String(workflow_seq),
                     stepName: workflow_name,
-                    expired: false,
+                    expired: status === DOCUMENT_STATUS.DOC_EXPIRED,
                     documentName: document_title,
                     templateName: template_name,
                 });
@@ -652,6 +692,7 @@ export class EformsignWebhookService {
         let documentName: string | undefined;
         let templateId: string | undefined;
         let templateName: string | undefined;
+        let expired: boolean;
 
         if (event_type === EVENT_TYPES.DOCUMENT && document) {
             ({ statusType, statusDetail } = this.mapStatus(document.status));
@@ -662,6 +703,7 @@ export class EformsignWebhookService {
             documentName = document.document_title?.trim() || undefined;
             templateId = document.template_id?.trim() || undefined;
             templateName = document.template_name?.trim() || undefined;
+            expired = document.status === DOCUMENT_STATUS.DOC_EXPIRED;
         } else if (event_type === EVENT_TYPES.DOCUMENT_ACTION && document) {
             const isOpenAction = document.action?.includes("open");
             statusType = "020";
@@ -673,6 +715,7 @@ export class EformsignWebhookService {
             documentName = document.document_title?.trim() || undefined;
             templateId = document.template_id?.trim() || undefined;
             templateName = document.template_name?.trim() || undefined;
+            expired = false;
         } else if (event_type === EVENT_TYPES.READY_DOCUMENT_PDF && ready_document_pdf) {
             ({ statusType, statusDetail } = this.mapStatus(ready_document_pdf.document_status));
             stepType = String(ready_document_pdf.workflow_seq);
@@ -682,6 +725,7 @@ export class EformsignWebhookService {
             documentName = ready_document_pdf.document_title?.trim() || undefined;
             templateId = ready_document_pdf.template_id?.trim() || undefined;
             templateName = ready_document_pdf.template_name?.trim() || undefined;
+            expired = ready_document_pdf.document_status === DOCUMENT_STATUS.DOC_EXPIRED;
         } else {
             this.logger.warn(
                 `Unknown webhook event type for unassigned document ${existing.documentId}: ${event_type}`,
@@ -689,9 +733,16 @@ export class EformsignWebhookService {
             return;
         }
 
+        if (updatedTimestamp < existing.updatedDate.getTime()) {
+            this.logger.log(
+                `Ignoring stale webhook ${webhook_id} for ${existing.documentId}: event timestamp ${updatedTimestamp} precedes stored updatedDate ${existing.updatedDate.getTime()}`,
+            );
+            return;
+        }
+
         if (
-            TERMINAL_STATUS_CODES.has(existing.statusType)
-            && !TERMINAL_STATUS_CODES.has(statusType)
+            UNASSIGNED_TERMINAL_STATUS_CODES.has(existing.statusType)
+            && !UNASSIGNED_TERMINAL_STATUS_CODES.has(statusType)
         ) {
             this.logger.log(`ignoring stale downgrade ${statusType} for ${existing.documentId}`);
             return;
@@ -711,7 +762,7 @@ export class EformsignWebhookService {
             stepType,
             stepIndex,
             stepName,
-            expired: false,
+            expired,
         });
         await this.eformsignDocRepository.upsertUnassignedByDocumentId(updated);
         this.logger.log(
@@ -816,6 +867,8 @@ export class EformsignWebhookService {
             // Completed states
             case DOCUMENT_STATUS.DOC_COMPLETE:
                 return { statusType: "050", statusDetail: "완료" };
+            case DOCUMENT_STATUS.DOC_EXPIRED:
+                return { statusType: "080", statusDetail: "만료" };
 
             // Rejected/Declined states
             case DOCUMENT_STATUS.DOC_REJECT_PARTICIPANT:
@@ -844,6 +897,8 @@ export class EformsignWebhookService {
                 return { statusType: "060", statusDetail: "서명 진행중" };
             case DOCUMENT_STATUS.DOC_ACCEPT_APPROVAL:
                 return { statusType: "060", statusDetail: "결재 승인" };
+            case DOCUMENT_STATUS.DOC_REQUEST_REVIEWER:
+                return { statusType: "070", statusDetail: "검토 요청" };
             case DOCUMENT_STATUS.DOC_TEMPSAVE_PARTICIPANT:
                 return { statusType: "060", statusDetail: "임시 저장" };
 
