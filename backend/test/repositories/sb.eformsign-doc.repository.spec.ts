@@ -1,7 +1,10 @@
 import { SbEformsignDocRepository } from "infrastructure/database/repositories/sb.eformsign-doc.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
-import { EformsignDocOwnershipConflictError } from "domain/repositories/eformsign-doc.repository.interface";
+import {
+    EformsignDocOwnershipConflictError,
+    EformsignDocStaleUpdateError,
+} from "domain/repositories/eformsign-doc.repository.interface";
 
 describe("SbEformsignDocRepository", () => {
     const pendingColumnError = Object.assign(
@@ -52,6 +55,8 @@ describe("SbEformsignDocRepository", () => {
         deleteMany: jest.fn(),
         findUnique: jest.fn(),
         upsert: jest.fn(),
+        // Used to tell a refused-as-stale write apart from one refused for ownership.
+        count: jest.fn().mockResolvedValue(0),
     });
 
     let eformsignDocModel: ReturnType<typeof createMockPrismaEformsignDoc>;
@@ -453,7 +458,12 @@ describe("SbEformsignDocRepository", () => {
         await repository.upsertUnassignedByDocumentId(doc);
 
         const args = eformsignDocModel.updateMany.mock.calls[0][0];
-        expect(args.where).toEqual({ documentId: "doc-1", branchId: null });
+        expect(args.where).toEqual({
+            AND: [
+                { documentId: "doc-1", branchId: null },
+                { updatedDate: { lte: legacyRow.updatedDate } },
+            ],
+        });
         expect(args.data).toEqual({
             statusType: "050",
             statusDetail: "완료",
@@ -491,13 +501,17 @@ describe("SbEformsignDocRepository", () => {
         expect(eformsignDocModel.updateMany).toHaveBeenNthCalledWith(
             1,
             expect.objectContaining({
-                where: { documentId: "doc-1", branchId: null },
+                where: expect.objectContaining({
+                    AND: expect.arrayContaining([{ documentId: "doc-1", branchId: null }]),
+                }),
             }),
         );
         expect(eformsignDocModel.updateMany).toHaveBeenNthCalledWith(
             2,
             expect.objectContaining({
-                where: { documentId: "doc-1", branchId: null },
+                where: expect.objectContaining({
+                    AND: expect.arrayContaining([{ documentId: "doc-1", branchId: null }]),
+                }),
             }),
         );
     });
@@ -539,7 +553,12 @@ describe("SbEformsignDocRepository", () => {
         await repository.upsertUnassignedByDocumentId(createEntity());
 
         const retry = eformsignDocModel.updateMany.mock.calls[1][0];
-        expect(retry.where).toEqual({ documentId: "doc-1", branchId: null });
+        expect(retry.where).toEqual({
+            AND: [
+                { documentId: "doc-1", branchId: null },
+                { updatedDate: { lte: legacyRow.updatedDate } },
+            ],
+        });
         expect(retry.data).not.toHaveProperty("documentKind");
         expect(retry.data).not.toHaveProperty("employeeScheduleId");
         expect(retry.data).not.toHaveProperty("templateId");
@@ -548,6 +567,37 @@ describe("SbEformsignDocRepository", () => {
             expect.objectContaining({
                 select: expect.objectContaining({ documentId: true }),
             }),
+        );
+    });
+
+    it("refuses a stale mirror update without reporting an ownership conflict", async () => {
+        // Zero updated rows while a row still matches the ownership predicate means the
+        // stored state is already at least as new. Reporting a conflict here would send the
+        // caller down the branch-owned path and apply the stale event we just refused.
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+
+        await expect(
+            repository.upsertUnassignedByDocumentId(createEntity()),
+        ).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        expect(eformsignDocModel.count).toHaveBeenCalledWith({
+            where: { documentId: "doc-1", branchId: null },
+        });
+    });
+
+    it("guards the update with the incoming timestamp so a late webhook cannot win a race", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue(legacyRow);
+
+        await repository.upsertUnassignedByDocumentId(createEntity());
+
+        const args = eformsignDocModel.updateMany.mock.calls[0][0];
+        expect(args.where.AND).toEqual(
+            expect.arrayContaining([{ updatedDate: { lte: legacyRow.updatedDate } }]),
         );
     });
 

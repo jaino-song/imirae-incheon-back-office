@@ -8,6 +8,7 @@ import {
     EformsignDocDisplayFields,
     EformsignDocMappingError,
     EformsignDocOwnershipConflictError,
+    EformsignDocStaleUpdateError,
     EformsignDocUnscopedResult,
     IEformsignDocRepository,
     UpsertUnassignedEformsignDocOptions,
@@ -412,6 +413,11 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 documentId: doc.documentId,
                 branchId: null,
             },
+            // Monotonicity has to live in the write, not in a prior read: two webhooks for
+            // the same document can both read the same stored updatedDate, both decide they
+            // are newer, and the older one land last. lte rather than lt so an event that
+            // carries no time of its own — it reuses the stored value — still applies.
+            staleGuard: { updatedDate: { lte: doc.updatedDate } },
         });
     }
 
@@ -420,6 +426,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         create: Prisma.eformsign_docUncheckedCreateInput;
         update: Prisma.eformsign_docUpdateManyMutationInput;
         allowedWhere: Prisma.eformsign_docWhereInput;
+        staleGuard?: Prisma.eformsign_docWhereInput;
     }): Promise<EformsignDocEntity> {
         try {
             return await this.attemptConditionalUpsertByDocumentId(params, false);
@@ -442,6 +449,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             create: Prisma.eformsign_docUncheckedCreateInput;
             update: Prisma.eformsign_docUpdateManyMutationInput;
             allowedWhere: Prisma.eformsign_docWhereInput;
+            staleGuard?: Prisma.eformsign_docWhereInput;
         },
         compatibilityMode: boolean,
     ): Promise<EformsignDocEntity> {
@@ -449,10 +457,27 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         // create under the unique documentId constraint; a racing create surfaces as
         // P2002, after which the same predicate decides whether this caller may update
         // the winner. This keeps the read/check and write from becoming separate races.
+        const updateWhere = params.staleGuard
+            ? { AND: [params.allowedWhere, params.staleGuard] }
+            : params.allowedWhere;
         const updateExisting = () => this.prismaService.eformsign_doc.updateMany({
-            where: params.allowedWhere,
+            where: updateWhere,
             data: params.update,
         });
+        // Zero rows now means one of two things. If a row still matches the ownership
+        // predicate on its own, the write was refused for being stale and the caller must
+        // do nothing; otherwise ownership moved and the caller has to handle it.
+        const noRowsMatched = async () => {
+            if (!params.staleGuard) {
+                throw new EformsignDocOwnershipConflictError(params.documentId);
+            }
+            const ownedCount = await this.prismaService.eformsign_doc.count({
+                where: params.allowedWhere,
+            });
+            throw ownedCount > 0
+                ? new EformsignDocStaleUpdateError(params.documentId)
+                : new EformsignDocOwnershipConflictError(params.documentId);
+        };
 
         let updated = await updateExisting();
         if (updated.count === 0) {
@@ -477,7 +502,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             updated = await updateExisting();
             if (updated.count === 0) {
-                throw new EformsignDocOwnershipConflictError(params.documentId);
+                await noRowsMatched();
             }
         }
 

@@ -20,6 +20,7 @@ import {
     EFORMSIGN_DOC_REPOSITORY,
     EformsignDocMappingError,
     EformsignDocOwnershipConflictError,
+    EformsignDocStaleUpdateError,
     IEformsignDocRepository,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
@@ -189,6 +190,12 @@ export class EformsignWebhookService {
                     await this.retryBranchOwnedWebhookAfterOwnershipConflict(payload, documentId);
                     return;
                 }
+                if (error instanceof EformsignDocStaleUpdateError) {
+                    this.logger.log(
+                        `Ignoring stale webhook ${webhook_id} for unassigned document ${documentId}`,
+                    );
+                    return;
+                }
                 this.logger.warn(
                     `Failed to mirror external document ${documentId} from webhook ${webhook_id}: ${error}`,
                 );
@@ -202,6 +209,14 @@ export class EformsignWebhookService {
             } catch (error) {
                 if (error instanceof EformsignDocOwnershipConflictError) {
                     await this.retryBranchOwnedWebhookAfterOwnershipConflict(payload, documentId);
+                    return;
+                }
+                // The row already holds state at least as new as this event. Retrying it as
+                // branch-owned would apply the stale event we just refused.
+                if (error instanceof EformsignDocStaleUpdateError) {
+                    this.logger.log(
+                        `Ignoring stale webhook ${webhook_id} for unassigned document ${documentId}`,
+                    );
                     return;
                 }
                 this.logger.warn(
