@@ -484,6 +484,50 @@ export class E2eEformsignClientStub implements IEformsignClientRepository {
         return Promise.resolve(buildEformsignStubTokenResponse());
     }
 
+    getInProgressDocuments(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiDocumentResponse[]> {
+        return this.getInProgressDocumentsPage(accessToken, limit, skip)
+            .then((page) => page.documents);
+    }
+
+    getInProgressDocumentsPage(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiListResponse> {
+        void accessToken;
+        const documents = buildEformsignStubDocuments();
+        return Promise.resolve({
+            documents: documents.slice(skip, skip + limit),
+            total_count: documents.length,
+        });
+    }
+
+    getCompletedDocuments(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiDocumentResponse[]> {
+        return this.getCompletedDocumentsPage(accessToken, limit, skip)
+            .then((page) => page.documents);
+    }
+
+    getCompletedDocumentsPage(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiListResponse> {
+        void accessToken;
+        const documents = buildEformsignStubDocuments();
+        return Promise.resolve({
+            documents: documents.slice(skip, skip + limit),
+            total_count: documents.length,
+        });
+    }
+
     getAllDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
         void accessToken;
         return Promise.resolve(buildEformsignStubDocuments());

@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EformsignDocCompletionClaimParams,
@@ -409,15 +410,22 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             documentId: doc.documentId,
             create,
             update,
-            allowedWhere: {
-                documentId: doc.documentId,
-                branchId: null,
-            },
+            allowedWhere: options?.allowAssignedUpdate
+                ? { documentId: doc.documentId }
+                : {
+                    documentId: doc.documentId,
+                    branchId: null,
+                },
             // Monotonicity has to live in the write, not in a prior read: two webhooks for
             // the same document can both read the same stored updatedDate, both decide they
             // are newer, and the older one land last. lte rather than lt so an event that
             // carries no time of its own — it reuses the stored value — still applies.
-            staleGuard: { updatedDate: { lte: doc.updatedDate } },
+            staleGuard: {
+                updatedDate: { lte: doc.updatedDate },
+                ...(TERMINAL_STATUS_CODES.has(doc.statusType)
+                    ? {}
+                    : { statusType: { notIn: [...TERMINAL_STATUS_CODES] } }),
+            },
         });
     }
 

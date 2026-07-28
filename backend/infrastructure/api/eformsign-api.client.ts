@@ -172,58 +172,56 @@ export class EformsignApiClient implements IEformsignClientRepository {
      * Get in-progress documents from eformsign API (uses DOC API URL)
      * POST /v2.0/api/list_document with type: "01"
      */
-    async getInProgressDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
-        this.assertConfigured();
-        const data = await this.request<EformsignApiListResponse>(
+    async getInProgressDocuments(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiDocumentResponse[]> {
+        const data = await this.getInProgressDocumentsPage(accessToken, limit, skip);
+        return data.documents;
+    }
+
+    async getInProgressDocumentsPage(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiListResponse> {
+        return this.listDocumentsPage(
             "getInProgressDocuments",
-            `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${accessToken}`,
-                },
-                body: JSON.stringify({
-                    type: "01",
-                    title_and_content: "",
-                    title: "",
-                    content: "",
-                    limit: "100",
-                    skip: "0",
-                }),
-            },
+            accessToken,
+            "01",
+            limit,
+            skip,
             "Failed to get in-progress documents",
         );
-        return data.documents || [];
     }
 
     /**
      * Get completed documents from eformsign API (uses DOC API URL)
      * POST /v2.0/api/list_document with type: "03"
      */
-    async getCompletedDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]> {
-        this.assertConfigured();
-        const data = await this.request<EformsignApiListResponse>(
+    async getCompletedDocuments(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiDocumentResponse[]> {
+        const data = await this.getCompletedDocumentsPage(accessToken, limit, skip);
+        return data.documents;
+    }
+
+    async getCompletedDocumentsPage(
+        accessToken: string,
+        limit = 100,
+        skip = 0,
+    ): Promise<EformsignApiListResponse> {
+        return this.listDocumentsPage(
             "getCompletedDocuments",
-            `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${accessToken}`,
-                },
-                body: JSON.stringify({
-                    type: "03",
-                    title_and_content: "",
-                    title: "",
-                    content: "",
-                    limit: "100",
-                    skip: "0",
-                }),
-            },
+            accessToken,
+            "03",
+            limit,
+            skip,
             "Failed to get completed documents",
         );
-        return data.documents || [];
     }
 
     /**
@@ -276,6 +274,41 @@ export class EformsignApiClient implements IEformsignClientRepository {
             "Failed to find document by title",
         );
         return data.documents ?? [];
+    }
+
+    private async listDocumentsPage(
+        operation: string,
+        accessToken: string,
+        type: "01" | "03",
+        limit: number,
+        skip: number,
+        errorPrefix: string,
+    ): Promise<EformsignApiListResponse> {
+        this.assertConfigured();
+        const data = await this.request<EformsignApiListResponse>(
+            operation,
+            `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/list_document`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({
+                    type,
+                    title_and_content: "",
+                    title: "",
+                    content: "",
+                    limit: String(limit),
+                    skip: String(skip),
+                }),
+            },
+            errorPrefix,
+        );
+        return {
+            documents: data.documents ?? [],
+            total_count: data.total_count,
+        };
     }
 
     /**

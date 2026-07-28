@@ -58,6 +58,43 @@ describe("EformsignApiClient retry policy", () => {
         expect(warnSpy).not.toHaveBeenCalled();
     });
 
+    it("keeps the legacy list defaults when pagination arguments are omitted", async () => {
+        const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(listSuccessResponse());
+
+        await createClient().getInProgressDocuments("access-token");
+
+        const request = fetchMock.mock.calls[0]?.[1];
+        expect(JSON.parse(String(request?.body))).toEqual(expect.objectContaining({
+            type: "01",
+            limit: "100",
+            skip: "0",
+        }));
+    });
+
+    it("returns total_count from the page method and forwards limit and skip", async () => {
+        const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                documents: [{ id: "document-201" }],
+                total_count: 1_205,
+            }),
+            { status: 200 },
+        ));
+
+        await expect(
+            createClient().getCompletedDocumentsPage("access-token", 75, 1_125),
+        ).resolves.toEqual({
+            documents: [{ id: "document-201" }],
+            total_count: 1_205,
+        });
+
+        const request = fetchMock.mock.calls[0]?.[1];
+        expect(JSON.parse(String(request?.body))).toEqual(expect.objectContaining({
+            type: "03",
+            limit: "75",
+            skip: "1125",
+        }));
+    });
+
     it("retries a 429 response and succeeds", async () => {
         jest.useFakeTimers();
         jest.spyOn(Math, "random").mockReturnValue(0);

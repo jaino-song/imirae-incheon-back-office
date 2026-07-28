@@ -62,6 +62,7 @@ export interface EformsignDocCompletionClaimParams {
 export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missing";
 
 export interface UpsertUnassignedEformsignDocOptions {
+    allowAssignedUpdate?: boolean;
     updateListDisplayFields?: boolean;
 }
 

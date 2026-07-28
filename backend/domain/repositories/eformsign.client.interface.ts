@@ -111,6 +111,26 @@ export interface CreateDocumentResponse {
 export interface IEformsignClientRepository {
     getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse>;
     refreshAccessToken(executionTime: number, refreshToken: string): Promise<EformsignTokenResponse>;
+    getInProgressDocuments(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiDocumentResponse[]>;
+    getInProgressDocumentsPage(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiListResponse>;
+    getCompletedDocuments(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiDocumentResponse[]>;
+    getCompletedDocumentsPage(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiListResponse>;
     getAllDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]>;
     /** Narrow remote lookup used to reconcile an ambiguous document-creation attempt. */
     findDocumentsByTitle?(

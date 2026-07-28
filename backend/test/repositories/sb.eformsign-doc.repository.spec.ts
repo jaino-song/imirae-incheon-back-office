@@ -487,6 +487,110 @@ describe("SbEformsignDocRepository", () => {
         expect(args.data).not.toHaveProperty("stepRecipientTypes");
     });
 
+    it("updates an assigned row without writing any local-only ownership fields", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: "service_record_snapshot",
+            employeeScheduleId: 77,
+            templateId: "template-1",
+            serviceRecordCaseId: "case-1",
+            snapshotVersion: 3,
+            snapshotChunkIndex: 2,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            allowAssignedUpdate: true,
+            updateListDisplayFields: true,
+        });
+
+        const args = eformsignDocModel.updateMany.mock.calls[0][0];
+        expect(args.where).toEqual({
+            AND: [
+                { documentId: "doc-1" },
+                { updatedDate: { lte: legacyRow.updatedDate } },
+            ],
+        });
+        expect(args.data).not.toHaveProperty("branchId");
+        expect(args.data).not.toHaveProperty("clientId");
+        expect(args.data).not.toHaveProperty("documentKind");
+        expect(args.data).not.toHaveProperty("employeeScheduleId");
+        expect(args.data).not.toHaveProperty("serviceRecordCaseId");
+        expect(args.data).not.toHaveProperty("snapshotVersion");
+        expect(args.data).not.toHaveProperty("snapshotChunkIndex");
+    });
+
+    it("creates a newly discovered document with every local-only field unassigned", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "template-1",
+            serviceRecordCaseId: null,
+            snapshotVersion: null,
+            snapshotChunkIndex: null,
+        });
+        const unassigned = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "template-1",
+        });
+
+        await repository.upsertUnassignedByDocumentId(unassigned, {
+            allowAssignedUpdate: true,
+        });
+
+        const createData = eformsignDocModel.create.mock.calls[0][0].data;
+        expect(createData).toEqual(expect.objectContaining({
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+        }));
+        // These nullable relation/snapshot columns are deliberately omitted so Prisma
+        // applies their null defaults; the backfill has no source value for them.
+        expect(createData).not.toHaveProperty("serviceRecordCaseId");
+        expect(createData).not.toHaveProperty("snapshotVersion");
+        expect(createData).not.toHaveProperty("snapshotChunkIndex");
+    });
+
+    it("guards a terminal row from a non-terminal downgrade in the updateMany predicate", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+        const incoming = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            updatedDate: new Date("2026-07-02T00:00:00.000Z"),
+            statusType: "060",
+            statusDetail: "서명 요청",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await expect(
+            repository.upsertUnassignedByDocumentId(incoming, {
+                allowAssignedUpdate: true,
+            }),
+        ).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].where.AND).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    statusType: { notIn: expect.arrayContaining(["050", "080", "099"]) },
+                }),
+            ]),
+        );
+    });
+
     it("does not update a branch-owned row when an unassigned mirror loses the ownership race", async () => {
         eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
         eformsignDocModel.create.mockRejectedValue(

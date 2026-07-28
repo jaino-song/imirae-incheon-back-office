@@ -6,11 +6,18 @@ import {
     EFORMSIGN_DOC_REPOSITORY,
     IEformsignDocRepository,
 } from "domain/repositories/eformsign-doc.repository.interface";
+import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 
 const DEFAULT_DOCUMENT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface MirrorRemoteEformsignDocumentOptions {
+    allowAssignedUpdate?: boolean;
+    fallbackDocumentId?: string;
+    now?: number;
+}
 
 @Injectable()
 export class MirrorUnassignedEformsignDocUsecase {
@@ -30,6 +37,18 @@ export class MirrorUnassignedEformsignDocUsecase {
             token.oauth_token.access_token,
             documentId,
         );
+        return this.mirrorRemoteDocument(remote, {
+            fallbackDocumentId: documentId,
+            now,
+        });
+    }
+
+    async mirrorRemoteDocument(
+        remote: EformsignApiDocumentResponse,
+        options: MirrorRemoteEformsignDocumentOptions = {},
+    ): Promise<EformsignDocEntity> {
+        const now = options.now ?? Date.now();
+        const fallbackDocumentId = options.fallbackDocumentId ?? remote.id;
         const recipient = remote.current_status.step_recipients?.[0];
         const remoteUpdatedDate = new Date(remote.updated_date);
         const updatedDate = Number.isNaN(remoteUpdatedDate.getTime())
@@ -37,7 +56,7 @@ export class MirrorUnassignedEformsignDocUsecase {
             : remoteUpdatedDate;
         if (Number.isNaN(remoteUpdatedDate.getTime())) {
             this.logger.warn(
-                `Invalid remote updated_date for eformsign document ${remote.id || documentId}; using current time`,
+                `Invalid remote updated_date for eformsign document ${remote.id || fallbackDocumentId}; using current time`,
             );
         }
 
@@ -47,7 +66,7 @@ export class MirrorUnassignedEformsignDocUsecase {
             : remoteCreatedDate;
         if (Number.isNaN(remoteCreatedDate.getTime())) {
             this.logger.warn(
-                `Invalid remote created_date for eformsign document ${remote.id || documentId}; using updated_date`,
+                `Invalid remote created_date for eformsign document ${remote.id || fallbackDocumentId}; using updated_date`,
             );
         }
 
@@ -60,12 +79,12 @@ export class MirrorUnassignedEformsignDocUsecase {
         );
         if (clampedUpdatedDate.getTime() !== updatedDate.getTime()) {
             this.logger.warn(
-                `Remote updated_date precedes created_date for eformsign document ${remote.id || documentId}; clamping to created_date`,
+                `Remote updated_date precedes created_date for eformsign document ${remote.id || fallbackDocumentId}; clamping to created_date`,
             );
         }
 
         const doc = EformsignDocEntity.create({
-            documentId: remote.id || documentId,
+            documentId: remote.id || fallbackDocumentId,
             documentName: remote.document_name || null,
             documentNumber: remote.document_number || null,
             templateName: remote.template?.name?.trim() || null,
@@ -99,6 +118,7 @@ export class MirrorUnassignedEformsignDocUsecase {
         });
 
         return this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {
+            ...(options.allowAssignedUpdate ? { allowAssignedUpdate: true } : {}),
             updateListDisplayFields: true,
         });
     }

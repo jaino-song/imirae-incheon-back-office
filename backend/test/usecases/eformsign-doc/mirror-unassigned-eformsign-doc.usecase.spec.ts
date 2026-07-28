@@ -197,4 +197,59 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
             expect.stringContaining("reversed-doc"),
         );
     });
+
+    it("mirrors an already-fetched document without issuing token or detail API calls", async () => {
+        const getAccessTokenUsecase = { execute: jest.fn() };
+        const fetchEformsignDocFromApiUsecase = { execute: jest.fn() };
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            getAccessTokenUsecase as never,
+            fetchEformsignDocFromApiUsecase as never,
+            repository as never,
+        );
+
+        await usecase.mirrorRemoteDocument({
+            id: "listed-doc",
+            document_number: "DOC-100",
+            document_name: "목록 문서",
+            created_date: Date.parse("2026-07-01T00:00:00.000Z"),
+            updated_date: Date.parse("2026-07-02T00:00:00.000Z"),
+            template: { id: "template-1", name: "계약서" },
+            creator: { recipient_type: "01", id: "creator", name: "생성자" },
+            current_status: {
+                status_type: "060",
+                status_doc_type: "",
+                status_doc_detail: "서명 요청",
+                step_type: "05",
+                step_index: "1",
+                step_name: "이용자",
+                step_recipients: [],
+                step_group: 1,
+                expired_date: 0,
+                _expired: false,
+            },
+        }, {
+            allowAssignedUpdate: true,
+            now: Date.parse("2026-07-03T00:00:00.000Z"),
+        });
+
+        expect(getAccessTokenUsecase.execute).not.toHaveBeenCalled();
+        expect(fetchEformsignDocFromApiUsecase.execute).not.toHaveBeenCalled();
+        expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({
+                documentId: "listed-doc",
+                clientId: null,
+                documentKind: null,
+                employeeScheduleId: null,
+            }),
+            {
+                allowAssignedUpdate: true,
+                updateListDisplayFields: true,
+            },
+        );
+    });
 });

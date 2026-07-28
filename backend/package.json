@@ -18,6 +18,7 @@
     "build:sentry": "pnpm build && if test -n \"${SENTRY_AUTH_TOKEN:-}\"; then pnpm sentry:sourcemaps; else echo 'Sentry source-map upload skipped: SENTRY_AUTH_TOKEN is not configured'; fi",
     "sentry:sourcemaps": "release=\"${SENTRY_RELEASE:-${RAILWAY_GIT_COMMIT_SHA:-}}\"; test -n \"$release\" && sentry-cli sourcemaps inject dist && sentry-cli sourcemaps upload --release \"$release\" dist && find dist -type f -name '*.map' -delete",
     "sentry:smoke": "ts-node scripts/sentry-service-record-smoke.ts",
+    "backfill:eformsign-docs": "NODE_PATH=. ts-node scripts/backfill-eformsign-docs.ts",
     "type-check": "prisma generate && tsc --noEmit",
     "lint": "eslint .",
     "start": "nest start",
