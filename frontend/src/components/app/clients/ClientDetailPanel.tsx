@@ -898,7 +898,7 @@ function ClientDetailPanelBody({
                                         />
                                     </InfoCard>
 
-                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_service-card`} title="서비스 정보" className="col-start-2 row-start-1 row-end-5">
+                                    <InfoCard data-component={`${dataComponentPrefix}_content_basic_grid_service-card`} title="서비스 정보" className="col-start-2 row-start-1 row-end-5 content-start">
                                         <InfoRow
                                             label={t(locale, "clients.form.voucher-type")}
                                             value={client.type ? getClientDisplayLabel(client.type) : "-"}
