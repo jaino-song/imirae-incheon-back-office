@@ -16,6 +16,7 @@ import {
     eformsignListDocFromMirror,
     MIRROR_CUSTOMER_NAME_KEY,
     MIRROR_RECIPIENT_NAME_KEY,
+    MIRROR_UNKNOWN_RECIPIENT_NAME,
 } from "application/utils/eformsign-list-doc-from-mirror";
 import { stringFromUnknown } from "application/utils/eformsign-document-customer-name";
 import {
@@ -181,12 +182,17 @@ export function enrichMirrorPage(documents: EformsignListDoc[]): EformsignListDo
  * a real customer name — which it does the moment any webhook touches the document, since
  * that path mirrors from a detail response.
  *
- * Adoption can also put the document title here, and a title is not a customer name. The
- * API path skips those for the same reason.
+ * Adoption can also put the document title here, or — when it had neither a name nor a
+ * title — the literal word 수신자. Neither is a customer name, and the API path rejects
+ * both: `findDisplayFieldsByDocumentIds` nulls the sentinel out before enrichment sees it,
+ * and enrichment itself drops a title match. Both then fall through to a detail fetch. This
+ * path has no detail fetch to fall through to, so it returns nothing and the row reads
+ * 고객 미지정 — which is what the UI's own missing-name fallback is for, and what it would
+ * stop doing if we handed it the sentinel as a name.
  */
 function recipientNameAsCustomerName(document: EformsignListDoc): string | null {
     const recipientName = stringFromUnknown(document[MIRROR_RECIPIENT_NAME_KEY]);
-    if (!recipientName) {
+    if (!recipientName || recipientName === MIRROR_UNKNOWN_RECIPIENT_NAME) {
         return null;
     }
 

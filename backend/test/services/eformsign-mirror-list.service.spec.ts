@@ -246,4 +246,23 @@ describe("enrichMirrorPage", () => {
         expect(documentCustomerNameValue(byId.get("doc-named")!)).toBe("송진호");
         expect(documentCustomerNameValue(byId.get("doc-titled")!)).toBeNull();
     });
+
+    it("does not pass off the adoption sentinel as a customer name", async () => {
+        // Adoption stores the literal word 수신자 when it had neither a recipient name nor
+        // a document title. The API path's own lookup nulls it out before enrichment sees
+        // it; emitting it here would put it on screen and stop the UI falling back to
+        // 고객 미지정, which is the only signal that the name is still unknown.
+        const sentinel = createMirrorDocument({
+            documentId: "doc-sentinel",
+            customerName: null,
+            stepRecipientName: "수신자",
+        });
+        const service = new EformsignMirrorListService({
+            findAll: jest.fn().mockResolvedValue([sentinel]),
+            findAllForHeadquarters: jest.fn(),
+        } as never);
+        const { documents } = await service.buildList(createQuery());
+
+        expect(documentCustomerNameValue(enrichMirrorPage(documents)[0]!)).toBeNull();
+    });
 });
