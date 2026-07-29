@@ -31,10 +31,16 @@ describe("eformsignExpiryDateFromRemainingDays", () => {
         );
     });
 
-    it("falls back rather than returning a Date that cannot hold the value", () => {
-        // A caller storing this would fail entity validation, and the document would be
+    it.each([
+        ["an instant past the end of time", 1e17],
+        // Under the epoch threshold, so it takes the day-count branch — but 1e8 days is
+        // already past what a Date can hold once multiplied out. Both branches need the
+        // same bound; only the instant one had it at first.
+        ["a day count that overflows once multiplied", 100_000_000],
+    ])("falls back rather than returning a Date that cannot hold %s", (_label, value) => {
+        // A caller storing an invalid Date fails entity validation, and the document is
         // dropped from the mirror — the outcome this whole discrimination exists to avoid.
-        const result = eformsignExpiryDateFromRemainingDays(1e17, referenceTime);
+        const result = eformsignExpiryDateFromRemainingDays(value, referenceTime);
 
         expect(Number.isNaN(result.getTime())).toBe(false);
         expect(result).toEqual(new Date(referenceTime + 30 * 24 * 60 * 60 * 1000));

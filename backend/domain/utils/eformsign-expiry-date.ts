@@ -49,12 +49,8 @@ export function eformsignExpiryDateFromRemainingDays(
         && Number.isFinite(remainingDays)
         && remainingDays >= EPOCH_MILLISECONDS_THRESHOLD
     ) {
-        // Already an instant. Anything a Date cannot hold is not one, so it falls through
-        // to the default rather than being stored as an invalid value.
-        if (remainingDays <= MAX_TIME_VALUE) {
-            return new Date(remainingDays);
-        }
-        return defaultExpiry(referenceTime);
+        // Already an instant.
+        return boundedDate(remainingDays, referenceTime);
     }
 
     const expiryDays = typeof remainingDays === "number"
@@ -63,9 +59,24 @@ export function eformsignExpiryDateFromRemainingDays(
         ? remainingDays
         : DEFAULT_DOCUMENT_EXPIRY_DAYS;
 
-    return new Date(referenceTime + expiryDays * MILLISECONDS_PER_DAY);
+    // A day count under the epoch threshold can still overflow once multiplied — anything
+    // past 1e8 days does — so this branch needs the same bound as the instant one.
+    return boundedDate(referenceTime + expiryDays * MILLISECONDS_PER_DAY, referenceTime);
 }
 
-function defaultExpiry(referenceTime: number): Date {
-    return new Date(referenceTime + DEFAULT_DOCUMENT_EXPIRY_DAYS * MILLISECONDS_PER_DAY);
+/**
+ * The single place the "always a valid Date" guarantee is enforced, so neither branch above
+ * can quietly stop honouring it. A value a Date cannot hold is not a date at all; it falls
+ * back to the default window, and if even that is unusable the caller gets the no-expiry
+ * sentinel rather than a value that fails entity validation and drops the document.
+ */
+function boundedDate(timeValue: number, referenceTime: number): Date {
+    if (Number.isFinite(timeValue) && Math.abs(timeValue) <= MAX_TIME_VALUE) {
+        return new Date(timeValue);
+    }
+
+    const fallback = referenceTime + DEFAULT_DOCUMENT_EXPIRY_DAYS * MILLISECONDS_PER_DAY;
+    return Number.isFinite(fallback) && Math.abs(fallback) <= MAX_TIME_VALUE
+        ? new Date(fallback)
+        : new Date(EFORMSIGN_NO_EXPIRY_DATE);
 }
