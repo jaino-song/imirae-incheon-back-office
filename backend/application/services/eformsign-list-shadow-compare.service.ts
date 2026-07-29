@@ -1,14 +1,7 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import {
-    documentSearchValues,
-    filterDocumentsByStatusCategory,
-    filterDocumentsByTemplate,
-    eformsignListScopeSelector,
-    filterOutDeletedDocuments,
-    matchesKoreanSearch,
-    sortDocumentsByCreatedDate,
     type DocumentStatusCategory,
     type EformsignListDoc,
     type TemplateMatch,
@@ -18,16 +11,12 @@ import {
     stringFromUnknown,
 } from "application/utils/eformsign-document-customer-name";
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
-import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
+import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
 import { getDocumentCreatedTimestamp } from "application/services/eformsign.service";
 import {
     normalizeEformsignStatusCode,
     normalizeEformsignStepType,
 } from "domain/utils/eformsign-status-code";
-import {
-    EFORMSIGN_DOC_REPOSITORY,
-    IEformsignDocRepository,
-} from "domain/repositories/eformsign-doc.repository.interface";
 
 export interface ListShadowCompareQuery {
     branchId: string;
@@ -97,8 +86,7 @@ export class EformsignListShadowCompareService {
 
     constructor(
         private readonly configService: ConfigService,
-        @Inject(EFORMSIGN_DOC_REPOSITORY)
-        private readonly eformsignDocRepository: IEformsignDocRepository,
+        private readonly mirrorListService: EformsignMirrorListService,
     ) {}
 
     isEnabled(): boolean {
@@ -201,74 +189,18 @@ export class EformsignListShadowCompareService {
     private async buildLocalList(
         query: ListShadowCompareQuery,
     ): Promise<{ documentIds: string[]; fieldsById: Map<string, ListShadowCompareFields> }> {
-        // For a regular branch the corpus and the search rows are the same query, so it
-        // is read once; only headquarters needs the wider set as well.
-        const branchOwned = await this.eformsignDocRepository.findAll(query.branchId);
-        const mirrored = query.isHeadquarters
-            ? await this.eformsignDocRepository.findAllForHeadquarters(query.branchId)
-            : branchOwned;
-        // Deliberately the branch-owned rows only, even for headquarters. The served path
-        // builds its recipient-name search corpus from findAll(branchId), so an unassigned
-        // document's recipient name is not searchable there — reproducing that is the
-        // point, and "fixing" it here would report a difference that is ours, not the
-        // mirror's.
-        const localSearchValues = new Map(
-            branchOwned.map((document) => [
-                document.documentId,
-                [document.stepRecipientName].filter((value) => Boolean(value)),
-            ] as const),
-        );
-        const documents = mirrored.map(eformsignListDocFromMirror);
-        const fieldsById = new Map(
-            documents.map((document) => [
-                document.id,
-                eformsignListCompareFields(document),
-            ] as const),
-        );
-
-        const templateFiltered = filterDocumentsByTemplate(
-            documents,
-            query.templateId,
-            query.templateMatch,
-        );
-        const deletionFiltered = filterOutDeletedDocuments(
-            templateFiltered,
-            query.excludeDeleted ?? false,
-        );
-        const scopeSelector = eformsignListScopeSelector(query.scope);
-        const scopeFiltered = scopeSelector === undefined
-            ? deletionFiltered
-            : deletionFiltered.filter(scopeSelector);
-        const statusFiltered = filterDocumentsByStatusCategory(
-            scopeFiltered,
-            query.statusCategory,
-        );
-        const searchFiltered = this.filterBySearch(statusFiltered, localSearchValues, query.search);
-        const sorted = sortDocumentsByCreatedDate(searchFiltered);
-
+        // Delegated rather than reimplemented: what this measures has to be the same
+        // computation the switch would serve, or the evidence describes nothing.
+        const { documents } = await this.mirrorListService.buildList(query);
         return {
-            documentIds: sorted.map((document) => document.id),
-            fieldsById,
+            documentIds: documents.map((document) => document.id),
+            fieldsById: new Map(
+                documents.map((document) => [
+                    document.id,
+                    eformsignListCompareFields(document),
+                ] as const),
+            ),
         };
-    }
-
-    private filterBySearch(
-        documents: EformsignListDoc[],
-        localSearchValues: Map<string, string[]>,
-        search: string | undefined,
-    ): EformsignListDoc[] {
-        const query = search?.trim() ?? "";
-        if (!query) {
-            return documents;
-        }
-
-        return documents.filter((document) => {
-            const values = documentSearchValues(
-                document,
-                localSearchValues.get(document.id) ?? [],
-            );
-            return values.some((value) => matchesKoreanSearch(value, query));
-        });
     }
 }
 

@@ -6,6 +6,7 @@ import {
     type ListShadowCompareQuery,
     type ListShadowCompareServed,
 } from "application/services/eformsign-list-shadow-compare.service";
+import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
 import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 
@@ -105,9 +106,12 @@ describe("EformsignListShadowCompareService", () => {
     });
 
     function createService(enabled: string | undefined) {
+        // The real mirror list service, not a stub: the filtering, searching and scope
+        // rules these tests assert on live there, and it is the same instance the switch
+        // serves from. Stubbing it would leave them asserting on nothing.
         return new EformsignListShadowCompareService(
             createConfigService(enabled),
-            repository as never,
+            new EformsignMirrorListService(repository as never),
         );
     }
 

@@ -9,7 +9,9 @@ import { TenantGuard } from "infrastructure/tenant";
 import { EformsignController } from "interface/controllers/eformsign.controller";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import { ConfigService } from "@nestjs/config";
 import { EformsignListShadowCompareService } from "application/services/eformsign-list-shadow-compare.service";
+import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
 import request from "supertest";
 
 // Known transport-level flake (~1/8 full-suite runs under parallel-worker
@@ -64,6 +66,7 @@ describe("EformsignController (Integration)", () => {
     };
 
     const shadowCompareService = { compareInBackground: jest.fn() };
+    const mirrorListService = { buildList: jest.fn() };
 
     beforeEach(async () => {
         shadowCompareService.compareInBackground.mockClear();
@@ -120,6 +123,16 @@ describe("EformsignController (Integration)", () => {
                     // 기록하고 아무것도 하지 않게 두면, 응답 검증이 그 사실을 보증한다.
                     provide: EformsignListShadowCompareService,
                     useValue: shadowCompareService,
+                },
+                {
+                    provide: EformsignMirrorListService,
+                    useValue: mirrorListService,
+                },
+                {
+                    // EFORMSIGN_LIST_FROM_MIRROR 미설정 = 기존 API 경로. 이 스위트 전체가
+                    // 그 경로의 무회귀를 검증한다.
+                    provide: ConfigService,
+                    useValue: { get: jest.fn(() => undefined) },
                 },
             ],
         })
@@ -290,6 +303,108 @@ describe("EformsignController (Integration)", () => {
             "unmapped-doc",
             "document",
         );
+    });
+
+    describe("when EFORMSIGN_LIST_FROM_MIRROR is on", () => {
+        // E단계의 계약: 목록이 로컬 미러에서 나오고 eformsign을 전혀 호출하지 않는다.
+        // 되돌리기는 배포가 아니라 설정 한 줄이어야 한다.
+        let mirrorApp: INestApplication;
+
+        beforeEach(async () => {
+            const fixture = await Test.createTestingModule({
+                controllers: [EformsignController],
+                providers: [
+                    { provide: EformsignService, useValue: eformsignService },
+                    { provide: AreaTemplateService, useValue: { findByArea: jest.fn() } },
+                    { provide: EformsignDocService, useValue: eformsignDocService },
+                    {
+                        provide: PrismaService,
+                        useValue: { branch: { findUnique: branchFindUnique } },
+                    },
+                    {
+                        provide: ContractClientAssignmentGuardService,
+                        useValue: { assertAssignedProvider: jest.fn() },
+                    },
+                    EformsignDocumentSnapshotService,
+                    { provide: EformsignListShadowCompareService, useValue: shadowCompareService },
+                    { provide: EformsignMirrorListService, useValue: mirrorListService },
+                    {
+                        provide: ConfigService,
+                        useValue: {
+                            get: jest.fn((key: string) =>
+                                key === "EFORMSIGN_LIST_FROM_MIRROR" ? "true" : undefined),
+                        },
+                    },
+                ],
+            })
+                .overrideGuard(JwtGuard)
+                .useValue(authGuard)
+                .overrideGuard(TenantGuard)
+                .useValue(authGuard)
+                .compile();
+
+            mirrorApp = fixture.createNestApplication();
+            mirrorApp.useGlobalPipes(new ValidationPipe({ transform: true }));
+            await mirrorApp.init();
+        });
+
+        afterEach(async () => {
+            await mirrorApp.close();
+        });
+
+        it("serves the list from the mirror without calling eformsign", async () => {
+            mirrorListService.buildList.mockResolvedValue({
+                documents: [
+                    { id: "doc-1", document_name: "문서 1" },
+                    { id: "doc-2", document_name: "문서 2" },
+                ],
+                entityById: new Map(),
+            });
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token&limit=1&skip=0");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-1"]);
+            expect(response.body.total_rows).toBe(2);
+            expect(response.body.has_more).toBe(true);
+            expect(eformsignService.getAllDocuments).not.toHaveBeenCalled();
+            // Nothing to compare against: the mirror is now the thing being served.
+            expect(shadowCompareService.compareInBackground).not.toHaveBeenCalled();
+        });
+
+        it("answers a tab from the mirror using its scope", async () => {
+            mirrorListService.buildList.mockResolvedValue({
+                documents: [{ id: "doc-open" }],
+                entityById: new Map(),
+            });
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents/in-progress?accessToken=access-token");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents).toEqual([{ id: "doc-open" }]);
+            expect(eformsignService.getInProgressDocuments).not.toHaveBeenCalled();
+            expect(mirrorListService.buildList).toHaveBeenCalledWith(
+                expect.objectContaining({ scope: "in-progress", branchId: "branch-1" }),
+            );
+        });
+
+        it("counts statuses from the same query the list uses", async () => {
+            mirrorListService.buildList.mockResolvedValue({
+                documents: [
+                    { id: "doc-1", current_status: { status_type: "060", step_name: "이용자" } },
+                ],
+                entityById: new Map(),
+            });
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents/status-counts?accessToken=access-token");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents).toHaveLength(1);
+            expect(eformsignService.getAllDocuments).not.toHaveBeenCalled();
+        });
     });
 
     it("hands the served page to the shadow comparison without changing it", async () => {
