@@ -98,6 +98,15 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
         this.redis?.disconnect();
     }
 
+    /**
+     * Whether a lock can be taken at all — false when VALKEY_URL is unset. Callers that
+     * want to decide their own fallback ask first rather than catching the unavailable
+     * error, which `runExclusive` can also raise once a run is already under way.
+     */
+    isAvailable(): boolean {
+        return this.redis !== null;
+    }
+
     async runExclusive<TResult>(
         work: (lease: EformsignBackfillLease) => Promise<TResult>,
     ): Promise<TResult> {

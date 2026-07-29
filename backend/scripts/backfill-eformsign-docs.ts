@@ -79,6 +79,25 @@ function confirmOperatorTarget(): void {
     );
 }
 
+async function runWithoutDistributedLock(
+    configService: ConfigService,
+    backfill: BackfillEformsignDocsUsecase,
+): Promise<EformsignDocsBackfillSummary> {
+    if (configService.get<string>("EFORMSIGN_BACKFILL_ALLOW_UNLOCKED") !== "true") {
+        throw new Error(
+            "VALKEY_URL is unset, so this run cannot take a cross-instance lock."
+            + " Nothing would stop a second backfill writing at the same time."
+            + " Set VALKEY_URL, or set EFORMSIGN_BACKFILL_ALLOW_UNLOCKED=true once you"
+            + " have confirmed no other backfill is running.",
+        );
+    }
+
+    process.stderr.write(
+        "Running without a distributed lock (EFORMSIGN_BACKFILL_ALLOW_UNLOCKED=true).\n",
+    );
+    return backfill.execute({ onProgress: logProgress });
+}
+
 async function main(): Promise<void> {
     // ConfigModule.forRoot loads ENV_FILE_PATHS while this module is evaluated.
     // Keep confirmation before Nest bootstrap because Prisma connects during bootstrap.
@@ -96,12 +115,18 @@ async function main(): Promise<void> {
 
         const backfill = app.get(BackfillEformsignDocsUsecase);
         const lock = app.get(EformsignBackfillLockService);
-        const summary = await lock.runExclusive((lease) =>
-            backfill.execute({
-                onProgress: logProgress,
-                shouldContinue: lease.isHeld,
-            }),
-        );
+        // No Valkey is provisioned in any environment, and adding one was deliberately
+        // deferred — so requiring the lock unconditionally would leave this script
+        // unrunnable everywhere. Running a full write sweep with nothing stopping a
+        // second operator is a real risk, though, so it takes its own acknowledgement
+        // rather than degrading quietly the way the nightly reconcile does.
+        const summary = lock.isAvailable()
+            ? await lock.runExclusive((lease) =>
+                backfill.execute({
+                    onProgress: logProgress,
+                    shouldContinue: lease.isHeld,
+                }))
+            : await runWithoutDistributedLock(configService, backfill);
         // Reaching here means every document was mirrored: the usecase now throws rather
         // than returning a summary that carries failures.
         logSummary("completed", summary);

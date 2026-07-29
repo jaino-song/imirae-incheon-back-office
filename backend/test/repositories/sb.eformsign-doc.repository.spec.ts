@@ -472,6 +472,7 @@ describe("SbEformsignDocRepository", () => {
         expect(args.data).toEqual({
             statusType: "050",
             statusDetail: "완료",
+            expiredDate: new Date("2026-08-01T00:00:00.000Z"),
             stepType: "05",
             stepIndex: "1",
             stepName: "이용자",
@@ -485,7 +486,6 @@ describe("SbEformsignDocRepository", () => {
         expect(args.data).not.toHaveProperty("branchId");
         expect(args.data).not.toHaveProperty("clientId");
         expect(args.data).not.toHaveProperty("documentKind");
-        expect(args.data).not.toHaveProperty("expiredDate");
         expect(args.data).not.toHaveProperty("stepRecipientName");
         expect(args.data).not.toHaveProperty("customerName");
         expect(args.data).not.toHaveProperty("creatorName");
@@ -732,6 +732,27 @@ describe("SbEformsignDocRepository", () => {
 
         expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
             .not.toHaveProperty("expired");
+    });
+
+    it("omits expiredDate from list-sourced updates so a real expiry survives", async () => {
+        // The list carries no expired_date, so what the mirror computed is only its
+        // fallback guess — writing it would overwrite a date the vendor actually gave us.
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            updateExpiredDate: false,
+        });
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
+            .not.toHaveProperty("expiredDate");
     });
 
     it("omits statusDetail from list-sourced updates so a webhook-written detail survives", async () => {

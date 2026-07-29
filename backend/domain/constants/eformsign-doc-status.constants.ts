@@ -61,3 +61,22 @@ export const UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE = new Set<string
 
 /** The one code that means the document passed its expiry date. */
 export const EFORMSIGN_EXPIRED_STATUS_CODE = "080";
+
+/**
+ * What an ended document's status detail should read when the vendor did not supply one.
+ * List responses carry no `status_doc_detail`, and the detail a document held while it
+ * was open — "서명 요청됨" — is plainly wrong once it has finished; the UI renders this
+ * string directly. Wording matches the webhook's own mapping so a row reads the same
+ * however it was reconciled. Codes whose meaning is not unambiguous from the code alone
+ * are deliberately absent: for those, keeping the stored detail beats inventing one.
+ */
+export const EFORMSIGN_TERMINAL_STATUS_DETAILS: Readonly<Record<string, string>> = {
+    "003": "완료",
+    "050": "완료",
+    "061": "거부",
+    "071": "검토 반려",
+    "072": "검토 완료",
+    "080": "만료",
+    "090": "철회",
+    "099": "삭제됨",
+};

@@ -17,6 +17,7 @@ import {
     omitPendingEformsignDocColumns,
 } from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import {
@@ -28,6 +29,8 @@ import {
     SERVICE_RECORD_TEMPLATE_SESSIONS_PER_DOCUMENT,
     SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS,
 } from "./service-record-field-ids";
+
+const SNAPSHOT_FALLBACK_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
 
 const CASE_SNAPSHOT_INCLUDE = {
     client: { select: { name: true } },
@@ -765,9 +768,13 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         const updatedDate = params.remoteDocument?.updated_date
             ? new Date(params.remoteDocument.updated_date)
             : now;
-        const expiredDate = remoteStatus?.expired_date
-            ? new Date(remoteStatus.expired_date)
-            : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+        // expired_date is days remaining, not an epoch — reading it as one stored a 1970
+        // date for every document eformsign said had a few days left. Its own fallback
+        // stays 14 days: that is this path's guess for "the vendor did not say", and the
+        // shared helper's 30 is a different guess for a different caller.
+        const expiredDate = remoteStatus?.expired_date === undefined
+            ? new Date(Date.now() + SNAPSHOT_FALLBACK_EXPIRY_MS)
+            : eformsignExpiryDateFromRemainingDays(remoteStatus.expired_date, Date.now());
         const marker = `제공기록지 C${params.record.id.slice(0, 8)} V${params.record.formVersion} ${params.chunk.chunkIndex}/${params.chunk.chunkCount}`;
         const create = {
             documentId: params.documentId,
