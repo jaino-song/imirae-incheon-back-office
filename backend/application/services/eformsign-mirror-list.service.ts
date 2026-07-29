@@ -12,9 +12,12 @@ import {
     type EformsignListDoc,
     type TemplateMatch,
 } from "application/utils/eformsign-document-list";
-import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
+import {
+    eformsignListDocFromMirror,
+    MIRROR_CUSTOMER_NAME_KEY,
+    MIRROR_RECIPIENT_NAME_KEY,
+} from "application/utils/eformsign-list-doc-from-mirror";
 import { stringFromUnknown } from "application/utils/eformsign-document-customer-name";
-import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EFORMSIGN_DOC_REPOSITORY,
     IEformsignDocRepository,
@@ -35,8 +38,6 @@ export interface MirrorListQuery {
 export interface MirrorListResult {
     /** Filtered and sorted, but not paginated — the caller slices what it needs. */
     documents: EformsignListDoc[];
-    /** The rows behind those documents, for filling in display values on a page. */
-    entityById: Map<string, EformsignDocEntity>;
 }
 
 /**
@@ -58,7 +59,16 @@ export class EformsignMirrorListService {
         private readonly eformsignDocRepository: IEformsignDocRepository,
     ) {}
 
-    async buildList(query: MirrorListQuery): Promise<MirrorListResult> {
+    /**
+     * Every mirrored document for a scope, in list order and before any per-request
+     * filter. Separate from `buildList` so a caller can cache this — the list has to be
+     * paginated over one generation, or a document that leaves the set between two pages
+     * shifts the rest up and is never shown.
+     */
+    async loadScopeDocuments(query: {
+        branchId: string;
+        isHeadquarters: boolean;
+    }): Promise<EformsignListDoc[]> {
         // For a regular branch the list rows and the search rows are the same query, so it
         // is read once; only headquarters needs the wider set as well.
         const branchOwned = await this.eformsignDocRepository.findAll(query.branchId);
@@ -68,18 +78,25 @@ export class EformsignMirrorListService {
 
         // Branch-owned rows only, even for headquarters: the API path builds its
         // recipient-name search corpus from findAll(branchId), so an unassigned document's
-        // recipient name is not searchable there either.
-        const searchValuesById = new Map(
+        // recipient name is not searchable there either. Carried on the document so a
+        // cached generation keeps it without a second read.
+        const recipientNameById = new Map(
             branchOwned.map((document) => [
                 document.documentId,
-                [document.stepRecipientName].filter((value) => Boolean(value)),
+                document.stepRecipientName,
             ] as const),
         );
-        const entityById = new Map(
-            mirrored.map((document) => [document.documentId, document] as const),
-        );
-        const documents = mirrored.map(eformsignListDocFromMirror);
+        return mirrored.map((document) => {
+            const listDoc = eformsignListDocFromMirror(document);
+            const recipientName = recipientNameById.get(document.documentId);
+            return recipientName
+                ? { ...listDoc, [MIRROR_RECIPIENT_NAME_KEY]: recipientName }
+                : listDoc;
+        });
+    }
 
+    /** Applies the per-request filters to an already-loaded scope. */
+    filterScope(documents: EformsignListDoc[], query: MirrorListQuery): MirrorListResult {
         const templateFiltered = filterDocumentsByTemplate(
             documents,
             query.templateId,
@@ -97,18 +114,18 @@ export class EformsignMirrorListService {
             scopeFiltered,
             query.statusCategory,
         );
-        const searchFiltered = filterBySearch(statusFiltered, searchValuesById, query.search);
+        const searchFiltered = filterBySearch(statusFiltered, query.search);
 
-        return {
-            documents: sortDocumentsByCreatedDate(searchFiltered),
-            entityById,
-        };
+        return { documents: sortDocumentsByCreatedDate(searchFiltered) };
+    }
+
+    async buildList(query: MirrorListQuery): Promise<MirrorListResult> {
+        return this.filterScope(await this.loadScopeDocuments(query), query);
     }
 }
 
 function filterBySearch(
     documents: EformsignListDoc[],
-    searchValuesById: Map<string, string[]>,
     search: string | undefined,
 ): EformsignListDoc[] {
     const query = search?.trim() ?? "";
@@ -117,9 +134,10 @@ function filterBySearch(
     }
 
     return documents.filter((document) => {
+        const recipientName = document[MIRROR_RECIPIENT_NAME_KEY];
         const values = documentSearchValues(
             document,
-            searchValuesById.get(document.id) ?? [],
+            typeof recipientName === "string" ? [recipientName] : [],
         );
         return values.some((value) => matchesKoreanSearch(value, query));
     });
@@ -133,18 +151,10 @@ function filterBySearch(
  * path enriches only what it is about to return, so its search never sees these values.
  * Adding them earlier here would quietly make the list searchable by customer name.
  */
-export function enrichMirrorPage(
-    documents: EformsignListDoc[],
-    entityById: Map<string, EformsignDocEntity>,
-): EformsignListDoc[] {
+export function enrichMirrorPage(documents: EformsignListDoc[]): EformsignListDoc[] {
     return documents.map((document) => {
-        const entity = entityById.get(document.id);
-        if (!entity) {
-            return document;
-        }
-
-        const customerName = entity.customerName
-            ?? recipientNameAsCustomerName(entity, document);
+        const customerName = stringFromUnknown(document[MIRROR_CUSTOMER_NAME_KEY])
+            ?? recipientNameAsCustomerName(document);
         if (!customerName) {
             return document;
         }
@@ -163,11 +173,8 @@ export function enrichMirrorPage(
  * Adoption can fall back to the document title for the recipient name, and a title is not
  * a customer name. The API path skips those for the same reason.
  */
-function recipientNameAsCustomerName(
-    entity: EformsignDocEntity,
-    document: EformsignListDoc,
-): string | null {
-    const recipientName = entity.stepRecipientName?.trim();
+function recipientNameAsCustomerName(document: EformsignListDoc): string | null {
+    const recipientName = stringFromUnknown(document[MIRROR_RECIPIENT_NAME_KEY]);
     if (!recipientName) {
         return null;
     }

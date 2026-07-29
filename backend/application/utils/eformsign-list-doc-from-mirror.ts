@@ -15,6 +15,21 @@ import type { EformsignListDoc } from "./eformsign-document-list";
  * deliberately absent rather than invented. A caller that needs them is not looking at a
  * list and should fetch the document.
  */
+/**
+ * Where the mirror's own customer name rides along. Not a vendor field, and deliberately
+ * not one the list rules read: filtering and searching must not see it, because the API
+ * path's search index is built before enrichment and never sees a customer name either.
+ * The page enrichment lifts it into `fields`, which is where the UI looks.
+ */
+export const MIRROR_CUSTOMER_NAME_KEY = "_mirror_customer_name";
+
+/**
+ * The branch's own recipient name for a document, carried the same way and for the same
+ * reason: the search reads it, headquarters must not see it for unclaimed documents, and
+ * a cached generation has to keep it without going back to the database.
+ */
+export const MIRROR_RECIPIENT_NAME_KEY = "_mirror_recipient_name";
+
 export function eformsignListDocFromMirror(document: EformsignDocEntity): EformsignListDoc {
     return {
         id: document.documentId,
@@ -39,6 +54,9 @@ export function eformsignListDocFromMirror(document: EformsignDocEntity): Eforms
             })),
             _expired: document.expired,
         },
+        ...(document.customerName === null
+            ? {}
+            : { [MIRROR_CUSTOMER_NAME_KEY]: document.customerName }),
         // No `fields`, deliberately, even though the mirror holds a customerName. The
         // vendor's list endpoint is fetched without include_fields — only the
         // single-document fetch asks for them — so the served search never sees a customer

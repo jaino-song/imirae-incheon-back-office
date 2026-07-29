@@ -213,9 +213,9 @@ describe("enrichMirrorPage", () => {
             findAll: jest.fn().mockResolvedValue([entity]),
             findAllForHeadquarters: jest.fn(),
         } as never);
-        const { documents, entityById } = await service.buildList(createQuery());
+        const { documents } = await service.buildList(createQuery());
 
-        const [enriched] = enrichMirrorPage(documents, entityById);
+        const [enriched] = enrichMirrorPage(documents);
 
         expect(documentCustomerNameValue(enriched!)).toBe("최고객");
     });
@@ -238,9 +238,9 @@ describe("enrichMirrorPage", () => {
             findAll: jest.fn().mockResolvedValue([titled, named]),
             findAllForHeadquarters: jest.fn(),
         } as never);
-        const { documents, entityById } = await service.buildList(createQuery());
+        const { documents } = await service.buildList(createQuery());
 
-        const enriched = enrichMirrorPage(documents, entityById);
+        const enriched = enrichMirrorPage(documents);
         const byId = new Map(enriched.map((document) => [document.id, document] as const));
 
         expect(documentCustomerNameValue(byId.get("doc-named")!)).toBe("송진호");

@@ -98,12 +98,9 @@ describe("eformsignListDocFromMirror", () => {
         // Filtering and searching happen before enrichment on the API path, so a customer
         // name must not be visible to them here either — otherwise switching the source
         // would silently change what a search finds.
-        const entity = createMirrorDocument();
-        const document = eformsignListDocFromMirror(entity);
+        const document = eformsignListDocFromMirror(createMirrorDocument());
 
         expect(documentCustomerNameValue(document)).toBeNull();
-        expect(documentCustomerNameValue(
-            enrichMirrorPage([document], new Map([[entity.documentId, entity]]))[0]!,
-        )).toBe("김고객");
+        expect(documentCustomerNameValue(enrichMirrorPage([document])[0]!)).toBe("김고객");
     });
 });

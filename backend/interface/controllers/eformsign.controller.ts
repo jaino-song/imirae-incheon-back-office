@@ -323,6 +323,7 @@ export class EformsignController {
      * scan bearable, and there is no scan here to amortise.
      */
     private async listFromMirror(params: {
+        accessToken: string;
         branchId: string;
         isHeadquarters: boolean;
         scope: string;
@@ -334,11 +335,29 @@ export class EformsignController {
         search?: string;
         excludeDeleted?: boolean;
     }) {
-        const { documents, entityById } = await this.mirrorListService.buildList(params);
+        // Through the same snapshot the API path uses. Not for the vendor calls it saves —
+        // there are none here — but because pagination has to walk one generation: a
+        // document leaving the set between two pages shifts the rest up, and the page the
+        // client asks for next then skips one it never saw.
+        const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
+            {
+                scope: params.scope as DocumentSnapshotScope,
+                branchId: params.branchId,
+                accessToken: params.accessToken,
+                isHeadquarters: params.isHeadquarters,
+            },
+            async () => this.toSnapshotEntries(
+                await this.mirrorListService.loadScopeDocuments(params),
+            ),
+        );
+        const { documents } = this.mirrorListService.filterScope(
+            snapshot.entries.map((entry) => entry.document),
+            params,
+        );
         const page = documents.slice(params.skip, params.skip + params.limit);
 
         return {
-            documents: enrichMirrorPage(page, entityById),
+            documents: enrichMirrorPage(page),
             total_rows: documents.length,
             limit: params.limit,
             skip: params.skip,
@@ -615,6 +634,7 @@ export class EformsignController {
             // document sat in — the mirror does not record that, and the shadow comparison
             // has been measuring exactly this substitution.
             return await this.listFromMirror({
+                accessToken,
                 branchId,
                 isHeadquarters,
                 scope,
@@ -946,6 +966,7 @@ export class EformsignController {
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
             if (this.servesFromMirror()) {
                 return await this.listFromMirror({
+                    accessToken,
                     branchId,
                     isHeadquarters,
                     scope: "all",
@@ -1048,15 +1069,30 @@ export class EformsignController {
                 // Same filters as the list, and the same source — the counters and the
                 // list have to agree, which is why they shared a snapshot generation
                 // before and share a query now.
-                const { documents } = await this.mirrorListService.buildList({
-                    branchId,
-                    isHeadquarters,
-                    scope: "all",
-                    templateId,
-                    templateMatch,
-                    search,
-                    excludeDeleted,
-                });
+                // The same snapshot generation the list is paginating, so the counters and
+                // the list can never describe different moments.
+                const countSnapshot = await this.documentSnapshotService
+                    .getOrBuild<EformsignListDoc>(
+                        { scope: "all", branchId, accessToken, isHeadquarters },
+                        async () => this.toSnapshotEntries(
+                            await this.mirrorListService.loadScopeDocuments({
+                                branchId,
+                                isHeadquarters,
+                            }),
+                        ),
+                    );
+                const { documents } = this.mirrorListService.filterScope(
+                    countSnapshot.entries.map((entry) => entry.document),
+                    {
+                        branchId,
+                        isHeadquarters,
+                        scope: "all",
+                        templateId,
+                        templateMatch,
+                        search,
+                        excludeDeleted,
+                    },
+                );
                 return { documents: documents.map((doc) => toStatusSignal(doc)) };
             }
 

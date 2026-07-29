@@ -379,6 +379,33 @@ describe("EformsignListShadowCompareService", () => {
         expect(logger.warn.mock.calls[0]?.[0]).toContain("fields=doc-1[updatedAt]");
     });
 
+    it("catches a mirrored row whose stored creation time sorts it wrong", async () => {
+        // Rows written by create and adopt carry the moment we wrote them, so a contract
+        // adopted long after it was made sorts as if it were new. The nightly sweep repairs
+        // those from the vendor, and until it has, this is what keeps the switch shut:
+        // the two sides hold the same documents but disagree about the order.
+        const older = createMirrorDocument({
+            documentId: "doc-2025",
+            // The vendor knows it as a 2025 contract; the mirror still has adoption day.
+            createdDate: "2026-07-29T00:00:00.000Z",
+        });
+        const newer = createMirrorDocument({
+            documentId: "doc-2026",
+            createdDate: "2026-07-20T00:00:00.000Z",
+        });
+        repository.findAll.mockResolvedValue([older, newer]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(createQuery(), servedFrom([older, newer], {
+            documentIds: ["doc-2026", "doc-2025"],
+        }));
+        await settle();
+
+        expect(logger.log).not.toHaveBeenCalled();
+        expect(logger.warn.mock.calls[0]?.[0]).toContain("order differs");
+    });
+
     it("keeps the search term itself out of the log", async () => {
         // Searches are customer names often enough that the term does not belong in a
         // centralised log, and a raw value could break the log line apart.
