@@ -3,8 +3,8 @@ import { documentCustomerNameValue } from "application/utils/eformsign-document-
 import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 
-function createMirrorDocument(): EformsignDocEntity {
-    return EformsignDocEntity.reconstitute({
+function persistedMirrorRow() {
+    return {
         id: 1,
         documentId: "doc-1",
         documentName: "산모신생아건강관리서비스 계약서",
@@ -30,7 +30,11 @@ function createMirrorDocument(): EformsignDocEntity {
         documentKind: null,
         employeeScheduleId: null,
         templateId: "template-1",
-    });
+    };
+}
+
+function createMirrorDocument(): EformsignDocEntity {
+    return EformsignDocEntity.reconstitute(persistedMirrorRow());
 }
 
 /**
@@ -74,8 +78,29 @@ describe("eformsignListDocFromMirror", () => {
         }
     });
 
-    it("carries the recipient types the status counters fold", () => {
+    it("carries the recipient types the status counters fold, and the current step's contact", () => {
+        // The mobile detail sheet renders and enables actions from the list row while the
+        // detail request is in flight, and reads the name and contact from here.
         const document = eformsignListDocFromMirror(createMirrorDocument());
+
+        expect(document["current_status"]).toEqual(
+            expect.objectContaining({
+                step_recipients: [
+                    { recipient_type: "05", name: "송진호", id: "01012345678" },
+                    { recipient_type: "06" },
+                ],
+            }),
+        );
+    });
+
+    it("does not present the mirror's own placeholders as a contact", () => {
+        // "수신자"/"미확인" are what the mirror writes when eformsign gave it nothing.
+        // Passing those on would look like a name and a phone number to the UI.
+        const document = eformsignListDocFromMirror(EformsignDocEntity.reconstitute({
+            ...persistedMirrorRow(),
+            stepRecipientName: "수신자",
+            stepRecipientSms: "미확인",
+        }));
 
         expect(document["current_status"]).toEqual(
             expect.objectContaining({

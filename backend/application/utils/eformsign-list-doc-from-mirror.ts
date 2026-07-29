@@ -23,6 +23,10 @@ import type { EformsignListDoc } from "./eformsign-document-list";
  */
 export const MIRROR_CUSTOMER_NAME_KEY = "_mirror_customer_name";
 
+/** What the mirror stores when eformsign gave it no recipient contact at all. */
+const UNKNOWN_RECIPIENT_CONTACT = "미확인";
+const UNKNOWN_RECIPIENT_NAME = "수신자";
+
 /**
  * The branch's own recipient name for a document, carried the same way and for the same
  * reason: the search reads it, headquarters must not see it for unclaimed documents, and
@@ -50,9 +54,7 @@ export function eformsignListDocFromMirror(document: EformsignDocEntity): Eforms
             step_type: document.stepType,
             step_index: document.stepIndex,
             step_name: document.stepName,
-            step_recipients: (document.stepRecipientTypes ?? []).map((recipientType) => ({
-                recipient_type: recipientType,
-            })),
+            step_recipients: buildStepRecipients(document),
             _expired: document.expired,
         },
         ...(document.customerName === null
@@ -68,4 +70,37 @@ export function eformsignListDocFromMirror(document: EformsignDocEntity): Eforms
         // Phase E may well decide the list should search customerName. That is a change in
         // what the feature does and belongs in that decision, not inherited by accident.
     };
+}
+
+/**
+ * The recipient list, with the current step's own name and contact on the entry it belongs
+ * to. The mirror stores those three singular fields from `step_recipients[0]`, and the
+ * type list is mapped from the same array in order, so the first entry is the one they
+ * describe — the equality check is there to say so rather than to guess.
+ *
+ * They matter because the mobile detail sheet renders and enables actions from the list
+ * row while the detail request is still in flight: dropping them would offer to send to a
+ * contract whose recipient it could not name.
+ */
+function buildStepRecipients(
+    document: EformsignDocEntity,
+): Array<Record<string, unknown>> {
+    const recipientTypes = document.stepRecipientTypes ?? [];
+    // The placeholders the mirror writes when eformsign gave it nothing are not contacts.
+    const name = document.stepRecipientName === UNKNOWN_RECIPIENT_NAME
+        ? null
+        : document.stepRecipientName?.trim() || null;
+    const contact = document.stepRecipientSms === UNKNOWN_RECIPIENT_CONTACT
+        ? null
+        : document.stepRecipientSms?.trim() || null;
+
+    return recipientTypes.map((recipientType, index) => ({
+        recipient_type: recipientType,
+        ...(index === 0 && recipientType === document.stepRecipientType
+            ? {
+                ...(name === null ? {} : { name }),
+                ...(contact === null ? {} : { id: contact }),
+            }
+            : {}),
+    }));
 }
