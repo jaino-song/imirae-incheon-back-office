@@ -774,6 +774,26 @@ describe("SbEformsignDocRepository", () => {
             .not.toHaveProperty("createdDate");
     });
 
+    it("repairs createdDate even when the event is refused as stale", async () => {
+        // An adopted row stores the moment of adoption as both createdDate and
+        // updatedDate, so an unchanged older vendor document is always "stale" and the
+        // guarded update never runs — which is exactly the row whose sort key is wrong.
+        // update refused → create races → P2002 → same guarded update refused again.
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+
+        await expect(repository.upsertUnassignedByDocumentId(createEntity()))
+            .rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        const repair = eformsignDocModel.updateMany.mock.calls.at(-1)![0];
+        expect(repair.data).toEqual({ createdDate: legacyRow.createdDate });
+        // Ownership still applies, and rows that already agree are left alone.
+        expect(JSON.stringify(repair.where)).toContain("createdDate");
+    });
+
     it("omits expiredDate from list-sourced updates so a real expiry survives", async () => {
         // The list carries no expired_date, so what the mirror computed is only its
         // fallback guess — writing it would overwrite a date the vendor actually gave us.

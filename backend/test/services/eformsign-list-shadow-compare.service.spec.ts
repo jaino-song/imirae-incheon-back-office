@@ -1,9 +1,12 @@
 import { ConfigService } from "@nestjs/config";
 
 import {
+    eformsignListCompareFields,
     EformsignListShadowCompareService,
     type ListShadowCompareQuery,
+    type ListShadowCompareServed,
 } from "application/services/eformsign-list-shadow-compare.service";
+import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 
 function createConfigService(enabled: string | undefined): ConfigService {
@@ -52,6 +55,32 @@ function createMirrorDocument(overrides: {
     });
 }
 
+/**
+ * The served payload for documents that agree with the mirror, in served order. A test
+ * that wants a difference overrides one piece, so what it is asserting stays visible.
+ */
+function servedFrom(
+    documents: EformsignDocEntity[],
+    overrides: Partial<ListShadowCompareServed> = {},
+): ListShadowCompareServed {
+    const ordered = [...documents].sort(
+        (a, b) => b.createdDate.getTime() - a.createdDate.getTime(),
+    );
+    return {
+        documentIds: ordered.map((document) => document.documentId),
+        fieldsById: new Map(
+            ordered.map((document) => [
+                document.documentId,
+                eformsignListCompareFields(eformsignListDocFromMirror(document)),
+            ] as const),
+        ),
+        oldestScannedAt: ordered.length > 0
+            ? ordered[ordered.length - 1]!.createdDate.getTime()
+            : undefined,
+        ...overrides,
+    };
+}
+
 function createQuery(overrides: Partial<ListShadowCompareQuery> = {}): ListShadowCompareQuery {
     return {
         branchId: "branch-1",
@@ -85,136 +114,208 @@ describe("EformsignListShadowCompareService", () => {
         );
     }
 
+    function spyOnLogger(service: EformsignListShadowCompareService) {
+        const logger = (service as unknown as {
+            logger: { log: (message: string) => void; warn: (message: string) => void };
+        }).logger;
+        return {
+            log: jest.spyOn(logger, "log").mockImplementation(() => undefined),
+            warn: jest.spyOn(logger, "warn").mockImplementation(() => undefined),
+        };
+    }
+
     /** compareInBackground deliberately does not await; give the microtasks a turn. */
-    const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+    const settle = async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    };
 
     it.each([undefined, "false", "1"])(
         "does nothing with EFORMSIGN_SHADOW_COMPARE_ENABLED=%s",
         async (value) => {
             const service = createService(value);
 
-            service.compareInBackground(createQuery(), { documentIds: ["a"], oldestCreatedAt: undefined });
+            service.compareInBackground(createQuery(), servedFrom([]));
             await settle();
 
             expect(repository.findAll).not.toHaveBeenCalled();
         },
     );
 
-    it("reports a match when the mirror produces the same page", async () => {
-        repository.findAll.mockResolvedValue([
+    it("reports a match when the mirror produces the same list", async () => {
+        const documents = [
             createMirrorDocument({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
             createMirrorDocument({ documentId: "doc-1", createdDate: "2026-07-01T00:00:00.000Z" }),
-        ]);
+        ];
+        repository.findAll.mockResolvedValue(documents);
         const service = createService("true");
-        const log = jest.spyOn(
-            (service as unknown as { logger: { log: (message: string) => void } }).logger,
-            "log",
-        ).mockImplementation(() => undefined);
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
+        const logger = spyOnLogger(service);
 
-        // Newest first, which is the order the served path sorts into.
-        service.compareInBackground(createQuery(), {
-            documentIds: ["doc-2", "doc-1"],
-            oldestCreatedAt: undefined,
-        });
+        service.compareInBackground(createQuery(), servedFrom(documents));
         await settle();
 
-        expect(warn).not.toHaveBeenCalled();
-        expect(log.mock.calls[0]?.[0]).toContain("match");
+        expect(logger.warn).not.toHaveBeenCalled();
+        expect(logger.log.mock.calls[0]?.[0]).toContain("match");
     });
 
     it("names the documents each side is missing", async () => {
+        const shared = createMirrorDocument({ documentId: "doc-1" });
         repository.findAll.mockResolvedValue([
-            createMirrorDocument({ documentId: "doc-1" }),
+            shared,
             createMirrorDocument({ documentId: "doc-3" }),
         ]);
         const service = createService("true");
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
+        const logger = spyOnLogger(service);
 
-        service.compareInBackground(createQuery(), {
-            documentIds: ["doc-1", "doc-2"],
-            oldestCreatedAt: undefined,
-        });
+        service.compareInBackground(createQuery(), servedFrom([
+            shared,
+            createMirrorDocument({ documentId: "doc-2" }),
+        ]));
         await settle();
 
-        const message = warn.mock.calls[0]?.[0] ?? "";
+        const message = logger.warn.mock.calls[0]?.[0] ?? "";
         expect(message).toContain("missing=doc-2");
         expect(message).toContain("extra=doc-3");
     });
 
-    it("reports an order difference only when both sides hold the same documents", async () => {
-        // Same two documents, but the mirror's created dates put them the other way round.
-        repository.findAll.mockResolvedValue([
-            createMirrorDocument({ documentId: "doc-a", createdDate: "2026-07-01T00:00:00.000Z" }),
-            createMirrorDocument({ documentId: "doc-b", createdDate: "2026-07-02T00:00:00.000Z" }),
-        ]);
-        const service = createService("true");
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
-
-        service.compareInBackground(createQuery(), {
-            documentIds: ["doc-a", "doc-b"],
-            oldestCreatedAt: undefined,
+    it("reports an order difference when the same documents come out the other way round", async () => {
+        const a = createMirrorDocument({
+            documentId: "doc-a",
+            createdDate: "2026-07-01T00:00:00.000Z",
         });
+        const b = createMirrorDocument({
+            documentId: "doc-b",
+            createdDate: "2026-07-02T00:00:00.000Z",
+        });
+        repository.findAll.mockResolvedValue([a, b]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        // The mirror sorts b first; the served list claims a first.
+        service.compareInBackground(
+            createQuery(),
+            servedFrom([a, b], { documentIds: ["doc-a", "doc-b"] }),
+        );
         await settle();
 
-        expect(warn.mock.calls[0]?.[0]).toContain("order differs");
+        expect(logger.warn.mock.calls[0]?.[0]).toContain("order differs");
     });
 
-    it("applies the same template filter the served page did", async () => {
+    it("still checks order when an out-of-range document is present", async () => {
+        // Dropping the order check whenever anything sat outside the vendor's range would
+        // hide a reversal behind a single ancient row.
+        const a = createMirrorDocument({
+            documentId: "doc-a",
+            createdDate: "2026-07-01T00:00:00.000Z",
+        });
+        const b = createMirrorDocument({
+            documentId: "doc-b",
+            createdDate: "2026-07-02T00:00:00.000Z",
+        });
         repository.findAll.mockResolvedValue([
-            createMirrorDocument({ documentId: "doc-keep", templateId: "template-1" }),
+            a,
+            b,
+            createMirrorDocument({
+                documentId: "doc-ancient",
+                createdDate: "2024-01-01T00:00:00.000Z",
+            }),
+        ]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(
+            createQuery(),
+            servedFrom([a, b], { documentIds: ["doc-a", "doc-b"] }),
+        );
+        await settle();
+
+        const message = logger.warn.mock.calls[0]?.[0] ?? "";
+        expect(message).toContain("order differs");
+        expect(message).toContain("olderThanScanned=1");
+        expect(message).not.toContain("extra=");
+    });
+
+    it("reports documents whose values differ even when the list itself matches", async () => {
+        // Membership and order can agree while the row serves a different status, and the
+        // UI reads that directly — it drives the pill and which actions are offered.
+        repository.findAll.mockResolvedValue([
+            createMirrorDocument({ documentId: "doc-1", statusType: "060" }),
+        ]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(
+            createQuery(),
+            servedFrom([createMirrorDocument({ documentId: "doc-1", statusType: "050" })]),
+        );
+        await settle();
+
+        expect(logger.warn.mock.calls[0]?.[0]).toContain("fields=doc-1[statusType]");
+    });
+
+    it("attributes documents older than the vendor's scanned range separately", async () => {
+        // The served path scans at most 10 vendor pages of 100 and warns when it hits that
+        // cap. Counting those as disagreements would make the gate unreachable for any
+        // company past a thousand documents, while they are what the switch recovers.
+        const recent = createMirrorDocument({
+            documentId: "doc-new",
+            createdDate: "2026-07-05T00:00:00.000Z",
+        });
+        repository.findAll.mockResolvedValue([
+            recent,
+            createMirrorDocument({
+                documentId: "doc-ancient",
+                createdDate: "2024-01-01T00:00:00.000Z",
+            }),
+        ]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(createQuery(), servedFrom([recent]));
+        await settle();
+
+        expect(logger.warn).not.toHaveBeenCalled();
+        expect(logger.log.mock.calls[0]?.[0]).toContain("olderThanScanned=1");
+    });
+
+    it("applies the same template filter the served list did", async () => {
+        const kept = createMirrorDocument({ documentId: "doc-keep", templateId: "template-1" });
+        repository.findAll.mockResolvedValue([
+            kept,
             createMirrorDocument({ documentId: "doc-drop", templateId: "template-9" }),
         ]);
         const service = createService("true");
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
+        const logger = spyOnLogger(service);
 
         service.compareInBackground(
             createQuery({ templateId: "template-1", templateMatch: "include" }),
-            { documentIds: ["doc-keep"], oldestCreatedAt: undefined },
+            servedFrom([kept]),
         );
         await settle();
 
-        expect(warn).not.toHaveBeenCalled();
+        expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it("matches 초성 against the recipient name, the way the served search does", async () => {
+        const song = createMirrorDocument({ documentId: "doc-song", stepRecipientName: "송진호" });
         repository.findAll.mockResolvedValue([
-            createMirrorDocument({ documentId: "doc-song", stepRecipientName: "송진호" }),
+            song,
             createMirrorDocument({ documentId: "doc-park", stepRecipientName: "박수신" }),
         ]);
         const service = createService("true");
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
+        const logger = spyOnLogger(service);
 
         // 초성 검색은 startsWith 규칙이라 "ㅅㅈㅎ"는 송진호만 집는다.
-        service.compareInBackground(
-            createQuery({ search: "ㅅㅈㅎ" }),
-            { documentIds: ["doc-song"], oldestCreatedAt: undefined },
-        );
+        service.compareInBackground(createQuery({ search: "ㅅㅈㅎ" }), servedFrom([song]));
         await settle();
 
-        expect(warn).not.toHaveBeenCalled();
+        expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it("does not search the stored customerName, because the served list cannot", async () => {
         // The vendor list is fetched without include_fields, so the served search never
         // sees a customer name on the document and matches the recipient name instead.
-        // Searching the mirror's own column would find documents the served path cannot,
-        // and every one of those would be reported as a difference we invented.
+        // Searching the mirror's own column would find documents the served path cannot.
         repository.findAll.mockResolvedValue([
             createMirrorDocument({
                 documentId: "doc-hidden",
@@ -224,23 +325,96 @@ describe("EformsignListShadowCompareService", () => {
             }),
         ]);
         const service = createService("true");
-        const log = jest.spyOn(
-            (service as unknown as { logger: { log: (message: string) => void } }).logger,
-            "log",
-        ).mockImplementation(() => undefined);
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(createQuery({ search: "최고객" }), servedFrom([]));
+        await settle();
+
+        expect(logger.warn).not.toHaveBeenCalled();
+        expect(logger.log.mock.calls[0]?.[0]).toContain("match");
+    });
+
+    it("searches headquarters recipient names from branch-owned rows only", async () => {
+        // The served path builds its recipient-name corpus from findAll(branchId), so an
+        // unassigned document's recipient name is not searchable there.
+        repository.findAllForHeadquarters.mockResolvedValue([
+            createMirrorDocument({
+                documentId: "doc-unassigned",
+                documentName: null,
+                stepRecipientName: "박수신",
+            }),
+        ]);
+        repository.findAll.mockResolvedValue([]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
 
         service.compareInBackground(
-            createQuery({ search: "최고객" }),
-            { documentIds: [], oldestCreatedAt: undefined },
+            createQuery({ isHeadquarters: true, search: "박수신" }),
+            servedFrom([]),
         );
         await settle();
 
-        expect(warn).not.toHaveBeenCalled();
-        expect(log.mock.calls[0]?.[0]).toContain("match");
+        expect(logger.warn).not.toHaveBeenCalled();
+        expect(logger.log.mock.calls[0]?.[0]).toContain("match");
+    });
+
+    it("reads the headquarters corpus from the method that includes unclaimed rows", async () => {
+        const hqDocument = createMirrorDocument({ documentId: "doc-hq" });
+        repository.findAllForHeadquarters.mockResolvedValue([hqDocument]);
+        const service = createService("true");
+        spyOnLogger(service);
+
+        service.compareInBackground(
+            createQuery({ isHeadquarters: true }),
+            servedFrom([hqDocument]),
+        );
+        await settle();
+
+        expect(repository.findAllForHeadquarters).toHaveBeenCalledWith("branch-1");
+        // findAll is still consulted, but only for the recipient-name search corpus the
+        // served path builds the same way — not for which documents the list contains.
+        expect(repository.findAll).toHaveBeenCalledWith("branch-1");
+    });
+
+    it("stands in for the vendor inbox with local status categories on the tab endpoints", async () => {
+        // The tabs are most of the traffic, and the mirror does not record which inbox a
+        // document sat in — the switch has to answer them from status codes. Comparing
+        // that substitution is the only way to learn whether it lands the same content.
+        const drafting = createMirrorDocument({ documentId: "doc-open", statusType: "060" });
+        repository.findAll.mockResolvedValue([
+            drafting,
+            createMirrorDocument({ documentId: "doc-done", statusType: "050" }),
+        ]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(
+            createQuery({ scope: "in-progress", scopeCategories: ["drafting", "in-progress"] }),
+            servedFrom([drafting]),
+        );
+        await settle();
+
+        expect(logger.warn).not.toHaveBeenCalled();
+        expect(logger.log.mock.calls[0]?.[0]).toContain("scope=in-progress");
+    });
+
+    it("keeps the search term itself out of the log", async () => {
+        // Searches are customer names often enough that the term does not belong in a
+        // centralised log, and a raw value could break the log line apart.
+        repository.findAll.mockResolvedValue([]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(
+            createQuery({ search: "김민수\n[Shadow] injected" }),
+            servedFrom([createMirrorDocument({ documentId: "doc-missing" })]),
+        );
+        await settle();
+
+        const message = logger.warn.mock.calls[0]?.[0] ?? "";
+        expect(message).toContain("search=present");
+        expect(message).not.toContain("김민수");
+        expect(message).not.toContain("injected");
     });
 
     it("runs one comparison at a time and says how many it skipped", async () => {
@@ -251,12 +425,9 @@ describe("EformsignListShadowCompareService", () => {
             release = () => resolve([]);
         }));
         const service = createService("true");
-        const log = jest.spyOn(
-            (service as unknown as { logger: { log: (message: string) => void } }).logger,
-            "log",
-        ).mockImplementation(() => undefined);
+        const logger = spyOnLogger(service);
+        const served = servedFrom([]);
 
-        const served = { documentIds: [], oldestCreatedAt: undefined };
         service.compareInBackground(createQuery(), served);
         service.compareInBackground(createQuery(), served);
         service.compareInBackground(createQuery(), served);
@@ -264,116 +435,10 @@ describe("EformsignListShadowCompareService", () => {
 
         release?.();
         await settle();
-        await settle();
 
         // The run that got through reports what it displaced, so the log says how much of
         // the traffic this evidence actually covers.
-        expect(log.mock.calls[0]?.[0]).toContain("skippedWhileBusy=2");
-    });
-
-    it("reads the headquarters scope from the repository method that includes unclaimed rows", async () => {
-        repository.findAllForHeadquarters.mockResolvedValue([
-            createMirrorDocument({ documentId: "doc-hq" }),
-        ]);
-        const service = createService("true");
-        jest.spyOn(
-            (service as unknown as { logger: { log: (message: string) => void } }).logger,
-            "log",
-        ).mockImplementation(() => undefined);
-
-        service.compareInBackground(
-            createQuery({ isHeadquarters: true }),
-            { documentIds: ["doc-hq"], oldestCreatedAt: undefined },
-        );
-        await settle();
-
-        expect(repository.findAllForHeadquarters).toHaveBeenCalledWith("branch-1");
-        // findAll is still consulted, but only for the recipient-name search corpus the
-        // served path builds the same way — not for which documents the list contains.
-        expect(repository.findAll).toHaveBeenCalledWith("branch-1");
-    });
-
-    it("attributes documents older than the served scan window separately", async () => {
-        // The served path scans at most 10 vendor pages of 100 and warns that older
-        // contracts fall outside it. Counting those as disagreements would make the
-        // zero-diff gate unreachable for any company past a thousand documents, while
-        // they are in fact what the switch recovers.
-        repository.findAll.mockResolvedValue([
-            createMirrorDocument({ documentId: "doc-new", createdDate: "2026-07-05T00:00:00.000Z" }),
-            createMirrorDocument({ documentId: "doc-ancient", createdDate: "2024-01-01T00:00:00.000Z" }),
-        ]);
-        const service = createService("true");
-        const log = jest.spyOn(
-            (service as unknown as { logger: { log: (message: string) => void } }).logger,
-            "log",
-        ).mockImplementation(() => undefined);
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
-
-        service.compareInBackground(createQuery(), {
-            documentIds: ["doc-new"],
-            oldestCreatedAt: Date.parse("2026-07-05T00:00:00.000Z"),
-        });
-        await settle();
-
-        expect(warn).not.toHaveBeenCalled();
-        expect(log.mock.calls[0]?.[0]).toContain("beyondScanWindow=1");
-    });
-
-    it("searches headquarters recipient names from branch-owned rows only", async () => {
-        // The served path builds its recipient-name corpus from findAll(branchId), so an
-        // unassigned document's recipient name is not searchable there. Searching it here
-        // would report a difference that is this comparison's, not the mirror's.
-        const unassigned = createMirrorDocument({
-            documentId: "doc-unassigned",
-            customerName: null,
-            documentName: null,
-            stepRecipientName: "박수신",
-        });
-        repository.findAllForHeadquarters.mockResolvedValue([unassigned]);
-        repository.findAll.mockResolvedValue([]);
-        const service = createService("true");
-        const log = jest.spyOn(
-            (service as unknown as { logger: { log: (message: string) => void } }).logger,
-            "log",
-        ).mockImplementation(() => undefined);
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
-
-        service.compareInBackground(
-            createQuery({ isHeadquarters: true, search: "박수신" }),
-            { documentIds: [], oldestCreatedAt: undefined },
-        );
-        await settle();
-
-        expect(warn).not.toHaveBeenCalled();
-        expect(log.mock.calls[0]?.[0]).toContain("match");
-    });
-
-    it("keeps the search term itself out of the log", async () => {
-        // Searches are customer names often enough that the term does not belong in a
-        // centralised log, and a raw value could break the log line apart.
-        repository.findAll.mockResolvedValue([]);
-        const service = createService("true");
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
-
-        service.compareInBackground(
-            createQuery({ search: "김민수\n[Shadow] injected" }),
-            { documentIds: ["doc-missing"], oldestCreatedAt: undefined },
-        );
-        await settle();
-
-        const message = warn.mock.calls[0]?.[0] ?? "";
-        expect(message).toContain("search=present");
-        expect(message).not.toContain("김민수");
-        expect(message).not.toContain("injected");
+        expect(logger.log.mock.calls[0]?.[0]).toContain("skippedWhileBusy=2");
     });
 
     it("never lets a comparison failure escape into the request", async () => {
@@ -381,17 +446,12 @@ describe("EformsignListShadowCompareService", () => {
         // become an unhandled rejection, not an error the caller could do anything with.
         repository.findAll.mockRejectedValue(new Error("mirror unavailable"));
         const service = createService("true");
-        const warn = jest.spyOn(
-            (service as unknown as { logger: { warn: (message: string) => void } }).logger,
-            "warn",
-        ).mockImplementation(() => undefined);
+        const logger = spyOnLogger(service);
 
-        expect(() => service.compareInBackground(createQuery(), {
-            documentIds: [],
-            oldestCreatedAt: undefined,
-        })).not.toThrow();
+        expect(() => service.compareInBackground(createQuery(), servedFrom([])))
+            .not.toThrow();
         await settle();
 
-        expect(warn.mock.calls[0]?.[0]).toContain("comparison failed");
+        expect(logger.warn.mock.calls[0]?.[0]).toContain("comparison failed");
     });
 });

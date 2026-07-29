@@ -470,6 +470,14 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 updatedDate: { lte: doc.updatedDate },
                 ...statusGuard,
             },
+            // Creation time is not state, so a refusal on ordering grounds must not take
+            // it down with the rest. It has to be that way: a row written by create or
+            // adopt carries the moment we wrote it, which is *newer* than the vendor's own
+            // updated_date for an unchanged old document — so the guard refuses, and the
+            // rows this repair exists for are exactly the ones it would never reach.
+            ...(options?.updateCreatedDate === false
+                ? {}
+                : { repairCreatedDateWhenStale: doc.createdDate }),
         });
     }
 
@@ -479,6 +487,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         update: Prisma.eformsign_docUpdateManyMutationInput;
         allowedWhere: Prisma.eformsign_docWhereInput;
         staleGuard?: Prisma.eformsign_docWhereInput;
+        repairCreatedDateWhenStale?: Date;
     }): Promise<EformsignDocEntity> {
         try {
             return await this.attemptConditionalUpsertByDocumentId(params, false);
@@ -502,6 +511,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             update: Prisma.eformsign_docUpdateManyMutationInput;
             allowedWhere: Prisma.eformsign_docWhereInput;
             staleGuard?: Prisma.eformsign_docWhereInput;
+            repairCreatedDateWhenStale?: Date;
         },
         compatibilityMode: boolean,
     ): Promise<EformsignDocEntity> {
@@ -526,9 +536,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             const ownedCount = await this.prismaService.eformsign_doc.count({
                 where: params.allowedWhere,
             });
-            throw ownedCount > 0
-                ? new EformsignDocStaleUpdateError(params.documentId)
-                : new EformsignDocOwnershipConflictError(params.documentId);
+            if (ownedCount === 0) {
+                throw new EformsignDocOwnershipConflictError(params.documentId);
+            }
+
+            // The row is ours and the event was refused for being older than what we hold.
+            // Creation time is not state, though — it cannot be stale — and this is the
+            // only path that ever reaches an adopted row, whose stored creation time is
+            // the moment of adoption rather than the moment eformsign made the document.
+            if (params.repairCreatedDateWhenStale !== undefined) {
+                await this.prismaService.eformsign_doc.updateMany({
+                    where: {
+                        AND: [
+                            params.allowedWhere,
+                            { createdDate: { not: params.repairCreatedDateWhenStale } },
+                        ],
+                    },
+                    data: { createdDate: params.repairCreatedDateWhenStale },
+                });
+            }
+            throw new EformsignDocStaleUpdateError(params.documentId);
         };
 
         let updated = await updateExisting();

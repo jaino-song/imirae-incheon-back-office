@@ -318,7 +318,8 @@ describe("EformsignController (Integration)", () => {
             expect.objectContaining({
                 // The whole filtered set, which for this request is also the page.
                 documentIds: response.body.documents.map((doc: { id: string }) => doc.id),
-                oldestCreatedAt: expect.any(Number),
+                fieldsById: expect.any(Map),
+                oldestScannedAt: expect.any(Number),
             }),
         );
     });

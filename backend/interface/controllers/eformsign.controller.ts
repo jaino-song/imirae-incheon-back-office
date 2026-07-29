@@ -29,7 +29,10 @@ import {
     documentCustomerNameValue,
     stringFromUnknown,
 } from "application/utils/eformsign-document-customer-name";
-import { EformsignListShadowCompareService } from "application/services/eformsign-list-shadow-compare.service";
+import {
+    eformsignListCompareFields,
+    EformsignListShadowCompareService,
+} from "application/services/eformsign-list-shadow-compare.service";
 import {
     documentSearchIndex,
     documentSearchValues,
@@ -47,6 +50,29 @@ import {
     normalizeEformsignStepType,
 } from "domain/utils/eformsign-status-code";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+
+/**
+ * What a local list would select for each tab, standing in for "whichever vendor inbox the
+ * document sits in" — the mirror does not record that. The merged list has no entry here
+ * because it does not filter by inbox at all.
+ */
+const SHADOW_SCOPE_CATEGORIES: Partial<Record<string, DocumentStatusCategory[]>> = {
+    "in-progress": ["drafting", "in-progress"],
+    completed: ["completed"],
+    rejected: ["expired"],
+};
+
+/** Oldest document the vendor scan produced, before any per-request filter. */
+function oldestScannedTimestamp(documents: EformsignListDoc[]): number | undefined {
+    let oldest: number | undefined;
+    for (const document of documents) {
+        const createdAt = getDocumentCreatedTimestamp(document);
+        if (oldest === undefined || createdAt < oldest) {
+            oldest = createdAt;
+        }
+    }
+    return oldest;
+}
 
 function throwHttpOrInternalError(error: unknown): never {
     if (error instanceof HttpException) {
@@ -470,7 +496,11 @@ export class EformsignController {
         statusCategory: DocumentStatusCategory | undefined,
         search: string | undefined,
         excludeDeleted = false,
-        shadow?: { scope: string; isHeadquarters: boolean },
+        shadow?: {
+            scope: string;
+            isHeadquarters: boolean;
+            scopeCategories?: DocumentStatusCategory[];
+        },
     ) {
         const documents = snapshot.entries.map((entry) => entry.document);
         const searchIndexByDocumentId = new Map(
@@ -496,6 +526,9 @@ export class EformsignController {
                     branchId,
                     isHeadquarters: shadow.isHeadquarters,
                     scope: shadow.scope,
+                    ...(shadow.scopeCategories
+                        ? { scopeCategories: shadow.scopeCategories }
+                        : {}),
                     limit,
                     skip,
                     templateId,
@@ -509,11 +542,16 @@ export class EformsignController {
                     // a pagination boundary as a difference every time the two disagree
                     // about a single document earlier in the list.
                     documentIds: filteredDocuments.map((document) => document.id),
-                    oldestCreatedAt: filteredDocuments.length > 0
-                        ? getDocumentCreatedTimestamp(
-                            filteredDocuments[filteredDocuments.length - 1]!,
-                        )
-                        : undefined,
+                    fieldsById: new Map(
+                        filteredDocuments.map((document) => [
+                            document.id,
+                            eformsignListCompareFields(document),
+                        ] as const),
+                    ),
+                    // From the unfiltered scan, not the filtered result: a template or
+                    // status filter can drop every old document and would otherwise make
+                    // the vendor's range look far newer than it was, hiding real extras.
+                    oldestScannedAt: oldestScannedTimestamp(documents),
                 },
             );
         }
@@ -543,8 +581,9 @@ export class EformsignController {
         statusCategory?: DocumentStatusCategory,
         search?: string,
     ) {
+        const isHeadquarters = await this.isHeadquartersBranch(branchId);
         const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
-            { scope, branchId, accessToken, isHeadquarters: await this.isHeadquartersBranch(branchId) },
+            { scope, branchId, accessToken, isHeadquarters },
             async () => this.toSnapshotEntries(
                 await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage),
             ),
@@ -559,6 +598,14 @@ export class EformsignController {
             templateMatch,
             statusCategory,
             search,
+            false,
+            {
+                scope,
+                isHeadquarters,
+                ...(SHADOW_SCOPE_CATEGORIES[scope]
+                    ? { scopeCategories: SHADOW_SCOPE_CATEGORIES[scope] }
+                    : {}),
+            },
         );
     }
 

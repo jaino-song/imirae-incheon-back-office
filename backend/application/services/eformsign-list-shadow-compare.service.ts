@@ -6,13 +6,24 @@ import {
     filterDocumentsByStatusCategory,
     filterDocumentsByTemplate,
     filterOutDeletedDocuments,
+    getDocumentStatusCategory,
     matchesKoreanSearch,
     sortDocumentsByCreatedDate,
     type DocumentStatusCategory,
     type EformsignListDoc,
     type TemplateMatch,
 } from "application/utils/eformsign-document-list";
+import {
+    isRecord,
+    stringFromUnknown,
+} from "application/utils/eformsign-document-customer-name";
+import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
 import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
+import { getDocumentCreatedTimestamp } from "application/services/eformsign.service";
+import {
+    normalizeEformsignStatusCode,
+    normalizeEformsignStepType,
+} from "domain/utils/eformsign-status-code";
 import {
     EFORMSIGN_DOC_REPOSITORY,
     IEformsignDocRepository,
@@ -22,6 +33,16 @@ export interface ListShadowCompareQuery {
     branchId: string;
     isHeadquarters: boolean;
     scope: string;
+    /**
+     * For the per-tab endpoints, the status categories a local list would use in place of
+     * "whichever vendor inbox the document sits in" — the mirror does not record that, and
+     * the switch has to answer those tabs from status codes instead.
+     *
+     * So a difference on these scopes means one of two things: the mirror is stale, or the
+     * vendor's inbox and its own status code disagree about where a document belongs. Both
+     * are worth knowing before the switch; neither shows up on the merged list.
+     */
+    scopeCategories?: DocumentStatusCategory[];
     limit: number;
     skip: number;
     templateId?: string;
@@ -31,17 +52,35 @@ export interface ListShadowCompareQuery {
     excludeDeleted?: boolean;
 }
 
+/** The list values the contracts UI actually renders, normalised for comparison. */
+export interface ListShadowCompareFields {
+    documentName: string;
+    documentNumber: string;
+    templateId: string;
+    templateName: string;
+    statusType: string;
+    stepType: string;
+    stepIndex: string;
+    stepName: string;
+    createdAt: number;
+}
+
 export interface ListShadowCompareServed {
     /** Every document that survived the filters, in served order — not just the page. */
     documentIds: string[];
+    /** Same documents, by id, projected to the values the UI reads. */
+    fieldsById: Map<string, ListShadowCompareFields>;
     /**
-     * Created time of the oldest served document, or undefined when nothing survived.
-     * The served path scans at most 10 vendor pages of 100, and says so in its own log,
-     * so anything the mirror holds from before this point is outside the window the API
-     * path can even see. Attributing those separately is what keeps the zero-diff gate
-     * reachable: they are what the switch recovers, not evidence the mirror is wrong.
+     * Created time of the oldest document the vendor scan produced for this scope, taken
+     * before any per-request filter — undefined when the scan returned nothing.
+     *
+     * The served path scans at most 10 vendor pages of 100 and warns in its own log when
+     * it hits that cap. A mirrored row older than this is outside the range the API path
+     * returned, so it is reported apart from a real disagreement rather than counted as
+     * one; whether that is the cap or a document the vendor no longer has is answered by
+     * the scan's own warning in the same logs.
      */
-    oldestCreatedAt: number | undefined;
+    oldestScannedAt: number | undefined;
 }
 
 /** How many differing ids to name before the log becomes noise rather than evidence. */
@@ -124,11 +163,11 @@ export class EformsignListShadowCompareService {
             if (servedSet.has(id)) {
                 continue;
             }
-            const createdAt = local.createdAtById.get(id);
-            const outsideScanWindow = served.oldestCreatedAt !== undefined
+            const createdAt = local.fieldsById.get(id)?.createdAt;
+            const olderThanScanned = served.oldestScannedAt !== undefined
                 && createdAt !== undefined
-                && createdAt < served.oldestCreatedAt;
-            (outsideScanWindow ? beyondWindow : extra).push(id);
+                && createdAt < served.oldestScannedAt;
+            (olderThanScanned ? beyondWindow : extra).push(id);
         }
 
         const differences: string[] = [];
@@ -138,18 +177,29 @@ export class EformsignListShadowCompareService {
         if (extra.length > 0) {
             differences.push(`extra=${summariseIds(extra)}`);
         }
-        // An order difference is only its own finding when both sides hold the same
-        // documents; otherwise it just restates the membership difference above.
+        // Compare order over the documents both sides can hold — dropping the out-of-range
+        // ones rather than giving up on the check whenever any exist, which would have hid
+        // a reversal behind a single ancient row.
+        const beyondWindowSet = new Set(beyondWindow);
+        const comparableLocalIds = local.documentIds.filter((id) => !beyondWindowSet.has(id));
         if (missing.length === 0
             && extra.length === 0
-            && beyondWindow.length === 0
-            && local.documentIds.join(",") !== served.documentIds.join(",")) {
+            && comparableLocalIds.join(",") !== served.documentIds.join(",")) {
             differences.push("order differs");
+        }
+
+        // Same documents in the same order still serves different content if the values
+        // differ, and the UI reads these directly — status drives the pill and which
+        // actions are offered. A zero-diff gate that never looked at them would be a
+        // gate on membership alone.
+        const fieldDifferences = collectFieldDifferences(served, local.fieldsById);
+        if (fieldDifferences.length > 0) {
+            differences.push(`fields=${summariseIds(fieldDifferences)}`);
         }
 
         // Named separately from `rows` so a reader cannot mistake it for a disagreement.
         const windowNote = beyondWindow.length > 0
-            ? ` beyondScanWindow=${beyondWindow.length}`
+            ? ` olderThanScanned=${beyondWindow.length}`
             : "";
         // Enough of the query to tell one difference apart from another without carrying
         // anything a customer could be identified by. The search term itself is a customer
@@ -176,7 +226,7 @@ export class EformsignListShadowCompareService {
 
     private async buildLocalList(
         query: ListShadowCompareQuery,
-    ): Promise<{ documentIds: string[]; createdAtById: Map<string, number> }> {
+    ): Promise<{ documentIds: string[]; fieldsById: Map<string, ListShadowCompareFields> }> {
         // For a regular branch the corpus and the search rows are the same query, so it
         // is read once; only headquarters needs the wider set as well.
         const branchOwned = await this.eformsignDocRepository.findAll(query.branchId);
@@ -194,13 +244,13 @@ export class EformsignListShadowCompareService {
                 [document.stepRecipientName].filter((value) => Boolean(value)),
             ] as const),
         );
-        const createdAtById = new Map(
-            mirrored.map((document) => [
-                document.documentId,
-                document.createdDate.getTime(),
+        const documents = mirrored.map(eformsignListDocFromMirror);
+        const fieldsById = new Map(
+            documents.map((document) => [
+                document.id,
+                eformsignListCompareFields(document),
             ] as const),
         );
-        const documents = mirrored.map(eformsignListDocFromMirror);
 
         const templateFiltered = filterDocumentsByTemplate(
             documents,
@@ -211,8 +261,12 @@ export class EformsignListShadowCompareService {
             templateFiltered,
             query.excludeDeleted ?? false,
         );
+        const scopeFiltered = query.scopeCategories === undefined
+            ? deletionFiltered
+            : deletionFiltered.filter((document) =>
+                query.scopeCategories!.includes(getDocumentStatusCategory(document)));
         const statusFiltered = filterDocumentsByStatusCategory(
-            deletionFiltered,
+            scopeFiltered,
             query.statusCategory,
         );
         const searchFiltered = this.filterBySearch(statusFiltered, localSearchValues, query.search);
@@ -220,7 +274,7 @@ export class EformsignListShadowCompareService {
 
         return {
             documentIds: sorted.map((document) => document.id),
-            createdAtById,
+            fieldsById,
         };
     }
 
@@ -242,6 +296,57 @@ export class EformsignListShadowCompareService {
             return values.some((value) => matchesKoreanSearch(value, query));
         });
     }
+}
+
+/**
+ * Projects a list document — vendor's or mirror's — to the values the contracts UI reads.
+ * Both sides go through this same function so a difference is a difference in the data,
+ * never in how the two were read.
+ */
+export function eformsignListCompareFields(
+    document: EformsignListDoc,
+): ListShadowCompareFields {
+    const template = isRecord(document["template"]) ? document["template"] : null;
+    const currentStatus = isRecord(document["current_status"])
+        ? document["current_status"]
+        : null;
+
+    return {
+        documentName: stringFromUnknown(document["document_name"]) ?? "",
+        documentNumber: stringFromUnknown(document["document_number"]) ?? "",
+        // Resolved rather than read straight off `template`, because the vendor supplies
+        // it through three different places and the filter already agrees on the order.
+        templateId: eformsignDocumentTemplateId(document) ?? "",
+        templateName: stringFromUnknown(template?.["name"]) ?? "",
+        statusType: normalizeEformsignStatusCode(
+            stringFromUnknown(currentStatus?.["status_type"]),
+        ),
+        stepType: normalizeEformsignStepType(stringFromUnknown(currentStatus?.["step_type"])),
+        stepIndex: stringFromUnknown(currentStatus?.["step_index"]) ?? "",
+        stepName: stringFromUnknown(currentStatus?.["step_name"]) ?? "",
+        createdAt: getDocumentCreatedTimestamp(document),
+    };
+}
+
+/** Ids whose served and mirrored values disagree, each tagged with the fields that did. */
+function collectFieldDifferences(
+    served: ListShadowCompareServed,
+    localFieldsById: Map<string, ListShadowCompareFields>,
+): string[] {
+    const differing: string[] = [];
+    for (const [documentId, servedFields] of served.fieldsById) {
+        const localFields = localFieldsById.get(documentId);
+        if (!localFields) {
+            continue;
+        }
+
+        const names = (Object.keys(servedFields) as Array<keyof ListShadowCompareFields>)
+            .filter((name) => servedFields[name] !== localFields[name]);
+        if (names.length > 0) {
+            differing.push(`${documentId}[${names.join("|")}]`);
+        }
+    }
+    return differing;
 }
 
 function summariseIds(ids: string[]): string {
