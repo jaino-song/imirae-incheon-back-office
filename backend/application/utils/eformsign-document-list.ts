@@ -202,3 +202,44 @@ export function documentSearchValues(document: EformsignListDoc, localValues: st
 export function documentSearchIndex(document: EformsignListDoc): string[] {
     return documentSearchValues(document, []).filter((value) => value.length > 0);
 }
+
+/**
+ * Which documents a local list would put in each tab, standing in for "whichever vendor
+ * inbox the document sits in" — the mirror does not record that, so the switch has to
+ * answer the tabs from status codes instead.
+ *
+ * Deleted codes are named here rather than folded into a category, because
+ * getDocumentStatusCategory puts them in "unknown" alongside every blank or unrecognised
+ * status, and the UI does not treat those alike: it shows the deleted ones under 기간 만료
+ * and everything else it cannot place under 진행 중.
+ */
+const SCOPE_SELECTORS: Readonly<Record<string, (document: EformsignListDoc) => boolean>> = {
+    "in-progress": (document) => {
+        const category = getDocumentStatusCategory(document);
+        return category === "drafting"
+            || category === "in-progress"
+            || (category === "unknown" && !isDeletedDocument(document));
+    },
+    completed: (document) => getDocumentStatusCategory(document) === "completed",
+    rejected: (document) => {
+        const category = getDocumentStatusCategory(document);
+        return category === "expired"
+            || (category === "unknown" && isDeletedDocument(document));
+    },
+};
+
+export function isDeletedDocument(document: EformsignListDoc): boolean {
+    const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
+    return DELETED_STATUS_CODES.has(normalizeEformsignStatusCode(statusType));
+}
+
+/**
+ * The tab selector for a scope, or undefined for the merged list, which does not filter by
+ * inbox at all. Both sides of the shadow comparison resolve it from here by name so they
+ * cannot come to different conclusions about what a tab contains.
+ */
+export function eformsignListScopeSelector(
+    scope: string,
+): ((document: EformsignListDoc) => boolean) | undefined {
+    return SCOPE_SELECTORS[scope];
+}

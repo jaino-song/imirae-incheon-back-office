@@ -5,8 +5,8 @@ import {
     documentSearchValues,
     filterDocumentsByStatusCategory,
     filterDocumentsByTemplate,
+    eformsignListScopeSelector,
     filterOutDeletedDocuments,
-    getDocumentStatusCategory,
     matchesKoreanSearch,
     sortDocumentsByCreatedDate,
     type DocumentStatusCategory,
@@ -34,15 +34,10 @@ export interface ListShadowCompareQuery {
     isHeadquarters: boolean;
     scope: string;
     /**
-     * For the per-tab endpoints, the status categories a local list would use in place of
-     * "whichever vendor inbox the document sits in" — the mirror does not record that, and
-     * the switch has to answer those tabs from status codes instead.
-     *
-     * So a difference on these scopes means one of two things: the mirror is stale, or the
-     * vendor's inbox and its own status code disagree about where a document belongs. Both
-     * are worth knowing before the switch; neither shows up on the merged list.
+     * A difference on a tab scope means one of two things: the mirror is stale, or the
+     * vendor's inbox and its own status code disagree about where a document belongs.
+     * Both are worth knowing before the switch; neither shows up on the merged list.
      */
-    scopeCategories?: DocumentStatusCategory[];
     limit: number;
     skip: number;
     templateId?: string;
@@ -72,23 +67,6 @@ export interface ListShadowCompareServed {
     documentIds: string[];
     /** Same documents, by id, projected to the values the UI reads. */
     fieldsById: Map<string, ListShadowCompareFields>;
-    /**
-     * Created time of the oldest document the vendor scan produced for this scope, taken
-     * before any per-request filter — undefined when the scan returned nothing.
-     *
-     * The served path scans at most 10 vendor pages of 100 and warns in its own log when
-     * it hits that cap. A mirrored row older than this is outside the range the API path
-     * returned, so it is reported apart from a real disagreement rather than counted as
-     * one; whether that is the cap or a document the vendor no longer has is answered by
-     * the scan's own warning in the same logs.
-     */
-    oldestScannedAt: number | undefined;
-    /**
-     * Whether the vendor scan stopped at its page cap. A scan that simply ran out is
-     * exhaustive, so a mirrored row the vendor did not return is stale however old it is —
-     * suppressing those would be the one way this comparison could bless a wrong mirror.
-     */
-    scanCapped: boolean;
 }
 
 /** How many differing ids to name before the log becomes noise rather than evidence. */
@@ -165,32 +143,14 @@ export class EformsignListShadowCompareService {
         const localSet = new Set(local.documentIds);
 
         const missing = served.documentIds.filter((id) => !localSet.has(id));
-        const beyondWindow: string[] = [];
-        const extra: string[] = [];
-        const unclassifiable: string[] = [];
-        for (const id of local.documentIds) {
-            if (servedSet.has(id)) {
-                continue;
-            }
-            if (!served.scanCapped) {
-                // Exhaustive scan: the vendor does not have this document, whatever its
-                // age. That is a real disagreement.
-                extra.push(id);
-                continue;
-            }
-            if (served.oldestScannedAt === undefined) {
-                // The vendor scan produced nothing for this scope, so there is no range to
-                // place these against. A branch whose documents all sit past the scan cap
-                // looks exactly like a branch whose mirror is wrong, and claiming either
-                // would be inventing a verdict — say what we have instead.
-                unclassifiable.push(id);
-                continue;
-            }
-            const createdAt = local.fieldsById.get(id)?.createdAt;
-            const olderThanScanned = createdAt !== undefined
-                && createdAt < served.oldestScannedAt;
-            (olderThanScanned ? beyondWindow : extra).push(id);
-        }
+        // Every document the mirror has and the served list did not is reported, with no
+        // attempt to decide which of them the vendor's ten-page scan simply could not
+        // reach. Three rounds of inferring that boundary — from filtered results, from a
+        // cached flag, from where the scan stopped — each produced a way to log a match
+        // for a mirror that was wrong, which is the one thing this evidence must never do.
+        // The scan says in its own log when it hits the cap; a reader with both lines can
+        // tell an unreachable document from a stale one, and this cannot.
+        const extra = local.documentIds.filter((id) => !servedSet.has(id));
 
         const differences: string[] = [];
         if (missing.length > 0) {
@@ -199,20 +159,11 @@ export class EformsignListShadowCompareService {
         if (extra.length > 0) {
             differences.push(`extra=${summariseIds(extra)}`);
         }
-        if (unclassifiable.length > 0) {
-            differences.push(
-                `localOnlyNoScanRange=${summariseIds(unclassifiable)}`
-                + " (vendor scan returned nothing for this scope)",
-            );
-        }
-        // Compare order over the documents both sides can hold — dropping the out-of-range
-        // ones rather than giving up on the check whenever any exist, which would have hid
-        // a reversal behind a single ancient row.
-        const beyondWindowSet = new Set(beyondWindow);
-        const comparableLocalIds = local.documentIds.filter((id) => !beyondWindowSet.has(id));
+        // An order difference is only its own finding when both sides hold the same
+        // documents; otherwise it just restates the membership difference above.
         if (missing.length === 0
             && extra.length === 0
-            && comparableLocalIds.join(",") !== served.documentIds.join(",")) {
+            && local.documentIds.join(",") !== served.documentIds.join(",")) {
             differences.push("order differs");
         }
 
@@ -225,10 +176,6 @@ export class EformsignListShadowCompareService {
             differences.push(`fields=${summariseIds(fieldDifferences)}`);
         }
 
-        // Named separately from `rows` so a reader cannot mistake it for a disagreement.
-        const windowNote = beyondWindow.length > 0
-            ? ` olderThanScanned=${beyondWindow.length}`
-            : "";
         // Enough of the query to tell one difference apart from another without carrying
         // anything a customer could be identified by. The search term itself is a customer
         // name often enough that it stays out; that a search happened is what explains a
@@ -237,7 +184,6 @@ export class EformsignListShadowCompareService {
         this.skippedWhileBusy = 0;
         const context = `scope=${query.scope} branch=${query.branchId}`
             + ` rows=${served.documentIds.length}`
-            + windowNote
             + `${query.search?.trim() ? " search=present" : ""}`
             + `${query.statusCategory ? ` status=${query.statusCategory}` : ""}`
             + `${query.templateId ? ` template=${query.templateMatch}` : ""}`
@@ -289,10 +235,10 @@ export class EformsignListShadowCompareService {
             templateFiltered,
             query.excludeDeleted ?? false,
         );
-        const scopeFiltered = query.scopeCategories === undefined
+        const scopeSelector = eformsignListScopeSelector(query.scope);
+        const scopeFiltered = scopeSelector === undefined
             ? deletionFiltered
-            : deletionFiltered.filter((document) =>
-                query.scopeCategories!.includes(getDocumentStatusCategory(document)));
+            : deletionFiltered.filter(scopeSelector);
         const statusFiltered = filterDocumentsByStatusCategory(
             scopeFiltered,
             query.statusCategory,

@@ -321,7 +321,6 @@ describe("EformsignController (Integration)", () => {
                 // The whole filtered set, which for this request is also the page.
                 documentIds: response.body.documents.map((doc: { id: string }) => doc.id),
                 fieldsById: expect.any(Map),
-                oldestScannedAt: expect.any(Number),
             }),
         );
     });
@@ -464,12 +463,7 @@ describe("EformsignController (Integration)", () => {
         // narrowed, because that is what the tab actually shows.
         expect(response.body.documents).toHaveLength(2);
         expect(shadowCompareService.compareInBackground).toHaveBeenCalledWith(
-            expect.objectContaining({
-                scope: "rejected",
-                // "unknown" carries the deleted codes 047/049, which the desktop's expired
-                // set counts as expired and shows without asking for excludeDeleted.
-                scopeCategories: ["expired", "unknown"],
-            }),
+            expect.objectContaining({ scope: "rejected" }),
             expect.objectContaining({ documentIds: ["expired-doc"] }),
         );
     });

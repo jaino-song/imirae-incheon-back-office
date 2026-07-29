@@ -74,12 +74,6 @@ function servedFrom(
                 eformsignListCompareFields(eformsignListDocFromMirror(document)),
             ] as const),
         ),
-        oldestScannedAt: ordered.length > 0
-            ? ordered[ordered.length - 1]!.createdDate.getTime()
-            : undefined,
-        // Most tests are about a capped scan, where an old mirror-only row is expected;
-        // the exhaustive case is asserted on its own below.
-        scanCapped: true,
         ...overrides,
     };
 }
@@ -204,9 +198,7 @@ describe("EformsignListShadowCompareService", () => {
         expect(logger.warn.mock.calls[0]?.[0]).toContain("order differs");
     });
 
-    it("still checks order when an out-of-range document is present", async () => {
-        // Dropping the order check whenever anything sat outside the vendor's range would
-        // hide a reversal behind a single ancient row.
+    it("checks order over the documents both sides hold", async () => {
         const a = createMirrorDocument({
             documentId: "doc-a",
             createdDate: "2026-07-01T00:00:00.000Z",
@@ -215,14 +207,7 @@ describe("EformsignListShadowCompareService", () => {
             documentId: "doc-b",
             createdDate: "2026-07-02T00:00:00.000Z",
         });
-        repository.findAll.mockResolvedValue([
-            a,
-            b,
-            createMirrorDocument({
-                documentId: "doc-ancient",
-                createdDate: "2024-01-01T00:00:00.000Z",
-            }),
-        ]);
+        repository.findAll.mockResolvedValue([a, b]);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -234,8 +219,6 @@ describe("EformsignListShadowCompareService", () => {
 
         const message = logger.warn.mock.calls[0]?.[0] ?? "";
         expect(message).toContain("order differs");
-        expect(message).toContain("olderThanScanned=1");
-        expect(message).not.toContain("extra=");
     });
 
     it("reports documents whose values differ even when the list itself matches", async () => {
@@ -254,31 +237,6 @@ describe("EformsignListShadowCompareService", () => {
         await settle();
 
         expect(logger.warn.mock.calls[0]?.[0]).toContain("fields=doc-1[statusType]");
-    });
-
-    it("attributes documents older than the vendor's scanned range separately", async () => {
-        // The served path scans at most 10 vendor pages of 100 and warns when it hits that
-        // cap. Counting those as disagreements would make the gate unreachable for any
-        // company past a thousand documents, while they are what the switch recovers.
-        const recent = createMirrorDocument({
-            documentId: "doc-new",
-            createdDate: "2026-07-05T00:00:00.000Z",
-        });
-        repository.findAll.mockResolvedValue([
-            recent,
-            createMirrorDocument({
-                documentId: "doc-ancient",
-                createdDate: "2024-01-01T00:00:00.000Z",
-            }),
-        ]);
-        const service = createService("true");
-        const logger = spyOnLogger(service);
-
-        service.compareInBackground(createQuery(), servedFrom([recent]));
-        await settle();
-
-        expect(logger.warn).not.toHaveBeenCalled();
-        expect(logger.log.mock.calls[0]?.[0]).toContain("olderThanScanned=1");
     });
 
     it("applies the same template filter the served list did", async () => {
@@ -392,7 +350,7 @@ describe("EformsignListShadowCompareService", () => {
         const logger = spyOnLogger(service);
 
         service.compareInBackground(
-            createQuery({ scope: "in-progress", scopeCategories: ["drafting", "in-progress"] }),
+            createQuery({ scope: "in-progress" }),
             servedFrom([drafting]),
         );
         await settle();
@@ -415,54 +373,6 @@ describe("EformsignListShadowCompareService", () => {
         await settle();
 
         expect(logger.warn.mock.calls[0]?.[0]).toContain("fields=doc-1[updatedAt]");
-    });
-
-    it("refuses to classify local rows when the vendor scan returned nothing", async () => {
-        // A branch whose documents all sit past the 10-page company scan cap looks exactly
-        // like a branch whose mirror is wrong. Picking either verdict would be inventing
-        // one; the operator can tell them apart from the scan's own cap warning.
-        repository.findAll.mockResolvedValue([
-            createMirrorDocument({ documentId: "doc-old" }),
-        ]);
-        const service = createService("true");
-        const logger = spyOnLogger(service);
-
-        service.compareInBackground(createQuery(), servedFrom([]));
-        await settle();
-
-        const message = logger.warn.mock.calls[0]?.[0] ?? "";
-        expect(message).toContain("localOnlyNoScanRange=doc-old");
-        expect(message).not.toContain("extra=");
-        expect(message).not.toContain("olderThanScanned=");
-    });
-
-    it("calls an old mirror-only row a real extra when the scan was exhaustive", async () => {
-        // A scan that ran out of pages saw everything, so the vendor genuinely does not
-        // have this document — its age says nothing. Suppressing it would be the one way
-        // this comparison could bless a mirror that is wrong.
-        const recent = createMirrorDocument({
-            documentId: "doc-new",
-            createdDate: "2026-07-05T00:00:00.000Z",
-        });
-        repository.findAll.mockResolvedValue([
-            recent,
-            createMirrorDocument({
-                documentId: "doc-ancient",
-                createdDate: "2024-01-01T00:00:00.000Z",
-            }),
-        ]);
-        const service = createService("true");
-        const logger = spyOnLogger(service);
-
-        service.compareInBackground(
-            createQuery(),
-            servedFrom([recent], { scanCapped: false }),
-        );
-        await settle();
-
-        const message = logger.warn.mock.calls[0]?.[0] ?? "";
-        expect(message).toContain("extra=doc-ancient");
-        expect(message).not.toContain("olderThanScanned=");
     });
 
     it("keeps the search term itself out of the log", async () => {
