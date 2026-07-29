@@ -39,6 +39,7 @@ import {
     filterDocumentsByStatusCategory,
     filterDocumentsByTemplate,
     filterOutDeletedDocuments,
+    getDocumentStatusCategory,
     matchesKoreanSearch,
     sortDocumentsByCreatedDate,
     type DocumentStatusCategory,
@@ -55,12 +56,46 @@ import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
  * What a local list would select for each tab, standing in for "whichever vendor inbox the
  * document sits in" — the mirror does not record that. The merged list has no entry here
  * because it does not filter by inbox at all.
+ *
+ * Applied to both sides of the comparison, because a vendor inbox is not the tab: type 04
+ * is eformsign's document-management inbox and carries in-progress and completed documents
+ * too, which the client filters out by status before rendering. Comparing the raw inbox
+ * against a status-selected mirror would report every one of those as missing.
  */
 const SHADOW_SCOPE_CATEGORIES: Partial<Record<string, DocumentStatusCategory[]>> = {
     "in-progress": ["drafting", "in-progress"],
     completed: ["completed"],
     rejected: ["expired"],
 };
+
+/**
+ * The served side of a shadow comparison: the whole filtered set rather than the page, so
+ * a single disagreement early in the list is not re-reported at every later page boundary.
+ */
+function buildShadowServed(
+    filteredDocuments: EformsignListDoc[],
+    scannedDocuments: EformsignListDoc[],
+    scopeCategories: DocumentStatusCategory[] | undefined,
+) {
+    const comparable = scopeCategories === undefined
+        ? filteredDocuments
+        : filteredDocuments.filter((document) =>
+            scopeCategories.includes(getDocumentStatusCategory(document)));
+
+    return {
+        documentIds: comparable.map((document) => document.id),
+        fieldsById: new Map(
+            comparable.map((document) => [
+                document.id,
+                eformsignListCompareFields(document),
+            ] as const),
+        ),
+        // From the unfiltered scan, not the filtered result: a template or status filter
+        // can drop every old document and would otherwise make the vendor's range look far
+        // newer than it was, hiding real extras.
+        oldestScannedAt: oldestScannedTimestamp(scannedDocuments),
+    };
+}
 
 /** Oldest document the vendor scan produced, before any per-request filter. */
 function oldestScannedTimestamp(documents: EformsignListDoc[]): number | undefined {
@@ -537,22 +572,7 @@ export class EformsignController {
                     search,
                     excludeDeleted,
                 },
-                {
-                    // The whole filtered set, not the page: comparing pages would report
-                    // a pagination boundary as a difference every time the two disagree
-                    // about a single document earlier in the list.
-                    documentIds: filteredDocuments.map((document) => document.id),
-                    fieldsById: new Map(
-                        filteredDocuments.map((document) => [
-                            document.id,
-                            eformsignListCompareFields(document),
-                        ] as const),
-                    ),
-                    // From the unfiltered scan, not the filtered result: a template or
-                    // status filter can drop every old document and would otherwise make
-                    // the vendor's range look far newer than it was, hiding real extras.
-                    oldestScannedAt: oldestScannedTimestamp(documents),
-                },
+                buildShadowServed(filteredDocuments, documents, shadow.scopeCategories),
             );
         }
         return {

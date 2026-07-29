@@ -63,6 +63,8 @@ export interface ListShadowCompareFields {
     stepIndex: string;
     stepName: string;
     createdAt: number;
+    /** Rendered as the signed/completion date, so a stale one shows users a wrong date. */
+    updatedAt: number;
 }
 
 export interface ListShadowCompareServed {
@@ -159,13 +161,21 @@ export class EformsignListShadowCompareService {
         const missing = served.documentIds.filter((id) => !localSet.has(id));
         const beyondWindow: string[] = [];
         const extra: string[] = [];
+        const unclassifiable: string[] = [];
         for (const id of local.documentIds) {
             if (servedSet.has(id)) {
                 continue;
             }
+            if (served.oldestScannedAt === undefined) {
+                // The vendor scan produced nothing for this scope, so there is no range to
+                // place these against. A branch whose documents all sit past the scan cap
+                // looks exactly like a branch whose mirror is wrong, and claiming either
+                // would be inventing a verdict — say what we have instead.
+                unclassifiable.push(id);
+                continue;
+            }
             const createdAt = local.fieldsById.get(id)?.createdAt;
-            const olderThanScanned = served.oldestScannedAt !== undefined
-                && createdAt !== undefined
+            const olderThanScanned = createdAt !== undefined
                 && createdAt < served.oldestScannedAt;
             (olderThanScanned ? beyondWindow : extra).push(id);
         }
@@ -176,6 +186,12 @@ export class EformsignListShadowCompareService {
         }
         if (extra.length > 0) {
             differences.push(`extra=${summariseIds(extra)}`);
+        }
+        if (unclassifiable.length > 0) {
+            differences.push(
+                `localOnlyNoScanRange=${summariseIds(unclassifiable)}`
+                + " (vendor scan returned nothing for this scope)",
+            );
         }
         // Compare order over the documents both sides can hold — dropping the out-of-range
         // ones rather than giving up on the check whenever any exist, which would have hid
@@ -325,7 +341,19 @@ export function eformsignListCompareFields(
         stepIndex: stringFromUnknown(currentStatus?.["step_index"]) ?? "",
         stepName: stringFromUnknown(currentStatus?.["step_name"]) ?? "",
         createdAt: getDocumentCreatedTimestamp(document),
+        updatedAt: numberFromUnknown(document["updated_date"]),
     };
+}
+
+function numberFromUnknown(value: unknown): number {
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value : 0;
+    }
+    if (typeof value === "string") {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && value.trim() !== "" ? parsed : Date.parse(value) || 0;
+    }
+    return 0;
 }
 
 /** Ids whose served and mirrored values disagree, each tagged with the fields that did. */

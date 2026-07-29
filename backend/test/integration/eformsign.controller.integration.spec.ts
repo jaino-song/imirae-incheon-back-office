@@ -32,6 +32,7 @@ describe("EformsignController (Integration)", () => {
         | "downloadDocumentFile"
         | "getAllDocuments"
         | "getInProgressDocuments"
+        | "getRejectedDocuments"
         | "getCompletedDocuments"
         | "getDocumentById"
     >>;
@@ -80,6 +81,7 @@ describe("EformsignController (Integration)", () => {
                         downloadDocumentFile: jest.fn(),
                         getAllDocuments: jest.fn(),
                         getInProgressDocuments: jest.fn(),
+                        getRejectedDocuments: jest.fn(),
                         getCompletedDocuments: jest.fn(),
                         getDocumentById: jest.fn(),
                     },
@@ -436,6 +438,38 @@ describe("EformsignController (Integration)", () => {
         expect(response.status).toBe(200);
         expect(response.body.documents).toEqual([{ id: "branch-1-doc" }]);
         expect(eformsignDocService.findAll).toHaveBeenCalledWith("branch-1");
+    });
+
+    it("compares the rejected tab by status, not by which inbox the vendor used", async () => {
+        // Type 04 is eformsign's document-management inbox, not a rejected-only one: it
+        // carries in-progress and completed documents too, which the client filters out
+        // by status. Handing the raw inbox to the comparison would report every one of
+        // those as missing from a mirror that is in fact correct.
+        eformsignService.getRejectedDocuments.mockResolvedValue({
+            documents: [
+                { id: "expired-doc", current_status: { status_type: "080" } },
+                { id: "still-open-doc", current_status: { status_type: "060" } },
+            ],
+        });
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "expired-doc" },
+            { documentId: "still-open-doc" },
+        ] as any);
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents/rejected?accessToken=access-token");
+
+        expect(response.status).toBe(200);
+        // The endpoint itself still returns what the inbox held — only the comparison is
+        // narrowed, because that is what the tab actually shows.
+        expect(response.body.documents).toHaveLength(2);
+        expect(shadowCompareService.compareInBackground).toHaveBeenCalledWith(
+            expect.objectContaining({
+                scope: "rejected",
+                scopeCategories: ["expired"],
+            }),
+            expect.objectContaining({ documentIds: ["expired-doc"] }),
+        );
     });
 
     it("finds current-branch status documents after pages containing only other branches", async () => {

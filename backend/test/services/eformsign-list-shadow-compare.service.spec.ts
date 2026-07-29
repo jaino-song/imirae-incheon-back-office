@@ -398,6 +398,41 @@ describe("EformsignListShadowCompareService", () => {
         expect(logger.log.mock.calls[0]?.[0]).toContain("scope=in-progress");
     });
 
+    it("reports a stale completion date even when everything else agrees", async () => {
+        // The list renders updated_date as the signed date, so a mirror that is right
+        // about membership and status can still show users the wrong day.
+        const mirrored = createMirrorDocument({ documentId: "doc-1" });
+        repository.findAll.mockResolvedValue([mirrored]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        const served = servedFrom([mirrored]);
+        served.fieldsById.get("doc-1")!.updatedAt += 86_400_000;
+        service.compareInBackground(createQuery(), served);
+        await settle();
+
+        expect(logger.warn.mock.calls[0]?.[0]).toContain("fields=doc-1[updatedAt]");
+    });
+
+    it("refuses to classify local rows when the vendor scan returned nothing", async () => {
+        // A branch whose documents all sit past the 10-page company scan cap looks exactly
+        // like a branch whose mirror is wrong. Picking either verdict would be inventing
+        // one; the operator can tell them apart from the scan's own cap warning.
+        repository.findAll.mockResolvedValue([
+            createMirrorDocument({ documentId: "doc-old" }),
+        ]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(createQuery(), servedFrom([]));
+        await settle();
+
+        const message = logger.warn.mock.calls[0]?.[0] ?? "";
+        expect(message).toContain("localOnlyNoScanRange=doc-old");
+        expect(message).not.toContain("extra=");
+        expect(message).not.toContain("olderThanScanned=");
+    });
+
     it("keeps the search term itself out of the log", async () => {
         // Searches are customer names often enough that the term does not belong in a
         // centralised log, and a raw value could break the log line apart.
