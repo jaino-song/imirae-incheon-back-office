@@ -23,9 +23,8 @@ import type { EformsignListDoc } from "./eformsign-document-list";
  */
 export const MIRROR_CUSTOMER_NAME_KEY = "_mirror_customer_name";
 
-/** What the mirror stores when eformsign gave it no recipient contact at all. */
-const UNKNOWN_RECIPIENT_CONTACT = "미확인";
-const UNKNOWN_RECIPIENT_NAME = "수신자";
+/** What the mirror stores when eformsign gave it no recipient name at all. */
+export const MIRROR_UNKNOWN_RECIPIENT_NAME = "수신자";
 
 /**
  * The branch's own recipient name for a document, carried the same way and for the same
@@ -73,34 +72,24 @@ export function eformsignListDocFromMirror(document: EformsignDocEntity): Eforms
 }
 
 /**
- * The recipient list, with the current step's own name and contact on the entry it belongs
- * to. The mirror stores those three singular fields from `step_recipients[0]`, and the
- * type list is mapped from the same array in order, so the first entry is the one they
- * describe — the equality check is there to say so rather than to guess.
+ * Recipient types only — deliberately without the stored name and contact.
  *
- * They matter because the mobile detail sheet renders and enables actions from the list
- * row while the detail request is still in flight: dropping them would offer to send to a
- * contract whose recipient it could not name.
+ * A webhook that advances a document updates its step type, index and name but copies the
+ * recipient fields forward unchanged, and the reconciliation sweep cannot refresh them
+ * either: it reads list responses, which carry no recipients. So what the mirror holds may
+ * describe the step *before* the current one. Emitting a name and phone number under
+ * `current_status` would present that as the person to contact, and the mobile sheet acts
+ * on it — it offers edit-and-send from the list row before the detail request returns.
+ *
+ * The list itself does not render these; the detail fetch that does is where accurate
+ * recipients come from. The types are here because the status counters fold them, and the
+ * shadow comparison checks them so a mirror whose recipients have gone stale shows up as a
+ * difference rather than being discovered after the switch.
  */
 function buildStepRecipients(
     document: EformsignDocEntity,
 ): Array<Record<string, unknown>> {
-    const recipientTypes = document.stepRecipientTypes ?? [];
-    // The placeholders the mirror writes when eformsign gave it nothing are not contacts.
-    const name = document.stepRecipientName === UNKNOWN_RECIPIENT_NAME
-        ? null
-        : document.stepRecipientName?.trim() || null;
-    const contact = document.stepRecipientSms === UNKNOWN_RECIPIENT_CONTACT
-        ? null
-        : document.stepRecipientSms?.trim() || null;
-
-    return recipientTypes.map((recipientType, index) => ({
+    return (document.stepRecipientTypes ?? []).map((recipientType) => ({
         recipient_type: recipientType,
-        ...(index === 0 && recipientType === document.stepRecipientType
-            ? {
-                ...(name === null ? {} : { name }),
-                ...(contact === null ? {} : { id: contact }),
-            }
-            : {}),
     }));
 }
