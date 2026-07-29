@@ -160,6 +160,34 @@ describe("EformsignDocReconcileSchedulerService", () => {
             expect(error).toHaveBeenCalledTimes(1);
         });
 
+        it("counts nightly database outages toward the same escalation", async () => {
+            // The cooldown lapses hours before the next nightly tick, so it cannot be what
+            // surfaces a multi-day outage. If these did not count, a database that never
+            // let a sweep finish would stay warning-level forever.
+            const connectivityError = Object.assign(new Error("Can't reach database server"), {
+                code: "P1001",
+            });
+            lockService.runExclusive.mockRejectedValue(connectivityError);
+            const service = createService("true");
+            const logger = (service as unknown as {
+                logger: { warn: (message: string) => void; error: (message: string) => void };
+            }).logger;
+            jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+            const error = jest.spyOn(logger, "error").mockImplementation(() => undefined);
+
+            // Ticks are a day apart, so the connectivity cooldown has long lapsed by the
+            // next one — without advancing the clock the guard would refuse to start.
+            let now = 1_000_000;
+            jest.spyOn(Date, "now").mockImplementation(() => now);
+            for (let night = 0; night < 3; night += 1) {
+                await service.reconcileDocuments();
+                now += 24 * 60 * 60 * 1000;
+            }
+
+            expect(error).toHaveBeenCalledTimes(1);
+            expect(error.mock.calls[0]?.[0]).toContain("3 in a row");
+        });
+
         it("treats a fail-closed sweep as an incomplete run, not a crash", async () => {
             // The sweep fails closed on incomplete coverage. Nightly, that means "this run
             // did not finish reconciling" — tomorrow's run picks up from what landed.

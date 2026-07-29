@@ -871,6 +871,54 @@ describe("BackfillEformsignDocsUsecase", () => {
         );
     });
 
+    it("re-mirrors a document when a later inbox carries newer state", async () => {
+        // A document that completes between the in-progress scan and the completed scan
+        // shows up twice, the second copy newer. Skipping on identity alone would keep the
+        // mirror a night behind on exactly the documents that just changed.
+        const earlier = createRemoteDocument("moving-doc");
+        const later = {
+            ...createRemoteDocument("moving-doc", "050"),
+            updated_date: earlier.updated_date + 60_000,
+        };
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [earlier],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [later],
+                total_rows: 1,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "moving-doc" }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        const summary = await usecase.execute();
+
+        expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
+        expect(mirror.mirrorRemoteDocument).toHaveBeenLastCalledWith(
+            expect.objectContaining({ current_status: expect.objectContaining({ status_type: "050" }) }),
+            { allowAssignedUpdate: true },
+        );
+        expect(summary.duplicates).toBe(0);
+    });
+
     it("keeps a stored status detail when the list response carries none", async () => {
         // The list schema has no status_doc_detail, so the mirror falls back to the step
         // name. That derived value may seed a new row but must not replace "만료"/"거부"

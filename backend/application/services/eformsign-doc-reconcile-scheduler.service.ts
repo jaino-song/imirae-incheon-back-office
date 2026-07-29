@@ -86,11 +86,6 @@ export class EformsignDocReconcileSchedulerService {
                 return;
             }
 
-            if (isTransientPrismaConnectivityError(error)) {
-                this.reconcileGuard.enterCooldown(summarizePrismaError(error));
-                return;
-            }
-
             // A sweep that fails closed — incomplete coverage, a document it could not
             // write — is telling us this run did not fully reconcile, not that anything
             // is broken. Tomorrow's run starts from whatever this one managed to land.
@@ -98,6 +93,16 @@ export class EformsignDocReconcileSchedulerService {
             // has no other operator signal: Sentry here is filtered to service-records
             // only, so an error-level log is the loudest thing available.
             this.consecutiveFailures += 1;
+
+            if (isTransientPrismaConnectivityError(error)) {
+                // The cooldown is built for the minute-by-minute jobs; on a nightly one
+                // it has always lapsed by the next tick, so it cannot be what surfaces a
+                // database outage lasting days. The streak below is. Counting these is
+                // the whole point — an outage that never lets a sweep finish is exactly
+                // the drift the escalation exists to report.
+                this.reconcileGuard.enterCooldown(summarizePrismaError(error));
+            }
+
             const message = `[Eformsign Reconcile] Sweep did not complete`
                 + ` (${this.consecutiveFailures} in a row): ${describeError(error)}`;
             if (this.consecutiveFailures >= RECONCILE_FAILURE_ALERT_THRESHOLD) {

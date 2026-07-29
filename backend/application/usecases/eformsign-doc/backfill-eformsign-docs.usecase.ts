@@ -201,7 +201,10 @@ export class BackfillEformsignDocsUsecase {
             // Run-level, not per-scan: the per-scan set drives pagination and the coverage
             // check and has to stay scoped to its own type's total_rows. This one only
             // stops us writing the same document twice because two inboxes both list it.
-            const mirroredDocumentIds = new Set<string>();
+            // It records what each copy was worth, not just that we saw it — a document
+            // that completes mid-sweep appears again in a later inbox carrying newer
+            // state, and skipping on identity alone would throw that away.
+            const mirroredUpdatedDates = new Map<string, number>();
             const scanFailures: BackfillEformsignDocsError[] = [];
             for (const scan of scans) {
                 const typeSummary = summary.byDocumentType[scan.documentType];
@@ -213,7 +216,7 @@ export class BackfillEformsignDocsUsecase {
                         options,
                         summary,
                         typeSummary,
-                        mirroredDocumentIds,
+                        mirroredUpdatedDates,
                     });
                     // Swallowing a single document's write error to finish the sweep is
                     // deliberate, but the run still left the mirror incomplete and nothing
@@ -296,7 +299,7 @@ export class BackfillEformsignDocsUsecase {
         options: BackfillEformsignDocsOptions;
         summary: EformsignDocsBackfillSummary;
         typeSummary: EformsignDocsBackfillTypeSummary;
-        mirroredDocumentIds: Set<string>;
+        mirroredUpdatedDates: Map<string, number>;
     }): Promise<void> {
         let skip = 0;
         let initialTotalRows: number | undefined;
@@ -381,13 +384,14 @@ export class BackfillEformsignDocsUsecase {
             for (const document of newDocuments) {
                 seenDocumentIds.add(document.id);
                 this.assertCanContinue(params.options, params.summary);
-                if (params.mirroredDocumentIds.has(document.id)) {
+                const mirroredAt = params.mirroredUpdatedDates.get(document.id);
+                if (mirroredAt !== undefined && document.updated_date <= mirroredAt) {
                     params.summary.duplicates += 1;
                     params.typeSummary.duplicates += 1;
                     continue;
                 }
 
-                params.mirroredDocumentIds.add(document.id);
+                params.mirroredUpdatedDates.set(document.id, document.updated_date);
                 await this.persistDocument(document, params.summary, params.typeSummary);
             }
 
