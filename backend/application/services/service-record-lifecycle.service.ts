@@ -1,6 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
+import { EFORMSIGN_COMPLETED_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
+import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 export const SERVICE_RECORD_CASE_STATUS = {
@@ -30,6 +32,21 @@ const IMMUTABLE_FINALIZATION_STATUSES = new Set<string>([
 
 type DbClient = Prisma.TransactionClient | PrismaService;
 
+type LockedServiceRecordSnapshot = {
+    id: number;
+    documentId: string;
+    branchId: string;
+    documentKind: string;
+    statusType: string;
+    detailPayload: Prisma.JsonValue | null;
+    detailSourceUpdatedDate: Date | null;
+    detailSyncedAt: Date | null;
+    syncStatus: string;
+    permanentPurgeRequestedAt: Date | null;
+    hasCurrentDocumentPdf: boolean;
+    hasCurrentAuditTrailPdf: boolean;
+};
+
 function isoDate(date: Date | null | undefined): string | null {
     return date ? date.toISOString().slice(0, 10) : null;
 }
@@ -54,6 +71,29 @@ function hasCompleteHeader(record: {
         record.deliveryType,
         record.babyWeight,
     ].every((value) => Boolean(value?.trim()));
+}
+
+function isCurrentMirrorSnapshotVersion(
+    snapshot: LockedServiceRecordSnapshot,
+    mirrorVersion: {
+        detailSourceUpdatedDate: Date;
+        detailSyncedAt: Date;
+    } | undefined,
+): boolean {
+    if (!isReadyCurrentSnapshot(snapshot)) return false;
+    if (!mirrorVersion) return true;
+    return snapshot.detailSourceUpdatedDate?.getTime() === mirrorVersion.detailSourceUpdatedDate.getTime()
+        && snapshot.detailSyncedAt?.getTime() === mirrorVersion.detailSyncedAt.getTime();
+}
+
+function isReadyCurrentSnapshot(snapshot: LockedServiceRecordSnapshot): boolean {
+    return snapshot.detailPayload !== null
+        && snapshot.detailSourceUpdatedDate !== null
+        && snapshot.detailSyncedAt !== null
+        && snapshot.syncStatus === "ready"
+        && !snapshot.permanentPurgeRequestedAt
+        && snapshot.hasCurrentDocumentPdf
+        && snapshot.hasCurrentAuditTrailPdf;
 }
 
 @Injectable()
@@ -263,27 +303,191 @@ export class ServiceRecordLifecycleService {
         endDate: Date;
     }): Promise<void> {
         await this.prisma.$transaction(async (tx) => {
-            await this.validatePeriodChange({
-                clientId: params.clientId,
-                endDate: params.endDate,
-            }, tx);
+            await this.syncEndDateFromContractInTransaction(params, tx);
+        });
+    }
 
-            const updated = await tx.client.updateMany({
-                where: {
-                    id: params.clientId,
-                    OR: [
-                        { branchId: params.branchId },
-                        { branchId: null },
-                    ],
-                },
-                data: { endDate: params.endDate },
-            });
-            if (updated.count !== 1) {
-                throw new NotFoundException("Client not found for branch");
+    async syncEndDateFromMirroredContract(params: {
+        branchId: string;
+        clientId: number;
+        endDate: Date;
+        documentId: string;
+        detailSourceUpdatedDate: Date;
+        detailSyncedAt: Date;
+    }): Promise<boolean> {
+        return await this.prisma.$transaction(async (tx) => {
+            const current = await tx.$queryRaw<{ id: number }[]>(Prisma.sql`
+                SELECT id
+                FROM eformsign_doc
+                WHERE document_id = ${params.documentId}
+                  AND branch_id = ${params.branchId}
+                  AND detail_source_updated_date = ${params.detailSourceUpdatedDate}
+                  AND detail_synced_at = ${params.detailSyncedAt}
+                  AND sync_status = 'ready'
+                  AND permanent_purge_requested_at IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM eformsign_doc_file AS document_file
+                      WHERE document_file.eformsign_doc_id = eformsign_doc.id
+                        AND document_file.file_type = 'document'
+                        AND document_file.source_updated_date
+                          = eformsign_doc.detail_source_updated_date
+                  )
+                  AND EXISTS (
+                      SELECT 1
+                      FROM eformsign_doc_file AS audit_trail_file
+                      WHERE audit_trail_file.eformsign_doc_id = eformsign_doc.id
+                        AND audit_trail_file.file_type = 'audit_trail'
+                        AND audit_trail_file.source_updated_date
+                          = eformsign_doc.detail_source_updated_date
+                  )
+                FOR UPDATE
+            `);
+            if (current.length !== 1) {
+                return false;
             }
 
-            await this.ensureForClient(params.clientId, tx);
+            await this.syncEndDateFromContractInTransaction(params, tx);
+            return true;
         });
+    }
+
+    async completeServiceRecordSnapshotIfReady(params: {
+        branchId: string;
+        documentId: string;
+        mirrorVersion?: {
+            detailSourceUpdatedDate: Date;
+            detailSyncedAt: Date;
+        };
+    }): Promise<boolean> {
+        return this.prisma.$transaction(async (tx) =>
+            this.completeServiceRecordSnapshotIfReadyInTransaction(params, tx));
+    }
+
+    private async completeServiceRecordSnapshotIfReadyInTransaction(
+        params: {
+            branchId: string;
+            documentId: string;
+            mirrorVersion?: {
+                detailSourceUpdatedDate: Date;
+                detailSyncedAt: Date;
+            };
+        },
+        tx: Prisma.TransactionClient,
+    ): Promise<boolean> {
+        const trigger = await tx.eformsign_doc.findFirst({
+            where: {
+                branchId: params.branchId,
+                documentId: params.documentId,
+                documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
+                serviceRecordCaseId: { not: null },
+            },
+            select: { serviceRecordCaseId: true },
+        });
+        if (!trigger?.serviceRecordCaseId) return false;
+
+        const cases = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+            SELECT id
+            FROM service_record_case
+            WHERE id = ${trigger.serviceRecordCaseId}
+              AND branch_id = ${params.branchId}
+              AND status = ${SERVICE_RECORD_CASE_STATUS.DOCUMENTS_CREATED}
+            FOR UPDATE
+        `);
+        if (cases.length !== 1) return false;
+
+        const snapshots = await tx.$queryRaw<LockedServiceRecordSnapshot[]>(Prisma.sql`
+            SELECT
+                id,
+                document_id AS "documentId",
+                branch_id AS "branchId",
+                document_kind AS "documentKind",
+                status_type AS "statusType",
+                detail_payload AS "detailPayload",
+                detail_source_updated_date AS "detailSourceUpdatedDate",
+                detail_synced_at AS "detailSyncedAt",
+                sync_status AS "syncStatus",
+                permanent_purge_requested_at AS "permanentPurgeRequestedAt",
+                EXISTS (
+                    SELECT 1
+                    FROM eformsign_doc_file AS document_file
+                    WHERE document_file.eformsign_doc_id = eformsign_doc.id
+                      AND document_file.file_type = 'document'
+                      AND document_file.source_updated_date
+                        = eformsign_doc.detail_source_updated_date
+                ) AS "hasCurrentDocumentPdf",
+                EXISTS (
+                    SELECT 1
+                    FROM eformsign_doc_file AS audit_trail_file
+                    WHERE audit_trail_file.eformsign_doc_id = eformsign_doc.id
+                      AND audit_trail_file.file_type = 'audit_trail'
+                      AND audit_trail_file.source_updated_date
+                        = eformsign_doc.detail_source_updated_date
+                ) AS "hasCurrentAuditTrailPdf"
+            FROM eformsign_doc
+            WHERE branch_id = ${params.branchId}
+              AND service_record_case_id = ${trigger.serviceRecordCaseId}
+              AND document_kind = ${EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT}
+            ORDER BY id ASC
+            FOR UPDATE
+        `);
+        const lockedTrigger = snapshots.find((snapshot) =>
+            snapshot.documentId === params.documentId
+            && snapshot.branchId === params.branchId
+            && snapshot.documentKind === EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
+        );
+        if (
+            snapshots.length === 0
+            || !lockedTrigger
+            || !isCurrentMirrorSnapshotVersion(lockedTrigger, params.mirrorVersion)
+            || snapshots.some((snapshot) =>
+                !isReadyCurrentSnapshot(snapshot)
+                || !EFORMSIGN_COMPLETED_STATUS_CODES.has(snapshot.statusType))
+        ) return false;
+
+        const completed = await tx.service_record_case.updateMany({
+            where: {
+                id: trigger.serviceRecordCaseId,
+                branchId: params.branchId,
+                status: SERVICE_RECORD_CASE_STATUS.DOCUMENTS_CREATED,
+            },
+            data: {
+                status: SERVICE_RECORD_CASE_STATUS.COMPLETED,
+                documentsCompletedAt: new Date(),
+                version: { increment: 1 },
+            },
+        });
+        return completed.count === 1;
+    }
+
+    private async syncEndDateFromContractInTransaction(
+        params: {
+            branchId: string;
+            clientId: number;
+            endDate: Date;
+        },
+        tx: Prisma.TransactionClient,
+    ): Promise<void> {
+        await this.validatePeriodChange({
+            clientId: params.clientId,
+            endDate: params.endDate,
+        }, tx);
+
+        const updated = await tx.client.updateMany({
+            where: {
+                id: params.clientId,
+                OR: [
+                    { branchId: params.branchId },
+                    { branchId: null },
+                ],
+            },
+            data: { endDate: params.endDate },
+        });
+        if (updated.count !== 1) {
+            throw new NotFoundException("Client not found for branch");
+        }
+
+        await this.ensureForClient(params.clientId, tx);
     }
 
     async recompute(serviceRecordCaseId: string, tx?: Prisma.TransactionClient) {

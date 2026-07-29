@@ -211,17 +211,6 @@ export interface LoginResponse extends AuthResponse {
     user?: string;
 }
 
-export interface SyncedEformsignDocResponse {
-    id?: number;
-    documentId: string;
-    statusType: string;
-    statusDetail: string;
-    stepType: string;
-    stepIndex: string;
-    stepName: string;
-    expired?: boolean;
-}
-
 // Auth API
 export const authApi = {
     kakaoLogin: () => {
@@ -392,10 +381,6 @@ export const eformsignApi = {
     },
     getServiceRecordTemplateId: async (): Promise<ServiceRecordTemplateIdResponse> => {
         const { data } = await api.get('/eformsign-docs/feedback-template-id');
-        return data;
-    },
-    syncDocumentStatus: async (documentId: string): Promise<SyncedEformsignDocResponse> => {
-        const { data } = await api.post('/eformsign-docs/sync-status', { documentId });
         return data;
     },
     // Documents APIs - token is read from httpOnly cookie on server

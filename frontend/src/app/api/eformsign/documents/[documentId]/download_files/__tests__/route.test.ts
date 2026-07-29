@@ -28,7 +28,7 @@ async function createPdf(pageCount: number): Promise<Uint8Array> {
 function createRequest(url: string): NextRequest {
   return new NextRequest(url, {
     headers: {
-      cookie: "auth_token=auth-token; eformsign_access_token=eformsign-token",
+      cookie: "auth_token=auth-token",
     },
   });
 }
@@ -54,6 +54,10 @@ describe("eformsign document download_files route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Disposition")).toContain("attachment;");
     expect(response.headers.get("Content-Disposition")).toContain("doc-1-document-page-7.pdf");
+    expect(mockServerGet).toHaveBeenCalledWith(
+      "/api/documents/doc-1/download_files",
+      expect.objectContaining({ params: { fileType: "document" } }),
+    );
 
     const outputPdf = await PDFDocument.load(await response.arrayBuffer());
     expect(outputPdf.getPageCount()).toBe(1);

@@ -8,21 +8,7 @@ import {
   infiniteContractsQueryOptions,
 } from "@/hooks/useInfiniteContracts";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
-import { safeStorageGetItem } from "@/lib/safe-storage";
 import { eformsignApi } from "@/services/api";
-
-const EFORMSIGN_TOKEN_EXPIRY_MS = 60 * 60 * 1000;
-const EFORMSIGN_AUTH_BUFFER_MS = 5 * 60 * 1000;
-
-function isEformsignAuthenticated(): boolean {
-  if (typeof window === "undefined") return false;
-
-  const authTimeStr = safeStorageGetItem("session", "eformsign_auth_time");
-  if (!authTimeStr) return false;
-
-  const authTime = parseInt(authTimeStr, 10);
-  return Date.now() - authTime < EFORMSIGN_TOKEN_EXPIRY_MS - EFORMSIGN_AUTH_BUFFER_MS;
-}
 
 export function ContractsPrefetchCoordinator(): null {
   const queryClient = useQueryClient();
@@ -37,15 +23,10 @@ export function ContractsPrefetchCoordinator(): null {
 
     const prefetchContracts = async () => {
       try {
-        // 인증 확인을 통과한 뒤에만 "시도함"으로 기록한다 — 신선한 세션에서 eformsign
-        // 인증보다 먼저 마운트돼 조기 반환한 경우, 다음 마운트/지점 변경에서 재시도된다.
-        if (!isEformsignAuthenticated()) return;
-
         const authStatus = await eformsignApi.getAuthStatus();
         if (
           cancelled
           || !authStatus.hasAppAuthToken
-          || !authStatus.hasAccessToken
         ) {
           return;
         }

@@ -4,7 +4,6 @@ import { PDFDocument } from "pdf-lib";
 import { serverAPIClient } from "@/lib/api/server";
 import {
   errorResponse,
-  getAccessToken,
   getAuthHeaders,
   getAuthToken,
   unauthorizedResponse,
@@ -57,14 +56,9 @@ export async function GET(
   { params }: { params: Promise<{ documentId: string }> },
 ) {
   const authToken = getAuthToken(request);
-  const accessToken = getAccessToken(request);
 
   if (!authToken) {
     return unauthorizedResponse("Authentication required. Please log in.");
-  }
-
-  if (!accessToken) {
-    return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
   }
 
   const { documentId } = await params;
@@ -77,7 +71,7 @@ export async function GET(
     const response = await serverAPIClient.get(
       `/api/documents/${encodeURIComponent(documentId)}/download_files`,
       {
-        params: { accessToken, fileType },
+        params: { fileType },
         headers: getAuthHeaders(authToken),
         responseType: "arraybuffer",
       },

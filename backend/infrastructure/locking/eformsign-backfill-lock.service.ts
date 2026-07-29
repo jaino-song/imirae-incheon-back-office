@@ -9,6 +9,8 @@ import {
 import { ConfigService } from "@nestjs/config";
 import Redis from "ioredis";
 
+import { sanitizeEformsignErrorMessage } from "domain/utils/eformsign-error-message";
+
 const BACKFILL_LOCK_KEY = "babyjamjam:eformsign:documents-backfill";
 const BACKFILL_LOCK_LEASE_MS = 60_000;
 const BACKFILL_LOCK_RENEW_INTERVAL_MS = 20_000;
@@ -155,9 +157,8 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
                         held = false;
                     }
                     this.logger[leaseExpired ? "error" : "warn"](
-                        `Failed to renew the eformsign backfill execution lease: ${
-                            error instanceof Error ? error.message : String(error)
-                        }`,
+                        "Failed to renew the eformsign backfill execution lease: "
+                        + sanitizeEformsignErrorMessage(error),
                     );
                 })
                 .finally(() => {
@@ -176,9 +177,8 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
                 await this.release(redis, token);
             } catch (error) {
                 this.logger.warn(
-                    `Failed to release the eformsign backfill execution lease: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
+                    "Failed to release the eformsign backfill execution lease: "
+                    + sanitizeEformsignErrorMessage(error),
                 );
             }
         }
@@ -190,9 +190,8 @@ export class EformsignBackfillLockService implements OnModuleDestroy {
                 await redis.connect();
             } catch (error) {
                 throw new EformsignBackfillLockUnavailableError(
-                    `Unable to connect to Valkey for the eformsign backfill lock: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
+                    "Unable to connect to Valkey for the eformsign backfill lock: "
+                    + sanitizeEformsignErrorMessage(error),
                 );
             }
         }

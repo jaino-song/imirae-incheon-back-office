@@ -18,7 +18,7 @@ import {
 } from "@/lib/client/list-helpers";
 import { getStatusCategory } from "@/lib/eformsign/status-codes";
 import { useLocale } from "@/providers/LocaleProvider";
-import { eformsignApi, withEformsignReauth } from "@/services/api";
+import { eformsignApi } from "@/services/api";
 import { t } from "@/lib/i18n/translations";
 import { todayIsoDate } from "@/lib/contracts/date-input";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
@@ -202,36 +202,26 @@ export default function ClientsPage() {
     isError: isNotificationLogsError,
     refetch: refetchNotificationLogs,
   } = useClientMessageHistory(detailClient);
-  const { data: syncedContractDoc } = useQuery({
-    queryKey: ["eformsign-docs", "sync-status", detailClient?.eDocId],
-    queryFn: async () => {
-      if (!detailClient?.eDocId) {
-        throw new Error("documentId is required");
-      }
-      return withEformsignReauth(() => eformsignApi.syncDocumentStatus(detailClient.eDocId!));
-    },
-    enabled: Boolean(detailClient?.eDocId && detailSheetTab === "contracts"),
-    staleTime: 1000 * 30,
-    retry: 1,
-  });
   const { data: detailContractDocument } = useQuery({
     queryKey: ["eformsign-docs", "document", detailClient?.eDocId],
     queryFn: async () => {
       if (!detailClient?.eDocId) {
         throw new Error("documentId is required");
       }
-      return withEformsignReauth(() => eformsignApi.getDocument(detailClient.eDocId!));
+      return eformsignApi.getDocument(detailClient.eDocId!);
     },
     enabled: Boolean(detailClient?.eDocId && (detailSheetTab === "basic" || detailSheetTab === "contracts")),
     staleTime: 1000 * 60,
     retry: 1,
   });
 
-  const syncedDetailClient = useMemo(() => {
+  const localDetailClient = useMemo(() => {
     if (!detailClient) return null;
 
-    const documentStatus = documentStatusFromStatusType(syncedContractDoc?.statusType);
-    if (!documentStatus || syncedContractDoc?.documentId !== detailClient.eDocId) {
+    const documentStatus = documentStatusFromStatusType(
+      detailContractDocument?.current_status?.status_type,
+    );
+    if (!documentStatus || detailContractDocument?.id !== detailClient.eDocId) {
       return detailClient;
     }
 
@@ -240,17 +230,7 @@ export default function ClientsPage() {
       documentStatus,
       hasSigned: documentStatus === "completed" ? true : detailClient.hasSigned,
     };
-  }, [detailClient, syncedContractDoc]);
-
-  useEffect(() => {
-    if (!detailClient || syncedContractDoc?.documentId !== detailClient.eDocId) return;
-
-    const documentStatus = documentStatusFromStatusType(syncedContractDoc.statusType);
-    if (!documentStatus) return;
-
-    queryClient.invalidateQueries({ queryKey: clientQueryKeys.lists() });
-    queryClient.invalidateQueries({ queryKey: clientQueryKeys.detail(detailClient.id) });
-  }, [detailClient, queryClient, syncedContractDoc]);
+  }, [detailClient, detailContractDocument]);
 
   const handleSelectClient = async (client: Client) => {
     const requestId = selectClientRequestRef.current + 1;
@@ -268,24 +248,6 @@ export default function ClientsPage() {
 
       setSelectedClient(freshClient);
       setDetailSheetTab(freshClient.pendingScheduleChange ? "scheduleChange" : "basic");
-
-      if (!freshClient.eDocId || freshClient.documentStatus === "completed") return;
-
-      const syncedDoc = await withEformsignReauth(() =>
-        eformsignApi.syncDocumentStatus(freshClient.eDocId!),
-      );
-      if (selectClientRequestRef.current !== requestId) return;
-
-      const documentStatus = documentStatusFromStatusType(syncedDoc.statusType);
-      if (!documentStatus || syncedDoc.documentId !== freshClient.eDocId) return;
-
-      setSelectedClient({
-        ...freshClient,
-        documentStatus,
-        hasSigned: documentStatus === "completed" ? true : freshClient.hasSigned,
-      });
-      queryClient.invalidateQueries({ queryKey: clientQueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: clientQueryKeys.detail(freshClient.id) });
     } catch {
       // Keep the already-open list row detail. Row selection should not be blocked by refresh failures.
     }
@@ -483,7 +445,7 @@ export default function ClientsPage() {
       <MobileDetailSheet
         data-component="mobile_clients_detail-sheet"
         name="clients"
-        sheetTitle={(syncedDetailClient ?? detailClient)?.name}
+        sheetTitle={(localDetailClient ?? detailClient)?.name}
         isOpen={Boolean(detailClient)}
         onClose={handleCloseDetailSheet}
         list={
@@ -617,7 +579,7 @@ export default function ClientsPage() {
           detailClient ? (
             <ClientDetailContent
               data-component="mobile_clients_detail-sheet_stack_detail-page_content"
-              client={syncedDetailClient ?? detailClient}
+              client={localDetailClient ?? detailClient}
               contractDocument={detailContractDocument ?? null}
               activeTab={detailSheetTab}
               notificationLogs={detailNotificationLogs}
@@ -628,7 +590,7 @@ export default function ClientsPage() {
               }}
               isIssuingContract={false}
               onTabChange={setDetailSheetTab}
-              onMessage={() => handleMessage(syncedDetailClient ?? detailClient)}
+              onMessage={() => handleMessage(localDetailClient ?? detailClient)}
               onIssueContract={handleIssueContract}
               onEdit={handleEdit}
               onDelete={handleDeleteRequest}

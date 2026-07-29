@@ -12,8 +12,14 @@ export interface UpdateEformsignDocStatusParams {
     stepIndex?: string;
     stepName?: string;
     expired?: boolean;
+    sourceUpdatedDate?: Date;
     documentName?: string;
     templateName?: string;
+}
+
+export interface UpdateEformsignDocStatusResult {
+    document: EformsignDocEntity;
+    applied: boolean;
 }
 
 @Injectable()
@@ -29,6 +35,13 @@ export class UpdateEformsignDocStatusUsecase {
         branchid: string,
         params: UpdateEformsignDocStatusParams
     ): Promise<EformsignDocEntity> {
+        return (await this.executeWithOutcome(branchid, params)).document;
+    }
+
+    async executeWithOutcome(
+        branchid: string,
+        params: UpdateEformsignDocStatusParams,
+    ): Promise<UpdateEformsignDocStatusResult> {
         const existing = await this.eformsignDocRepository.findByDocumentId(
             branchid,
             params.documentId
@@ -43,8 +56,19 @@ export class UpdateEformsignDocStatusUsecase {
         // (e.g. completed -> rejected) remain allowed.
         if (TERMINAL_STATUS_CODES.has(existing.statusType) && !TERMINAL_STATUS_CODES.has(params.statusType)) {
             this.logger.log(`ignoring stale downgrade ${params.statusType} for ${params.documentId}`);
-            return existing;
+            return { document: existing, applied: false };
         }
+
+        if (
+            params.sourceUpdatedDate
+            && params.sourceUpdatedDate.getTime() <= existing.updatedDate.getTime()
+            && params.statusType !== existing.statusType
+        ) {
+            this.logger.log(`ignoring stale timestamp ${params.statusType} for ${params.documentId}`);
+            return { document: existing, applied: false };
+        }
+
+        const updatedDate = params.sourceUpdatedDate ?? existing.updatedDate;
 
         // Reconstitute entity with updated fields
         const updated = EformsignDocEntity.reconstitute({
@@ -58,7 +82,7 @@ export class UpdateEformsignDocStatusUsecase {
             lastEditorName: existing.lastEditorName,
             stepRecipientTypes: existing.stepRecipientTypes,
             createdDate: existing.createdDate,
-            updatedDate: new Date(),
+            updatedDate,
             statusType: params.statusType,
             statusDetail: params.statusDetail,
             stepType: params.stepType ?? existing.stepType,
@@ -75,6 +99,12 @@ export class UpdateEformsignDocStatusUsecase {
             templateId: existing.templateId,
         });
 
-        return this.eformsignDocRepository.update(branchid, updated);
+        if (params.sourceUpdatedDate) {
+            return this.eformsignDocRepository.updateIfSourceNewer(branchid, updated);
+        }
+        return {
+            document: await this.eformsignDocRepository.update(branchid, updated),
+            applied: true,
+        };
     }
 }

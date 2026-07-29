@@ -38,17 +38,30 @@ export class LinkDocumentToClientUsecase {
             throw new NotFoundException(`Client for document ${documentId} not found`);
         }
 
-        if (doc.clientId !== client.id) {
-            await this.eformsignDocRepository.update(
-                branchid,
-                this.reassignDocumentToClient(doc, client.id),
+        const needsDocumentReassignment = doc.clientId !== client.id;
+        const needsClientPointerUpdate = client.eDocId !== documentId;
+        if (!needsDocumentReassignment && !needsClientPointerUpdate) {
+            return;
+        }
+
+        const linked = await this.eformsignDocRepository.linkClientIfActive(
+            branchid,
+            documentId,
+            client.id,
+        );
+        if (!linked) {
+            this.logger.debug(
+                `Skipping client contract link for inactive document ${documentId}`,
             );
+            return;
+        }
+
+        if (needsDocumentReassignment) {
             this.logger.log(`Reassigned document ${documentId} to client ${client.id} by recipient phone`);
         }
 
-        if (client.eDocId !== documentId) {
+        if (needsClientPointerUpdate) {
             client.update({ eDocId: documentId });
-            await this.clientRepository.update(branchid, client);
             this.logger.log(`Linked document ${documentId} to client ${client.id}`);
         }
     }
@@ -67,38 +80,5 @@ export class LinkDocumentToClientUsecase {
         }
 
         return null;
-    }
-
-    private reassignDocumentToClient(
-        doc: EformsignDocEntity,
-        clientId: number,
-    ): EformsignDocEntity {
-        return EformsignDocEntity.reconstitute({
-            id: doc.id,
-            documentId: doc.documentId,
-            documentName: doc.documentName,
-            documentNumber: doc.documentNumber,
-            templateName: doc.templateName,
-            customerName: doc.customerName,
-            creatorName: doc.creatorName,
-            lastEditorName: doc.lastEditorName,
-            stepRecipientTypes: doc.stepRecipientTypes,
-            createdDate: doc.createdDate,
-            updatedDate: new Date(),
-            statusType: doc.statusType,
-            statusDetail: doc.statusDetail,
-            stepType: doc.stepType,
-            stepIndex: doc.stepIndex,
-            stepName: doc.stepName,
-            stepRecipientType: doc.stepRecipientType,
-            stepRecipientName: doc.stepRecipientName,
-            stepRecipientSms: doc.stepRecipientSms,
-            expiredDate: doc.expiredDate,
-            expired: doc.expired,
-            clientId,
-            documentKind: doc.documentKind,
-            employeeScheduleId: doc.employeeScheduleId,
-            templateId: doc.templateId,
-        });
     }
 }

@@ -169,6 +169,7 @@ model eformsign_doc {
   documentNumber             String?                        @map("document_number")
   templateName               String?                        @map("template_name")
   customerName               String?                        @map("customer_name")
+  customerPhone              String?                        @map("customer_phone") @db.VarChar(11)
   creatorName                String?                        @map("creator_name")
   lastEditorName             String?                        @map("last_editor_name")
   stepRecipientTypes         String?                        @map("step_recipient_types")
@@ -192,19 +193,48 @@ model eformsign_doc {
   serviceRecordCaseId        String?                        @map("service_record_case_id") @db.Uuid
   snapshotVersion            Int?                           @map("snapshot_version")
   snapshotChunkIndex         Int?                           @map("snapshot_chunk_index")
+  detailPayload              Json?                          @map("detail_payload") @db.JsonB
+  detailSourceUpdatedDate    DateTime?                      @map("detail_source_updated_date") @db.Timestamptz(6)
+  detailSyncedAt             DateTime?                      @map("detail_synced_at") @db.Timestamptz(6)
+  syncStatus                 String                         @default("pending") @map("sync_status")
+  syncError                  String?                        @map("sync_error")
+  syncErrorAt                DateTime?                      @map("sync_error_at") @db.Timestamptz(6)
+  permanentPurgeRequestedAt  DateTime?                      @map("permanent_purge_requested_at") @db.Timestamptz(6)
   clientByEDocId             client?                        @relation("client_e_doc_idToeformsign_doc")
   client                     client?                        @relation("eformsign_doc_client_idToclient", fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   employeeSchedule           employee_schedule?             @relation(fields: [employeeScheduleId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   serviceRecordCase          service_record_case?           @relation(fields: [serviceRecordCaseId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   serviceRecordSnapshotChunk service_record_snapshot_chunk?
   branch                     branch?                        @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                      eformsign_doc_file[]
 
   @@unique([serviceRecordCaseId, snapshotVersion, snapshotChunkIndex], map: "uniq_eformsign_doc_service_record_chunk")
   @@index([branchId], map: "idx_eformsign_doc_branch")
+  @@index([branchId, customerPhone], map: "idx_eformsign_doc_branch_customer_phone")
   @@index([documentKind], map: "idx_eformsign_doc_document_kind")
   @@index([employeeScheduleId], map: "idx_eformsign_doc_employee_schedule_id")
   @@index([templateId], map: "idx_eformsign_doc_template_id")
   @@index([serviceRecordCaseId], map: "idx_eformsign_doc_service_record_case_id")
+  @@index([permanentPurgeRequestedAt], map: "idx_eformsign_doc_permanent_purge_requested_at")
+}
+
+model eformsign_doc_file {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eformsignDocId     Int           @map("eformsign_doc_id")
+  fileType           String        @map("file_type")
+  content            Bytes         @db.ByteA
+  contentType        String        @map("content_type")
+  contentDisposition String?       @map("content_disposition")
+  byteSize           Int           @map("byte_size")
+  sha256             String        @db.Char(64)
+  sourceUpdatedDate  DateTime      @map("source_updated_date") @db.Timestamptz(6)
+  syncedAt           DateTime      @default(now()) @map("synced_at") @db.Timestamptz(6)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  eformsignDoc       eformsign_doc @relation(fields: [eformsignDocId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([eformsignDocId, fileType], map: "uniq_eformsign_doc_file_type")
+  @@index([eformsignDocId], map: "idx_eformsign_doc_file_document")
 }
 
 model employee {

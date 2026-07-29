@@ -25,7 +25,14 @@ import {
     withNoStore,
 } from "@babyjamjam/shared/api";
 
-const { errorResponse, proxyDeleteRequest, proxyGetRequest, proxyPostRequest, setAuthCookies } = createRouteUtils({
+const {
+    errorResponse,
+    proxyDeleteRequest,
+    proxyGetRequest,
+    proxyLocalGetRequest,
+    proxyPostRequest,
+    setAuthCookies,
+} = createRouteUtils({
     secureCookies: getServerRuntimeConfig().isProductionNodeEnv,
     serverAPIClient,
 });
@@ -47,6 +54,7 @@ export {
     parseBody,
     proxyDeleteRequest,
     proxyGetRequest,
+    proxyLocalGetRequest,
     proxyPostRequest,
     readJsonObjectBody,
     sanitizeUpstreamClientError,

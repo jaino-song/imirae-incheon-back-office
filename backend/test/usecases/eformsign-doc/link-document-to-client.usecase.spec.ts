@@ -66,6 +66,7 @@ describe("LinkDocumentToClientUsecase", () => {
     const eformsignDocRepository = {
         findByDocumentId: jest.fn(),
         update: jest.fn(),
+        linkClientIfActive: jest.fn(),
     };
     const clientRepository = {
         findById: jest.fn(),
@@ -77,6 +78,7 @@ describe("LinkDocumentToClientUsecase", () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        eformsignDocRepository.linkClientIfActive.mockResolvedValue(true);
         usecase = new LinkDocumentToClientUsecase(
             eformsignDocRepository as never,
             clientRepository as never,
@@ -91,22 +93,13 @@ describe("LinkDocumentToClientUsecase", () => {
         await expect(usecase.execute(branchId, documentId)).resolves.toBeUndefined();
 
         expect(clientRepository.findByPhone).toHaveBeenCalledWith(branchId, "01012345678");
-        expect(eformsignDocRepository.update).toHaveBeenCalledWith(
+        expect(eformsignDocRepository.linkClientIfActive).toHaveBeenCalledWith(
             branchId,
-            expect.objectContaining({
-                clientId: 12,
-                documentId,
-                documentName: "기존 문서명",
-                documentNumber: "DOC-001",
-                templateName: "기존 템플릿명",
-                customerName: "기존 고객명",
-                creatorName: "기존 생성자",
-                lastEditorName: "기존 편집자",
-                stepRecipientTypes: ["05", "06"],
-            }),
+            documentId,
+            12,
         );
         expect(phoneMatchedClient.eDocId).toBe(documentId);
-        expect(clientRepository.update).toHaveBeenCalledWith(branchId, phoneMatchedClient);
+        expect(clientRepository.update).not.toHaveBeenCalled();
         expect(clientRepository.findById).not.toHaveBeenCalled();
     });
 
@@ -118,9 +111,13 @@ describe("LinkDocumentToClientUsecase", () => {
 
         await expect(usecase.execute(branchId, documentId)).resolves.toBeUndefined();
 
-        expect(eformsignDocRepository.update).not.toHaveBeenCalled();
+        expect(eformsignDocRepository.linkClientIfActive).toHaveBeenCalledWith(
+            branchId,
+            documentId,
+            7,
+        );
         expect(documentClient.eDocId).toBe(documentId);
-        expect(clientRepository.update).toHaveBeenCalledWith(branchId, documentClient);
+        expect(clientRepository.update).not.toHaveBeenCalled();
     });
 
     it("can relink an orphaned contract document by its recipient phone", async () => {
@@ -130,9 +127,10 @@ describe("LinkDocumentToClientUsecase", () => {
 
         await expect(usecase.execute(branchId, documentId)).resolves.toBeUndefined();
 
-        expect(eformsignDocRepository.update).toHaveBeenCalledWith(
+        expect(eformsignDocRepository.linkClientIfActive).toHaveBeenCalledWith(
             branchId,
-            expect.objectContaining({ clientId: 12, documentId }),
+            documentId,
+            12,
         );
         expect(clientRepository.findById).not.toHaveBeenCalled();
     });
@@ -148,5 +146,45 @@ describe("LinkDocumentToClientUsecase", () => {
         expect(clientRepository.findById).not.toHaveBeenCalled();
         expect(clientRepository.update).not.toHaveBeenCalled();
         expect(eformsignDocRepository.update).not.toHaveBeenCalled();
+        expect(eformsignDocRepository.linkClientIfActive).not.toHaveBeenCalled();
+    });
+
+    it("does not restore eDocId after a purge when the document already belongs to the client", async () => {
+        const documentClient = createClient(7, "01000000000");
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(createDoc({ clientId: 7 }));
+        clientRepository.findByPhone.mockResolvedValue(null);
+        clientRepository.findById.mockResolvedValue(documentClient);
+        // The repository acquired the document lock after permanent purge committed.
+        eformsignDocRepository.linkClientIfActive.mockResolvedValue(false);
+
+        await expect(usecase.execute(branchId, documentId)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.update).not.toHaveBeenCalled();
+        expect(eformsignDocRepository.linkClientIfActive).toHaveBeenCalledWith(
+            branchId,
+            documentId,
+            7,
+        );
+        expect(documentClient.eDocId).toBeNull();
+        expect(clientRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("does not restore eDocId when purge wins after a document reassignment read", async () => {
+        const phoneMatchedClient = createClient(12, "01012345678");
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(createDoc({ clientId: 7 }));
+        clientRepository.findByPhone.mockResolvedValue(phoneMatchedClient);
+        // A purge can commit after the initial read but before this locked transaction.
+        eformsignDocRepository.linkClientIfActive.mockResolvedValue(false);
+
+        await expect(usecase.execute(branchId, documentId)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.update).not.toHaveBeenCalled();
+        expect(eformsignDocRepository.linkClientIfActive).toHaveBeenCalledWith(
+            branchId,
+            documentId,
+            12,
+        );
+        expect(phoneMatchedClient.eDocId).toBeNull();
+        expect(clientRepository.update).not.toHaveBeenCalled();
     });
 });

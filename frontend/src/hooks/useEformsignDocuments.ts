@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { eformsignApi } from "@/services/api";
+import { eformsignApi, withEformsignReauth } from "@/services/api";
 import {
   EformsignDeleteDocumentsResponse,
   EformsignDocumentsResponse,
@@ -98,9 +98,6 @@ export function useEformsignDocuments(isAuthenticated: boolean = true) {
 
 export function useDeleteEformsignDocument() {
   const queryClient = useQueryClient();
-  type DeleteContext = {
-    previousQueries: Array<[ReadonlyArray<unknown>, unknown]>;
-  };
 
   // Removes a document from a single response page if present. Returns the
   // page unchanged when the document isn't there.
@@ -120,14 +117,11 @@ export function useDeleteEformsignDocument() {
     };
   }
 
-  return useMutation<EformsignDeleteDocumentsResponse, Error, string, DeleteContext>({
-    mutationFn: async (documentId: string) => eformsignApi.deleteDocument(documentId, true),
+  return useMutation<EformsignDeleteDocumentsResponse, Error, string>({
+    mutationFn: async (documentId: string) =>
+      withEformsignReauth(() => eformsignApi.deleteDocument(documentId, true)),
     onMutate: async (documentId: string) => {
       await queryClient.cancelQueries({ queryKey: ["eformsign-documents"] });
-
-      const previousQueries = queryClient.getQueriesData({
-        queryKey: ["eformsign-documents"],
-      });
 
       // Cache shape varies: legacy `useQuery` stores `EformsignDocumentsResponse`
       // directly, while `useInfiniteContracts` stores `InfiniteData<...>` with a
@@ -155,18 +149,15 @@ export function useDeleteEformsignDocument() {
           return old;
         }
       );
-
-      return { previousQueries };
     },
-    onError: (_error, _documentId, context) => {
-      context?.previousQueries?.forEach(([queryKey, data]) => {
-        queryClient.setQueryData(queryKey, data);
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: eformsignQueryKeys.documents(),
       });
     },
-    // Intentionally no `onSettled: invalidateQueries`. eformsign's
-    // `is_permanent=true` does not fully purge the document — it surfaces it
-    // again under the expired (type 04) status on the next list_document call.
-    // Keeping the optimistic cache makes the deletion stick in the UI; if the
-    // mutation actually fails, `onError` restores the previous snapshot.
+    // A permanent purge can have already written a durable local tombstone
+    // before its vendor request or local cleanup reports an error. Do not
+    // restore that pre-delete snapshot; the invalidated local list is the
+    // source of truth for whether the document remains safely hidden.
   });
 }

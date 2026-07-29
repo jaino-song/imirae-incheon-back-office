@@ -86,10 +86,25 @@ describe("SbEformsignDocRepository", () => {
         const result = await repository.findByClientId("branch-1", 55);
 
         expect(eformsignDocModel.findMany).toHaveBeenNthCalledWith(1, {
-            where: { clientId: 55, branchId: "branch-1" },
+            where: {
+                clientId: 55,
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+            },
+            select: expect.objectContaining({
+                documentId: true,
+                documentKind: true,
+                templateId: true,
+            }),
         });
+        expect(eformsignDocModel.findMany.mock.calls[0][0].select)
+            .not.toHaveProperty("detailPayload");
         expect(eformsignDocModel.findMany).toHaveBeenNthCalledWith(2, {
-            where: { clientId: 55, branchId: "branch-1" },
+            where: {
+                clientId: 55,
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+            },
             select: expect.objectContaining({
                 documentId: true,
                 statusType: true,
@@ -104,6 +119,51 @@ describe("SbEformsignDocRepository", () => {
         expect(doc!.documentKind).toBeNull();
     });
 
+    it("does not load detail JSON or PDF relations for list-domain reads", async () => {
+        eformsignDocModel.findMany.mockResolvedValue([{
+            ...legacyRow,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: "template-1",
+            documentName: "계약서",
+            documentNumber: "DOC-1",
+            templateName: "표준 계약서",
+            customerName: "김고객",
+            creatorName: "담당자",
+            lastEditorName: "담당자",
+            stepRecipientTypes: "02,06",
+        }]);
+
+        await expect(repository.findAll("branch-1")).resolves.toHaveLength(1);
+
+        expect(eformsignDocModel.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+            },
+        }));
+        const select = eformsignDocModel.findMany.mock.calls[0][0].select;
+        expect(select).not.toHaveProperty("detailPayload");
+        expect(select).not.toHaveProperty("files");
+        expect(select).not.toHaveProperty("syncError");
+    });
+
+    it("excludes purge-pending rows from the headquarters list", async () => {
+        eformsignDocModel.findMany.mockResolvedValue([legacyRow]);
+
+        await expect(repository.findAllForHeadquarters("branch-1")).resolves.toHaveLength(1);
+
+        expect(eformsignDocModel.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                permanentPurgeRequestedAt: null,
+                OR: [
+                    { branchId: "branch-1" },
+                    { branchId: null },
+                ],
+            },
+        }));
+    });
+
     it("retries document reads when Prisma reports P2022 without column metadata", async () => {
         eformsignDocModel.findFirst
             .mockRejectedValueOnce(pendingColumnWithoutFieldError)
@@ -112,10 +172,18 @@ describe("SbEformsignDocRepository", () => {
         const result = await repository.findByDocumentId("branch-1", "doc-1");
 
         expect(eformsignDocModel.findFirst).toHaveBeenNthCalledWith(1, {
-            where: { documentId: "doc-1", branchId: "branch-1" },
+            where: {
+                documentId: "doc-1",
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+            },
         });
         expect(eformsignDocModel.findFirst).toHaveBeenNthCalledWith(2, {
-            where: { documentId: "doc-1", branchId: "branch-1" },
+            where: {
+                documentId: "doc-1",
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+            },
             select: expect.objectContaining({
                 documentId: true,
                 statusType: true,
@@ -124,6 +192,16 @@ describe("SbEformsignDocRepository", () => {
         });
         expect(result?.documentId).toBe("doc-1");
         expect(result?.documentKind).toBeNull();
+    });
+
+    it("uses an explicit ownership-only lookup for a pending permanent-purge retry", async () => {
+        eformsignDocModel.findFirst.mockResolvedValue(legacyRow);
+
+        await repository.findByDocumentIdIncludingPurgePending("branch-1", "doc-1");
+
+        expect(eformsignDocModel.findFirst).toHaveBeenCalledWith({
+            where: { documentId: "doc-1", branchId: "branch-1" },
+        });
     });
 
     it("reconstitutes an orphaned document with a null clientId", async () => {
@@ -190,6 +268,7 @@ describe("SbEformsignDocRepository", () => {
             where: {
                 branchId: "branch-1",
                 documentId: { in: ["doc-1", "doc-2"] },
+                permanentPurgeRequestedAt: null,
             },
             select: {
                 documentId: true,
@@ -231,6 +310,165 @@ describe("SbEformsignDocRepository", () => {
         expect(retryData).not.toHaveProperty("documentName");
         expect(retryData).not.toHaveProperty("documentNumber");
         expect(result.statusType).toBe("050");
+    });
+
+    it("returns the newer branch-owned row when a status CAS refuses a stale webhook", async () => {
+        const stale = EformsignDocEntity.reconstitute({
+            ...createEntity().toJSON(),
+            updatedDate: new Date("2026-07-01T00:00:00.000Z"),
+        });
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        const currentUpdatedDate = new Date("2026-07-02T00:00:00.000Z");
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            updatedDate: currentUpdatedDate,
+        });
+
+        const result = await repository.updateIfSourceNewer("branch-1", stale);
+
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                id: 1,
+                branchId: "branch-1",
+                updatedDate: { lt: new Date("2026-07-01T00:00:00.000Z") },
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: ["047", "049", "099"] },
+            },
+        }));
+        expect(result).toEqual({
+            document: expect.objectContaining({ updatedDate: currentUpdatedDate }),
+            applied: false,
+        });
+    });
+
+    it("fences a stale ordinary update after a concurrent permanent purge", async () => {
+        // LinkDocumentToClient can hold this pre-purge payload while the purge commits.
+        // The UPDATE predicate, rather than a prior read, must prevent it restoring PII.
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(repository.update("branch-1", createEntity())).rejects.toThrow(
+            "Eformsign doc not found for branch",
+        );
+
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 1,
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: ["047", "049", "099"] },
+            },
+            data: expect.objectContaining({
+                clientId: 55,
+                stepRecipientName: "송진호",
+                stepRecipientSms: "01066211878",
+            }),
+        });
+        expect(eformsignDocModel.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("allows an ordinary update for a live, non-purge-pending document", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue(legacyRow);
+
+        const result = await repository.update("branch-1", createEntity());
+
+        expect(result.statusType).toBe("050");
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                id: 1,
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: ["047", "049", "099"] },
+            },
+        }));
+    });
+
+    it("atomically moves the document pointer from the old client to the new client", async () => {
+        const transaction = {
+            $queryRaw: jest.fn()
+                .mockResolvedValueOnce([{ id: 1, clientId: 7 }])
+                .mockResolvedValueOnce([{ id: 7 }, { id: 12 }]),
+            client: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+            eformsign_doc: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        };
+        const prisma = {
+            eformsign_doc: eformsignDocModel,
+            $transaction: jest.fn((callback) => callback(transaction)),
+        } as unknown as PrismaService;
+        const transactionalRepository = new SbEformsignDocRepository(prisma);
+
+        await expect(
+            transactionalRepository.linkClientIfActive("branch-1", "doc-1", 12),
+        ).resolves.toBe(true);
+
+        const lockSql = transaction.$queryRaw.mock.calls[0][0];
+        expect(lockSql.strings.join(" ")).toContain("permanent_purge_requested_at IS NULL");
+        expect(lockSql.strings.join(" ")).toContain("status_type NOT IN ('047', '049', '099')");
+        expect(lockSql.strings.join(" ")).toContain("FOR UPDATE");
+        expect(transaction.client.updateMany).toHaveBeenCalledTimes(2);
+        expect(transaction.client.updateMany).toHaveBeenNthCalledWith(1, {
+            where: {
+                id: 7,
+                branchId: "branch-1",
+                eDocId: "doc-1",
+            },
+            data: { eDocId: null },
+        });
+        expect(transaction.client.updateMany).toHaveBeenNthCalledWith(2, {
+            where: { id: 12, branchId: "branch-1" },
+            data: { eDocId: "doc-1" },
+        });
+        expect(transaction.eformsign_doc.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 1,
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: ["047", "049", "099"] },
+            },
+            data: { clientId: 12 },
+        });
+    });
+
+    it("leaves the old pointer untouched when the target client disappeared before locking", async () => {
+        const transaction = {
+            $queryRaw: jest.fn()
+                .mockResolvedValueOnce([{ id: 1, clientId: 7 }])
+                .mockResolvedValueOnce([{ id: 7 }]),
+            client: { updateMany: jest.fn() },
+            eformsign_doc: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            eformsign_doc: eformsignDocModel,
+            $transaction: jest.fn((callback) => callback(transaction)),
+        } as unknown as PrismaService;
+        const transactionalRepository = new SbEformsignDocRepository(prisma);
+
+        await expect(
+            transactionalRepository.linkClientIfActive("branch-1", "doc-1", 12),
+        ).resolves.toBe(false);
+
+        expect(transaction.client.updateMany).not.toHaveBeenCalled();
+        expect(transaction.eformsign_doc.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("does not restore a client pointer when permanent purge owns the document lock", async () => {
+        const transaction = {
+            $queryRaw: jest.fn().mockResolvedValue([]),
+            client: { updateMany: jest.fn() },
+            eformsign_doc: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            eformsign_doc: eformsignDocModel,
+            $transaction: jest.fn((callback) => callback(transaction)),
+        } as unknown as PrismaService;
+        const transactionalRepository = new SbEformsignDocRepository(prisma);
+
+        await expect(
+            transactionalRepository.linkClientIfActive("branch-1", "doc-1", 7),
+        ).resolves.toBe(false);
+
+        expect(transaction.client.updateMany).not.toHaveBeenCalled();
+        expect(transaction.eformsign_doc.updateMany).not.toHaveBeenCalled();
     });
 
     it("adopts an unassigned row for the branch without creating a duplicate", async () => {
@@ -466,7 +704,11 @@ describe("SbEformsignDocRepository", () => {
         expect(args.where).toEqual({
             AND: [
                 { documentId: "doc-1", branchId: null },
-                { updatedDate: { lte: legacyRow.updatedDate } },
+                {
+                    updatedDate: { lte: legacyRow.updatedDate },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                },
             ],
         });
         expect(args.data).toEqual({
@@ -516,7 +758,11 @@ describe("SbEformsignDocRepository", () => {
         expect(args.where).toEqual({
             AND: [
                 { documentId: "doc-1" },
-                { updatedDate: { lte: legacyRow.updatedDate } },
+                {
+                    updatedDate: { lte: legacyRow.updatedDate },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                },
             ],
         });
         expect(args.data).not.toHaveProperty("branchId");
@@ -626,6 +872,7 @@ describe("SbEformsignDocRepository", () => {
         const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
         expect(staleGuard).toEqual({
             updatedDate: { lte: legacyRow.updatedDate },
+            permanentPurgeRequestedAt: null,
             statusType: { notIn: [...UNASSIGNED_TERMINAL_STATUS_CODES] },
         });
         expect(staleGuard.statusType.notIn).not.toContain("062");
@@ -790,8 +1037,16 @@ describe("SbEformsignDocRepository", () => {
 
         const repair = eformsignDocModel.updateMany.mock.calls.at(-1)![0];
         expect(repair.data).toEqual({ createdDate: legacyRow.createdDate });
-        // Ownership still applies, and rows that already agree are left alone.
-        expect(JSON.stringify(repair.where)).toContain("createdDate");
+        // Ownership and destructive-state fences still apply, and rows that
+        // already agree are left alone.
+        expect(repair.where).toEqual({
+            AND: [
+                { documentId: "doc-1", branchId: null },
+                { permanentPurgeRequestedAt: null },
+                { statusType: { notIn: ["047", "049", "099"] } },
+                { createdDate: { not: legacyRow.createdDate } },
+            ],
+        });
     });
 
     it("omits expiredDate from list-sourced updates so a real expiry survives", async () => {
@@ -937,7 +1192,11 @@ describe("SbEformsignDocRepository", () => {
         expect(retry.where).toEqual({
             AND: [
                 { documentId: "doc-1", branchId: null },
-                { updatedDate: { lte: legacyRow.updatedDate } },
+                {
+                    updatedDate: { lte: legacyRow.updatedDate },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                },
             ],
         });
         expect(retry.data).not.toHaveProperty("documentKind");
@@ -978,7 +1237,13 @@ describe("SbEformsignDocRepository", () => {
 
         const args = eformsignDocModel.updateMany.mock.calls[0][0];
         expect(args.where.AND).toEqual(
-            expect.arrayContaining([{ updatedDate: { lte: legacyRow.updatedDate } }]),
+            expect.arrayContaining([
+                expect.objectContaining({
+                    updatedDate: { lte: legacyRow.updatedDate },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                }),
+            ]),
         );
     });
 
@@ -1079,6 +1344,111 @@ describe("SbEformsignDocRepository", () => {
         },
     );
 
+    it("does not advance completion to wall-clock time when the webhook has no timestamp", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+
+        await repository.claimCompletionStatus("branch-1", {
+            documentId: "doc-1",
+            statusType: "050",
+            statusDetail: "완료",
+            stepType: "05",
+            stepIndex: "1",
+            stepName: "이용자",
+            expired: false,
+        });
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
+            .not.toHaveProperty("updatedDate");
+    });
+
+    it("refuses a stale completion claim with an atomic vendor timestamp guard", async () => {
+        const sourceUpdatedDate = new Date("2026-07-01T00:00:00.000Z");
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            id: 1,
+            updatedDate: new Date("2026-07-02T00:00:00.000Z"),
+        });
+
+        const result = await repository.claimCompletionStatus("branch-1", {
+            documentId: "doc-1",
+            statusType: "050",
+            statusDetail: "완료",
+            stepType: "05",
+            stepIndex: "1",
+            stepName: "이용자",
+            expired: false,
+            sourceUpdatedDate,
+            documentName: "오래된 제목",
+        });
+
+        expect(result).toBe("stale");
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledTimes(1);
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledWith({
+            where: {
+                branchId: "branch-1",
+                documentId: "doc-1",
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: ["050", "047", "049", "099"] },
+                updatedDate: { lt: sourceUpdatedDate },
+            },
+            data: expect.objectContaining({ updatedDate: sourceUpdatedDate }),
+        });
+    });
+
+    it("classifies an older same-status completion as stale without overwriting metadata", async () => {
+        const sourceUpdatedDate = new Date("2026-07-01T00:00:00.000Z");
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            id: 1,
+            statusType: "050",
+            updatedDate: new Date("2026-07-02T00:00:00.000Z"),
+        });
+
+        const result = await repository.claimCompletionStatus("branch-1", {
+            documentId: "doc-1",
+            statusType: "050",
+            statusDetail: "완료",
+            stepType: "05",
+            stepIndex: "1",
+            stepName: "이용자",
+            expired: false,
+            sourceUpdatedDate,
+            documentName: "오래된 제목",
+        });
+
+        expect(result).toBe("stale");
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not resurrect a deleted tombstone from a timestamp-less PDF completion", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            id: 1,
+            statusType: "049",
+            updatedDate: new Date("2026-07-02T00:00:00.000Z"),
+            permanentPurgeRequestedAt: null,
+        });
+
+        const result = await repository.claimCompletionStatus("branch-1", {
+            documentId: "doc-1",
+            statusType: "050",
+            statusDetail: "완료",
+            stepType: "05",
+            stepIndex: "1",
+            stepName: "이용자",
+            expired: false,
+        });
+
+        expect(result).toBe("stale");
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: ["050", "047", "049", "099"] },
+            }),
+        }));
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledTimes(1);
+    });
+
     it("preserves earlier metadata when duplicate completion hits a pending list display column", async () => {
         const pendingTemplateNameError = Object.assign(
             new Error("The column `eformsign_doc.template_name` does not exist"),
@@ -1135,7 +1505,10 @@ describe("SbEformsignDocRepository", () => {
         const result = await repository.findClientNamesByBranch("branch-1");
 
         expect(eformsignDocModel.findMany).toHaveBeenCalledWith({
-            where: { branchId: "branch-1" },
+            where: {
+                branchId: "branch-1",
+                permanentPurgeRequestedAt: null,
+            },
             select: {
                 documentId: true,
                 clientId: true,

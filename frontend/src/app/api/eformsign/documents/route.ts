@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 import {
     errorResponse,
     getAccessToken,
@@ -8,64 +7,6 @@ import {
     unauthorizedResponse,
 } from "@/lib/api/route-utils";
 import { serverAPIClient } from "@/lib/api/server";
-
-const DOCUMENT_LIST_CACHE_TTL_MS = 30 * 1000;
-const DOCUMENT_LIST_CACHE_MAX_ENTRIES = 50;
-
-type DocumentListCacheEntry = {
-    expiresAt: number;
-    data: unknown;
-};
-
-const documentListCache = new Map<string, DocumentListCacheEntry>();
-
-function hashToken(value: string): string {
-    return createHash("sha256").update(value).digest("hex");
-}
-
-function getDocumentListCacheKey(params: {
-    authToken: string;
-    accessToken: string;
-    backendPath: string;
-    limit: string;
-    skip: string;
-    templateId: string;
-    templateMatch: string;
-}): string {
-    return [
-        hashToken(params.authToken),
-        hashToken(params.accessToken),
-        params.backendPath,
-        params.limit,
-        params.skip,
-        params.templateId,
-        params.templateMatch,
-    ].join(":");
-}
-
-function pruneDocumentListCache() {
-    const now = Date.now();
-    for (const [key, entry] of documentListCache) {
-        if (entry.expiresAt <= now) {
-            documentListCache.delete(key);
-        }
-    }
-
-    while (documentListCache.size > DOCUMENT_LIST_CACHE_MAX_ENTRIES) {
-        const oldestKey = documentListCache.keys().next().value;
-        if (!oldestKey) break;
-        documentListCache.delete(oldestKey);
-    }
-}
-
-function clearDocumentListCacheForTokens(authToken: string, accessToken: string) {
-    const tokenPrefix = `${hashToken(authToken)}:${hashToken(accessToken)}:`;
-    for (const key of documentListCache.keys()) {
-        if (key.startsWith(tokenPrefix)) {
-            documentListCache.delete(key);
-        }
-    }
-}
 
 /**
  * GET /api/eformsign/documents
@@ -77,14 +18,9 @@ function clearDocumentListCacheForTokens(authToken: string, accessToken: string)
  */
 export async function GET(request: NextRequest) {
     const authToken = getAuthToken(request);
-    const accessToken = getAccessToken(request);
 
     if (!authToken) {
         return unauthorizedResponse("Authentication required. Please log in.");
-    }
-
-    if (!accessToken) {
-        return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
     }
 
     const { searchParams } = new URL(request.url);
@@ -93,7 +29,6 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type");
     const templateId = searchParams.get("templateId") || "";
     const templateMatch = searchParams.get("templateMatch") || "include";
-
     const backendPathByType: Record<string, string> = {
         "in-progress": "/api/documents/in-progress",
         completed: "/api/documents/completed",
@@ -106,29 +41,21 @@ export async function GET(request: NextRequest) {
         ? backendPathByType[type]
         : "/api/documents";
 
-    const cacheKey = getDocumentListCacheKey({
-        authToken,
-        accessToken,
-        backendPath,
-        limit,
-        skip,
-        templateId,
-        templateMatch,
-    });
-    const now = Date.now();
-    const cached = documentListCache.get(cacheKey);
-
-    if (cached && cached.expiresAt > now) {
-        return NextResponse.json(cached.data);
-    }
-
     try {
         const response = await serverAPIClient.get(backendPath, {
             params: {
-                accessToken,
                 limit,
                 skip,
                 ...(templateId ? { templateId, templateMatch } : {}),
+                ...(searchParams.get("statusCategory")
+                    ? { statusCategory: searchParams.get("statusCategory") }
+                    : {}),
+                ...(searchParams.get("search")
+                    ? { search: searchParams.get("search") }
+                    : {}),
+                ...(searchParams.get("excludeDeleted") === "true"
+                    ? { excludeDeleted: "true" }
+                    : {}),
             },
             headers: getAuthHeaders(authToken),
         });
@@ -137,12 +64,6 @@ export async function GET(request: NextRequest) {
             const errorMessage = response.data?.error || response.data?.message || `Backend returned ${response.status}`;
             return NextResponse.json({ error: errorMessage }, { status: response.status });
         }
-
-        pruneDocumentListCache();
-        documentListCache.set(cacheKey, {
-            expiresAt: now + DOCUMENT_LIST_CACHE_TTL_MS,
-            data: response.data,
-        });
 
         return NextResponse.json(response.data);
     } catch (error) {
@@ -162,9 +83,9 @@ export async function DELETE(request: NextRequest) {
         return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
     }
 
+    const { searchParams } = new URL(request.url);
+    const isPermanent = searchParams.get("is_permanent") || "false";
     try {
-        const { searchParams } = new URL(request.url);
-        const isPermanent = searchParams.get("is_permanent") || "false";
         const body = await request.json().catch(() => ({}));
 
         const response = await serverAPIClient.delete("/api/documents", {
@@ -180,8 +101,6 @@ export async function DELETE(request: NextRequest) {
             const errorMessage = response.data?.error || response.data?.message || `Backend returned ${response.status}`;
             return NextResponse.json({ error: errorMessage }, { status: response.status });
         }
-
-        clearDocumentListCacheForTokens(authToken, accessToken);
 
         return NextResponse.json(response.data);
     } catch (error) {

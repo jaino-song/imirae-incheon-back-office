@@ -1,4 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, Inject, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
+import { eformsignCustomerPhone } from "application/utils/eformsign-contract-client-candidate";
+import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import {
+    configuredServiceRecordTemplateIds,
+    isServiceRecordEformsignDocument,
+} from "application/utils/eformsign-document-kind";
 import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 import {
     CreateClientUsecase,
@@ -11,6 +19,7 @@ import {
 import { ClientEntity } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
+import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { diffBusinessDaysKr } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -150,9 +159,11 @@ export class ClientService {
         @Inject(CLIENT_REPOSITORY)
         private readonly clientRepository: IClientRepository,
         private readonly systemSettingService: SystemSettingService,
+        private readonly documentSnapshotService: EformsignDocumentSnapshotService,
         @Optional() private readonly triggerService?: MessageTriggerService,
         @Optional() private readonly serviceRecordLinkService?: ServiceRecordLinkService,
         @Optional() private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
+        @Optional() private readonly configService?: ConfigService,
     ) {}
 
     private async revokeServiceRecordLinkAfterCommit(clientId: number, scheduleId: number): Promise<void> {
@@ -186,12 +197,32 @@ export class ClientService {
         try {
             const candidateDocs = await this.prismaService.eformsign_doc.findMany({
                 where: {
-                    branchId: branchid,
                     serviceRecordCaseId: null,
-                    stepRecipientSms: { contains: phoneLookupSuffix },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
+                    syncStatus: "ready",
+                    detailSourceUpdatedDate: { not: null },
+                    detailSyncedAt: { not: null },
                     OR: [
-                        { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
-                        { documentKind: null },
+                        { customerPhone: normalizedPhone },
+                        {
+                            customerPhone: null,
+                            stepRecipientSms: { contains: phoneLookupSuffix },
+                        },
+                    ],
+                    AND: [
+                        {
+                            OR: [
+                                { branchId: branchid },
+                                { branchId: null, clientId: null },
+                            ],
+                        },
+                        {
+                            OR: [
+                                { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
+                                { documentKind: null },
+                            ],
+                        },
                     ],
                 },
                 orderBy: [
@@ -202,12 +233,49 @@ export class ClientService {
                     id: true,
                     documentId: true,
                     clientId: true,
+                    branchId: true,
+                    documentKind: true,
+                    serviceRecordCaseId: true,
+                    templateId: true,
                     stepRecipientSms: true,
+                    customerPhone: true,
+                    detailPayload: true,
+                    detailSourceUpdatedDate: true,
+                    detailSyncedAt: true,
                 },
             });
-            const matchingDocs = candidateDocs.filter((doc) =>
-                extractPhoneCandidates(doc.stepRecipientSms).includes(normalizedPhone),
-            );
+            const serviceRecordTemplateIds =
+                configuredServiceRecordTemplateIds(this.configService);
+            let matchingDocs = candidateDocs.filter((doc) =>
+                isMatchingContractPhoneCandidate(
+                    doc,
+                    normalizedPhone,
+                    serviceRecordTemplateIds,
+                ));
+            if (matchingDocs.some((doc) => doc.branchId === null)) {
+                const samePhoneClients = await this.prismaService.client.findMany({
+                    where: {
+                        phone: { not: null },
+                        branchId: { not: null },
+                        OR: [{ phone: { endsWith: phoneLookupSuffix } }],
+                    },
+                    select: {
+                        id: true,
+                        branchId: true,
+                        phone: true,
+                    },
+                });
+                const exactMatches = samePhoneClients.filter((candidate) =>
+                    candidate.branchId !== null
+                    && normalizePhone(candidate.phone) === normalizedPhone,
+                );
+                const uniquelyIdentifiesCurrentClient = exactMatches.length === 1
+                    && exactMatches[0]!.id === client.id
+                    && exactMatches[0]!.branchId === branchid;
+                if (!uniquelyIdentifiesCurrentClient) {
+                    matchingDocs = matchingDocs.filter((doc) => doc.branchId === branchid);
+                }
+            }
             const documentIdsToReassign = matchingDocs
                 .filter((doc) => doc.clientId !== client.id)
                 .map((doc) => doc.id);
@@ -220,13 +288,109 @@ export class ClientService {
             }
 
             await this.prismaService.$transaction(async (transaction) => {
+                const documentIdsToLock = Array.from(new Set([
+                    ...documentIdsToReassign,
+                    ...(shouldUpdateClientDocument && latestContract ? [latestContract.id] : []),
+                ])).sort((left, right) => left - right);
+                const lockedDocuments = await transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+                    SELECT doc.id
+                    FROM eformsign_doc AS doc
+                    WHERE doc.id IN (${Prisma.join(documentIdsToLock)})
+                      AND (
+                          doc.branch_id = ${branchid}
+                          OR (doc.branch_id IS NULL AND doc.client_id IS NULL)
+                      )
+                      AND doc.status_type NOT IN ('047', '049', '099')
+                      AND doc.permanent_purge_requested_at IS NULL
+                      AND doc.sync_status = 'ready'
+                      AND doc.detail_payload IS NOT NULL
+                      AND doc.detail_source_updated_date IS NOT NULL
+                      AND doc.detail_synced_at IS NOT NULL
+                      AND EXISTS (
+                          SELECT 1
+                          FROM eformsign_doc_file AS document_file
+                          WHERE document_file.eformsign_doc_id = doc.id
+                            AND document_file.file_type = 'document'
+                            AND document_file.source_updated_date = doc.detail_source_updated_date
+                      )
+                      AND EXISTS (
+                          SELECT 1
+                          FROM eformsign_doc_file AS audit_trail_file
+                          WHERE audit_trail_file.eformsign_doc_id = doc.id
+                            AND audit_trail_file.file_type = 'audit_trail'
+                            AND audit_trail_file.source_updated_date = doc.detail_source_updated_date
+                      )
+                    ORDER BY doc.id
+                    FOR UPDATE
+                `);
+                const lockedDocumentIds = new Set(lockedDocuments.map(({ id }) => id));
+                if (documentIdsToLock.some((id) => !lockedDocumentIds.has(id))) {
+                    throw new Error("Contract document mirror generation changed");
+                }
+
+                // The row lock protects the re-read below from a concurrent mirror
+                // write. Do not act on the pre-lock phone projection: a recipient
+                // update may have moved this document to another client or branch.
+                const lockedCandidates = await transaction.eformsign_doc.findMany({
+                    where: { id: { in: documentIdsToLock } },
+                    select: {
+                        id: true,
+                        documentKind: true,
+                        serviceRecordCaseId: true,
+                        templateId: true,
+                        stepRecipientSms: true,
+                        customerPhone: true,
+                        detailPayload: true,
+                        detailSourceUpdatedDate: true,
+                        detailSyncedAt: true,
+                    },
+                });
+                const lockedCandidateById = new Map(
+                    lockedCandidates.map((candidate) => [candidate.id, candidate]),
+                );
+                const initialCandidateById = new Map(
+                    matchingDocs.map((candidate) => [candidate.id, candidate]),
+                );
+                const changedCandidate = documentIdsToLock.some((id) => {
+                    const initial = initialCandidateById.get(id);
+                    const locked = lockedCandidateById.get(id);
+                    return !initial
+                        || !locked
+                        || !isMatchingContractPhoneCandidate(
+                            locked,
+                            normalizedPhone,
+                            serviceRecordTemplateIds,
+                        )
+                        || !sameMirrorGeneration(
+                            initial.detailSourceUpdatedDate,
+                            initial.detailSyncedAt,
+                            locked.detailSourceUpdatedDate,
+                            locked.detailSyncedAt,
+                        );
+                });
+                if (changedCandidate) {
+                    throw new Error("Contract document candidate changed while locking");
+                }
+
                 if (documentIdsToReassign.length > 0) {
                     const reassigned = await transaction.eformsign_doc.updateMany({
                         where: {
-                            branchId: branchid,
                             id: { in: documentIdsToReassign },
+                            permanentPurgeRequestedAt: null,
+                            statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
+                            syncStatus: "ready",
+                            detailSourceUpdatedDate: { not: null },
+                            detailSyncedAt: { not: null },
+                            OR: [
+                                { branchId: branchid },
+                                { branchId: null, clientId: null },
+                            ],
                         },
-                        data: { clientId: client.id },
+                        data: {
+                            branchId: branchid,
+                            clientId: client.id,
+                            documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
+                        },
                     });
                     if (reassigned.count !== documentIdsToReassign.length) {
                         throw new Error("Contract document reassignment was incomplete");
@@ -250,12 +414,38 @@ export class ClientService {
             if (shouldUpdateClientDocument) {
                 client.update({ eDocId: latestContract.documentId });
             }
+            if (documentIdsToReassign.length > 0) {
+                await this.invalidateContractDocumentSnapshots(
+                    branchid,
+                    matchingDocs.some((doc) => doc.branchId === null),
+                );
+            }
         } catch (error) {
             const errorType = error instanceof Error ? error.name : "UnknownError";
             this.logger.error(
                 `[CLIENT_CONTRACT_PHONE_LINK_FAILED] 고객 ${client.id} 계약서 자동 연결 실패 (${errorType})`,
             );
         }
+    }
+
+    private async invalidateContractDocumentSnapshots(
+        branchId: string,
+        includesUnassignedDocument: boolean,
+    ): Promise<void> {
+        await Promise.all([
+            this.documentSnapshotService.bumpVersion(branchId).catch(() => {
+                this.logger.warn(
+                    `Failed to invalidate eformsign snapshots for branch ${branchId}`,
+                );
+            }),
+            ...(includesUnassignedDocument
+                ? [this.documentSnapshotService.bumpCompanyEpoch().catch(() => {
+                    this.logger.warn(
+                        "Failed to invalidate headquarters eformsign snapshots",
+                    );
+                })]
+                : []),
+        ]);
     }
 
     private mapServiceStatusToBadge(status: string | null): {
@@ -747,9 +937,17 @@ export class ClientService {
         const pendingScheduleChangeMap = new Map(pendingScheduleChanges.map(change => [change.clientId, change]));
 
         // 현재 페이지 고객의 계약 문서만 한 번에 조회하고, 고객별 최신 상태를 사용한다.
+        const serviceRecordTemplateIds =
+            configuredServiceRecordTemplateIds(this.configService);
         const contractDocs = await this.prismaService.eformsign_doc.findMany({
             where: {
                 clientId: { in: clientIds },
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
+                serviceRecordCaseId: null,
+                // Contract lifecycle status is an indexed projection that commits before
+                // detail/PDF artifacts finish. Do not filter it by artifact syncStatus:
+                // doing so can hide the newest contract and fall back to an older one.
                 OR: [
                     { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
                     { documentKind: null },
@@ -759,11 +957,20 @@ export class ClientService {
                 { createdDate: "desc" },
                 { id: "desc" },
             ],
-            select: { clientId: true, statusType: true },
+            select: {
+                clientId: true,
+                statusType: true,
+                documentKind: true,
+                serviceRecordCaseId: true,
+                templateId: true,
+            },
         });
         const latestContractStatusMap = new Map<number, string>();
         for (const doc of contractDocs) {
             if (doc.clientId === null) continue;
+            if (isServiceRecordEformsignDocument(doc, serviceRecordTemplateIds)) {
+                continue;
+            }
             if (!latestContractStatusMap.has(doc.clientId)) {
                 latestContractStatusMap.set(doc.clientId, doc.statusType);
             }
@@ -1454,4 +1661,46 @@ export class ClientService {
             .sort((a, b) => a.priority - b.priority)
             .slice(0, limit);
     }
+}
+
+type ContractPhoneCandidate = {
+    documentKind?: string | null;
+    serviceRecordCaseId?: string | null;
+    templateId?: string | null;
+    stepRecipientSms?: string | null;
+    customerPhone?: string | null;
+    detailPayload?: Prisma.JsonValue | null;
+};
+
+function isMatchingContractPhoneCandidate(
+    document: ContractPhoneCandidate,
+    normalizedPhone: string,
+    serviceRecordTemplateIds: ReadonlySet<string>,
+): boolean {
+    if (isServiceRecordEformsignDocument(document, serviceRecordTemplateIds)) {
+        return false;
+    }
+    if (document.customerPhone) {
+        return document.customerPhone === normalizedPhone;
+    }
+    if (
+        typeof document.detailPayload === "object"
+        && document.detailPayload !== null
+        && !Array.isArray(document.detailPayload)
+    ) {
+        return eformsignCustomerPhone(
+            document.detailPayload as unknown as EformsignApiDocumentResponse,
+        ) === normalizedPhone;
+    }
+    return extractPhoneCandidates(document.stepRecipientSms).includes(normalizedPhone);
+}
+
+function sameMirrorGeneration(
+    initialSourceUpdatedAt: Date | null | undefined,
+    initialSyncedAt: Date | null | undefined,
+    lockedSourceUpdatedAt: Date | null | undefined,
+    lockedSyncedAt: Date | null | undefined,
+): boolean {
+    return initialSourceUpdatedAt?.getTime() === lockedSourceUpdatedAt?.getTime()
+        && initialSyncedAt?.getTime() === lockedSyncedAt?.getTime();
 }

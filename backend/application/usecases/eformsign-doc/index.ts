@@ -13,6 +13,8 @@ export * from "./mirror-unassigned-eformsign-doc.usecase";
 export * from "./backfill-eformsign-docs.usecase";
 export * from "./update-eformsign-doc-status.usecase";
 export * from "./link-document-to-client.usecase";
+export * from "./link-mirrored-eformsign-doc-by-phone.usecase";
+export * from "./reconcile-completed-mirrored-eformsign-doc.usecase";
 export * from "./list-client-names-by-branch.usecase";
 export * from "./sync-client-end-date.usecase";
 // NOTE: UpdateClientContractStatusUsecase deprecated - service status is now computed from dates
