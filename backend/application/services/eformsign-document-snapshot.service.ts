@@ -29,19 +29,36 @@ export interface DocumentSnapshotResult<TDoc> {
     cached: boolean;
 }
 
-export interface DocumentSnapshotKeyParams {
+interface DocumentSnapshotTenantParams {
     scope: DocumentSnapshotScope;
     branchId: string;
-    accessToken: string;
     /** 본사(HQ) 뷰 여부 — true면 키에 회사 epoch가 포함돼 타 지점 변이로도 무효화된다. */
     isHeadquarters?: boolean;
-    /**
-     * 이 스냅샷을 만든 데이터 출처. 벤더 스캔 결과와 로컬 미러 결과가 같은 키를 쓰면,
-     * 전환 스위치를 되돌려도 최대 5분간 이전 출처의 스냅샷이 계속 나간다 — 긴급 롤백이
-     * 즉시 듣지 않는다는 뜻이라 스위치를 두는 이유 자체가 사라진다.
-     */
-    source?: "api" | "mirror";
 }
+
+/**
+ * 스냅샷 키를 결정하는 값들. `source`로 갈라진 이유는 두 가지다.
+ *
+ * 첫째, 벤더 스캔 결과와 로컬 미러 결과가 같은 키를 쓰면 전환 스위치를 되돌려도 최대
+ * 5분간 이전 출처의 스냅샷이 계속 나간다 — 긴급 롤백이 즉시 듣지 않는다는 뜻이라
+ * 스위치를 두는 이유 자체가 사라진다.
+ *
+ * 둘째, 미러 경로는 자격증명을 아예 받지 않는다. 스캔 결과는 accessToken에 따라 달라지고
+ * 잘못된 토큰은 벤더에서 먼저 거부돼 스냅샷이 만들어지지 않지만, 미러는 토큰을 검증하지도
+ * 사용하지도 않는다. 그런 값을 키에 넣으면 구분되는 것은 없고, 인증된 호출자 한 명이
+ * 서로 다른 토큰 문자열을 계속 보내는 것만으로 지점 전체 목록을 5분짜리로 무한히 쌓을 수
+ * 있다. 타입으로 막아 실수로도 넘기지 못하게 한다.
+ */
+export type DocumentSnapshotKeyParams =
+    | (DocumentSnapshotTenantParams & {
+        source?: "api";
+        /** 스캔이 사용한 자격증명. 결과가 이 값에 따라 달라지므로 키에 들어간다. */
+        accessToken: string;
+    })
+    | (DocumentSnapshotTenantParams & {
+        source: "mirror";
+        accessToken?: never;
+    });
 
 export interface DocumentDisplayFieldEnrichment {
     fields?: unknown;
@@ -467,9 +484,14 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     }
 
     private snapshotKey(params: DocumentSnapshotKeyParams, version: string): string {
-        const tokenHash = this.tokenHash(params.accessToken);
         const source = params.source ?? "api";
-        return `${SNAPSHOT_KEY_PREFIX}:v${SNAPSHOT_SCHEMA_VERSION}:${source}:${params.branchId}:${params.scope}:${tokenHash}:${version}`;
+        const tenant = `${SNAPSHOT_KEY_PREFIX}:v${SNAPSHOT_SCHEMA_VERSION}:${source}`
+            + `:${params.branchId}:${params.scope}`;
+        // A mirror snapshot is decided entirely by the tenant and the generation, so there
+        // is no credential in its key — see DocumentSnapshotKeyParams for why that matters.
+        return params.source === "mirror"
+            ? `${tenant}:${version}`
+            : `${tenant}:${this.tokenHash(params.accessToken)}:${version}`;
     }
 
     private versionKey(branchId: string): string {

@@ -6,6 +6,7 @@ import Redis from "ioredis";
 import {
     DocumentSnapshotEntry,
     DocumentSnapshotKeyParams,
+    DocumentSnapshotScope,
     EformsignDocumentSnapshotService,
 } from "application/services/eformsign-document-snapshot.service";
 
@@ -54,11 +55,29 @@ function createEntry(id: string): DocumentSnapshotEntry<TestDocument> {
     };
 }
 
-function createParams(overrides: Partial<DocumentSnapshotKeyParams> = {}): DocumentSnapshotKeyParams {
+interface TenantOverrides {
+    scope?: DocumentSnapshotScope;
+    branchId?: string;
+    isHeadquarters?: boolean;
+}
+
+function createParams(
+    overrides: TenantOverrides & { accessToken?: string } = {},
+): DocumentSnapshotKeyParams {
     return {
         branchId: "branch-a",
         scope: "all",
         accessToken: "access-token",
+        ...overrides,
+    };
+}
+
+/** The mirror variant takes no credential at all — that is the point of the union. */
+function createMirrorParams(overrides: TenantOverrides = {}): DocumentSnapshotKeyParams {
+    return {
+        branchId: "branch-a",
+        scope: "all",
+        source: "mirror",
         ...overrides,
     };
 }
@@ -355,6 +374,26 @@ describe("EformsignDocumentSnapshotService", () => {
         expect(storedKey).not.toContain(accessToken);
         expect(storedValue.payload).not.toContain(accessToken);
         expect(loggedOutput).not.toContain(accessToken);
+    });
+
+    it("should key a mirror snapshot by tenant alone, with no credential in it", async () => {
+        // The mirror never calls the vendor, so nothing validates the token and nothing in
+        // the result depends on it. Keying by it would only let one authenticated caller
+        // store a fresh copy of the whole branch corpus per token string they invent.
+        const service = new EformsignDocumentSnapshotService();
+        const internals = service as unknown as SnapshotServiceInternals;
+        const build = jest.fn().mockResolvedValue([createEntry("document-1")]);
+
+        await service.getOrBuild(createMirrorParams(), build);
+        await service.getOrBuild(createMirrorParams(), build);
+
+        const storedKeys = Array.from(internals.memoryStore.keys());
+
+        expect(storedKeys).toEqual(["eformsign:doclist:v1:mirror:branch-a:all:0"]);
+        expect(build).toHaveBeenCalledTimes(1);
+        // And still distinct from the vendor snapshot of the same scope, so flipping the
+        // switch back does not keep serving the source it was flipped away from.
+        expect(internals.snapshotKey(createParams(), 0)).not.toBe(storedKeys[0]);
     });
 
     it("should bypass the cache and omit snapshotVersion when Valkey lookup fails", async () => {

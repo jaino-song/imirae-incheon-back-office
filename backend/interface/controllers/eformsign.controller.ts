@@ -319,11 +319,13 @@ export class EformsignController {
     }
 
     /**
-     * The list, answered locally. No snapshot cache: it exists to make a 30-call vendor
-     * scan bearable, and there is no scan here to amortise.
+     * The list, answered locally.
+     *
+     * No access token: this path never calls the vendor, so it has no credential to spend
+     * and nothing that varies by one. The endpoint still requires callers to send it —
+     * that check is unchanged — it just does not reach the cache or the query.
      */
     private async listFromMirror(params: {
-        accessToken: string;
         branchId: string;
         isHeadquarters: boolean;
         scope: string;
@@ -343,7 +345,6 @@ export class EformsignController {
             {
                 scope: params.scope as DocumentSnapshotScope,
                 branchId: params.branchId,
-                accessToken: params.accessToken,
                 isHeadquarters: params.isHeadquarters,
                 source: "mirror",
             },
@@ -639,7 +640,6 @@ export class EformsignController {
             // document sat in — the mirror does not record that, and the shadow comparison
             // has been measuring exactly this substitution.
             return await this.listFromMirror({
-                accessToken,
                 branchId,
                 isHeadquarters,
                 scope,
@@ -971,7 +971,6 @@ export class EformsignController {
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
             if (this.servesFromMirror()) {
                 return await this.listFromMirror({
-                    accessToken,
                     branchId,
                     isHeadquarters,
                     scope: "all",
@@ -1078,7 +1077,7 @@ export class EformsignController {
                 // the list can never describe different moments.
                 const countSnapshot = await this.documentSnapshotService
                     .getOrBuild<EformsignListDoc>(
-                        { scope: "all", branchId, accessToken, isHeadquarters, source: "mirror" },
+                        { scope: "all", branchId, isHeadquarters, source: "mirror" },
                         async () => this.toSnapshotEntries(
                             await this.mirrorListService.loadScopeDocuments({
                                 branchId,
