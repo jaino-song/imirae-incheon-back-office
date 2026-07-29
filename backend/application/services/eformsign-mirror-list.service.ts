@@ -15,7 +15,6 @@ import {
 import {
     eformsignListDocFromMirror,
     MIRROR_CUSTOMER_NAME_KEY,
-    MIRROR_DISPLAY_RECIPIENT_NAME_KEY,
     MIRROR_RECIPIENT_NAME_KEY,
 } from "application/utils/eformsign-list-doc-from-mirror";
 import { stringFromUnknown } from "application/utils/eformsign-document-customer-name";
@@ -171,11 +170,22 @@ export function enrichMirrorPage(documents: EformsignListDoc[]): EformsignListDo
 }
 
 /**
- * Adoption can fall back to the document title for the recipient name, and a title is not
- * a customer name. The API path skips those for the same reason.
+ * The branch's own recipient name, used the way the API path uses it — and only where it
+ * does. That path reads this from a branch-scoped lookup, so an unclaimed document never
+ * gets one; it falls through to a document-detail fetch instead.
+ *
+ * Which is why this must not reach for the recipient name of an unclaimed row even though
+ * the mirror has it: `stepRecipientName` is whoever the *current* step is waiting on, and
+ * when that step is the provider review it is the provider. Showing the wrong person's
+ * name is worse than showing none, so those rows read 고객 미지정 until the mirror learns
+ * a real customer name — which it does the moment any webhook touches the document, since
+ * that path mirrors from a detail response.
+ *
+ * Adoption can also put the document title here, and a title is not a customer name. The
+ * API path skips those for the same reason.
  */
 function recipientNameAsCustomerName(document: EformsignListDoc): string | null {
-    const recipientName = stringFromUnknown(document[MIRROR_DISPLAY_RECIPIENT_NAME_KEY]);
+    const recipientName = stringFromUnknown(document[MIRROR_RECIPIENT_NAME_KEY]);
     if (!recipientName) {
         return null;
     }

@@ -363,6 +363,10 @@ export class EformsignController {
             limit: params.limit,
             skip: params.skip,
             has_more: params.skip + params.limit < documents.length,
+            // The client resets its pagination when a later page reports a different
+            // generation. Without this it has no way to notice that the list moved under
+            // it, and would quietly skip whatever the shift displaced.
+            ...(snapshot.snapshotVersion ? { snapshot_version: snapshot.snapshotVersion } : {}),
         };
     }
 

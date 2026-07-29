@@ -446,6 +446,19 @@ describe("EformsignController (Integration)", () => {
             expect(second.body.has_more).toBe(false);
         });
 
+        it("reports the generation so the client can notice the list moved", async () => {
+            // 클라이언트는 뒤 페이지의 snapshot_version이 다르면 페이지네이션을 리셋한다.
+            // 이 값을 빼면 목록이 아래에서 밀려도 신호가 없어 문서를 조용히 건너뛴다.
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-1" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(typeof response.body.snapshot_version).toBe("string");
+        });
+
         it("answers each tab from status codes", async () => {
             mirrorRepository.findAll.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-open", statusType: "060" }),
@@ -495,15 +508,27 @@ describe("EformsignController (Integration)", () => {
             expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-unclaimed"]);
         });
 
-        it("shows a name for an unclaimed headquarters document", async () => {
-            // 미러의 customerName은 목록 응답에서 채워지는데 목록에는 fields가 없어 보통
-            // null이다. 그때 수신자명으로 채우지 않으면 본사 화면에서 "고객 미지정"이 된다 —
-            // 기존 API 경로는 단건 조회로 이름을 찾아왔다.
+        it("leaves an unclaimed document unnamed rather than naming the wrong person", async () => {
+            // stepRecipientName은 *현재 단계*가 기다리는 사람이라, 그 단계가 제공기관 검토면
+            // 제공기관 이름이다. 미배정 문서에는 지점 스코프 조회가 걸리지 않아 API 경로도
+            // 이 값을 쓰지 않는다(단건 조회로 넘어간다). 틀린 이름을 보여주는 것보다
+            // 비워 두는 편이 낫고, 웹훅이 한 번이라도 닿으면 진짜 고객명이 채워진다.
             branchFindUnique.mockResolvedValue({ slug: "incheon" });
             mirrorRepository.findAllForHeadquarters.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-unclaimed", customerName: null }),
             ]);
             mirrorRepository.findAll.mockResolvedValue([]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(response.body.documents[0].fields).toBeUndefined();
+        });
+
+        it("still names a branch-owned document from its recipient", async () => {
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-owned", customerName: null }),
+            ]);
 
             const response = await request(mirrorApp.getHttpServer())
                 .get("/api/documents?accessToken=access-token");
