@@ -28,6 +28,7 @@ import {
     resolveEformsignBackfillTarget,
 } from "application/utils/eformsign-backfill-safety";
 import { EformsignBackfillLockService } from "infrastructure/locking/eformsign-backfill-lock.service";
+import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { EformsignDocModule } from "module/eformsign-doc.module";
 
 const ENV_FILE_PATHS = [
@@ -43,6 +44,13 @@ const ENV_FILE_PATHS = [
             isGlobal: true,
             envFilePath: ENV_FILE_PATHS,
         }),
+        // @Global() is global to a graph that imports it, not to the process. AppModule
+        // imports TenantModule; this one does not, and EformsignDocModule reaches
+        // AreaTemplateModule, whose controller carries @UseGuards(TenantGuard) — Nest
+        // instantiates that guard while building the graph and fails on TenantContext.
+        // Nothing here serves a request, so the guard is never used; it only has to
+        // resolve. Same fix, same reason, as bjj249-service-record-snapshot.live.e2e.spec.
+        TenantModule,
         EformsignDocModule,
     ],
 })
