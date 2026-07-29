@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
-    TERMINAL_STATUS_CODES,
     UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
     UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
@@ -51,21 +50,6 @@ const toUnscopedResult = (
 @Injectable()
 export class SbEformsignDocRepository implements IEformsignDocRepository {
     constructor(private readonly prismaService: PrismaService) {}
-
-    async markExpiredDocuments(now: Date): Promise<number> {
-        const result = await this.prismaService.eformsign_doc.updateMany({
-            where: {
-                expired: false,
-                expiredDate: { lte: now },
-                // A terminal document is finished, not expired — a contract completed
-                // last year is past its expiry date and must not be relabelled. The
-                // "no expiry" sentinel is year 9999, so it never matches lte either.
-                statusType: { notIn: [...TERMINAL_STATUS_CODES] },
-            },
-            data: { expired: true },
-        });
-        return result.count;
-    }
 
     async findById(branchid: string, id: number): Promise<EformsignDocEntity | null> {
         return this.findFirstDomain({ id, branchId: branchid });

@@ -74,12 +74,6 @@ export interface UpsertUnassignedEformsignDocOptions {
 }
 
 export interface IEformsignDocRepository {
-    /**
-     * Flip `expired` on rows whose expiry date has passed while they were still open.
-     * Eformsign sends an 080 webhook when a document expires, but a dropped one leaves
-     * the mirror claiming a document is still live forever. Returns the rows changed.
-     */
-    markExpiredDocuments(now: Date): Promise<number>;
     findById(branchid: string, id: number): Promise<EformsignDocEntity | null>;
     findByDocumentId(branchid: string, documentId: string): Promise<EformsignDocEntity | null>;
     findByDocumentIdUnscoped(documentId: string): Promise<EformsignDocUnscopedResult | null>;

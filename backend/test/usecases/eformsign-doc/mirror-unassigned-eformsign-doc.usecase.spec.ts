@@ -299,6 +299,46 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
         );
     });
 
+    it("clears a wrongly-set expired flag once the remote reports a non-expiry ending", async () => {
+        // The list carries no _expired, so this used to be treated as "unknown" for every
+        // status. A row that got expired=true by any route then kept it forever, even once
+        // the vendor said the document had completed. A terminal status settles it: 080
+        // means expired, and any other ending means it is not.
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+        );
+
+        await usecase.mirrorRemoteDocument({
+            id: "completed-doc",
+            document_number: "DOC-200",
+            document_name: "완료 문서",
+            created_date: Date.parse("2026-07-01T00:00:00.000Z"),
+            updated_date: Date.parse("2026-07-02T00:00:00.000Z"),
+            template: { id: "template-1", name: "계약서" },
+            creator: { recipient_type: "01", id: "creator", name: "생성자" },
+            current_status: {
+                status_type: "050",
+                step_type: "05",
+                step_index: "1",
+                step_name: "이용자",
+                step_recipients: [],
+                step_group: 1,
+            },
+        }, { now: Date.parse("2026-07-03T00:00:00.000Z") });
+
+        expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ statusType: "050", expired: false }),
+            expect.not.objectContaining({ updateExpired: false }),
+        );
+    });
+
     it("converts remaining expiry days to a date from the mirror reference time", async () => {
         const repository = {
             upsertUnassignedByDocumentId: jest.fn(

@@ -822,6 +822,55 @@ describe("BackfillEformsignDocsUsecase", () => {
         );
     });
 
+    it("mirrors a document once when two inboxes both list it", async () => {
+        // Type "04" is eformsign's document-management inbox, not a rejected-only one, so
+        // it overlaps the other scans. Now that this runs nightly, writing those rows a
+        // second time every night would be pure waste.
+        const shared = createRemoteDocument("shared-doc");
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [shared],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [shared],
+                total_rows: 1,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "shared-doc" }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        const summary = await usecase.execute();
+
+        expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(1);
+        // Both scans still have to page it: each inbox's coverage check compares against
+        // its own total_rows, so the duplicate has to count as seen for type 04 as well.
+        expect(summary).toEqual(expect.objectContaining({
+            fetched: 2,
+            created: 1,
+            duplicates: 1,
+        }));
+        expect(summary.byDocumentType["04"]).toEqual(
+            expect.objectContaining({ status: "completed", duplicates: 1, created: 0 }),
+        );
+    });
+
     it("keeps a stored status detail when the list response carries none", async () => {
         // The list schema has no status_doc_detail, so the mirror falls back to the step
         // name. That derived value may seed a new row but must not replace "만료"/"거부"

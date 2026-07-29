@@ -2,7 +2,10 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
-import { EFORMSIGN_EXPIRED_STATUS_CODE } from "domain/constants/eformsign-doc-status.constants";
+import {
+    EFORMSIGN_EXPIRED_STATUS_CODE,
+    TERMINAL_STATUS_CODES,
+} from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EFORMSIGN_DOC_REPOSITORY,
@@ -59,7 +62,13 @@ export class MirrorUnassignedEformsignDocUsecase {
         // anything else means the list simply did not say.
         const expiredFromStatus = statusType === EFORMSIGN_EXPIRED_STATUS_CODE;
         const hasRemoteExpiredState = remote.current_status._expired !== undefined;
-        const knowsExpiredState = hasRemoteExpiredState || expiredFromStatus;
+        // A terminal status settles the question both ways: 080 means expired, and any
+        // other ending — completed, rejected, revoked — means it is not. Only the open
+        // states leave it genuinely unknown. Without the negative direction, a row the
+        // hourly expiry pass guessed wrong about would keep expired=true even after this
+        // sweep learned the document had actually completed, and nothing would clear it.
+        const knowsExpiredState = hasRemoteExpiredState
+            || TERMINAL_STATUS_CODES.has(statusType);
         const remoteUpdatedDate = new Date(remote.updated_date);
         const updatedDate = Number.isNaN(remoteUpdatedDate.getTime())
             ? new Date(now)

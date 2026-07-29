@@ -1,11 +1,7 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron } from "@nestjs/schedule";
 
-import {
-    EFORMSIGN_DOC_REPOSITORY,
-    IEformsignDocRepository,
-} from "domain/repositories/eformsign-doc.repository.interface";
 import {
     isTransientPrismaConnectivityError,
     summarizePrismaError,
@@ -25,19 +21,24 @@ const KOREA_TIME_ZONE = "Asia/Seoul";
 
 /** The sweep pages the whole document list; give it room without letting it wedge. */
 const RECONCILE_MAX_RUN_MS = 30 * 60 * 1000;
-const EXPIRY_MAX_RUN_MS = 5 * 60 * 1000;
 const DB_COOLDOWN_MS = 5 * 60 * 1000;
+/**
+ * Nights in a row that may fail before the log stops being a warning. A sweep that
+ * cannot finish is normal once — a document moved mid-pagination, the vendor blipped.
+ * Several nights running means the mirror is drifting and nobody has noticed.
+ */
+const RECONCILE_FAILURE_ALERT_THRESHOLD = 3;
 
 /**
  * Keeps the local `eformsign_doc` mirror honest between webhooks.
  *
- * Two jobs with different costs, so they run on different clocks. The expiry flip is a
- * single conditional UPDATE and runs hourly. The reconciliation sweep re-reads every
- * document from eformsign and runs once a night, because a dropped webhook is the only
- * thing it fixes and a day of staleness is the exposure we already accept.
+ * A dropped webhook is the only thing this fixes, so it runs once a night: a day of
+ * staleness is the exposure we already carry, and the sweep re-reads every document from
+ * eformsign. Expiry comes along for free — the vendor reports status 080 — which is why
+ * there is no separate time-based pass over `expiredDate`.
  *
- * Both are off unless `EFORMSIGN_RECONCILE_ENABLED=true`. This is the phase where the
- * mirror stops being write-only, and the switch is what makes that reversible.
+ * Off unless `EFORMSIGN_RECONCILE_ENABLED=true`. This is the phase where the mirror
+ * stops being write-only, and the switch is what makes that reversible.
  */
 @Injectable()
 export class EformsignDocReconcileSchedulerService {
@@ -50,53 +51,14 @@ export class EformsignDocReconcileSchedulerService {
         maxRunMs: RECONCILE_MAX_RUN_MS,
         cooldownMs: DB_COOLDOWN_MS,
     });
-    private readonly expiryGuard = new SchedulerExecutionGuard({
-        logger: this.logger,
-        runningWarning: "[Eformsign Expiry] Previous expiry pass is still running; skipping tick",
-        staleRunError: "[Eformsign Expiry] Previous expiry pass exceeded the max runtime",
-        cooldownWarning: "[Eformsign Expiry] Database connectivity issue during the expiry pass",
-        maxRunMs: EXPIRY_MAX_RUN_MS,
-        cooldownMs: DB_COOLDOWN_MS,
-    });
     private warnedLockUnavailable = false;
+    private consecutiveFailures = 0;
 
     constructor(
         private readonly configService: ConfigService,
         private readonly backfillUsecase: BackfillEformsignDocsUsecase,
         private readonly lockService: EformsignBackfillLockService,
-        @Inject(EFORMSIGN_DOC_REPOSITORY)
-        private readonly eformsignDocRepository: IEformsignDocRepository,
     ) {}
-
-    @Cron("30 * * * *", { timeZone: KOREA_TIME_ZONE })
-    async markExpiredDocuments(): Promise<void> {
-        if (!this.isEnabled()) {
-            return;
-        }
-
-        const runToken = this.expiryGuard.tryStart();
-        if (!runToken) {
-            return;
-        }
-
-        try {
-            const count = await this.eformsignDocRepository.markExpiredDocuments(new Date());
-            if (count > 0) {
-                this.logger.log(`[Eformsign Expiry] Marked ${count} documents expired`);
-            }
-        } catch (error) {
-            if (isTransientPrismaConnectivityError(error)) {
-                this.expiryGuard.enterCooldown(summarizePrismaError(error));
-                return;
-            }
-
-            this.logger.error(
-                `[Eformsign Expiry] Failed to mark expired documents: ${describeError(error)}`,
-            );
-        } finally {
-            this.expiryGuard.finish(runToken);
-        }
-    }
 
     @Cron("0 4 * * *", { timeZone: KOREA_TIME_ZONE })
     async reconcileDocuments(): Promise<void> {
@@ -111,10 +73,12 @@ export class EformsignDocReconcileSchedulerService {
 
         try {
             const summary = await this.runSweep();
+            this.consecutiveFailures = 0;
             this.logger.log(
                 "[Eformsign Reconcile] Sweep completed"
                 + ` fetched=${summary.fetched} created=${summary.created}`
-                + ` updated=${summary.updated} skipped=${summary.skipped}`,
+                + ` updated=${summary.updated} skipped=${summary.skipped}`
+                + ` duplicates=${summary.duplicates}`,
             );
         } catch (error) {
             if (error instanceof EformsignBackfillAlreadyRunningError) {
@@ -130,18 +94,35 @@ export class EformsignDocReconcileSchedulerService {
             // A sweep that fails closed — incomplete coverage, a document it could not
             // write — is telling us this run did not fully reconcile, not that anything
             // is broken. Tomorrow's run starts from whatever this one managed to land.
-            this.logger.warn(
-                `[Eformsign Reconcile] Sweep did not complete: ${describeError(error)}`,
-            );
+            // But a run that fails every night is drift nobody is watching, and this job
+            // has no other operator signal: Sentry here is filtered to service-records
+            // only, so an error-level log is the loudest thing available.
+            this.consecutiveFailures += 1;
+            const message = `[Eformsign Reconcile] Sweep did not complete`
+                + ` (${this.consecutiveFailures} in a row): ${describeError(error)}`;
+            if (this.consecutiveFailures >= RECONCILE_FAILURE_ALERT_THRESHOLD) {
+                this.logger.error(message);
+            } else {
+                this.logger.warn(message);
+            }
         } finally {
             this.reconcileGuard.finish(runToken);
         }
     }
 
     private async runSweep(): Promise<EformsignDocsBackfillSummary> {
+        // The execution guard only ages a stale token out at the *next* tick, which is a
+        // day away — it never stops a run already under way. The sweep polls this before
+        // every fetch and write, so putting the deadline here is what makes the advertised
+        // bound real rather than letting a wedged run meet tomorrow's run still alive.
+        const deadline = Date.now() + RECONCILE_MAX_RUN_MS;
+        const withinDeadline = () => Date.now() < deadline;
+
         if (this.lockService.isAvailable()) {
             return this.lockService.runExclusive((lease) =>
-                this.backfillUsecase.execute({ shouldContinue: lease.isHeld }));
+                this.backfillUsecase.execute({
+                    shouldContinue: () => withinDeadline() && lease.isHeld(),
+                }));
         }
 
         // No VALKEY_URL, so there is no cross-instance lock to take. The in-memory guard
@@ -157,7 +138,7 @@ export class EformsignDocReconcileSchedulerService {
             );
         }
 
-        return this.backfillUsecase.execute();
+        return this.backfillUsecase.execute({ shouldContinue: withinDeadline });
     }
 
     private isEnabled(): boolean {

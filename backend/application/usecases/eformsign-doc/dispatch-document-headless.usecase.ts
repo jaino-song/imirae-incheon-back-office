@@ -13,6 +13,7 @@ import { FetchAllEformsignDocsFromApiUsecase } from "./fetch-all-eformsign-docs-
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 
 const DEFAULT_DOCUMENT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
@@ -280,7 +281,10 @@ export class DispatchDocumentHeadlessUsecase {
                 stepType: currentStatus?.step_type?.trim() || fallback.stepType,
                 stepIndex: currentStatus?.step_index?.trim() || fallback.stepIndex,
                 stepName: currentStatus?.step_name?.trim() || fallback.stepName,
-                expiredDate: this.expiredDateFromEpoch(currentStatus?.expired_date) ?? fallback.expiredDate,
+                expiredDate: eformsignExpiryDateFromRemainingDays(
+                    currentStatus?.expired_date,
+                    Date.now(),
+                ),
                 templateName: document.template?.name?.trim() || undefined,
             };
         } catch (error) {
@@ -317,10 +321,4 @@ export class DispatchDocumentHeadlessUsecase {
         return stepName?.trim() || "진행중";
     }
 
-    private expiredDateFromEpoch(expiredDate: number | null | undefined): Date | null {
-        if (!expiredDate || expiredDate <= 0) {
-            return null;
-        }
-        return new Date(expiredDate);
-    }
 }

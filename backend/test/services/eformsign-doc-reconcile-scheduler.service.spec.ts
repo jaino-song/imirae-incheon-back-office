@@ -16,6 +16,7 @@ function createSummary(overrides: Record<string, number> = {}) {
         created: 0,
         updated: 0,
         skipped: 0,
+        duplicates: 0,
         failed: 0,
         pages: 0,
         byDocumentType: {},
@@ -25,12 +26,10 @@ function createSummary(overrides: Record<string, number> = {}) {
 
 describe("EformsignDocReconcileSchedulerService", () => {
     let backfill: { execute: jest.Mock };
-    let repository: { markExpiredDocuments: jest.Mock };
     let lockService: { isAvailable: jest.Mock; runExclusive: jest.Mock };
 
     beforeEach(() => {
         backfill = { execute: jest.fn().mockResolvedValue(createSummary()) };
-        repository = { markExpiredDocuments: jest.fn().mockResolvedValue(0) };
         lockService = {
             isAvailable: jest.fn().mockReturnValue(true),
             runExclusive: jest.fn((work: (lease: { isHeld: () => boolean }) => Promise<unknown>) =>
@@ -49,7 +48,6 @@ describe("EformsignDocReconcileSchedulerService", () => {
             createConfigService(enabled),
             backfill as never,
             lockService as never,
-            repository as never,
         );
     }
 
@@ -61,37 +59,12 @@ describe("EformsignDocReconcileSchedulerService", () => {
             async (value) => {
                 const service = createService(value);
 
-                await service.markExpiredDocuments();
                 await service.reconcileDocuments();
 
-                expect(repository.markExpiredDocuments).not.toHaveBeenCalled();
                 expect(backfill.execute).not.toHaveBeenCalled();
                 expect(lockService.runExclusive).not.toHaveBeenCalled();
             },
         );
-    });
-
-    describe("expiry pass", () => {
-        it("marks documents expired as of now", async () => {
-            repository.markExpiredDocuments.mockResolvedValue(4);
-            const service = createService("true");
-
-            await service.markExpiredDocuments();
-
-            expect(repository.markExpiredDocuments).toHaveBeenCalledTimes(1);
-            expect(repository.markExpiredDocuments.mock.calls[0][0]).toBeInstanceOf(Date);
-        });
-
-        it("survives a repository failure so the next tick still runs", async () => {
-            repository.markExpiredDocuments.mockRejectedValueOnce(new Error("db down"));
-            const service = createService("true");
-
-            await expect(service.markExpiredDocuments()).resolves.toBeUndefined();
-
-            repository.markExpiredDocuments.mockResolvedValueOnce(1);
-            await expect(service.markExpiredDocuments()).resolves.toBeUndefined();
-            expect(repository.markExpiredDocuments).toHaveBeenCalledTimes(2);
-        });
     });
 
     describe("reconciliation sweep", () => {
@@ -131,9 +104,60 @@ describe("EformsignDocReconcileSchedulerService", () => {
 
             expect(lockService.runExclusive).not.toHaveBeenCalled();
             expect(backfill.execute).toHaveBeenCalledTimes(2);
-            expect(backfill.execute).toHaveBeenCalledWith();
+            expect(backfill.execute).toHaveBeenCalledWith(
+                expect.objectContaining({ shouldContinue: expect.any(Function) }),
+            );
             expect(warn.mock.calls.filter(([message]) => message.includes("VALKEY_URL")))
                 .toHaveLength(1);
+        });
+
+        it("stops the sweep once the advertised runtime is spent", async () => {
+            // SchedulerExecutionGuard only ages a stale token out on the next tick, a day
+            // later, so the 30-minute bound is only real if the sweep itself polls it.
+            let shouldContinue: (() => boolean) | undefined;
+            backfill.execute.mockImplementation((options: { shouldContinue?: () => boolean }) => {
+                shouldContinue = options.shouldContinue;
+                return Promise.resolve(createSummary());
+            });
+            const nowSpy = jest.spyOn(Date, "now");
+            nowSpy.mockReturnValue(1_000_000);
+            const service = createService("true");
+
+            await service.reconcileDocuments();
+
+            expect(shouldContinue?.()).toBe(true);
+            nowSpy.mockReturnValue(1_000_000 + 31 * 60 * 1000);
+            expect(shouldContinue?.()).toBe(false);
+        });
+
+        it("escalates to error only once the sweep has failed several nights running", async () => {
+            // This job has no other operator signal — Sentry here is filtered to
+            // service-records — so a single bad night stays a warning and a streak does not.
+            lockService.runExclusive.mockRejectedValue(new Error("coverage incomplete"));
+            const service = createService("true");
+            const logger = (service as unknown as {
+                logger: { warn: (message: string) => void; error: (message: string) => void };
+            }).logger;
+            const warn = jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+            const error = jest.spyOn(logger, "error").mockImplementation(() => undefined);
+
+            await service.reconcileDocuments();
+            await service.reconcileDocuments();
+            expect(error).not.toHaveBeenCalled();
+            expect(warn).toHaveBeenCalledTimes(2);
+
+            await service.reconcileDocuments();
+            expect(error).toHaveBeenCalledTimes(1);
+            expect(error.mock.calls[0]?.[0]).toContain("3 in a row");
+
+            // A good night clears the streak, so the next failure is a warning again.
+            lockService.runExclusive.mockImplementationOnce(
+                (work: (lease: { isHeld: () => boolean }) => Promise<unknown>) =>
+                    work({ isHeld: () => true }),
+            );
+            await service.reconcileDocuments();
+            await service.reconcileDocuments();
+            expect(error).toHaveBeenCalledTimes(1);
         });
 
         it("treats a fail-closed sweep as an incomplete run, not a crash", async () => {

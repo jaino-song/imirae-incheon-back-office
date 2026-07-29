@@ -26,6 +26,8 @@ export interface EformsignDocsBackfillTypeSummary {
     created: number;
     updated: number;
     skipped: number;
+    /** Already mirrored by an earlier scan in the same run; see `duplicates` below. */
+    duplicates: number;
     failed: number;
     pages: number;
     error: string | null;
@@ -36,6 +38,12 @@ export interface EformsignDocsBackfillSummary {
     created: number;
     updated: number;
     skipped: number;
+    /**
+     * Documents an earlier scan in this run already mirrored. Type "04" is eformsign's
+     * document-management inbox, not a rejected-only one, so it overlaps the in-progress
+     * and completed scans — writing those rows a second time would achieve nothing.
+     */
+    duplicates: number;
     failed: number;
     pages: number;
     byDocumentType: Record<
@@ -82,6 +90,7 @@ function createTypeSummary(): EformsignDocsBackfillTypeSummary {
         created: 0,
         updated: 0,
         skipped: 0,
+        duplicates: 0,
         failed: 0,
         pages: 0,
         error: null,
@@ -119,6 +128,7 @@ export class BackfillEformsignDocsUsecase {
             created: 0,
             updated: 0,
             skipped: 0,
+            duplicates: 0,
             failed: 0,
             pages: 0,
             byDocumentType: {
@@ -188,6 +198,10 @@ export class BackfillEformsignDocsUsecase {
                     return fetchPage(limit, skip);
                 }
             };
+            // Run-level, not per-scan: the per-scan set drives pagination and the coverage
+            // check and has to stay scoped to its own type's total_rows. This one only
+            // stops us writing the same document twice because two inboxes both list it.
+            const mirroredDocumentIds = new Set<string>();
             const scanFailures: BackfillEformsignDocsError[] = [];
             for (const scan of scans) {
                 const typeSummary = summary.byDocumentType[scan.documentType];
@@ -199,6 +213,7 @@ export class BackfillEformsignDocsUsecase {
                         options,
                         summary,
                         typeSummary,
+                        mirroredDocumentIds,
                     });
                     // Swallowing a single document's write error to finish the sweep is
                     // deliberate, but the run still left the mirror incomplete and nothing
@@ -281,6 +296,7 @@ export class BackfillEformsignDocsUsecase {
         options: BackfillEformsignDocsOptions;
         summary: EformsignDocsBackfillSummary;
         typeSummary: EformsignDocsBackfillTypeSummary;
+        mirroredDocumentIds: Set<string>;
     }): Promise<void> {
         let skip = 0;
         let initialTotalRows: number | undefined;
@@ -365,6 +381,13 @@ export class BackfillEformsignDocsUsecase {
             for (const document of newDocuments) {
                 seenDocumentIds.add(document.id);
                 this.assertCanContinue(params.options, params.summary);
+                if (params.mirroredDocumentIds.has(document.id)) {
+                    params.summary.duplicates += 1;
+                    params.typeSummary.duplicates += 1;
+                    continue;
+                }
+
+                params.mirroredDocumentIds.add(document.id);
                 await this.persistDocument(document, params.summary, params.typeSummary);
             }
 
