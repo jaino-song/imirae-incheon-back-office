@@ -1,6 +1,7 @@
 import { Logger } from "@nestjs/common";
 
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 import { EformsignController } from "interface/controllers/eformsign.controller";
 
 type TestListDocument = {
@@ -40,6 +41,10 @@ describe("EformsignController display-field enrichment", () => {
             {} as never,
             {} as never,
             snapshotService,
+            { compareInBackground: jest.fn() } as never,
+            { buildList: jest.fn() } as never,
+            // Serving from the mirror is off, so this suite still exercises the API path.
+            { get: jest.fn().mockReturnValue(undefined) } as never,
         ) as unknown as EnrichmentController;
         eformsignDocService.findDisplayFieldsByDocumentIds.mockResolvedValue([]);
     });
@@ -167,6 +172,30 @@ describe("EformsignController display-field enrichment", () => {
             },
         ]);
         expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(3);
+    });
+
+    it("should recognize typed eformsign 429 errors without parsing the message", async () => {
+        jest.useFakeTimers();
+        eformsignService.getDocumentById
+            .mockRejectedValueOnce(new EformsignApiError("opaque upstream error", 429))
+            .mockResolvedValueOnce({
+                fields: [{ id: "이용자 성명", value: "타입 오류 재시도 고객" }],
+            });
+
+        const enrichment = controller.enrichDocumentsWithDisplayFields(
+            "branch-1",
+            "access-token",
+            [{ id: "doc-1" }],
+        );
+        await jest.advanceTimersByTimeAsync(500);
+
+        await expect(enrichment).resolves.toEqual([
+            {
+                id: "doc-1",
+                fields: [{ id: "이용자 성명", value: "타입 오류 재시도 고객" }],
+            },
+        ]);
+        expect(eformsignService.getDocumentById).toHaveBeenCalledTimes(2);
     });
 
     it("should skip a 429 retry when the shared enrichment budget is exhausted", async () => {

@@ -141,6 +141,13 @@ describe("EformsignService", () => {
             "doc-keep-1",
             "doc-create-test",
         ]);
+        expect(documents.documents[0]).toEqual(expect.objectContaining({
+            created_date: expect.stringMatching(/^\d+$/),
+            current_status: expect.objectContaining({
+                status_type: expect.any(Number),
+                step_type: expect.any(Number),
+            }),
+        }));
         expect(fetchSpy).not.toHaveBeenCalled();
 
         fetchSpy.mockRestore();
