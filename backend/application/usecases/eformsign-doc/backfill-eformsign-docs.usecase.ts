@@ -463,10 +463,17 @@ export class BackfillEformsignDocsUsecase {
 
             summary.failed += 1;
             typeSummary.failed += 1;
+            // The status fields are here because every mirroring failure so far has been a
+            // value the vendor sent that our mapping did not expect. Without them the log
+            // says a document could not be mirrored and nothing about why, which costs a
+            // second full sweep to find out.
+            const status = document.current_status;
             this.logger.warn(
                 `Failed to mirror eformsign document ${document.id}: ${
                     error instanceof Error ? error.message : String(error)
-                }`,
+                } (status_type=${status?.status_type}`
+                + ` expired_date=${JSON.stringify(status?.expired_date)}`
+                + ` expired=${JSON.stringify(status?._expired)})`,
             );
         }
     }
