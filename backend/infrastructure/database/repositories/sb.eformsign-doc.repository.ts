@@ -1,5 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+    UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
+    UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
+    UNASSIGNED_TERMINAL_STATUS_CODES,
+} from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EformsignDocCompletionClaimParams,
@@ -388,13 +393,14 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         };
         const update = {
             statusType: doc.statusType,
-            statusDetail: doc.statusDetail,
+            ...(options?.updateStatusDetail === false ? {} : { statusDetail: doc.statusDetail }),
             stepType: doc.stepType,
             stepIndex: doc.stepIndex,
             stepName: doc.stepName,
-            expired: doc.expired,
+            ...(options?.updateExpired === false ? {} : { expired: doc.expired }),
             updatedDate: doc.updatedDate,
             ...(documentName ? { documentName } : {}),
+            ...(documentNumber ? { documentNumber } : {}),
             ...(templateId ? { templateId } : {}),
             ...(templateName ? { templateName } : {}),
             ...(options?.updateListDisplayFields && customerName ? { customerName } : {}),
@@ -405,19 +411,52 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 : {}),
         };
 
+        const statusGuards: Prisma.eformsign_docWhereInput[] = [
+            ...(UNASSIGNED_TERMINAL_STATUS_CODES.has(doc.statusType)
+                ? []
+                : [{
+                    statusType: {
+                        notIn: [...UNASSIGNED_TERMINAL_STATUS_CODES],
+                    },
+                }]),
+            ...(UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE.has(doc.statusType)
+                ? []
+                : [{
+                    OR: [
+                        {
+                            statusType: {
+                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_CODES],
+                            },
+                        },
+                        { statusType: doc.statusType },
+                    ],
+                }]),
+        ];
+        let statusGuard: Prisma.eformsign_docWhereInput = {};
+        if (statusGuards.length === 1) {
+            statusGuard = statusGuards[0] ?? {};
+        } else if (statusGuards.length > 1) {
+            statusGuard = { AND: statusGuards };
+        }
+
         return this.conditionalUpsertByDocumentId({
             documentId: doc.documentId,
             create,
             update,
-            allowedWhere: {
-                documentId: doc.documentId,
-                branchId: null,
-            },
+            allowedWhere: options?.allowAssignedUpdate
+                ? { documentId: doc.documentId }
+                : {
+                    documentId: doc.documentId,
+                    branchId: null,
+                },
             // Monotonicity has to live in the write, not in a prior read: two webhooks for
             // the same document can both read the same stored updatedDate, both decide they
             // are newer, and the older one land last. lte rather than lt so an event that
             // carries no time of its own — it reuses the stored value — still applies.
-            staleGuard: { updatedDate: { lte: doc.updatedDate } },
+            staleGuard: {
+                updatedDate: { lte: doc.updatedDate },
+                ...statusGuard,
+            },
         });
     }
 

@@ -62,7 +62,15 @@ export interface EformsignDocCompletionClaimParams {
 export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missing";
 
 export interface UpsertUnassignedEformsignDocOptions {
+    allowAssignedUpdate?: boolean;
     updateListDisplayFields?: boolean;
+    updateExpired?: boolean;
+    /**
+     * The list endpoint carries no status detail, so a caller working from it only has a
+     * value derived from the step name. Set false there: a new row still needs something,
+     * but overwriting a stored detail — "만료", "거부" — with the derived one loses it.
+     */
+    updateStatusDetail?: boolean;
 }
 
 export interface IEformsignDocRepository {

@@ -31,6 +31,11 @@ import {
     stringFromUnknown,
     type UnknownRecord,
 } from "application/utils/eformsign-document-customer-name";
+import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
+import {
+    normalizeEformsignStatusCode,
+    normalizeEformsignStepType,
+} from "domain/utils/eformsign-status-code";
 import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 function throwHttpOrInternalError(error: unknown): never {
@@ -91,36 +96,6 @@ const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
 const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
 const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
 const CUSTOMER_STEP_KEYWORDS = ["이용자", "고객", "산모"];
-const STATUS_NAME_TO_CODE: Record<string, string> = {
-    doc_tempsave: "001",
-    doc_create: "002",
-    doc_complete: "003",
-    doc_request_approval: "010",
-    doc_reject_approval: "011",
-    doc_accept_approval: "012",
-    doc_request_reception: "020",
-    doc_reject_reception: "021",
-    doc_accept_reception: "022",
-    doc_request_outsider: "030",
-    doc_reject_outsider: "031",
-    doc_accept_outsider: "032",
-    doc_request_revoke: "040",
-    doc_revoke: "042",
-    doc_update: "043",
-    doc_request_reject: "045",
-    doc_request_delete: "047",
-    doc_delete: "049",
-    doc_request_participant: "060",
-    doc_reject_participant: "061",
-    doc_accept_participant: "062",
-    doc_rerequest_participant: "063",
-    doc_open_participant: "064",
-    doc_request_reviewer: "070",
-    doc_reject_reviewer: "071",
-    doc_accept_reviewer: "072",
-    doc_expired: "080",
-    face_signature_complete: "092",
-};
 const CHOSUNG_LIST = [
     "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ",
     "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
@@ -165,19 +140,6 @@ function parseTemplateMatch(value: string | undefined): TemplateMatch {
     throw new BadRequestException("templateMatch must be include or exclude");
 }
 
-function getDocumentTemplateId(document: EformsignListDoc): string | null {
-    const template = isRecord(document["template"]) ? document["template"] : null;
-    const detailTemplate = isRecord(document.detail_template_info)
-        ? document.detail_template_info
-        : null;
-    const candidates = [template?.["id"], detailTemplate?.["id"], document["template_id"]];
-    const templateId = candidates.find(
-        (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
-    );
-
-    return templateId ?? null;
-}
-
 /**
  * `templateId` may be a single id or a comma-separated list (BJJ-multi-tier: the UI passes every
  * configured 제공기록지 tier so documents created on any tier's template are matched). A single id
@@ -199,18 +161,10 @@ function filterDocumentsByTemplate(
     }
 
     return documents.filter((document) => {
-        const documentTemplateId = getDocumentTemplateId(document);
+        const documentTemplateId = eformsignDocumentTemplateId(document);
         const matches = documentTemplateId !== null && templateIds.has(documentTemplateId);
         return templateMatch === "include" ? matches : !matches;
     });
-}
-
-function normalizeStatusCode(code: string | null): string {
-    const normalized = code?.trim().toLowerCase();
-    if (!normalized) {
-        return "000";
-    }
-    return STATUS_NAME_TO_CODE[normalized] ?? normalized.padStart(3, "0");
 }
 
 function getCurrentStatus(document: EformsignListDoc): UnknownRecord | null {
@@ -219,7 +173,9 @@ function getCurrentStatus(document: EformsignListDoc): UnknownRecord | null {
 
 function isProviderReviewStep(document: EformsignListDoc): boolean {
     const currentStatus = getCurrentStatus(document);
-    const stepType = stringFromUnknown(currentStatus?.["step_type"]) ?? "";
+    const stepType = normalizeEformsignStepType(
+        stringFromUnknown(currentStatus?.["step_type"]),
+    );
     const stepName = stringFromUnknown(currentStatus?.["step_name"]) ?? "";
 
     if (PROVIDER_REVIEW_STEP_TYPES.has(stepType)) {
@@ -236,7 +192,7 @@ function isProviderReviewStep(document: EformsignListDoc): boolean {
 
 function getDocumentStatusCategory(document: EformsignListDoc): DocumentStatusCategory {
     const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-    const normalized = normalizeStatusCode(statusType);
+    const normalized = normalizeEformsignStatusCode(statusType);
     if (COMPLETED_STATUS_CODES.has(normalized)) {
         return "completed";
     }
@@ -262,7 +218,7 @@ function filterDocumentsByStatusCategory(
 
     return documents.filter((document) => {
         const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-        if (DELETED_STATUS_CODES.has(normalizeStatusCode(statusType))) {
+        if (DELETED_STATUS_CODES.has(normalizeEformsignStatusCode(statusType))) {
             return false;
         }
         return getDocumentStatusCategory(document) === statusCategory;
@@ -278,7 +234,7 @@ function filterOutDeletedDocuments(
     }
     return documents.filter((document) => {
         const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-        return !DELETED_STATUS_CODES.has(normalizeStatusCode(statusType));
+        return !DELETED_STATUS_CODES.has(normalizeEformsignStatusCode(statusType));
     });
 }
 
@@ -455,11 +411,20 @@ function toStatusSignal(doc: unknown): EformsignStatusSignal {
         };
     }).current_status;
     const stepRecipients = Array.isArray(currentStatus?.step_recipients) ? currentStatus.step_recipients : [];
+    const statusType = stringFromUnknown(currentStatus?.status_type);
+    const stepType = stringFromUnknown(currentStatus?.step_type);
     return {
-        status_type: typeof currentStatus?.status_type === "string" ? currentStatus.status_type : null,
-        step_type: typeof currentStatus?.step_type === "string" ? currentStatus.step_type : null,
-        step_name: typeof currentStatus?.step_name === "string" ? currentStatus.step_name : null,
-        step_recipient_types: stepRecipients.map((r) => (typeof r?.recipient_type === "string" ? r.recipient_type : null)),
+        status_type: statusType === null
+            ? null
+            : normalizeEformsignStatusCode(statusType),
+        step_type: stepType === null
+            ? null
+            : normalizeEformsignStepType(stepType),
+        step_name: stringFromUnknown(currentStatus?.step_name),
+        step_recipient_types: stepRecipients.map((recipient) =>
+            typeof recipient?.recipient_type === "string"
+                ? recipient.recipient_type
+                : null),
     };
 }
 

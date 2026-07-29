@@ -1,6 +1,4 @@
-/**
- * Raw API response types from eformsign API
- */
+/** Normalized eformsign response exposed below the infrastructure boundary. */
 export interface EformsignApiDocumentResponse {
     id: string;
     document_number: string;
@@ -23,8 +21,8 @@ export interface EformsignApiDocumentResponse {
     updated_date: number; // epoch ms
     current_status: {
         status_type: string;
-        status_doc_type: string;
-        status_doc_detail: string;
+        status_doc_type?: string; // detail responses only
+        status_doc_detail?: string; // detail responses only
         step_type: string;
         step_index: string;
         step_name: string;
@@ -34,8 +32,8 @@ export interface EformsignApiDocumentResponse {
             name: string;
         }>;
         step_group: number;
-        expired_date: number; // epoch ms
-        _expired: boolean;
+        expired_date?: number; // remaining days; 0 means no expiry; detail responses only
+        _expired?: boolean; // detail responses only
     };
     fields?: Array<{
         id: string;
@@ -60,7 +58,7 @@ export interface EformsignApiDocumentResponse {
 
 export interface EformsignApiListResponse {
     documents: EformsignApiDocumentResponse[];
-    total_count: number;
+    total_rows: number;
 }
 
 export interface EformsignTokenResponse {
@@ -111,6 +109,36 @@ export interface CreateDocumentResponse {
 export interface IEformsignClientRepository {
     getAccessToken(executionTime: number, memberEmail?: string): Promise<EformsignTokenResponse>;
     refreshAccessToken(executionTime: number, refreshToken: string): Promise<EformsignTokenResponse>;
+    getInProgressDocuments(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiDocumentResponse[]>;
+    getInProgressDocumentsPage(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiListResponse>;
+    getCompletedDocuments(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiDocumentResponse[]>;
+    getCompletedDocumentsPage(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiListResponse>;
+    getRejectedDocuments(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiDocumentResponse[]>;
+    getRejectedDocumentsPage(
+        accessToken: string,
+        limit?: number,
+        skip?: number,
+    ): Promise<EformsignApiListResponse>;
     getAllDocuments(accessToken: string): Promise<EformsignApiDocumentResponse[]>;
     /** Narrow remote lookup used to reconcile an ambiguous document-creation attempt. */
     findDocumentsByTitle?(
