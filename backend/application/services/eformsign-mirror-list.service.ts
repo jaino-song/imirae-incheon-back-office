@@ -15,6 +15,7 @@ import {
 import {
     eformsignListDocFromMirror,
     MIRROR_CUSTOMER_NAME_KEY,
+    MIRROR_DISPLAY_RECIPIENT_NAME_KEY,
     MIRROR_RECIPIENT_NAME_KEY,
 } from "application/utils/eformsign-list-doc-from-mirror";
 import { stringFromUnknown } from "application/utils/eformsign-document-customer-name";
@@ -174,7 +175,7 @@ export function enrichMirrorPage(documents: EformsignListDoc[]): EformsignListDo
  * a customer name. The API path skips those for the same reason.
  */
 function recipientNameAsCustomerName(document: EformsignListDoc): string | null {
-    const recipientName = stringFromUnknown(document[MIRROR_RECIPIENT_NAME_KEY]);
+    const recipientName = stringFromUnknown(document[MIRROR_DISPLAY_RECIPIENT_NAME_KEY]);
     if (!recipientName) {
         return null;
     }

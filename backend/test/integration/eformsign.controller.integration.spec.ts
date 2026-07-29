@@ -495,6 +495,39 @@ describe("EformsignController (Integration)", () => {
             expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-unclaimed"]);
         });
 
+        it("shows a name for an unclaimed headquarters document", async () => {
+            // 미러의 customerName은 목록 응답에서 채워지는데 목록에는 fields가 없어 보통
+            // null이다. 그때 수신자명으로 채우지 않으면 본사 화면에서 "고객 미지정"이 된다 —
+            // 기존 API 경로는 단건 조회로 이름을 찾아왔다.
+            branchFindUnique.mockResolvedValue({ slug: "incheon" });
+            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-unclaimed", customerName: null }),
+            ]);
+            mirrorRepository.findAll.mockResolvedValue([]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(response.body.documents[0].fields).toEqual([
+                { id: "이용자 성명", value: "송진호" },
+            ]);
+        });
+
+        it("does not let that name widen headquarters search", async () => {
+            // 표시용과 검색용은 분리돼 있다. 서빙 경로는 findAll(branchId)로 검색 코퍼스를
+            // 만들어 미배정 문서의 수신자명을 찾지 못하므로, 여기서도 찾으면 안 된다.
+            branchFindUnique.mockResolvedValue({ slug: "incheon" });
+            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-unclaimed", customerName: null }),
+            ]);
+            mirrorRepository.findAll.mockResolvedValue([]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token&search=%EC%86%A1%EC%A7%84%ED%98%B8");
+
+            expect(response.body.documents).toEqual([]);
+        });
+
         it("counts statuses from the same generation the list pages over", async () => {
             mirrorRepository.findAll.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-1", statusType: "060" }),

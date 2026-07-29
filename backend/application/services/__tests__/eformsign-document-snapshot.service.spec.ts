@@ -326,7 +326,10 @@ describe("EformsignDocumentSnapshotService", () => {
         const accessToken = "raw-secret-access-token";
         const params = createParams({ accessToken });
         const tokenHash = createHash("sha256").update(accessToken).digest("hex");
-        const expectedKey = `eformsign:doclist:v1:branch-a:all:${tokenHash}:0`;
+        // The data source is part of the key: a vendor snapshot and a mirror snapshot of
+        // the same scope must never be served for one another, or flipping the switch back
+        // would keep serving the source it was flipped away from.
+        const expectedKey = `eformsign:doclist:v1:api:branch-a:all:${tokenHash}:0`;
         const logSpy = jest.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
         const warnSpy = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
         const service = new EformsignDocumentSnapshotService();

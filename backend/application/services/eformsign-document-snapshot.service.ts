@@ -35,6 +35,12 @@ export interface DocumentSnapshotKeyParams {
     accessToken: string;
     /** 본사(HQ) 뷰 여부 — true면 키에 회사 epoch가 포함돼 타 지점 변이로도 무효화된다. */
     isHeadquarters?: boolean;
+    /**
+     * 이 스냅샷을 만든 데이터 출처. 벤더 스캔 결과와 로컬 미러 결과가 같은 키를 쓰면,
+     * 전환 스위치를 되돌려도 최대 5분간 이전 출처의 스냅샷이 계속 나간다 — 긴급 롤백이
+     * 즉시 듣지 않는다는 뜻이라 스위치를 두는 이유 자체가 사라진다.
+     */
+    source?: "api" | "mirror";
 }
 
 export interface DocumentDisplayFieldEnrichment {
@@ -462,7 +468,8 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
     private snapshotKey(params: DocumentSnapshotKeyParams, version: string): string {
         const tokenHash = this.tokenHash(params.accessToken);
-        return `${SNAPSHOT_KEY_PREFIX}:v${SNAPSHOT_SCHEMA_VERSION}:${params.branchId}:${params.scope}:${tokenHash}:${version}`;
+        const source = params.source ?? "api";
+        return `${SNAPSHOT_KEY_PREFIX}:v${SNAPSHOT_SCHEMA_VERSION}:${source}:${params.branchId}:${params.scope}:${tokenHash}:${version}`;
     }
 
     private versionKey(branchId: string): string {

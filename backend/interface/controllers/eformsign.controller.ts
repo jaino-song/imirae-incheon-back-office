@@ -345,6 +345,7 @@ export class EformsignController {
                 branchId: params.branchId,
                 accessToken: params.accessToken,
                 isHeadquarters: params.isHeadquarters,
+                source: "mirror",
             },
             async () => this.toSnapshotEntries(
                 await this.mirrorListService.loadScopeDocuments(params),
@@ -1073,7 +1074,7 @@ export class EformsignController {
                 // the list can never describe different moments.
                 const countSnapshot = await this.documentSnapshotService
                     .getOrBuild<EformsignListDoc>(
-                        { scope: "all", branchId, accessToken, isHeadquarters },
+                        { scope: "all", branchId, accessToken, isHeadquarters, source: "mirror" },
                         async () => this.toSnapshotEntries(
                             await this.mirrorListService.loadScopeDocuments({
                                 branchId,

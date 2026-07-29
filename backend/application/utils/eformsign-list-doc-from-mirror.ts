@@ -30,6 +30,16 @@ export const MIRROR_CUSTOMER_NAME_KEY = "_mirror_customer_name";
  */
 export const MIRROR_RECIPIENT_NAME_KEY = "_mirror_recipient_name";
 
+/**
+ * The recipient name for *display*, carried for every mirrored row rather than only the
+ * branch's own. The two are separate on purpose: search parity requires headquarters not
+ * to match on an unclaimed document's recipient name, but the list still has to show one.
+ * Without this, an unclaimed document — whose customerName is usually null, because the
+ * reconciliation sweep reads list responses and those carry no fields — would render as
+ * 고객 미지정 where the API path used to fetch the detail and find the name.
+ */
+export const MIRROR_DISPLAY_RECIPIENT_NAME_KEY = "_mirror_display_recipient_name";
+
 export function eformsignListDocFromMirror(document: EformsignDocEntity): EformsignListDoc {
     return {
         id: document.documentId,
@@ -57,6 +67,9 @@ export function eformsignListDocFromMirror(document: EformsignDocEntity): Eforms
         ...(document.customerName === null
             ? {}
             : { [MIRROR_CUSTOMER_NAME_KEY]: document.customerName }),
+        ...(document.stepRecipientName
+            ? { [MIRROR_DISPLAY_RECIPIENT_NAME_KEY]: document.stepRecipientName }
+            : {}),
         // No `fields`, deliberately, even though the mirror holds a customerName. The
         // vendor's list endpoint is fetched without include_fields — only the
         // single-document fetch asks for them — so the served search never sees a customer
