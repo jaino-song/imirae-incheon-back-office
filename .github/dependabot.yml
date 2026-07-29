@@ -5,6 +5,11 @@
 # rebuilds and ships the service. A bump merged there would reach production without ever
 # having run in preview. Pointing at dev puts these through dev -> preview -> main like
 # every other change.
+#
+# This covers version updates only. GitHub applies target-branch to those alone; Dependabot
+# *security* updates keep opening against the default branch and ignore this file, so the
+# direct-to-production path is narrowed here, not closed. Closing it needs branch
+# protection on main, which is a repository setting rather than anything expressible here.
 version: 2
 updates:
   - package-ecosystem: npm

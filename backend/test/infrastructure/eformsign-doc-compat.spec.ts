@@ -2,6 +2,7 @@ import {
     EFORMSIGN_DOC_COMPAT_READ_SELECT,
     eformsignDocCompatReadSelect,
     omitPendingEformsignDocColumns,
+    readWithEformsignDocCompat,
     toCompatDomainRow,
 } from "infrastructure/database/eformsign-doc-compat";
 
@@ -66,6 +67,46 @@ describe("eformsignDocCompatReadSelect", () => {
         );
 
         expect(select).toEqual(EFORMSIGN_DOC_COMPAT_READ_SELECT);
+    });
+});
+
+describe("readWithEformsignDocCompat", () => {
+    it("drops to the floor when the narrowed read still hits a missing column", async () => {
+        // A P2022 names *a* missing column, not the earliest one, and eformsign_doc lists
+        // document_name ahead of template_id in the schema. So a database missing three
+        // migrations can report the second group's column, and keeping the first group
+        // would select columns that are equally absent. Without this second attempt the
+        // narrowed read fails outright — a regression against always using the floor.
+        const read = jest.fn()
+            .mockRejectedValueOnce(missingColumnError("template_id"))
+            .mockResolvedValueOnce({ documentId: "doc-1" });
+
+        const result = await readWithEformsignDocCompat(
+            missingColumnError("document_name"),
+            read,
+        );
+
+        expect(result).toEqual({ documentId: "doc-1" });
+        expect(read).toHaveBeenCalledTimes(2);
+        expect(read.mock.calls[0]![0]).toMatchObject({ templateId: true });
+        expect(read.mock.calls[1]![0]).toEqual(EFORMSIGN_DOC_COMPAT_READ_SELECT);
+    });
+
+    it("does not retry an error that is not about a missing column", async () => {
+        const other = new Error("connection reset");
+        const read = jest.fn().mockRejectedValue(other);
+
+        await expect(readWithEformsignDocCompat(missingColumnError("customer_name"), read))
+            .rejects.toThrow(other);
+        expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not read twice when the narrowed select works", async () => {
+        const read = jest.fn().mockResolvedValue({ documentId: "doc-1" });
+
+        await readWithEformsignDocCompat(missingColumnError("customer_name"), read);
+
+        expect(read).toHaveBeenCalledTimes(1);
     });
 });
 

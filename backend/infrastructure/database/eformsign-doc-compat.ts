@@ -129,6 +129,31 @@ const PENDING_EFORMSIGN_DOC_NULLS = {
  * a second contract for the duration of a deploy window. Writes already narrowed to the
  * missing group; reads now do the same.
  */
+/**
+ * Runs a compatibility read, narrowed by what the error named, and drops to the floor if
+ * that narrowed read still hits a missing column.
+ *
+ * The second attempt is not belt-and-braces. A P2022 names *a* missing column, not the
+ * earliest one — Postgres reports whichever it resolved first, and `eformsign_doc` lists
+ * `document_name` ahead of `template_id` in the schema. So a database missing three
+ * migrations can report the second group's column, and keeping the first group would then
+ * select columns that are equally absent. The floor predates every pending migration and
+ * cannot fail, which is what makes one retry enough for any number of missing groups.
+ */
+export const readWithEformsignDocCompat = async <TRow>(
+    error: unknown,
+    read: (select: Prisma.eformsign_docSelect) => Promise<TRow>,
+): Promise<TRow> => {
+    try {
+        return await read(eformsignDocCompatReadSelect(error));
+    } catch (narrowedError) {
+        if (!isPendingEformsignDocColumnError(narrowedError)) {
+            throw narrowedError;
+        }
+        return read({ ...EFORMSIGN_DOC_COMPAT_READ_SELECT });
+    }
+};
+
 export const eformsignDocCompatReadSelect = (
     error: unknown,
 ): Prisma.eformsign_docSelect => {

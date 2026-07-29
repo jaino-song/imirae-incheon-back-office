@@ -19,7 +19,7 @@ import {
     UpsertUnassignedEformsignDocOptions,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import {
-    eformsignDocCompatReadSelect,
+    readWithEformsignDocCompat,
     isPendingEformsignDocColumnError,
     omitPendingEformsignDocColumns,
     toCompatDomainRow,
@@ -73,13 +73,11 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 throw error;
             }
 
-            const doc = await this.prismaService.eformsign_doc.findUnique({
-                where: { documentId },
-                select: {
-                    ...eformsignDocCompatReadSelect(error),
-                    branchId: true,
-                },
-            });
+            const doc = await readWithEformsignDocCompat(error, (select) =>
+                this.prismaService.eformsign_doc.findUnique({
+                    where: { documentId },
+                    select: { ...select, branchId: true },
+                }));
             return doc
                 ? toUnscopedResult(documentId, {
                     ...toCompatDomainRow(doc),
@@ -315,10 +313,11 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 throw error;
             }
 
-            const created = await this.prismaService.eformsign_doc.create({
-                data: omitPendingEformsignDocColumns(data, error),
-                select: eformsignDocCompatReadSelect(error),
-            });
+            const created = await readWithEformsignDocCompat(error, (select) =>
+                this.prismaService.eformsign_doc.create({
+                    data: omitPendingEformsignDocColumns(data, error),
+                    select,
+                }));
             return EformsignDocMapper.toDomain(toCompatDomainRow(created));
         }
     }
@@ -564,10 +563,12 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         if (updated.count === 0) {
             try {
                 if (compatibilityError !== undefined) {
-                    const created = await this.prismaService.eformsign_doc.create({
-                        data: params.create,
-                        select: eformsignDocCompatReadSelect(compatibilityError),
-                    });
+                    const created = await readWithEformsignDocCompat(
+                        compatibilityError,
+                        (select) => this.prismaService.eformsign_doc.create({
+                            data: params.create,
+                            select,
+                        }));
                     return EformsignDocMapper.toDomain(toCompatDomainRow(created));
                 }
 
@@ -615,10 +616,8 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 throw error;
             }
 
-            const doc = await this.prismaService.eformsign_doc.findFirst({
-                where,
-                select: eformsignDocCompatReadSelect(error),
-            });
+            const doc = await readWithEformsignDocCompat(error, (select) =>
+                this.prismaService.eformsign_doc.findFirst({ where, select }));
             return doc ? EformsignDocMapper.toDomain(toCompatDomainRow(doc)) : null;
         }
     }
@@ -632,10 +631,8 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 throw error;
             }
 
-            const docs = await this.prismaService.eformsign_doc.findMany({
-                where,
-                select: eformsignDocCompatReadSelect(error),
-            });
+            const docs = await readWithEformsignDocCompat(error, (select) =>
+                this.prismaService.eformsign_doc.findMany({ where, select }));
             return docs.map((doc) => EformsignDocMapper.toDomain(toCompatDomainRow(doc)));
         }
     }
