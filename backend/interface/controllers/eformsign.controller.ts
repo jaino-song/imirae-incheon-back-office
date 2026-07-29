@@ -65,7 +65,10 @@ import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 const SHADOW_SCOPE_CATEGORIES: Partial<Record<string, DocumentStatusCategory[]>> = {
     "in-progress": ["drafting", "in-progress"],
     completed: ["completed"],
-    rejected: ["expired"],
+    // "unknown" is here because getDocumentStatusCategory puts the deleted codes 047 and
+    // 049 there, while the desktop's expired set counts them as expired and does not ask
+    // for excludeDeleted — so users do see them in this tab.
+    rejected: ["expired", "unknown"],
 };
 
 /**
@@ -76,6 +79,7 @@ function buildShadowServed(
     filteredDocuments: EformsignListDoc[],
     scannedDocuments: EformsignListDoc[],
     scopeCategories: DocumentStatusCategory[] | undefined,
+    scanCapped: boolean,
 ) {
     const comparable = scopeCategories === undefined
         ? filteredDocuments
@@ -94,6 +98,7 @@ function buildShadowServed(
         // can drop every old document and would otherwise make the vendor's range look far
         // newer than it was, hiding real extras.
         oldestScannedAt: oldestScannedTimestamp(scannedDocuments),
+        scanCapped,
     };
 }
 
@@ -333,6 +338,23 @@ export class EformsignController {
     ) { }
 
     /**
+     * Whether the last vendor scan for a scope stopped at the page cap. Kept here rather
+     * than in the snapshot because the snapshot's cached shape is shared with three other
+     * endpoints and serialised; this is written whenever a scan actually runs, so a cache
+     * hit reuses the value from the scan that produced the very snapshot being served.
+     * Bounded by branches × scopes, and only ever read by the shadow comparison.
+     */
+    private readonly lastScanCapped = new Map<string, boolean>();
+
+    private rememberScan(
+        scanKey: string,
+        scan: { documents: EformsignListDoc[]; capped: boolean },
+    ): EformsignListDoc[] {
+        this.lastScanCapped.set(scanKey, scan.capped);
+        return scan.documents;
+    }
+
+    /**
      * 인천점(staff slug=incheon)은 본사 성격이라 지점에 매여 있지 않은 문서까지 본다:
      * 자기가 만든 문서 + 지점 매핑이 없는(branchId 미지정) 문서. 단, 다른 지점이
      * 소유한 문서는 제외한다. 그 외 지점은 자기 지점이 만든(=로컬에 적재된) 문서만 본다.
@@ -385,7 +407,7 @@ export class EformsignController {
         branchId: string,
         fetchPage: (limit: number, skip: number) => Promise<{ documents?: EformsignListDoc[] }> =
             (limit, skip) => this.eformsignService.getAllDocuments(accessToken, limit, skip),
-    ): Promise<EformsignListDoc[]> {
+    ): Promise<{ documents: EformsignListDoc[]; capped: boolean }> {
         const PAGE_SIZE = 100;
         const MAX_PAGES = 10;
         const scanStartedAt = Date.now();
@@ -422,14 +444,21 @@ export class EformsignController {
         this.logger.log(
             `scanCompanyDocuments branch=${branchId} pages=${pagesFetched} matched=${collected.size} tookMs=${Date.now() - scanStartedAt}`,
         );
-        return sortDocumentsByCreatedDate(Array.from(collected.values()));
+        // `capped` says the vendor has more we never looked at. Without it, a scan that
+        // simply ran out of documents is indistinguishable from one that stopped at the
+        // page limit — and the shadow comparison would have to treat a genuinely stale
+        // mirror row and an unreachable old one the same way.
+        return {
+            documents: sortDocumentsByCreatedDate(Array.from(collected.values())),
+            capped: !exhausted,
+        };
     }
 
     private async collectBranchScopedDocuments(
         accessToken: string,
         branchId: string,
         fetchPage: (limit: number, skip: number) => Promise<{ documents?: EformsignListDoc[] }>,
-    ): Promise<EformsignListDoc[]> {
+    ): Promise<{ documents: EformsignListDoc[]; capped: boolean }> {
         if (await this.isHeadquartersBranch(branchId)) {
             const otherBranchIds = new Set(
                 await this.eformsignDocService.findDocumentIdsForOtherBranches(branchId),
@@ -446,7 +475,8 @@ export class EformsignController {
         const localDocs = await this.eformsignDocService.findAll(branchId);
         const allowedIds = new Set(localDocs.map((doc) => doc.documentId));
         if (allowedIds.size === 0) {
-            return [];
+            // Nothing local to look for, so nothing was left unscanned either.
+            return { documents: [], capped: false };
         }
         return this.scanCompanyDocuments(
             accessToken,
@@ -534,6 +564,7 @@ export class EformsignController {
         shadow?: {
             scope: string;
             isHeadquarters: boolean;
+            scanCapped: boolean;
             scopeCategories?: DocumentStatusCategory[];
         },
     ) {
@@ -572,7 +603,12 @@ export class EformsignController {
                     search,
                     excludeDeleted,
                 },
-                buildShadowServed(filteredDocuments, documents, shadow.scopeCategories),
+                buildShadowServed(
+                    filteredDocuments,
+                    documents,
+                    shadow.scopeCategories,
+                    shadow.scanCapped,
+                ),
             );
         }
         return {
@@ -602,10 +638,14 @@ export class EformsignController {
         search?: string,
     ) {
         const isHeadquarters = await this.isHeadquartersBranch(branchId);
+        const scanKey = `${scope}:${branchId}`;
         const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
             { scope, branchId, accessToken, isHeadquarters },
             async () => this.toSnapshotEntries(
-                await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage),
+                this.rememberScan(
+                    scanKey,
+                    await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage),
+                ),
             ),
         );
         return this.paginateSnapshot(
@@ -622,6 +662,7 @@ export class EformsignController {
             {
                 scope,
                 isHeadquarters,
+                scanCapped: this.lastScanCapped.get(scanKey) ?? false,
                 ...(SHADOW_SCOPE_CATEGORIES[scope]
                     ? { scopeCategories: SHADOW_SCOPE_CATEGORIES[scope] }
                     : {}),
@@ -635,11 +676,15 @@ export class EformsignController {
      * 빈 페이지에서 무한스크롤이 멈춰 누락되므로, 회사 페이지를 훑어 지점 문서를 모은다.
      * 지점 보유 documentId 집합 크기를 기대 개수로 삼아 다 찾으면 조기 종료한다.
      */
-    private async collectBranchDocuments(accessToken: string, branchId: string): Promise<EformsignListDoc[]> {
+    private async collectBranchDocuments(
+        accessToken: string,
+        branchId: string,
+    ): Promise<{ documents: EformsignListDoc[]; capped: boolean }> {
         const localDocs = await this.eformsignDocService.findAll(branchId);
         const allowedIds = new Set(localDocs.map((doc) => doc.documentId));
         if (allowedIds.size === 0) {
-            return [];
+            // Nothing local to look for, so nothing was left unscanned either.
+            return { documents: [], capped: false };
         }
         return this.scanCompanyDocuments(
             accessToken,
@@ -654,7 +699,10 @@ export class EformsignController {
      * 즉 인천이 만든 문서 + 지점 매핑이 없는(branchId null/미적재) 문서를 본다. 제외할
      * 집합만 알 뿐 기대 개수를 알 수 없어, 페이지 상한까지 전수 스캔(targetCount=null)한다.
      */
-    private async collectHeadquartersDocuments(accessToken: string, incheonBranchId: string): Promise<EformsignListDoc[]> {
+    private async collectHeadquartersDocuments(
+        accessToken: string,
+        incheonBranchId: string,
+    ): Promise<{ documents: EformsignListDoc[]; capped: boolean }> {
         const otherBranchIds = new Set(
             await this.eformsignDocService.findDocumentIdsForOtherBranches(incheonBranchId),
         );
@@ -920,11 +968,15 @@ export class EformsignController {
 
             // 인천점(본사): 회사 전체에서 다른 지점 소유분만 빼고 모은 뒤 요청 구간만 잘라 반환.
             // (필터링 때문에 외부 페이지네이션을 그대로 흘리면 페이지 경계에 빈틈이 생긴다.)
+            const scanKey = `all:${branchId}`;
             if (await this.isHeadquartersBranch(branchId)) {
                 const hqSnapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
                     { scope: "all", branchId, accessToken, isHeadquarters: true },
                     async () => this.toSnapshotEntries(
-                        await this.collectHeadquartersDocuments(accessToken, branchId),
+                        this.rememberScan(
+                            scanKey,
+                            await this.collectHeadquartersDocuments(accessToken, branchId),
+                        ),
                     ),
                 );
                 return this.paginateSnapshot(
@@ -938,7 +990,11 @@ export class EformsignController {
                     statusCategory,
                     search,
                     excludeDeleted,
-                    { scope: "all", isHeadquarters: true },
+                    {
+                        scope: "all",
+                        isHeadquarters: true,
+                        scanCapped: this.lastScanCapped.get(scanKey) ?? false,
+                    },
                 );
             }
 
@@ -948,7 +1004,10 @@ export class EformsignController {
             const branchSnapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
                 { scope: "all", branchId, accessToken },
                 async () => this.toSnapshotEntries(
-                    await this.collectBranchDocuments(accessToken, branchId),
+                    this.rememberScan(
+                        scanKey,
+                        await this.collectBranchDocuments(accessToken, branchId),
+                    ),
                 ),
             );
             return this.paginateSnapshot(
@@ -962,7 +1021,11 @@ export class EformsignController {
                 statusCategory,
                 search,
                 excludeDeleted,
-                { scope: "all", isHeadquarters: false },
+                {
+                    scope: "all",
+                    isHeadquarters: false,
+                    scanCapped: this.lastScanCapped.get(scanKey) ?? false,
+                },
             );
         } catch (error) {
             throwHttpOrInternalError(error);
@@ -1000,9 +1063,12 @@ export class EformsignController {
             const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
                 { scope: "all", branchId, accessToken, isHeadquarters },
                 async () => this.toSnapshotEntries(
-                    isHeadquarters
-                        ? await this.collectHeadquartersDocuments(accessToken, branchId)
-                        : await this.collectBranchDocuments(accessToken, branchId),
+                    this.rememberScan(
+                        `all:${branchId}`,
+                        isHeadquarters
+                            ? await this.collectHeadquartersDocuments(accessToken, branchId)
+                            : await this.collectBranchDocuments(accessToken, branchId),
+                    ),
                 ),
             );
             // 모바일 필터 pill 카운터용: 목록과 동일한 선(先)필터를 적용한 뒤 신호만 내려준다.

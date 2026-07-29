@@ -77,6 +77,9 @@ function servedFrom(
         oldestScannedAt: ordered.length > 0
             ? ordered[ordered.length - 1]!.createdDate.getTime()
             : undefined,
+        // Most tests are about a capped scan, where an old mirror-only row is expected;
+        // the exhaustive case is asserted on its own below.
+        scanCapped: true,
         ...overrides,
     };
 }
@@ -430,6 +433,35 @@ describe("EformsignListShadowCompareService", () => {
         const message = logger.warn.mock.calls[0]?.[0] ?? "";
         expect(message).toContain("localOnlyNoScanRange=doc-old");
         expect(message).not.toContain("extra=");
+        expect(message).not.toContain("olderThanScanned=");
+    });
+
+    it("calls an old mirror-only row a real extra when the scan was exhaustive", async () => {
+        // A scan that ran out of pages saw everything, so the vendor genuinely does not
+        // have this document — its age says nothing. Suppressing it would be the one way
+        // this comparison could bless a mirror that is wrong.
+        const recent = createMirrorDocument({
+            documentId: "doc-new",
+            createdDate: "2026-07-05T00:00:00.000Z",
+        });
+        repository.findAll.mockResolvedValue([
+            recent,
+            createMirrorDocument({
+                documentId: "doc-ancient",
+                createdDate: "2024-01-01T00:00:00.000Z",
+            }),
+        ]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(
+            createQuery(),
+            servedFrom([recent], { scanCapped: false }),
+        );
+        await settle();
+
+        const message = logger.warn.mock.calls[0]?.[0] ?? "";
+        expect(message).toContain("extra=doc-ancient");
         expect(message).not.toContain("olderThanScanned=");
     });
 

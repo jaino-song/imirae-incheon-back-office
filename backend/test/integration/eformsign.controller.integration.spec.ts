@@ -466,7 +466,9 @@ describe("EformsignController (Integration)", () => {
         expect(shadowCompareService.compareInBackground).toHaveBeenCalledWith(
             expect.objectContaining({
                 scope: "rejected",
-                scopeCategories: ["expired"],
+                // "unknown" carries the deleted codes 047/049, which the desktop's expired
+                // set counts as expired and shows without asking for excludeDeleted.
+                scopeCategories: ["expired", "unknown"],
             }),
             expect.objectContaining({ documentIds: ["expired-doc"] }),
         );

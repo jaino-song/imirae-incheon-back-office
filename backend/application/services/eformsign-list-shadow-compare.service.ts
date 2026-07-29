@@ -83,6 +83,12 @@ export interface ListShadowCompareServed {
      * the scan's own warning in the same logs.
      */
     oldestScannedAt: number | undefined;
+    /**
+     * Whether the vendor scan stopped at its page cap. A scan that simply ran out is
+     * exhaustive, so a mirrored row the vendor did not return is stale however old it is —
+     * suppressing those would be the one way this comparison could bless a wrong mirror.
+     */
+    scanCapped: boolean;
 }
 
 /** How many differing ids to name before the log becomes noise rather than evidence. */
@@ -164,6 +170,12 @@ export class EformsignListShadowCompareService {
         const unclassifiable: string[] = [];
         for (const id of local.documentIds) {
             if (servedSet.has(id)) {
+                continue;
+            }
+            if (!served.scanCapped) {
+                // Exhaustive scan: the vendor does not have this document, whatever its
+                // age. That is a real disagreement.
+                extra.push(id);
                 continue;
             }
             if (served.oldestScannedAt === undefined) {
