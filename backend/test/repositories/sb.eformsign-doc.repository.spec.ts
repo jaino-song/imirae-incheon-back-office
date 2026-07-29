@@ -78,6 +78,24 @@ describe("SbEformsignDocRepository", () => {
         jest.clearAllMocks();
     });
 
+    it("flips expired only on open documents whose expiry date has passed", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 3 });
+        const now = new Date("2026-07-29T00:00:00.000Z");
+
+        await expect(repository.markExpiredDocuments(now)).resolves.toBe(3);
+
+        const { where, data } = eformsignDocModel.updateMany.mock.calls[0][0];
+        expect(data).toEqual({ expired: true });
+        expect(where.expired).toBe(false);
+        expect(where.expiredDate).toEqual({ lte: now });
+        // A contract completed last year is past its expiry date too. Relabelling it
+        // expired would be a lie the list would then show.
+        expect(where.statusType.notIn).toEqual(
+            expect.arrayContaining(["003", "050", "080", "099"]),
+        );
+        expect(where.statusType.notIn).not.toContain("060");
+    });
+
     it("retries client document reads with legacy columns when classification columns are pending", async () => {
         eformsignDocModel.findMany
             .mockRejectedValueOnce(pendingColumnError)

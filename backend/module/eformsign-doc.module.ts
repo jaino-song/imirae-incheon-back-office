@@ -40,6 +40,7 @@ import { EformsignDocController } from "interface/controllers/eformsign-doc.cont
 import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/eformsign-doc/create-and-send-service-record-snapshot.usecase";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
 import {
     createEformsignBackfillRedisClient,
     EFORMSIGN_BACKFILL_REDIS_CLIENT,
@@ -86,6 +87,7 @@ import {
         ContractClientAssignmentGuardService,
         EformsignDocumentSnapshotService,
         EformsignBackfillLockService,
+        EformsignDocReconcileSchedulerService,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
