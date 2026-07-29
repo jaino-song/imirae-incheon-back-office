@@ -13,6 +13,7 @@ import { FetchAllEformsignDocsFromApiUsecase } from "./fetch-all-eformsign-docs-
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 
 const DEFAULT_DOCUMENT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
@@ -52,6 +53,7 @@ interface CreatedDocumentStatus {
     stepIndex: string;
     stepName: string;
     expiredDate: Date;
+    templateName?: string;
 }
 
 /**
@@ -94,9 +96,11 @@ export class DispatchDocumentHeadlessUsecase {
             const refreshToken = tokenResponse.oauth_token.refresh_token;
 
             let templateId: string | undefined;
+            let templateName: string | null = null;
             if (params.contractData.area) {
                 const areaTemplate = await this.areaTemplateService.findByArea(branchId, params.contractData.area);
                 templateId = areaTemplate?.templateId;
+                templateName = areaTemplate?.templateName ?? null;
             }
 
             if (!params.force) {
@@ -123,6 +127,9 @@ export class DispatchDocumentHeadlessUsecase {
                 refreshToken,
                 templateId,
             ) as Record<string, unknown>;
+            const documentName = (
+                documentOption["prefill"] as { document_name?: unknown } | undefined
+            )?.document_name;
 
             const result = await this.headlessService.dispatchCreation({
                 documentOption,
@@ -181,6 +188,7 @@ export class DispatchDocumentHeadlessUsecase {
                 try {
                     await this.createEformsignDocUsecase.execute(branchId, {
                     documentId,
+                    documentName: typeof documentName === "string" ? documentName : null,
                     clientId: params.clientId,
                     statusType: createdDocumentStatus.statusType,
                     statusDetail: createdDocumentStatus.statusDetail,
@@ -194,6 +202,8 @@ export class DispatchDocumentHeadlessUsecase {
                     linkToClient: true,
                     documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
                     templateId: templateId ?? null,
+                    templateName: createdDocumentStatus.templateName ?? templateName,
+                    customerName: params.contractData.customerName,
                     });
                 } catch (error) {
                     this.logger.error(`Failed to persist doc record for ${documentId}: ${error}`);
@@ -271,7 +281,11 @@ export class DispatchDocumentHeadlessUsecase {
                 stepType: currentStatus?.step_type?.trim() || fallback.stepType,
                 stepIndex: currentStatus?.step_index?.trim() || fallback.stepIndex,
                 stepName: currentStatus?.step_name?.trim() || fallback.stepName,
-                expiredDate: this.expiredDateFromEpoch(currentStatus?.expired_date) ?? fallback.expiredDate,
+                expiredDate: eformsignExpiryDateFromRemainingDays(
+                    currentStatus?.expired_date,
+                    Date.now(),
+                ),
+                templateName: document.template?.name?.trim() || undefined,
             };
         } catch (error) {
             const reason = error instanceof Error ? error.message : "unknown error";
@@ -307,10 +321,4 @@ export class DispatchDocumentHeadlessUsecase {
         return stepName?.trim() || "진행중";
     }
 
-    private expiredDateFromEpoch(expiredDate: number | null | undefined): Date | null {
-        if (!expiredDate || expiredDate <= 0) {
-            return null;
-        }
-        return new Date(expiredDate);
-    }
 }

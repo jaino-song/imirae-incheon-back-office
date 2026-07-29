@@ -1,13 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 
+import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
+import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
 
 import { CreateEformsignDocResult, CreateEformsignDocUsecase } from "./create-eformsign-doc.usecase";
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
-
-const DEFAULT_DOCUMENT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface AdoptEformsignDocParams {
     documentId: string;
@@ -49,12 +49,21 @@ export class AdoptEformsignDocUsecase {
             stepRecipientType: recipient?.recipient_type || "01",
             stepRecipientName: recipient?.name || remote.document_name || "수신자",
             stepRecipientSms: recipient?.id || "미확인",
-            expiredDate: remote.current_status.expired_date
-                ? new Date(remote.current_status.expired_date)
-                : new Date(Date.now() + DEFAULT_DOCUMENT_EXPIRY_MS),
+            expiredDate: eformsignExpiryDateFromRemainingDays(
+                remote.current_status.expired_date,
+                Date.now(),
+            ),
             linkToClient: true,
             documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
             templateId: remote.template?.id ?? null,
+            documentName: remote.document_name,
+            templateName: remote.template?.name ?? null,
+            customerName: documentCustomerNameValue(remote),
+            creatorName: remote.creator?.name ?? null,
+            lastEditorName: remote.last_editor?.name ?? null,
+            stepRecipientTypes: remote.current_status.step_recipients
+                ?.map((item) => item.recipient_type)
+                ?? null,
         });
     }
 }

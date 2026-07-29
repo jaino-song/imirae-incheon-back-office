@@ -3,7 +3,10 @@ import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-
 describe("DispatchDocumentHeadlessUsecase", () => {
     it("persists the current eformsign status after headless creation", async () => {
         const eformsignService = {
-            generateDocumentOptions: jest.fn().mockReturnValue({ mode: { type: "01" } }),
+            generateDocumentOptions: jest.fn().mockReturnValue({
+                mode: { type: "01" },
+                prefill: { document_name: "산모신생아건강관리서비스 계약서" },
+            }),
         };
         const headlessService = {
             dispatchCreation: jest.fn().mockResolvedValue({
@@ -86,12 +89,15 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             "branch-1",
             expect.objectContaining({
                 documentId: "doc-1",
+                documentName: "산모신생아건강관리서비스 계약서",
                 clientId: 7,
                 statusType: "003",
                 statusDetail: "완료",
                 stepType: "01",
                 stepIndex: "4",
                 stepName: "완료",
+                templateName: "서구 계약서 (검토 단계)",
+                customerName: "김고객",
             }),
         );
     });
@@ -164,6 +170,7 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             "branch-1",
             expect.objectContaining({
                 documentId: "doc-2",
+                documentName: null,
                 clientId: 8,
                 statusType: "060",
                 statusDetail: "서명 요청됨",

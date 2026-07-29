@@ -141,6 +141,7 @@ describe("CreateEformsignDocUsecase", () => {
     it("stores service-record snapshot linkage without updating the client contract pointer", async () => {
         const result = await usecase.execute(branchId, createParams({
             documentId: "service-record-doc-1",
+            documentName: "서비스 제공기록지 - 김고객",
             linkToClient: false,
             documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
             employeeScheduleId: 33,
@@ -150,6 +151,41 @@ describe("CreateEformsignDocUsecase", () => {
         expect(result.documentKind).toBe(EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT);
         expect(result.employeeScheduleId).toBe(33);
         expect(result.templateId).toBe("service-record-template-1");
+        expect(result.documentName).toBe("서비스 제공기록지 - 김고객");
         expect(clientRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("stores a known template name", async () => {
+        const client = createClient(7, "010-1234-5678");
+        clientRepository.findById.mockResolvedValue(client);
+
+        const result = await usecase.execute(branchId, createParams({
+            templateName: "표준 계약서",
+        }));
+
+        expect(result.templateName).toBe("표준 계약서");
+    });
+
+    it("stores the customer name the caller carried", async () => {
+        const client = createClient(7, "010-1234-5678");
+        clientRepository.findById.mockResolvedValue(client);
+
+        const result = await usecase.execute(branchId, createParams({
+            customerName: "김산모",
+        }));
+
+        expect(result.customerName).toBe("김산모");
+    });
+
+    it("leaves the customer name null rather than substituting the linked client", async () => {
+        // A document with no customer-name field is resolved by the list's own chain, not
+        // from the client row — so filling it in here would make the mirror disagree with
+        // what the list shows.
+        const client = createClient(7, "010-1234-5678");
+        clientRepository.findById.mockResolvedValue(client);
+
+        const result = await usecase.execute(branchId, createParams({}));
+
+        expect(result.customerName).toBeNull();
     });
 });

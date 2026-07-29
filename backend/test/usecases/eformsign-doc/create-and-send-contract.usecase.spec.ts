@@ -58,4 +58,41 @@ describe("CreateAndSendContractUsecase", () => {
             remoteDocumentId: "remote-1",
         }));
     });
+
+    it("persists the same document name sent to eformsign", async () => {
+        const createDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+        const persistDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: persistDocument } as never,
+            { assertAssignedClient: jest.fn() } as never,
+        );
+
+        await usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+            templateName: "표준계약서",
+        });
+
+        expect(createDocument).toHaveBeenCalledWith(
+            "token",
+            expect.objectContaining({ documentName: "표준계약서 - 김고객" }),
+        );
+        expect(persistDocument).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({
+                documentName: "표준계약서 - 김고객",
+                templateName: "표준계약서",
+                customerName: "김고객",
+            }),
+        );
+    });
 });

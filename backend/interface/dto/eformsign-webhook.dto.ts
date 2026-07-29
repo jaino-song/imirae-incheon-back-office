@@ -17,6 +17,7 @@ import { Type } from "class-transformer";
  * - doc_deleted: 삭제됨
  * - doc_request_revoke: 철회 요청
  * - doc_revoke: 철회됨
+ * - doc_expired: 만료됨
  * And more...
  */
 class WebhookDocumentDto {

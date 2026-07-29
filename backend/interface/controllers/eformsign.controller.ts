@@ -1,5 +1,5 @@
 import { BadRequestException, Controller, Post, Get, Delete, Body, Query, Param, HttpException, HttpStatus, UseGuards, Res, Logger } from "@nestjs/common";
-import { EformsignService, getDocumentCreatedTimestamp } from "../../application/services/eformsign.service";
+import { EformsignService } from "../../application/services/eformsign.service";
 import { EformsignDocService } from "../../application/services/eformsign-doc.service";
 import { AreaTemplateService } from "../../application/services/area-template.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -25,6 +25,62 @@ import {
     DocumentSnapshotScope,
     EformsignDocumentSnapshotService,
 } from "application/services/eformsign-document-snapshot.service";
+import {
+    documentCustomerNameValue,
+    stringFromUnknown,
+} from "application/utils/eformsign-document-customer-name";
+import {
+    eformsignListCompareFields,
+    EformsignListShadowCompareService,
+} from "application/services/eformsign-list-shadow-compare.service";
+import { ConfigService } from "@nestjs/config";
+import {
+    EformsignMirrorListService,
+    enrichMirrorPage,
+} from "application/services/eformsign-mirror-list.service";
+import {
+    documentSearchIndex,
+    documentSearchValues,
+    filterDocumentsByStatusCategory,
+    filterDocumentsByTemplate,
+    eformsignListScopeSelector,
+    filterOutDeletedDocuments,
+    matchesKoreanSearch,
+    sortDocumentsByCreatedDate,
+    type DocumentStatusCategory,
+    type EformsignListDoc,
+    type TemplateMatch,
+} from "application/utils/eformsign-document-list";
+import {
+    normalizeEformsignStatusCode,
+    normalizeEformsignStepType,
+} from "domain/utils/eformsign-status-code";
+import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+
+/**
+ * The served side of a shadow comparison: the whole filtered set rather than the page, so
+ * a single disagreement early in the list is not re-reported at every later page boundary.
+ */
+function buildShadowServed(filteredDocuments: EformsignListDoc[], scope: string) {
+    // A vendor inbox is not a tab: type 04 is eformsign's document-management inbox and
+    // carries in-progress and completed documents too, which the client filters out by
+    // status before rendering. Narrowing both sides the same way is what makes the
+    // comparison answer the question that matters — would the tab show the same thing.
+    const scopeSelector = eformsignListScopeSelector(scope);
+    const comparable = scopeSelector === undefined
+        ? filteredDocuments
+        : filteredDocuments.filter(scopeSelector);
+
+    return {
+        documentIds: comparable.map((document) => document.id),
+        fieldsById: new Map(
+            comparable.map((document) => [
+                document.id,
+                eformsignListCompareFields(document),
+            ] as const),
+        ),
+    };
+}
 
 function throwHttpOrInternalError(error: unknown): never {
     if (error instanceof HttpException) {
@@ -65,59 +121,6 @@ function parseDownloadFileType(value: string | undefined): DownloadFileType {
     throw new BadRequestException("fileType must be document or audit_trail");
 }
 
-type EformsignListDoc = {
-    id: string;
-    created_date?: unknown;
-    createdDate?: unknown;
-    fields?: unknown;
-    detail_template_info?: unknown;
-} & Record<string, unknown>;
-
-type TemplateMatch = "include" | "exclude";
-type DocumentStatusCategory = "drafting" | "in-progress" | "completed" | "expired" | "unknown";
-
-const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
-const EXPIRED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080", "090"]);
-const DELETED_STATUS_CODES = new Set(["047", "049"]);
-const IN_PROGRESS_STATUS_CODES = new Set(["001", "002", "010", "020", "030", "043", "060", "063", "064", "070"]);
-const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
-const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
-const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
-const CUSTOMER_STEP_KEYWORDS = ["이용자", "고객", "산모"];
-const STATUS_NAME_TO_CODE: Record<string, string> = {
-    doc_tempsave: "001",
-    doc_create: "002",
-    doc_complete: "003",
-    doc_request_approval: "010",
-    doc_reject_approval: "011",
-    doc_accept_approval: "012",
-    doc_request_reception: "020",
-    doc_reject_reception: "021",
-    doc_accept_reception: "022",
-    doc_request_outsider: "030",
-    doc_reject_outsider: "031",
-    doc_accept_outsider: "032",
-    doc_request_revoke: "040",
-    doc_revoke: "042",
-    doc_update: "043",
-    doc_request_reject: "045",
-    doc_request_delete: "047",
-    doc_delete: "049",
-    doc_request_participant: "060",
-    doc_reject_participant: "061",
-    doc_accept_participant: "062",
-    doc_rerequest_participant: "063",
-    doc_open_participant: "064",
-    doc_request_reviewer: "070",
-    doc_reject_reviewer: "071",
-    doc_accept_reviewer: "072",
-    doc_expired: "080",
-    face_signature_complete: "092",
-};
-const CHOSUNG_LIST = [
-    "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ",
-    "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
-] as const;
 
 function parseStatusCategory(value: string | undefined): DocumentStatusCategory | undefined {
     const normalized = value?.trim();
@@ -158,173 +161,6 @@ function parseTemplateMatch(value: string | undefined): TemplateMatch {
     throw new BadRequestException("templateMatch must be include or exclude");
 }
 
-function getDocumentTemplateId(document: EformsignListDoc): string | null {
-    const template = isRecord(document["template"]) ? document["template"] : null;
-    const detailTemplate = isRecord(document.detail_template_info)
-        ? document.detail_template_info
-        : null;
-    const candidates = [template?.["id"], detailTemplate?.["id"], document["template_id"]];
-    const templateId = candidates.find(
-        (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
-    );
-
-    return templateId ?? null;
-}
-
-/**
- * `templateId` may be a single id or a comma-separated list (BJJ-multi-tier: the UI passes every
- * configured 제공기록지 tier so documents created on any tier's template are matched). A single id
- * is naturally backward-compatible since it round-trips through the same split/trim/Set path.
- */
-function filterDocumentsByTemplate(
-    documents: EformsignListDoc[],
-    templateId: string | undefined,
-    templateMatch: TemplateMatch,
-): EformsignListDoc[] {
-    if (!templateId) {
-        return documents;
-    }
-    const templateIds = new Set(
-        templateId.split(",").map((id) => id.trim()).filter((id) => id.length > 0),
-    );
-    if (templateIds.size === 0) {
-        return documents;
-    }
-
-    return documents.filter((document) => {
-        const documentTemplateId = getDocumentTemplateId(document);
-        const matches = documentTemplateId !== null && templateIds.has(documentTemplateId);
-        return templateMatch === "include" ? matches : !matches;
-    });
-}
-
-function normalizeStatusCode(code: string | null): string {
-    const normalized = code?.trim().toLowerCase();
-    if (!normalized) {
-        return "000";
-    }
-    return STATUS_NAME_TO_CODE[normalized] ?? normalized.padStart(3, "0");
-}
-
-function getCurrentStatus(document: EformsignListDoc): UnknownRecord | null {
-    return isRecord(document["current_status"]) ? document["current_status"] : null;
-}
-
-function isProviderReviewStep(document: EformsignListDoc): boolean {
-    const currentStatus = getCurrentStatus(document);
-    const stepType = stringFromUnknown(currentStatus?.["step_type"]) ?? "";
-    const stepName = stringFromUnknown(currentStatus?.["step_name"]) ?? "";
-
-    if (PROVIDER_REVIEW_STEP_TYPES.has(stepType)) {
-        return true;
-    }
-    if (!stepName || CUSTOMER_STEP_KEYWORDS.some((keyword) => stepName.includes(keyword))) {
-        return false;
-    }
-
-    const hasProviderOwner = PROVIDER_REVIEW_OWNER_KEYWORDS.some((keyword) => stepName.includes(keyword));
-    const hasReviewAction = PROVIDER_REVIEW_ACTION_KEYWORDS.some((keyword) => stepName.includes(keyword));
-    return hasProviderOwner && hasReviewAction;
-}
-
-function getDocumentStatusCategory(document: EformsignListDoc): DocumentStatusCategory {
-    const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-    const normalized = normalizeStatusCode(statusType);
-    if (COMPLETED_STATUS_CODES.has(normalized)) {
-        return "completed";
-    }
-    if (EXPIRED_STATUS_CODES.has(normalized) && !DELETED_STATUS_CODES.has(normalized)) {
-        return "expired";
-    }
-    if (DELETED_STATUS_CODES.has(normalized)) {
-        return "unknown";
-    }
-    if (!IN_PROGRESS_STATUS_CODES.has(normalized)) {
-        return "unknown";
-    }
-    return isProviderReviewStep(document) ? "in-progress" : "drafting";
-}
-
-function filterDocumentsByStatusCategory(
-    documents: EformsignListDoc[],
-    statusCategory: DocumentStatusCategory | undefined,
-): EformsignListDoc[] {
-    if (!statusCategory) {
-        return documents;
-    }
-
-    return documents.filter((document) => {
-        const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-        if (DELETED_STATUS_CODES.has(normalizeStatusCode(statusType))) {
-            return false;
-        }
-        return getDocumentStatusCategory(document) === statusCategory;
-    });
-}
-
-function filterOutDeletedDocuments(
-    documents: EformsignListDoc[],
-    excludeDeleted: boolean,
-): EformsignListDoc[] {
-    if (!excludeDeleted) {
-        return documents;
-    }
-    return documents.filter((document) => {
-        const statusType = stringFromUnknown(getCurrentStatus(document)?.["status_type"]);
-        return !DELETED_STATUS_CODES.has(normalizeStatusCode(statusType));
-    });
-}
-
-function getChosung(character: string): string {
-    const code = character.charCodeAt(0);
-    if (code >= 0xac00 && code <= 0xd7a3) {
-        return CHOSUNG_LIST[Math.floor((code - 0xac00) / 588)] ?? character;
-    }
-    return character;
-}
-
-function matchesKoreanSearch(target: string, query: string): boolean {
-    const normalizedTarget = target.normalize("NFC");
-    if (normalizedTarget.toLowerCase().includes(query.toLowerCase())) {
-        return true;
-    }
-
-    const hasChosung = query.split("").some((character) =>
-        CHOSUNG_LIST.includes(character as (typeof CHOSUNG_LIST)[number]),
-    );
-    if (!hasChosung) {
-        return false;
-    }
-
-    const targetChosung = normalizedTarget.split("").map(getChosung).join("").replace(/\s/g, "");
-    return targetChosung.startsWith(query);
-}
-
-function sortDocumentsByCreatedDate(documents: EformsignListDoc[]): EformsignListDoc[] {
-    return [...documents].sort((a, b) => {
-        const byCreated = getDocumentCreatedTimestamp(b) - getDocumentCreatedTimestamp(a);
-        if (byCreated !== 0) {
-            return byCreated;
-        }
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-}
-
-const CUSTOMER_NAME_FIELD_IDS = [
-    "이용자 성명",
-    "이용자성명",
-    "고객 성명",
-    "고객성명",
-    "고객명",
-    "산모 성명",
-    "산모성명",
-    "산모명",
-    "성명",
-    "customerName",
-    "clientName",
-    "userName",
-] as const;
-
 const DEFAULT_DETAIL_ENRICHMENT_CONCURRENCY = 8;
 const DETAIL_ENRICHMENT_CONCURRENCY_ENV = "EFORMSIGN_DETAIL_ENRICHMENT_CONCURRENCY";
 const DETAIL_ENRICHMENT_BUDGET_MS = 5_000;
@@ -338,6 +174,10 @@ function getDetailEnrichmentConcurrency(): number {
 }
 
 function isEformsignRateLimitError(error: unknown): boolean {
+    if (error instanceof EformsignApiError && error.status === 429) {
+        return true;
+    }
+
     if (error && typeof error === "object") {
         const directStatus = (error as { status?: unknown }).status;
         const responseStatus = (error as { response?: { status?: unknown } }).response?.status;
@@ -356,130 +196,8 @@ async function waitForDetailEnrichmentRetry(delayMs: number): Promise<void> {
     });
 }
 
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return typeof value === "object" && value !== null;
-}
-
-function collectRecords(value: unknown, depth = 0): UnknownRecord[] {
-    if (depth > 6 || value == null) return [];
-    if (Array.isArray(value)) return value.flatMap((item) => collectRecords(item, depth + 1));
-    if (!isRecord(value)) return [];
-    return [value, ...Object.values(value).flatMap((item) => collectRecords(item, depth + 1))];
-}
-
-function stringFromUnknown(value: unknown): string | null {
-    if (typeof value === "string") {
-        const trimmed = value.trim();
-        return trimmed.length > 0 ? trimmed : null;
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-        return String(value);
-    }
-    return null;
-}
-
-function normalizeFieldId(value: string): string {
-    return value.replace(/[\s_\-:/.()[\]{}]+/g, "").toLowerCase();
-}
-
-function canUseReverseContains(value: string): boolean {
-    return /^[a-z0-9]+$/.test(value) && value.length >= 5;
-}
-
-function isCustomerNameKey(key: string): boolean {
-    const normalizedKey = normalizeFieldId(key);
-    return CUSTOMER_NAME_FIELD_IDS.map(normalizeFieldId).some(
-        (id) =>
-            normalizedKey === id ||
-            normalizedKey.includes(id) ||
-            (canUseReverseContains(normalizedKey) && id.includes(normalizedKey)),
-    );
-}
-
-function valueFromFieldRecord(record: UnknownRecord): string | null {
-    const valueKeys = ["value", "field_value", "fieldValue", "input_value", "inputValue", "data", "text"] as const;
-    for (const key of valueKeys) {
-        const value = stringFromUnknown(record[key]);
-        if (value) return value;
-    }
-    for (const nested of collectRecords(record).slice(1)) {
-        for (const key of valueKeys) {
-            const value = stringFromUnknown(nested[key]);
-            if (value) return value;
-        }
-    }
-    return null;
-}
-
-function documentCustomerNameValue(doc: EformsignListDoc): string | null {
-    for (const source of [doc.fields, doc.detail_template_info]) {
-        for (const record of collectRecords(source)) {
-            for (const [key, rawValue] of Object.entries(record)) {
-                if (!isCustomerNameKey(key)) continue;
-                const value = stringFromUnknown(rawValue) ?? valueFromFieldRecord({ value: rawValue });
-                if (value) {
-                    return value;
-                }
-            }
-        }
-    }
-
-    for (const record of collectRecords(doc.fields)) {
-        const idTokens = [
-            stringFromUnknown(record["id"]),
-            stringFromUnknown(record["field_id"]),
-            stringFromUnknown(record["fieldId"]),
-            stringFromUnknown(record["name"]),
-            stringFromUnknown(record["label"]),
-            stringFromUnknown(record["field_name"]),
-            stringFromUnknown(record["fieldName"]),
-            stringFromUnknown(record["display_name"]),
-            stringFromUnknown(record["displayName"]),
-            stringFromUnknown(record["input_id"]),
-            stringFromUnknown(record["inputId"]),
-        ].filter((value): value is string => Boolean(value));
-
-        if (idTokens.some(isCustomerNameKey)) {
-            const value = valueFromFieldRecord(record);
-            if (value) {
-                return value;
-            }
-        }
-    }
-
-    return null;
-}
-
 function documentHasCustomerNameField(doc: EformsignListDoc): boolean {
     return documentCustomerNameValue(doc) !== null;
-}
-
-function documentSearchValues(document: EformsignListDoc, localValues: string[]): string[] {
-    const template = isRecord(document["template"]) ? document["template"] : null;
-    const templateName = (stringFromUnknown(template?.["name"]) ?? "").replace(/\s*계약서$/, "");
-    const documentNumber = (
-        stringFromUnknown(document["document_number"]) ?? document.id?.slice(0, 16)
-    ) || "-";
-
-    return [
-        documentCustomerNameValue(document) ?? "고객 미지정",
-        ...localValues,
-        stringFromUnknown(document["document_name"]) ?? "",
-        templateName,
-        documentNumber,
-    ];
-}
-
-/**
- * 문서 자체에서 파생되는 검색 값(고객명/문서명/템플릿명/문서번호)만 미리 뽑아 스냅샷에 넣는다.
- * 로컬 DB에서 오는 값(stepRecipientName)은 검색어가 있을 때만 조회하는 기존 동작을 유지하기
- * 위해 여기에 포함하지 않고, 질의 시점에 합쳐 쓴다. 빈 문자열은 어떤 검색어와도 매칭되지
- * 않으므로 제거해 스냅샷 크기를 줄인다.
- */
-function documentSearchIndex(document: EformsignListDoc): string[] {
-    return documentSearchValues(document, []).filter((value) => value.length > 0);
 }
 
 function hasCollectionValues(value: unknown): boolean {
@@ -555,11 +273,20 @@ function toStatusSignal(doc: unknown): EformsignStatusSignal {
         };
     }).current_status;
     const stepRecipients = Array.isArray(currentStatus?.step_recipients) ? currentStatus.step_recipients : [];
+    const statusType = stringFromUnknown(currentStatus?.status_type);
+    const stepType = stringFromUnknown(currentStatus?.step_type);
     return {
-        status_type: typeof currentStatus?.status_type === "string" ? currentStatus.status_type : null,
-        step_type: typeof currentStatus?.step_type === "string" ? currentStatus.step_type : null,
-        step_name: typeof currentStatus?.step_name === "string" ? currentStatus.step_name : null,
-        step_recipient_types: stepRecipients.map((r) => (typeof r?.recipient_type === "string" ? r.recipient_type : null)),
+        status_type: statusType === null
+            ? null
+            : normalizeEformsignStatusCode(statusType),
+        step_type: stepType === null
+            ? null
+            : normalizeEformsignStepType(stepType),
+        step_name: stringFromUnknown(currentStatus?.step_name),
+        step_recipient_types: stepRecipients.map((recipient) =>
+            typeof recipient?.recipient_type === "string"
+                ? recipient.recipient_type
+                : null),
     };
 }
 
@@ -575,7 +302,75 @@ export class EformsignController {
         private readonly prisma: PrismaService,
         private readonly assignmentGuard: ContractClientAssignmentGuardService,
         private readonly documentSnapshotService: EformsignDocumentSnapshotService,
+        private readonly listShadowCompareService: EformsignListShadowCompareService,
+        private readonly mirrorListService: EformsignMirrorListService,
+        private readonly configService: ConfigService,
     ) { }
+
+    /**
+     * Whether the list is answered from the local mirror instead of scanning eformsign.
+     *
+     * The switch stays until the shadow log has read clean for long enough that nobody
+     * wants it back — reverting has to be a config change, not a deploy, because the whole
+     * point of the staged rollout is that this step is the reversible one.
+     */
+    private servesFromMirror(): boolean {
+        return this.configService.get<string>("EFORMSIGN_LIST_FROM_MIRROR") === "true";
+    }
+
+    /**
+     * The list, answered locally.
+     *
+     * No access token: this path never calls the vendor, so it has no credential to spend
+     * and nothing that varies by one. The endpoint still requires callers to send it —
+     * that check is unchanged — it just does not reach the cache or the query.
+     */
+    private async listFromMirror(params: {
+        branchId: string;
+        isHeadquarters: boolean;
+        scope: string;
+        limit: number;
+        skip: number;
+        templateId?: string;
+        templateMatch: TemplateMatch;
+        statusCategory?: DocumentStatusCategory;
+        search?: string;
+        excludeDeleted?: boolean;
+    }) {
+        // Through the same snapshot the API path uses. Not for the vendor calls it saves —
+        // there are none here — but because pagination has to walk one generation: a
+        // document leaving the set between two pages shifts the rest up, and the page the
+        // client asks for next then skips one it never saw.
+        const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
+            {
+                scope: params.scope as DocumentSnapshotScope,
+                branchId: params.branchId,
+                isHeadquarters: params.isHeadquarters,
+                source: "mirror",
+            },
+            async () => this.toSnapshotEntries(
+                await this.mirrorListService.loadScopeDocuments(params),
+            ),
+        );
+        const { documents } = this.mirrorListService.filterScope(
+            snapshot.entries.map((entry) => entry.document),
+            params,
+        );
+        const page = documents.slice(params.skip, params.skip + params.limit);
+
+        return {
+            documents: enrichMirrorPage(page),
+            total_rows: documents.length,
+            limit: params.limit,
+            skip: params.skip,
+            has_more: params.skip + params.limit < documents.length,
+            // The client resets its pagination when a later page reports a different
+            // generation. Without this it has no way to notice that the list moved under
+            // it, and would quietly skip whatever the shift displaced.
+            ...(snapshot.snapshotVersion ? { snapshot_version: snapshot.snapshotVersion } : {}),
+        };
+    }
+
 
     /**
      * 인천점(staff slug=incheon)은 본사 성격이라 지점에 매여 있지 않은 문서까지 본다:
@@ -776,6 +571,7 @@ export class EformsignController {
         statusCategory: DocumentStatusCategory | undefined,
         search: string | undefined,
         excludeDeleted = false,
+        shadow?: { scope: string; isHeadquarters: boolean },
     ) {
         const documents = snapshot.entries.map((entry) => entry.document);
         const searchIndexByDocumentId = new Map(
@@ -792,6 +588,26 @@ export class EformsignController {
             searchIndexByDocumentId,
         );
         const pageDocuments = filteredDocuments.slice(skip, skip + limit);
+        if (shadow) {
+            // Answer the same page from the mirror and report only where the two disagree.
+            // Nothing below waits on it: the served response is the API's, exactly as it
+            // was, until the diffs have been zero for long enough to trust the switch.
+            this.listShadowCompareService.compareInBackground(
+                {
+                    branchId,
+                    isHeadquarters: shadow.isHeadquarters,
+                    scope: shadow.scope,
+                    limit,
+                    skip,
+                    templateId,
+                    templateMatch,
+                    statusCategory,
+                    search,
+                    excludeDeleted,
+                },
+                buildShadowServed(filteredDocuments, shadow.scope),
+            );
+        }
         return {
             documents: await this.enrichDocumentsWithDisplayFields(
                 branchId,
@@ -818,8 +634,26 @@ export class EformsignController {
         statusCategory?: DocumentStatusCategory,
         search?: string,
     ) {
+        const isHeadquarters = await this.isHeadquartersBranch(branchId);
+        if (this.servesFromMirror()) {
+            // The tab is answered from status codes, not from which vendor inbox the
+            // document sat in — the mirror does not record that, and the shadow comparison
+            // has been measuring exactly this substitution.
+            return await this.listFromMirror({
+                branchId,
+                isHeadquarters,
+                scope,
+                limit,
+                skip,
+                templateId,
+                templateMatch,
+                statusCategory,
+                search,
+            });
+        }
+
         const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
-            { scope, branchId, accessToken, isHeadquarters: await this.isHeadquartersBranch(branchId) },
+            { scope, branchId, accessToken, isHeadquarters },
             async () => this.toSnapshotEntries(
                 await this.collectBranchScopedDocuments(accessToken, branchId, fetchPage),
             ),
@@ -834,6 +668,8 @@ export class EformsignController {
             templateMatch,
             statusCategory,
             search,
+            false,
+            { scope, isHeadquarters },
         );
     }
 
@@ -843,7 +679,10 @@ export class EformsignController {
      * 빈 페이지에서 무한스크롤이 멈춰 누락되므로, 회사 페이지를 훑어 지점 문서를 모은다.
      * 지점 보유 documentId 집합 크기를 기대 개수로 삼아 다 찾으면 조기 종료한다.
      */
-    private async collectBranchDocuments(accessToken: string, branchId: string): Promise<EformsignListDoc[]> {
+    private async collectBranchDocuments(
+        accessToken: string,
+        branchId: string,
+    ): Promise<EformsignListDoc[]> {
         const localDocs = await this.eformsignDocService.findAll(branchId);
         const allowedIds = new Set(localDocs.map((doc) => doc.documentId));
         if (allowedIds.size === 0) {
@@ -862,7 +701,10 @@ export class EformsignController {
      * 즉 인천이 만든 문서 + 지점 매핑이 없는(branchId null/미적재) 문서를 본다. 제외할
      * 집합만 알 뿐 기대 개수를 알 수 없어, 페이지 상한까지 전수 스캔(targetCount=null)한다.
      */
-    private async collectHeadquartersDocuments(accessToken: string, incheonBranchId: string): Promise<EformsignListDoc[]> {
+    private async collectHeadquartersDocuments(
+        accessToken: string,
+        incheonBranchId: string,
+    ): Promise<EformsignListDoc[]> {
         const otherBranchIds = new Set(
             await this.eformsignDocService.findDocumentIdsForOtherBranches(incheonBranchId),
         );
@@ -1126,9 +968,25 @@ export class EformsignController {
             const excludeDeleted = excludeDeletedValue === "true";
             const branchId = tenant.branchId ?? "";
 
+            const isHeadquarters = await this.isHeadquartersBranch(branchId);
+            if (this.servesFromMirror()) {
+                return await this.listFromMirror({
+                    branchId,
+                    isHeadquarters,
+                    scope: "all",
+                    limit: parsedLimit,
+                    skip: parsedSkip,
+                    templateId,
+                    templateMatch,
+                    statusCategory,
+                    search,
+                    excludeDeleted,
+                });
+            }
+
             // 인천점(본사): 회사 전체에서 다른 지점 소유분만 빼고 모은 뒤 요청 구간만 잘라 반환.
             // (필터링 때문에 외부 페이지네이션을 그대로 흘리면 페이지 경계에 빈틈이 생긴다.)
-            if (await this.isHeadquartersBranch(branchId)) {
+            if (isHeadquarters) {
                 const hqSnapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
                     { scope: "all", branchId, accessToken, isHeadquarters: true },
                     async () => this.toSnapshotEntries(
@@ -1146,6 +1004,10 @@ export class EformsignController {
                     statusCategory,
                     search,
                     excludeDeleted,
+                    {
+                        scope: "all",
+                        isHeadquarters: true,
+                    },
                 );
             }
 
@@ -1169,6 +1031,10 @@ export class EformsignController {
                 statusCategory,
                 search,
                 excludeDeleted,
+                {
+                    scope: "all",
+                    isHeadquarters: false,
+                },
             );
         } catch (error) {
             throwHttpOrInternalError(error);
@@ -1203,6 +1069,37 @@ export class EformsignController {
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
             // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
+            if (this.servesFromMirror()) {
+                // Same filters as the list, and the same source — the counters and the
+                // list have to agree, which is why they shared a snapshot generation
+                // before and share a query now.
+                // The same snapshot generation the list is paginating, so the counters and
+                // the list can never describe different moments.
+                const countSnapshot = await this.documentSnapshotService
+                    .getOrBuild<EformsignListDoc>(
+                        { scope: "all", branchId, isHeadquarters, source: "mirror" },
+                        async () => this.toSnapshotEntries(
+                            await this.mirrorListService.loadScopeDocuments({
+                                branchId,
+                                isHeadquarters,
+                            }),
+                        ),
+                    );
+                const { documents } = this.mirrorListService.filterScope(
+                    countSnapshot.entries.map((entry) => entry.document),
+                    {
+                        branchId,
+                        isHeadquarters,
+                        scope: "all",
+                        templateId,
+                        templateMatch,
+                        search,
+                        excludeDeleted,
+                    },
+                );
+                return { documents: documents.map((doc) => toStatusSignal(doc)) };
+            }
+
             const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
                 { scope: "all", branchId, accessToken, isHeadquarters },
                 async () => this.toSnapshotEntries(

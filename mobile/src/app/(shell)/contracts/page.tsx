@@ -2181,6 +2181,7 @@ export default function ContractsPage() {
               ) : isInitialLoad && hasMore ? (
                 <ListLoadMoreButton
                   onLoadMore={loadMore}
+                  isLoading={isFetchingNextPage}
                   data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_button"
                 />
               ) : null
@@ -2309,6 +2310,7 @@ export default function ContractsPage() {
                 {!isInitialLoad && hasMore && (
                   <ListLoadMoreSentinel
                     sentinelRef={sentinelRef}
+                    isLoading={isFetchingNextPage}
                     data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_load-sentinel"
                   />
                 )}

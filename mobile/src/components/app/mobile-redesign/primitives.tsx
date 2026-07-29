@@ -7,6 +7,8 @@ import { ChevronDown, ChevronRight, FileCheck2, type LucideIcon } from "lucide-r
 
 import { StatusPill } from "@/components/app/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
 import { ListCardBody } from "./ListCardBody";
 import { ListCardHeader } from "./ListCardHeader";
 import { ListCardLoadMore } from "./ListCardLoadMore";
@@ -25,21 +27,35 @@ const CONTRACT_LIST_SOURCE_COMPONENT = "ContractList";
 export function ListLoadMoreButton({
   "data-component": dataComponent,
   onLoadMore,
+  isLoading = false,
 }: {
   "data-component": string;
   onLoadMore: () => void;
+  /** True while the next page is being fetched. Disables the button and swaps the affordance for a spinner. */
+  isLoading?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onLoadMore}
-      className="peek-bounce flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-v3-primary"
+      disabled={isLoading}
+      aria-busy={isLoading}
+      className={cn(
+        "flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-v3-primary",
+        isLoading ? "cursor-default" : "peek-bounce"
+      )}
       data-component={dataComponent}
       data-source-component={LIST_LOAD_MORE_BUTTON_SOURCE_COMPONENT}
       aria-label="더 많은 항목 불러오기"
     >
-      <span className="text-[0.78rem] font-bold">탭하여 더보기</span>
-      <ChevronDown size={20} strokeWidth={2.5} />
+      {isLoading ? (
+        <Spinner size="sm" data-component={`${dataComponent}_spinner`} />
+      ) : (
+        <>
+          <span className="text-[0.78rem] font-bold">탭하여 더보기</span>
+          <ChevronDown size={20} strokeWidth={2.5} />
+        </>
+      )}
     </button>
   );
 }
@@ -47,10 +63,28 @@ export function ListLoadMoreButton({
 export function ListLoadMoreSentinel({
   "data-component": dataComponent,
   sentinelRef,
+  isLoading = false,
 }: {
   "data-component": string;
   sentinelRef: RefObject<HTMLDivElement | null>;
+  /** True while the next page is being fetched. Renders a visible spinner instead of the invisible trigger div. */
+  isLoading?: boolean;
 }) {
+  if (isLoading) {
+    return (
+      <div
+        ref={sentinelRef}
+        role="status"
+        aria-label="더 많은 항목 불러오는 중"
+        className="flex min-h-[44px] items-center justify-center py-2 text-v3-primary"
+        data-component={dataComponent}
+        data-source-component={LIST_LOAD_MORE_SENTINEL_SOURCE_COMPONENT}
+      >
+        <Spinner size="sm" data-component={`${dataComponent}_spinner`} />
+      </div>
+    );
+  }
+
   return (
     <div
       ref={sentinelRef}

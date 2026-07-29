@@ -30,12 +30,21 @@ describe("LinkDocumentToClientUsecase", () => {
 
     const createDoc = (overrides: Partial<{
         clientId: number | null;
+        documentName: string | null;
+        documentNumber: string | null;
         documentKind: EformsignDocEntity["documentKind"];
         stepRecipientSms: string;
     }> = {}): EformsignDocEntity =>
         EformsignDocEntity.reconstitute({
             id: 1,
             documentId,
+            documentName: overrides.documentName ?? "기존 문서명",
+            documentNumber: overrides.documentNumber ?? "DOC-001",
+            templateName: "기존 템플릿명",
+            customerName: "기존 고객명",
+            creatorName: "기존 생성자",
+            lastEditorName: "기존 편집자",
+            stepRecipientTypes: ["05", "06"],
             createdDate: new Date("2026-07-01T00:00:00.000Z"),
             updatedDate: new Date("2026-07-01T00:00:00.000Z"),
             statusType: "060",
@@ -84,7 +93,17 @@ describe("LinkDocumentToClientUsecase", () => {
         expect(clientRepository.findByPhone).toHaveBeenCalledWith(branchId, "01012345678");
         expect(eformsignDocRepository.update).toHaveBeenCalledWith(
             branchId,
-            expect.objectContaining({ clientId: 12, documentId }),
+            expect.objectContaining({
+                clientId: 12,
+                documentId,
+                documentName: "기존 문서명",
+                documentNumber: "DOC-001",
+                templateName: "기존 템플릿명",
+                customerName: "기존 고객명",
+                creatorName: "기존 생성자",
+                lastEditorName: "기존 편집자",
+                stepRecipientTypes: ["05", "06"],
+            }),
         );
         expect(phoneMatchedClient.eDocId).toBe(documentId);
         expect(clientRepository.update).toHaveBeenCalledWith(branchId, phoneMatchedClient);

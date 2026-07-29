@@ -20,6 +20,8 @@ import {
     DispatchDocumentHeadlessUsecase,
     FinalizeDocumentHeadlessUsecase,
     AdoptEformsignDocUsecase,
+    MirrorUnassignedEformsignDocUsecase,
+    BackfillEformsignDocsUsecase,
 } from "application/usecases/eformsign-doc";
 import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_CLIENT_REPOSITORY } from "domain/repositories/eformsign.client.interface";
@@ -38,6 +40,12 @@ import { EformsignDocController } from "interface/controllers/eformsign-doc.cont
 import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/eformsign-doc/create-and-send-service-record-snapshot.usecase";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
+import {
+    createEformsignBackfillRedisClient,
+    EFORMSIGN_BACKFILL_REDIS_CLIENT,
+    EformsignBackfillLockService,
+} from "infrastructure/locking/eformsign-backfill-lock.service";
 
 @Module({
     imports: [DatabaseModule, AreaTemplateModule],
@@ -68,6 +76,8 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
         DispatchDocumentHeadlessUsecase,
         FinalizeDocumentHeadlessUsecase,
         AdoptEformsignDocUsecase,
+        MirrorUnassignedEformsignDocUsecase,
+        BackfillEformsignDocsUsecase,
         // Services
         EformsignDocService,
         EformsignService,
@@ -76,6 +86,8 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
         EformsignHeadlessProgressService,
         ContractClientAssignmentGuardService,
         EformsignDocumentSnapshotService,
+        EformsignBackfillLockService,
+        EformsignDocReconcileSchedulerService,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
@@ -90,6 +102,11 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
             provide: CLIENT_REPOSITORY,
             useClass: SbClientRepository,
         },
+        {
+            provide: EFORMSIGN_BACKFILL_REDIS_CLIENT,
+            inject: [ConfigService],
+            useFactory: createEformsignBackfillRedisClient,
+        },
     ],
     exports: [
         EformsignDocService,
@@ -100,6 +117,9 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
         EFORMSIGN_DOC_REPOSITORY,
         CreateAndSendServiceRecordSnapshotUsecase,
         EformsignDocumentSnapshotService,
+        MirrorUnassignedEformsignDocUsecase,
+        BackfillEformsignDocsUsecase,
+        EformsignBackfillLockService,
     ],
 })
 export class EformsignDocModule {}
