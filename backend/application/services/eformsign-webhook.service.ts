@@ -776,7 +776,12 @@ export class EformsignWebhookService {
             stepName,
             expired,
         });
-        await this.eformsignDocRepository.upsertUnassignedByDocumentId(updated);
+        // A webhook carries no creation time; this entity copies it from the row we just
+        // read. Writing it back would undo a creation-time repair the nightly sweep made
+        // between that read and this write, and put the list's sort key wrong again.
+        await this.eformsignDocRepository.upsertUnassignedByDocumentId(updated, {
+            updateCreatedDate: false,
+        });
         this.logger.log(
             `Updated unassigned document ${existing.documentId} from webhook ${webhook_id}: event_type=${event_type}`,
         );

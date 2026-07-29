@@ -41,6 +41,7 @@ describe("EformsignController display-field enrichment", () => {
             {} as never,
             {} as never,
             snapshotService,
+            { compareInBackground: jest.fn() } as never,
         ) as unknown as EnrichmentController;
         eformsignDocService.findDisplayFieldsByDocumentIds.mockResolvedValue([]);
     });

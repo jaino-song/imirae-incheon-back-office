@@ -9,6 +9,7 @@ import { TenantGuard } from "infrastructure/tenant";
 import { EformsignController } from "interface/controllers/eformsign.controller";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import { EformsignListShadowCompareService } from "application/services/eformsign-list-shadow-compare.service";
 import request from "supertest";
 
 // Known transport-level flake (~1/8 full-suite runs under parallel-worker
@@ -31,6 +32,7 @@ describe("EformsignController (Integration)", () => {
         | "downloadDocumentFile"
         | "getAllDocuments"
         | "getInProgressDocuments"
+        | "getRejectedDocuments"
         | "getCompletedDocuments"
         | "getDocumentById"
     >>;
@@ -61,7 +63,10 @@ describe("EformsignController (Integration)", () => {
         },
     };
 
+    const shadowCompareService = { compareInBackground: jest.fn() };
+
     beforeEach(async () => {
+        shadowCompareService.compareInBackground.mockClear();
         const moduleFixture: TestingModule = await Test.createTestingModule({
             controllers: [EformsignController],
             providers: [
@@ -76,6 +81,7 @@ describe("EformsignController (Integration)", () => {
                         downloadDocumentFile: jest.fn(),
                         getAllDocuments: jest.fn(),
                         getInProgressDocuments: jest.fn(),
+                        getRejectedDocuments: jest.fn(),
                         getCompletedDocuments: jest.fn(),
                         getDocumentById: jest.fn(),
                     },
@@ -109,6 +115,12 @@ describe("EformsignController (Integration)", () => {
                 // 실제 구현을 그대로 쓴다. VALKEY_URL이 없는 테스트 환경에서는 프로세스
                 // 로컬 in-memory 스토어로 동작하고, 인스턴스는 테스트마다 새로 만들어진다.
                 EformsignDocumentSnapshotService,
+                {
+                    // 그림자 비교는 서빙 결과에 영향을 주지 않아야 한다. 여기서 호출만
+                    // 기록하고 아무것도 하지 않게 두면, 응답 검증이 그 사실을 보증한다.
+                    provide: EformsignListShadowCompareService,
+                    useValue: shadowCompareService,
+                },
             ],
         })
             .overrideGuard(JwtGuard)
@@ -280,6 +292,39 @@ describe("EformsignController (Integration)", () => {
         );
     });
 
+    it("hands the served page to the shadow comparison without changing it", async () => {
+        // D단계의 계약: 화면에 나가는 것은 여전히 외부 API 결과이고, 미러는 같은 질문에
+        // 따로 답해 차이만 로그로 남긴다. 비교가 응답을 건드리면 그 계약이 깨진다.
+        eformsignService.getAllDocuments.mockResolvedValue({
+            documents: [{ id: "branch-1-doc" }, { id: "other-branch-doc" }],
+            total_rows: 2,
+            limit: 100,
+            skip: 0,
+        });
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as any);
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&search=branch");
+
+        expect(response.status).toBe(200);
+        expect(response.body.documents).toHaveLength(1);
+        expect(shadowCompareService.compareInBackground).toHaveBeenCalledWith(
+            expect.objectContaining({
+                branchId: "branch-1",
+                scope: "all",
+                isHeadquarters: false,
+                search: "branch",
+            }),
+            expect.objectContaining({
+                // The whole filtered set, which for this request is also the page.
+                documentIds: response.body.documents.map((doc: { id: string }) => doc.id),
+                fieldsById: expect.any(Map),
+            }),
+        );
+    });
+
     it("returns only documents created by the current branch (getAllDocuments)", async () => {
         eformsignService.getAllDocuments.mockResolvedValue({
             documents: [
@@ -392,6 +437,35 @@ describe("EformsignController (Integration)", () => {
         expect(response.status).toBe(200);
         expect(response.body.documents).toEqual([{ id: "branch-1-doc" }]);
         expect(eformsignDocService.findAll).toHaveBeenCalledWith("branch-1");
+    });
+
+    it("compares the rejected tab by status, not by which inbox the vendor used", async () => {
+        // Type 04 is eformsign's document-management inbox, not a rejected-only one: it
+        // carries in-progress and completed documents too, which the client filters out
+        // by status. Handing the raw inbox to the comparison would report every one of
+        // those as missing from a mirror that is in fact correct.
+        eformsignService.getRejectedDocuments.mockResolvedValue({
+            documents: [
+                { id: "expired-doc", current_status: { status_type: "080" } },
+                { id: "still-open-doc", current_status: { status_type: "060" } },
+            ],
+        });
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "expired-doc" },
+            { documentId: "still-open-doc" },
+        ] as any);
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents/rejected?accessToken=access-token");
+
+        expect(response.status).toBe(200);
+        // The endpoint itself still returns what the inbox held — only the comparison is
+        // narrowed, because that is what the tab actually shows.
+        expect(response.body.documents).toHaveLength(2);
+        expect(shadowCompareService.compareInBackground).toHaveBeenCalledWith(
+            expect.objectContaining({ scope: "rejected" }),
+            expect.objectContaining({ documentIds: ["expired-doc"] }),
+        );
     });
 
     it("finds current-branch status documents after pages containing only other branches", async () => {

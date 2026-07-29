@@ -184,6 +184,17 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         return this.findManyDomain({ branchId: branchid });
     }
 
+    async findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]> {
+        // Mirrors the scan filter the API path uses: headquarters keeps everything except
+        // what another branch owns, so an unclaimed document (branchId null) stays in.
+        return this.findManyDomain({
+            OR: [
+                { branchId: branchid },
+                { branchId: null },
+            ],
+        });
+    }
+
     async findDocumentIdsForOtherBranches(branchid: string): Promise<string[]> {
         // 다른 지점이 소유한 문서의 documentId만 추린다. branchId가 null인(미적재) 문서는
         // "지점 미지정"이라 인천(본사) 목록에 남아야 하므로 제외한다. Prisma의 `not`은
@@ -399,6 +410,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             stepName: doc.stepName,
             ...(options?.updateExpired === false ? {} : { expired: doc.expired }),
             ...(options?.updateExpiredDate === false ? {} : { expiredDate: doc.expiredDate }),
+            ...(options?.updateCreatedDate === false ? {} : { createdDate: doc.createdDate }),
             updatedDate: doc.updatedDate,
             ...(documentName ? { documentName } : {}),
             ...(documentNumber ? { documentNumber } : {}),
@@ -458,6 +470,14 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 updatedDate: { lte: doc.updatedDate },
                 ...statusGuard,
             },
+            // Creation time is not state, so a refusal on ordering grounds must not take
+            // it down with the rest. It has to be that way: a row written by create or
+            // adopt carries the moment we wrote it, which is *newer* than the vendor's own
+            // updated_date for an unchanged old document — so the guard refuses, and the
+            // rows this repair exists for are exactly the ones it would never reach.
+            ...(options?.updateCreatedDate === false
+                ? {}
+                : { repairCreatedDateWhenStale: doc.createdDate }),
         });
     }
 
@@ -467,6 +487,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         update: Prisma.eformsign_docUpdateManyMutationInput;
         allowedWhere: Prisma.eformsign_docWhereInput;
         staleGuard?: Prisma.eformsign_docWhereInput;
+        repairCreatedDateWhenStale?: Date;
     }): Promise<EformsignDocEntity> {
         try {
             return await this.attemptConditionalUpsertByDocumentId(params, false);
@@ -490,6 +511,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             update: Prisma.eformsign_docUpdateManyMutationInput;
             allowedWhere: Prisma.eformsign_docWhereInput;
             staleGuard?: Prisma.eformsign_docWhereInput;
+            repairCreatedDateWhenStale?: Date;
         },
         compatibilityMode: boolean,
     ): Promise<EformsignDocEntity> {
@@ -514,9 +536,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             const ownedCount = await this.prismaService.eformsign_doc.count({
                 where: params.allowedWhere,
             });
-            throw ownedCount > 0
-                ? new EformsignDocStaleUpdateError(params.documentId)
-                : new EformsignDocOwnershipConflictError(params.documentId);
+            if (ownedCount === 0) {
+                throw new EformsignDocOwnershipConflictError(params.documentId);
+            }
+
+            // The row is ours and the event was refused for being older than what we hold.
+            // Creation time is not state, though — it cannot be stale — and this is the
+            // only path that ever reaches an adopted row, whose stored creation time is
+            // the moment of adoption rather than the moment eformsign made the document.
+            if (params.repairCreatedDateWhenStale !== undefined) {
+                await this.prismaService.eformsign_doc.updateMany({
+                    where: {
+                        AND: [
+                            params.allowedWhere,
+                            { createdDate: { not: params.repairCreatedDateWhenStale } },
+                        ],
+                    },
+                    data: { createdDate: params.repairCreatedDateWhenStale },
+                });
+            }
+            throw new EformsignDocStaleUpdateError(params.documentId);
         };
 
         let updated = await updateExisting();

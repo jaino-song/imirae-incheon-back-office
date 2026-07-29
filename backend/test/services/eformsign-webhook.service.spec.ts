@@ -308,6 +308,7 @@ describe("EformsignWebhookService", () => {
                 templateName: "template",
                 templateId: "template-1",
             }),
+            { updateCreatedDate: false },
         );
         expect(updateStatusUsecase.execute).not.toHaveBeenCalled();
         expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
@@ -333,6 +334,7 @@ describe("EformsignWebhookService", () => {
                 templateId: "template-1",
                 updatedDate: existing.updatedDate,
             }),
+            { updateCreatedDate: false },
         );
         expect(eformsignDocRepository.claimCompletionStatus).not.toHaveBeenCalled();
         expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
@@ -377,6 +379,7 @@ describe("EformsignWebhookService", () => {
                 statusType: "070",
                 expired: false,
             }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -399,6 +402,7 @@ describe("EformsignWebhookService", () => {
 
         expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({ statusType: "070" }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -421,6 +425,7 @@ describe("EformsignWebhookService", () => {
 
         expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({ statusType: "071", statusDetail: "검토 반려" }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -460,6 +465,7 @@ describe("EformsignWebhookService", () => {
                 statusType: "072",
                 expired: false,
             }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -536,6 +542,7 @@ describe("EformsignWebhookService", () => {
                 statusDetail: "만료",
                 expired: true,
             }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -583,6 +590,7 @@ describe("EformsignWebhookService", () => {
 
         expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({ statusType: "080" }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -631,6 +639,7 @@ describe("EformsignWebhookService", () => {
 
         expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({ documentName: null }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -650,6 +659,7 @@ describe("EformsignWebhookService", () => {
                 lastEditorName: "기존 편집자",
                 stepRecipientTypes: ["05", "06"],
             }),
+            { updateCreatedDate: false },
         );
     });
 
@@ -668,6 +678,7 @@ describe("EformsignWebhookService", () => {
 
         expect(eformsignDocRepository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({ templateName: null }),
+            { updateCreatedDate: false },
         );
     });
 

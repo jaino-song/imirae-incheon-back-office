@@ -473,6 +473,7 @@ describe("SbEformsignDocRepository", () => {
             statusType: "050",
             statusDetail: "완료",
             expiredDate: new Date("2026-08-01T00:00:00.000Z"),
+            createdDate: new Date("2026-07-01T00:00:00.000Z"),
             stepType: "05",
             stepIndex: "1",
             stepName: "이용자",
@@ -732,6 +733,65 @@ describe("SbEformsignDocRepository", () => {
 
         expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
             .not.toHaveProperty("expired");
+    });
+
+    it("repairs createdDate on update so the list sorts by when eformsign made the document", async () => {
+        // The create and adopt paths store the moment we wrote the row, so a contract
+        // adopted long after it was created sorts as if it were new. Creation time is the
+        // list's sort key, so reconciling from a response that carries it puts that right.
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity());
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data.createdDate)
+            .toEqual(legacyRow.createdDate);
+    });
+
+    it("leaves createdDate alone when the caller had to invent one", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            updateCreatedDate: false,
+        });
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
+            .not.toHaveProperty("createdDate");
+    });
+
+    it("repairs createdDate even when the event is refused as stale", async () => {
+        // An adopted row stores the moment of adoption as both createdDate and
+        // updatedDate, so an unchanged older vendor document is always "stale" and the
+        // guarded update never runs — which is exactly the row whose sort key is wrong.
+        // update refused → create races → P2002 → same guarded update refused again.
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+
+        await expect(repository.upsertUnassignedByDocumentId(createEntity()))
+            .rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        const repair = eformsignDocModel.updateMany.mock.calls.at(-1)![0];
+        expect(repair.data).toEqual({ createdDate: legacyRow.createdDate });
+        // Ownership still applies, and rows that already agree are left alone.
+        expect(JSON.stringify(repair.where)).toContain("createdDate");
     });
 
     it("omits expiredDate from list-sourced updates so a real expiry survives", async () => {

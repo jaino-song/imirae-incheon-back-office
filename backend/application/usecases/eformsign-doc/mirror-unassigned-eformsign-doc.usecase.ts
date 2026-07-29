@@ -85,9 +85,10 @@ export class MirrorUnassignedEformsignDocUsecase {
         }
 
         const remoteCreatedDate = new Date(remote.created_date);
-        const createdDate = Number.isNaN(remoteCreatedDate.getTime())
-            ? new Date(updatedDate)
-            : remoteCreatedDate;
+        const hasRemoteCreatedDate = !Number.isNaN(remoteCreatedDate.getTime());
+        const createdDate = hasRemoteCreatedDate
+            ? remoteCreatedDate
+            : new Date(updatedDate);
         if (Number.isNaN(remoteCreatedDate.getTime())) {
             this.logger.warn(
                 `Invalid remote created_date for eformsign document ${remote.id || fallbackDocumentId}; using updated_date`,
@@ -158,6 +159,11 @@ export class MirrorUnassignedEformsignDocUsecase {
             ...(remote.current_status.expired_date === undefined
                 ? { updateExpiredDate: false }
                 : {}),
+            // Creation time is the list's sort key. The create and adopt paths store the
+            // moment we wrote the row, so a document adopted long after it was created
+            // sorts in the wrong place forever unless a response that really carries
+            // created_date puts it right. Only a clamped-away value is not worth writing.
+            ...(hasRemoteCreatedDate ? {} : { updateCreatedDate: false }),
         });
     }
 }

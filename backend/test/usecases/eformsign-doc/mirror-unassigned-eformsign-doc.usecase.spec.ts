@@ -134,7 +134,9 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 createdDate: new Date(updatedDate),
                 updatedDate: new Date(updatedDate),
             }),
-            { updateListDisplayFields: true },
+            // The created date here is invented from updated_date, so it seeds a new row
+            // but must not replace one already stored.
+            { updateListDisplayFields: true, updateCreatedDate: false },
         );
         expect(warn).toHaveBeenCalledWith(
             expect.stringContaining("remote-doc"),

@@ -77,6 +77,14 @@ export interface UpsertUnassignedEformsignDocOptions {
      * overwriting a real stored expiry with it.
      */
     updateExpiredDate?: boolean;
+    /**
+     * Creation time is the list's sort key, and rows written by the create and adopt paths
+     * carry the moment we wrote them rather than the moment eformsign created the
+     * document — a contract adopted today sorts as today's. Reconciling from a response
+     * that actually carries `created_date` repairs that; a caller that had to invent one
+     * sets this false rather than replacing a stored value with its own guess.
+     */
+    updateCreatedDate?: boolean;
 }
 
 export interface IEformsignDocRepository {
@@ -90,6 +98,12 @@ export interface IEformsignDocRepository {
     ): Promise<EformsignDocCompletionClaimResult>;
     findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]>;
     findAll(branchid: string): Promise<EformsignDocEntity[]>;
+    /**
+     * Every document the headquarters list may show: ours plus the ones no branch has
+     * claimed. Deliberately not "all rows minus other branches" done in memory — that is
+     * the same rule, but expressed where the database can apply it.
+     */
+    findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]>;
     findDocumentIdsForOtherBranches(branchid: string): Promise<string[]>;
     findDisplayFieldsByDocumentIds(
         branchid: string,
