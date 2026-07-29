@@ -32,8 +32,16 @@ export interface ListShadowCompareQuery {
 }
 
 export interface ListShadowCompareServed {
+    /** Every document that survived the filters, in served order — not just the page. */
     documentIds: string[];
-    totalRows: number;
+    /**
+     * Created time of the oldest served document, or undefined when nothing survived.
+     * The served path scans at most 10 vendor pages of 100, and says so in its own log,
+     * so anything the mirror holds from before this point is outside the window the API
+     * path can even see. Attributing those separately is what keeps the zero-diff gate
+     * reachable: they are what the switch recovers, not evidence the mirror is wrong.
+     */
+    oldestCreatedAt: number | undefined;
 }
 
 /** How many differing ids to name before the log becomes noise rather than evidence. */
@@ -53,6 +61,14 @@ const MAX_LOGGED_IDS = 10;
 @Injectable()
 export class EformsignListShadowCompareService {
     private readonly logger = new Logger(EformsignListShadowCompareService.name);
+    /**
+     * One comparison at a time. Every list request would otherwise load the branch's whole
+     * mirror and sort it, and a burst of page-throughs or searches would put that in front
+     * of the Prisma pool the served requests are using. Skipping is fine: this is sampling
+     * for evidence, not an audit that must see every request.
+     */
+    private comparisonInFlight = false;
+    private skippedWhileBusy = 0;
 
     constructor(
         private readonly configService: ConfigService,
@@ -74,74 +90,114 @@ export class EformsignListShadowCompareService {
             return;
         }
 
-        void this.compare(query, served).catch((error: unknown) => {
-            this.logger.warn(
-                `[Shadow] comparison failed scope=${query.scope}: ${
-                    error instanceof Error ? error.message : String(error)
-                }`,
-            );
-        });
+        if (this.comparisonInFlight) {
+            this.skippedWhileBusy += 1;
+            return;
+        }
+
+        this.comparisonInFlight = true;
+        void this.compare(query, served)
+            .catch((error: unknown) => {
+                this.logger.warn(
+                    `[Shadow] comparison failed scope=${query.scope}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+            })
+            .finally(() => {
+                this.comparisonInFlight = false;
+            });
     }
 
     private async compare(
         query: ListShadowCompareQuery,
         served: ListShadowCompareServed,
     ): Promise<void> {
-        const local = await this.buildLocalPage(query);
-        const differences: string[] = [];
-
-        if (local.totalRows !== served.totalRows) {
-            differences.push(`total_rows served=${served.totalRows} local=${local.totalRows}`);
-        }
-
+        const local = await this.buildLocalList(query);
         const servedSet = new Set(served.documentIds);
         const localSet = new Set(local.documentIds);
-        const missing = served.documentIds.filter((id) => !localSet.has(id));
-        const extra = local.documentIds.filter((id) => !servedSet.has(id));
 
+        const missing = served.documentIds.filter((id) => !localSet.has(id));
+        const beyondWindow: string[] = [];
+        const extra: string[] = [];
+        for (const id of local.documentIds) {
+            if (servedSet.has(id)) {
+                continue;
+            }
+            const createdAt = local.createdAtById.get(id);
+            const outsideScanWindow = served.oldestCreatedAt !== undefined
+                && createdAt !== undefined
+                && createdAt < served.oldestCreatedAt;
+            (outsideScanWindow ? beyondWindow : extra).push(id);
+        }
+
+        const differences: string[] = [];
         if (missing.length > 0) {
             differences.push(`missing=${summariseIds(missing)}`);
         }
         if (extra.length > 0) {
             differences.push(`extra=${summariseIds(extra)}`);
         }
-        // Only worth reporting when both pages hold the same documents: otherwise the
-        // order difference is just a restatement of the membership difference above.
+        // An order difference is only its own finding when both sides hold the same
+        // documents; otherwise it just restates the membership difference above.
         if (missing.length === 0
             && extra.length === 0
+            && beyondWindow.length === 0
             && local.documentIds.join(",") !== served.documentIds.join(",")) {
             differences.push("order differs");
         }
 
+        // Named separately from `rows` so a reader cannot mistake it for a disagreement.
+        const windowNote = beyondWindow.length > 0
+            ? ` beyondScanWindow=${beyondWindow.length}`
+            : "";
+        // Enough of the query to tell one difference apart from another without carrying
+        // anything a customer could be identified by. The search term itself is a customer
+        // name often enough that it stays out; that a search happened is what explains a
+        // difference, and the ids below say which documents to go and look at.
+        const skipped = this.skippedWhileBusy;
+        this.skippedWhileBusy = 0;
+        const context = `scope=${query.scope} branch=${query.branchId}`
+            + ` rows=${served.documentIds.length}`
+            + windowNote
+            + `${query.search?.trim() ? " search=present" : ""}`
+            + `${query.statusCategory ? ` status=${query.statusCategory}` : ""}`
+            + `${query.templateId ? ` template=${query.templateMatch}` : ""}`
+            + `${query.excludeDeleted ? " excludeDeleted" : ""}`
+            + `${skipped > 0 ? ` skippedWhileBusy=${skipped}` : ""}`;
+
         if (differences.length === 0) {
-            this.logger.log(
-                `[Shadow] match scope=${query.scope} branch=${query.branchId}`
-                + ` skip=${query.skip} rows=${served.totalRows}`,
-            );
+            this.logger.log(`[Shadow] match ${context}`);
             return;
         }
 
-        this.logger.warn(
-            `[Shadow] diff scope=${query.scope} branch=${query.branchId}`
-            + ` skip=${query.skip} limit=${query.limit}`
-            + `${query.search ? ` search="${query.search}"` : ""}`
-            + `${query.statusCategory ? ` status=${query.statusCategory}` : ""}`
-            + ` :: ${differences.join("; ")}`,
-        );
+        this.logger.warn(`[Shadow] diff ${context} :: ${differences.join("; ")}`);
     }
 
-    private async buildLocalPage(
+    private async buildLocalList(
         query: ListShadowCompareQuery,
-    ): Promise<{ documentIds: string[]; totalRows: number }> {
+    ): Promise<{ documentIds: string[]; createdAtById: Map<string, number> }> {
+        // For a regular branch the corpus and the search rows are the same query, so it
+        // is read once; only headquarters needs the wider set as well.
+        const branchOwned = await this.eformsignDocRepository.findAll(query.branchId);
         const mirrored = query.isHeadquarters
             ? await this.eformsignDocRepository.findAllForHeadquarters(query.branchId)
-            : await this.eformsignDocRepository.findAll(query.branchId);
-        // Recipient names come from the same rows, so unlike the served path this does not
-        // need a second lookup to search them.
+            : branchOwned;
+        // Deliberately the branch-owned rows only, even for headquarters. The served path
+        // builds its recipient-name search corpus from findAll(branchId), so an unassigned
+        // document's recipient name is not searchable there — reproducing that is the
+        // point, and "fixing" it here would report a difference that is ours, not the
+        // mirror's.
         const localSearchValues = new Map(
-            mirrored.map((document) => [
+            branchOwned.map((document) => [
                 document.documentId,
                 [document.stepRecipientName].filter((value) => Boolean(value)),
+            ] as const),
+        );
+        const createdAtById = new Map(
+            mirrored.map((document) => [
+                document.documentId,
+                document.createdDate.getTime(),
             ] as const),
         );
         const documents = mirrored.map(eformsignListDocFromMirror);
@@ -163,10 +219,8 @@ export class EformsignListShadowCompareService {
         const sorted = sortDocumentsByCreatedDate(searchFiltered);
 
         return {
-            documentIds: sorted
-                .slice(query.skip, query.skip + query.limit)
-                .map((document) => document.id),
-            totalRows: sorted.length,
+            documentIds: sorted.map((document) => document.id),
+            createdAtById,
         };
     }
 

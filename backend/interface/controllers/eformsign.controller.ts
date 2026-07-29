@@ -1,5 +1,5 @@
 import { BadRequestException, Controller, Post, Get, Delete, Body, Query, Param, HttpException, HttpStatus, UseGuards, Res, Logger } from "@nestjs/common";
-import { EformsignService } from "../../application/services/eformsign.service";
+import { EformsignService, getDocumentCreatedTimestamp } from "../../application/services/eformsign.service";
 import { EformsignDocService } from "../../application/services/eformsign-doc.service";
 import { AreaTemplateService } from "../../application/services/area-template.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -505,8 +505,15 @@ export class EformsignController {
                     excludeDeleted,
                 },
                 {
-                    documentIds: pageDocuments.map((document) => document.id),
-                    totalRows: filteredDocuments.length,
+                    // The whole filtered set, not the page: comparing pages would report
+                    // a pagination boundary as a difference every time the two disagree
+                    // about a single document earlier in the list.
+                    documentIds: filteredDocuments.map((document) => document.id),
+                    oldestCreatedAt: filteredDocuments.length > 0
+                        ? getDocumentCreatedTimestamp(
+                            filteredDocuments[filteredDocuments.length - 1]!,
+                        )
+                        : undefined,
                 },
             );
         }

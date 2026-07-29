@@ -473,6 +473,7 @@ describe("SbEformsignDocRepository", () => {
             statusType: "050",
             statusDetail: "완료",
             expiredDate: new Date("2026-08-01T00:00:00.000Z"),
+            createdDate: new Date("2026-07-01T00:00:00.000Z"),
             stepType: "05",
             stepIndex: "1",
             stepName: "이용자",
@@ -732,6 +733,45 @@ describe("SbEformsignDocRepository", () => {
 
         expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
             .not.toHaveProperty("expired");
+    });
+
+    it("repairs createdDate on update so the list sorts by when eformsign made the document", async () => {
+        // The create and adopt paths store the moment we wrote the row, so a contract
+        // adopted long after it was created sorts as if it were new. Creation time is the
+        // list's sort key, so reconciling from a response that carries it puts that right.
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity());
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data.createdDate)
+            .toEqual(legacyRow.createdDate);
+    });
+
+    it("leaves createdDate alone when the caller had to invent one", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: null,
+            clientId: null,
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            updateCreatedDate: false,
+        });
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
+            .not.toHaveProperty("createdDate");
     });
 
     it("omits expiredDate from list-sourced updates so a real expiry survives", async () => {

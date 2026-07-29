@@ -65,6 +65,7 @@ describe("EformsignController (Integration)", () => {
     const shadowCompareService = { compareInBackground: jest.fn() };
 
     beforeEach(async () => {
+        shadowCompareService.compareInBackground.mockClear();
         const moduleFixture: TestingModule = await Test.createTestingModule({
             controllers: [EformsignController],
             providers: [
@@ -303,19 +304,21 @@ describe("EformsignController (Integration)", () => {
         ] as any);
 
         const response = await request(app.getHttpServer())
-            .get("/api/documents?accessToken=access-token&search=%EA%B9%80");
+            .get("/api/documents?accessToken=access-token&search=branch");
 
         expect(response.status).toBe(200);
+        expect(response.body.documents).toHaveLength(1);
         expect(shadowCompareService.compareInBackground).toHaveBeenCalledWith(
             expect.objectContaining({
                 branchId: "branch-1",
                 scope: "all",
                 isHeadquarters: false,
-                search: "김",
+                search: "branch",
             }),
             expect.objectContaining({
+                // The whole filtered set, which for this request is also the page.
                 documentIds: response.body.documents.map((doc: { id: string }) => doc.id),
-                totalRows: response.body.total_rows,
+                oldestCreatedAt: expect.any(Number),
             }),
         );
     });

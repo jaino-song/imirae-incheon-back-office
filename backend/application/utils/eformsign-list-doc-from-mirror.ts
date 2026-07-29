@@ -16,8 +16,6 @@ import type { EformsignListDoc } from "./eformsign-document-list";
  * list and should fetch the document.
  */
 export function eformsignListDocFromMirror(document: EformsignDocEntity): EformsignListDoc {
-    const customerName = document.customerName;
-
     return {
         id: document.documentId,
         document_name: document.documentName ?? "",
@@ -41,11 +39,14 @@ export function eformsignListDocFromMirror(document: EformsignDocEntity): Eforms
             })),
             _expired: document.expired,
         },
-        // The customer name reaches the vendor list inside `fields`, and the search rules
-        // read it back out through the same extraction. Emitting it here rather than as a
-        // bare property is what lets those rules stay untouched.
-        ...(customerName === null
-            ? {}
-            : { fields: [{ id: "이용자 성명", value: customerName, type: "text" }] }),
+        // No `fields`, deliberately, even though the mirror holds a customerName. The
+        // vendor's list endpoint is fetched without include_fields — only the
+        // single-document fetch asks for them — so the served search never sees a customer
+        // name from the document itself and matches on the local recipient name instead.
+        // Emitting one here would make the mirror find documents the served path cannot,
+        // and every such difference would be this mapper's, not the mirror's.
+        //
+        // Phase E may well decide the list should search customerName. That is a change in
+        // what the feature does and belongs in that decision, not inherited by accident.
     };
 }
