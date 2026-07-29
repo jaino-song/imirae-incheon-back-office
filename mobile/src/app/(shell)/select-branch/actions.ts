@@ -11,6 +11,8 @@ import {
   getRefreshSessionMaxAgeSeconds,
 } from "@/lib/auth/session-policy";
 
+import { prioritizeRecentBranch } from "./branch-order";
+
 interface Branch {
   id: string;
   name: string;
@@ -37,6 +39,7 @@ export async function getUserBranches(): Promise<{
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value || null;
+    const recentBranchId = cookieStore.get("selected_branch_id")?.value;
 
     const { data } = await serverAPIClient.get("/auth/branches", {
       headers: getAuthHeaders(token),
@@ -44,7 +47,7 @@ export async function getUserBranches(): Promise<{
 
     return {
       success: true,
-      branches: data.branches,
+      branches: prioritizeRecentBranch(data.branches ?? [], recentBranchId),
     };
   } catch (error) {
     console.error("[Server Action] Error fetching branches:", error);
