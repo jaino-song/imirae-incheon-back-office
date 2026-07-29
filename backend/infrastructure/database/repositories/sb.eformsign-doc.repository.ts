@@ -184,6 +184,17 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         return this.findManyDomain({ branchId: branchid });
     }
 
+    async findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]> {
+        // Mirrors the scan filter the API path uses: headquarters keeps everything except
+        // what another branch owns, so an unclaimed document (branchId null) stays in.
+        return this.findManyDomain({
+            OR: [
+                { branchId: branchid },
+                { branchId: null },
+            ],
+        });
+    }
+
     async findDocumentIdsForOtherBranches(branchid: string): Promise<string[]> {
         // 다른 지점이 소유한 문서의 documentId만 추린다. branchId가 null인(미적재) 문서는
         // "지점 미지정"이라 인천(본사) 목록에 남아야 하므로 제외한다. Prisma의 `not`은

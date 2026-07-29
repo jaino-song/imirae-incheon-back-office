@@ -9,6 +9,7 @@ import { TenantGuard } from "infrastructure/tenant";
 import { EformsignController } from "interface/controllers/eformsign.controller";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import { EformsignListShadowCompareService } from "application/services/eformsign-list-shadow-compare.service";
 import request from "supertest";
 
 // Known transport-level flake (~1/8 full-suite runs under parallel-worker
@@ -61,6 +62,8 @@ describe("EformsignController (Integration)", () => {
         },
     };
 
+    const shadowCompareService = { compareInBackground: jest.fn() };
+
     beforeEach(async () => {
         const moduleFixture: TestingModule = await Test.createTestingModule({
             controllers: [EformsignController],
@@ -109,6 +112,12 @@ describe("EformsignController (Integration)", () => {
                 // 실제 구현을 그대로 쓴다. VALKEY_URL이 없는 테스트 환경에서는 프로세스
                 // 로컬 in-memory 스토어로 동작하고, 인스턴스는 테스트마다 새로 만들어진다.
                 EformsignDocumentSnapshotService,
+                {
+                    // 그림자 비교는 서빙 결과에 영향을 주지 않아야 한다. 여기서 호출만
+                    // 기록하고 아무것도 하지 않게 두면, 응답 검증이 그 사실을 보증한다.
+                    provide: EformsignListShadowCompareService,
+                    useValue: shadowCompareService,
+                },
             ],
         })
             .overrideGuard(JwtGuard)
@@ -277,6 +286,37 @@ describe("EformsignController (Integration)", () => {
             "access-token",
             "unmapped-doc",
             "document",
+        );
+    });
+
+    it("hands the served page to the shadow comparison without changing it", async () => {
+        // D단계의 계약: 화면에 나가는 것은 여전히 외부 API 결과이고, 미러는 같은 질문에
+        // 따로 답해 차이만 로그로 남긴다. 비교가 응답을 건드리면 그 계약이 깨진다.
+        eformsignService.getAllDocuments.mockResolvedValue({
+            documents: [{ id: "branch-1-doc" }, { id: "other-branch-doc" }],
+            total_rows: 2,
+            limit: 100,
+            skip: 0,
+        });
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as any);
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents?accessToken=access-token&search=%EA%B9%80");
+
+        expect(response.status).toBe(200);
+        expect(shadowCompareService.compareInBackground).toHaveBeenCalledWith(
+            expect.objectContaining({
+                branchId: "branch-1",
+                scope: "all",
+                isHeadquarters: false,
+                search: "김",
+            }),
+            expect.objectContaining({
+                documentIds: response.body.documents.map((doc: { id: string }) => doc.id),
+                totalRows: response.body.total_rows,
+            }),
         );
     });
 

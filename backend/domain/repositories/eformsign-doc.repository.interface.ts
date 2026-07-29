@@ -90,6 +90,12 @@ export interface IEformsignDocRepository {
     ): Promise<EformsignDocCompletionClaimResult>;
     findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]>;
     findAll(branchid: string): Promise<EformsignDocEntity[]>;
+    /**
+     * Every document the headquarters list may show: ours plus the ones no branch has
+     * claimed. Deliberately not "all rows minus other branches" done in memory — that is
+     * the same rule, but expressed where the database can apply it.
+     */
+    findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]>;
     findDocumentIdsForOtherBranches(branchid: string): Promise<string[]>;
     findDisplayFieldsByDocumentIds(
         branchid: string,
