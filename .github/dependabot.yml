@@ -1,7 +1,15 @@
+# target-branch is dev on every ecosystem, and has to stay that way.
+#
+# Without it Dependabot opens against the default branch, main — and main is what the
+# production Railway backend deploys from, with no watch patterns, so every push to it
+# rebuilds and ships the service. A bump merged there would reach production without ever
+# having run in preview. Pointing at dev puts these through dev -> preview -> main like
+# every other change.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
@@ -13,5 +21,6 @@ updates:
           - "@types/nodemailer"
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
