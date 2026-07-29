@@ -818,6 +818,8 @@ describe("BackfillEformsignDocsUsecase", () => {
             {
                 allowAssignedUpdate: true,
                 updateListDisplayFields: true,
+                // The list has no expired_date, so the computed date is only a fallback.
+                updateExpiredDate: false,
             },
         );
     });

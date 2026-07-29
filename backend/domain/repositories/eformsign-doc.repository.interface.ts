@@ -71,6 +71,12 @@ export interface UpsertUnassignedEformsignDocOptions {
      * but overwriting a stored detail — "만료", "거부" — with the derived one loses it.
      */
     updateStatusDetail?: boolean;
+    /**
+     * Same reasoning as `updateStatusDetail`: the list endpoint carries no `expired_date`,
+     * so a caller working from it only has a fallback guess. Set false there rather than
+     * overwriting a real stored expiry with it.
+     */
+    updateExpiredDate?: boolean;
 }
 
 export interface IEformsignDocRepository {

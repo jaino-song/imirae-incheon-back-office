@@ -12,6 +12,7 @@ import {
 } from "infrastructure/locking/eformsign-backfill-lock.service";
 
 import {
+    BackfillEformsignDocsError,
     BackfillEformsignDocsUsecase,
     EformsignDocsBackfillSummary,
 } from "../usecases/eformsign-doc/backfill-eformsign-docs.usecase";
@@ -151,6 +152,31 @@ export class EformsignDocReconcileSchedulerService {
     }
 }
 
+/**
+ * The sweep wraps a vendor failure twice — once per document type, once for the run — so
+ * the outermost message is only ever "failed for types=01". The scheduled run passes no
+ * onProgress callback, so this log is the only place the HTTP status or root exception
+ * can surface; without unwrapping, even the error-level escalation says nothing useful.
+ */
 function describeError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    const messages: string[] = [];
+    const seen = new Set<unknown>();
+    const visit = (value: unknown): void => {
+        if (value === undefined || value === null || seen.has(value)) {
+            return;
+        }
+        seen.add(value);
+        if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+        }
+
+        messages.push(value instanceof Error ? value.message : String(value));
+        if (value instanceof BackfillEformsignDocsError) {
+            visit(value.cause);
+        }
+    };
+
+    visit(error);
+    return messages.join(" <- ") || String(error);
 }

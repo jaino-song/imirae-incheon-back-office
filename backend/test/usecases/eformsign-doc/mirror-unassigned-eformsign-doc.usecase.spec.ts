@@ -253,6 +253,8 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 allowAssignedUpdate: true,
                 updateListDisplayFields: true,
                 updateExpired: false,
+                // The 30-day value above is a fallback, not something the list told us.
+                updateExpiredDate: false,
             },
         );
     });
@@ -296,6 +298,45 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
                 stepIndex: "0",
             }),
             expect.objectContaining({ updateExpired: false }),
+        );
+    });
+
+    it("replaces an open-state detail once the remote reports the document ended", async () => {
+        // The list carries no status_doc_detail, so a document whose completion webhook was
+        // dropped would keep reading "서명 요청됨" next to a completed status — and the
+        // client tab renders that string straight into its status pill.
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+        );
+
+        await usecase.mirrorRemoteDocument({
+            id: "expired-doc",
+            document_number: "DOC-300",
+            document_name: "만료 문서",
+            created_date: Date.parse("2026-07-01T00:00:00.000Z"),
+            updated_date: Date.parse("2026-07-02T00:00:00.000Z"),
+            template: { id: "template-1", name: "계약서" },
+            creator: { recipient_type: "01", id: "creator", name: "생성자" },
+            current_status: {
+                status_type: "080",
+                step_type: "05",
+                step_index: "1",
+                step_name: "이용자",
+                step_recipients: [],
+                step_group: 1,
+            },
+        }, { now: Date.parse("2026-07-03T00:00:00.000Z") });
+
+        expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
+            expect.objectContaining({ statusType: "080", statusDetail: "만료" }),
+            expect.not.objectContaining({ updateStatusDetail: false }),
         );
     });
 

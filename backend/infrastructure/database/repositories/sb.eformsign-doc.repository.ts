@@ -398,6 +398,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             stepIndex: doc.stepIndex,
             stepName: doc.stepName,
             ...(options?.updateExpired === false ? {} : { expired: doc.expired }),
+            ...(options?.updateExpiredDate === false ? {} : { expiredDate: doc.expiredDate }),
             updatedDate: doc.updatedDate,
             ...(documentName ? { documentName } : {}),
             ...(documentNumber ? { documentNumber } : {}),

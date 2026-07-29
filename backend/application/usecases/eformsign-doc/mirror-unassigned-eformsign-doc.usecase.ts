@@ -4,6 +4,7 @@ import { documentCustomerNameValue } from "application/utils/eformsign-document-
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
 import {
     EFORMSIGN_EXPIRED_STATUS_CODE,
+    EFORMSIGN_TERMINAL_STATUS_DETAILS,
     TERMINAL_STATUS_CODES,
 } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
@@ -69,6 +70,10 @@ export class MirrorUnassignedEformsignDocUsecase {
         // sweep learned the document had actually completed, and nothing would clear it.
         const knowsExpiredState = hasRemoteExpiredState
             || TERMINAL_STATUS_CODES.has(statusType);
+        // A list response carries no detail, so a document whose ending we only learn
+        // from this sweep would otherwise keep whatever it read while it was open. The
+        // status code says plainly what happened for the endings we can name.
+        const terminalStatusDetail = EFORMSIGN_TERMINAL_STATUS_DETAILS[statusType];
         const remoteUpdatedDate = new Date(remote.updated_date);
         const updatedDate = Number.isNaN(remoteUpdatedDate.getTime())
             ? new Date(now)
@@ -118,6 +123,7 @@ export class MirrorUnassignedEformsignDocUsecase {
             statusType,
             statusDetail:
                 remote.current_status.status_doc_detail
+                || terminalStatusDetail
                 || remote.current_status.step_name
                 || "진행중",
             stepType: remote.current_status.step_type.trim() || "01",
@@ -141,9 +147,16 @@ export class MirrorUnassignedEformsignDocUsecase {
             ...(options.allowAssignedUpdate ? { allowAssignedUpdate: true } : {}),
             updateListDisplayFields: true,
             ...(knowsExpiredState ? {} : { updateExpired: false }),
-            // A detail derived from the step name must not replace one a webhook wrote.
+            // A detail derived from the step name must not replace one a webhook wrote —
+            // but one derived from a terminal status code must, because the stored detail
+            // describes a state the document has already left.
             ...(remote.current_status.status_doc_detail === undefined
+                && terminalStatusDetail === undefined
                 ? { updateStatusDetail: false }
+                : {}),
+            // The list has no expired_date either, so what we computed is only a fallback.
+            ...(remote.current_status.expired_date === undefined
+                ? { updateExpiredDate: false }
                 : {}),
         });
     }
