@@ -1,6 +1,7 @@
 export type {
     ApplyServiceScheduleChangeRequest,
     ApplyServiceScheduleChangeResponse,
+    CreateServiceRecordHeaderEditLinkResponse,
     PrepareServiceRecordLinkRequest,
     PrepareServiceRecordLinkResponse,
     ResetServiceRecordLinkResponse,

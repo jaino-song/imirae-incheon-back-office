@@ -128,6 +128,93 @@ describe("ServiceRecordPage authentication restoration", () => {
         );
     });
 
+    it("exchanges an admin header-edit fragment and opens the submitted basic information form", async () => {
+        window.history.replaceState(
+            null,
+            "",
+            "/service-record/link-token#header-edit=sreh_admin_token",
+        );
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ ok: true }))
+            .mockResolvedValueOnce(jsonResponse({
+                ...serviceRecordContext,
+                canEditHeader: true,
+                header: {
+                    momName: "김산모",
+                    momBirth: "900101",
+                    babyName: "김아기",
+                    babyBirth: "260714",
+                    babyWeight: "3.2",
+                    deliveryType: "자연분만",
+                },
+            }));
+
+        render(<ServiceRecordPage />);
+
+        expect(await screen.findByDisplayValue("김산모")).toBeInTheDocument();
+        expect(screen.getAllByText("서비스 기본정보 수정")).toHaveLength(2);
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            1,
+            "/api/service-record/link-token/header-edit/authorize",
+            expect.objectContaining({
+                method: "POST",
+                headers: expect.objectContaining({
+                    Authorization: "Bearer sreh_admin_token",
+                }),
+            }),
+        );
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            2,
+            "/api/service-record/link-token/context",
+            expect.objectContaining({
+                headers: expect.objectContaining({ "Content-Type": "application/json" }),
+            }),
+        );
+        expect(window.location.hash).toBe("");
+    });
+
+    it("saves submitted basic information through the admin capability without opening daily records", async () => {
+        const user = userEvent.setup();
+        window.history.replaceState(
+            null,
+            "",
+            "/service-record/link-token#header-edit=sreh_admin_token",
+        );
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ ok: true }))
+            .mockResolvedValueOnce(jsonResponse({
+                ...serviceRecordContext,
+                canEditHeader: true,
+                header: {
+                    momName: "김산모",
+                    momBirth: "900101",
+                    babyName: "김아기",
+                    babyBirth: "260714",
+                    babyWeight: "3.2",
+                    deliveryType: "자연분만",
+                },
+            }))
+            .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+        render(<ServiceRecordPage />);
+
+        const momName = await screen.findByDisplayValue("김산모");
+        await user.clear(momName);
+        await user.type(momName, "박산모");
+        await user.click(screen.getByRole("button", { name: "수정 완료" }));
+
+        expect(await screen.findByText("서비스 기본정보 수정이 완료되었습니다.")).toBeInTheDocument();
+        expect(screen.queryByText("제공기록표")).not.toBeInTheDocument();
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            3,
+            "/api/service-record/link-token/header",
+            expect.objectContaining({
+                method: "PUT",
+                body: expect.stringContaining('"momName":"박산모"'),
+            }),
+        );
+    });
+
     it("shows completion when every service session has been submitted", async () => {
         fetchMock
             .mockResolvedValueOnce(jsonResponse({ valid: true }))

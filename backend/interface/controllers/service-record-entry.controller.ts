@@ -13,9 +13,11 @@ import { Request } from "express";
 import { ServiceRecordEntryService } from "application/services/service-record-entry.service";
 import { ScheduleChangeService } from "application/services/schedule-change.service";
 import { ServiceRecordGuard } from "infrastructure/auth/service-record.guard";
+import { ServiceRecordHeaderEditGuard } from "infrastructure/auth/service-record-header-edit.guard";
 import { ServiceRecordTokenContext } from "application/services/service-record-token.service";
 import {
     VerifyServiceRecordPhoneDto,
+    AuthorizeServiceRecordHeaderEditDto,
     SaveServiceHeaderDto,
     UpsertSessionDto,
 } from "interface/dto/service-record-entry.dto";
@@ -44,7 +46,16 @@ export class ServiceRecordEntryController {
         return this.service.verify(dto.linkToken, dto.phone);
     }
 
-    @UseGuards(ServiceRecordGuard)
+    @UseGuards(ServiceRecordHeaderEditGuard)
+    @Post("header-edit/authorize")
+    authorizeHeaderEdit(
+        @Req() req: ServiceRecordRequest,
+        @Body() dto: AuthorizeServiceRecordHeaderEditDto,
+    ) {
+        return this.service.authorizeHeaderEdit(req.serviceRecordContext, dto.linkToken);
+    }
+
+    @UseGuards(ServiceRecordHeaderEditGuard)
     @Get("context")
     getContext(@Req() req: ServiceRecordRequest) {
         return this.service.getContext(req.serviceRecordContext);
@@ -62,7 +73,7 @@ export class ServiceRecordEntryController {
         return this.scheduleChangeService.createRequest(req.serviceRecordContext);
     }
 
-    @UseGuards(ServiceRecordGuard)
+    @UseGuards(ServiceRecordHeaderEditGuard)
     @Put("header")
     saveHeader(@Req() req: ServiceRecordRequest, @Body() dto: SaveServiceHeaderDto) {
         return this.service.saveHeader(req.serviceRecordContext, dto);

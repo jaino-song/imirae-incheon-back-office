@@ -2,6 +2,7 @@ import { api } from "@/lib/api/client";
 import type {
     ApplyServiceScheduleChangeRequest,
     ApplyServiceScheduleChangeResponse,
+    CreateServiceRecordHeaderEditLinkResponse,
     PrepareServiceRecordLinkRequest,
     PrepareServiceRecordLinkResponse,
     ResetServiceRecordLinkResponse,
@@ -22,6 +23,11 @@ export const serviceRecordsApi = {
     resetLink: (scheduleId: number) =>
         api.post<ResetServiceRecordLinkResponse>(
             `/admin/service-records/schedules/${scheduleId}/reset-link`,
+            {},
+        ),
+    createHeaderEditLink: (scheduleId: number) =>
+        api.post<CreateServiceRecordHeaderEditLinkResponse>(
+            `/admin/service-records/schedules/${scheduleId}/header-edit-link`,
             {},
         ),
     previewScheduleChange: (scheduleId: number) =>

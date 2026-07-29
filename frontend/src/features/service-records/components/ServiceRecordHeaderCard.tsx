@@ -2,8 +2,9 @@
 
 import { formatBirthdayYYMMDD } from "@babyjamjam/shared/utils/birthday";
 import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
+import { Pencil } from "lucide-react";
 
-import { InfoCard, InfoRow } from "@/components/app/v3";
+import { HeaderActionButton, InfoCard, InfoRow } from "@/components/app/v3";
 import { StatusPill } from "@/components/app/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ServiceRecordHeader } from "@/features/service-records/types";
@@ -13,6 +14,7 @@ interface ServiceRecordHeaderCardProps {
   header: ServiceRecordHeader | null;
   showStatusBadge?: boolean;
   isLoading?: boolean;
+  onEdit?: () => void;
 }
 
 const SERVICE_RECORD_HEADER_LABELS = [
@@ -34,6 +36,7 @@ export function ServiceRecordHeaderCard({
   header,
   showStatusBadge = true,
   isLoading = false,
+  onEdit,
 }: ServiceRecordHeaderCardProps) {
   return (
     <InfoCard
@@ -43,14 +46,24 @@ export function ServiceRecordHeaderCard({
       description={!isLoading && !header ? "산모 및 신생아 정보" : undefined}
       className={header || isLoading ? "h-full grid-rows-[auto_minmax(0,1fr)]" : undefined}
       contentClassName={header || isLoading ? "block min-h-0" : undefined}
-      titleTrailing={showStatusBadge ? (
+      titleTrailing={showStatusBadge || onEdit ? (
         <div className="ml-auto flex shrink-0 items-center gap-[calc(8px*var(--glint-ui-scale,1))]">
-          {isLoading ? (
-            <Skeleton className="h-[calc(24px*var(--glint-ui-scale,1))] w-[calc(58px*var(--glint-ui-scale,1))] rounded-full bg-white/70" />
-          ) : (
-            <StatusPill variant={header ? "success" : "neutral"}>
-              {header ? "작성 완료" : "작성 전"}
-            </StatusPill>
+          {showStatusBadge && (
+            isLoading ? (
+              <Skeleton className="h-[calc(24px*var(--glint-ui-scale,1))] w-[calc(58px*var(--glint-ui-scale,1))] rounded-full bg-white/70" />
+            ) : (
+              <StatusPill variant={header ? "success" : "neutral"}>
+                {header ? "작성 완료" : "작성 전"}
+              </StatusPill>
+            )
+          )}
+          {onEdit && !isLoading && (
+            <HeaderActionButton
+              data-component={`${dataComponent}_head_title-row_edit`}
+              icon={Pencil}
+              label="수정"
+              onClick={onEdit}
+            />
           )}
         </div>
       ) : undefined}

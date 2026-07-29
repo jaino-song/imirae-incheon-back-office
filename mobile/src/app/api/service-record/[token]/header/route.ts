@@ -4,7 +4,7 @@ import { backendJsonResponse, errorResponse, withNoStore } from "@/lib/api/route
 import { getServiceRecordAuthorization } from "@/lib/api/service-record-auth";
 
 export async function PUT(request: NextRequest) {
-    const authorization = getServiceRecordAuthorization(request);
+    const authorization = getServiceRecordAuthorization(request, { allowHeaderEdit: true });
     try {
         const body = await request.json().catch(() => ({}));
         const response = await serverAPIClient.put("/service-record/header", body, {

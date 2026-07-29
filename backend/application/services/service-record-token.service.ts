@@ -10,6 +10,8 @@ export interface ServiceRecordTokenContext {
     scheduleId: number;
     employeeId: number;
     serviceRecordCaseId?: string | null;
+    accessMode?: "admin_header_edit";
+    linkToken?: string;
 }
 
 export type VerifyPhoneResult =

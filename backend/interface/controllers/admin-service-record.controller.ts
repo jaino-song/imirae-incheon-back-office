@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from "@nestjs/common";
 import { AdminServiceRecordService } from "application/services/admin-service-record.service";
+import { AdminServiceRecordHeaderEditService } from "application/services/admin-service-record-header-edit.service";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import {
@@ -10,7 +11,10 @@ import {
 @Controller("admin/service-records")
 @UseGuards(JwtGuard, TenantGuard)
 export class AdminServiceRecordController {
-    constructor(private readonly adminServiceRecordService: AdminServiceRecordService) {}
+    constructor(
+        private readonly adminServiceRecordService: AdminServiceRecordService,
+        private readonly headerEditService: AdminServiceRecordHeaderEditService,
+    ) {}
 
     @Get("client/:clientId")
     getClientOverview(
@@ -53,5 +57,17 @@ export class AdminServiceRecordController {
         @Param("scheduleId", ParseIntPipe) scheduleId: number,
     ) {
         return this.adminServiceRecordService.resetLink(tenant.branchId ?? "", scheduleId);
+    }
+
+    @Post("schedules/:scheduleId/header-edit-link")
+    createHeaderEditLink(
+        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @Param("scheduleId", ParseIntPipe) scheduleId: number,
+    ) {
+        return this.headerEditService.createLink(
+            tenant.branchId ?? "",
+            scheduleId,
+            tenant.userId ?? "",
+        );
     }
 }

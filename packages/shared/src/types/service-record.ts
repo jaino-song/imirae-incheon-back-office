@@ -112,6 +112,11 @@ export interface ResetServiceRecordLinkResponse {
     expiresAt: string;
 }
 
+export interface CreateServiceRecordHeaderEditLinkResponse {
+    serviceRecordUrl: string;
+    expiresAt: string;
+}
+
 export interface ServiceScheduleChangePreviewResponse {
     sessionIndex: number;
     fromDate: string;

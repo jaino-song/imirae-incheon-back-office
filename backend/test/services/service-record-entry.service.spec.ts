@@ -23,6 +23,11 @@ const context = {
     serviceRecordCaseId: CASE_ID,
 };
 
+const adminHeaderEditContext = {
+    ...context,
+    accessMode: "admin_header_edit" as const,
+};
+
 function createRecord(overrides: Record<string, unknown> = {}) {
     return {
         id: CASE_ID,
@@ -380,5 +385,90 @@ describe("UpsertSessionDto service-record text limits", () => {
         const errors = await validate(dto);
 
         expect(errors.some((error) => error.property === property)).toBe(true);
+    });
+});
+
+describe("ServiceRecordEntryService.saveHeader", () => {
+    function createHeaderHarness(options: {
+        lockedCount?: number;
+        status?: string;
+    } = {}) {
+        const aggregate = createRecord({
+            status: options.status ?? SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
+        });
+        const updated = createRecord({
+            ...aggregate,
+            momName: "수정 산모",
+            updatedAt: new Date("2026-07-02T00:00:00.000Z"),
+        });
+        const transactionClient = {
+            service_record_case: {
+                update: jest.fn().mockResolvedValue(updated),
+            },
+            service_record: {
+                upsert: jest.fn().mockResolvedValue({}),
+            },
+        };
+        const prisma = {
+            service_record_case: {
+                findFirst: jest.fn().mockResolvedValue(aggregate),
+            },
+            service_record_day: {
+                count: jest.fn().mockResolvedValue(options.lockedCount ?? 1),
+            },
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const lifecycle = {
+            ensureForSchedule: jest.fn(),
+            recompute: jest.fn().mockResolvedValue(updated),
+        };
+        const service = new ServiceRecordEntryService(
+            prisma as unknown as PrismaService,
+            {} as ServiceRecordTokenService,
+            lifecycle as unknown as ServiceRecordLifecycleService,
+        );
+
+        return { service, transactionClient };
+    }
+
+    it("keeps submitted basic information locked for the provider flow", async () => {
+        const { service, transactionClient } = createHeaderHarness();
+
+        await expectException(
+            service.saveHeader(context, { momName: "수정 산모" }),
+            ConflictException,
+            "SERVICE_RECORD_HEADER_LOCKED",
+        );
+        expect(transactionClient.service_record_case.update).not.toHaveBeenCalled();
+    });
+
+    it("allows the admin header-edit capability to update basic information after a submitted day", async () => {
+        const { service, transactionClient } = createHeaderHarness();
+
+        await expect(service.saveHeader(
+            adminHeaderEditContext,
+            { momName: "수정 산모" },
+        )).resolves.toEqual(expect.objectContaining({ momName: "수정 산모" }));
+        expect(transactionClient.service_record_case.update).toHaveBeenCalledWith({
+            where: { id: CASE_ID },
+            data: {
+                momName: "수정 산모",
+                version: { increment: 1 },
+            },
+        });
+    });
+
+    it("does not let the admin header-edit capability mutate a completed record", async () => {
+        const { service, transactionClient } = createHeaderHarness({
+            status: SERVICE_RECORD_CASE_STATUS.COMPLETED,
+        });
+
+        await expectException(
+            service.saveHeader(adminHeaderEditContext, { momName: "수정 산모" }),
+            ConflictException,
+            "SERVICE_RECORD_FINALIZED",
+        );
+        expect(transactionClient.service_record_case.update).not.toHaveBeenCalled();
     });
 });

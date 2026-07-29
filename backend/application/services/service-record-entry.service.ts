@@ -4,6 +4,7 @@ import {
     NotFoundException,
     BadRequestException,
     ConflictException,
+    UnauthorizedException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { SERVICE_RECORD_TEXT_LIMITS } from "domain/constants/service-record-text-limits";
@@ -114,17 +115,27 @@ export class ServiceRecordEntryService {
                     toDate: toIso(pendingScheduleChange.toDate),
                 }
                 : null,
+            canEditHeader: ctx.accessMode === "admin_header_edit",
         };
+    }
+
+    authorizeHeaderEdit(ctx: ServiceRecordTokenContext, linkToken: string): { ok: true } {
+        if (ctx.accessMode !== "admin_header_edit" || ctx.linkToken !== linkToken) {
+            throw new UnauthorizedException("Invalid service-record header-edit capability");
+        }
+        return { ok: true };
     }
 
     /** Upsert the one-time service header. */
     async saveHeader(ctx: ServiceRecordTokenContext, dto: SaveServiceHeaderDto) {
         const record = await this.resolveCase(ctx);
-        const lockedCount = await this.prisma.service_record_day.count({
-            where: { serviceRecordCaseId: record.id, locked: true },
-        });
-        if (lockedCount > 0) {
-            throw new ConflictException({ code: "SERVICE_RECORD_HEADER_LOCKED" });
+        if (ctx.accessMode !== "admin_header_edit") {
+            const lockedCount = await this.prisma.service_record_day.count({
+                where: { serviceRecordCaseId: record.id, locked: true },
+            });
+            if (lockedCount > 0) {
+                throw new ConflictException({ code: "SERVICE_RECORD_HEADER_LOCKED" });
+            }
         }
         if ([
             SERVICE_RECORD_CASE_STATUS.FINALIZING,

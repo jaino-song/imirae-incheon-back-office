@@ -41,3 +41,11 @@ export function useSendServiceRecordLink() {
         },
     });
 }
+
+export function useCreateServiceRecordHeaderEditLink() {
+    return useMutation({
+        mutationFn: ({ scheduleId }: { scheduleId: number }) =>
+            serviceRecordsApi.createHeaderEditLink(scheduleId)
+                .then((response) => response.data),
+    });
+}

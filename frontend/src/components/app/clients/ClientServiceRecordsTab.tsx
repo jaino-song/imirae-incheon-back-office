@@ -21,7 +21,10 @@ import {
     type ServiceRecordFieldDescriptor,
 } from "@/features/service-records/constants/form-layout";
 import { ServiceRecordHeaderCard } from "@/features/service-records/components/ServiceRecordHeaderCard";
-import { useSendServiceRecordLink } from "@/features/service-records/hooks/use-service-records";
+import {
+    useCreateServiceRecordHeaderEditLink,
+    useSendServiceRecordLink,
+} from "@/features/service-records/hooks/use-service-records";
 import type {
     ServiceRecordAssignment,
     ServiceRecordCase,
@@ -92,6 +95,7 @@ function ClientServiceRecordsTabContent({
     const dataComponent = useClientServiceRecordsDataComponent();
     const { toast } = useToast();
     const sendLinkMutation = useSendServiceRecordLink();
+    const headerEditLinkMutation = useCreateServiceRecordHeaderEditLink();
     const assignments = overview?.assignments ?? [];
     const record = overview?.record ?? null;
     const activeAssignment = assignments.find((assignment) => !assignment.replaced)
@@ -132,6 +136,31 @@ function ClientServiceRecordsTabContent({
         const sent = await sendLink(pendingResendAssignment);
         if (sent) {
             setPendingResendAssignment(null);
+        }
+    };
+
+    const handleEditHeader = async (assignment: ServiceRecordAssignment) => {
+        const editWindow = window.open("about:blank", "_blank");
+        if (!editWindow) {
+            toast({
+                description: "새 창을 열 수 없습니다. 팝업 차단을 해제해 주세요.",
+                variant: "destructive",
+            });
+            return;
+        }
+        editWindow.opener = null;
+
+        try {
+            const result = await headerEditLinkMutation.mutateAsync({
+                scheduleId: assignment.scheduleId,
+            });
+            editWindow.location.replace(result.serviceRecordUrl);
+        } catch (error) {
+            editWindow.close();
+            toast({
+                description: getErrorDescription(error),
+                variant: "destructive",
+            });
         }
     };
 
@@ -180,6 +209,9 @@ function ClientServiceRecordsTabContent({
                                 data-component={`${dataComponent}_overview-grid_header-card`}
                                 header={record.header}
                                 showStatusBadge={false}
+                                onEdit={record.header && activeAssignment
+                                    ? () => void handleEditHeader(activeAssignment)
+                                    : undefined}
                             />
                             {activeAssignment ? (
                                 <LinkStatusCard

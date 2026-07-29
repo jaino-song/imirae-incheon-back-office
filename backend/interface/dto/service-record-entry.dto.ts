@@ -5,6 +5,7 @@ import {
     IsObject,
     IsOptional,
     IsString,
+    Matches,
     ValidateBy,
     ValidationOptions,
 } from "class-validator";
@@ -43,6 +44,12 @@ export class VerifyServiceRecordPhoneDto {
 
     @IsString()
     phone!: string;
+}
+
+export class AuthorizeServiceRecordHeaderEditDto {
+    @IsString()
+    @Matches(/^efl_[A-Za-z0-9_-]{40,64}$/)
+    linkToken!: string;
 }
 
 /** One-time service header (top of the 제공기록지). */

@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { ClientServiceRecordsTab } from "../ClientServiceRecordsTab";
 import type { ServiceRecordAssignment, ServiceRecordOverview } from "@/features/service-records/types";
 
 const mutateAsync = jest.fn();
+const createHeaderEditLink = jest.fn();
 const toast = jest.fn();
 const TEST_COMPONENT = "desktop_clients-detail_panel_service-records";
 
@@ -11,6 +12,10 @@ jest.mock("@/features/service-records/hooks/use-service-records", () => ({
     useSendServiceRecordLink: () => ({
         isPending: false,
         mutateAsync,
+    }),
+    useCreateServiceRecordHeaderEditLink: () => ({
+        isPending: false,
+        mutateAsync: createHeaderEditLink,
     }),
 }));
 
@@ -54,6 +59,7 @@ function createAssignment(
 describe("ClientServiceRecordsTab", () => {
     beforeEach(() => {
         mutateAsync.mockReset();
+        createHeaderEditLink.mockReset();
         toast.mockReset();
     });
 
@@ -403,5 +409,82 @@ describe("ClientServiceRecordsTab", () => {
                 `[data-component="${TEST_COMPONENT}_overview-grid_header-card_head"] [data-component="${TEST_COMPONENT}_overview-grid_header-card_body_caption"]`,
             ),
         ).not.toBeInTheDocument();
+    });
+
+    it("opens the actual service-record form from the header edit action", async () => {
+        const assignment = {
+            ...createAssignment(1, "sent"),
+            header: {
+                momName: "산모",
+                momBirth: "960414",
+                babyName: "신생아",
+                babyBirth: "260626",
+                deliveryType: "자연분만",
+                babyWeight: "2.6",
+                createdAt: "2026-07-01T09:00:00.000Z",
+                updatedAt: "2026-07-01T09:00:00.000Z",
+            },
+        };
+        const replace = jest.fn();
+        const close = jest.fn();
+        const open = jest.spyOn(window, "open").mockReturnValue({
+            opener: null,
+            location: { replace },
+            close,
+        } as unknown as Window);
+        createHeaderEditLink.mockResolvedValue({
+            serviceRecordUrl: "https://mobile.test/service-record/efl_link#header-edit=sreh_token",
+            expiresAt: "2026-07-01T09:05:00.000Z",
+        });
+
+        const { container } = render(
+            <ClientServiceRecordsTab
+                data-component={TEST_COMPONENT}
+                overview={{
+                    record: {
+                        id: "case-1",
+                        status: "IN_PROGRESS",
+                        startDate: assignment.startDate,
+                        endDate: assignment.endDate,
+                        totalSessions: assignment.totalSessions,
+                        completedAt: null,
+                        finalizationDueAt: null,
+                        finalizedAt: null,
+                        documentsCompletedAt: null,
+                        lastError: null,
+                        header: assignment.header,
+                        sessions: [],
+                        signatureDocs: [],
+                    },
+                    assignments: [assignment],
+                }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        const editButton = screen.getByRole("button", { name: "수정" });
+        expect(editButton).toHaveAttribute(
+            "data-component",
+            `${TEST_COMPONENT}_overview-grid_header-card_head_title-row_edit`,
+        );
+
+        fireEvent.click(editButton);
+
+        await waitFor(() => {
+            expect(createHeaderEditLink).toHaveBeenCalledWith({ scheduleId: 1 });
+        });
+        expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+        expect(replace).toHaveBeenCalledWith(
+            "https://mobile.test/service-record/efl_link#header-edit=sreh_token",
+        );
+        expect(close).not.toHaveBeenCalled();
+        expect(
+            container.querySelector(
+                `[data-component="${TEST_COMPONENT}_overview-grid_header-card_head_title-row_edit"]`,
+            ),
+        ).toBeInTheDocument();
+        open.mockRestore();
     });
 });

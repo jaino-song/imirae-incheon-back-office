@@ -121,6 +121,7 @@ interface ServiceRecordContext {
     header: Record<string, unknown> | null;
     sessions: SessionRow[];
     recordStatus?: string | null;
+    canEditHeader?: boolean;
     pendingScheduleChange?: { id: string; sessionIndex: number; fromDate: string; toDate: string } | null;
 }
 
@@ -238,11 +239,11 @@ function formatReviewFieldValue(
     return { value: hasDisplayValue(value) ? String(value).trim() : "" };
 }
 
-type Screen = "loading" | "invalid" | "phone" | "service" | "overview" | "day" | "done";
+type Screen = "loading" | "invalid" | "phone" | "service" | "overview" | "day" | "done" | "header-edit-done";
 type HistoryMode = "none" | "push" | "replace";
 
 interface WizardHistoryTarget {
-    screen: "phone" | "service" | "overview" | "day" | "done";
+    screen: "phone" | "service" | "overview" | "day" | "done" | "header-edit-done";
     day?: number;
     pageIdx?: number;
 }
@@ -253,6 +254,7 @@ const HISTORY_SCREENS = new Set<WizardHistoryTarget["screen"]>([
     "overview",
     "day",
     "done",
+    "header-edit-done",
 ]);
 
 function writeWizardHistory(
@@ -388,6 +390,13 @@ export default function ServiceRecordPage() {
         setCtx(data);
         setHeader(nextHeader);
 
+        if (data.canEditHeader) {
+            setEditing(false);
+            setMomSignature(null);
+            navigateTo("service", { mode: historyMode });
+            return;
+        }
+
         const submittedCount = data.sessions.filter((session) => session.locked).length;
         if (data.totalSessions > 0 && submittedCount === data.totalSessions) {
             clearStoredFormState(token);
@@ -402,11 +411,32 @@ export default function ServiceRecordPage() {
         navigateTo(data.header ? "overview" : "service", { mode: historyMode });
     }, [api, navigateTo, token]);
 
-    // Validate the public link first, then restore a previously verified browser session.
+    // Exchange the admin capability before loading context. The URL fragment is
+    // removed immediately so the short-lived token is not retained in history.
     useEffect(() => {
         let alive = true;
         (async () => {
             try {
+                const fragment = new URLSearchParams(window.location.hash.slice(1));
+                const headerEditCapability = fragment.get("header-edit");
+                if (headerEditCapability) {
+                    const url = new URL(window.location.href);
+                    url.hash = "";
+                    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+
+                    const authorization = await api("/header-edit/authorize", {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${headerEditCapability}` },
+                    });
+                    if (!alive) return;
+                    if (!authorization.ok) {
+                        navigateTo("invalid", { mode: "replace" });
+                        return;
+                    }
+                    await loadContext("replace");
+                    return;
+                }
+
                 const res = await api("/link", {}, false);
                 const data = await res.json();
                 if (!alive) return;
@@ -433,6 +463,10 @@ export default function ServiceRecordPage() {
                 return;
             }
             if (target.screen === "service") {
+                if (ctx?.canEditHeader) {
+                    navigateTo("service", { mode: "none" });
+                    return;
+                }
                 if (ctx?.header) navigateTo("overview", { mode: "replace" });
                 else navigateTo("service", { mode: "none" });
                 return;
@@ -443,6 +477,10 @@ export default function ServiceRecordPage() {
             }
             if (target.screen === "done") {
                 navigateTo("done", { mode: "none" });
+                return;
+            }
+            if (target.screen === "header-edit-done") {
+                navigateTo("header-edit-done", { mode: "none" });
                 return;
             }
             if (!ctx?.header || target.day === undefined || target.pageIdx === undefined) {
@@ -549,6 +587,10 @@ export default function ServiceRecordPage() {
                 return;
             }
             clearStoredFormState(token);
+            if (ctx?.canEditHeader) {
+                navigateTo("header-edit-done", { mode: "replace" });
+                return;
+            }
             await loadContext("replace");
         } finally { setBusy(false); }
     }
@@ -775,7 +817,7 @@ export default function ServiceRecordPage() {
     });
     const isHeaderComplete = HEADER_FIELDS.every((field) => hasDisplayValue(header[field.k]))
         && hasDisplayValue(header.deliveryType);
-    const progress = screen === "done"
+    const progress = screen === "done" || screen === "header-edit-done"
         ? 100
         : screen === "day"
             ? 20 + Math.round(((pageIdx + 1) / DAY_PAGES.length) * 70)
@@ -797,15 +839,23 @@ export default function ServiceRecordPage() {
                     />
                     <div data-component="mobile_service-record_wizard_top-bar_meta_crumbs" className="crumbs">
                         {screen === "phone" && <>1단계 · <b>본인 확인</b></>}
-                        {screen === "service" && <>2단계 · <b>서비스 기본정보</b></>}
+                        {screen === "service" && (
+                            ctx?.canEditHeader
+                                ? <b>서비스 기본정보 수정</b>
+                                : <>2단계 · <b>서비스 기본정보</b></>
+                        )}
                         {screen === "overview" && <>3단계 · <b>일자별 기록</b></>}
                         {screen === "day" && <><b>{day}회차</b> · {currentDayPage.title} ({pageIdx + 1}/{DAY_PAGES.length})</>}
                         {screen === "done" && <b>최종 제출 완료</b>}
+                        {screen === "header-edit-done" && <b>수정 완료</b>}
                     </div>
                 </div>
                 <div data-component="mobile_service-record_wizard_top-bar_progress" className="bar"><i style={{ width: `${progress}%` }} /></div>
             </div>
-            <div data-component="mobile_service-record_wizard_body" className={`body ${screen === "done" ? "completion-body" : ""}`}>
+            <div
+                data-component="mobile_service-record_wizard_body"
+                className={`body ${screen === "done" || screen === "header-edit-done" ? "completion-body" : ""}`}
+            >
                 {screen === "loading" && <p className="muted">불러오는 중…</p>}
 
                 {screen === "invalid" && (
@@ -828,8 +878,12 @@ export default function ServiceRecordPage() {
 
                 {screen === "service" && (
                     <>
-                        <button data-component="mobile_service-record_wizard_body_service-back" className="text-back" type="button" onClick={() => window.history.back()}>이전</button>
-                        <div data-component="mobile_service-record_wizard_body_service-title" className="step-title">서비스 기본정보</div>
+                        {!ctx?.canEditHeader && (
+                            <button data-component="mobile_service-record_wizard_body_service-back" className="text-back" type="button" onClick={() => window.history.back()}>이전</button>
+                        )}
+                        <div data-component="mobile_service-record_wizard_body_service-title" className="step-title">
+                            {ctx?.canEditHeader ? "서비스 기본정보 수정" : "서비스 기본정보"}
+                        </div>
                         <div data-component="mobile_service-record_wizard_body_readonly-row" className="ro"><span>제공인력</span><b>{ctx?.employee.name}</b></div>
                         <div data-component="mobile_service-record_wizard_body_readonly-row-2" className="ro"><span>제공기관</span><b>{ctx?.org?.name ?? DEFAULT_PROVIDER_NAME}</b></div>
                         {HEADER_FIELDS.slice(0, 4).map((f) => (
@@ -852,7 +906,14 @@ export default function ServiceRecordPage() {
                             <label className="lab">{HEADER_FIELDS[4]?.label}</label>
                             <input className="in" placeholder={HEADER_FIELDS[4]?.ph} value={header.babyWeight ?? ""} onChange={(e) => setHeader((h) => ({ ...h, babyWeight: e.target.value }))} />
                         </div>
-                        <button className="btn primary" disabled={busy || !isHeaderComplete} onClick={saveHeader}>{busy ? "저장 중…" : "다음"}</button>
+                        <button
+                            data-component="mobile_service-record_wizard_body_service-submit"
+                            className="btn primary"
+                            disabled={busy || !isHeaderComplete}
+                            onClick={saveHeader}
+                        >
+                            {busy ? "저장 중…" : ctx?.canEditHeader ? "수정 완료" : "다음"}
+                        </button>
                     </>
                 )}
 
@@ -987,6 +1048,14 @@ export default function ServiceRecordPage() {
                     <div data-component="mobile_service-record_wizard_body_done-center" className="center">
                         <span data-component="mobile_service-record_wizard_body_done-center_icon" className="completion-icon" aria-hidden="true">✅</span>
                         <h2 data-component="mobile_service-record_wizard_body_done-center_title" className="completion-title">제공기록지 제출이 완료되었습니다.</h2>
+                    </div>
+                )}
+
+                {screen === "header-edit-done" && (
+                    <div data-component="mobile_service-record_wizard_body_header-edit-done-center" className="center">
+                        <span data-component="mobile_service-record_wizard_body_header-edit-done-center_icon" className="completion-icon" aria-hidden="true">✅</span>
+                        <h2 data-component="mobile_service-record_wizard_body_header-edit-done-center_title" className="completion-title">서비스 기본정보 수정이 완료되었습니다.</h2>
+                        <p data-component="mobile_service-record_wizard_body_header-edit-done-center_help" className="muted">이 창을 닫아도 됩니다.</p>
                     </div>
                 )}
             </div>
