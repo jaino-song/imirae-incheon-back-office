@@ -19,7 +19,7 @@ import {
     UpsertUnassignedEformsignDocOptions,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import {
-    EFORMSIGN_DOC_COMPAT_READ_SELECT,
+    eformsignDocCompatReadSelect,
     isPendingEformsignDocColumnError,
     omitPendingEformsignDocColumns,
     toCompatDomainRow,
@@ -76,7 +76,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             const doc = await this.prismaService.eformsign_doc.findUnique({
                 where: { documentId },
                 select: {
-                    ...EFORMSIGN_DOC_COMPAT_READ_SELECT,
+                    ...eformsignDocCompatReadSelect(error),
                     branchId: true,
                 },
             });
@@ -317,7 +317,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             const created = await this.prismaService.eformsign_doc.create({
                 data: omitPendingEformsignDocColumns(data, error),
-                select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
+                select: eformsignDocCompatReadSelect(error),
             });
             return EformsignDocMapper.toDomain(toCompatDomainRow(created));
         }
@@ -490,7 +490,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         repairCreatedDateWhenStale?: Date;
     }): Promise<EformsignDocEntity> {
         try {
-            return await this.attemptConditionalUpsertByDocumentId(params, false);
+            return await this.attemptConditionalUpsertByDocumentId(params);
         } catch (error) {
             if (!isPendingEformsignDocColumnError(error)) {
                 throw error;
@@ -500,7 +500,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 ...params,
                 create: omitPendingEformsignDocColumns(params.create, error),
                 update: omitPendingEformsignDocColumns(params.update, error),
-            }, true);
+            }, error);
         }
     }
 
@@ -513,7 +513,9 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             staleGuard?: Prisma.eformsign_docWhereInput;
             repairCreatedDateWhenStale?: Date;
         },
-        compatibilityMode: boolean,
+        // The original missing-column error, not just a flag: the read select below has to
+        // know which migration is absent so it keeps the columns that are not.
+        compatibilityError?: unknown,
     ): Promise<EformsignDocEntity> {
         // Ownership is enforced by the UPDATE predicate itself. If no row matches,
         // create under the unique documentId constraint; a racing create surfaces as
@@ -561,10 +563,10 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         let updated = await updateExisting();
         if (updated.count === 0) {
             try {
-                if (compatibilityMode) {
+                if (compatibilityError !== undefined) {
                     const created = await this.prismaService.eformsign_doc.create({
                         data: params.create,
-                        select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
+                        select: eformsignDocCompatReadSelect(compatibilityError),
                     });
                     return EformsignDocMapper.toDomain(toCompatDomainRow(created));
                 }
@@ -615,7 +617,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             const doc = await this.prismaService.eformsign_doc.findFirst({
                 where,
-                select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
+                select: eformsignDocCompatReadSelect(error),
             });
             return doc ? EformsignDocMapper.toDomain(toCompatDomainRow(doc)) : null;
         }
@@ -632,7 +634,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             const docs = await this.prismaService.eformsign_doc.findMany({
                 where,
-                select: EFORMSIGN_DOC_COMPAT_READ_SELECT,
+                select: eformsignDocCompatReadSelect(error),
             });
             return docs.map((doc) => EformsignDocMapper.toDomain(toCompatDomainRow(doc)));
         }

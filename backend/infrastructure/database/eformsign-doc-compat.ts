@@ -1,5 +1,9 @@
 import { Prisma } from "@prisma/client";
 
+/**
+ * The columns that predate every pending migration. Always present, whatever the database
+ * is missing — the floor a compatibility read can never fall below.
+ */
 export const EFORMSIGN_DOC_COMPAT_READ_SELECT = {
     id: true,
     documentId: true,
@@ -96,8 +100,12 @@ export const isPendingEformsignDocColumnError = (error: unknown): boolean => {
     return PENDING_EFORMSIGN_DOC_COLUMN_NAMES.some((columnName) => haystack.includes(columnName));
 };
 
-export const toCompatDomainRow = (row: EformsignDocCompatReadRow) => ({
-    ...row,
+/** The pending columns as the database actually types them, not as `unknown`. */
+type EformsignDocPendingReadRow = Prisma.eformsign_docGetPayload<{
+    select: { [K in keyof PendingEformsignDocData]: true };
+}>;
+
+const PENDING_EFORMSIGN_DOC_NULLS = {
     documentKind: null,
     employeeScheduleId: null,
     templateId: null,
@@ -108,6 +116,47 @@ export const toCompatDomainRow = (row: EformsignDocCompatReadRow) => ({
     creatorName: null,
     lastEditorName: null,
     stepRecipientTypes: null,
+} as const satisfies Record<keyof PendingEformsignDocData, null>;
+
+/**
+ * The columns to read once a missing-column error says which migration the database has
+ * not had yet: the floor, plus every pending group that shipped *before* the missing one.
+ *
+ * Reads used to drop all pending columns at the first sign of any missing one. That threw
+ * away `templateId`, which shipped three migrations earlier and was still there — and the
+ * ten-minute duplicate-send guard decides by comparing it, so with every stored document
+ * reading null it stopped matching and stopped suppressing anything. A branch could be sent
+ * a second contract for the duration of a deploy window. Writes already narrowed to the
+ * missing group; reads now do the same.
+ */
+export const eformsignDocCompatReadSelect = (
+    error: unknown,
+): Prisma.eformsign_docSelect => {
+    // Prisma sometimes raises P2022 with no column metadata and nothing nameable in the
+    // message. That says a pending column is missing without saying which, so a read drops
+    // to the floor — the assumption that cannot be wrong. Writes throw in the same
+    // situation instead, because silently dropping data a caller asked to store is worse
+    // than failing; a read losing columns it could have kept is recoverable.
+    const keptGroupCount = Math.max(findEformsignDocGroupIndex(error), 0);
+    const select: Prisma.eformsign_docSelect = { ...EFORMSIGN_DOC_COMPAT_READ_SELECT };
+    for (const group of PENDING_EFORMSIGN_DOC_COLUMN_GROUPS.slice(0, keptGroupCount)) {
+        for (const column of group.columns) {
+            select[column.prismaName] = true;
+        }
+    }
+    return select;
+};
+
+/**
+ * Nulls first, row second: a column the select managed to keep wins over its placeholder.
+ * The previous order spread the row first and then overwrote every pending column with
+ * null, which made the narrowed select above pointless.
+ */
+export const toCompatDomainRow = (
+    row: EformsignDocCompatReadRow & Partial<EformsignDocPendingReadRow>,
+) => ({
+    ...PENDING_EFORMSIGN_DOC_NULLS,
+    ...row,
 });
 
 const getMissingEformsignDocColumnName = (error: unknown): string | null => {
@@ -140,19 +189,25 @@ const getMissingEformsignDocColumnName = (error: unknown): string | null => {
     return null;
 };
 
-export const omitPendingEformsignDocColumns = <T extends PendingEformsignDocData>(
-    data: T,
-    error: unknown,
-) => {
+/** Which migration group the error names, or -1 when it names none. */
+const findEformsignDocGroupIndex = (error: unknown): number => {
     const missingColumnName = getMissingEformsignDocColumnName(error);
-    const missingGroupIndex = PENDING_EFORMSIGN_DOC_COLUMN_GROUPS.findIndex(
+    return PENDING_EFORMSIGN_DOC_COLUMN_GROUPS.findIndex(
         (group) => group.columns.some(
             (column) =>
                 column.databaseName === missingColumnName
                 || column.prismaName === missingColumnName,
         ),
     );
+};
 
+export const omitPendingEformsignDocColumns = <T extends PendingEformsignDocData>(
+    data: T,
+    error: unknown,
+) => {
+    const missingGroupIndex = findEformsignDocGroupIndex(error);
+    // Unlike a read, a write cannot guess. Dropping the wrong columns here stores a row
+    // that is silently missing values the caller supplied.
     if (missingGroupIndex < 0) {
         throw error;
     }
