@@ -33,6 +33,11 @@ import {
     eformsignListCompareFields,
     EformsignListShadowCompareService,
 } from "application/services/eformsign-list-shadow-compare.service";
+import { ConfigService } from "@nestjs/config";
+import {
+    EformsignMirrorListService,
+    enrichMirrorPage,
+} from "application/services/eformsign-mirror-list.service";
 import {
     documentSearchIndex,
     documentSearchValues,
@@ -298,7 +303,73 @@ export class EformsignController {
         private readonly assignmentGuard: ContractClientAssignmentGuardService,
         private readonly documentSnapshotService: EformsignDocumentSnapshotService,
         private readonly listShadowCompareService: EformsignListShadowCompareService,
+        private readonly mirrorListService: EformsignMirrorListService,
+        private readonly configService: ConfigService,
     ) { }
+
+    /**
+     * Whether the list is answered from the local mirror instead of scanning eformsign.
+     *
+     * The switch stays until the shadow log has read clean for long enough that nobody
+     * wants it back — reverting has to be a config change, not a deploy, because the whole
+     * point of the staged rollout is that this step is the reversible one.
+     */
+    private servesFromMirror(): boolean {
+        return this.configService.get<string>("EFORMSIGN_LIST_FROM_MIRROR") === "true";
+    }
+
+    /**
+     * The list, answered locally.
+     *
+     * No access token: this path never calls the vendor, so it has no credential to spend
+     * and nothing that varies by one. The endpoint still requires callers to send it —
+     * that check is unchanged — it just does not reach the cache or the query.
+     */
+    private async listFromMirror(params: {
+        branchId: string;
+        isHeadquarters: boolean;
+        scope: string;
+        limit: number;
+        skip: number;
+        templateId?: string;
+        templateMatch: TemplateMatch;
+        statusCategory?: DocumentStatusCategory;
+        search?: string;
+        excludeDeleted?: boolean;
+    }) {
+        // Through the same snapshot the API path uses. Not for the vendor calls it saves —
+        // there are none here — but because pagination has to walk one generation: a
+        // document leaving the set between two pages shifts the rest up, and the page the
+        // client asks for next then skips one it never saw.
+        const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
+            {
+                scope: params.scope as DocumentSnapshotScope,
+                branchId: params.branchId,
+                isHeadquarters: params.isHeadquarters,
+                source: "mirror",
+            },
+            async () => this.toSnapshotEntries(
+                await this.mirrorListService.loadScopeDocuments(params),
+            ),
+        );
+        const { documents } = this.mirrorListService.filterScope(
+            snapshot.entries.map((entry) => entry.document),
+            params,
+        );
+        const page = documents.slice(params.skip, params.skip + params.limit);
+
+        return {
+            documents: enrichMirrorPage(page),
+            total_rows: documents.length,
+            limit: params.limit,
+            skip: params.skip,
+            has_more: params.skip + params.limit < documents.length,
+            // The client resets its pagination when a later page reports a different
+            // generation. Without this it has no way to notice that the list moved under
+            // it, and would quietly skip whatever the shift displaced.
+            ...(snapshot.snapshotVersion ? { snapshot_version: snapshot.snapshotVersion } : {}),
+        };
+    }
 
 
     /**
@@ -564,6 +635,23 @@ export class EformsignController {
         search?: string,
     ) {
         const isHeadquarters = await this.isHeadquartersBranch(branchId);
+        if (this.servesFromMirror()) {
+            // The tab is answered from status codes, not from which vendor inbox the
+            // document sat in — the mirror does not record that, and the shadow comparison
+            // has been measuring exactly this substitution.
+            return await this.listFromMirror({
+                branchId,
+                isHeadquarters,
+                scope,
+                limit,
+                skip,
+                templateId,
+                templateMatch,
+                statusCategory,
+                search,
+            });
+        }
+
         const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
             { scope, branchId, accessToken, isHeadquarters },
             async () => this.toSnapshotEntries(
@@ -880,9 +968,25 @@ export class EformsignController {
             const excludeDeleted = excludeDeletedValue === "true";
             const branchId = tenant.branchId ?? "";
 
+            const isHeadquarters = await this.isHeadquartersBranch(branchId);
+            if (this.servesFromMirror()) {
+                return await this.listFromMirror({
+                    branchId,
+                    isHeadquarters,
+                    scope: "all",
+                    limit: parsedLimit,
+                    skip: parsedSkip,
+                    templateId,
+                    templateMatch,
+                    statusCategory,
+                    search,
+                    excludeDeleted,
+                });
+            }
+
             // 인천점(본사): 회사 전체에서 다른 지점 소유분만 빼고 모은 뒤 요청 구간만 잘라 반환.
             // (필터링 때문에 외부 페이지네이션을 그대로 흘리면 페이지 경계에 빈틈이 생긴다.)
-            if (await this.isHeadquartersBranch(branchId)) {
+            if (isHeadquarters) {
                 const hqSnapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
                     { scope: "all", branchId, accessToken, isHeadquarters: true },
                     async () => this.toSnapshotEntries(
@@ -965,6 +1069,37 @@ export class EformsignController {
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
             // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
+            if (this.servesFromMirror()) {
+                // Same filters as the list, and the same source — the counters and the
+                // list have to agree, which is why they shared a snapshot generation
+                // before and share a query now.
+                // The same snapshot generation the list is paginating, so the counters and
+                // the list can never describe different moments.
+                const countSnapshot = await this.documentSnapshotService
+                    .getOrBuild<EformsignListDoc>(
+                        { scope: "all", branchId, isHeadquarters, source: "mirror" },
+                        async () => this.toSnapshotEntries(
+                            await this.mirrorListService.loadScopeDocuments({
+                                branchId,
+                                isHeadquarters,
+                            }),
+                        ),
+                    );
+                const { documents } = this.mirrorListService.filterScope(
+                    countSnapshot.entries.map((entry) => entry.document),
+                    {
+                        branchId,
+                        isHeadquarters,
+                        scope: "all",
+                        templateId,
+                        templateMatch,
+                        search,
+                        excludeDeleted,
+                    },
+                );
+                return { documents: documents.map((doc) => toStatusSignal(doc)) };
+            }
+
             const snapshot = await this.documentSnapshotService.getOrBuild<EformsignListDoc>(
                 { scope: "all", branchId, accessToken, isHeadquarters },
                 async () => this.toSnapshotEntries(

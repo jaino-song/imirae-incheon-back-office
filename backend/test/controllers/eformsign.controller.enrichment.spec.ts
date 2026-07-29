@@ -42,6 +42,9 @@ describe("EformsignController display-field enrichment", () => {
             {} as never,
             snapshotService,
             { compareInBackground: jest.fn() } as never,
+            { buildList: jest.fn() } as never,
+            // Serving from the mirror is off, so this suite still exercises the API path.
+            { get: jest.fn().mockReturnValue(undefined) } as never,
         ) as unknown as EnrichmentController;
         eformsignDocService.findDisplayFieldsByDocumentIds.mockResolvedValue([]);
     });

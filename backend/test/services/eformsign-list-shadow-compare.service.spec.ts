@@ -6,6 +6,7 @@ import {
     type ListShadowCompareQuery,
     type ListShadowCompareServed,
 } from "application/services/eformsign-list-shadow-compare.service";
+import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
 import { eformsignListDocFromMirror } from "application/utils/eformsign-list-doc-from-mirror";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 
@@ -105,9 +106,12 @@ describe("EformsignListShadowCompareService", () => {
     });
 
     function createService(enabled: string | undefined) {
+        // The real mirror list service, not a stub: the filtering, searching and scope
+        // rules these tests assert on live there, and it is the same instance the switch
+        // serves from. Stubbing it would leave them asserting on nothing.
         return new EformsignListShadowCompareService(
             createConfigService(enabled),
-            repository as never,
+            new EformsignMirrorListService(repository as never),
         );
     }
 
@@ -373,6 +377,33 @@ describe("EformsignListShadowCompareService", () => {
         await settle();
 
         expect(logger.warn.mock.calls[0]?.[0]).toContain("fields=doc-1[updatedAt]");
+    });
+
+    it("catches a mirrored row whose stored creation time sorts it wrong", async () => {
+        // Rows written by create and adopt carry the moment we wrote them, so a contract
+        // adopted long after it was made sorts as if it were new. The nightly sweep repairs
+        // those from the vendor, and until it has, this is what keeps the switch shut:
+        // the two sides hold the same documents but disagree about the order.
+        const older = createMirrorDocument({
+            documentId: "doc-2025",
+            // The vendor knows it as a 2025 contract; the mirror still has adoption day.
+            createdDate: "2026-07-29T00:00:00.000Z",
+        });
+        const newer = createMirrorDocument({
+            documentId: "doc-2026",
+            createdDate: "2026-07-20T00:00:00.000Z",
+        });
+        repository.findAll.mockResolvedValue([older, newer]);
+        const service = createService("true");
+        const logger = spyOnLogger(service);
+
+        service.compareInBackground(createQuery(), servedFrom([older, newer], {
+            documentIds: ["doc-2026", "doc-2025"],
+        }));
+        await settle();
+
+        expect(logger.log).not.toHaveBeenCalled();
+        expect(logger.warn.mock.calls[0]?.[0]).toContain("order differs");
     });
 
     it("keeps the search term itself out of the log", async () => {

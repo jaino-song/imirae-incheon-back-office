@@ -9,7 +9,11 @@ import { TenantGuard } from "infrastructure/tenant";
 import { EformsignController } from "interface/controllers/eformsign.controller";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
+import { ConfigService } from "@nestjs/config";
 import { EformsignListShadowCompareService } from "application/services/eformsign-list-shadow-compare.service";
+import { EformsignMirrorListService } from "application/services/eformsign-mirror-list.service";
+import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
+import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import request from "supertest";
 
 // Known transport-level flake (~1/8 full-suite runs under parallel-worker
@@ -64,6 +68,7 @@ describe("EformsignController (Integration)", () => {
     };
 
     const shadowCompareService = { compareInBackground: jest.fn() };
+    const mirrorListService = { buildList: jest.fn() };
 
     beforeEach(async () => {
         shadowCompareService.compareInBackground.mockClear();
@@ -120,6 +125,16 @@ describe("EformsignController (Integration)", () => {
                     // 기록하고 아무것도 하지 않게 두면, 응답 검증이 그 사실을 보증한다.
                     provide: EformsignListShadowCompareService,
                     useValue: shadowCompareService,
+                },
+                {
+                    provide: EformsignMirrorListService,
+                    useValue: mirrorListService,
+                },
+                {
+                    // EFORMSIGN_LIST_FROM_MIRROR 미설정 = 기존 API 경로. 이 스위트 전체가
+                    // 그 경로의 무회귀를 검증한다.
+                    provide: ConfigService,
+                    useValue: { get: jest.fn(() => undefined) },
                 },
             ],
         })
@@ -290,6 +305,270 @@ describe("EformsignController (Integration)", () => {
             "unmapped-doc",
             "document",
         );
+    });
+
+    describe("when EFORMSIGN_LIST_FROM_MIRROR is on", () => {
+        // E단계의 계약: 목록이 로컬 미러에서 나오고 eformsign을 전혀 호출하지 않는다.
+        // 되돌리기는 배포가 아니라 설정 한 줄이어야 한다.
+        let mirrorApp: INestApplication;
+        const mirrorRepository = {
+            findAll: jest.fn().mockResolvedValue([]),
+            findAllForHeadquarters: jest.fn().mockResolvedValue([]),
+        };
+
+        const createMirrorRow = (overrides: {
+            documentId: string;
+            createdDate?: string;
+            statusType?: string;
+            customerName?: string | null;
+        }) => {
+            const createdDate = new Date(overrides.createdDate ?? "2026-07-01T00:00:00.000Z");
+            return EformsignDocEntity.reconstitute({
+                id: 1,
+                documentId: overrides.documentId,
+                documentName: `문서 ${overrides.documentId}`,
+                documentNumber: `NO-${overrides.documentId}`,
+                templateName: "표준 계약서",
+                customerName: overrides.customerName === undefined
+                    ? "김고객"
+                    : overrides.customerName,
+                creatorName: "생성자",
+                lastEditorName: "편집자",
+                stepRecipientTypes: ["05"],
+                createdDate,
+                updatedDate: createdDate,
+                statusType: overrides.statusType ?? "060",
+                statusDetail: "서명 요청됨",
+                stepType: "01",
+                stepIndex: "1",
+                stepName: "이용자 서명",
+                stepRecipientType: "05",
+                stepRecipientName: "송진호",
+                stepRecipientSms: "01012345678",
+                expiredDate: new Date("2026-08-01T00:00:00.000Z"),
+                expired: false,
+                clientId: null,
+                documentKind: null,
+                employeeScheduleId: null,
+                templateId: "template-1",
+            });
+        };
+
+        beforeEach(async () => {
+            mirrorRepository.findAll.mockResolvedValue([]);
+            mirrorRepository.findAllForHeadquarters.mockResolvedValue([]);
+            const fixture = await Test.createTestingModule({
+                controllers: [EformsignController],
+                providers: [
+                    { provide: EformsignService, useValue: eformsignService },
+                    { provide: AreaTemplateService, useValue: { findByArea: jest.fn() } },
+                    { provide: EformsignDocService, useValue: eformsignDocService },
+                    {
+                        provide: PrismaService,
+                        useValue: { branch: { findUnique: branchFindUnique } },
+                    },
+                    {
+                        provide: ContractClientAssignmentGuardService,
+                        useValue: { assertAssignedProvider: jest.fn() },
+                    },
+                    EformsignDocumentSnapshotService,
+                    { provide: EformsignListShadowCompareService, useValue: shadowCompareService },
+                    // 실제 미러 서비스를 쓴다. 스텁을 두면 이 스위트가 검증하는 것이
+                    // "컨트롤러가 스텁을 호출한다" 뿐이 되어, 정작 목록이 맞는지는 못 본다.
+                    { provide: EFORMSIGN_DOC_REPOSITORY, useValue: mirrorRepository },
+                    EformsignMirrorListService,
+                    {
+                        provide: ConfigService,
+                        useValue: {
+                            get: jest.fn((key: string) =>
+                                key === "EFORMSIGN_LIST_FROM_MIRROR" ? "true" : undefined),
+                        },
+                    },
+                ],
+            })
+                .overrideGuard(JwtGuard)
+                .useValue(authGuard)
+                .overrideGuard(TenantGuard)
+                .useValue(authGuard)
+                .compile();
+
+            mirrorApp = fixture.createNestApplication();
+            mirrorApp.useGlobalPipes(new ValidationPipe({ transform: true }));
+            await mirrorApp.init();
+        });
+
+        afterEach(async () => {
+            await mirrorApp.close();
+        });
+
+        it("paginates the mirror without calling eformsign", async () => {
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-old", createdDate: "2026-07-01T00:00:00.000Z" }),
+                createMirrorRow({ documentId: "doc-new", createdDate: "2026-07-02T00:00:00.000Z" }),
+            ]);
+
+            const first = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token&limit=1&skip=0");
+
+            expect(first.status).toBe(200);
+            expect(first.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-new"]);
+            expect(first.body).toMatchObject({
+                total_rows: 2,
+                limit: 1,
+                skip: 0,
+                has_more: true,
+            });
+            expect(eformsignService.getAllDocuments).not.toHaveBeenCalled();
+            // 미러가 서빙 중이면 비교할 상대가 없다.
+            expect(shadowCompareService.compareInBackground).not.toHaveBeenCalled();
+        });
+
+        it("keeps paging over one generation when the list changes underneath", async () => {
+            // 페이지 사이에 문서가 목록에서 빠지면, 매 요청 새로 만들던 시절에는 나머지가
+            // 한 칸씩 당겨져 마지막 문서를 영영 못 보게 된다. 스냅샷 세대가 그걸 막는다.
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-1", createdDate: "2026-07-03T00:00:00.000Z" }),
+                createMirrorRow({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
+            ]);
+
+            const first = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token&limit=1&skip=0");
+            expect(first.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-1"]);
+
+            // 첫 페이지의 문서가 사라져도 두 번째 페이지는 같은 세대에서 잘린다.
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
+            ]);
+            const second = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token&limit=1&skip=1");
+
+            expect(second.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-2"]);
+            expect(second.body.has_more).toBe(false);
+        });
+
+        it("reports the generation so the client can notice the list moved", async () => {
+            // 클라이언트는 뒤 페이지의 snapshot_version이 다르면 페이지네이션을 리셋한다.
+            // 이 값을 빼면 목록이 아래에서 밀려도 신호가 없어 문서를 조용히 건너뛴다.
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-1" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(typeof response.body.snapshot_version).toBe("string");
+        });
+
+        it("answers each tab from status codes", async () => {
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-open", statusType: "060" }),
+                createMirrorRow({ documentId: "doc-done", statusType: "050" }),
+                createMirrorRow({ documentId: "doc-gone", statusType: "080" }),
+            ]);
+
+            const inProgress = await request(mirrorApp.getHttpServer())
+                .get("/api/documents/in-progress?accessToken=access-token");
+            const completed = await request(mirrorApp.getHttpServer())
+                .get("/api/documents/completed?accessToken=access-token");
+            const rejected = await request(mirrorApp.getHttpServer())
+                .get("/api/documents/rejected?accessToken=access-token");
+
+            expect(inProgress.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-open"]);
+            expect(completed.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-done"]);
+            expect(rejected.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-gone"]);
+            expect(eformsignService.getInProgressDocuments).not.toHaveBeenCalled();
+            expect(eformsignService.getCompletedDocuments).not.toHaveBeenCalled();
+            expect(eformsignService.getRejectedDocuments).not.toHaveBeenCalled();
+        });
+
+        it("shows the customer name on the page it returns", async () => {
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-1", customerName: "최고객" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(response.body.documents[0].fields).toEqual([
+                { id: "이용자 성명", value: "최고객" },
+            ]);
+        });
+
+        it("reads the headquarters scope, including unclaimed documents", async () => {
+            branchFindUnique.mockResolvedValue({ slug: "incheon" });
+            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-unclaimed" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(response.status).toBe(200);
+            expect(mirrorRepository.findAllForHeadquarters).toHaveBeenCalledWith("branch-1");
+            expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-unclaimed"]);
+        });
+
+        it("leaves an unclaimed document unnamed rather than naming the wrong person", async () => {
+            // stepRecipientName은 *현재 단계*가 기다리는 사람이라, 그 단계가 제공기관 검토면
+            // 제공기관 이름이다. 미배정 문서에는 지점 스코프 조회가 걸리지 않아 API 경로도
+            // 이 값을 쓰지 않는다(단건 조회로 넘어간다). 틀린 이름을 보여주는 것보다
+            // 비워 두는 편이 낫고, 웹훅이 한 번이라도 닿으면 진짜 고객명이 채워진다.
+            branchFindUnique.mockResolvedValue({ slug: "incheon" });
+            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-unclaimed", customerName: null }),
+            ]);
+            mirrorRepository.findAll.mockResolvedValue([]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(response.body.documents[0].fields).toBeUndefined();
+        });
+
+        it("still names a branch-owned document from its recipient", async () => {
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-owned", customerName: null }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token");
+
+            expect(response.body.documents[0].fields).toEqual([
+                { id: "이용자 성명", value: "송진호" },
+            ]);
+        });
+
+        it("does not let that name widen headquarters search", async () => {
+            // 표시용과 검색용은 분리돼 있다. 서빙 경로는 findAll(branchId)로 검색 코퍼스를
+            // 만들어 미배정 문서의 수신자명을 찾지 못하므로, 여기서도 찾으면 안 된다.
+            branchFindUnique.mockResolvedValue({ slug: "incheon" });
+            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-unclaimed", customerName: null }),
+            ]);
+            mirrorRepository.findAll.mockResolvedValue([]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?accessToken=access-token&search=%EC%86%A1%EC%A7%84%ED%98%B8");
+
+            expect(response.body.documents).toEqual([]);
+        });
+
+        it("counts statuses from the same generation the list pages over", async () => {
+            mirrorRepository.findAll.mockResolvedValue([
+                createMirrorRow({ documentId: "doc-1", statusType: "060" }),
+                createMirrorRow({ documentId: "doc-2", statusType: "050" }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents/status-counts?accessToken=access-token");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents).toHaveLength(2);
+            expect(response.body.documents[0]).toEqual(
+                expect.objectContaining({ status_type: expect.any(String) }),
+            );
+            expect(eformsignService.getAllDocuments).not.toHaveBeenCalled();
+        });
     });
 
     it("hands the served page to the shadow comparison without changing it", async () => {
