@@ -5,6 +5,18 @@ const TRANSIENT_PRISMA_MESSAGE_PATTERNS = [
     "Timed out fetching a new connection from the connection pool",
     "Can't reach database server",
     "Server has closed the connection",
+    // The connection pool in front of the database, full. Same meaning as Prisma's own pool
+    // timeout above — momentarily out of room, not broken — but it arrives as a
+    // PrismaClientUnknownRequestError with no code, so only the text identifies it.
+    //
+    // Supabase's pooler says EMAXCONNSESSION; pgbouncer says max_client_conn. Both were
+    // invisible here, so schedulers took the unrecognised-error path: log an error, no
+    // cooldown, and try again on the next tick. On preview that meant every-minute retries
+    // against a pool that was already full, from several schedulers at once.
+    "EMAXCONNSESSION",
+    "max clients reached",
+    "max_client_conn",
+    "too many clients already",
 ];
 
 function toErrorWithMessage(error: unknown): { code?: string; message: string } {
