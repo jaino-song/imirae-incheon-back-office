@@ -5,6 +5,8 @@ import { api } from "@/lib/api/client";
 import { EmployeeFormDialog, EmployeeFormPanel } from "../EmployeeFormDialog";
 
 const mockRefetchQueries = jest.fn();
+const mockCreateEmployeeMutateAsync = jest.fn();
+const mockUpdateEmployeeMutateAsync = jest.fn();
 const employeeWithLegacyArea: Employee = {
   id: 1,
   name: "김제공",
@@ -22,8 +24,8 @@ jest.mock("@tanstack/react-query", () => ({
 
 jest.mock("@/hooks/useEmployees", () => ({
   employeeQueryKeys: { all: ["employees"] },
-  useCreateEmployee: () => ({ isPending: false, mutateAsync: jest.fn() }),
-  useUpdateEmployee: () => ({ isPending: false, mutateAsync: jest.fn() }),
+  useCreateEmployee: () => ({ isPending: false, mutateAsync: mockCreateEmployeeMutateAsync }),
+  useUpdateEmployee: () => ({ isPending: false, mutateAsync: mockUpdateEmployeeMutateAsync }),
 }));
 
 jest.mock("@/stores/employee-dialog-store", () => {
@@ -45,6 +47,15 @@ jest.mock("@/lib/api/client", () => ({
 }));
 
 const mockApiGet = api.get as jest.MockedFunction<typeof api.get>;
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
+}
 
 jest.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -71,6 +82,7 @@ describe("EmployeeFormPanel work area multi-select", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockApiGet.mockResolvedValue({ data: { exists: false } });
+    mockRefetchQueries.mockResolvedValue(undefined);
   });
 
   it("selects multiple areas and shows an empty-selection error beside the field label", async () => {
@@ -225,5 +237,55 @@ describe("EmployeeFormPanel work area multi-select", () => {
     expect(
       document.querySelector('[data-component="desktop_employees_form-dialog_submit"]'),
     ).toBeEnabled();
+  });
+
+  it("keeps final submit pending until employee refetch completes", async () => {
+    const refetch = createDeferred<void>();
+    const onClose = jest.fn();
+    const onSuccess = jest.fn();
+    const createdEmployee: Employee = {
+      ...employeeWithLegacyArea,
+      id: 2,
+      name: "박테스트",
+      workArea: ["남동구"],
+      phone: "01098765432",
+    };
+    mockCreateEmployeeMutateAsync.mockResolvedValue(createdEmployee);
+    mockRefetchQueries.mockReturnValueOnce(refetch.promise);
+
+    render(<EmployeeFormPanel open onClose={onClose} onSuccess={onSuccess} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.change(screen.getByLabelText(/이름/), { target: { value: createdEmployee.name } });
+    fireEvent.click(screen.getByRole("combobox", { name: /근무 지역 선택/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "남동구" }));
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
+    fireEvent.change(screen.getByLabelText(/연락처/), { target: { value: createdEmployee.phone } });
+    await screen.findByText("등록 가능한 번호입니다.");
+
+    const submit = document.querySelector<HTMLButtonElement>(
+      '[data-component="desktop_employees_form-panel_submit"]',
+    );
+    expect(submit).not.toBeNull();
+    expect(submit).toBeEnabled();
+
+    fireEvent.click(submit!);
+
+    await waitFor(() => expect(mockRefetchQueries).toHaveBeenCalled());
+    expect(submit).toBeDisabled();
+    expect(submit?.querySelector('[data-slot="spinner"]')).not.toBeNull();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      refetch.resolve();
+      await refetch.promise;
+    });
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(createdEmployee));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

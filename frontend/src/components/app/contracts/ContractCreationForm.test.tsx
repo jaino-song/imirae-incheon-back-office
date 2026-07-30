@@ -52,4 +52,21 @@ describe("ContractCreationForm compensation flows", () => {
     expect(branch).toContain('requestConfirmation("최근 생성된 진행 중 문서가 있습니다. 그래도 새로 생성하시겠습니까?")');
     expect(branch).toContain("progressId, true");
   });
+
+  it("should keep manual iframe submission pending until the dialog closes", () => {
+    const handler = source.slice(
+      source.indexOf("const handleContractCreation"),
+      source.indexOf("const isStep1Valid"),
+    );
+    const dialogCloseHandler = source.slice(
+      source.indexOf("const handleDialogClose"),
+      source.indexOf("const resetCreationSession"),
+    );
+
+    expect(handler).toContain("let keepSubmittingUntilDialogCloses = false");
+    expect(handler).toContain("keepSubmittingUntilDialogCloses = true");
+    expect(handler).toContain("if (!keepSubmittingUntilDialogCloses)");
+    expect(handler).toContain("handleDialogClose()");
+    expect(dialogCloseHandler).toContain("setIsSubmitting(false)");
+  });
 });

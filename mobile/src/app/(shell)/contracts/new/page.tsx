@@ -638,14 +638,19 @@ export default function ContractCreationPage() {
     setActiveStep((s) => s - 1);
   };
 
+  const closeEformsignModal = () => {
+    setIsEformsignModalOpen(false);
+    setIsSubmitting(false);
+  };
+
   const runIframeFallback = async (
     contractData: ContractDataDto,
     finalClientId: number,
     expiry: dayjs.Dayjs,
-  ) => {
+  ): Promise<boolean> => {
     if (!isEformsignLoaded) {
       showFloatingError("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
-      return;
+      return false;
     }
     const documentOption: EformsignDocumentOption = await eformsignApi.generateDocument(
       contractData as unknown as Parameters<typeof eformsignApi.generateDocument>[0],
@@ -672,17 +677,18 @@ export default function ContractCreationPage() {
           queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           startNavigation();
           setTimeout(() => {
-            setIsEformsignModalOpen(false);
+            closeEformsignModal();
             router.push("/contracts");
           }, SUCCESS_REDIRECT_DELAY_MS);
         },
         onError: (response) => {
           showFloatingError(`문서 생성 실패: ${response.message}`);
-          setIsEformsignModalOpen(false);
+          closeEformsignModal();
         },
         onAction: () => { /* noop */ },
       });
     }, 500);
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -695,6 +701,7 @@ export default function ContractCreationPage() {
     setProgressErrorHint(null);
 
     let autoRegisteredClientId: number | null = null;
+    let keepSubmittingUntilIframeCloses = false;
     try {
       // 1. Manual-entry client creation
       let finalClientId = clientId ?? storedClientByIdentity?.id ?? storedClientByPhone?.id ?? null;
@@ -935,7 +942,7 @@ export default function ContractCreationPage() {
           showFloatingError(getSafeHeadlessFailureMessage(headlessFailureReason));
         }
         setIsProgressModalOpen(false);
-        await runIframeFallback(contractData, finalClientId, end);
+        keepSubmittingUntilIframeCloses = await runIframeFallback(contractData, finalClientId, end);
       }
     } catch (err: unknown) {
       setIsProgressModalOpen(false);
@@ -952,7 +959,9 @@ export default function ContractCreationPage() {
         }
       }
     } finally {
-      setIsSubmitting(false);
+      if (!keepSubmittingUntilIframeCloses) {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -1485,7 +1494,7 @@ export default function ContractCreationPage() {
             <button
               data-component="mobile_contracts-new_signing_modal_header_close-button"
               type="button"
-              onClick={() => setIsEformsignModalOpen(false)}
+              onClick={closeEformsignModal}
               className={styles.navbarIconButton}
               aria-label="닫기"
             >
