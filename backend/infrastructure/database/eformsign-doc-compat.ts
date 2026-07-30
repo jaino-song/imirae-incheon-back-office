@@ -243,30 +243,141 @@ export const stripPendingEformsignDocPredicates = (
     }
     const missing = new Set(missingNames);
 
-    // AND is the only operator this descends into, because it is the only one where
-    // deleting a vacuously-true leaf preserves the meaning of the whole. Under OR a true
-    // leaf makes the branch true, and under NOT it makes it false; an empty object says
-    // neither, so both are left exactly as they are and fail loudly instead of quietly
-    // answering a different question. Every filter that actually needs this puts its
-    // pending predicates at the top level or in an AND chain.
-    const strip = (node: Prisma.eformsign_docWhereInput): Prisma.eformsign_docWhereInput => {
+    type SimplifiedWhere =
+        | { kind: "true" }
+        | { kind: "false" }
+        | { kind: "where"; where: Prisma.eformsign_docWhereInput };
+
+    const isTrue = (
+        value: SimplifiedWhere,
+    ): value is Extract<SimplifiedWhere, { kind: "true" }> => value.kind === "true";
+    const isFalse = (
+        value: SimplifiedWhere,
+    ): value is Extract<SimplifiedWhere, { kind: "false" }> => value.kind === "false";
+
+    const stripLogical = (
+        operator: "AND" | "OR" | "NOT",
+        value: Prisma.eformsign_docWhereInput | Prisma.eformsign_docWhereInput[],
+    ): SimplifiedWhere => {
+        const entries = Array.isArray(value) ? value : [value];
+        const simplifiedEntries = entries.map((entry) => strip(entry));
+
+        if (operator === "AND") {
+            if (simplifiedEntries.some(isFalse)) {
+                return { kind: "false" };
+            }
+            const remaining = simplifiedEntries.filter(
+                (entry): entry is Extract<SimplifiedWhere, { kind: "where" }> => !isTrue(entry),
+            );
+            if (remaining.length === 0) {
+                return { kind: "true" };
+            }
+            return {
+                kind: "where",
+                where: {
+                    AND: Array.isArray(value)
+                        ? remaining.map((entry) => entry.where)
+                        : remaining[0]!.where,
+                },
+            };
+        }
+
+        if (operator === "OR") {
+            if (simplifiedEntries.some(isTrue)) {
+                return { kind: "true" };
+            }
+            const remaining = simplifiedEntries.filter(
+                (entry): entry is Extract<SimplifiedWhere, { kind: "where" }> => !isFalse(entry),
+            );
+            if (remaining.length === 0) {
+                return { kind: "false" };
+            }
+            return {
+                kind: "where",
+                where: {
+                    OR: remaining.map((entry) => entry.where),
+                },
+            };
+        }
+
+        if (Array.isArray(value)) {
+            // Prisma treats NOT arrays as an implicit AND of negated entries.
+            if (simplifiedEntries.some(isTrue)) {
+                return { kind: "false" };
+            }
+            const remaining = simplifiedEntries.filter(
+                (entry): entry is Extract<SimplifiedWhere, { kind: "where" }> => !isFalse(entry),
+            );
+            if (remaining.length === 0) {
+                return { kind: "true" };
+            }
+            return { kind: "where", where: { NOT: remaining.map((entry) => entry.where) } };
+        }
+
+        const [simplified] = simplifiedEntries;
+        if (isTrue(simplified!)) {
+            return { kind: "false" };
+        }
+        if (isFalse(simplified!)) {
+            return { kind: "true" };
+        }
+        return { kind: "where", where: { NOT: simplified!.where } };
+    };
+
+    const strip = (node: Prisma.eformsign_docWhereInput): SimplifiedWhere => {
         const stripped: Record<string, unknown> = {};
+        let removedTrue = false;
         for (const [key, value] of Object.entries(node)) {
-            if (missing.has(key) && value === null) {
+            if (value === undefined) {
+                // Prisma omits undefined filters, but an undefined-only logical branch
+                // still has the contextual semantics of an authored empty predicate.
+                // Only removing a known missing-column `: null` marks this node true.
                 continue;
             }
-            if (key === "AND" && value !== undefined && value !== null) {
-                stripped[key] = Array.isArray(value)
-                    ? value.map((entry) => strip(entry as Prisma.eformsign_docWhereInput))
-                    : strip(value as Prisma.eformsign_docWhereInput);
+            if (missing.has(key) && value === null) {
+                removedTrue = true;
+                continue;
+            }
+            if (
+                (key === "AND" || key === "OR" || key === "NOT")
+                && value !== undefined
+                && value !== null
+            ) {
+                const simplified = stripLogical(
+                    key,
+                    value as Prisma.eformsign_docWhereInput | Prisma.eformsign_docWhereInput[],
+                );
+                if (isTrue(simplified)) {
+                    removedTrue = true;
+                    continue;
+                }
+                if (isFalse(simplified)) {
+                    return { kind: "false" };
+                }
+                Object.assign(stripped, simplified.where);
                 continue;
             }
             stripped[key] = value;
         }
-        return stripped as Prisma.eformsign_docWhereInput;
+        if (Object.keys(stripped).length === 0) {
+            // `{}` is context-sensitive in Prisma (`OR: [{}]` and `NOT: {}` are not
+            // interchangeable with our boolean identities). Only an empty node caused by
+            // removing a known-true predicate is the true identity this helper may erase.
+            return removedTrue
+                ? { kind: "true" }
+                : { kind: "where", where: {} };
+        }
+        return { kind: "where", where: stripped as Prisma.eformsign_docWhereInput };
     };
 
-    return strip(where);
+    const simplified = strip(where);
+    if (isTrue(simplified)) {
+        return {};
+    }
+    if (isFalse(simplified)) {
+        return { OR: [] };
+    }
+    return simplified.where;
 };
 
 export const eformsignDocCompatReadSelect = (
