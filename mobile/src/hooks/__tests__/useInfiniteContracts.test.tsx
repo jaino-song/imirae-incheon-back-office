@@ -395,9 +395,8 @@ describe("useInfiniteContracts", () => {
     await act(async () => {
       await result.current.fetchNextPage();
     });
-    await waitFor(() => expect(mockedGetAllDocuments).toHaveBeenCalledTimes(4));
-
     await waitFor(() => expect(resetQueriesSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockedGetAllDocuments).toHaveBeenCalledTimes(5));
     resetQueriesSpy.mockRestore();
   });
 
