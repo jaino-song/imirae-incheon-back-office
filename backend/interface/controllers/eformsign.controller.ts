@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Post, Get, Delete, Body, Query, Param, HttpException, HttpStatus, UseGuards, Res, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Controller, Post, Get, Head, Delete, Body, Query, Param, HttpException, HttpStatus, UseGuards, Res, ServiceUnavailableException } from "@nestjs/common";
 import { EformsignService } from "../../application/services/eformsign.service";
 import { EformsignDocService } from "../../application/services/eformsign-doc.service";
 import { AreaTemplateService } from "../../application/services/area-template.service";
@@ -791,6 +791,52 @@ export class EformsignController {
                 });
             }
             return document;
+        } catch (error) {
+            throwHttpOrInternalError(error);
+        }
+    }
+
+    /**
+     * Read document PDF metadata without loading the stored bytes.
+     */
+    @Head("documents/:documentId/download_files")
+    async headDocumentFile(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Param("documentId") documentId: string,
+        @Query("fileType") fileType: string | undefined,
+        @Res() res: Response,
+    ) {
+        try {
+            const parsedFileType = parseDownloadFileType(fileType);
+            const allowedDocuments = await this.filterDocumentsByBranch(
+                tenant.branchId ?? "",
+                [{ id: documentId }],
+            );
+            if (allowedDocuments.length === 0) {
+                throw new HttpException(
+                    { error: "Document access forbidden" },
+                    HttpStatus.FORBIDDEN,
+                );
+            }
+            const file = await this.documentMirrorService.getStoredFileMetadata(
+                documentId,
+                parsedFileType,
+            );
+            if (!file) {
+                throw new ServiceUnavailableException({
+                    error: "Document file is waiting for local synchronization",
+                    documentId,
+                    fileType: parsedFileType,
+                });
+            }
+
+            res.status(file.status);
+            res.set({
+                "Content-Type": file.contentType,
+                ...(file.contentDisposition ? { "Content-Disposition": file.contentDisposition } : {}),
+                "Content-Length": String(file.byteSize),
+            });
+            res.end();
         } catch (error) {
             throwHttpOrInternalError(error);
         }

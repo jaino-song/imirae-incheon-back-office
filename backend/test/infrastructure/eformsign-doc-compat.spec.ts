@@ -3,6 +3,7 @@ import {
     eformsignDocCompatReadSelect,
     omitPendingEformsignDocColumns,
     readWithEformsignDocCompat,
+    stripPendingEformsignDocPredicates,
     toCompatDomainRow,
 } from "infrastructure/database/eformsign-doc-compat";
 
@@ -47,6 +48,42 @@ describe("eformsignDocCompatReadSelect", () => {
         ]) {
             expect(select[column as keyof typeof select]).toBeUndefined();
         }
+    });
+
+    it("keeps everything up to the newest migration when only it is missing", () => {
+        // The purge-intent migration is the newest group; a database missing only it must
+        // still return every column the four earlier migrations added.
+        const select = eformsignDocCompatReadSelect(
+            missingColumnError("permanent_purge_requested_at"),
+        );
+
+        expect(select).toMatchObject({
+            templateId: true,
+            documentName: true,
+            customerName: true,
+        });
+        expect(select["permanentPurgeRequestedAt" as keyof typeof select]).toBeUndefined();
+    });
+
+    it("never widens past the projection the caller asked for", () => {
+        // The list select deliberately leaves detailPayload out — it is unbounded JSON and
+        // a page view would read one per row. A retry that selected every surviving pending
+        // column would have quietly reintroduced it for the whole deployment window.
+        const select = eformsignDocCompatReadSelect(
+            missingColumnError("permanent_purge_requested_at"),
+        );
+
+        expect(select["detailPayload" as keyof typeof select]).toBeUndefined();
+        expect(select["syncStatus" as keyof typeof select]).toBeUndefined();
+    });
+
+    it("still returns a pending column when the caller does want it", () => {
+        const select = eformsignDocCompatReadSelect(
+            missingColumnError("permanent_purge_requested_at"),
+            { documentId: true, detailPayload: true },
+        );
+
+        expect(select).toMatchObject({ detailPayload: true });
     });
 
     it("falls back to the floor when the oldest migration is the missing one", () => {
@@ -107,6 +144,70 @@ describe("readWithEformsignDocCompat", () => {
         await readWithEformsignDocCompat(missingColumnError("customer_name"), read);
 
         expect(read).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("stripPendingEformsignDocPredicates", () => {
+    it("drops an is-null test for a column the database may not have", () => {
+        // Narrowing the select is only half a compatibility read: nearly every document
+        // filter carries `permanentPurgeRequestedAt: null`, and a predicate naming a
+        // missing column fails whatever is selected. Dropping it is a semantic identity —
+        // with no column, no row can carry a value, so "is null" is true of every row.
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            branchId: "branch-1",
+            permanentPurgeRequestedAt: null,
+        })).toEqual({ branchId: "branch-1" });
+    });
+
+    it("reaches into AND, where deleting a true leaf changes nothing", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            AND: [
+                { branchId: "branch-1" },
+                { permanentPurgeRequestedAt: null },
+            ],
+        })).toEqual({
+            AND: [
+                { branchId: "branch-1" },
+                {},
+            ],
+        });
+    });
+
+    it.each([
+        ["OR", { OR: [{ templateId: null }, { documentId: "doc-1" }] }],
+        ["NOT", { NOT: { templateId: null } }],
+    ])("leaves %s alone rather than changing what it means", (_operator, where) => {
+        // An empty object is not the true this leaf stood for. Under OR a true leaf makes
+        // the whole branch true, so dropping it would narrow the query to the other terms;
+        // under NOT it makes the branch false, so dropping it would widen to everything.
+        // Both are silently wrong answers, and a loud failure is the better one.
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), where))
+            .toEqual(where);
+    });
+
+    it("keeps a predicate whose column an earlier migration already added", () => {
+        // Only the missing group and later ones are vacuous. `templateId` shipped with the
+        // first group, so when a later migration is the missing one it is still there —
+        // dropping its predicate would widen the retry past what the caller asked for.
+        expect(stripPendingEformsignDocPredicates(
+            missingColumnError("permanent_purge_requested_at"),
+            { templateId: null, permanentPurgeRequestedAt: null },
+        )).toEqual({ templateId: null });
+    });
+
+    it("leaves any comparison other than is-null alone", () => {
+        // `{ not: null }` means the opposite, and without the column it would flip from
+        // matching nothing to matching everything. Better to fail loudly than to answer
+        // a different question than the caller asked.
+        const where = { permanentPurgeRequestedAt: { not: null } };
+
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), where)).toEqual(where);
+    });
+
+    it("leaves a filter with no pending columns untouched", () => {
+        const where = { branchId: "branch-1", documentId: "doc-1" };
+
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), where)).toEqual(where);
     });
 });
 

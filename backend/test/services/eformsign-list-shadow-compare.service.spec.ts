@@ -92,12 +92,15 @@ function createQuery(overrides: Partial<ListShadowCompareQuery> = {}): ListShado
 }
 
 describe("EformsignListShadowCompareService", () => {
-    let repository: { findAll: jest.Mock; findAllForHeadquarters: jest.Mock };
+    let repository: {
+        findAllVisibleInMirror: jest.Mock;
+        findAllVisibleInMirrorForHeadquarters: jest.Mock;
+    };
 
     beforeEach(() => {
         repository = {
-            findAll: jest.fn().mockResolvedValue([]),
-            findAllForHeadquarters: jest.fn().mockResolvedValue([]),
+            findAllVisibleInMirror: jest.fn().mockResolvedValue([]),
+            findAllVisibleInMirrorForHeadquarters: jest.fn().mockResolvedValue([]),
         };
     });
 
@@ -139,7 +142,7 @@ describe("EformsignListShadowCompareService", () => {
             service.compareInBackground(createQuery(), servedFrom([]));
             await settle();
 
-            expect(repository.findAll).not.toHaveBeenCalled();
+            expect(repository.findAllVisibleInMirror).not.toHaveBeenCalled();
         },
     );
 
@@ -148,7 +151,7 @@ describe("EformsignListShadowCompareService", () => {
             createMirrorDocument({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
             createMirrorDocument({ documentId: "doc-1", createdDate: "2026-07-01T00:00:00.000Z" }),
         ];
-        repository.findAll.mockResolvedValue(documents);
+        repository.findAllVisibleInMirror.mockResolvedValue(documents);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -161,7 +164,7 @@ describe("EformsignListShadowCompareService", () => {
 
     it("names the documents each side is missing", async () => {
         const shared = createMirrorDocument({ documentId: "doc-1" });
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             shared,
             createMirrorDocument({ documentId: "doc-3" }),
         ]);
@@ -188,7 +191,7 @@ describe("EformsignListShadowCompareService", () => {
             documentId: "doc-b",
             createdDate: "2026-07-02T00:00:00.000Z",
         });
-        repository.findAll.mockResolvedValue([a, b]);
+        repository.findAllVisibleInMirror.mockResolvedValue([a, b]);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -211,7 +214,7 @@ describe("EformsignListShadowCompareService", () => {
             documentId: "doc-b",
             createdDate: "2026-07-02T00:00:00.000Z",
         });
-        repository.findAll.mockResolvedValue([a, b]);
+        repository.findAllVisibleInMirror.mockResolvedValue([a, b]);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -228,7 +231,7 @@ describe("EformsignListShadowCompareService", () => {
     it("reports documents whose values differ even when the list itself matches", async () => {
         // Membership and order can agree while the row serves a different status, and the
         // UI reads that directly — it drives the pill and which actions are offered.
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-1", statusType: "060" }),
         ]);
         const service = createService("true");
@@ -245,7 +248,7 @@ describe("EformsignListShadowCompareService", () => {
 
     it("applies the same template filter the served list did", async () => {
         const kept = createMirrorDocument({ documentId: "doc-keep", templateId: "template-1" });
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             kept,
             createMirrorDocument({ documentId: "doc-drop", templateId: "template-9" }),
         ]);
@@ -263,7 +266,7 @@ describe("EformsignListShadowCompareService", () => {
 
     it("matches 초성 against the recipient name, the way the served search does", async () => {
         const song = createMirrorDocument({ documentId: "doc-song", stepRecipientName: "송진호" });
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             song,
             createMirrorDocument({ documentId: "doc-park", stepRecipientName: "박수신" }),
         ]);
@@ -281,7 +284,7 @@ describe("EformsignListShadowCompareService", () => {
         // The vendor list is fetched without include_fields, so the served search never
         // sees a customer name on the document and matches the recipient name instead.
         // Searching the mirror's own column would find documents the served path cannot.
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({
                 documentId: "doc-hidden",
                 customerName: "최고객",
@@ -302,14 +305,14 @@ describe("EformsignListShadowCompareService", () => {
     it("searches headquarters recipient names from branch-owned rows only", async () => {
         // The served path builds its recipient-name corpus from findAll(branchId), so an
         // unassigned document's recipient name is not searchable there.
-        repository.findAllForHeadquarters.mockResolvedValue([
+        repository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([
             createMirrorDocument({
                 documentId: "doc-unassigned",
                 documentName: null,
                 stepRecipientName: "박수신",
             }),
         ]);
-        repository.findAll.mockResolvedValue([]);
+        repository.findAllVisibleInMirror.mockResolvedValue([]);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -325,7 +328,7 @@ describe("EformsignListShadowCompareService", () => {
 
     it("reads the headquarters corpus from the method that includes unclaimed rows", async () => {
         const hqDocument = createMirrorDocument({ documentId: "doc-hq" });
-        repository.findAllForHeadquarters.mockResolvedValue([hqDocument]);
+        repository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([hqDocument]);
         const service = createService("true");
         spyOnLogger(service);
 
@@ -335,10 +338,10 @@ describe("EformsignListShadowCompareService", () => {
         );
         await settle();
 
-        expect(repository.findAllForHeadquarters).toHaveBeenCalledWith("branch-1");
+        expect(repository.findAllVisibleInMirrorForHeadquarters).toHaveBeenCalledWith("branch-1");
         // findAll is still consulted, but only for the recipient-name search corpus the
         // served path builds the same way — not for which documents the list contains.
-        expect(repository.findAll).toHaveBeenCalledWith("branch-1");
+        expect(repository.findAllVisibleInMirror).toHaveBeenCalledWith("branch-1");
     });
 
     it("stands in for the vendor inbox with local status categories on the tab endpoints", async () => {
@@ -346,7 +349,7 @@ describe("EformsignListShadowCompareService", () => {
         // document sat in — the switch has to answer them from status codes. Comparing
         // that substitution is the only way to learn whether it lands the same content.
         const drafting = createMirrorDocument({ documentId: "doc-open", statusType: "060" });
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             drafting,
             createMirrorDocument({ documentId: "doc-done", statusType: "050" }),
         ]);
@@ -367,7 +370,7 @@ describe("EformsignListShadowCompareService", () => {
         // The list renders updated_date as the signed date, so a mirror that is right
         // about membership and status can still show users the wrong day.
         const mirrored = createMirrorDocument({ documentId: "doc-1" });
-        repository.findAll.mockResolvedValue([mirrored]);
+        repository.findAllVisibleInMirror.mockResolvedValue([mirrored]);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -393,7 +396,7 @@ describe("EformsignListShadowCompareService", () => {
             documentId: "doc-2026",
             createdDate: "2026-07-20T00:00:00.000Z",
         });
-        repository.findAll.mockResolvedValue([older, newer]);
+        repository.findAllVisibleInMirror.mockResolvedValue([older, newer]);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -409,7 +412,7 @@ describe("EformsignListShadowCompareService", () => {
     it("keeps the search term itself out of the log", async () => {
         // Searches are customer names often enough that the term does not belong in a
         // centralised log, and a raw value could break the log line apart.
-        repository.findAll.mockResolvedValue([]);
+        repository.findAllVisibleInMirror.mockResolvedValue([]);
         const service = createService("true");
         const logger = spyOnLogger(service);
 
@@ -429,7 +432,7 @@ describe("EformsignListShadowCompareService", () => {
         // Every list request would otherwise load the whole branch mirror and sort it,
         // competing with the served requests for the same connection pool.
         let release: (() => void) | undefined;
-        repository.findAll.mockImplementation(() => new Promise((resolve) => {
+        repository.findAllVisibleInMirror.mockImplementation(() => new Promise((resolve) => {
             release = () => resolve([]);
         }));
         const service = createService("true");
@@ -439,7 +442,7 @@ describe("EformsignListShadowCompareService", () => {
         service.compareInBackground(createQuery(), served);
         service.compareInBackground(createQuery(), served);
         service.compareInBackground(createQuery(), served);
-        expect(repository.findAll).toHaveBeenCalledTimes(1);
+        expect(repository.findAllVisibleInMirror).toHaveBeenCalledTimes(1);
 
         release?.();
         await settle();
@@ -452,7 +455,7 @@ describe("EformsignListShadowCompareService", () => {
     it("never lets a comparison failure escape into the request", async () => {
         // The response has already been sent by the time this runs; throwing here would
         // become an unhandled rejection, not an error the caller could do anything with.
-        repository.findAll.mockRejectedValue(new Error("mirror unavailable"));
+        repository.findAllVisibleInMirror.mockRejectedValue(new Error("mirror unavailable"));
         const service = createService("true");
         const logger = spyOnLogger(service);
 

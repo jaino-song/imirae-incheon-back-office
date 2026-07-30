@@ -1,8 +1,10 @@
 import { SbEformsignDocRepository } from "infrastructure/database/repositories/sb.eformsign-doc.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
+    EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
     UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
     UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
+    UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
 } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
@@ -99,11 +101,15 @@ describe("SbEformsignDocRepository", () => {
         });
         expect(eformsignDocModel.findMany.mock.calls[0][0].select)
             .not.toHaveProperty("detailPayload");
+        // The retry drops `permanentPurgeRequestedAt: null` from the filter. A predicate
+        // naming a column the database does not have fails whatever is selected, so
+        // narrowing the select alone left the retry failing exactly like the first
+        // attempt. Dropping an "is null" test for a non-existent column changes nothing:
+        // with no column, no row can carry a value.
         expect(eformsignDocModel.findMany).toHaveBeenNthCalledWith(2, {
             where: {
                 clientId: 55,
                 branchId: "branch-1",
-                permanentPurgeRequestedAt: null,
             },
             select: expect.objectContaining({
                 documentId: true,
@@ -164,6 +170,118 @@ describe("SbEformsignDocRepository", () => {
         }));
     });
 
+    it("shows completed branch documents only after the mirror is ready", async () => {
+        eformsignDocModel.findMany.mockResolvedValue([legacyRow]);
+
+        await expect(repository.findAllVisibleInMirror("branch-1")).resolves.toHaveLength(1);
+
+        const completedStatuses = [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES];
+        expect(eformsignDocModel.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    { branchId: "branch-1" },
+                    {
+                        OR: [
+                            { statusType: { notIn: completedStatuses } },
+                            {
+                                statusType: { in: completedStatuses },
+                                syncStatus: "ready",
+                            },
+                        ],
+                    },
+                ],
+            },
+        }));
+    });
+
+    it("applies the same completed-ready gate to headquarters and unclaimed rows", async () => {
+        eformsignDocModel.findMany.mockResolvedValue([legacyRow]);
+
+        await expect(repository.findAllVisibleInMirrorForHeadquarters("branch-1"))
+            .resolves.toHaveLength(1);
+
+        const completedStatuses = [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES];
+        expect(eformsignDocModel.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    {
+                        OR: [
+                            { branchId: "branch-1" },
+                            { branchId: null },
+                        ],
+                    },
+                    {
+                        OR: [
+                            { statusType: { notIn: completedStatuses } },
+                            {
+                                statusType: { in: completedStatuses },
+                                syncStatus: "ready",
+                            },
+                        ],
+                    },
+                ],
+            },
+        }));
+    });
+
+    it.each([
+        {
+            label: "branch",
+            read: (subject: SbEformsignDocRepository) =>
+                subject.findAllVisibleInMirror("branch-1"),
+            scope: { branchId: "branch-1" },
+        },
+        {
+            label: "headquarters",
+            read: (subject: SbEformsignDocRepository) =>
+                subject.findAllVisibleInMirrorForHeadquarters("branch-1"),
+            scope: {
+                OR: [
+                    { branchId: "branch-1" },
+                    { branchId: null },
+                ],
+            },
+        },
+    ])("fails closed for completed $label rows when sync_status is not deployed", async ({
+        read,
+        scope,
+    }) => {
+        const missingSyncStatus = Object.assign(
+            new Error("The column `eformsign_doc.sync_status` does not exist"),
+            {
+                code: "P2022",
+                meta: { column: "eformsign_doc.sync_status" },
+            },
+        );
+        eformsignDocModel.findMany.mockImplementation(async (query: {
+            where?: unknown;
+        }) => {
+            if (JSON.stringify(query.where).includes("syncStatus")) {
+                throw missingSyncStatus;
+            }
+            return [legacyRow];
+        });
+
+        await expect(read(repository)).resolves.toHaveLength(1);
+
+        expect(eformsignDocModel.findMany).toHaveBeenLastCalledWith({
+            where: {
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    scope,
+                    {
+                        statusType: {
+                            notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                        },
+                    },
+                ],
+            },
+            select: expect.any(Object),
+        });
+    });
+
     it("retries document reads when Prisma reports P2022 without column metadata", async () => {
         eformsignDocModel.findFirst
             .mockRejectedValueOnce(pendingColumnWithoutFieldError)
@@ -182,7 +300,6 @@ describe("SbEformsignDocRepository", () => {
             where: {
                 documentId: "doc-1",
                 branchId: "branch-1",
-                permanentPurgeRequestedAt: null,
             },
             select: expect.objectContaining({
                 documentId: true,
@@ -573,6 +690,62 @@ describe("SbEformsignDocRepository", () => {
         expect(eformsignDocModel.create).not.toHaveBeenCalled();
     });
 
+    it("updates only ownership when adoption must preserve an existing ready projection", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: "contract",
+            employeeScheduleId: null,
+            templateId: "template-1",
+        });
+
+        await repository.upsertByDocumentId("branch-1", createEntity(), {
+            preserveExistingMirrorProjection: true,
+        });
+
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: {
+                    branchId: "branch-1",
+                    clientId: 55,
+                    documentKind: null,
+                },
+            }),
+        );
+        const update = eformsignDocModel.updateMany.mock.calls[0][0].data;
+        expect(update).not.toHaveProperty("statusType");
+        expect(update).not.toHaveProperty("statusDetail");
+        expect(update).not.toHaveProperty("updatedDate");
+        expect(update).not.toHaveProperty("stepType");
+        expect(update).not.toHaveProperty("templateId");
+        expect(update).not.toHaveProperty("expired");
+        expect(update).not.toHaveProperty("syncStatus");
+    });
+
+    it("still creates a complete pending projection for a newly adopted document", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertByDocumentId("branch-1", createEntity(), {
+            preserveExistingMirrorProjection: true,
+        });
+
+        expect(eformsignDocModel.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                documentId: "doc-1",
+                branchId: "branch-1",
+                statusType: "050",
+            }),
+        });
+    });
+
     it("retries the conditional documentId update and read without pending columns", async () => {
         eformsignDocModel.updateMany
             .mockRejectedValueOnce(pendingColumnError)
@@ -774,6 +947,197 @@ describe("SbEformsignDocRepository", () => {
         expect(args.data).not.toHaveProperty("snapshotChunkIndex");
     });
 
+    it("atomically withdraws a completed projection before mirror files are synchronized", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        });
+
+        const update = eformsignDocModel.updateMany.mock.calls[0][0];
+        expect(update.data)
+            .toEqual(expect.objectContaining({ statusType: "050", syncStatus: "pending" }));
+        const staleGuard = update.where.AND[1];
+        expect(staleGuard.OR).toContainEqual({
+            detailSourceUpdatedDate: { lt: legacyRow.updatedDate },
+        });
+        expect(staleGuard.OR).toContainEqual({
+            AND: expect.arrayContaining([
+                { detailSourceUpdatedDate: legacyRow.updatedDate },
+                {
+                    OR: expect.arrayContaining([
+                        { syncStatus: { in: ["pending", "partial", "failed"] } },
+                        {
+                            detailPayload: {
+                                path: ["current_status", "status_type"],
+                                equals: "062",
+                            },
+                        },
+                        {
+                            detailPayload: {
+                                path: ["current_status", "status_type"],
+                                equals: "doc_reject_reviewer",
+                            },
+                        },
+                    ]),
+                },
+            ]),
+        });
+        expect(JSON.stringify(staleGuard)).not.toContain(
+            JSON.stringify({
+                statusType: {
+                    notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                },
+            }),
+        );
+    });
+
+    it.each(["072", "050"])(
+        "allows a same-generation review-stage row to advance to terminal status %s",
+        async (statusType) => {
+            eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+            eformsignDocModel.findFirst.mockResolvedValue({
+                ...legacyRow,
+                statusType,
+                branchId: "branch-1",
+            });
+            const incoming = EformsignDocEntity.reconstitute({
+                ...legacyRow,
+                statusType,
+                documentKind: null,
+                employeeScheduleId: null,
+                templateId: null,
+            });
+
+            await repository.upsertUnassignedByDocumentId(incoming, {
+                allowAssignedUpdate: true,
+                markMirrorPending: true,
+            });
+
+            const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+            expect(staleGuard.OR).toContainEqual({
+                AND: expect.arrayContaining([
+                    { detailSourceUpdatedDate: legacyRow.updatedDate },
+                    {
+                        OR: expect.arrayContaining([
+                            {
+                                detailPayload: {
+                                    path: ["current_status", "status_type"],
+                                    equals: "062",
+                                },
+                            },
+                            {
+                                detailPayload: {
+                                    path: ["current_status", "status_type"],
+                                    equals: "071",
+                                },
+                            },
+                        ]),
+                    },
+                ]),
+            });
+        },
+    );
+
+    it("refuses a same-generation retry of an already terminal status", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+
+        await expect(repository.upsertUnassignedByDocumentId(createEntity(), {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        })).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard.OR).toEqual([
+            { detailSourceUpdatedDate: null },
+            { detailSourceUpdatedDate: { lt: legacyRow.updatedDate } },
+            {
+                AND: expect.arrayContaining([
+                    { detailSourceUpdatedDate: legacyRow.updatedDate },
+                    {
+                        OR: expect.arrayContaining([
+                            { syncStatus: { in: ["pending", "partial", "failed"] } },
+                        ]),
+                    },
+                ]),
+            },
+        ]);
+    });
+
+    it("refuses a same-generation terminal row moving back to review stage", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+        const incoming = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            statusType: "062",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await expect(repository.upsertUnassignedByDocumentId(incoming, {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        })).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard.AND[1].OR).toEqual(expect.arrayContaining([
+            { detailSourceUpdatedDate: null },
+            { detailSourceUpdatedDate: { lt: legacyRow.updatedDate } },
+            {
+                AND: expect.arrayContaining([
+                    { detailSourceUpdatedDate: legacyRow.updatedDate },
+                    {
+                        OR: expect.arrayContaining([
+                            { syncStatus: { in: ["pending", "partial", "failed"] } },
+                        ]),
+                    },
+                ]),
+            },
+        ]));
+    });
+
+    it("allows a newer terminal generation regardless of the stored completion status", async () => {
+        const newerUpdatedDate = new Date("2026-07-02T00:00:00.000Z");
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            updatedDate: newerUpdatedDate,
+            statusType: "072",
+            branchId: "branch-1",
+        });
+        const incoming = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            updatedDate: newerUpdatedDate,
+            statusType: "072",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(incoming, {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        });
+
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard.OR).toContainEqual({
+            detailSourceUpdatedDate: { lt: newerUpdatedDate },
+        });
+    });
+
     it("creates a newly discovered document with every local-only field unassigned", async () => {
         eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
         eformsignDocModel.create.mockResolvedValue({
@@ -886,6 +1250,10 @@ describe("SbEformsignDocRepository", () => {
         ["062", "063"],
         ["071", "060"],
         ["071", "063"],
+        ["62", "060"],
+        ["71", "060"],
+        ["doc_accept_participant", "060"],
+        ["doc_reject_reviewer", "060"],
     ])(
         "blocks review-stage status %s from transitioning backward to %s in the updateMany predicate",
         async (storedStatus, incomingStatus) => {
@@ -916,7 +1284,7 @@ describe("SbEformsignDocRepository", () => {
                     OR: [
                         {
                             statusType: {
-                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_CODES],
+                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
                             },
                         },
                         { statusType: incomingStatus },
@@ -1208,6 +1576,34 @@ describe("SbEformsignDocRepository", () => {
                 select: expect.objectContaining({ documentId: true }),
             }),
         );
+    });
+
+    it("removes mirror-only predicates when a pending-column retry uses the legacy schema", async () => {
+        eformsignDocModel.updateMany
+            .mockRejectedValueOnce(pendingColumnError)
+            .mockResolvedValueOnce({ count: 1 });
+        eformsignDocModel.findFirst
+            .mockRejectedValueOnce(pendingColumnError)
+            .mockResolvedValueOnce(legacyRow);
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            markMirrorPending: true,
+        });
+
+        const retry = eformsignDocModel.updateMany.mock.calls[1][0];
+        expect(retry.where.AND[0]).toEqual({
+            documentId: "doc-1",
+            branchId: null,
+        });
+        expect(retry.where.AND[1]).toEqual(expect.objectContaining({
+            updatedDate: { lte: legacyRow.updatedDate },
+            permanentPurgeRequestedAt: null,
+            statusType: { notIn: ["047", "049", "099"] },
+        }));
+        expect(JSON.stringify(retry.where)).not.toMatch(
+            /detailSourceUpdatedDate|detailPayload|syncStatus/,
+        );
+        expect(retry.data).not.toHaveProperty("syncStatus");
     });
 
     it("refuses a stale mirror update without reporting an ownership conflict", async () => {

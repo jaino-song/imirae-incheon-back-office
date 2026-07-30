@@ -854,7 +854,19 @@ export const ContractCreationForm = ({
 
           if (headless.reason === "local_persist_failed" && headless.remoteDocumentId) {
             try {
-              await eformsignApi.adoptDocument(headless.remoteDocumentId, finalClientId);
+              const adopted = await eformsignApi.adoptDocument(
+                headless.remoteDocumentId,
+                finalClientId,
+              );
+              if (adopted.warnings?.includes("mirror_sync_failed")) {
+                queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
+                setSubmitError(
+                  "문서는 생성·전송되었지만 전자문서와 PDF 동기화가 완료되지 않았습니다. "
+                  + "새 계약서를 다시 만들지 말고 잠시 후 전자문서 목록에서 확인해 주세요.",
+                );
+                markCreationProgressFailed();
+                return;
+              }
               setCreationProgress({ step: "sent", completed: true, failed: false });
               queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
               setIsCreationSuccessOpen(true);

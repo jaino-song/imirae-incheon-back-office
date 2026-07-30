@@ -16,6 +16,7 @@ export const CONTRACTS_NEXT_PAGE_SIZE = 6;
 
 export const CONTRACTS_PAGE_STALE_TIME = 1000 * 60 * 5; // 5 minutes
 export const CONTRACTS_PAGE_GC_TIME = 1000 * 60 * 60; // 1 hour
+const UNVERSIONED_SNAPSHOT_GENERATION = "<unversioned>";
 
 /** Offset page cursor sent to `GET /eformsign/documents`. */
 export interface ContractsPageParam {
@@ -195,34 +196,46 @@ export function useInfiniteContracts({
 
   // --- snapshot_version drift guard -----------------------------------------
   // Offset pagination is only coherent against a stable snapshot. If the backend
-  // reports a different snapshot for a later page, the underlying list changed
-  // mid-pagination and the loaded pages may hold duplicates or gaps — restart
-  // from page 1. The field is optional (absent when the cache is bypassed), which
-  // simply means "no signal".
+  // reports a different snapshot generation for a later page, the underlying
+  // list changed mid-pagination and the loaded pages may hold duplicates or gaps
+  // — restart from page 1. Versioned and unversioned pages are distinct
+  // generations because omission means the backend bypassed the snapshot cache.
   const baseSnapshotVersion = pages?.[0]?.snapshot_version;
-  const conflictingSnapshotVersion = useMemo(() => {
-    if (!pages || !baseSnapshotVersion) return undefined;
+  const baseSnapshotGeneration = pages?.length
+    ? (baseSnapshotVersion ?? UNVERSIONED_SNAPSHOT_GENERATION)
+    : undefined;
+  const conflictingSnapshotGeneration = useMemo(() => {
+    if (!pages || baseSnapshotGeneration === undefined) return undefined;
     return pages
       .slice(1)
-      .find((page) => page.snapshot_version && page.snapshot_version !== baseSnapshotVersion)
-      ?.snapshot_version;
-  }, [pages, baseSnapshotVersion]);
+      .map((page) => page.snapshot_version ?? UNVERSIONED_SNAPSHOT_GENERATION)
+      .find((generation) => generation !== baseSnapshotGeneration);
+  }, [pages, baseSnapshotGeneration]);
 
-  // Loop guard: at most one reset per (query key, base -> conflicting) pair. A
-  // repeat of the exact same mismatch after a reset is swallowed rather than
-  // resetting forever.
+  // Loop guard: reset a given mismatch once while it remains present. Re-arm
+  // after the pages become coherent so a later recurrence is handled too.
   const lastSnapshotResetRef = useRef<string | null>(null);
   const queryKey = options.queryKey;
 
   useEffect(() => {
-    if (!baseSnapshotVersion || !conflictingSnapshotVersion) return;
+    if (baseSnapshotGeneration === undefined) return;
+    if (conflictingSnapshotGeneration === undefined) {
+      lastSnapshotResetRef.current = null;
+      return;
+    }
 
-    const signature = `${queryKey.join("|")}::${baseSnapshotVersion}->${conflictingSnapshotVersion}`;
+    const signature =
+      `${queryKey.join("|")}::${baseSnapshotGeneration}->${conflictingSnapshotGeneration}`;
     if (lastSnapshotResetRef.current === signature) return;
     lastSnapshotResetRef.current = signature;
 
     void queryClient.resetQueries({ queryKey, exact: true });
-  }, [baseSnapshotVersion, conflictingSnapshotVersion, queryClient, queryKey]);
+  }, [
+    baseSnapshotGeneration,
+    conflictingSnapshotGeneration,
+    queryClient,
+    queryKey,
+  ]);
 
   return {
     // Spreading opts out of react-query's tracked-props optimization (every

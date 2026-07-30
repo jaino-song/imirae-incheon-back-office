@@ -127,6 +127,21 @@ describe("CreateEformsignDocUsecase", () => {
         expect(eformsignDocRepository.upsertByDocumentId).toHaveBeenCalledTimes(1);
     });
 
+    it("keeps an existing ready projection intact while adoption assigns ownership", async () => {
+        const client = createClient(7, "010-1234-5678");
+        clientRepository.findById.mockResolvedValue(client);
+
+        await usecase.execute(branchId, createParams({
+            preserveExistingMirrorProjection: true,
+        }));
+
+        expect(eformsignDocRepository.upsertByDocumentId).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ clientId: 7, documentId }),
+            { preserveExistingMirrorProjection: true },
+        );
+    });
+
     it("falls back to the supplied client when recipient phone has no client match", async () => {
         const client = createClient(7, "010-0000-0000");
         clientRepository.findById.mockResolvedValue(client);
