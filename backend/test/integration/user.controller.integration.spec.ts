@@ -126,8 +126,28 @@ describe("UserController (Integration)", () => {
             const response = await request(app.getHttpServer()).get("/users");
 
             expect(response.status).toBe(200);
-            expect(userService.findDirectory).toHaveBeenCalledWith({ branchId: undefined });
+            expect(userService.findDirectory).toHaveBeenCalledWith({
+                branchId: undefined,
+                includeUnassigned: true,
+            });
             expect(response.body).toHaveLength(1);
+        });
+
+        it("should scope directory by branch for owner users with a branch selected", async () => {
+            mockJwtGuard.canActivate.mockImplementationOnce((context) => {
+                const req = context.switchToHttp().getRequest();
+                req.user = { userId: "owner-user-id", role: "owner", branchId: "org-owner-1" };
+                return true;
+            });
+            userService.findDirectory.mockResolvedValue([]);
+
+            const response = await request(app.getHttpServer()).get("/users");
+
+            expect(response.status).toBe(200);
+            expect(userService.findDirectory).toHaveBeenCalledWith({
+                branchId: "org-owner-1",
+                includeUnassigned: true,
+            });
         });
 
         it("should scope directory by branch for admin users", async () => {
@@ -141,7 +161,10 @@ describe("UserController (Integration)", () => {
             const response = await request(app.getHttpServer()).get("/users");
 
             expect(response.status).toBe(200);
-            expect(userService.findDirectory).toHaveBeenCalledWith({ branchId: "org-admin-1" });
+            expect(userService.findDirectory).toHaveBeenCalledWith({
+                branchId: "org-admin-1",
+                includeUnassigned: false,
+            });
         });
 
         it("should reject admin directory requests without branch context", async () => {
@@ -167,6 +190,7 @@ describe("UserController (Integration)", () => {
             expect(response.status).toBe(200);
             expect(userService.findDirectory).toHaveBeenCalledWith({
                 branchId: undefined,
+                includeUnassigned: true,
                 status: "pending",
             });
         });

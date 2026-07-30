@@ -103,6 +103,62 @@ describe("UserService", () => {
             );
         });
 
+        it("should widen the branch filter to also match branch-less users when includeUnassigned is set (owner path)", async () => {
+            await service.findDirectory({ branchId: "branch-1", includeUnassigned: true });
+
+            expect(prismaService.user.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        OR: [
+                            { userBranches: { some: { branchId: "branch-1" } } },
+                            { ownedBranches: { some: { id: "branch-1" } } },
+                            { userBranches: { none: {} }, ownedBranches: { none: {} } },
+                        ],
+                    }),
+                }),
+            );
+        });
+
+        it("should keep the branch filter scoped to exactly the branch when includeUnassigned is not set (admin path, unchanged)", async () => {
+            await service.findDirectory({ branchId: "branch-1" });
+
+            expect(prismaService.user.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        OR: [
+                            { userBranches: { some: { branchId: "branch-1" } } },
+                            { ownedBranches: { some: { id: "branch-1" } } },
+                        ],
+                    }),
+                }),
+            );
+        });
+
+        it("should apply no branch filter at all when includeUnassigned is set without a branchId (owner with no branch selected)", async () => {
+            await service.findDirectory({ includeUnassigned: true });
+
+            expect(prismaService.user.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ where: undefined }),
+            );
+        });
+
+        it("should keep applying the status filter alongside the widened owner branch filter", async () => {
+            await service.findDirectory({ branchId: "branch-1", status: "pending", includeUnassigned: true });
+
+            expect(prismaService.user.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({
+                        approvalStatus: "pending",
+                        OR: [
+                            { userBranches: { some: { branchId: "branch-1" } } },
+                            { ownedBranches: { some: { id: "branch-1" } } },
+                            { userBranches: { none: {} }, ownedBranches: { none: {} } },
+                        ],
+                    }),
+                }),
+            );
+        });
+
         it("should include approvalStatus and requestedRole in the mapped result", async () => {
             prismaService.user.findMany.mockResolvedValue([
                 {
