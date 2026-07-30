@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import { UNASSIGNED_TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignService } from "application/services/eformsign.service";
 import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 import {
@@ -673,6 +674,10 @@ export class BackfillEformsignDocsUsecase {
                 if (hasPermanentPurgeIntent) {
                     await this.retryConfirmedPresentPermanentPurge(
                         documentId,
+                        // The vendor's own status, not the mirror's: a live purge intent
+                        // fences every writer of statusType, so the local row is frozen at
+                        // whatever it was when the delete began.
+                        detail.current_status?.status_type,
                         accessToken,
                         refreshAccessToken,
                     );
@@ -706,6 +711,7 @@ export class BackfillEformsignDocsUsecase {
      */
     private async retryConfirmedPresentPermanentPurge(
         documentId: string,
+        vendorStatusType: string | undefined,
         accessToken: () => string,
         refreshAccessToken: () => Promise<string>,
     ): Promise<void> {
@@ -756,8 +762,14 @@ export class BackfillEformsignDocsUsecase {
         // document has no live signing link left to revoke, so finish the purge rather
         // than retrying a call that can never succeed — otherwise every sweep from here
         // on reattempts it forever.
-        const terminalIds = await documentMirrorService.findTerminalDocumentIds([documentId]);
-        if (terminalIds.includes(documentId)) {
+        //
+        // This reads the vendor's status deliberately. The mirror cannot answer: a live
+        // purge intent fences every writer of statusType (the staleGuard, saveDetail,
+        // claimCompletionStatus, updateDocument), so the local row stays frozen at its
+        // pre-delete status for as long as the intent survives — which is exactly the
+        // situation this branch exists to end.
+        if (vendorStatusType !== undefined
+            && UNASSIGNED_TERMINAL_STATUS_CODES.has(vendorStatusType)) {
             await documentMirrorService.purgeDocuments([documentId]);
             return;
         }

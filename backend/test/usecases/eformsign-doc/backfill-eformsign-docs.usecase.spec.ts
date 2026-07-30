@@ -208,7 +208,10 @@ describe("BackfillEformsignDocsUsecase", () => {
     });
 
     it("finishes the purge when the vendor refuses to cancel an already-finished document", async () => {
-        const document = createRemoteDocument("pending-doc");
+        // 042 = cancelled at the vendor. The mirror still reads 060 here, because a live
+        // purge intent fences every writer of statusType — which is the whole reason this
+        // branch consults the vendor's status instead.
+        const document = createRemoteDocument("pending-doc", "042");
         const client = {
             getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
             getInProgressDocumentsPage: jest.fn().mockResolvedValue({
@@ -229,7 +232,9 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn().mockResolvedValue(undefined),
             markDocumentsDeleted: jest.fn(),
             clearPermanentPurgeRequest: jest.fn(),
-            findTerminalDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            // Left deliberately wrong: the frozen mirror would say "not terminal", and
+            // trusting it is what made this loop run forever.
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const eformsignService = {
             cancelDocuments: jest.fn().mockResolvedValue({
