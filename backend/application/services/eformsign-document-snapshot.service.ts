@@ -110,12 +110,14 @@ const DISPLAY_FIELD_MEMORY_STORE_MAX_ENTRIES = 512;
 type SnapshotExclusionLookup = Pick<
     IEformsignDocumentMirrorRepository,
     | "findListExcludedDocumentIds"
+    | "findUnreadyCompletedDocumentIds"
     | "findPermanentPurgeRequestedDocumentIds"
 >;
 
 /** Direct unit construction has no Nest container; production DI must provide the repository token. */
 const NO_SNAPSHOT_EXCLUSIONS: SnapshotExclusionLookup = {
     findListExcludedDocumentIds: async () => [],
+    findUnreadyCompletedDocumentIds: async () => [],
     findPermanentPurgeRequestedDocumentIds: async () => [],
 };
 
@@ -371,8 +373,9 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         if (version === null) {
             return {
                 entries: await this.excludeSnapshotEntries(
-                    await this.buildSafeEntries(build),
+                    await this.buildSafeEntries(build, params.source),
                     returnOptions,
+                    params.source,
                 ),
                 cached: false,
             };
@@ -383,8 +386,9 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
             if (epoch === null) {
                 return {
                     entries: await this.excludeSnapshotEntries(
-                        await this.buildSafeEntries(build),
+                        await this.buildSafeEntries(build, params.source),
                         returnOptions,
+                        params.source,
                     ),
                     cached: false,
                 };
@@ -397,8 +401,9 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         if (read.status === "error") {
             return {
                 entries: await this.excludeSnapshotEntries(
-                    await this.buildSafeEntries(build),
+                    await this.buildSafeEntries(build, params.source),
                     returnOptions,
+                    params.source,
                 ),
                 cached: false,
             };
@@ -407,6 +412,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
             const entries = await this.excludeSnapshotEntries(
                 read.snapshot.entries,
                 returnOptions,
+                params.source,
             );
             this.logger.log(
                 `documentSnapshot hit branch=${params.branchId} scope=${params.scope} docs=${entries.length}`,
@@ -425,6 +431,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
                 entries: await this.excludeSnapshotEntries(
                     shared.snapshot.entries,
                     returnOptions,
+                    params.source,
                 ),
                 ...(shared.stored ? { snapshotVersion: formatSnapshotVersion(shared.snapshot) } : {}),
                 cached: true,
@@ -441,6 +448,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
             entries: await this.excludeSnapshotEntries(
                 outcome.snapshot.entries,
                 returnOptions,
+                params.source,
             ),
             ...(outcome.stored ? { snapshotVersion: formatSnapshotVersion(outcome.snapshot) } : {}),
             cached: false,
@@ -453,7 +461,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         params: DocumentSnapshotKeyParams,
         build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
     ): Promise<BuildOutcome<TDoc>> {
-        const entries = await this.buildSafeEntries(build);
+        const entries = await this.buildSafeEntries(build, params.source);
         const snapshot: StoredSnapshot<TDoc> = { version, builtAt: Date.now(), entries };
         const stored = await this.writeSnapshot(key, snapshot, params);
         return { snapshot, stored };
@@ -461,8 +469,9 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
     private async buildSafeEntries<TDoc>(
         build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
+        source: DocumentSnapshotKeyParams["source"],
     ): Promise<DocumentSnapshotEntry<TDoc>[]> {
-        return this.excludePermanentPurgeEntries(await build());
+        return this.excludeSnapshotEntries(await build(), {}, source);
     }
 
     /**
@@ -474,21 +483,17 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     private async excludeSnapshotEntries<TDoc>(
         entries: DocumentSnapshotEntry<TDoc>[],
         options: DocumentSnapshotReturnOptions,
+        source: DocumentSnapshotKeyParams["source"],
     ): Promise<DocumentSnapshotEntry<TDoc>[]> {
-        const excludedIds = new Set(
-            options.excludeTombstones
-                ? await this.snapshotExclusionLookup.findListExcludedDocumentIds()
-                : await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds(),
-        );
-        return this.filterExcludedSnapshotEntries(entries, excludedIds);
-    }
-
-    private async excludePermanentPurgeEntries<TDoc>(
-        entries: DocumentSnapshotEntry<TDoc>[],
-    ): Promise<DocumentSnapshotEntry<TDoc>[]> {
-        const excludedIds = new Set(
-            await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds(),
-        );
+        const excludedIds = new Set(options.excludeTombstones
+            ? await this.snapshotExclusionLookup.findListExcludedDocumentIds()
+            : await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds());
+        if (source === "mirror") {
+            for (const documentId of await this.snapshotExclusionLookup
+                .findUnreadyCompletedDocumentIds()) {
+                excludedIds.add(documentId);
+            }
+        }
         return this.filterExcludedSnapshotEntries(entries, excludedIds);
     }
 

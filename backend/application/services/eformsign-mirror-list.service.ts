@@ -72,15 +72,19 @@ export class EformsignMirrorListService {
     }): Promise<EformsignListDoc[]> {
         // For a regular branch the list rows and the search rows are the same query, so it
         // is read once; only headquarters needs the wider set as well.
-        const branchOwned = await this.eformsignDocRepository.findAll(query.branchId);
+        const branchOwned = await this.eformsignDocRepository.findAllVisibleInMirror(
+            query.branchId,
+        );
         const mirrored = query.isHeadquarters
-            ? await this.eformsignDocRepository.findAllForHeadquarters(query.branchId)
+            ? await this.eformsignDocRepository.findAllVisibleInMirrorForHeadquarters(
+                query.branchId,
+            )
             : branchOwned;
 
         // Branch-owned rows only, even for headquarters: the API path builds its
-        // recipient-name search corpus from findAll(branchId), so an unassigned document's
-        // recipient name is not searchable there either. Carried on the document so a
-        // cached generation keeps it without a second read.
+        // recipient-name search corpus from the branch-visible query, so an unassigned
+        // document's recipient name is not searchable there either. Carried on the
+        // document so a cached generation keeps it without a second read.
         const recipientNameById = new Map(
             branchOwned.map((document) => [
                 document.documentId,

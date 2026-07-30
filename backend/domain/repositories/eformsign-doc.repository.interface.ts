@@ -70,6 +70,11 @@ export interface EformsignDocConditionalUpdateResult {
 export interface UpsertUnassignedEformsignDocOptions {
     allowAssignedUpdate?: boolean;
     updateListDisplayFields?: boolean;
+    /**
+     * Atomically withdraw a completed list projection before detail/PDF mirroring starts.
+     * The mirror service republishes it only after both required PDFs reach ready.
+     */
+    markMirrorPending?: boolean;
     updateExpired?: boolean;
     /**
      * The list endpoint carries no status detail, so a caller working from it only has a
@@ -110,11 +115,21 @@ export interface IEformsignDocRepository {
     findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]>;
     findAll(branchid: string): Promise<EformsignDocEntity[]>;
     /**
+     * Rows safe to expose through the local-only mirror list. Completed documents stay
+     * hidden until their detail and required PDFs reach the ready generation.
+     */
+    findAllVisibleInMirror(branchid: string): Promise<EformsignDocEntity[]>;
+    /**
      * Every document the headquarters list may show: ours plus the ones no branch has
      * claimed. Deliberately not "all rows minus other branches" done in memory — that is
      * the same rule, but expressed where the database can apply it.
      */
     findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]>;
+    /**
+     * Headquarters equivalent of `findAllVisibleInMirror`, including unclaimed rows but
+     * applying the same completed-ready publication gate.
+     */
+    findAllVisibleInMirrorForHeadquarters(branchid: string): Promise<EformsignDocEntity[]>;
     findDocumentIdsForOtherBranches(branchid: string): Promise<string[]>;
     findDisplayFieldsByDocumentIds(
         branchid: string,

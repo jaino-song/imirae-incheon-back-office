@@ -4,6 +4,7 @@ import { documentCustomerNameValue } from "application/utils/eformsign-document-
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 
 import { CreateEformsignDocResult, CreateEformsignDocUsecase } from "./create-eformsign-doc.usecase";
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
@@ -41,7 +42,7 @@ export class AdoptEformsignDocUsecase {
         return this.createEformsignDocUsecase.execute(branchId, {
             documentId: remote.id || params.documentId,
             clientId,
-            statusType: remote.current_status.status_type || "000",
+            statusType: normalizeEformsignStatusCode(remote.current_status.status_type),
             statusDetail: remote.current_status.status_doc_detail || remote.current_status.step_name || "진행중",
             stepType: remote.current_status.step_type || "01",
             stepIndex: remote.current_status.step_index || "1",

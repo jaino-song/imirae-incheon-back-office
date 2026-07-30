@@ -1,6 +1,7 @@
 import { SbEformsignDocRepository } from "infrastructure/database/repositories/sb.eformsign-doc.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
+    EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
     UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
     UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
@@ -162,6 +163,118 @@ describe("SbEformsignDocRepository", () => {
                 ],
             },
         }));
+    });
+
+    it("shows completed branch documents only after the mirror is ready", async () => {
+        eformsignDocModel.findMany.mockResolvedValue([legacyRow]);
+
+        await expect(repository.findAllVisibleInMirror("branch-1")).resolves.toHaveLength(1);
+
+        const completedStatuses = [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES];
+        expect(eformsignDocModel.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    { branchId: "branch-1" },
+                    {
+                        OR: [
+                            { statusType: { notIn: completedStatuses } },
+                            {
+                                statusType: { in: completedStatuses },
+                                syncStatus: "ready",
+                            },
+                        ],
+                    },
+                ],
+            },
+        }));
+    });
+
+    it("applies the same completed-ready gate to headquarters and unclaimed rows", async () => {
+        eformsignDocModel.findMany.mockResolvedValue([legacyRow]);
+
+        await expect(repository.findAllVisibleInMirrorForHeadquarters("branch-1"))
+            .resolves.toHaveLength(1);
+
+        const completedStatuses = [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES];
+        expect(eformsignDocModel.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    {
+                        OR: [
+                            { branchId: "branch-1" },
+                            { branchId: null },
+                        ],
+                    },
+                    {
+                        OR: [
+                            { statusType: { notIn: completedStatuses } },
+                            {
+                                statusType: { in: completedStatuses },
+                                syncStatus: "ready",
+                            },
+                        ],
+                    },
+                ],
+            },
+        }));
+    });
+
+    it.each([
+        {
+            label: "branch",
+            read: (subject: SbEformsignDocRepository) =>
+                subject.findAllVisibleInMirror("branch-1"),
+            scope: { branchId: "branch-1" },
+        },
+        {
+            label: "headquarters",
+            read: (subject: SbEformsignDocRepository) =>
+                subject.findAllVisibleInMirrorForHeadquarters("branch-1"),
+            scope: {
+                OR: [
+                    { branchId: "branch-1" },
+                    { branchId: null },
+                ],
+            },
+        },
+    ])("fails closed for completed $label rows when sync_status is not deployed", async ({
+        read,
+        scope,
+    }) => {
+        const missingSyncStatus = Object.assign(
+            new Error("The column `eformsign_doc.sync_status` does not exist"),
+            {
+                code: "P2022",
+                meta: { column: "eformsign_doc.sync_status" },
+            },
+        );
+        eformsignDocModel.findMany.mockImplementation(async (query: {
+            where?: unknown;
+        }) => {
+            if (JSON.stringify(query.where).includes("syncStatus")) {
+                throw missingSyncStatus;
+            }
+            return [legacyRow];
+        });
+
+        await expect(read(repository)).resolves.toHaveLength(1);
+
+        expect(eformsignDocModel.findMany).toHaveBeenLastCalledWith({
+            where: {
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    scope,
+                    {
+                        statusType: {
+                            notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                        },
+                    },
+                ],
+            },
+            select: expect.any(Object),
+        });
     });
 
     it("retries document reads when Prisma reports P2022 without column metadata", async () => {
@@ -772,6 +885,22 @@ describe("SbEformsignDocRepository", () => {
         expect(args.data).not.toHaveProperty("serviceRecordCaseId");
         expect(args.data).not.toHaveProperty("snapshotVersion");
         expect(args.data).not.toHaveProperty("snapshotChunkIndex");
+    });
+
+    it("atomically withdraws a completed projection before mirror files are synchronized", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+        });
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        });
+
+        expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
+            .toEqual(expect.objectContaining({ statusType: "050", syncStatus: "pending" }));
     });
 
     it("creates a newly discovered document with every local-only field unassigned", async () => {

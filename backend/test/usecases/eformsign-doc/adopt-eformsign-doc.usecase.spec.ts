@@ -51,6 +51,39 @@ describe("AdoptEformsignDocUsecase", () => {
         }));
     });
 
+    it.each([
+        ["doc_complete", "003"],
+        ["50", "050"],
+    ])("normalizes persisted vendor status %s to %s", async (rawStatus, expectedStatus) => {
+        const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-status" }) };
+        const usecase = new AdoptEformsignDocUsecase(
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: jest.fn().mockResolvedValue({
+                id: "doc-status",
+                document_name: "계약서",
+                template: { id: "template-1", name: "표준 계약서" },
+                current_status: {
+                    status_type: rawStatus,
+                    status_doc_detail: "완료",
+                    step_type: "05",
+                    step_index: "1",
+                    step_name: "완료",
+                    step_recipients: [],
+                    expired_date: 0,
+                },
+            }) } as never,
+            create as never,
+            { findByPhone: jest.fn() } as never,
+        );
+
+        await usecase.execute("branch-1", { documentId: "doc-status", clientId: 7 });
+
+        expect(create.execute).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ statusType: expectedStatus }),
+        );
+    });
+
     it("preserves no-expiry semantics when adopting a document with zero remaining days", async () => {
         const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-no-expiry" }) };
         const usecase = new AdoptEformsignDocUsecase(

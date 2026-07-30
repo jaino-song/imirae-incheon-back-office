@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
+    EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
     UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
     UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
@@ -35,6 +36,19 @@ const isUniqueConstraintError = (error: unknown): boolean =>
     && (error as { code?: unknown }).code === "P2002";
 
 const DELETED_EFORMSIGN_STATUS_TYPES = ["047", "049", "099"];
+const COMPLETED_EFORMSIGN_STATUS_TYPES = [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES];
+const MIRROR_LIST_NON_COMPLETED_WHERE: Prisma.eformsign_docWhereInput = {
+    statusType: { notIn: COMPLETED_EFORMSIGN_STATUS_TYPES },
+};
+const MIRROR_LIST_VISIBILITY_WHERE: Prisma.eformsign_docWhereInput = {
+    OR: [
+        MIRROR_LIST_NON_COMPLETED_WHERE,
+        {
+            statusType: { in: COMPLETED_EFORMSIGN_STATUS_TYPES },
+            syncStatus: "ready",
+        },
+    ],
+};
 
 const toUnscopedResult = (
     documentId: string,
@@ -242,11 +256,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         });
     }
 
+    async findAllVisibleInMirror(branchid: string): Promise<EformsignDocEntity[]> {
+        return this.findManyVisibleInMirror({ branchId: branchid });
+    }
+
     async findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]> {
         // Mirrors the scan filter the API path uses: headquarters keeps everything except
         // what another branch owns, so an unclaimed document (branchId null) stays in.
         return this.findManyDomain({
             permanentPurgeRequestedAt: null,
+            OR: [
+                { branchId: branchid },
+                { branchId: null },
+            ],
+        });
+    }
+
+    async findAllVisibleInMirrorForHeadquarters(
+        branchid: string,
+    ): Promise<EformsignDocEntity[]> {
+        return this.findManyVisibleInMirror({
             OR: [
                 { branchId: branchid },
                 { branchId: null },
@@ -591,6 +620,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         };
         const update = {
             statusType: doc.statusType,
+            ...(options?.markMirrorPending ? { syncStatus: "pending" as const } : {}),
             ...(options?.updateStatusDetail === false ? {} : { statusDetail: doc.statusDetail }),
             stepType: doc.stepType,
             stepIndex: doc.stepIndex,
@@ -829,6 +859,34 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             const docs = await readWithEformsignDocCompat(error, (select) =>
                 this.prismaService.eformsign_doc.findMany({ where, select }));
             return docs.map((doc) => EformsignDocMapper.toDomain(toCompatDomainRow(doc)));
+        }
+    }
+
+    private async findManyVisibleInMirror(
+        scopeWhere: Prisma.eformsign_docWhereInput,
+    ): Promise<EformsignDocEntity[]> {
+        try {
+            return await this.findManyDomain({
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    scopeWhere,
+                    MIRROR_LIST_VISIBILITY_WHERE,
+                ],
+            });
+        } catch (error) {
+            if (!isPendingEformsignDocColumnError(error)) {
+                throw error;
+            }
+
+            // During a code-first rollout sync_status may not exist yet. Without it,
+            // no completed document can be proven to contain both required PDFs.
+            return this.findManyDomain({
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    scopeWhere,
+                    MIRROR_LIST_NON_COMPLETED_WHERE,
+                ],
+            });
         }
     }
 }

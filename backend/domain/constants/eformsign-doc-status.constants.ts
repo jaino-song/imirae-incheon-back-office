@@ -9,6 +9,31 @@ export const EFORMSIGN_COMPLETED_STATUS_CODES: ReadonlySet<string> = new Set([
     "092",
 ]);
 
+/**
+ * Completed values that may already exist in storage from legacy/raw vendor writes.
+ * New writes are normalized, but publication queries must also fence old aliases and
+ * unpadded numeric forms until a normal sync rewrites them canonically.
+ */
+export const EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES: readonly string[] = [
+    ...EFORMSIGN_COMPLETED_STATUS_CODES,
+    "3",
+    "03",
+    "12",
+    "22",
+    "32",
+    "50",
+    "62",
+    "72",
+    "92",
+    "doc_complete",
+    "doc_accept_approval",
+    "doc_accept_reception",
+    "doc_accept_outsider",
+    "doc_accept_participant",
+    "doc_accept_reviewer",
+    "face_signature_complete",
+];
+
 const REJECTED_STATUS_CODES = [
     "011",
     "021",

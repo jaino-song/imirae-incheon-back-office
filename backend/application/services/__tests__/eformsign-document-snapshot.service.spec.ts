@@ -12,6 +12,7 @@ import {
 
 interface SnapshotExclusionLookup {
     findListExcludedDocumentIds: jest.Mock<Promise<string[]>, []>;
+    findUnreadyCompletedDocumentIds: jest.Mock<Promise<string[]>, []>;
     findPermanentPurgeRequestedDocumentIds: jest.Mock<Promise<string[]>, []>;
 }
 
@@ -128,6 +129,7 @@ function createSnapshotExclusionLookup(
         findListExcludedDocumentIds: jest.fn().mockResolvedValue(
             excludedDocumentIds,
         ),
+        findUnreadyCompletedDocumentIds: jest.fn().mockResolvedValue([]),
         findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
     };
 }
@@ -232,6 +234,75 @@ describe("EformsignDocumentSnapshotService", () => {
             snapshotVersion: expect.stringMatching(/^0:\d+$/),
             cached: true,
         });
+    });
+
+    it("should fence an unready completed row from a stale mirror snapshot after a version bump fails", async () => {
+        const exclusionLookup = createSnapshotExclusionLookup();
+        const redis = createRedisStub();
+        let snapshotPayload: string | null = null;
+        redis.get.mockImplementation(async (key) => {
+            if (key === "eformsign:doclist-version:branch-a") {
+                return "0";
+            }
+            return snapshotPayload;
+        });
+        redis.set.mockImplementation(async (key, value) => {
+            if (key.startsWith("eformsign:doclist:")) {
+                snapshotPayload = value;
+            }
+            return "OK";
+        });
+        useRedisStub(redis);
+        const service = new EformsignDocumentSnapshotService(exclusionLookup);
+        const build = jest.fn().mockResolvedValue([
+            createEntry("safe-document"),
+            createEntry("completed-syncing-document"),
+        ]);
+
+        await service.getOrBuild(createMirrorParams(), build);
+        redis.incr.mockRejectedValueOnce(
+            new Error("Valkey unavailable during completed mirror invalidation"),
+        );
+        await expect(service.bumpVersion("branch-a")).resolves.toBeNull();
+        exclusionLookup.findUnreadyCompletedDocumentIds.mockResolvedValue([
+            "completed-syncing-document",
+        ]);
+
+        const result = await service.getOrBuild(createMirrorParams(), build);
+
+        expect(build).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({
+            entries: [createEntry("safe-document")],
+            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            cached: true,
+        });
+    });
+
+    it("should apply the readiness fence only to mirror snapshots", async () => {
+        const exclusionLookup = createSnapshotExclusionLookup();
+        exclusionLookup.findUnreadyCompletedDocumentIds.mockResolvedValue(["document-1"]);
+        const service = new EformsignDocumentSnapshotService(exclusionLookup);
+        const entry = createEntry("document-1");
+
+        const result = await service.getOrBuild(
+            createParams(),
+            jest.fn().mockResolvedValue([entry]),
+        );
+
+        expect(result.entries).toEqual([entry]);
+        expect(exclusionLookup.findUnreadyCompletedDocumentIds).not.toHaveBeenCalled();
+    });
+
+    it("should fail closed when the mirror readiness fence is unavailable", async () => {
+        const exclusionLookup = createSnapshotExclusionLookup();
+        const service = new EformsignDocumentSnapshotService(exclusionLookup);
+        const fenceError = new Error("mirror readiness lookup unavailable");
+        exclusionLookup.findUnreadyCompletedDocumentIds.mockRejectedValue(fenceError);
+
+        await expect(service.getOrBuild(
+            createMirrorParams(),
+            jest.fn().mockResolvedValue([createEntry("document-1")]),
+        )).rejects.toBe(fenceError);
     });
 
     it("should exclude a tombstoned unassigned document from a stale headquarters snapshot after its epoch bump fails", async () => {
