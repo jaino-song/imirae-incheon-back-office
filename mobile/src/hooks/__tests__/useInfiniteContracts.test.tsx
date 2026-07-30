@@ -6,7 +6,7 @@ import type {
   EformsignDocument,
   EformsignDocumentsResponse,
 } from "@/lib/eformsign/types";
-import { eformsignApi, withEformsignReauth } from "@/services/api";
+import { eformsignApi } from "@/services/api";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
 import { useInfiniteContracts } from "../useInfiniteContracts";
 
@@ -14,7 +14,6 @@ jest.mock("@/services/api", () => ({
   eformsignApi: {
     getAllDocuments: jest.fn(),
   },
-  withEformsignReauth: jest.fn((fn: () => Promise<unknown>) => fn()),
 }));
 
 jest.mock("@/hooks/useGetAuthUser", () => ({
@@ -23,9 +22,6 @@ jest.mock("@/hooks/useGetAuthUser", () => ({
 
 const mockedGetAllDocuments = eformsignApi.getAllDocuments as jest.MockedFunction<
   typeof eformsignApi.getAllDocuments
->;
-const mockedWithEformsignReauth = withEformsignReauth as jest.MockedFunction<
-  typeof withEformsignReauth
 >;
 const mockedUseGetAuthUser = useGetAuthUser as jest.MockedFunction<typeof useGetAuthUser>;
 
@@ -92,7 +88,6 @@ describe("useInfiniteContracts", () => {
       },
     });
     mockedGetAllDocuments.mockReset();
-    mockedWithEformsignReauth.mockClear();
     mockedUseGetAuthUser.mockReset();
     mockedUseGetAuthUser.mockReturnValue(authResult("branch-1"));
   });
@@ -168,7 +163,6 @@ describe("useInfiniteContracts", () => {
       search: undefined,
       excludeDeleted: true,
     });
-    expect(mockedWithEformsignReauth).toHaveBeenCalledTimes(3);
     expect(result.current.totalRows).toBe(21);
   });
 

@@ -1229,11 +1229,13 @@ function ContractDetailContent({
 
     setIsReRequesting(true);
     try {
-      await eformsignApi.reRequestDocument(doc.id, {
-        stepType,
-        stepSeq,
-        comment: "재요청입니다.",
-      });
+      await withEformsignReauth(() =>
+        eformsignApi.reRequestDocument(doc.id, {
+          stepType,
+          stepSeq,
+          comment: "재요청입니다.",
+        }),
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() }),
         queryClient.invalidateQueries({ queryKey: ["eformsign-document-detail", doc.id] }),
@@ -1828,7 +1830,9 @@ export default function ContractsPage() {
     };
   }, []);
 
-  const { isAuthenticated, isLoading: isAuthLoading } = useEformsignAuth();
+  const { isAuthenticated, isLoading: isAuthLoading } = useEformsignAuth({
+    requireAccessToken: false,
+  });
   const refreshContractsFromEvent = useCallback(
     (event: { documentId?: string }) => {
       // documents() 광역 prefix가 all/paginated/status-counts 하위 키를 전부 덮는다.
@@ -1917,14 +1921,12 @@ export default function ContractsPage() {
       serviceRecordTemplateId ?? "no-template",
     ],
     queryFn: () =>
-      withEformsignReauth(() =>
-        eformsignApi.getStatusCounts({
-          templateId: serviceRecordTemplateId ?? undefined,
-          templateMatch: serviceRecordTemplateId ? sectionTemplateMatch : undefined,
-          search: debouncedSearchQuery || undefined,
-          excludeDeleted: true,
-        }),
-      ),
+      eformsignApi.getStatusCounts({
+        templateId: serviceRecordTemplateId ?? undefined,
+        templateMatch: serviceRecordTemplateId ? sectionTemplateMatch : undefined,
+        search: debouncedSearchQuery || undefined,
+        excludeDeleted: true,
+      }),
     enabled: isAuthenticated && sectionFilterReady && Boolean(branchId),
     staleTime: 1000 * 60 * 5,
   });

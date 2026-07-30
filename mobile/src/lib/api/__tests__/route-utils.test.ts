@@ -5,7 +5,13 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { serverAPIClient } from "@/lib/api/server";
-import { errorResponse, proxyDeleteRequest, proxyGetRequest, proxyPostRequest } from "../route-utils";
+import {
+    errorResponse,
+    proxyDeleteRequest,
+    proxyGetRequest,
+    proxyLocalGetRequest,
+    proxyPostRequest,
+} from "../route-utils";
 
 jest.mock("@/lib/api/server", () => ({
     serverAPIClient: {
@@ -133,6 +139,33 @@ describe("route-utils proxy body parsing", () => {
         });
     });
 
+    it("allows a local document read with app auth only", async () => {
+        mockGet.mockResolvedValue({
+            status: 200,
+            data: { id: "doc-1" },
+        });
+        const request = new NextRequest(
+            "http://localhost/api/eformsign/documents/doc-1?accessToken=ignored"
+            + "&refresh_token=refresh-secret&external-token=external-secret"
+            + "&oauth_token=oauth-secret&apiKey=api-secret&authorization=bearer-secret",
+            {
+                headers: { cookie: "auth_token=token-1" },
+            },
+        );
+
+        const response = await proxyLocalGetRequest(
+            request,
+            "/api/documents/doc-1",
+            "fetch local document",
+        );
+
+        expect(response.status).toBe(200);
+        expect(mockGet).toHaveBeenCalledWith("/api/documents/doc-1", {
+            params: {},
+            headers: { Authorization: "Bearer token-1" },
+        });
+    });
+
     it("sanitizes raw upstream payloads from non-throwing proxy POST errors", async () => {
         mockPost.mockResolvedValue({
             status: 409,
@@ -191,39 +224,6 @@ describe("route-utils proxy bodySchema validation", () => {
 
     afterEach(() => {
         consoleErrorSpy.mockRestore();
-    });
-
-    // sync-status: { documentId: required non-empty string }
-    const syncStatusSchema = z.object({ documentId: z.string().min(1) }).passthrough();
-
-    it("rejects a POST body failing bodySchema before proxying", async () => {
-        const response = await proxyPostRequest(
-            createJsonRequest("POST", JSON.stringify({})),
-            "/eformsign-docs/sync-status",
-            "sync eformsign document status",
-            { bodySchema: syncStatusSchema },
-        );
-
-        expect(response.status).toBe(400);
-        await expect(response.json()).resolves.toMatchObject({ error: "Invalid request body" });
-        expect(mockPost).not.toHaveBeenCalled();
-    });
-
-    it("forwards a POST body that satisfies bodySchema", async () => {
-        mockPost.mockResolvedValue({ status: 200, data: { ok: true } });
-
-        const response = await proxyPostRequest(
-            createJsonRequest("POST", JSON.stringify({ documentId: "doc-1" })),
-            "/eformsign-docs/sync-status",
-            "sync eformsign document status",
-            { bodySchema: syncStatusSchema },
-        );
-
-        expect(response.status).toBe(200);
-        expect(mockPost).toHaveBeenCalledTimes(1);
-        const [path, payload] = mockPost.mock.calls[0];
-        expect(path).toBe("/eformsign-docs/sync-status");
-        expect(payload).toMatchObject({ documentId: "doc-1", accessToken: "eformsign-token" });
     });
 
     // re-request: { stepType + stepSeq required non-empty strings }

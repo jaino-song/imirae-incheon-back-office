@@ -51,17 +51,6 @@ export interface LocalEformsignDocRecord {
     templateId: string | null;
 }
 
-export interface SyncedEformsignDocResponse {
-    id?: number;
-    documentId: string;
-    statusType: string;
-    statusDetail: string;
-    stepType: string;
-    stepIndex: string;
-    stepName: string;
-    expired?: boolean;
-}
-
 export function normalizeDocumentListResponse(
     response: EformsignApiListResponse,
     params?: { limit?: number; skip?: number },
@@ -214,7 +203,7 @@ export const eformsignApi = {
     // Documents APIs - token is read from httpOnly cookie on server
     // Note: eformsign routes use /eformsign prefix to avoid conflict with file storage /documents
     // Unified endpoint - fetches all documents in single request (more efficient)
-    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; templateId?: string; templateMatch?: "include" | "exclude" }): Promise<EformsignDocumentsResponse> => {
+    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; templateId?: string; templateMatch?: "include" | "exclude"; excludeDeleted?: boolean }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get('/eformsign/documents', { params });
         return data;
     },
@@ -303,10 +292,6 @@ export const eformsignApi = {
         const { data } = await api.get('/eformsign-docs/client', {
             params: { clientId },
         });
-        return data;
-    },
-    syncDocumentStatus: async (documentId: string): Promise<SyncedEformsignDocResponse> => {
-        const { data } = await api.post('/eformsign-docs/sync-status', { documentId });
         return data;
     },
     // 전체 탭 StatsBar 카운터용 원시 신호. 토큰은 프록시가 서버에서 주입.

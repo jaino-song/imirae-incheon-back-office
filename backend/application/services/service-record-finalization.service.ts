@@ -24,7 +24,7 @@ export class ServiceRecordFinalizationService {
 
     async processDueCases(referenceDate = new Date(), limit = CASE_BATCH_SIZE): Promise<number> {
         await this.recoverStaleFinalizations(referenceDate);
-        await this.completeReviewedCases(referenceDate, limit * 5);
+        await this.completeReviewedCases(limit * 5);
         await this.promoteEligibleCases(referenceDate, limit * 5);
         const candidates = await this.prisma.service_record_case.findMany({
             where: {
@@ -134,7 +134,7 @@ export class ServiceRecordFinalizationService {
         }
     }
 
-    private async completeReviewedCases(referenceDate: Date, limit: number): Promise<void> {
+    private async completeReviewedCases(limit: number): Promise<void> {
         const cases = await this.prisma.service_record_case.findMany({
             where: {
                 status: SERVICE_RECORD_CASE_STATUS.DOCUMENTS_CREATED,
@@ -146,20 +146,21 @@ export class ServiceRecordFinalizationService {
                     },
                 },
             },
-            select: { id: true },
+            select: {
+                branchId: true,
+                eformsignDocs: {
+                    where: { documentKind: "service_record_snapshot" },
+                    select: { documentId: true },
+                },
+            },
             take: limit,
         });
         for (const record of cases) {
-            await this.prisma.service_record_case.updateMany({
-                where: {
-                    id: record.id,
-                    status: SERVICE_RECORD_CASE_STATUS.DOCUMENTS_CREATED,
-                },
-                data: {
-                    status: SERVICE_RECORD_CASE_STATUS.COMPLETED,
-                    documentsCompletedAt: referenceDate,
-                    version: { increment: 1 },
-                },
+            const triggerDocumentId = record.eformsignDocs[0]?.documentId;
+            if (!triggerDocumentId) continue;
+            await this.lifecycleService.completeServiceRecordSnapshotIfReady({
+                branchId: record.branchId,
+                documentId: triggerDocumentId,
             });
         }
     }

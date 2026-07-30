@@ -2,7 +2,10 @@ import { Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import { EformsignApiClient } from "infrastructure/api/eformsign-api.client";
-import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+import {
+    EformsignApiError,
+    isEformsignDocumentAbsentError,
+} from "infrastructure/api/eformsign-api.error";
 
 describe("EformsignApiClient retry policy", () => {
     const createClient = () => {
@@ -385,6 +388,41 @@ describe("EformsignApiClient retry policy", () => {
             message: "Failed to create document: 503 - unknown outcome",
         });
         expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("preserves the vendor application code on HTTP errors", async () => {
+        jest.spyOn(global, "fetch").mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    code: "4000006",
+                    ErrorMessage: "The document has been deleted.",
+                }),
+                {
+                    status: 400,
+                    headers: { "Content-Type": "application/json" },
+                },
+            ),
+        );
+
+        await expect(
+            createClient().getDocument("access-token", "deleted-doc"),
+        ).rejects.toMatchObject({
+            status: 400,
+            vendorCode: "4000006",
+        });
+    });
+
+    it.each([
+        new EformsignApiError("not found", 404),
+        new EformsignApiError("no document", 400, "4000004"),
+        new EformsignApiError("deleted", 400, "4000006"),
+    ])("recognizes only verified document-absence responses", (error) => {
+        expect(isEformsignDocumentAbsentError(error)).toBe(true);
+        expect(
+            isEformsignDocumentAbsentError(
+                new EformsignApiError("other bad request", 400, "4000001"),
+            ),
+        ).toBe(false);
     });
 
     it("does not retry createDocument after a network error", async () => {

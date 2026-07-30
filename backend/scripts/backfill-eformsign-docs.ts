@@ -7,8 +7,9 @@
  * EFORMSIGN_BACKFILL_CONFIRM_TARGET=<environment>@<host>:<port>/<db>?schema=<schema>&tenant=<project-or-user-fingerprint>,
  * then exits.
  *
- * The command fails closed unless VALKEY_URL is configured. It never triggers
- * notification, client-linking, end-date sync, or service-record snapshot paths.
+ * The command fails closed unless VALKEY_URL is configured. It links or creates
+ * clients from local policy and initializes their service-record lifecycle, but
+ * suppresses all outbound message automation for the historical import.
  */
 import "reflect-metadata";
 
@@ -27,9 +28,11 @@ import {
     assertEformsignBackfillConfirmation,
     resolveEformsignBackfillTarget,
 } from "application/utils/eformsign-backfill-safety";
+import { describeEformsignBackfillError } from "application/utils/eformsign-backfill-error";
 import { EformsignBackfillLockService } from "infrastructure/locking/eformsign-backfill-lock.service";
 import { TenantModule } from "infrastructure/tenant/tenant.module";
 import { EformsignDocModule } from "module/eformsign-doc.module";
+import { EformsignMirrorReadinessService } from "application/services/eformsign-mirror-readiness.service";
 
 const ENV_FILE_PATHS = [
     resolve(process.cwd(), ".env.local"),
@@ -103,7 +106,10 @@ async function runWithoutDistributedLock(
     process.stderr.write(
         "Running without a distributed lock (EFORMSIGN_BACKFILL_ALLOW_UNLOCKED=true).\n",
     );
-    return backfill.execute({ onProgress: logProgress });
+    return backfill.execute({
+        onProgress: logProgress,
+        suppressOutboundAutomation: true,
+    });
 }
 
 async function main(): Promise<void> {
@@ -133,11 +139,16 @@ async function main(): Promise<void> {
                 backfill.execute({
                     onProgress: logProgress,
                     shouldContinue: lease.isHeld,
+                    suppressOutboundAutomation: true,
                 }))
             : await runWithoutDistributedLock(configService, backfill);
+        const readiness = await app
+            .get(EformsignMirrorReadinessService)
+            .assertReady();
         // Reaching here means every document was mirrored: the usecase now throws rather
         // than returning a summary that carries failures.
         logSummary("completed", summary);
+        logger.log(JSON.stringify({ readiness }));
     } catch (error) {
         if (error instanceof BackfillEformsignDocsError) {
             logSummary("failed", error.summary);
@@ -149,7 +160,7 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeEformsignBackfillError(error);
     process.stderr.write(`Eformsign backfill failed: ${message}\n`);
     process.exitCode = 1;
 });

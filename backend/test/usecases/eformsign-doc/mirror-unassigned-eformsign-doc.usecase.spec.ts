@@ -3,6 +3,30 @@ import { Logger } from "@nestjs/common";
 import { MirrorUnassignedEformsignDocUsecase } from "application/usecases/eformsign-doc/mirror-unassigned-eformsign-doc.usecase";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 
+function minimalRemoteDocument(documentId = "snapshot-doc") {
+    return {
+        id: documentId,
+        document_number: "DOC-SNAPSHOT",
+        document_name: "스냅샷 무효화 문서",
+        created_date: Date.parse("2026-07-01T00:00:00.000Z"),
+        updated_date: Date.parse("2026-07-02T00:00:00.000Z"),
+        template: { id: "template-1", name: "계약서" },
+        creator: { recipient_type: "01", id: "creator", name: "생성자" },
+        current_status: {
+            status_type: "060",
+            status_doc_type: "",
+            status_doc_detail: "서명 요청",
+            step_type: "05",
+            step_index: "1",
+            step_name: "이용자",
+            step_recipients: [],
+            step_group: 1,
+            expired_date: 0,
+            _expired: false,
+        },
+    };
+}
+
 describe("MirrorUnassignedEformsignDocUsecase", () => {
     afterEach(() => {
         jest.restoreAllMocks();
@@ -469,5 +493,77 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
             expect.objectContaining({ templateId: "detail-template" }),
             { updateListDisplayFields: true },
         );
+    });
+
+    it("invalidates the owning branch snapshot after a successful mirror write", async () => {
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+            findBranchIdByDocumentId: jest.fn().mockResolvedValue("branch-1"),
+        };
+        const snapshots = {
+            bumpVersion: jest.fn().mockResolvedValue(2),
+            bumpCompanyEpoch: jest.fn(),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+            snapshots as never,
+        );
+
+        await usecase.mirrorRemoteDocument(minimalRemoteDocument() as never);
+
+        expect(repository.findBranchIdByDocumentId).toHaveBeenCalledWith("snapshot-doc");
+        expect(snapshots.bumpVersion).toHaveBeenCalledWith("branch-1");
+        expect(snapshots.bumpCompanyEpoch).not.toHaveBeenCalled();
+    });
+
+    it("invalidates the headquarters epoch for an unassigned mirror write", async () => {
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+            findBranchIdByDocumentId: jest.fn().mockResolvedValue(null),
+        };
+        const snapshots = {
+            bumpVersion: jest.fn(),
+            bumpCompanyEpoch: jest.fn().mockResolvedValue(undefined),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+            snapshots as never,
+        );
+
+        await usecase.mirrorRemoteDocument(minimalRemoteDocument() as never);
+
+        expect(snapshots.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
+        expect(snapshots.bumpVersion).not.toHaveBeenCalled();
+    });
+
+    it("keeps a successful mirror write when cache invalidation fails", async () => {
+        const repository = {
+            upsertUnassignedByDocumentId: jest.fn(
+                (doc: EformsignDocEntity) => Promise.resolve(doc),
+            ),
+            findBranchIdByDocumentId: jest.fn().mockResolvedValue("branch-1"),
+        };
+        const snapshots = {
+            bumpVersion: jest.fn().mockRejectedValue(new Error("cache unavailable")),
+            bumpCompanyEpoch: jest.fn(),
+        };
+        const usecase = new MirrorUnassignedEformsignDocUsecase(
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            repository as never,
+            snapshots as never,
+        );
+
+        await expect(
+            usecase.mirrorRemoteDocument(minimalRemoteDocument() as never),
+        ).resolves.toEqual(expect.objectContaining({ documentId: "snapshot-doc" }));
     });
 });

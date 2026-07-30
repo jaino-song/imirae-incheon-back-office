@@ -10,6 +10,11 @@ import {
     EformsignDocumentSnapshotService,
 } from "application/services/eformsign-document-snapshot.service";
 
+interface SnapshotExclusionLookup {
+    findListExcludedDocumentIds: jest.Mock<Promise<string[]>, []>;
+    findPermanentPurgeRequestedDocumentIds: jest.Mock<Promise<string[]>, []>;
+}
+
 jest.mock("ioredis", () => ({
     __esModule: true,
     default: jest.fn(),
@@ -116,6 +121,17 @@ function createRedisStub(overrides: Partial<RedisStub> = {}): RedisStub {
     return stub;
 }
 
+function createSnapshotExclusionLookup(
+    excludedDocumentIds: string[] = [],
+): SnapshotExclusionLookup {
+    return {
+        findListExcludedDocumentIds: jest.fn().mockResolvedValue(
+            excludedDocumentIds,
+        ),
+        findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
+    };
+}
+
 function useRedisStub(redis: RedisStub): void {
     process.env["VALKEY_URL"] = "redis://valkey.test:6379";
     MockedRedis.mockImplementationOnce(() => redis as unknown as Redis);
@@ -156,6 +172,170 @@ describe("EformsignDocumentSnapshotService", () => {
             snapshotVersion: first.snapshotVersion,
             cached: true,
         });
+        expect(build).toHaveBeenCalledTimes(1);
+    });
+
+    it("should retain tombstones for default all reads while fencing permanent purge intent", async () => {
+        const exclusionLookup = createSnapshotExclusionLookup();
+        const redis = createRedisStub();
+        let snapshotPayload: string | null = null;
+        redis.get.mockImplementation(async (key) => {
+            if (key === "eformsign:doclist-version:branch-a") {
+                return "0";
+            }
+            return snapshotPayload;
+        });
+        redis.set.mockImplementation(async (key, value) => {
+            if (key.startsWith("eformsign:doclist:")) {
+                snapshotPayload = value;
+            }
+            return "OK";
+        });
+        useRedisStub(redis);
+        const service = new EformsignDocumentSnapshotService(exclusionLookup);
+        const staleEntries = [
+            createEntry("safe-document"),
+            createEntry("purge-pending-document"),
+            createEntry("tombstoned-document"),
+        ];
+        const build = jest.fn().mockResolvedValue(staleEntries);
+
+        await service.getOrBuild(createMirrorParams(), build);
+        redis.incr.mockRejectedValueOnce(new Error("Valkey unavailable during purge invalidation"));
+        await expect(service.bumpVersion("branch-a")).resolves.toBeNull();
+        exclusionLookup.findPermanentPurgeRequestedDocumentIds.mockResolvedValue([
+            "purge-pending-document",
+        ]);
+        exclusionLookup.findListExcludedDocumentIds.mockResolvedValue([
+            "purge-pending-document",
+            "tombstoned-document",
+        ]);
+
+        const defaultResult = await service.getOrBuild(createMirrorParams(), build);
+        const deletionFilteredResult = await service.getOrBuild(
+            createMirrorParams(),
+            build,
+            { excludeTombstones: true },
+        );
+
+        expect(build).toHaveBeenCalledTimes(1);
+        expect(defaultResult).toEqual({
+            entries: [
+                createEntry("safe-document"),
+                createEntry("tombstoned-document"),
+            ],
+            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            cached: true,
+        });
+        expect(deletionFilteredResult).toEqual({
+            entries: [createEntry("safe-document")],
+            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            cached: true,
+        });
+    });
+
+    it("should exclude a tombstoned unassigned document from a stale headquarters snapshot after its epoch bump fails", async () => {
+        const exclusionLookup = createSnapshotExclusionLookup();
+        const redis = createRedisStub();
+        let snapshotPayload: string | null = null;
+        redis.get.mockImplementation(async (key) => {
+            if (
+                key === "eformsign:doclist-version:branch-a"
+                || key === "eformsign:doclist-epoch"
+            ) {
+                return "0";
+            }
+            return snapshotPayload;
+        });
+        redis.set.mockImplementation(async (key, value) => {
+            if (key.startsWith("eformsign:doclist:")) {
+                snapshotPayload = value;
+            }
+            return "OK";
+        });
+        useRedisStub(redis);
+        const service = new EformsignDocumentSnapshotService(exclusionLookup);
+        const build = jest.fn().mockResolvedValue([
+            createEntry("hq-safe-document"),
+            createEntry("unassigned-tombstoned-document"),
+        ]);
+        const headquartersParams = createMirrorParams({ isHeadquarters: true });
+
+        await service.getOrBuild(headquartersParams, build);
+        redis.incr.mockRejectedValueOnce(
+            new Error("Valkey unavailable during tombstone epoch invalidation"),
+        );
+        await expect(service.bumpCompanyEpoch()).resolves.toBeUndefined();
+        exclusionLookup.findListExcludedDocumentIds.mockResolvedValue([
+            "unassigned-tombstoned-document",
+        ]);
+
+        const result = await service.getOrBuild(
+            headquartersParams,
+            build,
+            { excludeTombstones: true },
+        );
+
+        expect(build).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({
+            entries: [createEntry("hq-safe-document")],
+            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            cached: true,
+        });
+    });
+
+    it("should fence both a cache-miss owner and in-flight waiter immediately before returning", async () => {
+        const purgeLookup = createSnapshotExclusionLookup();
+        const service = new EformsignDocumentSnapshotService(purgeLookup);
+        const entries = [createEntry("safe-document"), createEntry("purge-pending-document")];
+        const deferred = createDeferred<DocumentSnapshotEntry<TestDocument>[]>();
+        const build = jest.fn(() => deferred.promise);
+
+        purgeLookup.findPermanentPurgeRequestedDocumentIds
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce(["purge-pending-document"])
+            .mockResolvedValueOnce(["purge-pending-document"]);
+        const owner = service.getOrBuild(createMirrorParams(), build);
+        const waiter = service.getOrBuild(createMirrorParams(), build);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        deferred.resolve(entries);
+        const [ownerResult, waiterResult] = await Promise.all([owner, waiter]);
+
+        expect(build).toHaveBeenCalledTimes(1);
+        expect(ownerResult.entries).toEqual([createEntry("safe-document")]);
+        expect(waiterResult.entries).toEqual([createEntry("safe-document")]);
+        expect(purgeLookup.findPermanentPurgeRequestedDocumentIds).toHaveBeenCalledTimes(3);
+    });
+
+    it("should fail closed when the cache-miss return fence is unavailable", async () => {
+        const purgeLookup = createSnapshotExclusionLookup();
+        const service = new EformsignDocumentSnapshotService(purgeLookup);
+        const fenceError = new Error("purge lookup unavailable at return");
+        const build = jest.fn().mockResolvedValue([createEntry("document-1")]);
+
+        purgeLookup.findPermanentPurgeRequestedDocumentIds
+            .mockResolvedValueOnce([])
+            .mockRejectedValueOnce(fenceError);
+
+        await expect(service.getOrBuild(createMirrorParams(), build)).rejects.toBe(fenceError);
+        expect(build).toHaveBeenCalledTimes(1);
+    });
+
+    it("should fail closed instead of returning a cached snapshot when the purge fence is unavailable", async () => {
+        const purgeLookup = createSnapshotExclusionLookup();
+        const service = new EformsignDocumentSnapshotService(purgeLookup);
+        const entries = [createEntry("document-1")];
+        const build = jest.fn().mockResolvedValue(entries);
+
+        await service.getOrBuild(createMirrorParams(), build);
+        const purgeLookupError = new Error("purge lookup unavailable");
+        purgeLookup.findPermanentPurgeRequestedDocumentIds.mockRejectedValue(purgeLookupError);
+
+        await expect(service.getOrBuild(createMirrorParams(), build)).rejects.toBe(
+            purgeLookupError,
+        );
         expect(build).toHaveBeenCalledTimes(1);
     });
 

@@ -30,6 +30,7 @@ export interface EformsignApiDocumentResponse {
             recipient_type: string;
             id: string;
             name: string;
+            sms?: string;
         }>;
         step_group: number;
         expired_date?: number; // remaining days; 0 means no expiry; detail responses only
@@ -41,6 +42,9 @@ export interface EformsignApiDocumentResponse {
         type: string;
     }>;
     detail_template_info?: unknown;
+    histories?: unknown[];
+    previous_status?: unknown[];
+    recipients?: unknown[];
     next_status?: Array<{
         step_type: string;
         step_name?: string;

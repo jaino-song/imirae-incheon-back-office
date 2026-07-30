@@ -22,6 +22,7 @@ export const COMPLETED_CODES = COMPLETED_STATUS_CODES;
 export const DELETED_CODES = [
   "047", // doc_request_delete: 문서 삭제 요청
   "049", // doc_delete: 문서 삭제
+  "099", // legacy backend webhook tombstone
 ] as const;
 
 // 기간 만료/반려/취소 bucket codes

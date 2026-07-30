@@ -13,10 +13,7 @@ import { SERVICE_RECORD_TEMPLATE_TIER_ENV_KEYS } from "application/usecases/efor
 import {
     GetAccessTokenDto,
     RefreshAccessTokenDto,
-    FetchDocumentsDto,
-    FetchDocumentByIdDto,
     CreateEformsignDocLocalDto,
-    SyncEformsignDocStatusDto,
     DispatchHeadlessRequestDto,
     DispatchHeadlessResponseDto,
     FinalizeHeadlessRequestDto,
@@ -224,40 +221,6 @@ export class EformsignDocController {
     @Post("refresh-token")
     refreshAccessToken(@Body() dto: RefreshAccessTokenDto) {
         return this.eformsignDocService.refreshAccessToken(dto.executionTime, dto.refreshToken);
-    }
-
-    /**
-     * POST /eformsign-docs/fetch-all
-     * Fetch all documents from eformsign API (returns raw API response)
-     */
-    @Post("fetch-all")
-    fetchAllFromApi(@Body() dto: FetchDocumentsDto) {
-        return this.eformsignDocService.fetchAllFromApi(dto.accessToken);
-    }
-
-    /**
-     * POST /eformsign-docs/fetch
-     * Fetch a single document from eformsign API (returns raw API response)
-     */
-    @Post("fetch")
-    fetchFromApi(@Body() dto: FetchDocumentByIdDto) {
-        return this.eformsignDocService.fetchFromApi(dto.accessToken, dto.documentId);
-    }
-
-    /**
-     * POST /eformsign-docs/sync-status
-     * Fetch current eformsign status and update the local eformsign_doc row.
-     */
-    @Post("sync-status")
-    syncStatusFromApi(
-        @CurrentTenant() tenant: { branchId?: string },
-        @Body() dto: SyncEformsignDocStatusDto
-    ) {
-        return this.eformsignDocService.syncStatusFromApi(
-            tenant.branchId ?? "",
-            dto.accessToken,
-            dto.documentId
-        );
     }
 
     /** 원격 생성에는 성공했지만 로컬 저장에 실패한 문서를 현재 지점으로 복구한다. */

@@ -12,6 +12,9 @@ export class ListEformsignDocsUsecase {
     execute(branchid: string): Promise<EformsignDocEntity[]> {
         return this.eformsignDocRepository.findAll(branchid);
     }
-}
 
+    executeForHeadquarters(branchid: string): Promise<EformsignDocEntity[]> {
+        return this.eformsignDocRepository.findAllForHeadquarters(branchid);
+    }
+}
 

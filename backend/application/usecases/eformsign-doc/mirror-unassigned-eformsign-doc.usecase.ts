@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 
+import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
 import {
@@ -34,6 +35,8 @@ export class MirrorUnassignedEformsignDocUsecase {
         private readonly fetchEformsignDocFromApiUsecase: FetchEformsignDocFromApiUsecase,
         @Inject(EFORMSIGN_DOC_REPOSITORY)
         private readonly eformsignDocRepository: IEformsignDocRepository,
+        @Optional()
+        private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
     ) {}
 
     async execute(documentId: string): Promise<EformsignDocEntity> {
@@ -132,7 +135,7 @@ export class MirrorUnassignedEformsignDocUsecase {
             stepName: remote.current_status.step_name.trim() || "서명 요청",
             stepRecipientType: recipient?.recipient_type.trim() || "01",
             stepRecipientName: recipient?.name.trim() || remote.document_name || "수신자",
-            stepRecipientSms: recipient?.id.trim() || "미확인",
+            stepRecipientSms: recipient?.sms?.trim() || recipient?.id.trim() || "미확인",
             expiredDate: eformsignExpiryDateFromRemainingDays(
                 remote.current_status.expired_date,
                 now,
@@ -144,7 +147,7 @@ export class MirrorUnassignedEformsignDocUsecase {
             templateId: eformsignDocumentTemplateId(remote),
         });
 
-        return this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {
+        const mirrored = await this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {
             ...(options.allowAssignedUpdate ? { allowAssignedUpdate: true } : {}),
             updateListDisplayFields: true,
             ...(knowsExpiredState ? {} : { updateExpired: false }),
@@ -165,5 +168,29 @@ export class MirrorUnassignedEformsignDocUsecase {
             // created_date puts it right. Only a clamped-away value is not worth writing.
             ...(hasRemoteCreatedDate ? {} : { updateCreatedDate: false }),
         });
+        await this.invalidateDocumentSnapshots(doc.documentId);
+        return mirrored;
+    }
+
+    private async invalidateDocumentSnapshots(documentId: string): Promise<void> {
+        if (!this.documentSnapshotService) {
+            return;
+        }
+
+        try {
+            const branchId =
+                await this.eformsignDocRepository.findBranchIdByDocumentId(documentId);
+            if (branchId) {
+                await this.documentSnapshotService.bumpVersion(branchId);
+            } else {
+                await this.documentSnapshotService.bumpCompanyEpoch();
+            }
+        } catch {
+            // The database write is authoritative. A cache-version failure must not
+            // turn a successful webhook/sweep/backfill mirror into a retryable failure.
+            this.logger.warn(
+                `Failed to invalidate document snapshots after mirroring ${documentId}`,
+            );
+        }
     }
 }

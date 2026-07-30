@@ -30,7 +30,9 @@ describe("eformsign status code helpers", () => {
   it("keeps deleted document codes out of rejected expiration buckets", () => {
     expect(isDeletedStatusCode("047")).toBe(true);
     expect(isDeletedStatusCode("049")).toBe(true);
+    expect(isDeletedStatusCode("099")).toBe(true);
     expect(getStatusCategory("049")).toBe("unknown");
+    expect(getStatusCategory("099")).toBe("unknown");
     expect(mapStatusToLabel("049")).toBe("알 수 없음");
   });
 

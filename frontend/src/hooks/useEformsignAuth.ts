@@ -13,6 +13,7 @@ interface UseEformsignAuthReturn {
 
 interface UseEformsignAuthOptions {
   syncOnWindowFocus?: boolean;
+  requireAccessToken?: boolean;
 }
 
 // Cookie expiry buffer (re-authenticate 5 minutes before expiry)
@@ -81,7 +82,10 @@ async function authenticateOnce(memberEmail?: string): Promise<void> {
  * - Auto re-authenticates when token is about to expire
  */
 export function useEformsignAuth(
-  { syncOnWindowFocus = true }: UseEformsignAuthOptions = {}
+  {
+    syncOnWindowFocus = true,
+    requireAccessToken = true,
+  }: UseEformsignAuthOptions = {}
 ): UseEformsignAuthReturn {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -136,6 +140,12 @@ export function useEformsignAuth(
       setIsLoading(true);
       setError(null);
 
+      if (!requireAccessToken) {
+        const authStatus = await eformsignApi.getAuthStatus();
+        setIsAuthenticated(authStatus.hasAppAuthToken);
+        return;
+      }
+
       const authTime = getStoredAuthTime();
       if (!hasFreshAuthTime(authTime)) {
         await authenticate();
@@ -157,7 +167,7 @@ export function useEformsignAuth(
     } finally {
       setIsLoading(false);
     }
-  }, [authenticate]);
+  }, [authenticate, requireAccessToken]);
 
   useEffect(() => {
     void syncAuthentication();
@@ -174,7 +184,7 @@ export function useEformsignAuth(
   }, [syncAuthentication, syncOnWindowFocus]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!requireAccessToken || !isAuthenticated) return;
 
     const checkTokenExpiry = () => {
       const authTime = getStoredAuthTime();
@@ -185,7 +195,7 @@ export function useEformsignAuth(
 
     const interval = setInterval(checkTokenExpiry, 60 * 1000);
     return () => clearInterval(interval);
-  }, [isAuthenticated, authenticate]);
+  }, [isAuthenticated, authenticate, requireAccessToken]);
 
   return { isAuthenticated, isLoading, error, authenticate };
 }

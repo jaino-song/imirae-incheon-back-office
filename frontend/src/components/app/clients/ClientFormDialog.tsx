@@ -320,6 +320,8 @@ function ClientFormContent({
     const [isEmployeeDialogOpen, setIsEmployeeDialogOpen] = useState(false);
     const [employeeDialogTarget, setEmployeeDialogTarget] = useState<"primary" | "secondary" | null>(null);
     const contentRef = useRef<HTMLDivElement>(null);
+    const [initializedEditClientId, setInitializedEditClientId] = useState<number | null>(null);
+    const [hasUserEditedSinceOpen, setHasUserEditedSinceOpen] = useState(false);
     const [internalActiveStep, setInternalActiveStep] = useState(0);
     const activeStep = controlledActiveStep ?? internalActiveStep;
     const setActiveStep = useCallback(
@@ -478,6 +480,7 @@ function ClientFormContent({
 
     // Reset duration/prices when the voucher year changes (same semantics as handleTypeChange)
     const handleVoucherYearChange = (newYear: string) => {
+        setHasUserEditedSinceOpen(true);
         const parsedYear = Number(newYear);
         setVoucherYear(Number.isNaN(parsedYear) ? null : parsedYear);
         setFormData(prev => ({
@@ -494,6 +497,7 @@ function ClientFormContent({
 
     // Reset duration when type changes
     const handleTypeChange = (newType: string) => {
+        setHasUserEditedSinceOpen(true);
         setFormData(prev => ({
             ...prev,
             type: newType,
@@ -508,6 +512,7 @@ function ClientFormContent({
     };
 
     const handleVoucherClientChange = (voucherClient: boolean) => {
+        setHasUserEditedSinceOpen(true);
         setPricesManuallyEdited(false);
         setFormData(prev => ({
             ...prev,
@@ -583,9 +588,10 @@ function ClientFormContent({
                 startDate: normalizeDateForCompactState(nextFormData.startDate),
                 endDate: normalizeDateForCompactState(nextFormData.endDate),
             };
-
             queueMicrotask(() => {
                 setFormData(nextFormData);
+                setInitializedEditClientId(client?.id ?? null);
+                setHasUserEditedSinceOpen(false);
                 setPricesManuallyEdited(nextPricesManuallyEdited);
                 setVoucherYear(null); // Reset to default (current year, falling back to latest available)
                 setError(null);
@@ -593,7 +599,16 @@ function ClientFormContent({
         }
     }, [clearPrefillName, client, open, prefillName]);
 
+    const isLegacyNoopEdit = Boolean(
+        isEditMode
+        && client
+        && !client.dueDate
+        && initializedEditClientId === client.id
+        && !hasUserEditedSinceOpen,
+    );
+
     const handleChange = (field: keyof CreateClientDto, value: unknown) => {
+        setHasUserEditedSinceOpen(true);
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
@@ -608,6 +623,7 @@ function ClientFormContent({
     };
 
     const handleEmployeeCreated = (newEmployee: Employee) => {
+        setHasUserEditedSinceOpen(true);
         setFormData(prev => {
             if (employeeDialogTarget === "primary") {
                 return { ...prev, primaryEmployeeId: newEmployee.id };
@@ -645,6 +661,22 @@ function ClientFormContent({
     const handleSubmit = async () => {
         setError(null);
 
+        if (isLegacyNoopEdit && client) {
+            try {
+                // Some legacy customers predate the current required form fields. An empty
+                // update preserves that record exactly while still invoking the backend's
+                // phone-based document relink. Automatic form hydration is not considered an
+                // edit; any user interaction exits this narrow compatibility path.
+                const updatedClient = await updateClient.mutateAsync({ id: client.id, dto: {} });
+                onSuccess?.(updatedClient);
+                onClose();
+            } catch (error: unknown) {
+                console.error("Failed to save client:", error);
+                setErrorAndScroll(getErrorMessage(error, locale, "clients.form.error-save-failed"));
+            }
+            return;
+        }
+
         // 고객 기본 정보만 필수이며 서비스 정보는 상담 단계에서 비워둘 수 있다.
         if (!formData.name.trim()) {
             setErrorAndScroll(t(locale, "clients.form.error-name-required"));
@@ -654,13 +686,15 @@ function ClientFormContent({
             setErrorAndScroll(t(locale, "clients.form.error-birthday-required"));
             return;
         }
-        if (!formData.dueDate?.trim()) {
-            setErrorAndScroll(t(locale, "clients.form.error-due-date-required"));
-            return;
-        }
-        if (!isValidCompactDateInput(formData.dueDate)) {
-            setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
-            return;
+        if (!isLegacyNoopEdit) {
+            if (!formData.dueDate?.trim()) {
+                setErrorAndScroll(t(locale, "clients.form.error-due-date-required"));
+                return;
+            }
+            if (!isValidCompactDateInput(formData.dueDate)) {
+                setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
+                return;
+            }
         }
         if (!formData.address?.trim()) {
             setErrorAndScroll(t(locale, "clients.form.error-address-required"));
@@ -689,7 +723,7 @@ function ClientFormContent({
             }
         }
         try {
-            const normalizedDueDate = normalizeCompactDateForSubmit(formData.dueDate);
+            const normalizedDueDate = normalizeCompactDateForSubmit(formData.dueDate ?? "");
             const normalizedStartDate = normalizeCompactDateForSubmit(formData.startDate ?? "");
             const normalizedEndDate = normalizeCompactDateForSubmit(formData.endDate ?? "");
 
@@ -753,12 +787,12 @@ function ClientFormContent({
 
     const isSubmitting = createClient.isPending || updateClient.isPending;
 
-    const isBasicStepValid = Boolean(
-        formData.name.trim() &&
-        formData.birthday?.trim() &&
-        isValidCompactDateInput(formData.dueDate ?? "") &&
-        formData.address?.trim() &&
-        isPhoneCheckReady
+    const isBasicStepValid = isLegacyNoopEdit || Boolean(
+        formData.name.trim()
+        && formData.birthday?.trim()
+        && isValidCompactDateInput(formData.dueDate ?? "")
+        && formData.address?.trim()
+        && isPhoneCheckReady
     );
     const isEmployeeStepValid = true;
     const isVoucherStepValid = true;
@@ -808,7 +842,7 @@ function ClientFormContent({
                 variant="positive"
                 size="sm"
                 onClick={handleSubmit}
-                disabled={isSubmitting || isPhoneCheckBlockingSubmit}
+                disabled={isSubmitting || (!isLegacyNoopEdit && isPhoneCheckBlockingSubmit)}
                 data-component={`${base}_submit`}
                 className="w-full sm:flex-1"
             >

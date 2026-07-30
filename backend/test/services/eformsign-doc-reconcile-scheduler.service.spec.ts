@@ -3,10 +3,33 @@ import { ConfigService } from "@nestjs/config";
 import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
 import { EformsignBackfillAlreadyRunningError } from "infrastructure/locking/eformsign-backfill-lock.service";
 
-function createConfigService(enabled: string | undefined): ConfigService {
+const REQUIRED_EFORMSIGN_CONFIG = new Set([
+    "EFORMSIGN_USER_EMAIL",
+    "EFORMSIGN_API_URL",
+    "EFORMSIGN_DOC_API_URL",
+    "EFORMSIGN_API_KEY",
+    "EFORMSIGN_PRIVATE_KEY",
+    "EFORMSIGN_COMPANY_ID",
+    "EFORMSIGN_TEMPLATE_ID",
+]);
+
+function createConfigService(
+    enabled: string | undefined,
+    withCredentials = false,
+    allowUnlocked = false,
+): ConfigService {
     return {
-        get: jest.fn((key: string) =>
-            key === "EFORMSIGN_RECONCILE_ENABLED" ? enabled : undefined),
+        get: jest.fn((key: string) => {
+            if (key === "EFORMSIGN_RECONCILE_ENABLED") {
+                return enabled;
+            }
+            if (key === "EFORMSIGN_RECONCILE_ALLOW_UNLOCKED") {
+                return allowUnlocked ? "true" : undefined;
+            }
+            return withCredentials && REQUIRED_EFORMSIGN_CONFIG.has(key)
+                ? `configured-${key}`
+                : undefined;
+        }),
     } as unknown as ConfigService;
 }
 
@@ -43,9 +66,13 @@ describe("EformsignDocReconcileSchedulerService", () => {
 
     // No default argument: it.each passes undefined deliberately, and a default would
     // silently turn that case into the enabled one.
-    function createService(enabled: string | undefined) {
+    function createService(
+        enabled: string | undefined,
+        withCredentials = false,
+        allowUnlocked = false,
+    ) {
         return new EformsignDocReconcileSchedulerService(
-            createConfigService(enabled),
+            createConfigService(enabled, withCredentials, allowUnlocked),
             backfill as never,
             lockService as never,
         );
@@ -68,6 +95,15 @@ describe("EformsignDocReconcileSchedulerService", () => {
     });
 
     describe("reconciliation sweep", () => {
+        it("runs by default when all eformsign credentials are configured", async () => {
+            const service = createService(undefined, true);
+
+            await service.reconcileDocuments();
+
+            expect(lockService.runExclusive).toHaveBeenCalledTimes(1);
+            expect(backfill.execute).toHaveBeenCalledTimes(1);
+        });
+
         it("runs under the distributed lock and hands the lease to the sweep", async () => {
             const service = createService("true");
 
@@ -88,12 +124,26 @@ describe("EformsignDocReconcileSchedulerService", () => {
             await expect(service.reconcileDocuments()).resolves.toBeUndefined();
         });
 
-        it("sweeps without a lock when VALKEY_URL is unset, warning once", async () => {
-            // No Valkey is configured in any environment today, so refusing to run would
-            // ship this phase inert. The mirror writes are already safe under concurrency;
-            // what we lose is protection against replicas doubling the vendor load.
+        it("skips without a lock unless an unlocked run is explicitly approved", async () => {
             lockService.isAvailable.mockReturnValue(false);
             const service = createService("true");
+            const warn = jest.spyOn(
+                (service as unknown as { logger: { warn: (message: string) => void } }).logger,
+                "warn",
+            ).mockImplementation(() => undefined);
+
+            await service.reconcileDocuments();
+            await service.reconcileDocuments();
+
+            expect(lockService.runExclusive).not.toHaveBeenCalled();
+            expect(backfill.execute).not.toHaveBeenCalled();
+            expect(warn.mock.calls.filter(([message]) => message.includes("VALKEY_URL")))
+                .toHaveLength(1);
+        });
+
+        it("sweeps without a lock only under explicit single-replica approval", async () => {
+            lockService.isAvailable.mockReturnValue(false);
+            const service = createService("true", false, true);
             const warn = jest.spyOn(
                 (service as unknown as { logger: { warn: (message: string) => void } }).logger,
                 "warn",
@@ -107,7 +157,8 @@ describe("EformsignDocReconcileSchedulerService", () => {
             expect(backfill.execute).toHaveBeenCalledWith(
                 expect.objectContaining({ shouldContinue: expect.any(Function) }),
             );
-            expect(warn.mock.calls.filter(([message]) => message.includes("VALKEY_URL")))
+            expect(warn.mock.calls.filter(([message]) =>
+                message.includes("EFORMSIGN_RECONCILE_ALLOW_UNLOCKED")))
                 .toHaveLength(1);
         });
 
@@ -204,6 +255,27 @@ describe("EformsignDocReconcileSchedulerService", () => {
             );
             await service.reconcileDocuments();
             expect(backfill.execute).toHaveBeenCalledTimes(1);
+        });
+
+        it("keeps the failure streak when a completed document lacks a current-version audit trail", async () => {
+            backfill.execute.mockRejectedValue(
+                new Error("Completed eformsign document doc-1 is missing current-version files: audit_trail"),
+            );
+            const service = createService("true");
+            const logger = (service as unknown as {
+                logger: { warn: (message: string) => void; error: (message: string) => void };
+            }).logger;
+            jest.spyOn(logger, "warn").mockImplementation(() => undefined);
+            const error = jest.spyOn(logger, "error").mockImplementation(() => undefined);
+
+            await service.reconcileDocuments();
+            await service.reconcileDocuments();
+            await service.reconcileDocuments();
+
+            expect(backfill.execute).toHaveBeenCalledTimes(3);
+            expect(error).toHaveBeenCalledTimes(1);
+            expect(error.mock.calls[0]?.[0]).toContain("3 in a row");
+            expect(error.mock.calls[0]?.[0]).toContain("audit_trail");
         });
     });
 });

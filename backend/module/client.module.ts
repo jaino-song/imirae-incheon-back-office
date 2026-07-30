@@ -18,9 +18,18 @@ import { AligoModule } from "./aligo.module";
 import { SystemSettingModule } from "./system-setting.module";
 import { SystemTemplateModule } from "./system-template.module";
 import { ServiceRecordEntryModule } from "./service-record-entry.module";
+import { EformsignDocModule } from "./eformsign-doc.module";
 
 @Module({
-    imports: [DatabaseModule, MessageModule, AligoModule, SystemSettingModule, SystemTemplateModule, ServiceRecordEntryModule],
+    imports: [
+        DatabaseModule,
+        MessageModule,
+        AligoModule,
+        SystemSettingModule,
+        SystemTemplateModule,
+        ServiceRecordEntryModule,
+        EformsignDocModule,
+    ],
     controllers: [ClientController],
     providers: [
         CreateClientUsecase,

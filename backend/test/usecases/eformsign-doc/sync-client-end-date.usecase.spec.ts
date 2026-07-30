@@ -171,6 +171,27 @@ describe("SyncClientEndDateUsecase", () => {
         });
     });
 
+    it("syncs from an already mirrored document without calling eformsign again", async () => {
+        const document = createDocumentResponse([
+            { id: "계약 종료 년도", value: "2026", type: "text" },
+            { id: "계약 종료 월", value: "06", type: "text" },
+            { id: "계약 종료 일", value: "01", type: "text" },
+        ]);
+
+        const result = await usecase.executeFromDocument(
+            branchId,
+            documentId,
+            document,
+        );
+
+        expect(eformsignClient.getDocument).not.toHaveBeenCalled();
+        expect(clientRepository.update).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({
+            clientId: 7,
+            endDate: new Date("2026-06-01T00:00:00.000Z"),
+        });
+    });
+
     it("should skip update when any end-date field is missing", async () => {
         eformsignClient.getDocument.mockResolvedValue(
             createDocumentResponse([
@@ -206,12 +227,39 @@ describe("SyncClientEndDateUsecase", () => {
         expect(clientRepository.update).not.toHaveBeenCalled();
     });
 
-    it("should swallow getDocument errors and log them", async () => {
-        eformsignClient.getDocument.mockRejectedValue(new Error("fetch failed"));
+    it("should swallow getDocument errors and log only a sanitized message", async () => {
+        eformsignClient.getDocument.mockRejectedValue(
+            new Error(
+                "Bearer vendor-token access_token=secret-token phone=010-1234-5678",
+            ),
+        );
 
         await expect(usecase.execute(branchId, documentId, accessToken)).resolves.toBeUndefined();
 
         expect(clientRepository.update).not.toHaveBeenCalled();
-        expect(errorSpy).toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledWith(
+            `Failed to sync client endDate for document ${documentId}: ` +
+            "Bearer [REDACTED] access_token=[REDACTED] phone=[REDACTED_PHONE]",
+        );
+        expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("vendor-token");
+        expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("secret-token");
+        expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("010-1234-5678");
+    });
+
+    it("rethrows persistence failures only when strict completion reconciliation requests it", async () => {
+        const document = createDocumentResponse([
+            { id: "계약 종료 년도", value: "2026", type: "text" },
+            { id: "계약 종료 월", value: "05", type: "text" },
+            { id: "계약 종료 일", value: "17", type: "text" },
+        ]);
+        const lifecycleError = new Error("lifecycle database unavailable");
+        const persist = jest.fn().mockRejectedValue(lifecycleError);
+
+        await expect(usecase.executeFromDocument(
+            branchId,
+            documentId,
+            document,
+            { persist, throwOnError: true },
+        )).rejects.toThrow(lifecycleError);
     });
 });

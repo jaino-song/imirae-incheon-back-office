@@ -110,7 +110,15 @@ export function useInfiniteContracts({
           return await eformsignApi.getExpiredDocuments(params);
         case null:
         default:
-          return await eformsignApi.getAllDocuments({ ...params, type: null });
+          return await eformsignApi.getAllDocuments({
+            ...params,
+            type: null,
+            // A permanent delete scrubs the contract and leaves a 049 tombstone.
+            // Without this the All tab shows that emptied row back to the user
+            // right after they deleted it; the 기간 만료 tab is where deleted
+            // contracts are meant to appear. Mobile has always sent this.
+            excludeDeleted: true,
+          });
       }
     },
     getNextPageParam: getNextContractsPageParam,

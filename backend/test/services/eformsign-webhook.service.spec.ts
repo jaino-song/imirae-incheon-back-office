@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { EformsignWebhookService } from "application/services/eformsign-webhook.service";
 import { LinkDocumentToClientUsecase } from "application/usecases/eformsign-doc/link-document-to-client.usecase";
 import { UpdateEformsignDocStatusUsecase } from "application/usecases/eformsign-doc/update-eformsign-doc-status.usecase";
@@ -104,12 +105,14 @@ describe("EformsignWebhookService", () => {
 
     const updateStatusUsecase = {
         execute: jest.fn(),
+        executeWithOutcome: jest.fn(),
     };
     const linkDocumentUsecase = {
         execute: jest.fn(),
     };
     const syncClientEndDateUsecase = {
         execute: jest.fn(),
+        executeFromDocument: jest.fn(),
     };
     const eformsignApiClient = {
         getAccessToken: jest.fn(),
@@ -144,7 +147,41 @@ describe("EformsignWebhookService", () => {
     };
     const serviceRecordLifecycle = {
         syncEndDateFromContract: jest.fn(),
+        completeServiceRecordSnapshotIfReady: jest.fn(),
     };
+    const documentSnapshotService = {
+        bumpVersion: jest.fn(),
+        bumpCompanyEpoch: jest.fn(),
+    };
+    const documentMirrorService = {
+        isDocumentReady: jest.fn().mockResolvedValue(true),
+        getStoredDetail: jest.fn().mockResolvedValue({
+            current_status: { status_type: "050" },
+        }),
+    };
+    const completedMirrorReconciler = {
+        reconcileServiceRecordSnapshotCompletion: jest.fn(),
+    };
+
+    const createServiceWithCompletedMirrorReconciler = () =>
+        new EformsignWebhookService(
+            updateStatusUsecase as never,
+            linkDocumentUsecase as never,
+            syncClientEndDateUsecase as never,
+            eventBus as never,
+            notificationService as never,
+            eformsignApiClient as never,
+            clientRepository as never,
+            eformsignDocRepository as never,
+            employeeScheduleRepository as never,
+            employeeRepository as never,
+            mirrorUnassignedDocUsecase as never,
+            undefined,
+            serviceRecordLifecycle as never,
+            documentSnapshotService as never,
+            documentMirrorService as never,
+            completedMirrorReconciler as never,
+        );
 
     let service: EformsignWebhookService;
 
@@ -163,11 +200,29 @@ describe("EformsignWebhookService", () => {
             mirrorUnassignedDocUsecase as never,
             undefined,
             serviceRecordLifecycle as never,
+            documentSnapshotService as never,
+            documentMirrorService as never,
         );
 
-        updateStatusUsecase.execute.mockResolvedValue(createDocEntity());
+        updateStatusUsecase.executeWithOutcome.mockImplementation(
+            async (
+                _branchId: string,
+                params: { statusType: string; sourceUpdatedDate?: Date },
+            ) => ({
+                document: createDocEntity({
+                    statusType: params.statusType,
+                    ...(params.sourceUpdatedDate
+                        ? { updatedDate: params.sourceUpdatedDate }
+                        : {}),
+                }),
+                applied: true,
+            }),
+        );
         linkDocumentUsecase.execute.mockResolvedValue(undefined);
         syncClientEndDateUsecase.execute.mockResolvedValue(undefined);
+        syncClientEndDateUsecase.executeFromDocument.mockResolvedValue(undefined);
+        serviceRecordLifecycle.completeServiceRecordSnapshotIfReady.mockResolvedValue(false);
+        completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion.mockResolvedValue(true);
         eformsignApiClient.getAccessToken.mockResolvedValue({
             oauth_token: {
                 access_token: "test-access-token",
@@ -230,6 +285,306 @@ describe("EformsignWebhookService", () => {
         });
     });
 
+    it.each([
+        {
+            label: "end-date synchronization",
+            arrange: () => {
+                syncClientEndDateUsecase.execute.mockRejectedValue(
+                    new Error(
+                        "Bearer vendor-token access_token=secret-token 010-1234-5678",
+                    ),
+                );
+            },
+            expectedPrefix: `Failed to sync end date for document ${documentId}:`,
+        },
+        {
+            label: "document linking",
+            arrange: () => {
+                linkDocumentUsecase.execute.mockRejectedValue(
+                    new Error(
+                        "Bearer vendor-token access_token=secret-token 010-1234-5678",
+                    ),
+                );
+            },
+            expectedPrefix: `Failed to link document ${documentId} to client:`,
+        },
+    ])("sanitizes $label failures before logging", async ({ arrange, expectedPrefix }) => {
+        const errorSpy = jest
+            .spyOn(Logger.prototype, "error")
+            .mockImplementation(() => undefined);
+        arrange();
+
+        try {
+            await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
+
+            const logged = errorSpy.mock.calls.flat().join(" ");
+            expect(logged).toContain(expectedPrefix);
+            expect(logged).toContain("Bearer [REDACTED]");
+            expect(logged).toContain("access_token=[REDACTED]");
+            expect(logged).toContain("[REDACTED_PHONE]");
+            expect(logged).not.toContain("vendor-token");
+            expect(logged).not.toContain("secret-token");
+            expect(logged).not.toContain("010-1234-5678");
+        } finally {
+            errorSpy.mockRestore();
+        }
+    });
+
+    it("claims a contract completion without durable effects while the controller defers to the ready mirror", async () => {
+        await expect(service.processWebhook(createDocumentPayload(), {
+            deferCompletionEvent: true,
+            deferCompletionEffects: true,
+        })).resolves.toEqual({
+            completionClaim: "claimed",
+            completionBranchId: branchId,
+        });
+
+        expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ documentId }),
+        );
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
+        expect(syncClientEndDateUsecase.executeFromDocument).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("uses the already mirrored detail for completion side effects without another vendor fetch", async () => {
+        const mirroredDocument = {
+            id: documentId,
+            document_number: "DOC-123",
+            template: { id: "template-1", name: "template" },
+            document_name: "산모신생아건강관리서비스 계약서",
+            creator: { recipient_type: "01", id: "creator", name: "생성자" },
+            created_date: Date.now() - 1_000,
+            updated_date: Date.now(),
+            current_status: {
+                status_type: "050",
+                step_type: "06",
+                step_index: "3",
+                step_name: "완료",
+                step_recipients: [],
+                step_group: 3,
+            },
+            fields: [],
+        };
+
+        await expect(service.processWebhook(createDocumentPayload(), {
+            mirroredDocument,
+        })).resolves.toBeUndefined();
+
+        expect(syncClientEndDateUsecase.executeFromDocument).toHaveBeenCalledWith(
+            branchId,
+            documentId,
+            mirroredDocument,
+            expect.objectContaining({ persist: expect.any(Function) }),
+        );
+        expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
+        expect(eformsignApiClient.getAccessToken).not.toHaveBeenCalled();
+        expect(eformsignApiClient.getDocument).not.toHaveBeenCalled();
+    });
+
+    it("delegates mirrored completion persistence without changing completion claim or event ownership", async () => {
+        const mirroredDocument = {
+            id: documentId,
+            document_number: "DOC-123",
+            template: { id: "template-1", name: "template" },
+            document_name: "산모신생아건강관리서비스 계약서",
+            creator: { recipient_type: "01", id: "creator", name: "생성자" },
+            created_date: Date.now() - 1_000,
+            updated_date: Date.now(),
+            current_status: {
+                status_type: "050",
+                step_type: "06",
+                step_index: "3",
+                step_name: "완료",
+                step_recipients: [],
+                step_group: 3,
+            },
+            fields: [],
+        };
+        const completedMirrorReconciler = {
+            syncLinkedContract: jest.fn().mockResolvedValue(undefined),
+        };
+        const serviceWithReconciler = new EformsignWebhookService(
+            updateStatusUsecase as never,
+            linkDocumentUsecase as never,
+            syncClientEndDateUsecase as never,
+            eventBus as never,
+            notificationService as never,
+            eformsignApiClient as never,
+            clientRepository as never,
+            eformsignDocRepository as never,
+            employeeScheduleRepository as never,
+            employeeRepository as never,
+            mirrorUnassignedDocUsecase as never,
+            undefined,
+            serviceRecordLifecycle as never,
+            documentSnapshotService as never,
+            documentMirrorService as never,
+            completedMirrorReconciler as never,
+        );
+
+        await expect(serviceWithReconciler.processWebhook(createDocumentPayload(), {
+            mirroredDocument,
+        })).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ documentId }),
+        );
+        expect(linkDocumentUsecase.execute).toHaveBeenCalledWith(branchId, documentId);
+        expect(completedMirrorReconciler.syncLinkedContract).toHaveBeenCalledWith({
+            branchId,
+            documentId,
+            detail: mirroredDocument,
+        });
+        expect(syncClientEndDateUsecase.executeFromDocument).not.toHaveBeenCalled();
+        expect(eventBus.emit).toHaveBeenCalledWith({
+            branchId,
+            documentId,
+            reason: "doc:doc_complete",
+        });
+    });
+
+    it("uses the lifecycle service for a completed service-record snapshot without contract end-date sync", async () => {
+        const previousTemplateId = process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+        process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = "service-record-template";
+        const payload = createDocumentPayload();
+        if (!payload.document) throw new Error("document payload is required");
+        payload.document.template_id = "service-record-template";
+
+        try {
+            await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+        } finally {
+            if (previousTemplateId === undefined) {
+                delete process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+            } else {
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = previousTemplateId;
+            }
+        }
+
+        expect(serviceRecordLifecycle.completeServiceRecordSnapshotIfReady)
+            .toHaveBeenCalledWith({ branchId, documentId });
+        expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
+        expect(syncClientEndDateUsecase.executeFromDocument).not.toHaveBeenCalled();
+    });
+
+    it("reconciles a service-record lifecycle after the deferred status claim", async () => {
+        const previousTemplateId = process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+        process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = "service-record-template";
+        service = createServiceWithCompletedMirrorReconciler();
+        const payload = createDocumentPayload();
+        if (!payload.document) throw new Error("document payload is required");
+        payload.document.template_id = "service-record-template";
+
+        try {
+            await expect(service.processWebhook(payload, {
+                deferCompletionEvent: true,
+                deferCompletionEffects: true,
+            })).resolves.toEqual({
+                completionClaim: "claimed",
+                completionBranchId: branchId,
+            });
+        } finally {
+            if (previousTemplateId === undefined) {
+                delete process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+            } else {
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = previousTemplateId;
+            }
+        }
+
+        expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ documentId }),
+        );
+        expect(completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion)
+            .toHaveBeenCalledWith(documentId);
+        expect(eformsignDocRepository.claimCompletionStatus.mock.invocationCallOrder[0]!)
+            .toBeLessThan(
+                completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion
+                    .mock.invocationCallOrder[0]!,
+            );
+        expect(serviceRecordLifecycle.completeServiceRecordSnapshotIfReady).not.toHaveBeenCalled();
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("retries deferred service-record lifecycle reconciliation after a duplicate completion claim", async () => {
+        const previousTemplateId = process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+        process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = "service-record-template";
+        service = createServiceWithCompletedMirrorReconciler();
+        eformsignDocRepository.claimCompletionStatus
+            .mockResolvedValueOnce("claimed")
+            .mockResolvedValueOnce("duplicate");
+        completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(true);
+        const payload = createDocumentPayload();
+        if (!payload.document) throw new Error("document payload is required");
+        payload.document.template_id = "service-record-template";
+
+        try {
+            await expect(service.processWebhook(payload, {
+                deferCompletionEvent: true,
+                deferCompletionEffects: true,
+            })).rejects.toThrow(/mirror is not ready/i);
+            await expect(service.processWebhook(payload, {
+                deferCompletionEvent: true,
+                deferCompletionEffects: true,
+            })).resolves.toEqual({
+                completionClaim: "duplicate",
+                completionBranchId: branchId,
+                duplicateServiceRecordLifecycleChanged: true,
+            });
+        } finally {
+            if (previousTemplateId === undefined) {
+                delete process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+            } else {
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = previousTemplateId;
+            }
+        }
+
+        expect(completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion)
+            .toHaveBeenCalledTimes(2);
+        expect(completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion)
+            .toHaveBeenNthCalledWith(1, documentId);
+        expect(completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion)
+            .toHaveBeenNthCalledWith(2, documentId);
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not report a duplicate service-record retry as changed when its ready lifecycle is idempotent", async () => {
+        const previousTemplateId = process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+        process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = "service-record-template";
+        service = createServiceWithCompletedMirrorReconciler();
+        eformsignDocRepository.claimCompletionStatus.mockResolvedValue("duplicate");
+        completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion.mockResolvedValue(false);
+        const payload = createDocumentPayload();
+        if (!payload.document) throw new Error("document payload is required");
+        payload.document.template_id = "service-record-template";
+
+        try {
+            await expect(service.processWebhook(payload, {
+                deferCompletionEvent: true,
+                deferCompletionEffects: true,
+            })).resolves.toEqual({
+                completionClaim: "duplicate",
+                completionBranchId: branchId,
+            });
+        } finally {
+            if (previousTemplateId === undefined) {
+                delete process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"];
+            } else {
+                process.env["EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"] = previousTemplateId;
+            }
+        }
+
+        expect(completedMirrorReconciler.reconcileServiceRecordSnapshotCompletion)
+            .toHaveBeenCalledWith(documentId);
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
     it("should resolve the branch from the local document before processing webhook status", async () => {
         await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
 
@@ -250,7 +605,7 @@ describe("EformsignWebhookService", () => {
 
         expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(documentId);
         expect(eformsignDocRepository.claimCompletionStatus).not.toHaveBeenCalled();
-        expect(updateStatusUsecase.execute).not.toHaveBeenCalled();
+        expect(updateStatusUsecase.executeWithOutcome).not.toHaveBeenCalled();
         expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
         expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
         expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
@@ -310,11 +665,12 @@ describe("EformsignWebhookService", () => {
             }),
             { updateCreatedDate: false },
         );
-        expect(updateStatusUsecase.execute).not.toHaveBeenCalled();
+        expect(updateStatusUsecase.executeWithOutcome).not.toHaveBeenCalled();
         expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
         expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
         expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
         expect(eventBus.emit).not.toHaveBeenCalled();
+        expect(documentSnapshotService.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
     });
 
     it("updates an existing unassigned document from ready_document_pdf without branch side effects", async () => {
@@ -555,7 +911,7 @@ describe("EformsignWebhookService", () => {
 
         await expect(service.processWebhook(payload)).resolves.toBeUndefined();
 
-        expect(updateStatusUsecase.execute).toHaveBeenCalledWith(
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
             branchId,
             expect.objectContaining({
                 documentId,
@@ -572,6 +928,218 @@ describe("EformsignWebhookService", () => {
             branchId,
             documentId,
             reason: "doc:doc_expired",
+        });
+    });
+
+    it("does not link, notify, or emit when a stale branch-owned status projection loses its CAS", async () => {
+        updateStatusUsecase.executeWithOutcome.mockResolvedValue({
+            document: createDocEntity({ statusType: "071" }),
+            applied: false,
+        });
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_expired";
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({
+                sourceUpdatedDate: new Date(payload.document.updated_date),
+            }),
+        );
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not fire stale side effects when the newer mirror has the same status", async () => {
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_expired";
+        updateStatusUsecase.executeWithOutcome.mockResolvedValue({
+            document: createDocEntity({
+                statusType: "080",
+                updatedDate: new Date(payload.document.updated_date + 1),
+            }),
+            applied: false,
+        });
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not replay side effects when the same-generation status CAS is a no-op", async () => {
+        const payload = createDocumentPayload();
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.status = "doc_expired";
+        updateStatusUsecase.executeWithOutcome.mockResolvedValue({
+            document: createDocEntity({
+                statusType: "080",
+                updatedDate: new Date(payload.document.updated_date),
+            }),
+            applied: false,
+        });
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not claim, link, or emit a stale completion webhook", async () => {
+        eformsignDocRepository.claimCompletionStatus.mockResolvedValue("stale");
+        const payload = createDocumentPayload();
+
+        await expect(service.processWebhook(payload)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({
+                sourceUpdatedDate: new Date(payload.document!.updated_date),
+            }),
+        );
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not project or emit a timestamp-less PDF status that conflicts with the ready mirror", async () => {
+        const payload = createReadyPdfPayload();
+        if (!payload.ready_document_pdf) {
+            throw new Error("ready PDF payload is required");
+        }
+        payload.ready_document_pdf.document_status = "doc_expired";
+
+        await expect(service.processWebhook(payload, {
+            mirroredDocument: {
+                current_status: {
+                    status_type: "071",
+                    step_type: "06",
+                    step_index: "1",
+                    step_name: "검토 반려",
+                    step_recipients: [],
+                    step_group: 1,
+                },
+            } as never,
+        })).resolves.toBeUndefined();
+
+        expect(updateStatusUsecase.executeWithOutcome).not.toHaveBeenCalled();
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("fences a non-completion PDF status to the refreshed mirror generation", async () => {
+        const sourceUpdatedDate = Date.now();
+        const payload = createReadyPdfPayload();
+        if (!payload.ready_document_pdf) {
+            throw new Error("ready PDF payload is required");
+        }
+        payload.ready_document_pdf.document_status = "doc_expired";
+        updateStatusUsecase.executeWithOutcome.mockResolvedValueOnce({
+            document: createDocEntity({
+                statusType: "080",
+                updatedDate: new Date(sourceUpdatedDate),
+            }),
+            applied: false,
+        });
+
+        await expect(service.processWebhook(payload, {
+            mirroredDocument: {
+                updated_date: sourceUpdatedDate,
+                current_status: {
+                    status_type: "080",
+                    step_type: "06",
+                    step_index: "1",
+                    step_name: "만료",
+                    step_recipients: [],
+                    step_group: 1,
+                },
+            } as never,
+        })).resolves.toBeUndefined();
+
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({
+                documentId,
+                statusType: "080",
+                sourceUpdatedDate: new Date(sourceUpdatedDate),
+            }),
+        );
+        expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("fences a completed-PDF claim to the refreshed mirror generation", async () => {
+        const sourceUpdatedDate = Date.now();
+        const payload = createReadyPdfPayload();
+
+        await expect(service.processWebhook(payload, {
+            mirroredDocument: {
+                updated_date: sourceUpdatedDate,
+                current_status: {
+                    status_type: "050",
+                    step_type: "06",
+                    step_index: "3",
+                    step_name: "완료",
+                    step_recipients: [],
+                    step_group: 1,
+                },
+            } as never,
+            deferCompletionEvent: true,
+            deferCompletionEffects: true,
+        })).resolves.toEqual({
+            completionClaim: "claimed",
+            completionBranchId: branchId,
+        });
+
+        expect(eformsignDocRepository.claimCompletionStatus).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({
+                sourceUpdatedDate: new Date(sourceUpdatedDate),
+            }),
+        );
+    });
+
+    it("keeps a current document_action at the refreshed mirror's canonical 064 status", async () => {
+        const payload = createDocumentPayload();
+        payload.event_type = "document_action";
+        if (!payload.document) {
+            throw new Error("document payload is required");
+        }
+        payload.document.action = "doc_open_participant";
+
+        await expect(service.processWebhook(payload, {
+            mirroredDocument: {
+                current_status: {
+                    status_type: "064",
+                    step_type: "05",
+                    step_index: "3",
+                    step_name: "이용자 열람",
+                    step_recipients: [],
+                    step_group: 1,
+                },
+            } as never,
+        })).resolves.toBeUndefined();
+
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ statusType: "064" }),
+        );
+        expect(linkDocumentUsecase.execute).toHaveBeenCalledWith(branchId, documentId);
+        expect(eventBus.emit).toHaveBeenCalledWith({
+            branchId,
+            documentId,
+            reason: "action:doc_open_participant",
         });
     });
 
@@ -622,6 +1190,36 @@ describe("EformsignWebhookService", () => {
             branchId,
             expect.objectContaining({ documentId }),
         );
+    });
+
+    it("sanitizes errors from the branch-only fallback lookup", async () => {
+        const warnSpy = jest
+            .spyOn(Logger.prototype, "warn")
+            .mockImplementation(() => undefined);
+        eformsignDocRepository.findByDocumentIdUnscoped.mockRejectedValue(
+            new EformsignDocMappingError(
+                documentId,
+                new Error("Bearer mapping-token 010-1111-2222"),
+            ),
+        );
+        eformsignDocRepository.findBranchIdByDocumentId.mockRejectedValue(
+            new Error("access_token=fallback-token 010-3333-4444"),
+        );
+
+        try {
+            await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
+
+            const logged = warnSpy.mock.calls.flat().join(" ");
+            expect(logged).toContain("Bearer [REDACTED]");
+            expect(logged).toContain("access_token=[REDACTED]");
+            expect(logged).toContain("[REDACTED_PHONE]");
+            expect(logged).not.toContain("mapping-token");
+            expect(logged).not.toContain("fallback-token");
+            expect(logged).not.toContain("010-1111-2222");
+            expect(logged).not.toContain("010-3333-4444");
+        } finally {
+            warnSpy.mockRestore();
+        }
     });
 
     it("omits an unassigned document name update when webhook document_title is blank", async () => {
@@ -689,7 +1287,7 @@ describe("EformsignWebhookService", () => {
         await expect(service.processWebhook(createDocumentPayload())).resolves.toBeUndefined();
 
         expect(mirrorUnassignedDocUsecase.execute).toHaveBeenCalledWith(documentId);
-        expect(updateStatusUsecase.execute).not.toHaveBeenCalled();
+        expect(updateStatusUsecase.executeWithOutcome).not.toHaveBeenCalled();
         expect(linkDocumentUsecase.execute).not.toHaveBeenCalled();
         expect(syncClientEndDateUsecase.execute).not.toHaveBeenCalled();
         expect(eventBus.emit).not.toHaveBeenCalled();
@@ -752,7 +1350,7 @@ describe("EformsignWebhookService", () => {
 
         await expect(service.processWebhook(payload)).resolves.toBeUndefined();
 
-        expect(updateStatusUsecase.execute).toHaveBeenCalledWith(
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
             branchId,
             expect.objectContaining({ statusType: "060" }),
         );
@@ -795,7 +1393,7 @@ describe("EformsignWebhookService", () => {
 
         await expect(service.processWebhook(payload)).resolves.toBeUndefined();
 
-        expect(updateStatusUsecase.execute).toHaveBeenCalledWith(
+        expect(updateStatusUsecase.executeWithOutcome).toHaveBeenCalledWith(
             branchId,
             expect.objectContaining({
                 documentId,
@@ -829,6 +1427,37 @@ describe("EformsignWebhookService", () => {
                 });
                 return Promise.resolve(storedDoc);
             }),
+            updateIfSourceNewer: jest.fn().mockImplementation(
+                async (_branchid, doc: EformsignDocEntity) => {
+                    const storedId = storedDoc.id;
+                    if (storedId === undefined) {
+                        throw new Error("stored document id is required");
+                    }
+                    storedDoc = EformsignDocMapper.toDomain({
+                        id: storedId,
+                        ...EformsignDocMapper.toPrismaCreate(storedDoc),
+                        ...EformsignDocMapper.toPrismaUpdate(doc),
+                    });
+                    return { document: storedDoc, applied: true };
+                },
+            ),
+            linkClientIfActive: jest.fn().mockImplementation(
+                async (_branchid: string, targetDocumentId: string, clientId: number) => {
+                    const storedId = storedDoc.id;
+                    if (
+                        storedId === undefined
+                        || storedDoc.documentId !== targetDocumentId
+                    ) {
+                        return false;
+                    }
+                    storedDoc = EformsignDocMapper.toDomain({
+                        id: storedId,
+                        ...EformsignDocMapper.toPrismaCreate(storedDoc),
+                        clientId,
+                    });
+                    return true;
+                },
+            ),
         };
         const phoneMatchedClient = createClientEntity();
         const statefulClientRepository = {
@@ -864,7 +1493,13 @@ describe("EformsignWebhookService", () => {
 
         await statefulService.processWebhook(payload);
 
-        expect(statefulDocRepository.update).toHaveBeenCalledTimes(2);
+        expect(statefulDocRepository.updateIfSourceNewer).toHaveBeenCalledTimes(1);
+        expect(statefulDocRepository.linkClientIfActive).toHaveBeenCalledWith(
+            branchId,
+            documentId,
+            9,
+        );
+        expect(statefulDocRepository.update).not.toHaveBeenCalled();
         expect(storedDoc.clientId).toBe(9);
         expect(storedDoc.documentName).toBe("산모신생아건강관리서비스 계약서");
     });
@@ -949,6 +1584,104 @@ describe("EformsignWebhookService", () => {
         expect(linkDocumentUsecase.execute).toHaveBeenCalledTimes(1);
         expect(syncClientEndDateUsecase.execute).toHaveBeenCalledTimes(1);
         expect(eventBus.emit).toHaveBeenCalledTimes(1);
+    });
+
+    it("defers a durable completion update until the controller confirms mirror sync, including duplicate retry", async () => {
+        eformsignDocRepository.claimCompletionStatus
+            .mockResolvedValueOnce("claimed")
+            .mockResolvedValueOnce("duplicate");
+        const payload = createDocumentPayload();
+
+        await service.processWebhook(payload, { deferCompletionEvent: true });
+        await service.processWebhook(payload, { deferCompletionEvent: true });
+
+        expect(linkDocumentUsecase.execute).toHaveBeenCalledTimes(1);
+        expect(eventBus.emit).not.toHaveBeenCalled();
+
+        await service.publishCompletionEvent(payload);
+
+        expect(eventBus.emit).toHaveBeenCalledWith({
+            branchId,
+            documentId,
+            reason: "doc:doc_complete",
+        });
+    });
+
+    it("rechecks mirror readiness immediately before publishing completion", async () => {
+        const payload = createDocumentPayload();
+        documentMirrorService.isDocumentReady.mockResolvedValueOnce(false);
+
+        await expect(service.publishCompletionEvent(payload)).rejects.toThrow(
+            /mirror is not ready/i,
+        );
+
+        expect(documentMirrorService.isDocumentReady).toHaveBeenCalledWith(documentId);
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("publishes from the controller-validated mirror without a second readiness lookup", async () => {
+        const payload = createDocumentPayload();
+        const mirroredDocument = {
+            current_status: { status_type: "050" },
+        } as never;
+        eformsignDocRepository.findByDocumentIdUnscoped.mockClear();
+        documentMirrorService.isDocumentReady.mockClear();
+        documentMirrorService.getStoredDetail.mockClear();
+
+        await expect(service.publishCompletionEvent(payload, {
+            branchId,
+            mirroredDocument,
+        })).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.findByDocumentIdUnscoped).not.toHaveBeenCalled();
+        expect(documentMirrorService.isDocumentReady).not.toHaveBeenCalled();
+        expect(documentMirrorService.getStoredDetail).not.toHaveBeenCalled();
+        expect(eventBus.emit).toHaveBeenCalledWith({
+            branchId,
+            documentId,
+            reason: "mirror:changed",
+        });
+    });
+
+    it("publishes a generic DB-refetch event for a tombstoned branch document", async () => {
+        await expect(service.publishLocalDocumentChange(documentId)).resolves.toBeUndefined();
+
+        expect(eformsignDocRepository.findBranchIdByDocumentId)
+            .toHaveBeenCalledWith(documentId);
+        expect(eventBus.emit).toHaveBeenCalledWith({
+            branchId,
+            documentId,
+            reason: "mirror:changed",
+        });
+    });
+
+    it("does not publish a branch event for a tombstoned unassigned document", async () => {
+        eformsignDocRepository.findBranchIdByDocumentId.mockResolvedValue(null);
+
+        await expect(service.publishLocalDocumentChange(documentId)).resolves.toBeUndefined();
+
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("keeps tombstone invalidation retryable when its branch lookup fails", async () => {
+        eformsignDocRepository.findBranchIdByDocumentId.mockRejectedValue(
+            new Error("database unavailable"),
+        );
+
+        await expect(service.publishLocalDocumentChange(documentId))
+            .rejects.toThrow("database unavailable");
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not publish completion after the refreshed mirror moved to a non-completed status", async () => {
+        const payload = createDocumentPayload();
+        documentMirrorService.getStoredDetail.mockResolvedValueOnce({
+            current_status: { status_type: "071" },
+        });
+
+        await expect(service.publishCompletionEvent(payload)).resolves.toBeUndefined();
+
+        expect(eventBus.emit).not.toHaveBeenCalled();
     });
 
     it("keeps a completed document's status when a stale document_action webhook arrives after completion (P1-11)", async () => {
