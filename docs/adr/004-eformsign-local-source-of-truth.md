@@ -27,7 +27,7 @@ The contract detail screens read more than the existing indexed columns. They us
 - List, detail, and PDF HTTP reads never call eformsign and never require an eformsign access-token cookie.
 - Mutating operations such as create, delete, and re-request remain vendor operations.
 - Delete does not delete at eformsign. It cancels the document there and purges the local copy. Cancelling expires the recipient's signing link — deletions are usually mis-sends, and a local-only delete would leave that link live — while eformsign keeps the document and its audit trail. A non-permanent vendor delete would not do: it only parks the document in the vendor's trash for 14 days before erasing it.
-- Because the vendor copy survives, the reconcile sweep and webhooks keep rediscovering a deleted document. Its `049` status and its retained `permanent_purge_requested_at` fence are what stop the conditional upsert from rebuilding it, so the purge deliberately leaves that fence in place.
+- A deleted document stays buried by its `049` status alone: the conditional upsert refuses the update and, because the row exists, raises a stale-update error rather than recreating it. `permanent_purge_requested_at` means something different — "the vendor still owes us this purge" — so the purge clears it, and the reconcile sweep retries the vendor cancellation for any intent that survives.
 - eformsign only cancels in-progress documents. A refusal for a document that is already terminal locally still purges, since there is no live signing link to revoke; anything else is left intact and reported to the caller rather than purged.
 
 ## Detail coverage invariant

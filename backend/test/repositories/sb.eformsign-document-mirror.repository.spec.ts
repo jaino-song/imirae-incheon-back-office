@@ -352,17 +352,13 @@ describe("SbEformsignDocumentMirrorRepository", () => {
                 detailSourceUpdatedDate: deletedAt,
                 detailSyncedAt: deletedAt,
                 syncStatus: "ready",
+                // The purge must release its own intent. A retained intent means "the vendor
+                // still owes us a purge", which the reconcile sweep acts on by retrying the
+                // vendor call; leaving it set would have the sweep permanently delete a
+                // document the delete deliberately only cancelled. Burial is the 049 status's
+                // job, not this field's.
+                permanentPurgeRequestedAt: null,
             }),
-        });
-        // This used to assert `permanentPurgeRequestedAt: null` — the purge cleared its own
-        // intent once the vendor copy was gone. A delete no longer deletes at eformsign, it
-        // cancels, so the vendor keeps the document and the reconcile sweep and webhooks keep
-        // rediscovering it. The intent is now a permanent suppression fence: without it the
-        // conditional upsert's staleGuard loses a condition and the create branch can rebuild
-        // the purged document in full.
-        expect(prisma.eformsign_doc.updateMany).not.toHaveBeenCalledWith({
-            where: { id: { in: [11] } },
-            data: expect.objectContaining({ permanentPurgeRequestedAt: null }),
         });
         expect((prisma as { $transaction?: jest.Mock }).$transaction).toHaveBeenCalledTimes(1);
         expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);

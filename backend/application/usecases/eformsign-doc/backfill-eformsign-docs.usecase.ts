@@ -695,9 +695,14 @@ export class BackfillEformsignDocsUsecase {
     }
 
     /**
-     * A durable intent can survive an ambiguous original DELETE timeout. Once a
+     * A durable intent can survive an ambiguous original cancellation. Once a
      * later reconciliation has confirmed the document still exists, retry the
-     * vendor deletion instead of indefinitely refreshing a locally hidden row.
+     * vendor call instead of indefinitely refreshing a locally hidden row.
+     *
+     * The retry cancels rather than deletes, matching what the delete endpoint does:
+     * cancelling expires the recipient's signing link while eformsign keeps the
+     * document. Deleting here would erase the vendor's copy — and its audit trail —
+     * behind the operator's back, hours after a delete that promised to keep it.
      */
     private async retryConfirmedPresentPermanentPurge(
         documentId: string,
@@ -718,17 +723,17 @@ export class BackfillEformsignDocsUsecase {
             throw new Error(`Could not persist permanent eformsign purge retry for ${documentId}`);
         }
 
-        const deleteWithToken = (token: string) =>
-            eformsignService.deleteDocuments(token, [documentId], true);
+        const cancelWithToken = (token: string) =>
+            eformsignService.cancelDocuments(token, [documentId]);
         let result: unknown;
         try {
             try {
-                result = await deleteWithToken(accessToken());
+                result = await cancelWithToken(accessToken());
             } catch (error) {
                 if (!this.isAuthenticationError(error)) {
                     throw error;
                 }
-                result = await deleteWithToken(await refreshAccessToken());
+                result = await cancelWithToken(await refreshAccessToken());
             }
         } catch (error) {
             if (isEformsignDocumentAbsentError(error)) {
@@ -747,11 +752,21 @@ export class BackfillEformsignDocsUsecase {
             return;
         }
 
+        // eformsign refuses to cancel a document that is no longer in progress. Such a
+        // document has no live signing link left to revoke, so finish the purge rather
+        // than retrying a call that can never succeed — otherwise every sweep from here
+        // on reattempts it forever.
+        const terminalIds = await documentMirrorService.findTerminalDocumentIds([documentId]);
+        if (terminalIds.includes(documentId)) {
+            await documentMirrorService.purgeDocuments([documentId]);
+            return;
+        }
+
         if (failedPermanentDeleteDocumentIds(result, [documentId]).includes(documentId)) {
             await documentMirrorService.clearPermanentPurgeRequest([request]);
         }
-        // Unknown and already-deleted outcomes deliberately retain the new durable
-        // intent. The next reconciliation verifies vendor absence before purging.
+        // Unknown outcomes deliberately retain the new durable intent. The next
+        // reconciliation verifies the document's state before purging.
     }
 
     private async persistDocument(

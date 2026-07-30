@@ -54,6 +54,7 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn().mockResolvedValue(undefined),
             markDocumentsDeleted: jest.fn(),
             clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
@@ -81,6 +82,7 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn(),
             markDocumentsDeleted: jest.fn().mockResolvedValue(undefined),
             clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
@@ -110,6 +112,7 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn(),
             markDocumentsDeleted: jest.fn().mockResolvedValue(undefined),
             clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
@@ -138,6 +141,7 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn(),
             markDocumentsDeleted: jest.fn(),
             clearPermanentPurgeRequest: jest.fn(),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
@@ -152,7 +156,7 @@ describe("BackfillEformsignDocsUsecase", () => {
         expect(mirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
     });
 
-    it("retries a confirmed-present permanent purge and purges only after vendor success", async () => {
+    it("retries a confirmed-present purge by cancelling and purges only after vendor success", async () => {
         const document = createRemoteDocument("pending-doc");
         const retryGeneration = new Date("2026-07-30T01:00:00.000Z");
         const client = {
@@ -175,9 +179,10 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn().mockResolvedValue(undefined),
             markDocumentsDeleted: jest.fn(),
             clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const eformsignService = {
-            deleteDocuments: jest.fn().mockResolvedValue({
+            cancelDocuments: jest.fn().mockResolvedValue({
                 result: { success_result: ["pending-doc"] },
             }),
         };
@@ -192,16 +197,61 @@ describe("BackfillEformsignDocsUsecase", () => {
         await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
         expect(client.getDocument).toHaveBeenCalledWith(accessToken, "pending-doc");
         expect(mirrorService.requestPermanentPurge).toHaveBeenCalledWith(["pending-doc"]);
-        expect(eformsignService.deleteDocuments).toHaveBeenCalledWith(
+        // The retry cancels rather than deletes: the delete endpoint keeps the vendor's
+        // copy, so a sweep must not erase it hours later.
+        expect(eformsignService.cancelDocuments).toHaveBeenCalledWith(
             accessToken,
             ["pending-doc"],
-            true,
         );
         expect(mirrorService.clearPermanentPurgeRequest).not.toHaveBeenCalled();
         expect(mirrorService.purgeDocuments).toHaveBeenCalledWith(["pending-doc"]);
     });
 
-    it("retains a retried permanent purge intent for an ambiguous vendor delete outcome", async () => {
+    it("finishes the purge when the vendor refuses to cancel an already-finished document", async () => {
+        const document = createRemoteDocument("pending-doc");
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [document],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockResolvedValue(document),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            syncDocumentWithToken: jest.fn().mockResolvedValue({ status: "synced" }),
+            requestPermanentPurge: jest.fn().mockResolvedValue([
+                { documentId: "pending-doc", generation: new Date("2026-07-30T01:00:00.000Z") },
+            ]),
+            purgeDocuments: jest.fn().mockResolvedValue(undefined),
+            markDocumentsDeleted: jest.fn(),
+            clearPermanentPurgeRequest: jest.fn(),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+        };
+        const eformsignService = {
+            cancelDocuments: jest.fn().mockResolvedValue({
+                result: { fail_result: [{ document_id: "pending-doc", code: "4000031" }] },
+            }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
+            { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
+            mirrorService as never,
+            eformsignService as never,
+        );
+
+        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        // eformsign never cancels a finished document, so retrying forever would make every
+        // sweep from here on reattempt a call that cannot succeed.
+        expect(mirrorService.purgeDocuments).toHaveBeenCalledWith(["pending-doc"]);
+        expect(mirrorService.clearPermanentPurgeRequest).not.toHaveBeenCalled();
+    });
+
+    it("retains a retried purge intent for an ambiguous vendor cancel outcome", async () => {
         const document = createRemoteDocument("pending-doc");
         const retryGeneration = new Date("2026-07-30T01:00:00.000Z");
         const client = {
@@ -224,9 +274,10 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn(),
             markDocumentsDeleted: jest.fn(),
             clearPermanentPurgeRequest: jest.fn(),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const eformsignService = {
-            deleteDocuments: jest.fn().mockResolvedValue({
+            cancelDocuments: jest.fn().mockResolvedValue({
                 result: {
                     fail_result: [{ document_id: "pending-doc", code: "4000031" }],
                 },
@@ -246,7 +297,7 @@ describe("BackfillEformsignDocsUsecase", () => {
         expect(mirrorService.purgeDocuments).not.toHaveBeenCalled();
     });
 
-    it("clears only the retry generation for a definitive permanent delete rejection", async () => {
+    it("clears only the retry generation for a definitive vendor cancel rejection", async () => {
         const document = createRemoteDocument("pending-doc");
         const retryGeneration = new Date("2026-07-30T01:00:00.000Z");
         const client = {
@@ -269,9 +320,10 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn(),
             markDocumentsDeleted: jest.fn(),
             clearPermanentPurgeRequest: jest.fn().mockResolvedValue(["pending-doc"]),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const eformsignService = {
-            deleteDocuments: jest.fn().mockResolvedValue({
+            cancelDocuments: jest.fn().mockResolvedValue({
                 result: {
                     fail_result: [{ document_id: "pending-doc", code: "4000164" }],
                 },
@@ -306,6 +358,7 @@ describe("BackfillEformsignDocsUsecase", () => {
             purgeDocuments: jest.fn(),
             markDocumentsDeleted: jest.fn(),
             clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+            findTerminalDocumentIds: jest.fn().mockResolvedValue([]),
         };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
