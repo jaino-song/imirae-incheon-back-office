@@ -91,6 +91,13 @@ export interface StoredEformsignDocumentFileResponse {
     body: Buffer;
 }
 
+export interface StoredEformsignDocumentFileMetadataResponse {
+    status: 200;
+    contentType: string;
+    contentDisposition: string | null;
+    byteSize: number;
+}
+
 export class EformsignStoredFileIntegrityError extends Error {
     constructor(documentId: string, fileType: EformsignDocumentFileType) {
         super(`Stored eformsign ${fileType} failed integrity validation for ${documentId}`);
@@ -189,6 +196,35 @@ export class EformsignDocumentMirrorService {
             contentType: metadata.contentType,
             contentDisposition: safeContentDisposition(metadata.contentDisposition),
             body,
+        };
+    }
+
+    async getStoredFileMetadata(
+        documentId: string,
+        fileType: EformsignDocumentFileType,
+    ): Promise<StoredEformsignDocumentFileMetadataResponse | null> {
+        const state = await this.mirrorRepository.findState(documentId);
+        const file = state?.files.find((candidate) =>
+            candidate.fileType === fileType
+            && state.detailSourceUpdatedDate
+            && candidate.sourceUpdatedDate.getTime()
+                === state.detailSourceUpdatedDate.getTime(),
+        );
+        if (
+            !state?.detailPayload
+            || !state.detailSourceUpdatedDate
+            || state.syncStatus !== "ready"
+            || Boolean(state.permanentPurgeRequestedAt)
+            || !file
+        ) {
+            return null;
+        }
+
+        return {
+            status: 200,
+            contentType: file.contentType,
+            contentDisposition: safeContentDisposition(file.contentDisposition),
+            byteSize: file.byteSize,
         };
     }
 
