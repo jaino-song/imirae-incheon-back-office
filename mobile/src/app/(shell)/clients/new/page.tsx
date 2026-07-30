@@ -797,7 +797,9 @@ export default function NewClientPage() {
   const activeStepMeta = WIZARD_STEPS[activeStep];
   const progress = ((activeStep + 1) / WIZARD_STEPS.length) * 100;
   const clientsReturnHref = editingClientId !== null ? `/clients?id=${editingClientId}` : "/clients";
+  const isSaving = createClient.isPending || updateClient.isPending || isNavigationPending;
   const goBackToClients = () => {
+    if (isSaving) return;
     router.push(clientsReturnHref);
   };
 
@@ -815,7 +817,6 @@ export default function NewClientPage() {
     handleStepChange(activeStep + 1);
   };
 
-  const isSaving = createClient.isPending || updateClient.isPending || isNavigationPending;
   const isPrimaryDisabled = isSaving || !isStepSatisfied(activeStep);
 
   return (
@@ -870,6 +871,7 @@ export default function NewClientPage() {
             <button
               type="button"
               onClick={goBackToClients}
+              disabled={isSaving}
               className={styles.navbarIconButton}
               aria-label="고객 목록으로 돌아가기"
             >
@@ -881,6 +883,7 @@ export default function NewClientPage() {
             <button
               type="button"
               onClick={goBackToClients}
+              disabled={isSaving}
               className={styles.navbarIconButton}
               aria-label={isEditMode ? "고객 정보 수정 닫기" : "새 고객 추가 닫기"}
             >

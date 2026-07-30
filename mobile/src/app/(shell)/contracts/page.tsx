@@ -1559,6 +1559,7 @@ export default function ContractsPage() {
   const [selectedDoc, setSelectedDoc] = useState<EformsignDocument | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTabId>("basic");
   const [deleteTargetDoc, setDeleteTargetDoc] = useState<EformsignDocument | null>(null);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
 
   // Finalize (mode:"02" — staff completion) flow state
   const queryClient = useQueryClient();
@@ -1576,6 +1577,12 @@ export default function ContractsPage() {
   const [staffDocumentOption, setStaffDocumentOption] = useState<EformsignDocumentOption | null>(null);
   const [finalizeFeedback, setFinalizeFeedback] = useState<string | null>(null);
   const finalizeProgressSourceRef = useRef<EventSource | null>(null);
+  const isDeleteDocumentBusy = isDeletingDocument || deleteDocument.isPending;
+
+  const closeStaffIframe = useCallback(() => {
+    setIsStaffIframeOpen(false);
+    setIsFinalizeSubmitting(false);
+  }, []);
 
   useEffect(() => () => {
     finalizeProgressSourceRef.current?.close();
@@ -1587,7 +1594,7 @@ export default function ContractsPage() {
     const handle = setTimeout(() => {
       openDocument(staffDocumentOption, STAFF_COMPLETION_IFRAME_ID, {
         onSuccess: () => {
-          setIsStaffIframeOpen(false);
+          closeStaffIframe();
           setStaffDocumentOption(null);
           setFinalizeDoc(null);
           setFinalizeEndDateInput("");
@@ -1600,21 +1607,28 @@ export default function ContractsPage() {
           });
         },
         onError: (response) => {
-          setIsStaffIframeOpen(false);
+          closeStaffIframe();
           setStaffDocumentOption(null);
           setFinalizeFeedback(`최종 확인 실패: ${response.message ?? "알 수 없는 오류"}`);
         },
         onAction: (response) => {
           const t = response.type?.toLowerCase() ?? "";
           if (t.includes("cancel") || t.includes("close")) {
-            setIsStaffIframeOpen(false);
+            closeStaffIframe();
             setStaffDocumentOption(null);
           }
         },
       });
     }, 300);
     return () => clearTimeout(handle);
-  }, [isStaffIframeOpen, staffDocumentOption, isEformsignLoaded, openDocument, queryClient]);
+  }, [
+    closeStaffIframe,
+    isStaffIframeOpen,
+    staffDocumentOption,
+    isEformsignLoaded,
+    openDocument,
+    queryClient,
+  ]);
 
   const openFinalize = (
     doc: EformsignDocument,
@@ -1663,7 +1677,8 @@ export default function ContractsPage() {
   };
 
   const handleDeleteDocumentConfirm = async () => {
-    if (!deleteTargetDoc) return;
+    if (!deleteTargetDoc || isDeleteDocumentBusy) return;
+    setIsDeletingDocument(true);
     try {
       await deleteDocument.mutateAsync(deleteTargetDoc.id);
       await queryClient.invalidateQueries({ queryKey: ["eformsign-doc-client-names"] });
@@ -1681,6 +1696,8 @@ export default function ContractsPage() {
         variant: "destructive",
         description: requestErrorMessage(error, "계약서 삭제 중 오류가 발생했습니다."),
       });
+    } finally {
+      setIsDeletingDocument(false);
     }
   };
 
@@ -1712,6 +1729,7 @@ export default function ContractsPage() {
     const progressId = createHeadlessProgressId("finalize");
     let progressSource: EventSource | null = null;
     let headlessOk = false;
+    let keepFinalizeSubmittingUntilIframeCloses = false;
 
     try {
       progressSource = new EventSource(
@@ -1757,6 +1775,7 @@ export default function ContractsPage() {
         });
         setTimeout(() => {
           setIsFinalizeProgressOpen(false);
+          setIsFinalizeSubmitting(false);
           setFinalizeFeedback(
             `${isServiceRecordFinalize ? "제공기록지" : "계약서"}가 완료 처리되었습니다.`,
           );
@@ -1807,13 +1826,16 @@ export default function ContractsPage() {
         const option = await eformsignApi.generateStaffDocument(documentId, undefined, undefined, endDateIso);
         setStaffDocumentOption(option as EformsignDocumentOption);
         setIsStaffIframeOpen(true);
+        keepFinalizeSubmittingUntilIframeCloses = true;
       } catch (fallbackErr) {
         const msg = fallbackErr instanceof Error ? fallbackErr.message : "최종 확인 준비 중 오류가 발생했습니다.";
         setFinalizeFeedback(msg);
       }
     }
 
-    setIsFinalizeSubmitting(false);
+    if (!keepFinalizeSubmittingUntilIframeCloses) {
+      setIsFinalizeSubmitting(false);
+    }
   };
 
   // Auto-clear finalize feedback after 4s
@@ -2356,13 +2378,17 @@ export default function ContractsPage() {
         description="선택한 계약서를 삭제할까요?"
         cancelLabel="취소"
         confirmLabel="삭제"
-        loading={deleteDocument.isPending}
+        loading={isDeleteDocumentBusy}
         onOpenChange={(open) => {
-          if (!open && !deleteDocument.isPending) {
+          if (!open && !isDeleteDocumentBusy) {
             setDeleteTargetDoc(null);
           }
         }}
-        onCancel={() => setDeleteTargetDoc(null)}
+        onCancel={() => {
+          if (!isDeleteDocumentBusy) {
+            setDeleteTargetDoc(null);
+          }
+        }}
         onConfirm={handleDeleteDocumentConfirm}
       />
 
@@ -2453,7 +2479,7 @@ export default function ContractsPage() {
             <span>계약서 최종 확인</span>
             <button
               type="button"
-              onClick={() => setIsStaffIframeOpen(false)}
+              onClick={closeStaffIframe}
               className="flex h-[44px] w-[44px] items-center justify-center rounded-xl text-v3-text"
               aria-label="닫기"
             >
