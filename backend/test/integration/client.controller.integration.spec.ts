@@ -497,6 +497,45 @@ describe("ClientController (Integration)", () => {
                 );
             });
         });
+
+        describe("given an empty update", () => {
+            it("should preserve the relink-only wire contract", async () => {
+                const existingClient = createMockClient({ id: 5 });
+                clientService.update.mockResolvedValue(existingClient);
+
+                const response = await request(app.getHttpServer())
+                    .patch("/clients/5")
+                    .send({});
+
+                expect(response.status).toBe(200);
+                expect(clientService.update).toHaveBeenCalledWith(
+                    expect.any(String),
+                    5,
+                    {
+                        name: undefined,
+                        primaryEmployeeId: undefined,
+                        secondaryEmployeeId: undefined,
+                        address: undefined,
+                        phone: undefined,
+                        type: undefined,
+                        duration: undefined,
+                        fullPrice: undefined,
+                        grant: undefined,
+                        actualPrice: undefined,
+                        startDate: undefined,
+                        endDate: undefined,
+                        careCenter: undefined,
+                        voucherClient: undefined,
+                        birthday: undefined,
+                        dueDate: undefined,
+                        serviceStatus: undefined,
+                        breastPump: undefined,
+                        eDocId: undefined,
+                        areaId: undefined,
+                    },
+                );
+            });
+        });
     });
 
     // ============================================

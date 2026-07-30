@@ -1,7 +1,8 @@
-import { Logger } from "@nestjs/common";
+import { Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import { ClientService } from "../../application/services/client.service";
+import { ServiceRecordLifecycleService } from "../../application/services/service-record-lifecycle.service";
 import {
     CreateClientUsecase,
     DeleteClientUsecase,
@@ -109,6 +110,12 @@ describe("ClientService", () => {
         revoke: jest.fn().mockResolvedValue(undefined),
     });
 
+    const createMockServiceRecordLifecycleService = () => ({
+        validatePeriodChange: jest.fn().mockResolvedValue(undefined),
+        ensureForClient: jest.fn().mockResolvedValue(undefined),
+        markTerminated: jest.fn().mockResolvedValue(undefined),
+    });
+
     const createMockSystemSettingService = () => ({
         getClientAutoRegistrationEnabled: jest.fn().mockResolvedValue(true),
         getGreetingOnAutoRegistrationEnabled: jest.fn().mockResolvedValue(false),
@@ -173,6 +180,7 @@ describe("ClientService", () => {
     let prismaService: ReturnType<typeof createMockPrismaService>;
     let triggerService: ReturnType<typeof createMockTriggerService>;
     let serviceRecordLinkService: ReturnType<typeof createMockServiceRecordLinkService>;
+    let serviceRecordLifecycleService: ReturnType<typeof createMockServiceRecordLifecycleService>;
     let clientRepository: ReturnType<typeof createMockClientRepository>;
     let systemSettingService: ReturnType<typeof createMockSystemSettingService>;
     let configService: ReturnType<typeof createMockConfigService>;
@@ -188,6 +196,7 @@ describe("ClientService", () => {
         prismaService = createMockPrismaService();
         triggerService = createMockTriggerService();
         serviceRecordLinkService = createMockServiceRecordLinkService();
+        serviceRecordLifecycleService = createMockServiceRecordLifecycleService();
         clientRepository = createMockClientRepository();
         systemSettingService = createMockSystemSettingService();
         configService = createMockConfigService();
@@ -206,7 +215,7 @@ describe("ClientService", () => {
             documentSnapshotService as unknown as EformsignDocumentSnapshotService,
             triggerService as unknown as MessageTriggerService,
             serviceRecordLinkService as unknown as ServiceRecordLinkService,
-            undefined,
+            serviceRecordLifecycleService as unknown as ServiceRecordLifecycleService,
             configService as unknown as ConfigService,
         );
     });
@@ -1151,6 +1160,10 @@ describe("ClientService", () => {
                 // A no-op save is an explicit, targeted local-DB reconciliation.
                 const result = await service.update(branchId, existingClient.id, {});
 
+                expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+                expect(serviceRecordLifecycleService.validatePeriodChange).not.toHaveBeenCalled();
+                expect(serviceRecordLifecycleService.ensureForClient).not.toHaveBeenCalled();
+                expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
                 expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledWith(
                     expect.objectContaining({
                         where: expect.objectContaining({
@@ -1199,6 +1212,7 @@ describe("ClientService", () => {
                     },
                     data: { eDocId: "DOC-AFTER-UPDATE" },
                 });
+                expect(prismaService.client.updateMany).toHaveBeenCalledTimes(1);
                 expect(result.eDocId).toBe("DOC-AFTER-UPDATE");
                 expect(documentSnapshotService.bumpVersion).toHaveBeenCalledWith(branchId);
                 expect(documentSnapshotService.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
@@ -1234,13 +1248,34 @@ describe("ClientService", () => {
                 const result = await service.update(branchId, existingClient.id, {});
 
                 expect(prismaService.eformsign_doc.updateMany).not.toHaveBeenCalled();
-                expect(prismaService.client.updateMany).toHaveBeenCalledTimes(1);
-                expect(prismaService.client.updateMany).toHaveBeenCalledWith(
-                    expect.objectContaining({
-                        where: { id: existingClient.id, branchId },
-                    }),
-                );
+                expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
                 expect(result.eDocId).toBeNull();
+            });
+
+            it("treats an empty update as relink-only even when lifecycle reconciliation would fail", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                serviceRecordLifecycleService.ensureForClient.mockRejectedValue(
+                    new NotFoundException("Client not found"),
+                );
+
+                await expect(service.update(branchId, existingClient.id, {})).resolves.toBe(existingClient);
+
+                expect(prismaService.eformsign_doc.findMany).toHaveBeenCalled();
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
+                expect(serviceRecordLifecycleService.validatePeriodChange).not.toHaveBeenCalled();
+                expect(serviceRecordLifecycleService.ensureForClient).not.toHaveBeenCalled();
+                expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+            });
+
+            it("returns a semantic not-found error when the scoped client does not exist", async () => {
+                findClientByIdUsecase.execute.mockResolvedValue(null);
+
+                await expect(service.update(branchId, 999, {})).rejects.toBeInstanceOf(NotFoundException);
+
+                expect(prismaService.eformsign_doc.findMany).not.toHaveBeenCalled();
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
             });
 
             it("does not resolve a service date update before scheduled jobs are recalculated", async () => {
