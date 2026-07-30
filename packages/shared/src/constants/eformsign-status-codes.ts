@@ -85,3 +85,34 @@ export const REJECTED_STATUS_CODES = EXPIRED_STATUS_CODES;
 
 export type CompletedStatusCode = (typeof COMPLETED_STATUS_CODES)[number];
 export type ExpiredStatusCode = (typeof EXPIRED_STATUS_CODES)[number];
+
+const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
+const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
+const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
+const CUSTOMER_STEP_KEYWORDS = ["이용자", "고객", "산모"];
+
+/**
+ * True when the document's current workflow step is the provider's
+ * review/confirmation step. Because that step only becomes current after the
+ * customer has signed, this doubles as the "customer already signed" test for
+ * in-progress documents — callers must first exclude completed/expired
+ * documents, whose current step is no longer meaningful.
+ *
+ * Canonicalized from the byte-identical copies that lived in
+ * frontend/src/lib/eformsign/status-codes.ts and
+ * mobile/src/lib/eformsign/status-codes.ts; both now re-export this.
+ */
+export function isProviderReviewWorkflowStep(
+    currentStatus: { step_type?: string | null; step_name?: string | null } | null | undefined,
+): boolean {
+    const stepType = currentStatus?.step_type?.trim() ?? "";
+    const stepName = currentStatus?.step_name?.trim() ?? "";
+
+    if (PROVIDER_REVIEW_STEP_TYPES.has(stepType)) return true;
+    if (!stepName) return false;
+    if (CUSTOMER_STEP_KEYWORDS.some((keyword) => stepName.includes(keyword))) return false;
+
+    const hasProviderOwner = PROVIDER_REVIEW_OWNER_KEYWORDS.some((keyword) => stepName.includes(keyword));
+    const hasReviewAction = PROVIDER_REVIEW_ACTION_KEYWORDS.some((keyword) => stepName.includes(keyword));
+    return hasProviderOwner && hasReviewAction;
+}

@@ -80,14 +80,20 @@ export class UserService {
         return this.updateUserUsecase.execute(id, params);
     }
 
-    async findDirectory(params?: { branchId?: string, status?: string }): Promise<UserDirectoryItem[]> {
+    async findDirectory(params?: { branchId?: string, status?: string, includeUnassigned?: boolean }): Promise<UserDirectoryItem[]> {
         const where: Prisma.userWhereInput = {};
 
         if (params?.branchId) {
-            where.OR = [
+            const scopes: Prisma.userWhereInput[] = [
                 { userBranches: { some: { branchId: params.branchId } } },
                 { ownedBranches: { some: { id: params.branchId } } },
             ];
+            if (params.includeUnassigned) {
+                // Pending sign-ups have no branch membership until an approver assigns one
+                // (ApproveUserDto.branchId), so scoping them away would make approval impossible.
+                scopes.push({ userBranches: { none: {} }, ownedBranches: { none: {} } });
+            }
+            where.OR = scopes;
         }
 
         if (params?.status) {

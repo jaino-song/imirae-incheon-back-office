@@ -41,6 +41,13 @@ export interface PendingScheduleChange {
 }
 
 // Client entity types
+import type { ClientActionRequired } from "@babyjamjam/shared/types/client-action-required";
+
+export type {
+    ActionRequiredReason,
+    ClientActionRequired,
+} from "@babyjamjam/shared/types/client-action-required";
+
 export interface Client {
     id: number;
     name: string;
@@ -67,6 +74,7 @@ export interface Client {
     hasSigned: boolean;
     documentStatus: DocumentStatus;    // eformsign document status: created/opened/completed
     badges?: ClientBadge[];
+    actionRequired?: ClientActionRequired | null;
     pendingScheduleChange?: PendingScheduleChange | null;
 }
 

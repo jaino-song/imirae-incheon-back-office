@@ -304,12 +304,8 @@ export default function DashboardPage() {
     monthFromNow.setHours(23, 59, 59, 999);
 
     const actionRequired = clients
-      .filter((c) => {
-        if (c.serviceStatus === "replacement_requested") return true;
-        if (c.documentStatus && c.documentStatus !== "completed" && c.eDocId) return true;
-        if (!c.eDocId && c.serviceStatus === "active") return true;
-        return false;
-      })
+      // Decided by the backend so this list matches the clients page badges.
+      .filter((c) => Boolean(c.actionRequired))
       .sort((a, b) => (b.updatedAt ? new Date(b.updatedAt).getTime() : 0) - (a.updatedAt ? new Date(a.updatedAt).getTime() : 0) || b.id - a.id);
 
     const upcomingClients = clients

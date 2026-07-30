@@ -12,6 +12,7 @@
         "./tokens/status-badge": "./src/tokens/status-badge.ts",
         "./ui-contracts": "./src/ui-contracts/index.ts",
         "./ui-contracts/*": "./src/ui-contracts/*.ts",
+        "./types/client-action-required": "./src/types/client-action-required.ts",
         "./types/eformsign": "./src/types/eformsign.ts",
         "./types/message": "./src/types/message.ts",
         "./types/service-record": "./src/types/service-record.ts",

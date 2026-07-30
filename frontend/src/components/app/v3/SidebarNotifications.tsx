@@ -110,7 +110,7 @@ export function SidebarNotifications() {
     const actionItems: SidebarNotificationItem[] = alerts.map((alert) => {
       const message = alert.reason === "교체 요청"
         ? "교체 요청이 접수되었습니다."
-        : alert.reason === "이용자 완료 필요"
+        : alert.reason === "서명 필요"
           ? "서비스 시작 전 서명이 필요합니다."
           : "서비스 시작 전 문서 발송이 필요합니다.";
 
