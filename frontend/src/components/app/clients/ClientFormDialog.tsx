@@ -70,6 +70,22 @@ export interface ClientFormPanelProps extends Omit<ClientFormDialogProps, "open"
 
 type ClientFormData = Omit<CreateClientDto, "primaryEmployeeId"> & { primaryEmployeeId: number | null };
 
+interface InitialEditFormSnapshot {
+    clientId: number;
+    formData: ClientFormData;
+}
+
+const isSameClientFormData = (
+    left: ClientFormData,
+    right: ClientFormData,
+): boolean => {
+    const leftKeys = Object.keys(left) as Array<keyof ClientFormData>;
+    const rightKeys = Object.keys(right) as Array<keyof ClientFormData>;
+
+    return leftKeys.length === rightKeys.length
+        && leftKeys.every((key) => left[key] === right[key]);
+};
+
 const PANEL_STEP_CONTENT_CLASS_NAME =
     "grid w-full grid-cols-1 gap-[calc(16px*var(--glint-ui-scale,1))] pb-[calc(24px*var(--glint-ui-scale,1))] md:grid-cols-2";
 const PANEL_FULL_FIELD_CLASS_NAME = "md:col-span-2";
@@ -320,6 +336,7 @@ function ClientFormContent({
     const [isEmployeeDialogOpen, setIsEmployeeDialogOpen] = useState(false);
     const [employeeDialogTarget, setEmployeeDialogTarget] = useState<"primary" | "secondary" | null>(null);
     const contentRef = useRef<HTMLDivElement>(null);
+    const [initialEditFormSnapshot, setInitialEditFormSnapshot] = useState<InitialEditFormSnapshot | null>(null);
     const [internalActiveStep, setInternalActiveStep] = useState(0);
     const activeStep = controlledActiveStep ?? internalActiveStep;
     const setActiveStep = useCallback(
@@ -583,15 +600,27 @@ function ClientFormContent({
                 startDate: normalizeDateForCompactState(nextFormData.startDate),
                 endDate: normalizeDateForCompactState(nextFormData.endDate),
             };
+            const nextInitialEditFormSnapshot = client
+                ? { clientId: client.id, formData: { ...nextFormData } }
+                : null;
 
             queueMicrotask(() => {
                 setFormData(nextFormData);
+                setInitialEditFormSnapshot(nextInitialEditFormSnapshot);
                 setPricesManuallyEdited(nextPricesManuallyEdited);
                 setVoucherYear(null); // Reset to default (current year, falling back to latest available)
                 setError(null);
             });
         }
     }, [clearPrefillName, client, open, prefillName]);
+
+    const isLegacyNoopEdit = Boolean(
+        isEditMode
+        && client
+        && !client.dueDate
+        && initialEditFormSnapshot?.clientId === client.id
+        && isSameClientFormData(formData, initialEditFormSnapshot.formData),
+    );
 
     const handleChange = (field: keyof CreateClientDto, value: unknown) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -654,13 +683,15 @@ function ClientFormContent({
             setErrorAndScroll(t(locale, "clients.form.error-birthday-required"));
             return;
         }
-        if (!formData.dueDate?.trim()) {
-            setErrorAndScroll(t(locale, "clients.form.error-due-date-required"));
-            return;
-        }
-        if (!isValidCompactDateInput(formData.dueDate)) {
-            setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
-            return;
+        if (!isLegacyNoopEdit) {
+            if (!formData.dueDate?.trim()) {
+                setErrorAndScroll(t(locale, "clients.form.error-due-date-required"));
+                return;
+            }
+            if (!isValidCompactDateInput(formData.dueDate)) {
+                setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
+                return;
+            }
         }
         if (!formData.address?.trim()) {
             setErrorAndScroll(t(locale, "clients.form.error-address-required"));
@@ -689,7 +720,18 @@ function ClientFormContent({
             }
         }
         try {
-            const normalizedDueDate = normalizeCompactDateForSubmit(formData.dueDate);
+            if (isLegacyNoopEdit && client) {
+                // Some legacy customers predate the current required due-date field. An empty
+                // update preserves that record exactly while still invoking the backend's
+                // phone-based document relink. Any form edit exits this narrow compatibility
+                // path and must satisfy the normal validation below.
+                const updatedClient = await updateClient.mutateAsync({ id: client.id, dto: {} });
+                onSuccess?.(updatedClient);
+                onClose();
+                return;
+            }
+
+            const normalizedDueDate = normalizeCompactDateForSubmit(formData.dueDate ?? "");
             const normalizedStartDate = normalizeCompactDateForSubmit(formData.startDate ?? "");
             const normalizedEndDate = normalizeCompactDateForSubmit(formData.endDate ?? "");
 
@@ -756,7 +798,7 @@ function ClientFormContent({
     const isBasicStepValid = Boolean(
         formData.name.trim() &&
         formData.birthday?.trim() &&
-        isValidCompactDateInput(formData.dueDate ?? "") &&
+        (isLegacyNoopEdit || isValidCompactDateInput(formData.dueDate ?? "")) &&
         formData.address?.trim() &&
         isPhoneCheckReady
     );
