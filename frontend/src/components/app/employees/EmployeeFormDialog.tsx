@@ -347,6 +347,7 @@ function EmployeeFormContent({
         workArea: false,
     });
     const [error, setError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const createMutation = useCreateEmployee();
     const updateMutation = useUpdateEmployee();
@@ -367,7 +368,7 @@ function EmployeeFormContent({
     });
 
     const isEditMode = !!employee;
-    const isLoading = createMutation.isPending || updateMutation.isPending;
+    const isLoading = isSubmitting || createMutation.isPending || updateMutation.isPending;
     const isPhoneFormatValid = phoneDigits.length === 11;
     const isPhoneValid = isPhoneFormatValid && isPhoneCheckReady;
     const phoneInlineMessage = isPhoneFormatValid
@@ -446,6 +447,7 @@ function EmployeeFormContent({
             return;
         }
 
+        setIsSubmitting(true);
         try {
             if (isEditMode && employee) {
                 const dto: UpdateEmployeeDto = {
@@ -491,6 +493,8 @@ function EmployeeFormContent({
         } catch (submitError: unknown) {
             console.error("[EmployeeFormDialog] Failed to save employee:", submitError);
             setError(getErrorMessage(submitError, locale, "employees.form.error-save-failed"));
+        } finally {
+            setIsSubmitting(false);
         }
     };
 

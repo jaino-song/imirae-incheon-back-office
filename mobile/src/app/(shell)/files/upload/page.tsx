@@ -138,6 +138,10 @@ export default function FileUploadPage() {
   const isUploading = uploadMutation.isPending || isNavigationPending;
   const progress = isUploading ? Math.round(uploadProgress) : FALLBACK_PROGRESS;
   const uploadedBytes = selectedFile ? Math.round((selectedFile.size * progress) / 100) : 0;
+  const handleExit = () => {
+    if (isUploading) return;
+    router.push("/files");
+  };
 
   const validateFile = useCallback((file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -232,7 +236,12 @@ export default function FileUploadPage() {
       className={styles.page}
     >
       <header data-component="mobile_files-upload_screen_root_header" className={styles.detailHeader}>
-        <button type="button" className={styles.detailBack} onClick={() => router.push("/files")}>
+        <button
+          type="button"
+          className={styles.detailBack}
+          onClick={handleExit}
+          disabled={isUploading}
+        >
           <ChevronLeft size={22} strokeWidth={2.5} />
           <span>파일</span>
         </button>
@@ -438,7 +447,12 @@ export default function FileUploadPage() {
       </main>
 
       <footer data-component="mobile_files-upload_screen_root_actions" className={styles.uploadActions}>
-        <button type="button" className={`${styles.uploadBtn} ${styles.secondary}`} onClick={() => router.push("/files")}>
+        <button
+          type="button"
+          className={`${styles.uploadBtn} ${styles.secondary}`}
+          onClick={handleExit}
+          disabled={isUploading}
+        >
           취소
         </button>
         <button

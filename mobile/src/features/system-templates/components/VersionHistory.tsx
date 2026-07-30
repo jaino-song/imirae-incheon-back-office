@@ -46,6 +46,7 @@ export function VersionHistory({ templateKey, onRollback }: Props) {
   const { data: versions, isLoading } = useTemplateVersions(templateKey);
   const rollbackMutation = useRollbackTemplate();
   const resetMutation = useResetTemplate();
+  const isApplying = rollbackMutation.isPending || resetMutation.isPending;
 
   const { data: previewDetail, isLoading: isPreviewLoading } = useQuery<VersionDetail>({
     queryKey:
@@ -191,7 +192,14 @@ export function VersionHistory({ templateKey, onRollback }: Props) {
       </Dialog>
 
       {/* Confirm Dialog */}
-      <Dialog open={!!confirmDialog} onOpenChange={() => setConfirmDialog(null)}>
+      <Dialog
+        open={!!confirmDialog}
+        onOpenChange={(open) => {
+          if (!open && !isApplying) {
+            setConfirmDialog(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -204,7 +212,11 @@ export function VersionHistory({ templateKey, onRollback }: Props) {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDialog(null)}>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDialog(null)}
+              disabled={isApplying}
+            >
               취소
             </Button>
             <Button
@@ -214,6 +226,7 @@ export function VersionHistory({ templateKey, onRollback }: Props) {
                   ? handleRollback(confirmDialog.version!)
                   : handleReset()
               }
+              disabled={isApplying}
             >
               {confirmDialog?.type === 'rollback' ? '복원' : '초기화'}
             </Button>

@@ -521,6 +521,7 @@ export const ContractCreationForm = ({
 
   const handleDialogClose = () => {
     setIsDialogOpen(false);
+    setIsSubmitting(false);
   };
 
   const resetCreationSession = () => {
@@ -677,6 +678,7 @@ export const ContractCreationForm = ({
     setCreationProgress(INITIAL_CREATION_PROGRESS);
 
     let autoRegisteredClientId: number | null = null;
+    let keepSubmittingUntilDialogCloses = false;
     try {
       let finalClientId = clientId;
       const normalizedDueDate = parseYymmddInputToIso(dueDateInput) ?? "";
@@ -933,6 +935,7 @@ export const ContractCreationForm = ({
         finalClientId
       );
 
+      keepSubmittingUntilDialogCloses = true;
       setIsDialogOpen(true);
       setCreationProgress({ step: "client-started", completed: false, failed: false });
 
@@ -965,14 +968,14 @@ export const ContractCreationForm = ({
 
             setCreationProgress({ step: "sent", completed: true, failed: false });
             queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
-            setIsDialogOpen(false);
+            handleDialogClose();
             setIsCreationSuccessOpen(true);
           },
           onError: (response) => {
             console.error("Document creation failed:", response);
             markCreationProgressFailed();
             setSubmitError(`문서 생성 실패: ${response.message}`);
-            setIsDialogOpen(false);
+            handleDialogClose();
           },
           onAction: () => {
             setCreationProgress((current) =>
@@ -1006,7 +1009,9 @@ export const ContractCreationForm = ({
         setSubmitError(error instanceof Error ? error.message : "계약서 생성 중 오류가 발생했습니다.");
       }
     } finally {
-      setIsSubmitting(false);
+      if (!keepSubmittingUntilDialogCloses) {
+        setIsSubmitting(false);
+      }
     }
   };
 

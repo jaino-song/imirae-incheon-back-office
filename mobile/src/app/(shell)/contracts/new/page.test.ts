@@ -23,4 +23,13 @@ describe("mobile contract creation compensation flow", () => {
     expect(branch.indexOf('adopted.warnings?.includes("mirror_sync_failed")'))
       .toBeLessThan(branch.indexOf('router.push("/contracts")'));
   });
+
+  it("keeps submission pending until the iframe signing surface closes", () => {
+    expect(source).toContain("const closeEformsignModal = () =>");
+    expect(source).toContain("const runIframeFallback = async");
+    expect(source).toContain("Promise<boolean>");
+    expect(source).toContain("let keepSubmittingUntilIframeCloses = false");
+    expect(source).toContain("keepSubmittingUntilIframeCloses = await runIframeFallback");
+    expect(source).toContain("if (!keepSubmittingUntilIframeCloses)");
+  });
 });
