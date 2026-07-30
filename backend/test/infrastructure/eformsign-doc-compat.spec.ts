@@ -159,7 +159,7 @@ describe("stripPendingEformsignDocPredicates", () => {
         })).toEqual({ branchId: "branch-1" });
     });
 
-    it("reaches into AND, where deleting a true leaf changes nothing", () => {
+    it("removes true leaves from AND without leaving an empty predicate", () => {
         expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
             AND: [
                 { branchId: "branch-1" },
@@ -168,21 +168,49 @@ describe("stripPendingEformsignDocPredicates", () => {
         })).toEqual({
             AND: [
                 { branchId: "branch-1" },
-                {},
             ],
         });
     });
 
-    it.each([
-        ["OR", { OR: [{ templateId: null }, { documentId: "doc-1" }] }],
-        ["NOT", { NOT: { templateId: null } }],
-    ])("leaves %s alone rather than changing what it means", (_operator, where) => {
-        // An empty object is not the true this leaf stood for. Under OR a true leaf makes
-        // the whole branch true, so dropping it would narrow the query to the other terms;
-        // under NOT it makes the branch false, so dropping it would widen to everything.
-        // Both are silently wrong answers, and a loud failure is the better one.
-        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), where))
-            .toEqual(where);
+    it("collapses an OR containing a missing-column is-null predicate to true", () => {
+        // `templateId: null` is true for every row when the first migration is absent.
+        // Therefore its OR is true, while its top-level sibling still constrains the read.
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            branchId: "branch-1",
+            OR: [{ templateId: null }, { documentId: "doc-1" }],
+        })).toEqual({ branchId: "branch-1" });
+    });
+
+    it("collapses NOT of a missing-column is-null predicate to false", () => {
+        // `NOT true` is false, so the top-level sibling cannot turn this retry into an
+        // unconstrained query. Prisma represents false as an empty OR.
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            branchId: "branch-1",
+            NOT: { templateId: null },
+        })).toEqual({ OR: [] });
+    });
+
+    it("drops false NOT branches inside OR instead of leaving an empty object", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { NOT: { templateId: null } },
+                { documentId: "doc-1" },
+            ],
+        })).toEqual({ OR: [{ documentId: "doc-1" }] });
+    });
+
+    it("preserves a pre-existing empty branch inside OR", () => {
+        // `{}` is not this helper's true sentinel. Prisma gives it contextual semantics,
+        // so an authored empty OR branch must remain opaque rather than collapse to true.
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [{}],
+        })).toEqual({ OR: [{}] });
+    });
+
+    it("preserves a pre-existing empty branch inside NOT", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            NOT: {},
+        })).toEqual({ NOT: {} });
     });
 
     it("keeps a predicate whose column an earlier migration already added", () => {
