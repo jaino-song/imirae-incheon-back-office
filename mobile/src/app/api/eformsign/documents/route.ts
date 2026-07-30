@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { proxyDeleteRequest, proxyGetRequest } from "@/lib/api/route-utils";
+import { proxyDeleteRequest, proxyLocalGetRequest } from "@/lib/api/route-utils";
 
 // Mirrors backend DeleteDocumentsRequestDto (eformsign.dto.ts):
 // document_ids is @IsArray() @ArrayNotEmpty() @IsString({ each: true }).
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
         backendParams.set("excludeDeleted", "true");
     }
 
-    return proxyGetRequest(
+    return proxyLocalGetRequest(
         request,
         `/api/documents?${backendParams.toString()}`,
         "fetch all eformsign documents"

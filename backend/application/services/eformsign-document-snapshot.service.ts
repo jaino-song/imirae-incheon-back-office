@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import Redis from "ioredis";
+
+import {
+    EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY,
+    IEformsignDocumentMirrorRepository,
+} from "domain/repositories/eformsign-document-mirror.repository.interface";
 
 /**
  * 계약 목록 읽기 경로별 스냅샷 스코프. 외부 eformsign 목록 엔드포인트가 서로 다른
@@ -102,6 +107,26 @@ const SNAPSHOT_SCHEMA_VERSION = 1;
 const MEMORY_STORE_MAX_ENTRIES = 32;
 const DISPLAY_FIELD_MEMORY_STORE_MAX_ENTRIES = 512;
 
+type SnapshotExclusionLookup = Pick<
+    IEformsignDocumentMirrorRepository,
+    | "findListExcludedDocumentIds"
+    | "findPermanentPurgeRequestedDocumentIds"
+>;
+
+/** Direct unit construction has no Nest container; production DI must provide the repository token. */
+const NO_SNAPSHOT_EXCLUSIONS: SnapshotExclusionLookup = {
+    findListExcludedDocumentIds: async () => [],
+    findPermanentPurgeRequestedDocumentIds: async () => [],
+};
+
+export interface DocumentSnapshotReturnOptions {
+    /**
+     * The common snapshot retains tombstones for default "all" reads. Tabs and
+     * deletion-filtered requests must fence a stale generation by current row id.
+     */
+    excludeTombstones?: boolean;
+}
+
 /**
  * 지점 단위 eformsign 문서 목록 스냅샷 캐시.
  *
@@ -127,7 +152,10 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     /** 같은 키에 대한 동시 미스는 스캔 promise 하나를 공유한다(프로세스 단위 single-flight). */
     private readonly inFlight = new Map<string, Promise<BuildOutcome<unknown>>>();
 
-    constructor() {
+    constructor(
+        @Inject(EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY)
+        private readonly snapshotExclusionLookup: SnapshotExclusionLookup = NO_SNAPSHOT_EXCLUSIONS,
+    ) {
         const valkeyUrl = process.env["VALKEY_URL"]?.trim();
         this.redis = valkeyUrl
             ? new Redis(valkeyUrl, {
@@ -267,7 +295,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
     /**
      * 지점 캐시 세대를 1 올려 해당 지점의 모든 스냅샷을 즉시 무효화한다.
-     * (문서 생성/삭제 등 변경 흐름에서 호출할 용도 — 현재는 호출부 없음.)
+     * 문서 생성·동기화·삭제처럼 목록을 바꾸는 쓰기 흐름에서 호출한다.
      * 캐시를 우회해야 하는 상태면 null을 돌려준다.
      */
     async bumpVersion(branchId: string): Promise<number | null> {
@@ -337,16 +365,29 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     async getOrBuild<TDoc>(
         params: DocumentSnapshotKeyParams,
         build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
+        returnOptions: DocumentSnapshotReturnOptions = {},
     ): Promise<DocumentSnapshotResult<TDoc>> {
         const version = await this.getVersion(params.branchId);
         if (version === null) {
-            return { entries: await build(), cached: false };
+            return {
+                entries: await this.excludeSnapshotEntries(
+                    await this.buildSafeEntries(build),
+                    returnOptions,
+                ),
+                cached: false,
+            };
         }
         let keyVersion = `${version}`;
         if (params.isHeadquarters) {
             const epoch = await this.getCompanyEpoch();
             if (epoch === null) {
-                return { entries: await build(), cached: false };
+                return {
+                    entries: await this.excludeSnapshotEntries(
+                        await this.buildSafeEntries(build),
+                        returnOptions,
+                    ),
+                    cached: false,
+                };
             }
             keyVersion = `${version}e${epoch}`;
         }
@@ -354,14 +395,24 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         const key = this.snapshotKey(params, keyVersion);
         const read = await this.readSnapshot<TDoc>(key);
         if (read.status === "error") {
-            return { entries: await build(), cached: false };
+            return {
+                entries: await this.excludeSnapshotEntries(
+                    await this.buildSafeEntries(build),
+                    returnOptions,
+                ),
+                cached: false,
+            };
         }
         if (read.status === "hit") {
+            const entries = await this.excludeSnapshotEntries(
+                read.snapshot.entries,
+                returnOptions,
+            );
             this.logger.log(
-                `documentSnapshot hit branch=${params.branchId} scope=${params.scope} docs=${read.snapshot.entries.length}`,
+                `documentSnapshot hit branch=${params.branchId} scope=${params.scope} docs=${entries.length}`,
             );
             return {
-                entries: read.snapshot.entries,
+                entries,
                 snapshotVersion: formatSnapshotVersion(read.snapshot),
                 cached: true,
             };
@@ -371,7 +422,10 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         if (inFlight) {
             const shared = (await inFlight) as BuildOutcome<TDoc>;
             return {
-                entries: shared.snapshot.entries,
+                entries: await this.excludeSnapshotEntries(
+                    shared.snapshot.entries,
+                    returnOptions,
+                ),
                 ...(shared.stored ? { snapshotVersion: formatSnapshotVersion(shared.snapshot) } : {}),
                 cached: true,
             };
@@ -384,7 +438,10 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
         const outcome = await pending;
         return {
-            entries: outcome.snapshot.entries,
+            entries: await this.excludeSnapshotEntries(
+                outcome.snapshot.entries,
+                returnOptions,
+            ),
             ...(outcome.stored ? { snapshotVersion: formatSnapshotVersion(outcome.snapshot) } : {}),
             cached: false,
         };
@@ -396,10 +453,61 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         params: DocumentSnapshotKeyParams,
         build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
     ): Promise<BuildOutcome<TDoc>> {
-        const entries = await build();
+        const entries = await this.buildSafeEntries(build);
         const snapshot: StoredSnapshot<TDoc> = { version, builtAt: Date.now(), entries };
         const stored = await this.writeSnapshot(key, snapshot, params);
         return { snapshot, stored };
+    }
+
+    private async buildSafeEntries<TDoc>(
+        build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
+    ): Promise<DocumentSnapshotEntry<TDoc>[]> {
+        return this.excludePermanentPurgeEntries(await build());
+    }
+
+    /**
+     * A purge intent is hidden in every list. Tombstones are hidden only when the
+     * request's existing list semantics require it. Both are durable before cache
+     * invalidation, so lookup failure deliberately propagates rather than returning a
+     * cached row whose current list visibility is unknown.
+     */
+    private async excludeSnapshotEntries<TDoc>(
+        entries: DocumentSnapshotEntry<TDoc>[],
+        options: DocumentSnapshotReturnOptions,
+    ): Promise<DocumentSnapshotEntry<TDoc>[]> {
+        const excludedIds = new Set(
+            options.excludeTombstones
+                ? await this.snapshotExclusionLookup.findListExcludedDocumentIds()
+                : await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds(),
+        );
+        return this.filterExcludedSnapshotEntries(entries, excludedIds);
+    }
+
+    private async excludePermanentPurgeEntries<TDoc>(
+        entries: DocumentSnapshotEntry<TDoc>[],
+    ): Promise<DocumentSnapshotEntry<TDoc>[]> {
+        const excludedIds = new Set(
+            await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds(),
+        );
+        return this.filterExcludedSnapshotEntries(entries, excludedIds);
+    }
+
+    private filterExcludedSnapshotEntries<TDoc>(
+        entries: DocumentSnapshotEntry<TDoc>[],
+        excludedIds: Set<string>,
+    ): DocumentSnapshotEntry<TDoc>[] {
+        if (excludedIds.size === 0) {
+            return entries;
+        }
+
+        return entries.filter((entry) => {
+            const document = entry.document;
+            if (typeof document !== "object" || document === null || !("id" in document)) {
+                return true;
+            }
+            const documentId = (document as { id?: unknown }).id;
+            return typeof documentId !== "string" || !excludedIds.has(documentId);
+        });
     }
 
     private async readSnapshot<TDoc>(key: string): Promise<

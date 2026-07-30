@@ -51,17 +51,6 @@ export interface LocalEformsignDocRecord {
     templateId: string | null;
 }
 
-export interface SyncedEformsignDocResponse {
-    id?: number;
-    documentId: string;
-    statusType: string;
-    statusDetail: string;
-    stepType: string;
-    stepIndex: string;
-    stepName: string;
-    expired?: boolean;
-}
-
 export function normalizeDocumentListResponse(
     response: EformsignApiListResponse,
     params?: { limit?: number; skip?: number },
@@ -303,10 +292,6 @@ export const eformsignApi = {
         const { data } = await api.get('/eformsign-docs/client', {
             params: { clientId },
         });
-        return data;
-    },
-    syncDocumentStatus: async (documentId: string): Promise<SyncedEformsignDocResponse> => {
-        const { data } = await api.post('/eformsign-docs/sync-status', { documentId });
         return data;
     },
     // 전체 탭 StatsBar 카운터용 원시 신호. 토큰은 프록시가 서버에서 주입.

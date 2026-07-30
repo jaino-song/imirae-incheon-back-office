@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
 import {
-  getAccessToken,
   getAuthHeaders,
   getAuthToken,
   unauthorizedResponse,
@@ -12,14 +11,9 @@ type RouteParams = { params: Promise<{ documentId: string }> };
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const authToken = getAuthToken(request);
-    const accessToken = getAccessToken(request);
 
     if (!authToken) {
       return unauthorizedResponse("Authentication required. Please log in.");
-    }
-
-    if (!accessToken) {
-      return unauthorizedResponse("eFormsign access token required. Please authenticate with eFormsign first.");
     }
 
     const { documentId } = await params;
@@ -27,7 +21,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const response = await serverAPIClient.get(`/api/documents/${documentId}/download_files`, {
       params: {
-        accessToken,
         fileType: "document",
       },
       headers: getAuthHeaders(authToken),

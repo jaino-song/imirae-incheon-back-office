@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EFORMSIGN_CLIENT_REPOSITORY, IEformsignClientRepository } from "domain/repositories/eformsign.client.interface";
 import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 import { EFORMSIGN_END_DATE_FIELD_IDS } from "./eformsign-end-date-field-ids";
 
 export interface SyncedClientEndDate {
@@ -11,6 +12,8 @@ export interface SyncedClientEndDate {
 
 export interface SyncClientEndDateOptions {
     persist?: (target: SyncedClientEndDate) => Promise<void>;
+    /** Re-throw repository/lifecycle failures after logging for strict webhook reconciliation. */
+    throwOnError?: boolean;
 }
 
 @Injectable()
@@ -34,6 +37,30 @@ export class SyncClientEndDateUsecase {
     ): Promise<SyncedClientEndDate | undefined> {
         try {
             const document = await this.eformsignClient.getDocument(accessToken, documentId);
+            return await this.executeFromDocument(
+                branchId,
+                documentId,
+                document,
+                options,
+            );
+        } catch (error) {
+            this.logger.error(
+                `Failed to sync client endDate for document ${documentId}: ${sanitizeEformsignErrorMessage(error)}`,
+            );
+            if (options.throwOnError) {
+                throw error;
+            }
+            return undefined;
+        }
+    }
+
+    async executeFromDocument(
+        branchId: string,
+        documentId: string,
+        document: Awaited<ReturnType<IEformsignClientRepository["getDocument"]>>,
+        options: SyncClientEndDateOptions = {},
+    ): Promise<SyncedClientEndDate | undefined> {
+        try {
             const fields = document.fields ?? [];
 
             const findValue = (fieldId: string) => fields.find((field) => field.id === fieldId)?.value;
@@ -97,7 +124,12 @@ export class SyncClientEndDateUsecase {
             this.logger.log(`Synced client ${doc.clientId} endDate from document ${documentId}.`);
             return target;
         } catch (error) {
-            this.logger.error(`Failed to sync client endDate for document ${documentId}: ${error}`);
+            this.logger.error(
+                `Failed to sync client endDate for document ${documentId}: ${sanitizeEformsignErrorMessage(error)}`,
+            );
+            if (options.throwOnError) {
+                throw error;
+            }
             return undefined;
         }
     }

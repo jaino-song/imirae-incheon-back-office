@@ -84,7 +84,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { eformsignApi } from "@/services/api";
+import { eformsignApi, withEformsignReauth } from "@/services/api";
 import { cn } from "@/lib/utils";
 import {
   extractDocumentAddress,
@@ -480,6 +480,7 @@ export default function ContractsPage() {
   const [selectedServiceRecordDocId, setSelectedServiceRecordDocId] = useState<string | null>(null);
 
   const { isAuthenticated, isLoading: isLoadingAuth, error: authError } = useEformsignAuth({
+    requireAccessToken: false,
     syncOnWindowFocus: false,
   });
   useEformsignDocsLiveStream(isAuthenticated);
@@ -1348,17 +1349,19 @@ function ContractDetail({
 
   const reRequestMutation = useMutation({
     mutationFn: async () => {
-      return eformsignApi.reRequestDocument(doc.id, {
-        stepType: reRequestStepType,
-        stepSeq: reRequestStepSeq,
-        comment: "재요청입니다.",
-        recipientPhone: hasEditedRecipientPhone
-          ? {
-              countryCode: "+82",
-              phoneNumber: recipientPhoneDigits,
-            }
-          : undefined,
-      });
+      return withEformsignReauth(() =>
+        eformsignApi.reRequestDocument(doc.id, {
+          stepType: reRequestStepType,
+          stepSeq: reRequestStepSeq,
+          comment: "재요청입니다.",
+          recipientPhone: hasEditedRecipientPhone
+            ? {
+                countryCode: "+82",
+                phoneNumber: recipientPhoneDigits,
+              }
+            : undefined,
+        }),
+      );
     },
     onSuccess: () => {
       handleReRequestDialogChange(false);

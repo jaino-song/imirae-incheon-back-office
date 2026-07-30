@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { proxyGetRequest } from "@/lib/api/route-utils";
+import { proxyLocalGetRequest } from "@/lib/api/route-utils";
 
 export async function GET(
     request: NextRequest,
@@ -7,7 +7,7 @@ export async function GET(
 ) {
     const { documentId } = await params;
 
-    return proxyGetRequest(
+    return proxyLocalGetRequest(
         request,
         `/api/documents/${encodeURIComponent(documentId)}`,
         "fetch eformsign document detail"

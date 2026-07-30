@@ -145,6 +145,13 @@ describe("toCompatDomainRow", () => {
             customerName: null,
             documentName: null,
             stepRecipientTypes: null,
+            customerPhone: null,
+            detailPayload: null,
+            detailSourceUpdatedDate: null,
+            detailSyncedAt: null,
+            syncStatus: null,
+            syncError: null,
+            syncErrorAt: null,
         });
     });
 });

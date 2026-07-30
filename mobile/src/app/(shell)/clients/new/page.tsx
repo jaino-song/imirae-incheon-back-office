@@ -35,7 +35,7 @@ import voucherOptions from "@/components/app/messages/templates/json/voucher.jso
 import { calcEndDateBusinessDays } from "@/lib/date/business-days";
 import { parsePositiveIntQueryParam } from "@/lib/query-params";
 import { buildClientEditPrefillFromEformsignDocument } from "@/lib/eformsign/client-prefill";
-import { eformsignApi, withEformsignReauth } from "@/services/api";
+import { eformsignApi } from "@/services/api";
 import { cn } from "@/lib/utils";
 import styles from "./page.module.css";
 
@@ -235,7 +235,7 @@ export default function NewClientPage() {
       if (!documentId) {
         throw new Error("documentId is required");
       }
-      return withEformsignReauth(() => eformsignApi.getDocument(documentId));
+      return eformsignApi.getDocument(documentId);
     },
     enabled: Boolean(isEditMode && editingClient?.eDocId),
     staleTime: 1000 * 60,

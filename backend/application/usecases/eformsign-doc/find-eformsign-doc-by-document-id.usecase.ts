@@ -12,6 +12,15 @@ export class FindEformsignDocByDocumentIdUsecase {
     execute(branchid: string, documentId: string): Promise<EformsignDocEntity | null> {
         return this.eformsignDocRepository.findByDocumentId(branchid, documentId);
     }
-}
 
+    executeIncludingPurgePending(
+        branchid: string,
+        documentId: string,
+    ): Promise<EformsignDocEntity | null> {
+        return this.eformsignDocRepository.findByDocumentIdIncludingPurgePending(
+            branchid,
+            documentId,
+        );
+    }
+}
 

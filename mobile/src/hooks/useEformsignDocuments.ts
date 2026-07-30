@@ -48,17 +48,17 @@ export function useEformsignDocumentsByType(isAuthenticated: boolean, type: Docu
       
       switch (type) {
         case null:
-          response = await withEformsignReauth(() => fetchAllDocuments());
+          response = await fetchAllDocuments();
           break;
         case "in-progress":
-          response = await withEformsignReauth(() => eformsignApi.getInProgressDocuments());
+          response = await eformsignApi.getInProgressDocuments();
           break;
         case "completed":
-          response = await withEformsignReauth(() => eformsignApi.getCompletedDocuments());
+          response = await eformsignApi.getCompletedDocuments();
           break;
         case "expired":
         case "rejected":
-          response = await withEformsignReauth(() => eformsignApi.getRejectedDocuments());
+          response = await eformsignApi.getRejectedDocuments();
           break;
         default:
           throw new Error("Invalid type");
@@ -99,7 +99,8 @@ export function useDeleteEformsignDocument() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (documentId: string) => eformsignApi.deleteDocument(documentId),
+    mutationFn: async (documentId: string) =>
+      withEformsignReauth(() => eformsignApi.deleteDocument(documentId)),
     onMutate: async (documentId: string) => {
       await queryClient.cancelQueries({ queryKey: ["eformsign-documents"] });
 

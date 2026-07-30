@@ -20,6 +20,10 @@ import {
 import { ContractDataDto } from "../dto/contract.dto";
 import { EFORMSIGN_END_DATE_FIELD_IDS } from "../usecases/eformsign-doc/eformsign-end-date-field-ids";
 import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
+import {
+    EformsignApiError,
+    extractEformsignVendorCode,
+} from "infrastructure/api/eformsign-api.error";
 
 export interface EformsignTokenResponse {
     oauth_token: {
@@ -29,6 +33,11 @@ export interface EformsignTokenResponse {
 }
 
 const ISO_END_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+export const EFORMSIGN_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+export const EFORMSIGN_DOWNLOAD_TIMEOUT_MS = 30_000;
+// Deletion is non-idempotent, so one bounded attempt is safer than retries.
+// Keep the same total request-and-body budget used by the API client.
+export const EFORMSIGN_DELETE_TIMEOUT_MS = 30_000;
 
 export function getDocumentCreatedTimestamp(document: { created_date?: unknown; createdDate?: unknown }): number {
     const value = document.created_date ?? document.createdDate;
@@ -462,7 +471,7 @@ export class EformsignService {
             include_histories: "true",
             include_previous_status: "true",
             include_next_status: "true",
-            include_external_token: "true",
+            include_external_token: "false",
             include_detail_template_info: "true",
         });
 
@@ -508,24 +517,38 @@ export class EformsignService {
         }
 
         this.assertConfigured();
-        const response = await fetch(
-            `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/${documentId}/download_files?file_type=${fileType}`,
-            {
-                method: "GET",
-                headers: {
-                    "Authorization": `Bearer ${accessToken}`,
-                },
-            }
-        );
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+            controller.abort(createDownloadTimeoutError());
+        }, EFORMSIGN_DOWNLOAD_TIMEOUT_MS);
 
-        const body = Buffer.from(await response.arrayBuffer());
+        try {
+            const response = await fetch(
+                `${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/${documentId}/download_files?file_type=${fileType}`,
+                {
+                    method: "GET",
+                    headers: {
+                        "Authorization": `Bearer ${accessToken}`,
+                    },
+                    signal: controller.signal,
+                }
+            );
 
-        return {
-            status: response.status,
-            contentType: response.headers.get("content-type") || "application/octet-stream",
-            contentDisposition: response.headers.get("content-disposition"),
-            body,
-        };
+            const body = await readResponseBodyWithLimit(
+                response,
+                EFORMSIGN_MAX_DOWNLOAD_BYTES,
+                controller.signal,
+            );
+
+            return {
+                status: response.status,
+                contentType: response.headers.get("content-type") || "application/octet-stream",
+                contentDisposition: response.headers.get("content-disposition"),
+                body,
+            };
+        } finally {
+            clearTimeout(timeout);
+        }
     }
 
     /**
@@ -597,25 +620,44 @@ export class EformsignService {
             url.searchParams.set("is_permanent", "true");
         }
 
-        const response = await fetch(url.toString(), {
-            method: "DELETE",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-                document_ids: documentIds,
-            }),
-        });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+            controller.abort(createDeleteTimeoutError());
+        }, EFORMSIGN_DELETE_TIMEOUT_MS);
+        try {
+            const response = await waitForDeleteOperation(
+                fetch(url.toString(), {
+                    method: "DELETE",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({
+                        document_ids: documentIds,
+                    }),
+                    signal: controller.signal,
+                }),
+                controller.signal,
+            );
 
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Failed to delete documents: ${response.status} - ${errorData}`);
+            if (!response.ok) {
+                const errorData = await waitForDeleteOperation(
+                    response.text(),
+                    controller.signal,
+                );
+                throw new EformsignApiError(
+                    `Failed to delete documents: ${response.status} - ${errorData}`,
+                    response.status,
+                    extractEformsignVendorCode(errorData),
+                );
+            }
+
+            const result = await waitForDeleteOperation(response.json(), controller.signal);
+            await this.bumpDocumentSnapshotVersions(documentIds);
+            return result;
+        } finally {
+            clearTimeout(timeout);
         }
-
-        const result = await response.json();
-        await this.bumpDocumentSnapshotVersions(documentIds);
-        return result;
     }
 
     /**
@@ -790,4 +832,132 @@ export class EformsignService {
             throw new Error("Eformsign integration is not configured.");
         }
     }
+}
+
+async function readResponseBodyWithLimit(
+    response: Response,
+    maxBytes: number,
+    signal: AbortSignal,
+): Promise<Buffer> {
+    const contentLengthValue = response.headers.get("content-length");
+    const contentLength = contentLengthValue === null
+        ? null
+        : Number.parseInt(contentLengthValue, 10);
+    if (
+        contentLength !== null
+        && Number.isFinite(contentLength)
+        && contentLength > maxBytes
+    ) {
+        throw new Error(
+            `Eformsign download exceeds the local mirror size limit (${maxBytes} bytes)`,
+        );
+    }
+
+    if (!response.body) {
+        const body = Buffer.from(await waitForDownloadBody(response.arrayBuffer(), signal));
+        if (body.length > maxBytes) {
+            throw new Error(
+                `Eformsign download exceeds the local mirror size limit (${maxBytes} bytes)`,
+            );
+        }
+        return body;
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    while (true) {
+        const { done, value } = await waitForDownloadBody(
+            reader.read(),
+            signal,
+            () => {
+                void reader.cancel().catch(() => undefined);
+            },
+        );
+        if (done) {
+            break;
+        }
+        if (!value) {
+            continue;
+        }
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+            await reader.cancel().catch(() => undefined);
+            throw new Error(
+                `Eformsign download exceeds the local mirror size limit (${maxBytes} bytes)`,
+            );
+        }
+        chunks.push(Buffer.from(
+            value.buffer,
+            value.byteOffset,
+            value.byteLength,
+        ));
+    }
+    return Buffer.concat(chunks, totalBytes);
+}
+
+function waitForDownloadBody<T>(
+    promise: Promise<T>,
+    signal: AbortSignal,
+    onAbort?: () => void,
+): Promise<T> {
+    if (signal.aborted) {
+        onAbort?.();
+        return Promise.reject(downloadAbortReason(signal));
+    }
+
+    return new Promise<T>((resolve, reject) => {
+        const abort = () => {
+            onAbort?.();
+            reject(downloadAbortReason(signal));
+        };
+        signal.addEventListener("abort", abort, { once: true });
+        promise.then(
+            (value) => {
+                signal.removeEventListener("abort", abort);
+                resolve(value);
+            },
+            (error: unknown) => {
+                signal.removeEventListener("abort", abort);
+                reject(error);
+            },
+        );
+    });
+}
+
+function downloadAbortReason(signal: AbortSignal): Error {
+    return signal.reason instanceof Error ? signal.reason : createDownloadTimeoutError();
+}
+
+function createDownloadTimeoutError(): Error {
+    return new Error(`Eformsign download timed out after ${EFORMSIGN_DOWNLOAD_TIMEOUT_MS}ms`);
+}
+
+function waitForDeleteOperation<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+    if (signal.aborted) {
+        return Promise.reject(deleteAbortReason(signal));
+    }
+
+    return new Promise<T>((resolve, reject) => {
+        const abort = () => reject(deleteAbortReason(signal));
+        signal.addEventListener("abort", abort, { once: true });
+        promise.then(
+            (value) => {
+                signal.removeEventListener("abort", abort);
+                resolve(value);
+            },
+            (error: unknown) => {
+                signal.removeEventListener("abort", abort);
+                reject(error);
+            },
+        );
+    });
+}
+
+function deleteAbortReason(signal: AbortSignal): Error {
+    return signal.reason instanceof Error ? signal.reason : createDeleteTimeoutError();
+}
+
+function createDeleteTimeoutError(): Error {
+    return new Error(`Eformsign delete timed out after ${EFORMSIGN_DELETE_TIMEOUT_MS}ms`);
 }

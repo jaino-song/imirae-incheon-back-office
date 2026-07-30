@@ -1,7 +1,12 @@
 import { ConfigService } from "@nestjs/config";
 
 import { ContractDataDto } from "application/dto/contract.dto";
-import { EformsignService } from "application/services/eformsign.service";
+import {
+    EFORMSIGN_DELETE_TIMEOUT_MS,
+    EFORMSIGN_DOWNLOAD_TIMEOUT_MS,
+    EFORMSIGN_MAX_DOWNLOAD_BYTES,
+    EformsignService,
+} from "application/services/eformsign.service";
 
 function createConfigService(overrides: Record<string, string | undefined> = {}): ConfigService {
     return {
@@ -23,6 +28,189 @@ function createConfigService(overrides: Record<string, string | undefined> = {})
 }
 
 describe("EformsignService", () => {
+    afterEach(() => {
+        jest.useRealTimers();
+        jest.restoreAllMocks();
+    });
+
+    it("aborts a mirrored PDF request that does not return before the deadline", async () => {
+        jest.useFakeTimers();
+        const service = new EformsignService(createConfigService());
+        const fetchMock = jest.spyOn(global, "fetch").mockImplementation((_input, init) =>
+            new Promise<Response>((_resolve, reject) => {
+                const signal = (init as RequestInit).signal;
+                signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+            }),
+        );
+
+        const download = service.downloadDocumentFile("access-token", "stuck-request");
+        const expectation = expect(download).rejects.toThrow(
+            `timed out after ${EFORMSIGN_DOWNLOAD_TIMEOUT_MS}ms`,
+        );
+        await jest.advanceTimersByTimeAsync(EFORMSIGN_DOWNLOAD_TIMEOUT_MS);
+
+        await expectation;
+        expect(fetchMock).toHaveBeenCalledWith(
+            expect.stringContaining("stuck-request/download_files"),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+    });
+
+    it("bounds a permanent delete across both the request and response body", async () => {
+        jest.useFakeTimers();
+        const service = new EformsignService(createConfigService());
+        let signal: AbortSignal | undefined;
+        const responseBody = new Promise<never>((_resolve, reject) => {
+            // The fetch promise has resolved, but its JSON body must still share
+            // the same total timeout rather than waiting forever.
+            queueMicrotask(() => signal?.addEventListener(
+                "abort",
+                () => reject(signal?.reason),
+                { once: true },
+            ));
+        });
+        const fetchMock = jest.spyOn(global, "fetch").mockImplementation((_input, init) => {
+            signal = (init as RequestInit).signal as AbortSignal;
+            return Promise.resolve({
+                ok: true,
+                json: jest.fn(() => responseBody),
+            } as unknown as Response);
+        });
+
+        const deletion = service.deleteDocuments("access-token", ["stuck-document"], true);
+        const expectation = expect(deletion).rejects.toThrow(
+            `timed out after ${EFORMSIGN_DELETE_TIMEOUT_MS}ms`,
+        );
+        await Promise.resolve();
+        await jest.advanceTimersByTimeAsync(EFORMSIGN_DELETE_TIMEOUT_MS);
+
+        await expectation;
+        expect(fetchMock).toHaveBeenCalledWith(
+            expect.stringContaining("is_permanent=true"),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+    });
+
+    it("bounds a permanent delete when the vendor never returns response headers", async () => {
+        jest.useFakeTimers();
+        const service = new EformsignService(createConfigService());
+        const fetchMock = jest.spyOn(global, "fetch").mockImplementation(
+            () => new Promise<Response>(() => undefined),
+        );
+
+        const deletion = service.deleteDocuments("access-token", ["stuck-request"], true);
+        const expectation = expect(deletion).rejects.toThrow(
+            `timed out after ${EFORMSIGN_DELETE_TIMEOUT_MS}ms`,
+        );
+        await jest.advanceTimersByTimeAsync(EFORMSIGN_DELETE_TIMEOUT_MS);
+
+        await expectation;
+        expect(fetchMock).toHaveBeenCalledWith(
+            expect.stringContaining("is_permanent=true"),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+    });
+
+    it("preserves a vendor deleted-document code from the actual delete response", async () => {
+        const service = new EformsignService(createConfigService());
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                code: "4000006",
+                ErrorMessage: "The document has been deleted.",
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.deleteDocuments(
+            "access-token",
+            ["deleted-document"],
+            true,
+        )).rejects.toMatchObject({
+            status: 400,
+            vendorCode: "4000006",
+        });
+    });
+
+    it("aborts and cancels a mirrored PDF body that stops streaming before the deadline", async () => {
+        jest.useFakeTimers();
+        const service = new EformsignService(createConfigService());
+        const cancel = jest.fn().mockResolvedValue(undefined);
+        const reader = {
+            read: jest.fn(() => new Promise(() => undefined)),
+            cancel,
+        };
+        jest.spyOn(global, "fetch").mockResolvedValue({
+            status: 200,
+            headers: new Headers({ "content-type": "application/pdf" }),
+            body: { getReader: () => reader },
+        } as unknown as Response);
+
+        const download = service.downloadDocumentFile("access-token", "stuck-body");
+        const expectation = expect(download).rejects.toThrow(
+            `timed out after ${EFORMSIGN_DOWNLOAD_TIMEOUT_MS}ms`,
+        );
+        await Promise.resolve();
+        await jest.advanceTimersByTimeAsync(EFORMSIGN_DOWNLOAD_TIMEOUT_MS);
+
+        await expectation;
+        expect(cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects an oversized PDF from content-length before buffering it", async () => {
+        const service = new EformsignService(createConfigService());
+        const arrayBuffer = jest.fn();
+        jest.spyOn(global, "fetch").mockResolvedValue({
+            status: 200,
+            headers: new Headers({
+                "content-type": "application/pdf",
+                "content-length": String(EFORMSIGN_MAX_DOWNLOAD_BYTES + 1),
+            }),
+            body: null,
+            arrayBuffer,
+        } as unknown as Response);
+
+        await expect(service.downloadDocumentFile(
+            "access-token",
+            "doc-too-large",
+            "document",
+        )).rejects.toThrow("exceeds the local mirror size limit");
+        expect(arrayBuffer).not.toHaveBeenCalled();
+    });
+
+    it("stops reading a chunked PDF when it crosses the local mirror size limit", async () => {
+        const service = new EformsignService(createConfigService());
+        const cancel = jest.fn().mockResolvedValue(undefined);
+        let reads = 0;
+        const reader = {
+            read: jest.fn().mockImplementation(async () => {
+                reads += 1;
+                if (reads === 1) {
+                    return {
+                        done: false,
+                        value: new Uint8Array(EFORMSIGN_MAX_DOWNLOAD_BYTES),
+                    };
+                }
+                return {
+                    done: false,
+                    value: new Uint8Array(1),
+                };
+            }),
+            cancel,
+        };
+        jest.spyOn(global, "fetch").mockResolvedValue({
+            status: 200,
+            headers: new Headers({ "content-type": "application/pdf" }),
+            body: { getReader: () => reader },
+        } as unknown as Response);
+
+        await expect(service.downloadDocumentFile(
+            "access-token",
+            "doc-chunked-too-large",
+            "document",
+        )).rejects.toThrow("exceeds the local mirror size limit");
+        expect(cancel).toHaveBeenCalled();
+    });
+
     it("sorts merged document lists by eformsign created_date newest first", async () => {
         const service = new EformsignService(createConfigService());
 

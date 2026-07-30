@@ -55,11 +55,17 @@ export interface EformsignDocCompletionClaimParams {
     stepIndex: string;
     stepName: string;
     expired: boolean;
+    sourceUpdatedDate?: Date;
     documentName?: string;
     templateName?: string;
 }
 
-export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missing";
+export type EformsignDocCompletionClaimResult = "claimed" | "duplicate" | "missing" | "stale";
+
+export interface EformsignDocConditionalUpdateResult {
+    document: EformsignDocEntity;
+    applied: boolean;
+}
 
 export interface UpsertUnassignedEformsignDocOptions {
     allowAssignedUpdate?: boolean;
@@ -90,6 +96,11 @@ export interface UpsertUnassignedEformsignDocOptions {
 export interface IEformsignDocRepository {
     findById(branchid: string, id: number): Promise<EformsignDocEntity | null>;
     findByDocumentId(branchid: string, documentId: string): Promise<EformsignDocEntity | null>;
+    /** Ownership-only lookup used to retry an already pending permanent purge. */
+    findByDocumentIdIncludingPurgePending(
+        branchid: string,
+        documentId: string,
+    ): Promise<EformsignDocEntity | null>;
     findByDocumentIdUnscoped(documentId: string): Promise<EformsignDocUnscopedResult | null>;
     findBranchIdByDocumentId(documentId: string): Promise<string | null>;
     claimCompletionStatus(
@@ -111,7 +122,25 @@ export interface IEformsignDocRepository {
     ): Promise<EformsignDocDisplayFields[]>;
     findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]>;
     create(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
-    update(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
+    update(
+        branchid: string,
+        doc: EformsignDocEntity,
+    ): Promise<EformsignDocEntity>;
+    /** Atomically applies a vendor projection only when its generation is strictly newer. */
+    updateIfSourceNewer(
+        branchid: string,
+        doc: EformsignDocEntity,
+    ): Promise<EformsignDocConditionalUpdateResult>;
+    /**
+     * Atomically assigns the live document to the client and updates the client's
+     * contract pointer. Returns false when the document was purged/deleted or the
+     * client disappeared before the transaction obtained the document row lock.
+     */
+    linkClientIfActive(
+        branchid: string,
+        documentId: string,
+        clientId: number,
+    ): Promise<boolean>;
     upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     upsertUnassignedByDocumentId(
         doc: EformsignDocEntity,

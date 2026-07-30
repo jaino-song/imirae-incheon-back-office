@@ -12,10 +12,10 @@ import {
 } from "infrastructure/locking/eformsign-backfill-lock.service";
 
 import {
-    BackfillEformsignDocsError,
     BackfillEformsignDocsUsecase,
     EformsignDocsBackfillSummary,
 } from "../usecases/eformsign-doc/backfill-eformsign-docs.usecase";
+import { describeEformsignBackfillError } from "../utils/eformsign-backfill-error";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
 
 const KOREA_TIME_ZONE = "Asia/Seoul";
@@ -24,7 +24,7 @@ const KOREA_TIME_ZONE = "Asia/Seoul";
 const RECONCILE_MAX_RUN_MS = 30 * 60 * 1000;
 const DB_COOLDOWN_MS = 5 * 60 * 1000;
 /**
- * Nights in a row that may fail before the log stops being a warning. A sweep that
+ * Runs in a row that may fail before the log stops being a warning. A sweep that
  * cannot finish is normal once — a document moved mid-pagination, the vendor blipped.
  * Several nights running means the mirror is drifting and nobody has noticed.
  */
@@ -33,13 +33,13 @@ const RECONCILE_FAILURE_ALERT_THRESHOLD = 3;
 /**
  * Keeps the local `eformsign_doc` mirror honest between webhooks.
  *
- * A dropped webhook is the only thing this fixes, so it runs once a night: a day of
- * staleness is the exposure we already carry, and the sweep re-reads every document from
- * eformsign. Expiry comes along for free — the vendor reports status 080 — which is why
- * there is no separate time-based pass over `expiredDate`.
+ * A dropped webhook is the main thing this fixes. It runs at 00:00, 06:00, 12:00 and
+ * 18:00 Korea time, re-reading changed documents and their files from eformsign. Expiry
+ * comes along for free — the vendor reports status 080 — which is why there is no
+ * separate time-based pass over `expiredDate`.
  *
- * Off unless `EFORMSIGN_RECONCILE_ENABLED=true`. This is the phase where the mirror
- * stops being write-only, and the switch is what makes that reversible.
+ * It is enabled automatically when the eformsign credentials are configured. Set
+ * `EFORMSIGN_RECONCILE_ENABLED=false` for an explicit operational pause.
  */
 @Injectable()
 export class EformsignDocReconcileSchedulerService {
@@ -52,7 +52,8 @@ export class EformsignDocReconcileSchedulerService {
         maxRunMs: RECONCILE_MAX_RUN_MS,
         cooldownMs: DB_COOLDOWN_MS,
     });
-    private warnedLockUnavailable = false;
+    private warnedMissingLockApproval = false;
+    private warnedUnlockedRun = false;
     private consecutiveFailures = 0;
 
     constructor(
@@ -61,9 +62,22 @@ export class EformsignDocReconcileSchedulerService {
         private readonly lockService: EformsignBackfillLockService,
     ) {}
 
-    @Cron("0 4 * * *", { timeZone: KOREA_TIME_ZONE })
+    @Cron("0 */6 * * *", { timeZone: KOREA_TIME_ZONE })
     async reconcileDocuments(): Promise<void> {
         if (!this.isEnabled()) {
+            return;
+        }
+
+        if (!this.lockService.isAvailable() && !this.isUnlockedRunAllowed()) {
+            if (!this.warnedMissingLockApproval) {
+                this.warnedMissingLockApproval = true;
+                this.logger.warn(
+                    "[Eformsign Reconcile] VALKEY_URL is unset; skipping the sweep because"
+                    + " a cross-instance lock cannot be acquired. Set VALKEY_URL, or set"
+                    + " EFORMSIGN_RECONCILE_ALLOW_UNLOCKED=true only when the deployment"
+                    + " is guaranteed to run a single scheduler replica.",
+                );
+            }
             return;
         }
 
@@ -96,8 +110,7 @@ export class EformsignDocReconcileSchedulerService {
             this.consecutiveFailures += 1;
 
             if (isTransientPrismaConnectivityError(error)) {
-                // The cooldown is built for the minute-by-minute jobs; on a nightly one
-                // it has always lapsed by the next tick, so it cannot be what surfaces a
+            // The cooldown is shorter than the six-hour interval, so it cannot be what surfaces a
                 // database outage lasting days. The streak below is. Counting these is
                 // the whole point — an outage that never lets a sweep finish is exactly
                 // the drift the escalation exists to report.
@@ -105,7 +118,7 @@ export class EformsignDocReconcileSchedulerService {
             }
 
             const message = `[Eformsign Reconcile] Sweep did not complete`
-                + ` (${this.consecutiveFailures} in a row): ${describeError(error)}`;
+                + ` (${this.consecutiveFailures} in a row): ${describeEformsignBackfillError(error)}`;
             if (this.consecutiveFailures >= RECONCILE_FAILURE_ALERT_THRESHOLD) {
                 this.logger.error(message);
             } else {
@@ -118,7 +131,7 @@ export class EformsignDocReconcileSchedulerService {
 
     private async runSweep(): Promise<EformsignDocsBackfillSummary> {
         // The execution guard only ages a stale token out at the *next* tick, which is a
-        // day away — it never stops a run already under way. The sweep polls this before
+        // six hours away — it never stops a run already under way. The sweep polls this before
         // every fetch and write, so putting the deadline here is what makes the advertised
         // bound real rather than letting a wedged run meet tomorrow's run still alive.
         const deadline = Date.now() + RECONCILE_MAX_RUN_MS;
@@ -131,16 +144,14 @@ export class EformsignDocReconcileSchedulerService {
                 }));
         }
 
-        // No VALKEY_URL, so there is no cross-instance lock to take. The in-memory guard
-        // above still serialises this within the process, which is the single-instance
-        // assumption the snapshot cache already makes when Valkey is absent. Concurrent
-        // sweeps would still be safe — the mirror writes carry ownership and staleness
-        // predicates — but they would multiply the load on eformsign, so say it once.
-        if (!this.warnedLockUnavailable) {
-            this.warnedLockUnavailable = true;
+        // The caller reached this path only after an explicit single-replica approval.
+        // The in-memory guard serialises within this process, while the approval makes
+        // the remaining cross-instance assumption visible in deployment configuration.
+        if (!this.warnedUnlockedRun) {
+            this.warnedUnlockedRun = true;
             this.logger.warn(
-                "[Eformsign Reconcile] VALKEY_URL is unset, so the sweep runs without a"
-                + " cross-instance lock. Set it to stop replicas sweeping in parallel.",
+                "[Eformsign Reconcile] Running without a cross-instance lock under"
+                + " EFORMSIGN_RECONCILE_ALLOW_UNLOCKED=true.",
             );
         }
 
@@ -148,35 +159,27 @@ export class EformsignDocReconcileSchedulerService {
     }
 
     private isEnabled(): boolean {
-        return this.configService.get<string>("EFORMSIGN_RECONCILE_ENABLED") === "true";
+        const configured = this.configService.get<string>(
+            "EFORMSIGN_RECONCILE_ENABLED",
+        );
+        if (configured !== undefined && configured !== "") {
+            return configured === "true";
+        }
+
+        return [
+            "EFORMSIGN_USER_EMAIL",
+            "EFORMSIGN_API_URL",
+            "EFORMSIGN_DOC_API_URL",
+            "EFORMSIGN_API_KEY",
+            "EFORMSIGN_PRIVATE_KEY",
+            "EFORMSIGN_COMPANY_ID",
+            "EFORMSIGN_TEMPLATE_ID",
+        ].every((key) => Boolean(this.configService.get<string>(key)?.trim()));
     }
-}
 
-/**
- * The sweep wraps a vendor failure twice — once per document type, once for the run — so
- * the outermost message is only ever "failed for types=01". The scheduled run passes no
- * onProgress callback, so this log is the only place the HTTP status or root exception
- * can surface; without unwrapping, even the error-level escalation says nothing useful.
- */
-function describeError(error: unknown): string {
-    const messages: string[] = [];
-    const seen = new Set<unknown>();
-    const visit = (value: unknown): void => {
-        if (value === undefined || value === null || seen.has(value)) {
-            return;
-        }
-        seen.add(value);
-        if (Array.isArray(value)) {
-            value.forEach(visit);
-            return;
-        }
-
-        messages.push(value instanceof Error ? value.message : String(value));
-        if (value instanceof BackfillEformsignDocsError) {
-            visit(value.cause);
-        }
-    };
-
-    visit(error);
-    return messages.join(" <- ") || String(error);
+    private isUnlockedRunAllowed(): boolean {
+        return this.configService.get<string>(
+            "EFORMSIGN_RECONCILE_ALLOW_UNLOCKED",
+        ) === "true";
+    }
 }

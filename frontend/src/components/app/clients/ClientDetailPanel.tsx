@@ -46,7 +46,7 @@ import {
 import { formatKoreanPhoneNumber, normalizeKoreanPhoneLookupKey } from "@/lib/phone";
 import { matchesMessageHistoryClient } from "@/lib/message-history/client-match";
 import { mapStatusToLabel, type DocumentStatusLabel } from "@/lib/eformsign/status-codes";
-import { eformsignApi, withEformsignReauth, type LocalEformsignDocRecord } from "@/services/api";
+import { eformsignApi, type LocalEformsignDocRecord } from "@/services/api";
 import { Users } from "lucide-react";
 
 const SOURCE_COMPONENT = "ClientDetailPanel";
@@ -535,22 +535,8 @@ function ClientDetailPanelBody({
         queryKey: ["eformsign-docs", "client", clientId],
         queryFn: async () => {
             const documents = await eformsignApi.getDocumentsByClientId(clientId);
-            const contractDocuments = documents.filter(
-                (document) => document.documentKind !== "service_record_snapshot" && document.documentId,
-            );
-            const syncResults = await Promise.allSettled(
-                contractDocuments.map((document) => withEformsignReauth(
-                    () => eformsignApi.syncDocumentStatus(document.documentId),
-                )),
-            );
-            const syncedByDocumentId = new Map(
-                syncResults.flatMap((result) => result.status === "fulfilled"
-                    ? [[result.value.documentId, result.value] as const]
-                    : []),
-            );
 
             return documents.map((document) => {
-                const syncedDocument = syncedByDocumentId.get(document.documentId);
                 const fallbackDocument = document.documentId === client.eDocId
                     ? getClientDocumentStatusFallback(client.documentStatus)
                     : null;
@@ -558,7 +544,6 @@ function ClientDetailPanelBody({
                 return {
                     ...document,
                     ...fallbackDocument,
-                    ...syncedDocument,
                 };
             });
         },

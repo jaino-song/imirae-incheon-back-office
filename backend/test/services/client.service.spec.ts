@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 import { ClientService } from "../../application/services/client.service";
 import {
@@ -10,6 +11,7 @@ import {
     UpdateClientUsecase,
 } from "../../application/usecases/client";
 import { MessageTriggerService } from "../../application/services/message-trigger.service";
+import { EformsignDocumentSnapshotService } from "../../application/services/eformsign-document-snapshot.service";
 import { ServiceRecordLinkService } from "../../application/services/service-record-link.service";
 import { SystemSettingService } from "../../application/services/system-setting.service";
 import { ClientEntity } from "../../domain/entities/client.entity";
@@ -71,6 +73,7 @@ describe("ClientService", () => {
             client: {
                 update: jest.fn(),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                findMany: jest.fn().mockResolvedValue([]),
             },
             eformsign_doc: {
                 findMany: jest.fn().mockResolvedValue([]),
@@ -82,6 +85,12 @@ describe("ClientService", () => {
             area: {
                 findFirst: jest.fn().mockResolvedValue({ id: "incheon" }),
             },
+            $queryRaw: jest.fn().mockResolvedValue([
+                { id: 9 },
+                { id: 10 },
+                { id: 11 },
+                { id: 12 },
+            ]),
             $transaction: jest.fn(),
         };
         prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
@@ -103,6 +112,15 @@ describe("ClientService", () => {
     const createMockSystemSettingService = () => ({
         getClientAutoRegistrationEnabled: jest.fn().mockResolvedValue(true),
         getGreetingOnAutoRegistrationEnabled: jest.fn().mockResolvedValue(false),
+    });
+
+    const createMockConfigService = () => ({
+        get: jest.fn().mockReturnValue(undefined),
+    });
+
+    const createMockDocumentSnapshotService = () => ({
+        bumpVersion: jest.fn().mockResolvedValue(undefined),
+        bumpCompanyEpoch: jest.fn().mockResolvedValue(undefined),
     });
 
     const createMockClientRepository = (): jest.Mocked<IClientRepository> => ({
@@ -157,6 +175,8 @@ describe("ClientService", () => {
     let serviceRecordLinkService: ReturnType<typeof createMockServiceRecordLinkService>;
     let clientRepository: ReturnType<typeof createMockClientRepository>;
     let systemSettingService: ReturnType<typeof createMockSystemSettingService>;
+    let configService: ReturnType<typeof createMockConfigService>;
+    let documentSnapshotService: ReturnType<typeof createMockDocumentSnapshotService>;
 
     beforeEach(() => {
         createClientUsecase = createMockCreateClientUsecase();
@@ -170,6 +190,8 @@ describe("ClientService", () => {
         serviceRecordLinkService = createMockServiceRecordLinkService();
         clientRepository = createMockClientRepository();
         systemSettingService = createMockSystemSettingService();
+        configService = createMockConfigService();
+        documentSnapshotService = createMockDocumentSnapshotService();
 
         service = new ClientService(
             createClientUsecase as unknown as CreateClientUsecase,
@@ -181,8 +203,11 @@ describe("ClientService", () => {
             prismaService as unknown as PrismaService,
             clientRepository,
             systemSettingService as unknown as SystemSettingService,
+            documentSnapshotService as unknown as EformsignDocumentSnapshotService,
             triggerService as unknown as MessageTriggerService,
             serviceRecordLinkService as unknown as ServiceRecordLinkService,
+            undefined,
+            configService as unknown as ConfigService,
         );
     });
 
@@ -363,21 +388,29 @@ describe("ClientService", () => {
                     id: 11,
                     documentId: "DOC-LATEST",
                     clientId: null,
+                    branchId: null,
                     stepRecipientSms: "고객 010-1234-5678",
                 },
                 {
                     id: 10,
                     documentId: "DOC-OLDER",
                     clientId: 99,
+                    branchId,
                     stepRecipientSms: "연락처 +82 10 1234 5678",
                 },
                 {
                     id: 9,
                     documentId: "DOC-OTHER",
                     clientId: null,
+                    branchId: null,
                     stepRecipientSms: "010-9999-5678",
                 },
             ]);
+            prismaService.client.findMany.mockResolvedValue([{
+                id: mockClient.id,
+                branchId,
+                phone: mockClient.phone,
+            }]);
 
             await service.create(branchId, {
                 name: "New Client",
@@ -389,12 +422,32 @@ describe("ClientService", () => {
 
             expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledWith({
                 where: {
-                    branchId,
                     serviceRecordCaseId: null,
-                    stepRecipientSms: { contains: "5678" },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                    syncStatus: "ready",
+                    detailSourceUpdatedDate: { not: null },
+                    detailSyncedAt: { not: null },
                     OR: [
-                        { documentKind: "contract" },
-                        { documentKind: null },
+                        { customerPhone: "01012345678" },
+                        {
+                            customerPhone: null,
+                            stepRecipientSms: { contains: "5678" },
+                        },
+                    ],
+                    AND: [
+                        {
+                            OR: [
+                                { branchId },
+                                { branchId: null, clientId: null },
+                            ],
+                        },
+                        {
+                            OR: [
+                                { documentKind: "contract" },
+                                { documentKind: null },
+                            ],
+                        },
                     ],
                 },
                 orderBy: [
@@ -405,15 +458,35 @@ describe("ClientService", () => {
                     id: true,
                     documentId: true,
                     clientId: true,
+                    branchId: true,
+                    documentKind: true,
+                    serviceRecordCaseId: true,
+                    templateId: true,
                     stepRecipientSms: true,
+                    customerPhone: true,
+                    detailPayload: true,
+                    detailSourceUpdatedDate: true,
+                    detailSyncedAt: true,
                 },
             });
             expect(prismaService.eformsign_doc.updateMany).toHaveBeenCalledWith({
                 where: {
-                    branchId,
                     id: { in: [11, 10] },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                    syncStatus: "ready",
+                    detailSourceUpdatedDate: { not: null },
+                    detailSyncedAt: { not: null },
+                    OR: [
+                        { branchId },
+                        { branchId: null, clientId: null },
+                    ],
                 },
-                data: { clientId: mockClient.id },
+                data: {
+                    branchId,
+                    clientId: mockClient.id,
+                    documentKind: "contract",
+                },
             });
             expect(prismaService.client.updateMany).toHaveBeenCalledWith({
                 where: {
@@ -423,6 +496,185 @@ describe("ClientService", () => {
                 data: { eDocId: "DOC-LATEST" },
             });
             expect(mockClient.eDocId).toBe("DOC-LATEST");
+            const [lockQuery] = prismaService.$queryRaw.mock.calls[0]!;
+            expect(lockQuery.sql).toContain("ORDER BY doc.id");
+            expect(documentSnapshotService.bumpVersion).toHaveBeenCalledWith(branchId);
+            expect(documentSnapshotService.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
+        });
+
+        it("does not reassign a contract when its mirror generation is no longer ready", async () => {
+            const mockClient = createClientEntity();
+            createClientUsecase.execute.mockResolvedValue(mockClient);
+            prismaService.eformsign_doc.findMany.mockResolvedValue([
+                {
+                    id: 11,
+                    documentId: "DOC-PURGED",
+                    clientId: null,
+                    branchId: null,
+                    stepRecipientSms: "고객 010-1234-5678",
+                },
+            ]);
+            prismaService.client.findMany.mockResolvedValue([{
+                id: mockClient.id,
+                branchId,
+                phone: mockClient.phone,
+            }]);
+            prismaService.$queryRaw.mockResolvedValue([]);
+
+            await service.create(branchId, {
+                name: "New Client",
+                phone: "010-1234-5678",
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+            });
+
+            expect(prismaService.$queryRaw).toHaveBeenCalledTimes(1);
+            expect(prismaService.eformsign_doc.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            expect(mockClient.eDocId).toBeNull();
+            expect(documentSnapshotService.bumpVersion).not.toHaveBeenCalled();
+        });
+
+        it("does not link a pre-lock phone candidate after its mirrored recipient changes", async () => {
+            const mockClient = createClientEntity();
+            const initialSourceUpdatedAt = new Date("2026-07-30T00:00:00.000Z");
+            const initialSyncedAt = new Date("2026-07-30T00:01:00.000Z");
+            createClientUsecase.execute.mockResolvedValue(mockClient);
+            prismaService.eformsign_doc.findMany
+                .mockResolvedValueOnce([{
+                    id: 11,
+                    documentId: "DOC-RECIPIENT-CHANGED",
+                    clientId: null,
+                    branchId: null,
+                    documentKind: null,
+                    serviceRecordCaseId: null,
+                    templateId: null,
+                    customerPhone: "01012345678",
+                    stepRecipientSms: "고객 010-1234-5678",
+                    detailPayload: null,
+                    detailSourceUpdatedDate: initialSourceUpdatedAt,
+                    detailSyncedAt: initialSyncedAt,
+                }])
+                .mockResolvedValueOnce([{
+                    id: 11,
+                    documentKind: null,
+                    serviceRecordCaseId: null,
+                    templateId: null,
+                    customerPhone: "01099998888",
+                    stepRecipientSms: "고객 010-9999-8888",
+                    detailPayload: null,
+                    detailSourceUpdatedDate: new Date("2026-07-30T00:02:00.000Z"),
+                    detailSyncedAt: new Date("2026-07-30T00:03:00.000Z"),
+                }]);
+            prismaService.client.findMany.mockResolvedValue([{
+                id: mockClient.id,
+                branchId,
+                phone: mockClient.phone,
+            }]);
+            prismaService.$queryRaw.mockResolvedValue([{ id: 11 }]);
+
+            await service.create(branchId, {
+                name: "New Client",
+                phone: "010-1234-5678",
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+            });
+
+            expect(prismaService.eformsign_doc.findMany).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({ where: { id: { in: [11] } } }),
+            );
+            expect(prismaService.eformsign_doc.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            expect(mockClient.eDocId).toBeNull();
+            expect(documentSnapshotService.bumpVersion).not.toHaveBeenCalled();
+        });
+
+        it("does not link a phone-stable candidate after its mirror generation changes", async () => {
+            const mockClient = createClientEntity();
+            createClientUsecase.execute.mockResolvedValue(mockClient);
+            prismaService.eformsign_doc.findMany
+                .mockResolvedValueOnce([{
+                    id: 11,
+                    documentId: "DOC-GENERATION-CHANGED",
+                    clientId: null,
+                    branchId: null,
+                    documentKind: null,
+                    serviceRecordCaseId: null,
+                    templateId: null,
+                    customerPhone: "01012345678",
+                    stepRecipientSms: "고객 010-1234-5678",
+                    detailPayload: null,
+                    detailSourceUpdatedDate: new Date("2026-07-30T00:00:00.000Z"),
+                    detailSyncedAt: new Date("2026-07-30T00:01:00.000Z"),
+                }])
+                .mockResolvedValueOnce([{
+                    id: 11,
+                    documentKind: null,
+                    serviceRecordCaseId: null,
+                    templateId: null,
+                    customerPhone: "01012345678",
+                    stepRecipientSms: "고객 010-1234-5678",
+                    detailPayload: null,
+                    detailSourceUpdatedDate: new Date("2026-07-30T00:02:00.000Z"),
+                    detailSyncedAt: new Date("2026-07-30T00:03:00.000Z"),
+                }]);
+            prismaService.client.findMany.mockResolvedValue([{
+                id: mockClient.id,
+                branchId,
+                phone: mockClient.phone,
+            }]);
+            prismaService.$queryRaw.mockResolvedValue([{ id: 11 }]);
+
+            await service.create(branchId, {
+                name: "New Client",
+                phone: "010-1234-5678",
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+            });
+
+            expect(prismaService.eformsign_doc.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            expect(mockClient.eDocId).toBeNull();
+            expect(documentSnapshotService.bumpVersion).not.toHaveBeenCalled();
+        });
+
+        it("does not claim a legacy service-record document whose kind has not been backfilled", async () => {
+            const mockClient = createClientEntity();
+            createClientUsecase.execute.mockResolvedValue(mockClient);
+            configService.get.mockImplementation((key: string) =>
+                key === "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"
+                    ? "service-record-template"
+                    : undefined,
+            );
+            prismaService.eformsign_doc.findMany.mockResolvedValue([
+                {
+                    id: 11,
+                    documentId: "SERVICE-RECORD-LEGACY",
+                    clientId: null,
+                    branchId: null,
+                    documentKind: null,
+                    serviceRecordCaseId: null,
+                    templateId: "service-record-template",
+                    stepRecipientSms: "고객 010-1234-5678",
+                    customerPhone: "01012345678",
+                    detailPayload: null,
+                },
+            ]);
+
+            await service.create(branchId, {
+                name: "New Client",
+                phone: "010-1234-5678",
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+            });
+
+            expect(prismaService.eformsign_doc.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
         });
 
         it("calls ensureDefaultRulesForBranch then syncClientRulesForClient with suppressGreeting=true when suppressGreetingSms is set", async () => {
@@ -693,10 +945,22 @@ describe("ClientService", () => {
 
                 expect(prismaService.eformsign_doc.updateMany).toHaveBeenCalledWith({
                     where: {
-                        branchId,
                         id: { in: [9] },
+                        permanentPurgeRequestedAt: null,
+                        statusType: { notIn: ["047", "049", "099"] },
+                        syncStatus: "ready",
+                        detailSourceUpdatedDate: { not: null },
+                        detailSyncedAt: { not: null },
+                        OR: [
+                            { branchId },
+                            { branchId: null, clientId: null },
+                        ],
                     },
-                    data: { clientId: existingClient.id },
+                    data: {
+                        branchId,
+                        clientId: existingClient.id,
+                        documentKind: "contract",
+                    },
                 });
                 expect(prismaService.client.updateMany).toHaveBeenCalledWith({
                     where: {
@@ -872,29 +1136,61 @@ describe("ClientService", () => {
                         id: 12,
                         documentId: "DOC-AFTER-UPDATE",
                         clientId: null,
-                        stepRecipientSms: "이용자 010 1234 5678",
+                        branchId: null,
+                        stepRecipientSms: "제공기관 010 9999 9999",
+                        customerPhone: "01012345678",
+                        detailPayload: null,
                     },
                 ]);
+                prismaService.client.findMany.mockResolvedValue([{
+                    id: existingClient.id,
+                    branchId,
+                    phone: existingClient.phone,
+                }]);
 
-                const result = await service.update(branchId, existingClient.id, {
-                    name: "Updated Client",
-                });
+                // A no-op save is an explicit, targeted local-DB reconciliation.
+                const result = await service.update(branchId, existingClient.id, {});
 
                 expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledWith(
                     expect.objectContaining({
                         where: expect.objectContaining({
-                            branchId,
                             serviceRecordCaseId: null,
-                            stepRecipientSms: { contains: "5678" },
+                            OR: [
+                                { customerPhone: "01012345678" },
+                                {
+                                    customerPhone: null,
+                                    stepRecipientSms: { contains: "5678" },
+                                },
+                            ],
+                            AND: expect.arrayContaining([
+                                {
+                                    OR: [
+                                        { branchId },
+                                        { branchId: null, clientId: null },
+                                    ],
+                                },
+                            ]),
                         }),
                     }),
                 );
                 expect(prismaService.eformsign_doc.updateMany).toHaveBeenCalledWith({
                     where: {
-                        branchId,
                         id: { in: [12] },
+                        permanentPurgeRequestedAt: null,
+                        statusType: { notIn: ["047", "049", "099"] },
+                        syncStatus: "ready",
+                        detailSourceUpdatedDate: { not: null },
+                        detailSyncedAt: { not: null },
+                        OR: [
+                            { branchId },
+                            { branchId: null, clientId: null },
+                        ],
                     },
-                    data: { clientId: existingClient.id },
+                    data: {
+                        branchId,
+                        clientId: existingClient.id,
+                        documentKind: "contract",
+                    },
                 });
                 expect(prismaService.client.updateMany).toHaveBeenCalledWith({
                     where: {
@@ -904,6 +1200,47 @@ describe("ClientService", () => {
                     data: { eDocId: "DOC-AFTER-UPDATE" },
                 });
                 expect(result.eDocId).toBe("DOC-AFTER-UPDATE");
+                expect(documentSnapshotService.bumpVersion).toHaveBeenCalledWith(branchId);
+                expect(documentSnapshotService.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
+            });
+
+            it("does not claim a branchless contract when the phone belongs to clients in multiple branches", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                prismaService.eformsign_doc.findMany.mockResolvedValue([
+                    {
+                        id: 12,
+                        documentId: "DOC-AMBIGUOUS",
+                        clientId: null,
+                        branchId: null,
+                        stepRecipientSms: "고객 010-1234-5678",
+                        customerPhone: "01012345678",
+                        detailPayload: null,
+                    },
+                ]);
+                prismaService.client.findMany.mockResolvedValue([
+                    {
+                        id: existingClient.id,
+                        branchId,
+                        phone: existingClient.phone,
+                    },
+                    {
+                        id: 22,
+                        branchId: "org-2",
+                        phone: "+82 10 1234 5678",
+                    },
+                ]);
+
+                const result = await service.update(branchId, existingClient.id, {});
+
+                expect(prismaService.eformsign_doc.updateMany).not.toHaveBeenCalled();
+                expect(prismaService.client.updateMany).toHaveBeenCalledTimes(1);
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        where: { id: existingClient.id, branchId },
+                    }),
+                );
+                expect(result.eDocId).toBeNull();
             });
 
             it("does not resolve a service date update before scheduled jobs are recalculated", async () => {
@@ -1283,6 +1620,93 @@ describe("ClientService", () => {
                 expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
             });
 
+            it("should preserve a completed lifecycle status while its mirror is syncing", async () => {
+                const client = createWaitingClient("2026-07-16", "completed-document");
+                listClientsUsecase.execute.mockResolvedValue([client]);
+                prismaService.eformsign_doc.findMany.mockResolvedValue([
+                    { clientId: 1, statusType: "003" },
+                ]);
+
+                const [result] = await service.findAll(branchId);
+
+                expect(result?.documentStatus).toBe("completed");
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
+                expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledWith({
+                    where: {
+                        clientId: { in: [1] },
+                        permanentPurgeRequestedAt: null,
+                        statusType: { notIn: ["047", "049", "099"] },
+                        serviceRecordCaseId: null,
+                        OR: [
+                            { documentKind: "contract" },
+                            { documentKind: null },
+                        ],
+                    },
+                    orderBy: [
+                        { createdDate: "desc" },
+                        { id: "desc" },
+                    ],
+                    select: {
+                        clientId: true,
+                        statusType: true,
+                        documentKind: true,
+                        serviceRecordCaseId: true,
+                        templateId: true,
+                    },
+                });
+            });
+
+            it("should not fall back to an older completed contract when the newest mirror artifacts are not ready", async () => {
+                const client = createWaitingClient("2026-07-16", "new-requested-document");
+                listClientsUsecase.execute.mockResolvedValue([client]);
+                prismaService.eformsign_doc.findMany.mockResolvedValue([
+                    { clientId: 1, statusType: "060" },
+                    { clientId: 1, statusType: "003" },
+                ]);
+
+                const [result] = await service.findAll(branchId);
+
+                expect(result?.documentStatus).toBe("requested");
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
+            });
+
+            it("should ignore legacy service-record rows when choosing the latest contract", async () => {
+                const client = createWaitingClient("2026-07-16", "requested-contract");
+                listClientsUsecase.execute.mockResolvedValue([client]);
+                configService.get.mockImplementation((key: string) =>
+                    key === "EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID"
+                        ? "service-record-template"
+                        : undefined);
+                prismaService.eformsign_doc.findMany.mockResolvedValue([
+                    {
+                        clientId: 1,
+                        statusType: "003",
+                        documentKind: null,
+                        serviceRecordCaseId: "case-1",
+                        templateId: null,
+                    },
+                    {
+                        clientId: 1,
+                        statusType: "003",
+                        documentKind: null,
+                        serviceRecordCaseId: null,
+                        templateId: "service-record-template",
+                    },
+                    {
+                        clientId: 1,
+                        statusType: "060",
+                        documentKind: "contract",
+                        serviceRecordCaseId: null,
+                        templateId: "contract-template",
+                    },
+                ]);
+
+                const [result] = await service.findAll(branchId);
+
+                expect(result?.documentStatus).toBe("requested");
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
+            });
+
             it("should use the latest contract instead of the pinned eDocId for the badge", async () => {
                 const client = createWaitingClient("2026-07-16", "old-rejected-document");
                 listClientsUsecase.execute.mockResolvedValue([client]);
@@ -1299,6 +1723,9 @@ describe("ClientService", () => {
                 expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledWith({
                     where: {
                         clientId: { in: [1] },
+                        permanentPurgeRequestedAt: null,
+                        statusType: { notIn: ["047", "049", "099"] },
+                        serviceRecordCaseId: null,
                         OR: [
                             { documentKind: "contract" },
                             { documentKind: null },
@@ -1308,7 +1735,13 @@ describe("ClientService", () => {
                         { createdDate: "desc" },
                         { id: "desc" },
                     ],
-                    select: { clientId: true, statusType: true },
+                    select: {
+                        clientId: true,
+                        statusType: true,
+                        documentKind: true,
+                        serviceRecordCaseId: true,
+                        templateId: true,
+                    },
                 });
                 expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledTimes(1);
             });

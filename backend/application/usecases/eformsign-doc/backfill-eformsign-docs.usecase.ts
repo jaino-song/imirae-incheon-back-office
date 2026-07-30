@@ -1,5 +1,8 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 
+import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import { EformsignService } from "application/services/eformsign.service";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 import {
     EFORMSIGN_DOC_REPOSITORY,
     EformsignDocStaleUpdateError,
@@ -11,6 +14,9 @@ import {
     EformsignApiListResponse,
     IEformsignClientRepository,
 } from "domain/repositories/eformsign.client.interface";
+import {
+    isEformsignDocumentAbsentError,
+} from "infrastructure/api/eformsign-api.error";
 
 import { MirrorUnassignedEformsignDocUsecase } from "./mirror-unassigned-eformsign-doc.usecase";
 
@@ -63,6 +69,7 @@ export interface EformsignDocsBackfillProgress {
 export interface BackfillEformsignDocsOptions {
     onProgress?: (progress: EformsignDocsBackfillProgress) => void;
     shouldContinue?: () => boolean;
+    suppressOutboundAutomation?: boolean;
 }
 
 export class BackfillEformsignDocsError extends Error {
@@ -118,6 +125,10 @@ export class BackfillEformsignDocsUsecase {
         @Inject(EFORMSIGN_DOC_REPOSITORY)
         private readonly eformsignDocRepository: IEformsignDocRepository,
         private readonly mirrorEformsignDocUsecase: MirrorUnassignedEformsignDocUsecase,
+        @Optional()
+        private readonly documentMirrorService?: EformsignDocumentMirrorService,
+        @Optional()
+        private readonly eformsignService?: EformsignService,
     ) {}
 
     async execute(
@@ -146,6 +157,12 @@ export class BackfillEformsignDocsUsecase {
             this.assertCanContinue(options, summary);
             const tokenResponse = await this.eformsignClient.getAccessToken(Date.now());
             let accessToken = tokenResponse.oauth_token.access_token;
+            const refreshAccessToken = async (): Promise<string> => {
+                const reissuedTokenResponse =
+                    await this.eformsignClient.getAccessToken(Date.now());
+                accessToken = reissuedTokenResponse.oauth_token.access_token;
+                return accessToken;
+            };
 
             const scans: Array<{
                 documentType: EformsignBackfillDocumentType;
@@ -191,10 +208,7 @@ export class BackfillEformsignDocsUsecase {
                         throw error;
                     }
 
-                    const reissuedTokenResponse = await this.eformsignClient.getAccessToken(
-                        Date.now(),
-                    );
-                    accessToken = reissuedTokenResponse.oauth_token.access_token;
+                    await refreshAccessToken();
                     return fetchPage(limit, skip);
                 }
             };
@@ -217,6 +231,8 @@ export class BackfillEformsignDocsUsecase {
                         summary,
                         typeSummary,
                         mirroredUpdatedDates,
+                        accessToken: () => accessToken,
+                        refreshAccessToken,
                     });
                     // Swallowing a single document's write error to finish the sweep is
                     // deliberate, but the run still left the mirror incomplete and nothing
@@ -261,6 +277,14 @@ export class BackfillEformsignDocsUsecase {
                 );
             }
 
+            await this.verifyLocallyActiveDocumentsMissingFromVendorLists(
+                mirroredUpdatedDates,
+                () => accessToken,
+                refreshAccessToken,
+                options,
+                summary,
+            );
+
             options.onProgress?.({
                 phase: "completed",
                 summary: cloneSummary(summary),
@@ -300,6 +324,8 @@ export class BackfillEformsignDocsUsecase {
         summary: EformsignDocsBackfillSummary;
         typeSummary: EformsignDocsBackfillTypeSummary;
         mirroredUpdatedDates: Map<string, number>;
+        accessToken: () => string;
+        refreshAccessToken: () => Promise<string>;
     }): Promise<void> {
         let skip = 0;
         let initialTotalRows: number | undefined;
@@ -362,6 +388,11 @@ export class BackfillEformsignDocsUsecase {
                     page.total_rows,
                     params.summary,
                 );
+                await this.assertStableCoverage(
+                    params,
+                    seenDocumentIds,
+                    page.total_rows,
+                );
                 // The lease is only ever checked before a write, so losing it during the
                 // last one would still report success. This cannot stop the overlap — that
                 // needs a fence carried into the write itself — but it stops us claiming a
@@ -392,7 +423,14 @@ export class BackfillEformsignDocsUsecase {
                 }
 
                 params.mirroredUpdatedDates.set(document.id, document.updated_date);
-                await this.persistDocument(document, params.summary, params.typeSummary);
+                await this.persistDocument(
+                    document,
+                    params.accessToken,
+                    params.refreshAccessToken,
+                    params.summary,
+                    params.typeSummary,
+                    params.options.suppressOutboundAutomation === true,
+                );
             }
 
             const nextSkip = skip + page.documents.length;
@@ -412,10 +450,159 @@ export class BackfillEformsignDocsUsecase {
                     page.total_rows,
                     params.summary,
                 );
+                await this.assertStableCoverage(
+                    params,
+                    seenDocumentIds,
+                    page.total_rows,
+                );
                 this.assertCanContinue(params.options, params.summary);
                 return;
             }
         }
+    }
+
+    /**
+     * Offset pagination cannot prove a complete snapshot from one pass: deleting an
+     * early row and appending another row can preserve total_rows while shifting an
+     * unseen document before the next offset. A second read-only pass must observe the
+     * exact same ID set before this run may declare coverage.
+     */
+    private async assertStableCoverage(
+        params: {
+            documentType: EformsignBackfillDocumentType;
+            fetchPage: (limit: number, skip: number) => Promise<EformsignApiListResponse>;
+            options: BackfillEformsignDocsOptions;
+            summary: EformsignDocsBackfillSummary;
+        },
+        firstPassIds: Set<string>,
+        firstPassTotal: number,
+    ): Promise<void> {
+        let skip = 0;
+        let verificationTotal: number | undefined;
+        let pagesFetched = 0;
+        const verificationIds = new Set<string>();
+
+        while (true) {
+            if (
+                verificationTotal !== undefined
+                && pagesFetched >= this.maxPagesFor(verificationTotal)
+            ) {
+                throw new BackfillEformsignDocsError(
+                    `Eformsign coverage verification exceeded its page budget`
+                    + ` type=${params.documentType} pages=${pagesFetched}`
+                    + ` total=${verificationTotal}; retry when the list settles`,
+                    params.summary,
+                );
+            }
+            this.assertCanContinue(params.options, params.summary);
+
+            let page: EformsignApiListResponse;
+            try {
+                page = await params.fetchPage(BACKFILL_PAGE_SIZE, skip);
+            } catch (error) {
+                throw new BackfillEformsignDocsError(
+                    `Failed to verify eformsign document coverage`
+                    + ` type=${params.documentType} skip=${skip}`,
+                    params.summary,
+                    error,
+                );
+            }
+
+            this.assertValidTotalRows(
+                page.total_rows,
+                params.documentType,
+                skip,
+                params.summary,
+            );
+            pagesFetched += 1;
+            if (verificationTotal === undefined) {
+                verificationTotal = page.total_rows;
+                if (verificationTotal !== firstPassTotal) {
+                    throw new BackfillEformsignDocsError(
+                        `Eformsign document coverage changed between consecutive scans`
+                        + ` type=${params.documentType}`
+                        + ` firstTotal=${firstPassTotal}`
+                        + ` verificationTotal=${verificationTotal};`
+                        + " retry when the list settles",
+                        params.summary,
+                    );
+                }
+            } else if (page.total_rows !== verificationTotal) {
+                throw new BackfillEformsignDocsError(
+                    `Eformsign total_rows changed during coverage verification`
+                    + ` type=${params.documentType} skip=${skip}`
+                    + ` initialTotal=${verificationTotal}`
+                    + ` currentTotal=${page.total_rows};`
+                    + " retry when the list settles",
+                    params.summary,
+                );
+            }
+
+            if (page.documents.length === 0) {
+                if (skip < page.total_rows) {
+                    throw new BackfillEformsignDocsError(
+                        `Eformsign coverage verification stopped making progress`
+                        + ` type=${params.documentType} skip=${skip}`
+                        + ` total=${page.total_rows}`,
+                        params.summary,
+                    );
+                }
+                break;
+            }
+
+            const newDocuments = page.documents.filter(
+                (document) => !verificationIds.has(document.id),
+            );
+            if (newDocuments.length === 0) {
+                throw new BackfillEformsignDocsError(
+                    `Eformsign coverage verification repeated a page without new document ids`
+                    + ` type=${params.documentType} skip=${skip}`,
+                    params.summary,
+                );
+            }
+            for (const document of newDocuments) {
+                verificationIds.add(document.id);
+            }
+
+            const nextSkip = skip + page.documents.length;
+            if (nextSkip <= skip) {
+                throw new BackfillEformsignDocsError(
+                    `Eformsign coverage verification offset did not advance`
+                    + ` type=${params.documentType} skip=${skip}`,
+                    params.summary,
+                );
+            }
+            skip = nextSkip;
+            if (skip >= page.total_rows) {
+                break;
+            }
+        }
+
+        this.assertCompleteCoverage(
+            params.documentType,
+            verificationIds.size,
+            verificationTotal ?? 0,
+            params.summary,
+        );
+        const missingFromVerification = [...firstPassIds].filter(
+            (documentId) => !verificationIds.has(documentId),
+        ).length;
+        const newInVerification = [...verificationIds].filter(
+            (documentId) => !firstPassIds.has(documentId),
+        ).length;
+        if (missingFromVerification > 0 || newInVerification > 0) {
+            throw new BackfillEformsignDocsError(
+                `Eformsign document coverage changed between consecutive scans`
+                + ` type=${params.documentType}`
+                + ` firstCount=${firstPassIds.size}`
+                + ` verificationCount=${verificationIds.size}`
+                + ` missingFromVerification=${missingFromVerification}`
+                + ` newInVerification=${newInVerification};`
+                + " retry when the list settles",
+                params.summary,
+            );
+        }
+        this.assertCanContinue(params.options, params.summary);
     }
 
     private assertCompleteCoverage(
@@ -425,28 +612,201 @@ export class BackfillEformsignDocsUsecase {
         summary: EformsignDocsBackfillSummary,
     ): void {
         const missing = currentTotal - uniqueSeen;
-        if (missing <= 0) {
+        if (missing === 0) {
             return;
         }
+        const extra = Math.max(0, -missing);
 
         throw new BackfillEformsignDocsError(
-            `Eformsign document coverage incomplete type=${documentType} uniqueSeen=${uniqueSeen} currentTotal=${currentTotal} missing=${missing}; documents may have moved between folders during pagination, so rerun the backfill`,
+            `Eformsign document coverage incomplete`
+            + ` type=${documentType}`
+            + ` uniqueSeen=${uniqueSeen}`
+            + ` currentTotal=${currentTotal}`
+            + ` missing=${Math.max(0, missing)}`
+            + ` extra=${extra};`
+            + " documents may have moved between folders during pagination,"
+            + " so rerun the backfill",
             summary,
         );
     }
 
+    private async verifyLocallyActiveDocumentsMissingFromVendorLists(
+        seenDocuments: Map<string, number>,
+        accessToken: () => string,
+        refreshAccessToken: () => Promise<string>,
+        options: BackfillEformsignDocsOptions,
+        summary: EformsignDocsBackfillSummary,
+    ): Promise<void> {
+        if (
+            !this.documentMirrorService
+            || typeof (this.documentMirrorService as unknown as {
+                findActiveDocumentIds?: unknown;
+            }).findActiveDocumentIds !== "function"
+        ) return;
+
+        const seenIds = new Set(seenDocuments.keys());
+        const activeIds = await this.documentMirrorService.findActiveDocumentIds();
+        const pendingPermanentPurge = new Set(
+            await this.documentMirrorService.findPermanentPurgeRequestedDocumentIds(),
+        );
+
+        for (const documentId of new Set([...activeIds, ...pendingPermanentPurge])) {
+            const hasPermanentPurgeIntent = pendingPermanentPurge.has(documentId);
+            if (seenIds.has(documentId) && !hasPermanentPurgeIntent) continue;
+            this.assertCanContinue(options, summary);
+            try {
+                const verify = async (token: string) => this.eformsignClient.getDocument(token, documentId);
+                let detail: EformsignApiDocumentResponse;
+                try {
+                    detail = await verify(accessToken());
+                } catch (error) {
+                    if (!this.isAuthenticationError(error)) throw error;
+                    detail = await verify(await refreshAccessToken());
+                }
+                // syncDocumentWithToken tolerates a stale list projection while still
+                // converging detail and files; do not reintroduce that stale-write gap.
+                await this.documentMirrorService.syncDocumentWithToken(accessToken(), documentId, {
+                    force: true,
+                    expectedUpdatedDate: detail.updated_date,
+                    ...(options.suppressOutboundAutomation ? { suppressOutboundAutomation: true } : {}),
+                });
+                if (hasPermanentPurgeIntent) {
+                    await this.retryConfirmedPresentPermanentPurge(
+                        documentId,
+                        accessToken,
+                        refreshAccessToken,
+                    );
+                }
+            } catch (error) {
+                if (!isEformsignDocumentAbsentError(error)) {
+                    throw new BackfillEformsignDocsError(
+                        `Failed to verify locally active eformsign document ${documentId}`,
+                        summary,
+                        error,
+                    );
+                }
+                if (hasPermanentPurgeIntent) {
+                    await this.documentMirrorService.purgeDocuments([documentId]);
+                } else {
+                    await this.documentMirrorService.markDocumentsDeleted([documentId]);
+                }
+            }
+        }
+    }
+
+    /**
+     * A durable intent can survive an ambiguous original DELETE timeout. Once a
+     * later reconciliation has confirmed the document still exists, retry the
+     * vendor deletion instead of indefinitely refreshing a locally hidden row.
+     */
+    private async retryConfirmedPresentPermanentPurge(
+        documentId: string,
+        accessToken: () => string,
+        refreshAccessToken: () => Promise<string>,
+    ): Promise<void> {
+        const documentMirrorService = this.documentMirrorService;
+        const eformsignService = this.eformsignService;
+        if (!documentMirrorService || !eformsignService) {
+            throw new Error("Permanent eformsign purge retry dependencies are unavailable");
+        }
+
+        // Allocate a new generation immediately before the retry. A definitive
+        // vendor rejection may clear only this retry's intent, never a newer one.
+        const requests = await documentMirrorService.requestPermanentPurge([documentId]);
+        const request = requests.find((candidate) => candidate.documentId === documentId);
+        if (!request) {
+            throw new Error(`Could not persist permanent eformsign purge retry for ${documentId}`);
+        }
+
+        const deleteWithToken = (token: string) =>
+            eformsignService.deleteDocuments(token, [documentId], true);
+        let result: unknown;
+        try {
+            try {
+                result = await deleteWithToken(accessToken());
+            } catch (error) {
+                if (!this.isAuthenticationError(error)) {
+                    throw error;
+                }
+                result = await deleteWithToken(await refreshAccessToken());
+            }
+        } catch (error) {
+            if (isEformsignDocumentAbsentError(error)) {
+                await documentMirrorService.purgeDocuments([documentId]);
+                return;
+            }
+            if (isDefinitivePermanentDeleteHttpFailure(error)) {
+                await documentMirrorService.clearPermanentPurgeRequest([request]);
+            }
+            throw error;
+        }
+
+        const successfulIds = successfulPermanentDeleteDocumentIds(result);
+        if (successfulIds.includes(documentId)) {
+            await documentMirrorService.purgeDocuments([documentId]);
+            return;
+        }
+
+        if (failedPermanentDeleteDocumentIds(result, [documentId]).includes(documentId)) {
+            await documentMirrorService.clearPermanentPurgeRequest([request]);
+        }
+        // Unknown and already-deleted outcomes deliberately retain the new durable
+        // intent. The next reconciliation verifies vendor absence before purging.
+    }
+
     private async persistDocument(
         document: EformsignApiDocumentResponse,
+        accessToken: () => string,
+        refreshAccessToken: () => Promise<string>,
         summary: EformsignDocsBackfillSummary,
         typeSummary: EformsignDocsBackfillTypeSummary,
+        suppressOutboundAutomation: boolean,
     ): Promise<void> {
         try {
             const existing = await this.eformsignDocRepository.findByDocumentIdUnscoped(
                 document.id,
             );
-            await this.mirrorEformsignDocUsecase.mirrorRemoteDocument(document, {
-                allowAssignedUpdate: true,
-            });
+            let projectionWasStale = false;
+            try {
+                await this.mirrorEformsignDocUsecase.mirrorRemoteDocument(document, {
+                    allowAssignedUpdate: true,
+                });
+            } catch (error) {
+                if (!(error instanceof EformsignDocStaleUpdateError)) {
+                    throw error;
+                }
+
+                // The list projection is already newer, but its full detail and mirrored
+                // PDFs may still be incomplete. Keep the stale projection from blocking
+                // that independent convergence work below.
+                projectionWasStale = true;
+            }
+            if (this.documentMirrorService) {
+                const sync = (token: string) =>
+                    this.documentMirrorService!.syncDocumentWithToken(
+                        token,
+                        document.id,
+                        {
+                            expectedUpdatedDate: document.updated_date,
+                            ...(suppressOutboundAutomation
+                                ? { suppressOutboundAutomation: true }
+                                : {}),
+                        },
+                    );
+                try {
+                    await sync(accessToken());
+                } catch (error) {
+                    if (!this.isAuthenticationError(error)) {
+                        throw error;
+                    }
+                    await sync(await refreshAccessToken());
+                }
+            }
+            if (projectionWasStale) {
+                summary.skipped += 1;
+                typeSummary.skipped += 1;
+                return;
+            }
             if (existing) {
                 summary.updated += 1;
                 typeSummary.updated += 1;
@@ -455,12 +815,6 @@ export class BackfillEformsignDocsUsecase {
                 typeSummary.created += 1;
             }
         } catch (error) {
-            if (error instanceof EformsignDocStaleUpdateError) {
-                summary.skipped += 1;
-                typeSummary.skipped += 1;
-                return;
-            }
-
             summary.failed += 1;
             typeSummary.failed += 1;
             // The status fields are here because every mirroring failure so far has been a
@@ -469,9 +823,8 @@ export class BackfillEformsignDocsUsecase {
             // second full sweep to find out.
             const status = document.current_status;
             this.logger.warn(
-                `Failed to mirror eformsign document ${document.id}: ${
-                    error instanceof Error ? error.message : String(error)
-                } (status_type=${status?.status_type}`
+                `Failed to mirror eformsign document ${document.id}: ${sanitizeEformsignErrorMessage(error)}`
+                + ` (status_type=${status?.status_type}`
                 + ` expired_date=${JSON.stringify(status?.expired_date)}`
                 + ` expired=${JSON.stringify(status?._expired)})`,
             );
@@ -530,5 +883,74 @@ export class BackfillEformsignDocsUsecase {
             totalCount,
             summary: cloneSummary(params.summary),
         });
+    }
+}
+
+function successfulPermanentDeleteDocumentIds(result: unknown): string[] {
+    if (typeof result !== "object" || result === null) {
+        return [];
+    }
+    const resultBody = (result as Record<string, unknown>)["result"];
+    if (typeof resultBody !== "object" || resultBody === null) {
+        return [];
+    }
+    const successResult = (resultBody as Record<string, unknown>)["success_result"];
+    if (!Array.isArray(successResult)) {
+        return [];
+    }
+    return successResult.filter(
+        (documentId): documentId is string =>
+            typeof documentId === "string" && documentId.trim().length > 0,
+    );
+}
+
+function failedPermanentDeleteDocumentIds(
+    result: unknown,
+    requestedDocumentIds: string[],
+): string[] {
+    if (typeof result !== "object" || result === null) return [];
+    const resultBody = (result as Record<string, unknown>)["result"];
+    if (typeof resultBody !== "object" || resultBody === null) return [];
+    const failures = (resultBody as Record<string, unknown>)["fail_result"];
+    if (!Array.isArray(failures)) return [];
+
+    const requested = new Set(requestedDocumentIds);
+    return [...new Set(failures.flatMap((failure) => {
+        if (typeof failure !== "object" || failure === null) return [];
+        const { document_id: documentId, code } = failure as Record<string, unknown>;
+        const normalizedId = typeof documentId === "string" ? documentId.trim() : "";
+        return classifyPermanentDeleteFailureCode(code) === "clear"
+            && normalizedId
+            && requested.has(normalizedId)
+            ? [normalizedId]
+            : [];
+    }))];
+}
+
+function isDefinitivePermanentDeleteHttpFailure(error: unknown): boolean {
+    return typeof error === "object"
+        && error !== null
+        && "status" in error
+        && typeof error.status === "number"
+        && error.status >= 400
+        && error.status < 500
+        && error.status !== 408
+        && error.status !== 429;
+}
+
+/** Vendor application codes, not HTTP statuses. Unknown outcomes retain intent. */
+function classifyPermanentDeleteFailureCode(code: unknown): "clear" | "retain" {
+    const normalized = typeof code === "string"
+        ? code.trim()
+        : typeof code === "number" && Number.isInteger(code)
+            ? String(code)
+            : "";
+
+    switch (normalized) {
+        case "4000164": // token lacks authority to delete this document
+            return "clear";
+        case "4000031": // already deleted; verify vendor absence before purge
+        default:
+            return "retain";
     }
 }

@@ -11,7 +11,6 @@ const DASHBOARD_ROUTE_BODY_CLASS = "mobile-dashboard-route";
 import { useDashboardAnalytics } from "@/hooks/useDashboardAnalytics";
 import { clientQueryKeys, useClients, useDeleteClient } from "@/hooks/useClients";
 import { useClientMessageHistory } from "@/hooks/useClientMessageHistory";
-import { useSyncStaleEformsignStatuses } from "@/hooks/useSyncStaleEformsignStatuses";
 import type { Client } from "@/lib/client/types";
 import { useLocale } from "@/providers/LocaleProvider";
 import { t } from "@/lib/i18n/translations";
@@ -186,8 +185,6 @@ export default function DashboardPage() {
   const [activeFilter, setActiveFilter] = useState<string>(ALL_FILTER);
 
   const clients = useMemo<Client[]>(() => clientsData?.data ?? [], [clientsData?.data]);
-  useSyncStaleEformsignStatuses(clients, { enabled: !clientsLoading });
-
   useEffect(() => {
     document.body.classList.add(DASHBOARD_ROUTE_BODY_CLASS);
     return () => {

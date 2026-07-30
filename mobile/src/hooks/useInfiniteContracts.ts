@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { infiniteQueryOptions, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
-import { eformsignApi, withEformsignReauth } from "@/services/api";
+import { eformsignApi } from "@/services/api";
 import type { EformsignStatusCategoryParam, EformsignTemplateMatchParam } from "@/services/api";
 import type { EformsignDocument, EformsignDocumentsResponse } from "@/lib/eformsign/types";
 import type { DocumentFilterType } from "@/lib/eformsign/status-codes";
@@ -117,19 +117,17 @@ export function infiniteContractsQueryOptions({
       templateMatch: normalizedTemplateMatch,
     }),
     queryFn: ({ pageParam }) =>
-      withEformsignReauth(() =>
-        eformsignApi.getAllDocuments({
-          limit: pageParam.limit,
-          skip: pageParam.skip,
-          statusCategory: normalizedStatusCategory ?? undefined,
-          search: normalizedSearch || undefined,
-          templateId: normalizedTemplateId ?? undefined,
-          templateMatch: normalizedTemplateMatch ?? undefined,
-          // Mobile never shows deleted documents; filtering server-side keeps the
-          // page slice honest (deleted docs would otherwise eat page slots).
-          excludeDeleted: true,
-        }),
-      ),
+      eformsignApi.getAllDocuments({
+        limit: pageParam.limit,
+        skip: pageParam.skip,
+        statusCategory: normalizedStatusCategory ?? undefined,
+        search: normalizedSearch || undefined,
+        templateId: normalizedTemplateId ?? undefined,
+        templateMatch: normalizedTemplateMatch ?? undefined,
+        // Mobile never shows deleted documents; filtering server-side keeps the
+        // page slice honest (deleted docs would otherwise eat page slots).
+        excludeDeleted: true,
+      }),
     initialPageParam: { limit: CONTRACTS_FIRST_PAGE_SIZE, skip: 0 } as ContractsPageParam,
     getNextPageParam,
     staleTime: CONTRACTS_PAGE_STALE_TIME,

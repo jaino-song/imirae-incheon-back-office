@@ -22,6 +22,7 @@ NestJS service powering the BabyJamJam Admin operations platform. The project fo
 - [Feature Modules & Routes](#feature-modules--routes)
 - [Authentication](#authentication)
 - [Conventions](#conventions)
+- [eformsign Mirror Operations](#eformsign-mirror-operations)
 - [Useful Commands](#useful-commands)
 
 ---
@@ -569,6 +570,20 @@ Create `backend/.env` from `backend/env.example` before running `npm run start:d
 - Prisma schema uses `snake_case` for columns
 - Domain entities use `camelCase` for properties
 - Mappers handle the transformation
+
+---
+
+## eformsign Mirror Operations
+
+The six-hour eformsign reconciliation scheduler requires a distributed Valkey lease.
+If `VALKEY_URL` is unset, it fails closed and skips the sweep by default. A deployment
+may set `EFORMSIGN_RECONCILE_ALLOW_UNLOCKED=true` only after confirming that exactly one
+backend replica owns scheduled jobs; otherwise multiple replicas can duplicate the full
+detail/PDF fetch and exhaust vendor limits. The default is unset/false.
+
+Manual cutover backfills use the separate one-run approval
+`EFORMSIGN_BACKFILL_ALLOW_UNLOCKED=true` and the exact target confirmation described in
+[ADR 004](../docs/adr/004-eformsign-local-source-of-truth.md).
 
 ---
 
