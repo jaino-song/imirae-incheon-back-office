@@ -382,7 +382,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         if (version === null) {
             return {
                 entries: (await this.excludeSnapshotEntries(
-                    await this.buildSafeEntries(build),
+                    await build(),
                     returnOptions,
                     params.source,
                 )).entries,
@@ -395,7 +395,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
             if (epoch === null) {
                 return {
                     entries: (await this.excludeSnapshotEntries(
-                        await this.buildSafeEntries(build),
+                        await build(),
                         returnOptions,
                         params.source,
                     )).entries,
@@ -410,7 +410,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         if (read.status === "error") {
             return {
                 entries: (await this.excludeSnapshotEntries(
-                    await this.buildSafeEntries(build),
+                    await build(),
                     returnOptions,
                     params.source,
                 )).entries,
@@ -489,20 +489,19 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         params: DocumentSnapshotKeyParams,
         build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
     ): Promise<BuildOutcome<TDoc>> {
-        const entries = await this.buildSafeEntries(build);
+        const entries = await build();
         const snapshot: StoredSnapshot<TDoc> = { version, builtAt: Date.now(), entries };
         const stored = await this.writeSnapshot(key, snapshot, params);
         return { snapshot, stored };
     }
 
-    private async buildSafeEntries<TDoc>(
-        build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
-    ): Promise<DocumentSnapshotEntry<TDoc>[]> {
-        const excludedIds = new Set(
-            await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds(),
-        );
-        return this.filterExcludedSnapshotEntries(await build(), excludedIds);
-    }
+    // Snapshots are stored unfiltered. Purge intents used to be filtered out here as well as
+    // at return time, to cover a race the old delete could produce: the intent was written,
+    // the vendor then rejected the delete, and the intent was rolled back — but any snapshot
+    // built in between had already been stored with the document missing. A delete now cancels
+    // instead, and a refusal is resolved locally against the document's own terminal status
+    // rather than by rolling an intent back, so that window is gone. Return-time filtering runs
+    // on every read, hit and miss alike, and remains the single place visibility is decided.
 
     /**
      * A purge intent is hidden in every list. Tombstones are hidden only when the

@@ -131,6 +131,39 @@ describe("EformsignService", () => {
         });
     });
 
+    it("posts a cancellation to the vendor's cancel endpoint", async () => {
+        const service = new EformsignService(createConfigService());
+        const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ result: { success_result: ["doc-1"], fail_result: [] } }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.cancelDocuments("access-token", ["doc-1"], "관리자 삭제"))
+            .resolves.toEqual({ result: { success_result: ["doc-1"], fail_result: [] } });
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            "https://doc.eformsign.example/v2.0/api/documents/cancel",
+            expect.objectContaining({
+                method: "POST",
+                // The vendor nests the payload under `input`; a flat body is rejected.
+                body: JSON.stringify({
+                    input: { document_ids: ["doc-1"], comment: "관리자 삭제" },
+                }),
+            }),
+        );
+    });
+
+    it("surfaces a vendor rejection of a cancellation as an api error", async () => {
+        const service = new EformsignService(createConfigService());
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ code: "4000164", ErrorMessage: "not authorized" }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.cancelDocuments("access-token", ["doc-1"]))
+            .rejects.toMatchObject({ status: 400, vendorCode: "4000164" });
+    });
+
     it("aborts and cancels a mirrored PDF body that stops streaming before the deadline", async () => {
         jest.useFakeTimers();
         const service = new EformsignService(createConfigService());

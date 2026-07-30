@@ -240,6 +240,10 @@ export class EformsignDocumentMirrorService {
         return this.mirrorRepository.findActiveDocumentIds();
     }
 
+    async findTerminalDocumentIds(documentIds: string[]): Promise<string[]> {
+        return this.mirrorRepository.findTerminalDocumentIds(documentIds);
+    }
+
     async findPermanentPurgeRequestedDocumentIds(): Promise<string[]> {
         return this.mirrorRepository.findPermanentPurgeRequestedDocumentIds();
     }

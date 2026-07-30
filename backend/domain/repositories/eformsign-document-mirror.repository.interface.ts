@@ -107,6 +107,12 @@ export interface IEformsignDocumentMirrorRepository {
     ): Promise<void>;
     findActiveDocumentIds(): Promise<string[]>;
     /**
+     * Of the given documents, those already in a terminal state locally. A delete cancels
+     * at the vendor first, and eformsign refuses to cancel anything that is not in progress;
+     * these are the documents for which that refusal is expected and harmless.
+     */
+    findTerminalDocumentIds(documentIds: string[]): Promise<string[]>;
+    /**
      * Document ids excluded by a list request that hides deletion tombstones:
      * durable permanent-purge intent and terminal deletion tombstones alike.
      * This is intentionally global because document ids are globally unique and

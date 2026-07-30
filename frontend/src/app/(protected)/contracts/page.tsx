@@ -1066,7 +1066,7 @@ export default function ContractsPage() {
         }}
         data-component="desktop_contracts_modals_delete-approval"
         title="문서를 삭제하시겠습니까?"
-        description="삭제한 전자문서는 복구할 수 없습니다."
+        description="전자문서가 취소되어 수신자가 더 이상 서명할 수 없습니다. 복구할 수 없습니다."
         approvalLabel="삭제"
         pendingLabel="삭제 중..."
         approvalVariant="destructive"

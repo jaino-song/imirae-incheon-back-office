@@ -59,8 +59,16 @@ describe("CreateAndSendContractUsecase", () => {
         }));
     });
 
-    it("persists the same document name sent to eformsign", async () => {
-        const createDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+    // This used to assert that the name sent to eformsign is the name persisted locally. The
+    // contract template sets title_change=false — it names the document itself and rejects an
+    // explicit name with 4000010 — so no name is sent at all now. The invariant it was
+    // protecting survives in a new form: the mirror row must carry the title eformsign actually
+    // assigned, never one only we believe in.
+    it("persists the document name eformsign assigned", async () => {
+        const createDocument = jest.fn().mockResolvedValue({
+            documentId: "remote-1",
+            documentName: "김고객____남동구 계약서",
+        });
         const persistDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
         const usecase = new CreateAndSendContractUsecase(
             { createDocument } as never,
@@ -84,14 +92,74 @@ describe("CreateAndSendContractUsecase", () => {
 
         expect(createDocument).toHaveBeenCalledWith(
             "token",
-            expect.objectContaining({ documentName: "표준계약서 - 김고객" }),
+            expect.not.objectContaining({ documentName: expect.anything() }),
         );
         expect(persistDocument).toHaveBeenCalledWith(
             "branch-1",
             expect.objectContaining({
-                documentName: "표준계약서 - 김고객",
+                documentName: "김고객____남동구 계약서",
                 templateName: "표준계약서",
                 customerName: "김고객",
+            }),
+        );
+    });
+
+    it("falls back to its own label when eformsign returns no document name", async () => {
+        const createDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+        const persistDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: persistDocument } as never,
+            { assertAssignedClient: jest.fn() } as never,
+        );
+
+        await usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+            templateName: "표준계약서",
+        });
+
+        expect(persistDocument).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ documentName: "표준계약서 - 김고객" }),
+        );
+    });
+
+    it("sends the participant recipient by phone alone", async () => {
+        const createDocument = jest.fn().mockResolvedValue({ documentId: "remote-1" });
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById: jest.fn().mockResolvedValue({
+                id: 7,
+                name: "김고객",
+                phone: "010-1111-2222",
+                startDate: null,
+                endDate: null,
+            }) } as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: jest.fn().mockResolvedValue({ documentId: "remote-1" }) } as never,
+            { assertAssignedClient: jest.fn() } as never,
+        );
+
+        await usecase.execute("branch-1", {
+            clientId: 7,
+            templateId: "template-1",
+            templateName: "표준계약서",
+        });
+
+        // `client` has no email column, so the recipient must be identifiable by phone only.
+        expect(createDocument).toHaveBeenCalledWith(
+            "token",
+            expect.objectContaining({
+                recipient: { name: "김고객", sms: "010-1111-2222" },
             }),
         );
     });

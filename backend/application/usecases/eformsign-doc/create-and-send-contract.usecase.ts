@@ -96,10 +96,13 @@ export class CreateAndSendContractUsecase {
                 { id: "서비스 기간", value: `${client.duration || 0}일` },
             ];
 
-            const documentName = `${templateName || "계약서"} - ${client.name}`;
+            // The contract template sets title_change=false: it builds the title from its own
+            // doc_default_title pattern and rejects an explicit name with 4000010. Send none and
+            // record whatever eformsign named it, falling back to our own label if the response
+            // omits it, so the mirror row never carries a title the vendor disagrees with.
+            const fallbackDocumentName = `${templateName || "계약서"} - ${client.name}`;
             const result = await this.eformsignClient.createDocument(accessToken, {
                 templateId,
-                documentName,
                 prefillFields,
                 recipient: {
                     name: client.name,
@@ -107,6 +110,7 @@ export class CreateAndSendContractUsecase {
                 },
             });
             remoteDocumentId = result.documentId;
+            const documentName = result.documentName ?? fallbackDocumentName;
 
             await this.createEformsignDocUsecase.execute(branchid, {
                 documentId: result.documentId,

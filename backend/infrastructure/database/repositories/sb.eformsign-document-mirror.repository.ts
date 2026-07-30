@@ -1,7 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
-import { EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES } from "domain/constants/eformsign-doc-status.constants";
+import {
+    EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
+    TERMINAL_STATUS_CODES,
+} from "domain/constants/eformsign-doc-status.constants";
 import {
     EformsignDocumentFileType,
     EformsignDocumentFileMetadata,
@@ -115,6 +118,29 @@ implements IEformsignDocumentMirrorRepository {
             where: {
                 statusType: { not: "049" },
                 permanentPurgeRequestedAt: null,
+            },
+            select: { documentId: true },
+        });
+        return rows.map((row) => row.documentId);
+    }
+
+    /**
+     * Of the given documents, those already in a terminal state locally.
+     *
+     * A delete cancels the document at the vendor first, and eformsign only cancels
+     * in-progress documents. Terminal ones are refused, but they have no live signing
+     * link left to revoke, so refusing to delete them locally would strand every
+     * completed contract. This separates "refused because there was nothing to cancel"
+     * from "refused for a reason we do not understand".
+     */
+    async findTerminalDocumentIds(documentIds: string[]): Promise<string[]> {
+        if (documentIds.length === 0) {
+            return [];
+        }
+        const rows = await this.prisma.eformsign_doc.findMany({
+            where: {
+                documentId: { in: documentIds },
+                statusType: { in: [...TERMINAL_STATUS_CODES] },
             },
             select: { documentId: true },
         });
@@ -486,10 +512,9 @@ implements IEformsignDocumentMirrorRepository {
                     updatedDate: deletedAt,
                     expired: false,
                     clientId: null,
-                    // A permanent-purge tombstone must retain only its deletion
-                    // audit trail. Keep it out of client/service-record views and
-                    // lifecycle readiness sets even after the purge intent is
-                    // cleared below.
+                    // A purge tombstone must retain only its deletion audit trail.
+                    // Keep it out of client/service-record views and lifecycle
+                    // readiness sets.
                     documentKind: null,
                     employeeScheduleId: null,
                     serviceRecordCaseId: null,
@@ -501,7 +526,17 @@ implements IEformsignDocumentMirrorRepository {
                     syncStatus: "ready",
                     syncError: null,
                     syncErrorAt: null,
-                    permanentPurgeRequestedAt: null,
+                    // permanentPurgeRequestedAt is deliberately NOT cleared here.
+                    //
+                    // A delete no longer removes the document from eformsign — it cancels it,
+                    // so the vendor keeps its copy forever. The six-hour reconcile sweep and
+                    // every webhook therefore keep rediscovering this document, and both route
+                    // through conditionalUpsertByDocumentId, whose UPDATE is gated by a
+                    // staleGuard requiring `permanentPurgeRequestedAt: null` and a non-deleted
+                    // statusType. When that UPDATE matches no row the create branch runs and
+                    // rebuilds the document in full, customer name included. The 049 status and
+                    // this fence are the two things standing between a purged document and
+                    // resurrection; clearing the fence would leave only one.
                 },
             });
         });

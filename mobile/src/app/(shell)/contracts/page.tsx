@@ -2375,7 +2375,7 @@ export default function ContractsPage() {
         data-component="mobile_contracts_delete-confirmation_modal"
         open={deleteTargetDoc !== null}
         title="계약서 삭제"
-        description="선택한 계약서를 삭제할까요?"
+        description="전자문서가 취소되어 수신자가 더 이상 서명할 수 없습니다. 복구할 수 없습니다."
         cancelLabel="취소"
         confirmLabel="삭제"
         loading={isDeleteDocumentBusy}
