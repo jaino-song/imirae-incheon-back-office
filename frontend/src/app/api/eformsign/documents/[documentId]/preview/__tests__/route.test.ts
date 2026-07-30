@@ -9,10 +9,12 @@ import { GET, HEAD } from "../route";
 jest.mock("@/lib/api/server", () => ({
   serverAPIClient: {
     get: jest.fn(),
+    head: jest.fn(),
   },
 }));
 
 const mockServerGet = serverAPIClient.get as jest.Mock;
+const mockServerHead = serverAPIClient.head as jest.Mock;
 const context = { params: Promise.resolve({ documentId: "doc-1" }) };
 
 function createRequest(method: "GET" | "HEAD"): NextRequest {
@@ -30,6 +32,7 @@ function createRequest(method: "GET" | "HEAD"): NextRequest {
 describe("eformsign document preview route", () => {
   beforeEach(() => {
     mockServerGet.mockReset();
+    mockServerHead.mockReset();
   });
 
   it("returns PDF bytes for GET", async () => {
@@ -48,10 +51,12 @@ describe("eformsign document preview route", () => {
   });
 
   it("returns only PDF metadata for HEAD", async () => {
-    mockServerGet.mockResolvedValue({
+    mockServerHead.mockResolvedValue({
       status: 200,
-      headers: { "content-type": "application/pdf" },
-      data: new Uint8Array([1, 2, 3]),
+      headers: {
+        "content-type": "application/pdf",
+        "content-length": "3",
+      },
     });
 
     const response = await HEAD(createRequest("HEAD"), context);
@@ -60,13 +65,13 @@ describe("eformsign document preview route", () => {
     expect(response.headers.get("Content-Type")).toBe("application/pdf");
     expect(response.headers.get("Content-Length")).toBe("3");
     expect((await response.arrayBuffer()).byteLength).toBe(0);
-    expect(mockServerGet).toHaveBeenCalledWith(
+    expect(mockServerHead).toHaveBeenCalledWith(
       "/api/documents/doc-1/download_files",
       expect.objectContaining({
         params: { fileType: "document" },
-        responseType: "arraybuffer",
       }),
     );
+    expect(mockServerGet).not.toHaveBeenCalled();
   });
 
   it("does not contact the backend for an unauthenticated HEAD request", async () => {
@@ -80,10 +85,11 @@ describe("eformsign document preview route", () => {
     expect(response.status).toBe(401);
     expect((await response.arrayBuffer()).byteLength).toBe(0);
     expect(mockServerGet).not.toHaveBeenCalled();
+    expect(mockServerHead).not.toHaveBeenCalled();
   });
 
   it("preserves a backend access denial for HEAD without returning its body", async () => {
-    mockServerGet.mockRejectedValue(
+    mockServerHead.mockRejectedValue(
       Object.assign(new Error("forbidden"), {
         response: {
           status: 403,
@@ -102,7 +108,7 @@ describe("eformsign document preview route", () => {
   });
 
   it("preserves retry metadata for a pending local PDF without forwarding cookies", async () => {
-    mockServerGet.mockRejectedValue(
+    mockServerHead.mockRejectedValue(
       Object.assign(new Error("not ready"), {
         response: {
           status: 503,
@@ -125,7 +131,7 @@ describe("eformsign document preview route", () => {
   });
 
   it("returns a bodyless bad-gateway response for a HEAD transport failure", async () => {
-    mockServerGet.mockRejectedValue(new Error("connection refused"));
+    mockServerHead.mockRejectedValue(new Error("connection refused"));
 
     const response = await HEAD(createRequest("HEAD"), context);
 

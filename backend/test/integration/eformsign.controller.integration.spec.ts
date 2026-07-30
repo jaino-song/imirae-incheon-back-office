@@ -79,6 +79,7 @@ describe("EformsignController (Integration)", () => {
     const documentMirrorService = {
         getStoredDetail: jest.fn(),
         getStoredFile: jest.fn(),
+        getStoredFileMetadata: jest.fn(),
         markDocumentsDeleted: jest.fn(),
         purgeDocuments: jest.fn(),
         requestPermanentPurge: jest.fn(),
@@ -94,6 +95,7 @@ describe("EformsignController (Integration)", () => {
         shadowCompareService.compareInBackground.mockClear();
         documentMirrorService.getStoredDetail.mockReset();
         documentMirrorService.getStoredFile.mockReset();
+        documentMirrorService.getStoredFileMetadata.mockReset();
         documentMirrorService.markDocumentsDeleted.mockReset();
         documentMirrorService.purgeDocuments.mockReset();
         documentMirrorService.requestPermanentPurge.mockReset();
@@ -215,6 +217,7 @@ describe("EformsignController (Integration)", () => {
             async (documentId: string) => ({ id: documentId }),
         );
         documentMirrorService.getStoredFile.mockResolvedValue(null);
+        documentMirrorService.getStoredFileMetadata.mockResolvedValue(null);
         documentMirrorService.markDocumentsDeleted.mockResolvedValue(undefined);
         documentMirrorService.purgeDocuments.mockResolvedValue(undefined);
         documentMirrorService.requestPermanentPurge.mockImplementation(
@@ -620,6 +623,31 @@ describe("EformsignController (Integration)", () => {
             .get("/api/documents/doc-1/download_files?accessToken=access-token&fileType=zip");
 
         expect(response.status).toBe(400);
+        expect(documentMirrorService.getStoredFile).not.toHaveBeenCalled();
+    });
+
+    it("serves document PDF metadata for HEAD without loading stored bytes", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as any);
+        documentMirrorService.getStoredFileMetadata.mockResolvedValue({
+            status: 200,
+            contentType: "application/pdf",
+            contentDisposition: "inline",
+            byteSize: 321,
+        });
+
+        const response = await request(app.getHttpServer())
+            .head("/api/documents/branch-1-doc/download_files?fileType=document");
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toContain("application/pdf");
+        expect(response.headers["content-length"]).toBe("321");
+        expect(response.text).toBeUndefined();
+        expect(documentMirrorService.getStoredFileMetadata).toHaveBeenCalledWith(
+            "branch-1-doc",
+            "document",
+        );
         expect(documentMirrorService.getStoredFile).not.toHaveBeenCalled();
     });
 
