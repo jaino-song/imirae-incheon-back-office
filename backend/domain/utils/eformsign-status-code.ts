@@ -53,3 +53,36 @@ export function normalizeEformsignStepType(
 ): string {
     return normalizeEformsignCode(stepType, 2);
 }
+
+const PROVIDER_REVIEW_STEP_TYPES = new Set(["06"]);
+const PROVIDER_REVIEW_OWNER_KEYWORDS = ["제공기관", "관리자", "담당자"];
+const PROVIDER_REVIEW_ACTION_KEYWORDS = ["확인", "검토"];
+const CUSTOMER_STEP_KEYWORDS = ["이용자", "고객", "산모"];
+
+/**
+ * True when the document's current workflow step is the provider's
+ * review/confirmation step. That step only becomes current after the customer
+ * has signed, so it doubles as the "customer already signed" test for
+ * in-progress documents — callers must first exclude completed/rejected/
+ * revoked/deleted documents, whose current step is no longer meaningful.
+ *
+ * Mirrors `isProviderReviewWorkflowStep` in
+ * packages/shared/src/constants/eformsign-status-codes.ts (the frontend/mobile
+ * canonical copy), transposed to this package's camelCase field naming. The
+ * backend keeps its own copy for the same reason it keeps its own status-code
+ * table: it does not depend on @babyjamjam/shared.
+ */
+export function isProviderReviewWorkflowStep(
+    step: { stepType?: string | null; stepName?: string | null } | null | undefined,
+): boolean {
+    const stepType = normalizeEformsignStepType(step?.stepType);
+    const stepName = step?.stepName?.trim() ?? "";
+
+    if (PROVIDER_REVIEW_STEP_TYPES.has(stepType)) return true;
+    if (!stepName) return false;
+    if (CUSTOMER_STEP_KEYWORDS.some((keyword) => stepName.includes(keyword))) return false;
+
+    const hasProviderOwner = PROVIDER_REVIEW_OWNER_KEYWORDS.some((keyword) => stepName.includes(keyword));
+    const hasReviewAction = PROVIDER_REVIEW_ACTION_KEYWORDS.some((keyword) => stepName.includes(keyword));
+    return hasProviderOwner && hasReviewAction;
+}
