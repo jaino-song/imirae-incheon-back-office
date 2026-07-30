@@ -1135,8 +1135,18 @@ export class ClientService {
         // Get existing client
         const existingClient = await this.findClientByIdUsecase.execute(branchid, id);
         if (!existingClient) {
-            throw new Error(`Client with id ${id} not found`);
+            throw new NotFoundException(`Client with id ${id} not found`);
         }
+
+        const hasRequestedUpdate = Object.values(params).some((value) => value !== undefined);
+        if (!hasRequestedUpdate) {
+            const existingPhone = normalizePhone(existingClient.phone);
+            if (existingPhone) {
+                await this.linkContractDocumentsByPhone(branchid, existingClient, existingPhone);
+            }
+            return existingClient;
+        }
+
         const hasPricingUpdate = params.voucherClient !== undefined
             || params.type !== undefined
             || params.duration !== undefined
