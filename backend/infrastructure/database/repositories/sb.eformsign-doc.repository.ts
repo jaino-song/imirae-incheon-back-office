@@ -455,7 +455,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 SELECT id, client_id AS "clientId"
                 FROM eformsign_doc
                 WHERE document_id = ${documentId}
-                  AND branch_id = ${branchid}
+                  AND branch_id = ${branchid}::uuid
                   AND permanent_purge_requested_at IS NULL
                   AND status_type NOT IN ('047', '049', '099')
                 FOR UPDATE
@@ -476,7 +476,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 SELECT id
                 FROM client
                 WHERE id IN (${Prisma.join(clientIdsToLock)})
-                  AND branch_id = ${branchid}
+                  AND branch_id = ${branchid}::uuid
                 ORDER BY id
                 FOR UPDATE
             `);
