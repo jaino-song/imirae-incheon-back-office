@@ -148,7 +148,7 @@ function setup() {
         created_date: Date.now(),
         updated_date: Date.now(),
         current_status: {
-            status_type: "070",
+            status_type: "doc_accept_reviewer",
             status_doc_type: "진행중",
             status_doc_detail: "검토 요청",
             step_type: "06",
@@ -375,6 +375,7 @@ describe("client-owned service record snapshot", () => {
                 creatorName: "검토자",
                 lastEditorName: "최종 편집자",
                 stepRecipientTypes: "01",
+                statusType: "072",
             }),
             update: expect.objectContaining({
                 documentName: chunk.documentName,
@@ -383,7 +384,7 @@ describe("client-owned service record snapshot", () => {
                 creatorName: "검토자",
                 lastEditorName: "최종 편집자",
                 stepRecipientTypes: "01",
-                statusType: "070",
+                statusType: "072",
                 statusDetail: "검토 요청",
                 stepType: "06",
                 stepIndex: "2",

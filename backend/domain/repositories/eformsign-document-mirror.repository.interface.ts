@@ -113,6 +113,11 @@ export interface IEformsignDocumentMirrorRepository {
      * cached HQ snapshots can contain both branch-owned and unassigned rows.
      */
     findListExcludedDocumentIds(): Promise<string[]>;
+    /**
+     * Completed rows that are not safe to publish from a cached mirror generation.
+     * Global by document id so the same fence protects branch and headquarters caches.
+     */
+    findUnreadyCompletedDocumentIds(): Promise<string[]>;
     findPermanentPurgeRequestedDocumentIds(): Promise<string[]>;
     requestPermanentPurge(documentIds: string[]): Promise<EformsignPermanentPurgeRequest[]>;
     /** Returns only requests whose exact generation was still pending. */

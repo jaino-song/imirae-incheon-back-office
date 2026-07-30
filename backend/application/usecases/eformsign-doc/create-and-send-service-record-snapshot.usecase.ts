@@ -18,6 +18,7 @@ import {
 } from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import {
@@ -786,7 +787,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
             stepRecipientTypes,
             createdDate,
             updatedDate,
-            statusType: remoteStatus?.status_type ?? "070",
+            statusType: normalizeEformsignStatusCode(remoteStatus?.status_type ?? "070"),
             statusDetail: remoteStatus?.status_doc_detail ?? "검토 요청",
             stepType: remoteStatus?.step_type ?? "06",
             stepIndex: remoteStatus?.step_index ?? "2",
@@ -814,7 +815,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
             ...(stepRecipientTypes ? { stepRecipientTypes } : {}),
             ...(remoteStatus ? {
                 updatedDate,
-                statusType: remoteStatus.status_type,
+                statusType: normalizeEformsignStatusCode(remoteStatus.status_type),
                 // Only detail responses carry this. Omit rather than pass undefined so
                 // the intent is the code's, not Prisma's coincidental skip semantics.
                 ...(remoteStatus.status_doc_detail === undefined

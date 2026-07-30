@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES } from "domain/constants/eformsign-doc-status.constants";
 import { SbEformsignDocumentMirrorRepository } from "infrastructure/database/repositories/sb.eformsign-document-mirror.repository";
 
 describe("SbEformsignDocumentMirrorRepository", () => {
@@ -14,6 +15,43 @@ describe("SbEformsignDocumentMirrorRepository", () => {
             return Promise.all(operation as Promise<unknown>[]);
         });
     }
+
+    it("finds unready completed rows and hides every completed row before sync_status exists", async () => {
+        const missingSyncStatus = Object.assign(
+            new Error("The column `eformsign_doc.sync_status` does not exist"),
+            {
+                code: "P2022",
+                meta: { column: "eformsign_doc.sync_status" },
+            },
+        );
+        const findMany = jest.fn()
+            .mockResolvedValueOnce([{ documentId: "syncing-document" }])
+            .mockRejectedValueOnce(missingSyncStatus)
+            .mockResolvedValueOnce([{ documentId: "legacy-completed-document" }]);
+        const repository = new SbEformsignDocumentMirrorRepository({
+            eformsign_doc: { findMany },
+        } as never);
+
+        await expect(repository.findUnreadyCompletedDocumentIds())
+            .resolves.toEqual(["syncing-document"]);
+        await expect(repository.findUnreadyCompletedDocumentIds())
+            .resolves.toEqual(["legacy-completed-document"]);
+
+        const completedValues = [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES];
+        expect(findMany).toHaveBeenNthCalledWith(1, {
+            where: {
+                statusType: { in: completedValues },
+                syncStatus: { not: "ready" },
+            },
+            select: { documentId: true },
+        });
+        expect(findMany).toHaveBeenNthCalledWith(3, {
+            where: {
+                statusType: { in: completedValues },
+            },
+            select: { documentId: true },
+        });
+    });
 
     it("returns a file only when it belongs to the current non-purged detail", async () => {
         const file = {

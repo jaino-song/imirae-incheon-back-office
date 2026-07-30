@@ -1,8 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
+    EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
     UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
-    UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
+    UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
 } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
@@ -16,11 +17,13 @@ import {
     EformsignDocStaleUpdateError,
     EformsignDocUnscopedResult,
     IEformsignDocRepository,
+    UpsertEformsignDocByDocumentIdOptions,
     UpsertUnassignedEformsignDocOptions,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import {
     EFORMSIGN_DOC_DOMAIN_READ_SELECT,
     readWithEformsignDocCompat,
+    stripPendingEformsignDocPredicates,
     isPendingEformsignDocColumnError,
     omitPendingEformsignDocColumns,
     toCompatDomainRow,
@@ -35,6 +38,29 @@ const isUniqueConstraintError = (error: unknown): boolean =>
     && (error as { code?: unknown }).code === "P2002";
 
 const DELETED_EFORMSIGN_STATUS_TYPES = ["047", "049", "099"];
+const COMPLETED_EFORMSIGN_STATUS_TYPES = [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES];
+const MIRROR_LIST_NON_COMPLETED_WHERE: Prisma.eformsign_docWhereInput = {
+    statusType: { notIn: COMPLETED_EFORMSIGN_STATUS_TYPES },
+};
+const MIRROR_LIST_VISIBILITY_WHERE: Prisma.eformsign_docWhereInput = {
+    OR: [
+        MIRROR_LIST_NON_COMPLETED_WHERE,
+        {
+            statusType: { in: COMPLETED_EFORMSIGN_STATUS_TYPES },
+            syncStatus: "ready",
+        },
+    ],
+};
+const RETRYABLE_MIRROR_SYNC_STATUSES = ["pending", "partial", "failed"] as const;
+
+const combineStatusGuards = (
+    guards: Prisma.eformsign_docWhereInput[],
+): Prisma.eformsign_docWhereInput => {
+    if (guards.length === 1) {
+        return guards[0] ?? {};
+    }
+    return guards.length > 1 ? { AND: guards } : {};
+};
 
 const toUnscopedResult = (
     documentId: string,
@@ -242,11 +268,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         });
     }
 
+    async findAllVisibleInMirror(branchid: string): Promise<EformsignDocEntity[]> {
+        return this.findManyVisibleInMirror({ branchId: branchid });
+    }
+
     async findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]> {
         // Mirrors the scan filter the API path uses: headquarters keeps everything except
         // what another branch owns, so an unclaimed document (branchId null) stays in.
         return this.findManyDomain({
             permanentPurgeRequestedAt: null,
+            OR: [
+                { branchId: branchid },
+                { branchId: null },
+            ],
+        });
+    }
+
+    async findAllVisibleInMirrorForHeadquarters(
+        branchid: string,
+    ): Promise<EformsignDocEntity[]> {
+        return this.findManyVisibleInMirror({
             OR: [
                 { branchId: branchid },
                 { branchId: null },
@@ -543,17 +584,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         return { document: updated, applied: true };
     }
 
-    async upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity> {
+    async upsertByDocumentId(
+        branchid: string,
+        doc: EformsignDocEntity,
+        options?: UpsertEformsignDocByDocumentIdOptions,
+    ): Promise<EformsignDocEntity> {
         const create = {
             ...EformsignDocMapper.toPrismaCreate(doc),
             branchId: branchid,
         };
-        const update: Partial<ReturnType<typeof EformsignDocMapper.toPrismaUpdate>> & {
-            branchId: string;
-        } = {
-            ...EformsignDocMapper.toPrismaUpdate(doc),
-            branchId: branchid,
-        };
+        const update: Partial<ReturnType<typeof EformsignDocMapper.toPrismaUpdate>>
+            & { branchId: string } = options?.preserveExistingMirrorProjection
+                ? {
+                    branchId: branchid,
+                    clientId: doc.clientId,
+                    documentKind: doc.documentKind,
+                }
+                : {
+                    ...EformsignDocMapper.toPrismaUpdate(doc),
+                    branchId: branchid,
+                };
         delete update.documentId;
 
         return this.conditionalUpsertByDocumentId({
@@ -591,6 +641,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         };
         const update = {
             statusType: doc.statusType,
+            ...(options?.markMirrorPending ? { syncStatus: "pending" as const } : {}),
             ...(options?.updateStatusDetail === false ? {} : { statusDetail: doc.statusDetail }),
             stepType: doc.stepType,
             stepIndex: doc.stepIndex,
@@ -611,7 +662,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 : {}),
         };
 
-        const statusGuards: Prisma.eformsign_docWhereInput[] = [
+        const baseStatusGuards: Prisma.eformsign_docWhereInput[] = [
             ...(UNASSIGNED_TERMINAL_STATUS_CODES.has(doc.statusType)
                 ? []
                 : [{
@@ -625,19 +676,58 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                     OR: [
                         {
                             statusType: {
-                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_CODES],
+                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
                             },
                         },
                         { statusType: doc.statusType },
                     ],
                 }]),
         ];
-        let statusGuard: Prisma.eformsign_docWhereInput = {};
-        if (statusGuards.length === 1) {
-            statusGuard = statusGuards[0] ?? {};
-        } else if (statusGuards.length > 1) {
-            statusGuard = { AND: statusGuards };
-        }
+        const statusGuards: Prisma.eformsign_docWhereInput[] = [
+            ...baseStatusGuards,
+            ...(options?.markMirrorPending
+                ? [{
+                    // The detail attempt is the publication owner. A list status can
+                    // intentionally lag behind a completion webhook, so it must never
+                    // authorize a same-generation ready/syncing row to move back to
+                    // pending. Same-generation repair is limited to retryable attempts
+                    // or a detail that itself is still at the review stage.
+                    OR: [
+                        { detailSourceUpdatedDate: null },
+                        { detailSourceUpdatedDate: { lt: doc.updatedDate } },
+                        {
+                            AND: [
+                                { detailSourceUpdatedDate: doc.updatedDate },
+                                {
+                                    OR: [
+                                        {
+                                            syncStatus: {
+                                                in: [...RETRYABLE_MIRROR_SYNC_STATUSES],
+                                            },
+                                        },
+                                        ...(UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE
+                                            .has(doc.statusType)
+                                            ? UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES
+                                                .map((statusType) => ({
+                                                    detailPayload: {
+                                                        path: [
+                                                            "current_status",
+                                                            "status_type",
+                                                        ],
+                                                        equals: statusType,
+                                                    },
+                                                }))
+                                            : []),
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }]
+                : []),
+        ];
+        const statusGuard = combineStatusGuards(statusGuards);
+        const compatibilityStatusGuard = combineStatusGuards(baseStatusGuards);
 
         return this.conditionalUpsertByDocumentId({
             documentId: doc.documentId,
@@ -659,6 +749,19 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
                 ...statusGuard,
             },
+            ...(options?.markMirrorPending
+                ? {
+                    // Before the mirror migration there is no detail generation or
+                    // syncStatus to fence. Keep the pre-mirror ordering/status guards
+                    // so a P2022 retry never references columns that do not exist.
+                    compatibilityStaleGuard: {
+                        updatedDate: { lte: doc.updatedDate },
+                        permanentPurgeRequestedAt: null,
+                        statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
+                        ...compatibilityStatusGuard,
+                    },
+                }
+                : {}),
             // Creation time is not state, so a refusal on ordering grounds must not take
             // it down with the rest. It has to be that way: a row written by create or
             // adopt carries the moment we wrote it, which is *newer* than the vendor's own
@@ -676,19 +779,25 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         update: Prisma.eformsign_docUpdateManyMutationInput;
         allowedWhere: Prisma.eformsign_docWhereInput;
         staleGuard?: Prisma.eformsign_docWhereInput;
+        compatibilityStaleGuard?: Prisma.eformsign_docWhereInput;
         repairCreatedDateWhenStale?: Date;
     }): Promise<EformsignDocEntity> {
+        const {
+            compatibilityStaleGuard,
+            ...attemptParams
+        } = params;
         try {
-            return await this.attemptConditionalUpsertByDocumentId(params);
+            return await this.attemptConditionalUpsertByDocumentId(attemptParams);
         } catch (error) {
             if (!isPendingEformsignDocColumnError(error)) {
                 throw error;
             }
 
             return this.attemptConditionalUpsertByDocumentId({
-                ...params,
-                create: omitPendingEformsignDocColumns(params.create, error),
-                update: omitPendingEformsignDocColumns(params.update, error),
+                ...attemptParams,
+                create: omitPendingEformsignDocColumns(attemptParams.create, error),
+                update: omitPendingEformsignDocColumns(attemptParams.update, error),
+                staleGuard: compatibilityStaleGuard ?? attemptParams.staleGuard,
             }, error);
         }
     }
@@ -809,7 +918,10 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
 
             const doc = await readWithEformsignDocCompat(error, (select) =>
-                this.prismaService.eformsign_doc.findFirst({ where, select }));
+                this.prismaService.eformsign_doc.findFirst({
+                    where: stripPendingEformsignDocPredicates(error, where),
+                    select,
+                }));
             return doc ? EformsignDocMapper.toDomain(toCompatDomainRow(doc)) : null;
         }
     }
@@ -827,8 +939,39 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
 
             const docs = await readWithEformsignDocCompat(error, (select) =>
-                this.prismaService.eformsign_doc.findMany({ where, select }));
+                this.prismaService.eformsign_doc.findMany({
+                    where: stripPendingEformsignDocPredicates(error, where),
+                    select,
+                }));
             return docs.map((doc) => EformsignDocMapper.toDomain(toCompatDomainRow(doc)));
+        }
+    }
+
+    private async findManyVisibleInMirror(
+        scopeWhere: Prisma.eformsign_docWhereInput,
+    ): Promise<EformsignDocEntity[]> {
+        try {
+            return await this.findManyDomain({
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    scopeWhere,
+                    MIRROR_LIST_VISIBILITY_WHERE,
+                ],
+            });
+        } catch (error) {
+            if (!isPendingEformsignDocColumnError(error)) {
+                throw error;
+            }
+
+            // During a code-first rollout sync_status may not exist yet. Without it,
+            // no completed document can be proven to contain both required PDFs.
+            return this.findManyDomain({
+                permanentPurgeRequestedAt: null,
+                AND: [
+                    scopeWhere,
+                    MIRROR_LIST_NON_COMPLETED_WHERE,
+                ],
+            });
         }
     }
 }
