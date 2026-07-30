@@ -1502,6 +1502,49 @@ describe("EformsignDocumentMirrorService", () => {
         }));
     });
 
+    it("returns current stored PDF metadata without reading the PDF bytes", async () => {
+        const sourceUpdatedDate = new Date(UPDATED_AT);
+        const repository = {
+            findState: jest.fn().mockResolvedValue({
+                documentId: "doc-1",
+                branchId: "branch-1",
+                detailPayload: richDetail(),
+                detailSourceUpdatedDate: sourceUpdatedDate,
+                detailSyncedAt: sourceUpdatedDate,
+                syncStatus: "ready",
+                syncError: null,
+                permanentPurgeRequestedAt: null,
+                files: [{
+                    fileType: "document",
+                    contentType: "application/pdf",
+                    contentDisposition: "inline",
+                    byteSize: PDF.length,
+                    sha256: "hash",
+                    sourceUpdatedDate,
+                    syncedAt: sourceUpdatedDate,
+                }],
+            }),
+            findFile: jest.fn(),
+        };
+        const service = new EformsignDocumentMirrorService(
+            {} as never,
+            repository as never,
+            {} as never,
+            {} as never,
+            {} as never,
+        );
+
+        await expect(service.getStoredFileMetadata("doc-1", "document"))
+            .resolves.toEqual({
+                status: 200,
+                contentType: "application/pdf",
+                contentDisposition: "inline",
+                byteSize: PDF.length,
+            });
+        expect(repository.findState).toHaveBeenCalledWith("doc-1");
+        expect(repository.findFile).not.toHaveBeenCalled();
+    });
+
     it("repairs an integrity-failed current version with both PDFs", async () => {
         const detail = richDetail();
         const previousAttempt = new Date(UPDATED_AT);

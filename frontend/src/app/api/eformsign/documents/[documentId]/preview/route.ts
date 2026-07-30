@@ -60,29 +60,45 @@ async function proxyPreview(
     const { documentId } = await params;
     const attachment = request.nextUrl.searchParams.get("attachment") === "true";
 
-    const response = await serverAPIClient.get(`/api/documents/${documentId}/download_files`, {
+    const upstreamPath = `/api/documents/${documentId}/download_files`;
+    const upstreamConfig = {
       params: {
         fileType: "document",
       },
       headers: getAuthHeaders(authToken),
-      responseType: "arraybuffer",
-    });
+    };
+    const response = includeBody
+      ? await serverAPIClient.get(upstreamPath, {
+          ...upstreamConfig,
+          responseType: "arraybuffer",
+        })
+      : await serverAPIClient.head(upstreamPath, upstreamConfig);
 
     const contentType = String(response.headers["content-type"] ?? "application/octet-stream");
 
-    if (contentType.includes("application/json")) {
-      if (!includeBody) {
-        return new NextResponse(null, {
-          status: response.status,
-          headers: { "Content-Type": contentType },
-        });
-      }
+    if (!includeBody) {
+      const contentLength = response.headers["content-length"];
+      return new NextResponse(null, {
+        status: response.status,
+        headers: {
+          "Content-Type": contentType,
+          "Content-Disposition": attachment
+            ? `attachment; filename="${documentId}.pdf"`
+            : "inline",
+          ...(contentLength !== undefined
+            ? { "Content-Length": String(contentLength) }
+            : {}),
+          "Cache-Control": "no-store",
+        },
+      });
+    }
 
+    if (contentType.includes("application/json")) {
       const payload = JSON.parse(Buffer.from(response.data).toString("utf-8"));
       return NextResponse.json(payload, { status: response.status });
     }
 
-    return new NextResponse(includeBody ? response.data : null, {
+    return new NextResponse(response.data, {
       status: response.status,
       headers: {
         "Content-Type": contentType,
