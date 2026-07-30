@@ -181,12 +181,27 @@ describe("stripPendingEformsignDocPredicates", () => {
         })).toEqual({ branchId: "branch-1" });
     });
 
+    it("ignores undefined Prisma filters when classifying a stripped OR branch", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { templateId: null, documentId: undefined },
+                { documentId: "doc-1" },
+            ],
+        })).toEqual({});
+    });
+
     it("collapses NOT of a missing-column is-null predicate to false", () => {
         // `NOT true` is false, so the top-level sibling cannot turn this retry into an
         // unconstrained query. Prisma represents false as an empty OR.
         expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
             branchId: "branch-1",
             NOT: { templateId: null },
+        })).toEqual({ OR: [] });
+    });
+
+    it("ignores undefined Prisma filters when classifying a stripped NOT branch", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            NOT: { templateId: null, documentId: undefined },
         })).toEqual({ OR: [] });
     });
 
