@@ -297,7 +297,7 @@ export class ClientService {
                     FROM eformsign_doc AS doc
                     WHERE doc.id IN (${Prisma.join(documentIdsToLock)})
                       AND (
-                          doc.branch_id = ${branchid}
+                          doc.branch_id = ${branchid}::uuid
                           OR (doc.branch_id IS NULL AND doc.client_id IS NULL)
                       )
                       AND doc.status_type NOT IN ('047', '049', '099')

@@ -501,6 +501,7 @@ describe("SbEformsignDocRepository", () => {
     });
 
     it("atomically moves the document pointer from the old client to the new client", async () => {
+        const branchId = "44444444-4444-4444-4444-444444444444";
         const transaction = {
             $queryRaw: jest.fn()
                 .mockResolvedValueOnce([{ id: 1, clientId: 7 }])
@@ -515,30 +516,33 @@ describe("SbEformsignDocRepository", () => {
         const transactionalRepository = new SbEformsignDocRepository(prisma);
 
         await expect(
-            transactionalRepository.linkClientIfActive("branch-1", "doc-1", 12),
+            transactionalRepository.linkClientIfActive(branchId, "doc-1", 12),
         ).resolves.toBe(true);
 
-        const lockSql = transaction.$queryRaw.mock.calls[0][0];
-        expect(lockSql.strings.join(" ")).toContain("permanent_purge_requested_at IS NULL");
-        expect(lockSql.strings.join(" ")).toContain("status_type NOT IN ('047', '049', '099')");
-        expect(lockSql.strings.join(" ")).toContain("FOR UPDATE");
+        const [documentLockSql] = transaction.$queryRaw.mock.calls[0];
+        const [clientLockSql] = transaction.$queryRaw.mock.calls[1];
+        expect(documentLockSql.strings.join(" ")).toContain("permanent_purge_requested_at IS NULL");
+        expect(documentLockSql.strings.join(" ")).toContain("status_type NOT IN ('047', '049', '099')");
+        expect(documentLockSql.text).toMatch(/\$\d+::uuid/);
+        expect(documentLockSql.strings.join(" ")).toContain("FOR UPDATE");
+        expect(clientLockSql.text).toMatch(/\$\d+::uuid/);
         expect(transaction.client.updateMany).toHaveBeenCalledTimes(2);
         expect(transaction.client.updateMany).toHaveBeenNthCalledWith(1, {
             where: {
                 id: 7,
-                branchId: "branch-1",
+                branchId,
                 eDocId: "doc-1",
             },
             data: { eDocId: null },
         });
         expect(transaction.client.updateMany).toHaveBeenNthCalledWith(2, {
-            where: { id: 12, branchId: "branch-1" },
+            where: { id: 12, branchId },
             data: { eDocId: "doc-1" },
         });
         expect(transaction.eformsign_doc.updateMany).toHaveBeenCalledWith({
             where: {
                 id: 1,
-                branchId: "branch-1",
+                branchId,
                 permanentPurgeRequestedAt: null,
                 statusType: { notIn: ["047", "049", "099"] },
             },
