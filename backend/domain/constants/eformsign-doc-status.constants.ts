@@ -9,6 +9,31 @@ export const EFORMSIGN_COMPLETED_STATUS_CODES: ReadonlySet<string> = new Set([
     "092",
 ]);
 
+/**
+ * Completed values that may already exist in storage from legacy/raw vendor writes.
+ * New writes are normalized, but publication queries must also fence old aliases and
+ * unpadded numeric forms until a normal sync rewrites them canonically.
+ */
+export const EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES: readonly string[] = [
+    ...EFORMSIGN_COMPLETED_STATUS_CODES,
+    "3",
+    "03",
+    "12",
+    "22",
+    "32",
+    "50",
+    "62",
+    "72",
+    "92",
+    "doc_complete",
+    "doc_accept_approval",
+    "doc_accept_reception",
+    "doc_accept_outsider",
+    "doc_accept_participant",
+    "doc_accept_reviewer",
+    "face_signature_complete",
+];
+
 const REJECTED_STATUS_CODES = [
     "011",
     "021",
@@ -39,6 +64,21 @@ export const TERMINAL_STATUS_CODES = new Set<string>([
  * re-mirrors a document that already has a local row.
  */
 export const UNASSIGNED_REVIEW_STAGE_STATUS_CODES = new Set<string>(["062", "071"]);
+
+/**
+ * Canonical review-stage codes plus raw values written by older vendor-ingestion paths.
+ * The repository normally receives normalized codes now, but an equal-generation forward
+ * transition must also be able to replace a legacy row without broadly reopening every
+ * completed status.
+ */
+export const UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES = [
+    "062",
+    "071",
+    "62",
+    "71",
+    "doc_accept_participant",
+    "doc_reject_reviewer",
+] as const;
 
 export const UNASSIGNED_TERMINAL_STATUS_CODES = new Set<string>(
     [...TERMINAL_STATUS_CODES].filter(

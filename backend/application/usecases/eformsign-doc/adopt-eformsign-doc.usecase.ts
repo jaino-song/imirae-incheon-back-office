@@ -1,9 +1,11 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 
+import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 
 import { CreateEformsignDocResult, CreateEformsignDocUsecase } from "./create-eformsign-doc.usecase";
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
@@ -16,11 +18,14 @@ export interface AdoptEformsignDocParams {
 
 @Injectable()
 export class AdoptEformsignDocUsecase {
+    private readonly logger = new Logger(AdoptEformsignDocUsecase.name);
+
     constructor(
         private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
         private readonly fetchEformsignDocFromApiUsecase: FetchEformsignDocFromApiUsecase,
         private readonly createEformsignDocUsecase: CreateEformsignDocUsecase,
         @Inject(CLIENT_REPOSITORY) private readonly clientRepository: IClientRepository,
+        private readonly documentMirrorService: EformsignDocumentMirrorService,
     ) {}
 
     async execute(branchId: string, params: AdoptEformsignDocParams): Promise<CreateEformsignDocResult> {
@@ -38,10 +43,10 @@ export class AdoptEformsignDocUsecase {
             throw new Error("clientId가 필요합니다.");
         }
 
-        return this.createEformsignDocUsecase.execute(branchId, {
+        const result = await this.createEformsignDocUsecase.execute(branchId, {
             documentId: remote.id || params.documentId,
             clientId,
-            statusType: remote.current_status.status_type || "000",
+            statusType: normalizeEformsignStatusCode(remote.current_status.status_type),
             statusDetail: remote.current_status.status_doc_detail || remote.current_status.step_name || "진행중",
             stepType: remote.current_status.step_type || "01",
             stepIndex: remote.current_status.step_index || "1",
@@ -54,6 +59,10 @@ export class AdoptEformsignDocUsecase {
                 Date.now(),
             ),
             linkToClient: true,
+            // Existing ready detail/PDFs describe the stored projection. Assign
+            // ownership first, but let the fenced mirror sync below publish the
+            // newly fetched vendor projection only after its artifacts are ready.
+            preserveExistingMirrorProjection: true,
             documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
             templateId: remote.template?.id ?? null,
             documentName: remote.document_name,
@@ -65,5 +74,31 @@ export class AdoptEformsignDocUsecase {
                 ?.map((item) => item.recipient_type)
                 ?? null,
         });
+
+        try {
+            await this.documentMirrorService.syncDocumentWithToken(
+                token.oauth_token.access_token,
+                remote.id || params.documentId,
+                { expectedUpdatedDate: remote.updated_date },
+            );
+        } catch {
+            // Ownership and client linkage were committed above. Returning a failure
+            // here would tell the caller to retry an adoption that already succeeded.
+            // Keep the row non-ready and expose a machine-readable warning so callers
+            // cannot report the local detail/PDF mirror as complete. The durable failed
+            // state remains eligible for an operational reconciliation without claiming
+            // that a scheduler or distributed lock is currently available.
+            this.logger.warn(
+                "Eformsign adoption committed, but the local mirror remains incomplete",
+            );
+            return Object.assign(result, {
+                warnings: [
+                    ...(result.warnings ?? []),
+                    "mirror_sync_failed" as const,
+                ],
+            });
+        }
+
+        return result;
     }
 }

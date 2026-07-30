@@ -79,6 +79,7 @@ describe("EformsignController (Integration)", () => {
     const documentMirrorService = {
         getStoredDetail: jest.fn(),
         getStoredFile: jest.fn(),
+        getStoredFileMetadata: jest.fn(),
         markDocumentsDeleted: jest.fn(),
         purgeDocuments: jest.fn(),
         requestPermanentPurge: jest.fn(),
@@ -86,6 +87,7 @@ describe("EformsignController (Integration)", () => {
     };
     const permanentPurgeLookup = {
         findListExcludedDocumentIds: jest.fn().mockResolvedValue([]),
+        findUnreadyCompletedDocumentIds: jest.fn().mockResolvedValue([]),
         findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
     };
 
@@ -93,12 +95,15 @@ describe("EformsignController (Integration)", () => {
         shadowCompareService.compareInBackground.mockClear();
         documentMirrorService.getStoredDetail.mockReset();
         documentMirrorService.getStoredFile.mockReset();
+        documentMirrorService.getStoredFileMetadata.mockReset();
         documentMirrorService.markDocumentsDeleted.mockReset();
         documentMirrorService.purgeDocuments.mockReset();
         documentMirrorService.requestPermanentPurge.mockReset();
         documentMirrorService.clearPermanentPurgeRequest.mockReset();
         permanentPurgeLookup.findListExcludedDocumentIds.mockReset();
         permanentPurgeLookup.findListExcludedDocumentIds.mockResolvedValue([]);
+        permanentPurgeLookup.findUnreadyCompletedDocumentIds.mockReset();
+        permanentPurgeLookup.findUnreadyCompletedDocumentIds.mockResolvedValue([]);
         permanentPurgeLookup.findPermanentPurgeRequestedDocumentIds.mockReset();
         permanentPurgeLookup.findPermanentPurgeRequestedDocumentIds.mockResolvedValue([]);
         const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -212,6 +217,7 @@ describe("EformsignController (Integration)", () => {
             async (documentId: string) => ({ id: documentId }),
         );
         documentMirrorService.getStoredFile.mockResolvedValue(null);
+        documentMirrorService.getStoredFileMetadata.mockResolvedValue(null);
         documentMirrorService.markDocumentsDeleted.mockResolvedValue(undefined);
         documentMirrorService.purgeDocuments.mockResolvedValue(undefined);
         documentMirrorService.requestPermanentPurge.mockImplementation(
@@ -620,6 +626,31 @@ describe("EformsignController (Integration)", () => {
         expect(documentMirrorService.getStoredFile).not.toHaveBeenCalled();
     });
 
+    it("serves document PDF metadata for HEAD without loading stored bytes", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as any);
+        documentMirrorService.getStoredFileMetadata.mockResolvedValue({
+            status: 200,
+            contentType: "application/pdf",
+            contentDisposition: "inline",
+            byteSize: 321,
+        });
+
+        const response = await request(app.getHttpServer())
+            .head("/api/documents/branch-1-doc/download_files?fileType=document");
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toContain("application/pdf");
+        expect(response.headers["content-length"]).toBe("321");
+        expect(response.text).toBeUndefined();
+        expect(documentMirrorService.getStoredFileMetadata).toHaveBeenCalledWith(
+            "branch-1-doc",
+            "document",
+        );
+        expect(documentMirrorService.getStoredFile).not.toHaveBeenCalled();
+    });
+
     it("forbids downloading a document owned by another branch", async () => {
         eformsignDocService.findAll.mockResolvedValue([{ documentId: "branch-1-doc" }] as any);
 
@@ -701,8 +732,8 @@ describe("EformsignController (Integration)", () => {
     describe("local source-of-truth document reads", () => {
         let mirrorApp: INestApplication;
         const mirrorRepository = {
-            findAll: jest.fn().mockResolvedValue([]),
-            findAllForHeadquarters: jest.fn().mockResolvedValue([]),
+            findAllVisibleInMirror: jest.fn().mockResolvedValue([]),
+            findAllVisibleInMirrorForHeadquarters: jest.fn().mockResolvedValue([]),
         };
 
         const createMirrorRow = (overrides: {
@@ -744,8 +775,8 @@ describe("EformsignController (Integration)", () => {
         };
 
         beforeEach(async () => {
-            mirrorRepository.findAll.mockResolvedValue([]);
-            mirrorRepository.findAllForHeadquarters.mockResolvedValue([]);
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([]);
+            mirrorRepository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([]);
             const fixture = await Test.createTestingModule({
                 controllers: [EformsignController],
                 providers: [
@@ -792,7 +823,7 @@ describe("EformsignController (Integration)", () => {
         });
 
         it("paginates the mirror without calling eformsign", async () => {
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-old", createdDate: "2026-07-01T00:00:00.000Z" }),
                 createMirrorRow({ documentId: "doc-new", createdDate: "2026-07-02T00:00:00.000Z" }),
             ]);
@@ -813,10 +844,10 @@ describe("EformsignController (Integration)", () => {
             expect(shadowCompareService.compareInBackground).not.toHaveBeenCalled();
         });
 
-        it("keeps paging over one generation when the list changes underneath", async () => {
-            // 페이지 사이에 문서가 목록에서 빠지면, 매 요청 새로 만들던 시절에는 나머지가
-            // 한 칸씩 당겨져 마지막 문서를 영영 못 보게 된다. 스냅샷 세대가 그걸 막는다.
-            mirrorRepository.findAll.mockResolvedValue([
+        it("keeps the cached generation stable when the local mirror moves between pages", async () => {
+            // 이미 배포된 클라이언트는 snapshot_version을 해석하지 않을 수 있다.
+            // 캐시 hit에서 live 목록으로 바꾸지 않아 offset이 같은 세대를 계속 걷게 한다.
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-1", createdDate: "2026-07-03T00:00:00.000Z" }),
                 createMirrorRow({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
             ]);
@@ -824,9 +855,11 @@ describe("EformsignController (Integration)", () => {
             const first = await request(mirrorApp.getHttpServer())
                 .get("/api/documents?accessToken=access-token&limit=1&skip=0");
             expect(first.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-1"]);
+            expect(typeof first.body.snapshot_version).toBe("string");
+            const callsAfterFirstPage = mirrorRepository.findAllVisibleInMirror.mock.calls.length;
 
-            // 첫 페이지의 문서가 사라져도 두 번째 페이지는 같은 세대에서 잘린다.
-            mirrorRepository.findAll.mockResolvedValue([
+            // 첫 페이지 뒤에 live 목록이 바뀌어도 두 번째 페이지는 저장된 세대의 doc-2다.
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
             ]);
             const second = await request(mirrorApp.getHttpServer())
@@ -834,12 +867,16 @@ describe("EformsignController (Integration)", () => {
 
             expect(second.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-2"]);
             expect(second.body.has_more).toBe(false);
+            expect(second.body.snapshot_version).toBe(first.body.snapshot_version);
+            expect(mirrorRepository.findAllVisibleInMirror).toHaveBeenCalledTimes(
+                callsAfterFirstPage,
+            );
         });
 
         it("reports the generation so the client can notice the list moved", async () => {
             // 클라이언트는 뒤 페이지의 snapshot_version이 다르면 페이지네이션을 리셋한다.
             // 이 값을 빼면 목록이 아래에서 밀려도 신호가 없어 문서를 조용히 건너뛴다.
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-1" }),
             ]);
 
@@ -850,7 +887,7 @@ describe("EformsignController (Integration)", () => {
         });
 
         it("answers each tab from status codes", async () => {
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-open", statusType: "060" }),
                 createMirrorRow({ documentId: "doc-done", statusType: "050" }),
                 createMirrorRow({ documentId: "doc-gone", statusType: "080" }),
@@ -872,7 +909,7 @@ describe("EformsignController (Integration)", () => {
         });
 
         it("keeps a stale tombstone in unfiltered all reads but fences it from deletion-aware filters", async () => {
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-tombstone", statusType: "060" }),
             ]);
 
@@ -890,7 +927,7 @@ describe("EformsignController (Integration)", () => {
 
             // Simulate a failed invalidation: the cached entry remains pre-delete, but
             // the durable local row is now a deletion tombstone.
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-tombstone", statusType: "049" }),
             ]);
             permanentPurgeLookup.findListExcludedDocumentIds.mockResolvedValue([
@@ -918,7 +955,7 @@ describe("EformsignController (Integration)", () => {
         });
 
         it("shows the customer name on the page it returns", async () => {
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-1", customerName: "최고객" }),
             ]);
 
@@ -932,7 +969,7 @@ describe("EformsignController (Integration)", () => {
 
         it("reads the headquarters scope, including unclaimed documents", async () => {
             branchFindUnique.mockResolvedValue({ slug: "incheon" });
-            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-unclaimed" }),
             ]);
 
@@ -940,7 +977,8 @@ describe("EformsignController (Integration)", () => {
                 .get("/api/documents?accessToken=access-token");
 
             expect(response.status).toBe(200);
-            expect(mirrorRepository.findAllForHeadquarters).toHaveBeenCalledWith("branch-1");
+            expect(mirrorRepository.findAllVisibleInMirrorForHeadquarters)
+                .toHaveBeenCalledWith("branch-1");
             expect(response.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-unclaimed"]);
         });
 
@@ -950,10 +988,10 @@ describe("EformsignController (Integration)", () => {
             // 이 값을 쓰지 않는다(단건 조회로 넘어간다). 틀린 이름을 보여주는 것보다
             // 비워 두는 편이 낫고, 웹훅이 한 번이라도 닿으면 진짜 고객명이 채워진다.
             branchFindUnique.mockResolvedValue({ slug: "incheon" });
-            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-unclaimed", customerName: null }),
             ]);
-            mirrorRepository.findAll.mockResolvedValue([]);
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([]);
 
             const response = await request(mirrorApp.getHttpServer())
                 .get("/api/documents?accessToken=access-token");
@@ -962,7 +1000,7 @@ describe("EformsignController (Integration)", () => {
         });
 
         it("still names a branch-owned document from its recipient", async () => {
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-owned", customerName: null }),
             ]);
 
@@ -978,10 +1016,10 @@ describe("EformsignController (Integration)", () => {
             // 표시용과 검색용은 분리돼 있다. 서빙 경로는 findAll(branchId)로 검색 코퍼스를
             // 만들어 미배정 문서의 수신자명을 찾지 못하므로, 여기서도 찾으면 안 된다.
             branchFindUnique.mockResolvedValue({ slug: "incheon" });
-            mirrorRepository.findAllForHeadquarters.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-unclaimed", customerName: null }),
             ]);
-            mirrorRepository.findAll.mockResolvedValue([]);
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([]);
 
             const response = await request(mirrorApp.getHttpServer())
                 .get("/api/documents?accessToken=access-token&search=%EC%86%A1%EC%A7%84%ED%98%B8");
@@ -990,7 +1028,7 @@ describe("EformsignController (Integration)", () => {
         });
 
         it("counts statuses from the same generation the list pages over", async () => {
-            mirrorRepository.findAll.mockResolvedValue([
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-1", statusType: "060" }),
                 createMirrorRow({ documentId: "doc-2", statusType: "050" }),
             ]);

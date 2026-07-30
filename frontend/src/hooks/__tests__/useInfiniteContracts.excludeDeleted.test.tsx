@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { eformsignApi } from "@/services/api";
@@ -20,6 +20,14 @@ function wrapper({ children }: { children: ReactNode }) {
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+function wrapperFor(queryClient: QueryClient) {
+  return function QueryWrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
 }
 
 function emptyPage() {
@@ -56,4 +64,167 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
       expect.objectContaining({ excludeDeleted: true }),
     );
   });
+
+  it("restarts desktop offset pagination when the semantic snapshot changes", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    const documents = Array.from({ length: 20 }, (_, index) => ({
+      id: `document-${index + 1}`,
+      created_date: 100 - index,
+      current_status: { status_type: "060" },
+    }));
+    const firstPage = {
+      documents,
+      total_rows: 21,
+      limit: 20,
+      skip: 0,
+      has_more: true,
+      snapshot_version: "1:100",
+    };
+    const conflictingPage = {
+      documents: [{
+        id: "document-21",
+        created_date: 79,
+        current_status: { status_type: "060" },
+      }],
+      total_rows: 20,
+      limit: 20,
+      skip: 20,
+      has_more: false,
+      snapshot_version: "1:100:fvisibility",
+    };
+    mockedApi.getAllDocuments
+      .mockResolvedValueOnce(firstPage as never)
+      .mockResolvedValueOnce(conflictingPage as never)
+      .mockResolvedValue(firstPage as never);
+    const resetQueries = jest.spyOn(queryClient, "resetQueries");
+    const { result } = renderHook(
+      () => useInfiniteContracts({ filterType: null }),
+      { wrapper: wrapperFor(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(1));
+    expect(resetQueries).toHaveBeenCalledWith({
+      queryKey: expect.arrayContaining(["infinite", "all"]),
+      exact: true,
+    });
+  });
+
+  it("re-arms the desktop drift guard after pagination becomes coherent", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    const documents = Array.from({ length: 20 }, (_, index) => ({
+      id: `document-${index + 1}`,
+      created_date: 100 - index,
+      current_status: { status_type: "060" },
+    }));
+    const firstPage = {
+      documents,
+      total_rows: 21,
+      limit: 20,
+      skip: 0,
+      has_more: true,
+      snapshot_version: "1:100",
+    };
+    const conflictingPage = {
+      documents: [{
+        id: "document-21",
+        created_date: 79,
+        current_status: { status_type: "060" },
+      }],
+      total_rows: 21,
+      limit: 20,
+      skip: 20,
+      has_more: false,
+    };
+    mockedApi.getAllDocuments
+      .mockResolvedValueOnce(firstPage as never)
+      .mockResolvedValueOnce(conflictingPage as never)
+      .mockResolvedValueOnce(firstPage as never)
+      .mockResolvedValueOnce(conflictingPage as never)
+      .mockResolvedValue(firstPage as never);
+    const resetQueries = jest.spyOn(queryClient, "resetQueries");
+    const { result } = renderHook(
+      () => useInfiniteContracts({ filterType: null }),
+      { wrapper: wrapperFor(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockedApi.getAllDocuments).toHaveBeenCalledTimes(3));
+
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(2));
+  });
+
+  it.each([
+    ["the later page omits it", "1:100", undefined],
+    ["the first page omits it", undefined, "1:100"],
+  ])(
+    "restarts desktop offset pagination when %s",
+    async (_description, firstSnapshotVersion, laterSnapshotVersion) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      });
+      const documents = Array.from({ length: 20 }, (_, index) => ({
+        id: `document-${index + 1}`,
+        created_date: 100 - index,
+        current_status: { status_type: "060" },
+      }));
+      const firstPage = {
+        documents,
+        total_rows: 21,
+        limit: 20,
+        skip: 0,
+        has_more: true,
+        ...(firstSnapshotVersion === undefined
+          ? {}
+          : { snapshot_version: firstSnapshotVersion }),
+      };
+      const laterPage = {
+        documents: [{
+          id: "document-21",
+          created_date: 79,
+          current_status: { status_type: "060" },
+        }],
+        total_rows: 21,
+        limit: 20,
+        skip: 20,
+        has_more: false,
+        ...(laterSnapshotVersion === undefined
+          ? {}
+          : { snapshot_version: laterSnapshotVersion }),
+      };
+      mockedApi.getAllDocuments
+        .mockResolvedValueOnce(firstPage as never)
+        .mockResolvedValueOnce(laterPage as never)
+        .mockResolvedValue(firstPage as never);
+      const resetQueries = jest.spyOn(queryClient, "resetQueries");
+      const { result } = renderHook(
+        () => useInfiniteContracts({ filterType: null }),
+        { wrapper: wrapperFor(queryClient) },
+      );
+
+      await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+      await act(async () => {
+        await result.current.fetchNextPage();
+      });
+
+      await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(1));
+    },
+  );
 });

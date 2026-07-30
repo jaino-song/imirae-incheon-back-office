@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { eformsignApi } from "@/services/api";
 import { EformsignDocument, EformsignDocumentsResponse } from "@/lib/eformsign/types";
 import { eformsignQueryKeys } from "@/hooks/useEformsignDocuments";
@@ -11,6 +11,7 @@ import { UNKNOWN_CUSTOMER_NAME, customerName } from "@/lib/eformsign/display-nam
 const PAGE_SIZE = 20;
 const EMPTY_DOCUMENTS: EformsignDocument[] = [];
 const EMPTY_EXCLUDED_NAMES: readonly string[] = [];
+const UNVERSIONED_SNAPSHOT_GENERATION = "<unversioned>";
 
 // Filter documents by actual status code. Used as a safety net for the merged
 // "전체" endpoint; per-status endpoints are already filtered server-side.
@@ -91,8 +92,18 @@ export function useInfiniteContracts({
   excludedNames = EMPTY_EXCLUDED_NAMES,
   templateFilter,
 }: UseInfiniteContractsOptions = {}) {
+  const queryClient = useQueryClient();
+  const templateId = templateFilter?.templateId;
+  const templateMatch = templateFilter?.templateMatch;
+  const queryKey = useMemo(
+    () => infiniteContractsQueryKeys.documents(
+      filterType,
+      templateId && templateMatch ? { templateId, templateMatch } : undefined,
+    ),
+    [filterType, templateId, templateMatch],
+  );
   const query = useInfiniteQuery<EformsignDocumentsResponse>({
-    queryKey: infiniteContractsQueryKeys.documents(filterType, templateFilter),
+    queryKey,
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const skip = typeof pageParam === "number" ? pageParam : 0;
@@ -127,6 +138,45 @@ export function useInfiniteContracts({
     gcTime: 1000 * 60 * 60, // 1 hour
     refetchOnWindowFocus: false,
   });
+
+  // Offset pagination is valid only while every page belongs to the same effective
+  // mirror generation. A live readiness/tombstone fence can change membership even
+  // when Valkey invalidation fails, so restart from page 1 when a later page reports
+  // a different semantic snapshot generation. Presence is part of that
+  // generation: mixing a cache-backed versioned page with an unversioned
+  // cache-bypass page is no safer than mixing two different versions.
+  const pages = query.data?.pages;
+  const baseSnapshotVersion = pages?.[0]?.snapshot_version;
+  const baseSnapshotGeneration = pages?.length
+    ? (baseSnapshotVersion ?? UNVERSIONED_SNAPSHOT_GENERATION)
+    : undefined;
+  const conflictingSnapshotGeneration = useMemo(() => {
+    if (!pages || baseSnapshotGeneration === undefined) return undefined;
+    return pages
+      .slice(1)
+      .map((page) =>
+        page.snapshot_version ?? UNVERSIONED_SNAPSHOT_GENERATION)
+      .find((generation) => generation !== baseSnapshotGeneration);
+  }, [pages, baseSnapshotGeneration]);
+  const lastSnapshotResetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (baseSnapshotGeneration === undefined) return;
+    if (conflictingSnapshotGeneration === undefined) {
+      lastSnapshotResetRef.current = null;
+      return;
+    }
+    const signature =
+      `${queryKey.join("|")}::${baseSnapshotGeneration}->${conflictingSnapshotGeneration}`;
+    if (lastSnapshotResetRef.current === signature) return;
+    lastSnapshotResetRef.current = signature;
+    void queryClient.resetQueries({ queryKey, exact: true });
+  }, [
+    baseSnapshotGeneration,
+    conflictingSnapshotGeneration,
+    queryClient,
+    queryKey,
+  ]);
 
   // Flatten loaded pages into a single document list, deduping by id.
   // The backend's getAllDocuments only dedupes within a single response, so a

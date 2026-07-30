@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
+import { EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES } from "domain/constants/eformsign-doc-status.constants";
 import {
     EformsignDocumentFileType,
     EformsignDocumentFileMetadata,
@@ -14,6 +15,7 @@ import {
     SaveEformsignDocumentFileParams,
 } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
+import { isPendingEformsignDocColumnError } from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const MAX_SYNC_ERROR_LENGTH = 2_000;
@@ -132,6 +134,32 @@ implements IEformsignDocumentMirrorRepository {
             select: { documentId: true },
         });
         return rows.map((row) => row.documentId);
+    }
+
+    async findUnreadyCompletedDocumentIds(): Promise<string[]> {
+        try {
+            const rows = await this.prisma.eformsign_doc.findMany({
+                where: {
+                    statusType: { in: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES] },
+                    syncStatus: { not: "ready" },
+                },
+                select: { documentId: true },
+            });
+            return rows.map((row) => row.documentId);
+        } catch (error) {
+            if (!isPendingEformsignDocColumnError(error)) {
+                throw error;
+            }
+
+            // A database without sync_status cannot prove any completed row ready.
+            const rows = await this.prisma.eformsign_doc.findMany({
+                where: {
+                    statusType: { in: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES] },
+                },
+                select: { documentId: true },
+            });
+            return rows.map((row) => row.documentId);
+        }
     }
 
     async findPermanentPurgeRequestedDocumentIds(): Promise<string[]> {

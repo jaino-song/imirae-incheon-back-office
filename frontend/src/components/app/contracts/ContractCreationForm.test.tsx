@@ -25,6 +25,25 @@ describe("ContractCreationForm compensation flows", () => {
     expect(branch).not.toContain("openDocument(");
   });
 
+  it("should not report adoption success while the local mirror is incomplete", () => {
+    const branch = source.slice(
+      source.indexOf('headless.reason === "local_persist_failed"'),
+      source.indexOf('headless.reason === "remote_unconfirmed"'),
+    );
+    expect(branch).toContain('adopted.warnings?.includes("mirror_sync_failed")');
+    expect(branch).toContain("전자문서와 PDF 동기화가 완료되지 않았습니다.");
+    expect(branch).toContain("markCreationProgressFailed()");
+    const warningBranch = branch.slice(
+      branch.indexOf('adopted.warnings?.includes("mirror_sync_failed")'),
+      branch.indexOf("markCreationProgressFailed()"),
+    );
+    expect(warningBranch).toContain(
+      "queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() })",
+    );
+    expect(branch.indexOf('adopted.warnings?.includes("mirror_sync_failed")'))
+      .toBeLessThan(branch.indexOf("setIsCreationSuccessOpen(true)"));
+  });
+
   it("should request approval and retry duplicate pending documents with force true", () => {
     const branch = source.slice(
       source.indexOf('headless.reason === "duplicate_pending_document"'),

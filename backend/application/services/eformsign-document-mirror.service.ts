@@ -91,6 +91,13 @@ export interface StoredEformsignDocumentFileResponse {
     body: Buffer;
 }
 
+export interface StoredEformsignDocumentFileMetadataResponse {
+    status: 200;
+    contentType: string;
+    contentDisposition: string | null;
+    byteSize: number;
+}
+
 export class EformsignStoredFileIntegrityError extends Error {
     constructor(documentId: string, fileType: EformsignDocumentFileType) {
         super(`Stored eformsign ${fileType} failed integrity validation for ${documentId}`);
@@ -192,6 +199,35 @@ export class EformsignDocumentMirrorService {
         };
     }
 
+    async getStoredFileMetadata(
+        documentId: string,
+        fileType: EformsignDocumentFileType,
+    ): Promise<StoredEformsignDocumentFileMetadataResponse | null> {
+        const state = await this.mirrorRepository.findState(documentId);
+        const file = state?.files.find((candidate) =>
+            candidate.fileType === fileType
+            && state.detailSourceUpdatedDate
+            && candidate.sourceUpdatedDate.getTime()
+                === state.detailSourceUpdatedDate.getTime(),
+        );
+        if (
+            !state?.detailPayload
+            || !state.detailSourceUpdatedDate
+            || state.syncStatus !== "ready"
+            || Boolean(state.permanentPurgeRequestedAt)
+            || !file
+        ) {
+            return null;
+        }
+
+        return {
+            status: 200,
+            contentType: file.contentType,
+            contentDisposition: safeContentDisposition(file.contentDisposition),
+            byteSize: file.byteSize,
+        };
+    }
+
     async markDocumentsDeleted(
         documentIds: string[],
         deletedAt: Date = new Date(),
@@ -269,6 +305,10 @@ export class EformsignDocumentMirrorService {
         try {
             const remote = await this.eformsignClient.getDocument(accessToken, documentId);
             const sourceUpdatedDate = validSourceDate(remote.updated_date);
+            const statusType = normalizeEformsignStatusCode(
+                remote.current_status.status_type,
+            );
+            const isCompletedDocument = EFORMSIGN_COMPLETED_STATUS_CODES.has(statusType);
             attemptedSourceUpdatedDate = sourceUpdatedDate;
             try {
                 await this.mirrorDocumentUsecase.mirrorRemoteDocument(
@@ -331,6 +371,13 @@ export class EformsignDocumentMirrorService {
                 };
             }
 
+            if (isCompletedDocument) {
+                // saveDetail moves this generation to syncing. Invalidate the prior
+                // snapshot now so a completed row cannot stay published while either
+                // required PDF is missing or being replaced.
+                await this.invalidateDocumentSnapshots([documentId]);
+            }
+
             const storedFileTypes: EformsignDocumentFileType[] = [];
             const missingFileTypes: EformsignDocumentFileType[] = [];
             const shouldRepairFiles = !options.skipHealthySameVersionFileRepair
@@ -353,11 +400,8 @@ export class EformsignDocumentMirrorService {
                 storedFileTypes.push(...FILE_TYPES);
             }
 
-            const statusType = normalizeEformsignStatusCode(
-                remote.current_status.status_type,
-            );
             if (
-                EFORMSIGN_COMPLETED_STATUS_CODES.has(statusType)
+                isCompletedDocument
                 && missingFileTypes.length > 0
             ) {
                 throw new Error(
@@ -375,6 +419,11 @@ export class EformsignDocumentMirrorService {
                 partialMessage ? "partial" : "ready",
                 partialMessage,
             );
+            if (finishApplied && isCompletedDocument) {
+                // The list repository admits completed rows only at ready. Publish the
+                // successfully stored detail/PDF generation immediately.
+                await this.invalidateDocumentSnapshots([documentId]);
+            }
             let ownershipChanged = false;
             if (!finishApplied) {
                 // A newer attempt owns the terminal state. Reconcile only if that

@@ -4,6 +4,7 @@ import { EformsignDocumentSnapshotService } from "application/services/eformsign
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { eformsignDocumentTemplateId } from "application/utils/eformsign-document-template-id";
 import {
+    EFORMSIGN_COMPLETED_STATUS_CODES,
     EFORMSIGN_EXPIRED_STATUS_CODE,
     EFORMSIGN_TERMINAL_STATUS_DETAILS,
     TERMINAL_STATUS_CODES,
@@ -150,6 +151,9 @@ export class MirrorUnassignedEformsignDocUsecase {
         const mirrored = await this.eformsignDocRepository.upsertUnassignedByDocumentId(doc, {
             ...(options.allowAssignedUpdate ? { allowAssignedUpdate: true } : {}),
             updateListDisplayFields: true,
+            ...(EFORMSIGN_COMPLETED_STATUS_CODES.has(statusType)
+                ? { markMirrorPending: true }
+                : {}),
             ...(knowsExpiredState ? {} : { updateExpired: false }),
             // A detail derived from the step name must not replace one a webhook wrote —
             // but one derived from a terminal status code must, because the stored detail

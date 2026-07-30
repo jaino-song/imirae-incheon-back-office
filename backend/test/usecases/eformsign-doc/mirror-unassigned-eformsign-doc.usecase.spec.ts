@@ -402,7 +402,7 @@ describe("MirrorUnassignedEformsignDocUsecase", () => {
 
         expect(repository.upsertUnassignedByDocumentId).toHaveBeenCalledWith(
             expect.objectContaining({ statusType: "050", expired: false }),
-            expect.not.objectContaining({ updateExpired: false }),
+            expect.objectContaining({ markMirrorPending: true }),
         );
     });
 
