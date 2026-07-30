@@ -6,12 +6,15 @@ import {
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
+const rawQueryBranchId = "11111111-1111-1111-1111-111111111111";
+const rawQueryCaseId = "22222222-2222-2222-2222-222222222222";
+const rawQueryDocumentId = "33333333-3333-3333-3333-333333333333";
 
 function lockedSnapshot(overrides: Record<string, unknown> = {}) {
     return {
         id: 7,
-        documentId: "snapshot-062",
-        branchId: "branch-1",
+        documentId: rawQueryDocumentId,
+        branchId: rawQueryBranchId,
         documentKind: "service_record_snapshot",
         statusType: "062",
         detailPayload: { id: "snapshot-062" },
@@ -142,10 +145,10 @@ describe("ServiceRecordLifecycleService", () => {
         const ensureSpy = jest.spyOn(service, "ensureForClient");
 
         await expect(service.syncEndDateFromMirroredContract({
-            branchId: "branch-1",
+            branchId: rawQueryBranchId,
             clientId: 1,
             endDate: date("2026-07-20"),
-            documentId: "doc-1",
+            documentId: rawQueryDocumentId,
             detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
             detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
         })).resolves.toBe(false);
@@ -153,6 +156,8 @@ describe("ServiceRecordLifecycleService", () => {
         expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(1);
         const [fenceQuery] = transactionClient.$queryRaw.mock.calls[0] ?? [];
         const fenceSql = fenceQuery.strings.join(" ");
+        expect(fenceSql).toMatch(/branch_id\s*=\s*::uuid/);
+        expect(fenceQuery.text).toMatch(/\$\d+::uuid/);
         expect(fenceSql).toContain("permanent_purge_requested_at IS NULL");
         expect(fenceSql).toContain("file_type = 'document'");
         expect(fenceSql).toContain("file_type = 'audit_trail'");
@@ -163,12 +168,12 @@ describe("ServiceRecordLifecycleService", () => {
     it("completes a service-record case idempotently when every locked snapshot is in the completed set", async () => {
         const transactionClient = {
             eformsign_doc: {
-                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: rawQueryCaseId }),
             },
             $queryRaw: jest.fn()
-                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([{ id: rawQueryCaseId }])
                 .mockResolvedValueOnce([lockedSnapshot()])
-                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([{ id: rawQueryCaseId }])
                 .mockResolvedValueOnce([lockedSnapshot()]),
             service_record_case: {
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -181,8 +186,8 @@ describe("ServiceRecordLifecycleService", () => {
         const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
 
         await expect(service.completeServiceRecordSnapshotIfReady({
-            branchId: "branch-1",
-            documentId: "snapshot-062",
+            branchId: rawQueryBranchId,
+            documentId: rawQueryDocumentId,
             mirrorVersion: {
                 detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
                 detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
@@ -193,8 +198,10 @@ describe("ServiceRecordLifecycleService", () => {
         const [caseLockQuery] = transactionClient.$queryRaw.mock.calls[0];
         const [snapshotLockQuery] = transactionClient.$queryRaw.mock.calls[1];
         expect(caseLockQuery.strings.join(" ")).toContain("FROM service_record_case");
+        expect(caseLockQuery.text.match(/\$\d+::uuid/g)).toHaveLength(2);
         expect(caseLockQuery.strings.join(" ")).toContain("FOR UPDATE");
         expect(snapshotLockQuery.strings.join(" ")).toContain("ORDER BY id ASC");
+        expect(snapshotLockQuery.text.match(/\$\d+::uuid/g)).toHaveLength(2);
         expect(snapshotLockQuery.strings.join(" ")).toContain("FOR UPDATE");
         expect(snapshotLockQuery.strings.join(" ")).toContain("file_type = 'document'");
         expect(snapshotLockQuery.strings.join(" ")).toContain("file_type = 'audit_trail'");
@@ -206,8 +213,8 @@ describe("ServiceRecordLifecycleService", () => {
 
         transactionClient.service_record_case.updateMany.mockResolvedValue({ count: 0 });
         await expect(service.completeServiceRecordSnapshotIfReady({
-            branchId: "branch-1",
-            documentId: "snapshot-062",
+            branchId: rawQueryBranchId,
+            documentId: rawQueryDocumentId,
         })).resolves.toBe(false);
 
         expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(4);

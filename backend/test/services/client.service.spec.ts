@@ -389,6 +389,7 @@ describe("ClientService", () => {
         });
 
         it("links every matching contract by normalized phone after manual client creation", async () => {
+            const branchId = "11111111-1111-1111-1111-111111111111";
             const mockClient = createClientEntity();
             createClientUsecase.execute.mockResolvedValue(mockClient);
             prismaService.eformsign_doc.updateMany.mockResolvedValue({ count: 2 });
@@ -507,6 +508,8 @@ describe("ClientService", () => {
             expect(mockClient.eDocId).toBe("DOC-LATEST");
             const [lockQuery] = prismaService.$queryRaw.mock.calls[0]!;
             expect(lockQuery.sql).toContain("ORDER BY doc.id");
+            expect(lockQuery.strings.join(" ")).toMatch(/doc\.branch_id\s*=\s*::uuid/);
+            expect(lockQuery.text).toMatch(/\$\d+::uuid/);
             expect(documentSnapshotService.bumpVersion).toHaveBeenCalledWith(branchId);
             expect(documentSnapshotService.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
         });
