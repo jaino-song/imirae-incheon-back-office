@@ -2,6 +2,12 @@ import type {
     ClientBadgeKey,
     ClientBadgeStatus,
 } from "@babyjamjam/shared/tokens/status-badge";
+import type { ClientActionRequired } from "@babyjamjam/shared/types/client-action-required";
+
+export type {
+    ActionRequiredReason,
+    ClientActionRequired,
+} from "@babyjamjam/shared/types/client-action-required";
 
 // Employee summary for client responses
 export interface EmployeeSummary {
@@ -62,6 +68,7 @@ export interface Client {
     hasSigned: boolean;
     documentStatus: DocumentStatus;    // eformsign document status: created/opened/completed
     badges?: ClientBadge[];
+    actionRequired?: ClientActionRequired | null;
     pendingScheduleChange?: PendingScheduleChange | null;
 }
 

@@ -110,8 +110,8 @@ describe('Multi-Tenancy E2E Tests', () => {
             it('should only receive clients from Org A', async () => {
                 // Arrange - Service returns only Org A clients (filtered by repository)
                 const orgAClients = [
-                { ...createMockClient(1, 'Org A Client 1', ORG_A_ID), primaryEmployee: null, secondaryEmployee: null, hasSigned: false, documentStatus: null, badges: [] },
-                { ...createMockClient(2, 'Org A Client 2', ORG_A_ID), primaryEmployee: null, secondaryEmployee: null, hasSigned: false, documentStatus: null, badges: [] },
+                { ...createMockClient(1, 'Org A Client 1', ORG_A_ID), primaryEmployee: null, secondaryEmployee: null, hasSigned: false, documentStatus: null, badges: [], actionRequired: null },
+                { ...createMockClient(2, 'Org A Client 2', ORG_A_ID), primaryEmployee: null, secondaryEmployee: null, hasSigned: false, documentStatus: null, badges: [], actionRequired: null },
                 ];
                 clientService.findAll.mockResolvedValue(orgAClients);
 

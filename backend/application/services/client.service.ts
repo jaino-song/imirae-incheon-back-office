@@ -21,7 +21,8 @@ import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { normalizeClientPricing } from "domain/services/client-pricing";
-import { diffBusinessDaysKr } from "domain/utils/business-days";
+import { addBusinessDaysKr, diffBusinessDaysKr, isoDateInKorea } from "domain/utils/business-days";
+import { isProviderReviewWorkflowStep } from "domain/utils/eformsign-status-code";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { computeServiceStatus, isServiceStatus, SERVICE_STATUS, SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { MessageTriggerService } from "./message-trigger.service";
@@ -30,9 +31,11 @@ import { ServiceRecordLifecycleService } from "./service-record-lifecycle.servic
 import { SystemSettingService } from "./system-setting.service";
 
 const FILTER_DAYS_THRESHOLD = 7;
-const CONTRACT_REQUIRED_BUSINESS_DAYS_THRESHOLD = 3;
-const ACTION_REQUIRED_SIGNATURE_THRESHOLD_DAYS = 2;
-const ACTION_REQUIRED_SEND_THRESHOLD_DAYS = 6;
+// Contract attention windows, in KR business days before service start.
+// Sending is warned about earlier than signing, so there is time to send first.
+// The badge and the action-required feeds all read these two numbers.
+const CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD = 6;
+const CONTRACT_SIGNATURE_BUSINESS_DAYS_THRESHOLD = 3;
 const COMPLETED_DOCUMENT_STATUS_TYPES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_DOCUMENT_STATUS_TYPES = new Set(["011", "021", "031", "061", "071", "080"]);
 const REVOKED_DOCUMENT_STATUS_TYPES = new Set(["040", "042", "045", "090"]);
@@ -110,6 +113,7 @@ export interface ClientWithEmployees {
     hasSigned: boolean;
     documentStatus: DocumentStatusType;
     badges: ClientBadge[];
+    actionRequired: ClientActionRequired | null;
     primaryEmployee: { id: number; name: string; phone: string | null } | null;
     secondaryEmployee: { id: number; name: string; phone: string | null } | null;
     pendingScheduleChange?: PendingScheduleChange | null;
@@ -125,12 +129,22 @@ export interface PaginatedClientWithEmployees {
 
 export type ActionRequiredReason = "교체 요청" | "서명 필요" | "발송 필요";
 
-export interface ClientActionRequiredAlert {
+export interface ClientActionRequired {
+    reason: ActionRequiredReason;
+    priority: 1 | 2 | 3;
+}
+
+/** The latest contract signals the signature test reads. */
+interface LatestContractSignal {
+    statusType: string;
+    stepType: string;
+    stepName: string;
+}
+
+export interface ClientActionRequiredAlert extends ClientActionRequired {
     id: number;
     name: string;
     createdAt: Date | null;
-    reason: ActionRequiredReason;
-    priority: 1 | 2 | 3;
 }
 
 export interface DashboardOverview {
@@ -471,27 +485,167 @@ export class ClientService {
         }
     }
 
-    private buildClientBadges(params: {
+    /** Latest non-service-record contract document per client. */
+    private async findLatestContractByClientId(
+        clientIds: number[],
+    ): Promise<Map<number, LatestContractSignal>> {
+        const latestContractMap = new Map<number, LatestContractSignal>();
+        if (clientIds.length === 0) return latestContractMap;
+
+        const serviceRecordTemplateIds =
+            configuredServiceRecordTemplateIds(this.configService);
+        const contractDocs = await this.prismaService.eformsign_doc.findMany({
+            where: {
+                clientId: { in: clientIds },
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
+                serviceRecordCaseId: null,
+                // Contract lifecycle status is an indexed projection that commits before
+                // detail/PDF artifacts finish. Do not filter it by artifact syncStatus:
+                // doing so can hide the newest contract and fall back to an older one.
+                OR: [
+                    { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
+                    { documentKind: null },
+                ],
+            },
+            orderBy: [
+                { createdDate: "desc" },
+                { id: "desc" },
+            ],
+            select: {
+                clientId: true,
+                statusType: true,
+                stepType: true,
+                stepName: true,
+                documentKind: true,
+                serviceRecordCaseId: true,
+                templateId: true,
+            },
+        });
+
+        for (const doc of contractDocs) {
+            if (doc.clientId === null) continue;
+            if (isServiceRecordEformsignDocument(doc, serviceRecordTemplateIds)) {
+                continue;
+            }
+            if (!latestContractMap.has(doc.clientId)) {
+                latestContractMap.set(doc.clientId, {
+                    statusType: doc.statusType,
+                    stepType: doc.stepType,
+                    stepName: doc.stepName,
+                });
+            }
+        }
+
+        return latestContractMap;
+    }
+
+    private async findCustomerSignedContractByClientId(
+        clientIds: number[],
+    ): Promise<Map<number, boolean>> {
+        const latestContractMap = await this.findLatestContractByClientId(clientIds);
+
+        return new Map(
+            [...latestContractMap].map(([clientId, contract]) => [
+                clientId,
+                this.hasCustomerSignedContract(
+                    this.mapStatusTypeToDocumentStatus(contract.statusType),
+                    contract,
+                ),
+            ]),
+        );
+    }
+
+    /**
+     * The customer's signature — not full document completion — is what clears
+     * the "계약서 필요" badge. A contract sitting at the provider's review step
+     * has already been signed by the customer, so it must not be flagged.
+     * Mirrors the contracts page, which derives its "이용자 서명 완료" step the
+     * same way (frontend/src/app/(protected)/contracts/page.tsx).
+     */
+    private hasCustomerSignedContract(
+        documentStatus: DocumentStatusType,
+        step: { stepType: string; stepName: string } | undefined,
+    ): boolean {
+        if (documentStatus === "completed") return true;
+        // A terminated document's current step is stale — never read it as a signature.
+        if (documentStatus === "rejected" || documentStatus === "revoked" || documentStatus === "deleted") {
+            return false;
+        }
+        return isProviderReviewWorkflowStep(step);
+    }
+
+    /**
+     * Single source of truth for "this client's contract needs attention".
+     * The `contract_required` badge, the dashboard list and the
+     * `/clients/alerts` sidebar feed all read this, so every surface agrees.
+     *
+     * Completion is judged by the customer's signature — a document awaiting
+     * only provider review needs no action. Windows are counted in KR business
+     * days, so a weekend or holiday does not silently eat the warning time.
+     *
+     * Deliberately excludes 교체 요청: a replacement is unrelated to whether a
+     * contract exists, so it must not suppress the contract badge.
+     */
+    private computeContractActionRequired(params: {
         serviceStatus: string | null;
-        documentStatus: DocumentStatusType;
         startDate: Date | null;
+        eDocId: string | null;
+        customerSignedContract: boolean;
+    }): ClientActionRequired | null {
+        if (
+            params.serviceStatus === SERVICE_STATUS.PRE_BOOKING ||
+            params.serviceStatus === SERVICE_STATUS.COMPLETED ||
+            params.serviceStatus === SERVICE_STATUS.TERMINATED
+        ) {
+            return null;
+        }
+
+        if (!params.startDate) return null;
+
+        const businessDaysUntilStart = diffBusinessDaysKr(
+            params.startDate.toISOString().slice(0, 10),
+        );
+        if (businessDaysUntilStart === null) return null;
+
+        if (!params.eDocId && businessDaysUntilStart <= CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD) {
+            return { reason: "발송 필요", priority: 3 };
+        }
+
+        if (
+            params.eDocId &&
+            !params.customerSignedContract &&
+            businessDaysUntilStart <= CONTRACT_SIGNATURE_BUSINESS_DAYS_THRESHOLD
+        ) {
+            return { reason: "서명 필요", priority: 2 };
+        }
+
+        return null;
+    }
+
+    /** Contract attention plus the non-contract 교체 요청 alert, which outranks it. */
+    private computeActionRequired(params: {
+        serviceStatus: string | null;
+        startDate: Date | null;
+        eDocId: string | null;
+        customerSignedContract: boolean;
+    }): ClientActionRequired | null {
+        if (params.serviceStatus === SERVICE_STATUS.REPLACEMENT_REQUESTED) {
+            return { reason: "교체 요청", priority: 1 };
+        }
+
+        return this.computeContractActionRequired(params);
+    }
+
+    private buildClientBadges(params: {
+        contractActionRequired: ClientActionRequired | null;
+        serviceStatus: string | null;
         breastPump: boolean;
         careCenter: boolean | null;
     }): ClientBadge[] {
         const badges: ClientBadge[] = [];
-        const businessDaysUntilStart = params.startDate
-            ? diffBusinessDaysKr(params.startDate.toISOString().slice(0, 10))
-            : null;
-        const isWaitingWithinContractWindow =
-            params.serviceStatus === SERVICE_STATUS.WAITING &&
-            businessDaysUntilStart !== null &&
-            businessDaysUntilStart >= 0 &&
-            businessDaysUntilStart <= CONTRACT_REQUIRED_BUSINESS_DAYS_THRESHOLD;
-        const requiresContract =
-            params.documentStatus !== "completed" &&
-            (params.serviceStatus === SERVICE_STATUS.ACTIVE || isWaitingWithinContractWindow);
 
-        if (requiresContract) {
+        if (params.contractActionRequired) {
             badges.push({
                 key: "contract_required",
                 status: "terminated",
@@ -937,44 +1091,7 @@ export class ClientService {
         const pendingScheduleChangeMap = new Map(pendingScheduleChanges.map(change => [change.clientId, change]));
 
         // 현재 페이지 고객의 계약 문서만 한 번에 조회하고, 고객별 최신 상태를 사용한다.
-        const serviceRecordTemplateIds =
-            configuredServiceRecordTemplateIds(this.configService);
-        const contractDocs = await this.prismaService.eformsign_doc.findMany({
-            where: {
-                clientId: { in: clientIds },
-                permanentPurgeRequestedAt: null,
-                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
-                serviceRecordCaseId: null,
-                // Contract lifecycle status is an indexed projection that commits before
-                // detail/PDF artifacts finish. Do not filter it by artifact syncStatus:
-                // doing so can hide the newest contract and fall back to an older one.
-                OR: [
-                    { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
-                    { documentKind: null },
-                ],
-            },
-            orderBy: [
-                { createdDate: "desc" },
-                { id: "desc" },
-            ],
-            select: {
-                clientId: true,
-                statusType: true,
-                documentKind: true,
-                serviceRecordCaseId: true,
-                templateId: true,
-            },
-        });
-        const latestContractStatusMap = new Map<number, string>();
-        for (const doc of contractDocs) {
-            if (doc.clientId === null) continue;
-            if (isServiceRecordEformsignDocument(doc, serviceRecordTemplateIds)) {
-                continue;
-            }
-            if (!latestContractStatusMap.has(doc.clientId)) {
-                latestContractStatusMap.set(doc.clientId, doc.statusType);
-            }
-        }
+        const latestContractMap = await this.findLatestContractByClientId(clientIds);
 
         // Compute and update service status for each client (lazy update strategy)
         const clientsNeedingUpdate: { id: number; newStatus: ServiceStatusType }[] = [];
@@ -994,14 +1111,22 @@ export class ClientService {
             if (client.serviceStatus !== computedStatus) {
                 clientsNeedingUpdate.push({ id: client.id, newStatus: computedStatus });
             }
-            const documentStatus = this.mapStatusTypeToDocumentStatus(latestContractStatusMap.get(client.id));
-            const badges = this.buildClientBadges({
+            const latestContract = latestContractMap.get(client.id);
+            const documentStatus = this.mapStatusTypeToDocumentStatus(latestContract?.statusType);
+            const customerSignedContract = this.hasCustomerSignedContract(documentStatus, latestContract);
+            const contractSignals = {
                 serviceStatus: computedStatus,
-                documentStatus,
                 startDate: client.startDate,
+                eDocId: client.eDocId,
+                customerSignedContract,
+            };
+            const badges = this.buildClientBadges({
+                contractActionRequired: this.computeContractActionRequired(contractSignals),
+                serviceStatus: computedStatus,
                 breastPump: client.breastPump,
                 careCenter: client.careCenter,
             });
+            const actionRequired = this.computeActionRequired(contractSignals);
 
                 return {
                     id: client.id,
@@ -1027,6 +1152,7 @@ export class ClientService {
                     hasSigned: client.eDocId !== null,
                     documentStatus,
                     badges,
+                    actionRequired,
                     primaryEmployee: schedule?.primaryEmployee
                         ? {
                             id: schedule.primaryEmployee.id,
@@ -1556,13 +1682,19 @@ export class ClientService {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const sendThresholdDate = new Date(today);
-        sendThresholdDate.setDate(today.getDate() + ACTION_REQUIRED_SEND_THRESHOLD_DAYS);
-        sendThresholdDate.setHours(23, 59, 59, 999);
+        // The windows are business days, which span more calendar days than their
+        // count. Translate each into the exact calendar date it reaches so this
+        // pre-filter only narrows the scan — computeActionRequired still decides.
+        const businessDayCutoff = (businessDays: number): Date => {
+            const cutoff = new Date(
+                `${addBusinessDaysKr(isoDateInKorea(today), businessDays)}T00:00:00.000Z`,
+            );
+            cutoff.setHours(23, 59, 59, 999);
+            return cutoff;
+        };
 
-        const signatureThresholdDate = new Date(today);
-        signatureThresholdDate.setDate(today.getDate() + ACTION_REQUIRED_SIGNATURE_THRESHOLD_DAYS);
-        signatureThresholdDate.setHours(23, 59, 59, 999);
+        const sendThresholdDate = businessDayCutoff(CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD);
+        const signatureThresholdDate = businessDayCutoff(CONTRACT_SIGNATURE_BUSINESS_DAYS_THRESHOLD);
 
         const clients = await this.prismaService.client.findMany({
             where: {
@@ -1584,7 +1716,6 @@ export class ClientService {
                             { serviceStatus: { notIn: [SERVICE_STATUS.PRE_BOOKING, SERVICE_STATUS.COMPLETED, SERVICE_STATUS.TERMINATED] } },
                         ],
                         startDate: { lte: signatureThresholdDate },
-                        eformsignDocByEDocId: { statusType: { not: "050" } },
                     },
                 ],
             },
@@ -1596,76 +1727,42 @@ export class ClientService {
                 endDate: true,
                 serviceStatus: true,
                 eDocId: true,
-                eformsignDocByEDocId: {
-                    select: {
-                        statusType: true,
-                    },
-                },
             },
             orderBy: { createdAt: "desc" },
             take: Math.max(limit * 4, 12),
         });
 
+        // The signature test reads the latest contract, matching the badge — not the
+        // document pinned by eDocId, which can lag behind a re-issued contract.
+        const signedByClientId = await this.findCustomerSignedContractByClientId(
+            clients.map((client) => client.id),
+        );
+
         return clients
             .map((client): ClientActionRequiredAlert | null => {
-                const eformsignDoc = client.eformsignDocByEDocId as { statusType: string | null } | null | undefined;
                 const serviceStatus = computeServiceStatus(
                     client.serviceStatus,
                     client.startDate,
                     client.endDate,
                 );
 
-                if (serviceStatus === SERVICE_STATUS.REPLACEMENT_REQUESTED) {
-                    return {
-                        id: client.id,
-                        name: client.name,
-                        createdAt: client.createdAt ?? null,
-                        reason: "교체 요청",
-                        priority: 1,
-                    };
-                }
+                const actionRequired = this.computeActionRequired({
+                    serviceStatus,
+                    startDate: client.startDate,
+                    eDocId: client.eDocId,
+                    customerSignedContract: signedByClientId.get(client.id) ?? false,
+                });
 
-                if (
-                    serviceStatus === SERVICE_STATUS.PRE_BOOKING ||
-                    serviceStatus === SERVICE_STATUS.COMPLETED ||
-                    serviceStatus === SERVICE_STATUS.TERMINATED
-                ) {
+                if (!actionRequired) {
                     return null;
                 }
 
-                if (!client.startDate) {
-                    return null;
-                }
-
-                const start = new Date(client.startDate);
-                start.setHours(0, 0, 0, 0);
-                const daysUntilStart = Math.round((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-                if (!client.eDocId && daysUntilStart <= ACTION_REQUIRED_SEND_THRESHOLD_DAYS) {
-                    return {
-                        id: client.id,
-                        name: client.name,
-                        createdAt: client.createdAt ?? null,
-                        reason: "발송 필요",
-                        priority: 3,
-                    };
-                }
-
-                if (
-                    client.eDocId &&
-                    eformsignDoc?.statusType !== "050" &&
-                    daysUntilStart <= ACTION_REQUIRED_SIGNATURE_THRESHOLD_DAYS
-                ) {
-                    return {
-                        id: client.id,
-                        name: client.name,
-                        createdAt: client.createdAt ?? null,
-                        reason: "서명 필요",
-                        priority: 2,
-                    };
-                }
-
-                return null;
+                return {
+                    id: client.id,
+                    name: client.name,
+                    createdAt: client.createdAt ?? null,
+                    ...actionRequired,
+                };
             })
             .filter((alert): alert is ClientActionRequiredAlert => alert !== null)
             .sort((a, b) => a.priority - b.priority)
