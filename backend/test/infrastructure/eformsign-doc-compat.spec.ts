@@ -270,6 +270,24 @@ describe("stripPendingEformsignDocPredicates", () => {
         });
     });
 
+    it("propagates a removed tautology past an authored empty AND array", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { AND: [], templateId: null },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({});
+    });
+
+    it("propagates a removed tautology past an authored empty NOT array", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { NOT: [], templateId: null },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({});
+    });
+
     it("preserves a pre-existing empty branch inside NOT", () => {
         expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
             NOT: {},

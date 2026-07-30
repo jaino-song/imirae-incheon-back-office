@@ -368,7 +368,23 @@ export const stripPendingEformsignDocPredicates = (
             }
             stripped[key] = value;
         }
-        if (Object.keys(stripped).length === 0) {
+        const strippedEntries = Object.entries(stripped);
+        if (
+            removedTrue
+            && strippedEntries.length > 0
+            && strippedEntries.every(([key, value]) =>
+                (key === "AND" || key === "OR" || key === "NOT")
+                && Array.isArray(value)
+                && value.length === 0
+            )
+        ) {
+            // Prisma gives an authored empty logical array contextual semantics when it
+            // stands alone. If this same node also contained a missing-column `: null`,
+            // however, that removed predicate is the known-true branch and must still
+            // propagate through its parent logical expression.
+            return { kind: "true" };
+        }
+        if (strippedEntries.length === 0) {
             // `{}` is context-sensitive in Prisma (`OR: [{}]` and `NOT: {}` are not
             // interchangeable with our boolean identities). Only an empty node caused by
             // removing a known-true predicate is the true identity this helper may erase.
