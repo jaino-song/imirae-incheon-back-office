@@ -8,12 +8,18 @@ import {
 
 type RouteParams = { params: Promise<{ documentId: string }> };
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function proxyPreview(
+  request: NextRequest,
+  { params }: RouteParams,
+  includeBody: boolean,
+) {
   try {
     const authToken = getAuthToken(request);
 
     if (!authToken) {
-      return unauthorizedResponse("Authentication required. Please log in.");
+      return includeBody
+        ? unauthorizedResponse("Authentication required. Please log in.")
+        : new NextResponse(null, { status: 401 });
     }
 
     const { documentId } = await params;
@@ -30,11 +36,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const contentType = String(response.headers["content-type"] ?? "application/octet-stream");
 
     if (contentType.includes("application/json")) {
+      if (!includeBody) {
+        return new NextResponse(null, {
+          status: response.status,
+          headers: { "Content-Type": contentType },
+        });
+      }
+
       const payload = JSON.parse(Buffer.from(response.data).toString("utf-8"));
       return NextResponse.json(payload, { status: response.status });
     }
 
-    return new NextResponse(response.data, {
+    return new NextResponse(includeBody ? response.data : null, {
       status: response.status,
       headers: {
         "Content-Type": contentType,
@@ -45,9 +58,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       },
     });
   } catch (error) {
+    if (!includeBody) {
+      return new NextResponse(null, { status: 500 });
+    }
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to preview eformsign document" },
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest, context: RouteParams) {
+  return proxyPreview(request, context, true);
+}
+
+export async function HEAD(request: NextRequest, context: RouteParams) {
+  return proxyPreview(request, context, false);
 }
