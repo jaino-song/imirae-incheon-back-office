@@ -20,9 +20,10 @@ export async function POST(request: NextRequest) {
 
         const response = await serverAPIClient.post("/eformsign-docs/dispatch-headless", body, {
             headers: { Authorization: `Bearer ${token}` },
-            // Headless dispatch can approach 90s when eformsign is slow to
-            // fire the SDK success callback; keep the proxy above that ceiling.
-            timeout: 180_000,
+            // Must sit between the backend's own budget (iframe boot 30s + gates
+            // 100s + SDK callback 30s ≈ 160s worst case) and the browser's 180s,
+            // so a slow run still resolves into a real backend verdict.
+            timeout: 170_000,
         });
 
         return NextResponse.json(response.data);

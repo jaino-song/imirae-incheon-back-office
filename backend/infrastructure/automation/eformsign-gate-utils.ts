@@ -2,6 +2,11 @@ import type { FrameLocator, Locator, Page } from "playwright-core";
 
 export const EFORMSIGN_GATE_POLL_MS = 500;
 export const EFORMSIGN_CLICK_TIMEOUT_MS = 2_000;
+// The gate loop only logs when it clicks something, so a run that stalls waiting
+// for the editor to expose its first actionable button leaves no trace at all.
+// Emit a snapshot on this cadence while the loop is idle so a timeout report
+// shows what the iframe was actually displaying, not just the final frame.
+export const EFORMSIGN_GATE_DIAGNOSTIC_INTERVAL_MS = 5_000;
 export const EFORMSIGN_READY_TEXT = "필수 입력 항목을 모두 작성했습니다.";
 // eformsign uses two different popup IDs depending on the SDK mode:
 //   - mode "01" (creation): #requestWithInputCommentPopup

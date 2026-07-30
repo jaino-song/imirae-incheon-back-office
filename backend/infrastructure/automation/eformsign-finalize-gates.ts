@@ -1,17 +1,23 @@
 import type { FrameLocator, Page } from "playwright-core";
 import type { Logger as NestLogger } from "@nestjs/common";
 import {
+    EFORMSIGN_GATE_DIAGNOSTIC_INTERVAL_MS,
     EFORMSIGN_GATE_POLL_MS,
     FINALIZE_REQUEST_SEND_DIALOG_SELECTOR,
     createGateErrorWithSnapshot,
     findVisibleEnabledLocator,
+    getEformsignGateSnapshot,
     isSuccessLatched,
     throwIfEformsignErrorLatched,
     tryClickGateLocator,
 } from "./eformsign-gate-utils";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 
-const EFORMSIGN_FINALIZE_GATE_TIMEOUT_MS = 30_000;
+// Same split as the creation gates: eformsign's editor render time varies by an
+// order of magnitude, so waiting for the first actionable gate gets its own
+// budget and must not eat into the click sequence that follows.
+const EFORMSIGN_FINALIZE_GATE_WAIT_TIMEOUT_MS = 70_000;
+const EFORMSIGN_FINALIZE_GATE_ACTION_TIMEOUT_MS = 30_000;
 
 /**
  * Drive the staff-finalize iframe (mode:"02") through its short gate sequence:
@@ -25,9 +31,32 @@ export async function runEformsignFinalizeGates(
     logger: NestLogger | Console = console,
     onProgress?: (step: EformsignHeadlessProgressStep) => void,
 ): Promise<"success-latched" | "request-send-clicked"> {
-    const deadline = Date.now() + EFORMSIGN_FINALIZE_GATE_TIMEOUT_MS;
+    const startedAt = Date.now();
+    let deadline = startedAt + EFORMSIGN_FINALIZE_GATE_WAIT_TIMEOUT_MS;
     let lastAction = "none";
     let creatingEmitted = false;
+    let lastDiagnosticAt = startedAt;
+    let firstActionAt: number | null = null;
+
+    const noteAction = (action: string): void => {
+        lastAction = action;
+        if (firstActionAt !== null) return;
+        firstActionAt = Date.now();
+        deadline = firstActionAt + EFORMSIGN_FINALIZE_GATE_ACTION_TIMEOUT_MS;
+    };
+
+    const emitIdleDiagnostic = async (): Promise<void> => {
+        if (Date.now() - lastDiagnosticAt < EFORMSIGN_GATE_DIAGNOSTIC_INTERVAL_MS) return;
+        lastDiagnosticAt = Date.now();
+        const snapshot = await getEformsignGateSnapshot(
+            eformsignFrame,
+            FINALIZE_REQUEST_SEND_DIALOG_SELECTOR,
+        ).catch((error: unknown) => `unavailable (${error instanceof Error ? error.message : String(error)})`);
+        const line =
+            `[finalize-gate] waiting ${Date.now() - startedAt}ms; lastAction: ${lastAction}; ` +
+            `snapshot: ${JSON.stringify(snapshot)}`;
+        (logger as NestLogger).log?.(line) ?? console.log(line);
+    };
 
     // Finalize prefill (서비스 종료일) is applied via the SDK options before the
     // iframe even renders, so as soon as we reach the gate loop the data is
@@ -47,6 +76,8 @@ export async function runEformsignFinalizeGates(
             if (await isSuccessLatched(page)) {
                 return "success-latched";
             }
+
+            await emitIdleDiagnostic();
 
             const requestSendDialog = eformsignFrame.locator(FINALIZE_REQUEST_SEND_DIALOG_SELECTOR);
 
@@ -78,7 +109,7 @@ export async function runEformsignFinalizeGates(
                 (logger as NestLogger).log?.("[finalize-gate] clicked top-level 전송") ??
                     console.log("[finalize-gate] clicked top-level 전송");
                 emitCreating();
-                lastAction = "clicked top-level 전송";
+                noteAction("clicked top-level 전송");
                 await page.waitForTimeout(250);
                 continue;
             }
@@ -95,7 +126,7 @@ export async function runEformsignFinalizeGates(
                 }
                 (logger as NestLogger).log?.("[finalize-gate] clicked 확인") ??
                     console.log("[finalize-gate] clicked 확인");
-                lastAction = "clicked 확인";
+                noteAction("clicked 확인");
                 await page.waitForTimeout(250);
                 continue;
             }
@@ -110,9 +141,13 @@ export async function runEformsignFinalizeGates(
         );
     }
 
+    const phase = firstActionAt === null
+        ? `no gate became actionable within ${EFORMSIGN_FINALIZE_GATE_WAIT_TIMEOUT_MS}ms`
+        : `sequence stalled ${Date.now() - firstActionAt}ms after its first click `
+            + `(budget ${EFORMSIGN_FINALIZE_GATE_ACTION_TIMEOUT_MS}ms)`;
     throw await createGateErrorWithSnapshot(
         new Error(
-            `Timed out after ${EFORMSIGN_FINALIZE_GATE_TIMEOUT_MS}ms while advancing eformsign finalize gates. ` +
+            `Timed out after ${Date.now() - startedAt}ms while advancing eformsign finalize gates: ${phase}. ` +
                 `Last action: ${lastAction}`,
         ),
         eformsignFrame,
