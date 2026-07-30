@@ -83,6 +83,7 @@ export function EmployeeFormDialog({
     const [isPhoneDuplicate, setIsPhoneDuplicate] = useState(false);
     const [hasPhoneDuplicateCheckFailed, setHasPhoneDuplicateCheckFailed] = useState(false);
     const [lastCheckedPhoneDigits, setLastCheckedPhoneDigits] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const createMutation = useCreateEmployee();
     const updateMutation = useUpdateEmployee();
@@ -91,7 +92,7 @@ export function EmployeeFormDialog({
     const prefillName = useEmployeeDialogStore((state) => state.prefillName);
 
     const isEditMode = !!employee;
-    const isLoading = createMutation.isPending || updateMutation.isPending;
+    const isLoading = isSubmitting || createMutation.isPending || updateMutation.isPending;
     const phoneDigits = useMemo(() => normalizePhoneNumber(formData.phone), [formData.phone]);
     const employeePhoneDigits = useMemo(() => normalizePhoneNumber(employee?.phone ?? ""), [employee?.phone]);
     const isUnchangedEmployeePhone = isEditMode && phoneDigits.length === 11 && phoneDigits === employeePhoneDigits;
@@ -297,6 +298,7 @@ export function EmployeeFormDialog({
             return;
         }
 
+        setIsSubmitting(true);
         try {
             if (isEditMode && employee) {
                 const dto: UpdateEmployeeDto = {
@@ -345,6 +347,8 @@ export function EmployeeFormDialog({
         } catch (error: unknown) {
             console.error("[EmployeeFormDialog] Failed to save employee:", error);
             setError(getErrorMessage(error, locale, "employees.form.error-save-failed"));
+        } finally {
+            setIsSubmitting(false);
         }
     };
 

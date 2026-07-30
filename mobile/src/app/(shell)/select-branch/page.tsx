@@ -44,15 +44,17 @@ export default function SelectBranchPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const isPageBusy = submitting || loggingOut;
 
-  const confirmSelectBranch = useCallback(async (branchId: string) => {
+  const confirmSelectBranch = useCallback(async (branchId: string): Promise<boolean> => {
     setSubmitting(true);
     try {
       const result = await setCurrentBranch(branchId);
       if (!result.success) {
         setError(result.error || "지점 선택에 실패했습니다.");
         setSubmitting(false);
-        return;
+        return false;
       }
 
       // The auth user query caches branchId for 30 minutes, and eformsign
@@ -70,15 +72,18 @@ export default function SelectBranchPage() {
       });
 
       router.replace("/dashboard");
+      return true;
     } catch (err) {
       console.error("[Select Branch] Error selecting branch:", err);
       setError("지점 선택에 실패했습니다.");
       setSubmitting(false);
+      return false;
     }
   }, [queryClient, router]);
 
   useEffect(() => {
     const fetchBranches = async () => {
+      let keepLoadingForNavigation = false;
       try {
         const result = await getUserBranches();
 
@@ -90,7 +95,7 @@ export default function SelectBranchPage() {
         const isOwner = result.branches?.some((org) => org.role === "owner");
         if (result.branches?.length === 1 && !isOwner) {
           const org = result.branches[0];
-          await confirmSelectBranch(org.id);
+          keepLoadingForNavigation = await confirmSelectBranch(org.id);
           return;
         }
 
@@ -101,7 +106,9 @@ export default function SelectBranchPage() {
         console.error("[Select Branch] Error fetching branches:", err);
         setError("지점 목록을 불러오는데 실패했습니다.");
       } finally {
-        setLoading(false);
+        if (!keepLoadingForNavigation) {
+          setLoading(false);
+        }
       }
     };
 
@@ -109,11 +116,19 @@ export default function SelectBranchPage() {
   }, [confirmSelectBranch]);
 
   const handleLogout = async () => {
+    if (isPageBusy) return;
+    setLoggingOut(true);
     // auth_token/refresh_token are httpOnly — document.cookie cannot clear
     // them, and the middleware bounces authenticated users straight back
     // from /login. The server action clears them properly.
-    await logout();
-    router.replace("/login");
+    try {
+      await logout();
+      router.replace("/login");
+    } catch (err) {
+      console.error("[Select Branch] Error logging out:", err);
+      setError("로그아웃에 실패했습니다.");
+      setLoggingOut(false);
+    }
   };
 
   const getRoleLabel = (role: string) => t(locale, `roles.${role}`) || t(locale, "roles.unknown");
@@ -193,8 +208,13 @@ export default function SelectBranchPage() {
           <button type="button" className="branch-btn" onClick={() => window.location.reload()}>
             새로고침
           </button>
-          <button type="button" className="logout-link" onClick={handleLogout}>
-            <span>로그아웃</span>
+          <button
+            type="button"
+            className="logout-link"
+            onClick={handleLogout}
+            disabled={isPageBusy}
+          >
+            <span>{loggingOut ? "로그아웃 중…" : "로그아웃"}</span>
           </button>
         </div>
       </div>
@@ -237,7 +257,7 @@ export default function SelectBranchPage() {
               type="button"
               className={`branch-card ${isSelected ? "selected" : ""}`}
               onClick={() => setSelectedId(branch.id)}
-              disabled={submitting}
+              disabled={isPageBusy}
               data-component={`${SELECT_BRANCH_ROW}`}
             >
               <div
@@ -266,7 +286,7 @@ export default function SelectBranchPage() {
           type="button"
           className="branch-btn"
           onClick={() => selectedId && confirmSelectBranch(selectedId)}
-          disabled={!selectedId || submitting}
+          disabled={!selectedId || isPageBusy}
         >
           {submitting
             ? "이동 중…"
@@ -274,8 +294,13 @@ export default function SelectBranchPage() {
               ? `${selectedBranch.name}으로 이동`
               : "지점을 선택하세요"}
         </button>
-        <button type="button" className="logout-link" onClick={handleLogout}>
-          <span>로그아웃</span>
+        <button
+          type="button"
+          className="logout-link"
+          onClick={handleLogout}
+          disabled={isPageBusy}
+        >
+          <span>{loggingOut ? "로그아웃 중…" : "로그아웃"}</span>
         </button>
       </div>
     </div>

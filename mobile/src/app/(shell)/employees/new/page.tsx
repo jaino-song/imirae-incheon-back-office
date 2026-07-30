@@ -266,9 +266,9 @@ export default function NewEmployeePage() {
       ? "제공인력님의 기본 정보를 입력해주세요."
       : "근무 지역과 다음 배정 가능 여부를 선택해주세요.";
   const selectedSummary = [store.name.trim(), store.grade].filter(Boolean);
+  const isBusy = createEmployee.isPending || isNavigationPending;
   const isNextButtonDisabled =
-    createEmployee.isPending ||
-    isNavigationPending ||
+    isBusy ||
     (
       activeStep === 0 &&
       (
@@ -328,6 +328,7 @@ export default function NewEmployeePage() {
   };
 
   const handleExit = () => {
+    if (isBusy) return;
     reset();
     router.push(returnTo ?? "/employees");
   };
@@ -358,6 +359,7 @@ export default function NewEmployeePage() {
           className={styles.navbarIconButton}
           type="button"
           onClick={handleExit}
+          disabled={isBusy}
           aria-label={returnTo ? "이전 화면으로 돌아가기" : "직원 목록으로 돌아가기"}
         >
           <ChevronLeft aria-hidden="true" size={20} strokeWidth={2.5} />
@@ -369,6 +371,7 @@ export default function NewEmployeePage() {
           className={styles.navbarIconButton}
           type="button"
           onClick={handleExit}
+          disabled={isBusy}
           aria-label="닫기"
         >
           <X aria-hidden="true" size={20} strokeWidth={2.5} />
@@ -597,7 +600,7 @@ export default function NewEmployeePage() {
             onClick={handleNext}
             disabled={isNextButtonDisabled}
           >
-            {createEmployee.isPending || isNavigationPending ? "등록 중..." : isLastStep ? "✓ 등록" : "다음 →"}
+            {isBusy ? "등록 중..." : isLastStep ? "✓ 등록" : "다음 →"}
           </button>
         </div>
       </div>

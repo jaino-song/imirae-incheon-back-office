@@ -61,7 +61,7 @@ export default function SelectBranchPage() {
     const [selecting, setSelecting] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
 
-    const handleSelectBranch = useCallback(async (branchId: string) => {
+    const handleSelectBranch = useCallback(async (branchId: string): Promise<boolean> => {
         setSelecting(branchId);
 
         try {
@@ -70,7 +70,7 @@ export default function SelectBranchPage() {
             if (!result.success) {
                 setError(result.error || "지점 선택에 실패했습니다.");
                 setSelecting(null);
-                return;
+                return false;
             }
 
             // 지점 전환 시 이전 지점의 React Query 캐시(고객 목록·전자계약 등)를 모두 비운다.
@@ -79,15 +79,18 @@ export default function SelectBranchPage() {
             queryClient.clear();
 
             router.replace("/dashboard");
+            return true;
         } catch (err) {
             console.error("[Select Branch] Error selecting branch:", err);
             setError("지점 선택에 실패했습니다.");
             setSelecting(null);
+            return false;
         }
     }, [router, queryClient]);
 
     useEffect(() => {
         const fetchBranches = async () => {
+            let keepLoadingForNavigation = false;
             try {
                 const result = await getUserBranches();
 
@@ -101,7 +104,7 @@ export default function SelectBranchPage() {
                 const isOwner = result.branches?.some(org => org.role === 'owner');
                 if (result.branches?.length === 1 && !isOwner) {
                     const org = result.branches[0];
-                    await handleSelectBranch(org.id);
+                    keepLoadingForNavigation = await handleSelectBranch(org.id);
                     return;
                 }
 
@@ -111,7 +114,9 @@ export default function SelectBranchPage() {
                 console.error("[Select Branch] Error fetching branches:", err);
                 setError("지점 목록을 불러오는데 실패했습니다.");
             } finally {
-                setLoading(false);
+                if (!keepLoadingForNavigation) {
+                    setLoading(false);
+                }
             }
         };
 
