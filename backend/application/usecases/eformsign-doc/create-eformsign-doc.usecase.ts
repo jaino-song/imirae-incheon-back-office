@@ -31,6 +31,8 @@ export interface CreateEformsignDocParams {
     documentKind?: EformsignDocumentKind | null;
     employeeScheduleId?: number | null;
     templateId?: string | null;
+    /** Internal adopt-path fence; ordinary document creation must leave this unset. */
+    preserveExistingMirrorProjection?: boolean;
 }
 
 export type CreateEformsignDocResult = EformsignDocEntity & {
@@ -88,7 +90,13 @@ export class CreateEformsignDocUsecase {
             employeeScheduleId: params.employeeScheduleId ?? null,
             templateId: params.templateId ?? null,
         });
-        const createdDoc = await this.eformsignDocRepository.upsertByDocumentId(branchid, entity);
+        const createdDoc = params.preserveExistingMirrorProjection
+            ? await this.eformsignDocRepository.upsertByDocumentId(
+                branchid,
+                entity,
+                { preserveExistingMirrorProjection: true },
+            )
+            : await this.eformsignDocRepository.upsertByDocumentId(branchid, entity);
         const warnings: Array<"client_link_failed"> = [];
 
         // If linkToClient is true, also update client.e_doc_id to track this document

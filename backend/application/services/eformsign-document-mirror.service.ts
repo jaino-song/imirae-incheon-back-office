@@ -269,6 +269,10 @@ export class EformsignDocumentMirrorService {
         try {
             const remote = await this.eformsignClient.getDocument(accessToken, documentId);
             const sourceUpdatedDate = validSourceDate(remote.updated_date);
+            const statusType = normalizeEformsignStatusCode(
+                remote.current_status.status_type,
+            );
+            const isCompletedDocument = EFORMSIGN_COMPLETED_STATUS_CODES.has(statusType);
             attemptedSourceUpdatedDate = sourceUpdatedDate;
             try {
                 await this.mirrorDocumentUsecase.mirrorRemoteDocument(
@@ -331,6 +335,13 @@ export class EformsignDocumentMirrorService {
                 };
             }
 
+            if (isCompletedDocument) {
+                // saveDetail moves this generation to syncing. Invalidate the prior
+                // snapshot now so a completed row cannot stay published while either
+                // required PDF is missing or being replaced.
+                await this.invalidateDocumentSnapshots([documentId]);
+            }
+
             const storedFileTypes: EformsignDocumentFileType[] = [];
             const missingFileTypes: EformsignDocumentFileType[] = [];
             const shouldRepairFiles = !options.skipHealthySameVersionFileRepair
@@ -353,11 +364,8 @@ export class EformsignDocumentMirrorService {
                 storedFileTypes.push(...FILE_TYPES);
             }
 
-            const statusType = normalizeEformsignStatusCode(
-                remote.current_status.status_type,
-            );
             if (
-                EFORMSIGN_COMPLETED_STATUS_CODES.has(statusType)
+                isCompletedDocument
                 && missingFileTypes.length > 0
             ) {
                 throw new Error(
@@ -375,6 +383,11 @@ export class EformsignDocumentMirrorService {
                 partialMessage ? "partial" : "ready",
                 partialMessage,
             );
+            if (finishApplied && isCompletedDocument) {
+                // The list repository admits completed rows only at ready. Publish the
+                // successfully stored detail/PDF generation immediately.
+                await this.invalidateDocumentSnapshots([documentId]);
+            }
             let ownershipChanged = false;
             if (!finishApplied) {
                 // A newer attempt owns the terminal state. Reconcile only if that

@@ -58,19 +58,22 @@ function createQuery(overrides: Partial<MirrorListQuery> = {}): MirrorListQuery 
 }
 
 describe("EformsignMirrorListService", () => {
-    let repository: { findAll: jest.Mock; findAllForHeadquarters: jest.Mock };
+    let repository: {
+        findAllVisibleInMirror: jest.Mock;
+        findAllVisibleInMirrorForHeadquarters: jest.Mock;
+    };
     let service: EformsignMirrorListService;
 
     beforeEach(() => {
         repository = {
-            findAll: jest.fn().mockResolvedValue([]),
-            findAllForHeadquarters: jest.fn().mockResolvedValue([]),
+            findAllVisibleInMirror: jest.fn().mockResolvedValue([]),
+            findAllVisibleInMirrorForHeadquarters: jest.fn().mockResolvedValue([]),
         };
         service = new EformsignMirrorListService(repository as never);
     });
 
     it("returns documents newest first, tie-broken by id", async () => {
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-b", createdDate: "2026-07-01T00:00:00.000Z" }),
             createMirrorDocument({ documentId: "doc-c", createdDate: "2026-07-02T00:00:00.000Z" }),
             createMirrorDocument({ documentId: "doc-a", createdDate: "2026-07-01T00:00:00.000Z" }),
@@ -82,18 +85,19 @@ describe("EformsignMirrorListService", () => {
     });
 
     it("reads the headquarters scope from the method that includes unclaimed rows", async () => {
-        repository.findAllForHeadquarters.mockResolvedValue([
+        repository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-hq" }),
         ]);
 
         const { documents } = await service.buildList(createQuery({ isHeadquarters: true }));
 
-        expect(repository.findAllForHeadquarters).toHaveBeenCalledWith("branch-1");
+        expect(repository.findAllVisibleInMirrorForHeadquarters)
+            .toHaveBeenCalledWith("branch-1");
         expect(documents.map((document) => document.id)).toEqual(["doc-hq"]);
     });
 
     it("selects a tab by status rather than by vendor inbox", async () => {
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-open", statusType: "060" }),
             createMirrorDocument({ documentId: "doc-done", statusType: "050" }),
             createMirrorDocument({ documentId: "doc-gone", statusType: "080" }),
@@ -111,7 +115,7 @@ describe("EformsignMirrorListService", () => {
     it("puts a deleted document in the rejected tab, where the desktop shows it", async () => {
         // 047/049 land in the "unknown" category, which also holds every unrecognised
         // status — those belong in 진행 중, and only the deleted ones in 기간 만료.
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-deleted", statusType: "049" }),
             createMirrorDocument({ documentId: "doc-strange", statusType: "999" }),
         ]);
@@ -124,7 +128,7 @@ describe("EformsignMirrorListService", () => {
     });
 
     it("applies template include and exclude across a comma-separated list", async () => {
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-1", templateId: "t-1" }),
             createMirrorDocument({ documentId: "doc-2", templateId: "t-2" }),
             createMirrorDocument({ documentId: "doc-3", templateId: "t-9" }),
@@ -142,7 +146,7 @@ describe("EformsignMirrorListService", () => {
     });
 
     it("excludes deleted documents only when asked", async () => {
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-live", statusType: "060" }),
             createMirrorDocument({ documentId: "doc-deleted", statusType: "047" }),
             createMirrorDocument({ documentId: "doc-deleted-legacy", statusType: "099" }),
@@ -156,7 +160,7 @@ describe("EformsignMirrorListService", () => {
     });
 
     it("searches the recipient name, including by 초성", async () => {
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-song", stepRecipientName: "송진호" }),
             createMirrorDocument({ documentId: "doc-park", stepRecipientName: "박수신" }),
         ]);
@@ -172,7 +176,7 @@ describe("EformsignMirrorListService", () => {
         // The API path's search index is built before enrichment, so a customer name never
         // reaches it. Matching one here would change what the search finds the moment the
         // source switches — a feature change smuggled in as a migration.
-        repository.findAll.mockResolvedValue([
+        repository.findAllVisibleInMirror.mockResolvedValue([
             createMirrorDocument({
                 documentId: "doc-1",
                 customerName: "최고객",
@@ -189,14 +193,14 @@ describe("EformsignMirrorListService", () => {
     it("only searches recipient names the branch owns", async () => {
         // Headquarters sees unclaimed documents, but the API path builds its recipient-name
         // corpus from findAll(branchId), so their names are not searchable there.
-        repository.findAllForHeadquarters.mockResolvedValue([
+        repository.findAllVisibleInMirrorForHeadquarters.mockResolvedValue([
             createMirrorDocument({
                 documentId: "doc-unassigned",
                 documentName: "무관한 제목",
                 stepRecipientName: "박수신",
             }),
         ]);
-        repository.findAll.mockResolvedValue([]);
+        repository.findAllVisibleInMirror.mockResolvedValue([]);
 
         const { documents } = await service.buildList(
             createQuery({ isHeadquarters: true, search: "박수신" }),
@@ -211,8 +215,8 @@ describe("enrichMirrorPage", () => {
 
     it("fills in the customer name the list renders", async () => {
         const service = new EformsignMirrorListService({
-            findAll: jest.fn().mockResolvedValue([entity]),
-            findAllForHeadquarters: jest.fn(),
+            findAllVisibleInMirror: jest.fn().mockResolvedValue([entity]),
+            findAllVisibleInMirrorForHeadquarters: jest.fn(),
         } as never);
         const { documents } = await service.buildList(createQuery());
 
@@ -236,8 +240,8 @@ describe("enrichMirrorPage", () => {
             stepRecipientName: "송진호",
         });
         const service = new EformsignMirrorListService({
-            findAll: jest.fn().mockResolvedValue([titled, named]),
-            findAllForHeadquarters: jest.fn(),
+            findAllVisibleInMirror: jest.fn().mockResolvedValue([titled, named]),
+            findAllVisibleInMirrorForHeadquarters: jest.fn(),
         } as never);
         const { documents } = await service.buildList(createQuery());
 
@@ -259,8 +263,8 @@ describe("enrichMirrorPage", () => {
             stepRecipientName: "수신자",
         });
         const service = new EformsignMirrorListService({
-            findAll: jest.fn().mockResolvedValue([sentinel]),
-            findAllForHeadquarters: jest.fn(),
+            findAllVisibleInMirror: jest.fn().mockResolvedValue([sentinel]),
+            findAllVisibleInMirrorForHeadquarters: jest.fn(),
         } as never);
         const { documents } = await service.buildList(createQuery());
 
