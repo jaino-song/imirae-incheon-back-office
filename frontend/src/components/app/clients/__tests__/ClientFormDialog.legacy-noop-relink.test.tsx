@@ -6,6 +6,11 @@ import type { Client } from "@/lib/client/types";
 import { ClientFormPanel } from "../ClientFormDialog";
 
 const mockUpdateClient = jest.fn();
+let mockOutOfPocketPriceInfos: Array<{
+  id: number;
+  duration: number;
+  fullPrice: string;
+}> = [];
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: jest.fn() }),
@@ -18,7 +23,11 @@ jest.mock("@/hooks/useClients", () => ({
 }));
 
 jest.mock("@/hooks/useVoucherData", () => ({
-  useOutOfPocketPriceInfos: () => ({ data: [], isError: false, isLoading: false }),
+  useOutOfPocketPriceInfos: () => ({
+    data: mockOutOfPocketPriceInfos,
+    isError: false,
+    isLoading: false,
+  }),
   useVoucherPriceInfos: () => ({ data: [], isLoading: false }),
   useVoucherYears: () => ({ data: [], isLoading: false }),
 }));
@@ -84,6 +93,7 @@ describe("ClientForm legacy no-op relink", () => {
     mockApiGet.mockResolvedValue({ data: { exists: false } });
     mockUpdateClient.mockReset();
     mockUpdateClient.mockResolvedValue(legacyClient);
+    mockOutOfPocketPriceInfos = [];
   });
 
   it("sends an empty update for an unchanged legacy client with no due date", async () => {
@@ -187,6 +197,123 @@ describe("ClientForm legacy no-op relink", () => {
 
     await act(async () => {
       await Promise.resolve();
+    });
+  });
+
+  it("keeps no-op relink available after automatic price hydration", async () => {
+    mockOutOfPocketPriceInfos = [
+      { id: 1, duration: 5, fullPrice: "815000" },
+    ];
+    const clientWithAutoPrice = {
+      ...legacyClient,
+      duration: 5,
+      fullPrice: null,
+      grant: null,
+      actualPrice: null,
+    };
+    const onClose = jest.fn();
+    const { rerender } = render(
+      <ClientFormPanel
+        open
+        activeStep={2}
+        client={clientWithAutoPrice}
+        onClose={onClose}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("총 서비스 금액")).toHaveValue("815,000");
+    });
+
+    rerender(
+      <ClientFormPanel
+        open
+        activeStep={3}
+        client={clientWithAutoPrice}
+        onClose={onClose}
+      />,
+    );
+
+    const saveButton = screen.getByRole("button", { name: "저장" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockUpdateClient).toHaveBeenCalledWith({
+        id: clientWithAutoPrice.id,
+        dto: {},
+      });
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires normal validation after a user edits an automatically hydrated price", async () => {
+    mockOutOfPocketPriceInfos = [
+      { id: 1, duration: 5, fullPrice: "815000" },
+    ];
+    const clientWithAutoPrice = {
+      ...legacyClient,
+      duration: 5,
+      fullPrice: null,
+      grant: null,
+      actualPrice: null,
+    };
+    const { rerender } = render(
+      <ClientFormPanel
+        open
+        activeStep={2}
+        client={clientWithAutoPrice}
+        onClose={jest.fn()}
+      />,
+    );
+
+    const priceInput = await screen.findByLabelText("총 서비스 금액");
+    await waitFor(() => expect(priceInput).toHaveValue("815,000"));
+    fireEvent.change(priceInput, { target: { value: "820000" } });
+
+    rerender(
+      <ClientFormPanel
+        open
+        activeStep={3}
+        client={clientWithAutoPrice}
+        onClose={jest.fn()}
+      />,
+    );
+
+    const saveButton = screen.getByRole("button", { name: "저장" });
+    expect(saveButton).toBeDisabled();
+    fireEvent.click(saveButton);
+    expect(mockUpdateClient).not.toHaveBeenCalled();
+  });
+
+  it("allows an unchanged international-format phone to reach the backend relink", async () => {
+    const internationalPhoneClient = {
+      ...legacyClient,
+      phone: "+82 10-1111-2222",
+    };
+
+    render(
+      <ClientFormPanel
+        open
+        activeStep={3}
+        client={internationalPhoneClient}
+        onClose={jest.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const saveButton = screen.getByRole("button", { name: "저장" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockUpdateClient).toHaveBeenCalledWith({
+        id: internationalPhoneClient.id,
+        dto: {},
+      });
     });
   });
 
