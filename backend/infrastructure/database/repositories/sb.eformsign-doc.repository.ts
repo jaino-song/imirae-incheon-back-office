@@ -23,6 +23,7 @@ import {
 import {
     EFORMSIGN_DOC_DOMAIN_READ_SELECT,
     readWithEformsignDocCompat,
+    stripPendingEformsignDocPredicates,
     isPendingEformsignDocColumnError,
     omitPendingEformsignDocColumns,
     toCompatDomainRow,
@@ -917,7 +918,10 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
 
             const doc = await readWithEformsignDocCompat(error, (select) =>
-                this.prismaService.eformsign_doc.findFirst({ where, select }));
+                this.prismaService.eformsign_doc.findFirst({
+                    where: stripPendingEformsignDocPredicates(error, where),
+                    select,
+                }));
             return doc ? EformsignDocMapper.toDomain(toCompatDomainRow(doc)) : null;
         }
     }
@@ -935,7 +939,10 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
 
             const docs = await readWithEformsignDocCompat(error, (select) =>
-                this.prismaService.eformsign_doc.findMany({ where, select }));
+                this.prismaService.eformsign_doc.findMany({
+                    where: stripPendingEformsignDocPredicates(error, where),
+                    select,
+                }));
             return docs.map((doc) => EformsignDocMapper.toDomain(toCompatDomainRow(doc)));
         }
     }
