@@ -52,6 +52,15 @@ const MIRROR_LIST_VISIBILITY_WHERE: Prisma.eformsign_docWhereInput = {
 };
 const RETRYABLE_MIRROR_SYNC_STATUSES = ["pending", "partial", "failed"] as const;
 
+const combineStatusGuards = (
+    guards: Prisma.eformsign_docWhereInput[],
+): Prisma.eformsign_docWhereInput => {
+    if (guards.length === 1) {
+        return guards[0] ?? {};
+    }
+    return guards.length > 1 ? { AND: guards } : {};
+};
+
 const toUnscopedResult = (
     documentId: string,
     row: Parameters<typeof EformsignDocMapper.toDomain>[0] & { branchId: string | null },
@@ -652,7 +661,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 : {}),
         };
 
-        const statusGuards: Prisma.eformsign_docWhereInput[] = [
+        const baseStatusGuards: Prisma.eformsign_docWhereInput[] = [
             ...(UNASSIGNED_TERMINAL_STATUS_CODES.has(doc.statusType)
                 ? []
                 : [{
@@ -672,6 +681,9 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                         { statusType: doc.statusType },
                     ],
                 }]),
+        ];
+        const statusGuards: Prisma.eformsign_docWhereInput[] = [
+            ...baseStatusGuards,
             ...(options?.markMirrorPending
                 ? [{
                     // The detail attempt is the publication owner. A list status can
@@ -713,12 +725,8 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 }]
                 : []),
         ];
-        let statusGuard: Prisma.eformsign_docWhereInput = {};
-        if (statusGuards.length === 1) {
-            statusGuard = statusGuards[0] ?? {};
-        } else if (statusGuards.length > 1) {
-            statusGuard = { AND: statusGuards };
-        }
+        const statusGuard = combineStatusGuards(statusGuards);
+        const compatibilityStatusGuard = combineStatusGuards(baseStatusGuards);
 
         return this.conditionalUpsertByDocumentId({
             documentId: doc.documentId,
@@ -740,6 +748,19 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
                 ...statusGuard,
             },
+            ...(options?.markMirrorPending
+                ? {
+                    // Before the mirror migration there is no detail generation or
+                    // syncStatus to fence. Keep the pre-mirror ordering/status guards
+                    // so a P2022 retry never references columns that do not exist.
+                    compatibilityStaleGuard: {
+                        updatedDate: { lte: doc.updatedDate },
+                        permanentPurgeRequestedAt: null,
+                        statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
+                        ...compatibilityStatusGuard,
+                    },
+                }
+                : {}),
             // Creation time is not state, so a refusal on ordering grounds must not take
             // it down with the rest. It has to be that way: a row written by create or
             // adopt carries the moment we wrote it, which is *newer* than the vendor's own
@@ -757,19 +778,25 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         update: Prisma.eformsign_docUpdateManyMutationInput;
         allowedWhere: Prisma.eformsign_docWhereInput;
         staleGuard?: Prisma.eformsign_docWhereInput;
+        compatibilityStaleGuard?: Prisma.eformsign_docWhereInput;
         repairCreatedDateWhenStale?: Date;
     }): Promise<EformsignDocEntity> {
+        const {
+            compatibilityStaleGuard,
+            ...attemptParams
+        } = params;
         try {
-            return await this.attemptConditionalUpsertByDocumentId(params);
+            return await this.attemptConditionalUpsertByDocumentId(attemptParams);
         } catch (error) {
             if (!isPendingEformsignDocColumnError(error)) {
                 throw error;
             }
 
             return this.attemptConditionalUpsertByDocumentId({
-                ...params,
-                create: omitPendingEformsignDocColumns(params.create, error),
-                update: omitPendingEformsignDocColumns(params.update, error),
+                ...attemptParams,
+                create: omitPendingEformsignDocColumns(attemptParams.create, error),
+                update: omitPendingEformsignDocColumns(attemptParams.update, error),
+                staleGuard: compatibilityStaleGuard ?? attemptParams.staleGuard,
             }, error);
         }
     }

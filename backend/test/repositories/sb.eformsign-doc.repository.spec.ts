@@ -1575,6 +1575,34 @@ describe("SbEformsignDocRepository", () => {
         );
     });
 
+    it("removes mirror-only predicates when a pending-column retry uses the legacy schema", async () => {
+        eformsignDocModel.updateMany
+            .mockRejectedValueOnce(pendingColumnError)
+            .mockResolvedValueOnce({ count: 1 });
+        eformsignDocModel.findFirst
+            .mockRejectedValueOnce(pendingColumnError)
+            .mockResolvedValueOnce(legacyRow);
+
+        await repository.upsertUnassignedByDocumentId(createEntity(), {
+            markMirrorPending: true,
+        });
+
+        const retry = eformsignDocModel.updateMany.mock.calls[1][0];
+        expect(retry.where.AND[0]).toEqual({
+            documentId: "doc-1",
+            branchId: null,
+        });
+        expect(retry.where.AND[1]).toEqual(expect.objectContaining({
+            updatedDate: { lte: legacyRow.updatedDate },
+            permanentPurgeRequestedAt: null,
+            statusType: { notIn: ["047", "049", "099"] },
+        }));
+        expect(JSON.stringify(retry.where)).not.toMatch(
+            /detailSourceUpdatedDate|detailPayload|syncStatus/,
+        );
+        expect(retry.data).not.toHaveProperty("syncStatus");
+    });
+
     it("refuses a stale mirror update without reporting an ownership conflict", async () => {
         // Zero updated rows while a row still matches the ownership predicate means the
         // stored state is already at least as new. Reporting a conflict here would send the
