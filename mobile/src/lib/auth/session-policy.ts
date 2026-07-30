@@ -19,3 +19,11 @@ export function decodeAccessRole(accessToken: string): string | null {
         return null;
     }
 }
+
+export function decodeAccessBranchId(accessToken: string): string | null {
+    try {
+        return jwtDecode<{ branchId?: string | null }>(accessToken).branchId ?? null;
+    } catch {
+        return null;
+    }
+}

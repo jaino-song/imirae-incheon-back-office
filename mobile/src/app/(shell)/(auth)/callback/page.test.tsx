@@ -19,11 +19,32 @@ jest.mock("./actions", () => ({
 const mockExchangeToken = jest.mocked(exchangeToken);
 
 describe("AuthCallbackPage", () => {
+  const originalLocation = window.location;
+  const mockLocationReplace = jest.fn();
+
   beforeEach(() => {
     mockPush.mockReset();
     mockReplace.mockReset();
     mockExchangeToken.mockReset();
     mockSearchParams = new URLSearchParams();
+
+    mockLocationReplace.mockReset();
+    // Success paths now navigate via a hard `window.location.replace` instead
+    // of the router, so the real (unimplemented in jsdom) navigation is
+    // swapped for a spy here and restored below.
+    Object.defineProperty(window, "location", {
+      value: { ...originalLocation, replace: mockLocationReplace },
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      value: originalLocation,
+      writable: true,
+      configurable: true,
+    });
   });
 
   it("does not expose arbitrary backend OAuth error text", async () => {
@@ -47,7 +68,7 @@ describe("AuthCallbackPage", () => {
 
     render(<AuthCallbackPage />);
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/kakao/onboarding"));
+    await waitFor(() => expect(mockLocationReplace).toHaveBeenCalledWith("/kakao/onboarding"));
   });
 
   it("exchanges a valid authorization code and continues to the dashboard", async () => {
@@ -57,6 +78,6 @@ describe("AuthCallbackPage", () => {
     render(<AuthCallbackPage />);
 
     await waitFor(() => expect(mockExchangeToken).toHaveBeenCalledWith("one-time-code"));
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(mockLocationReplace).toHaveBeenCalledWith("/dashboard"));
   });
 });
