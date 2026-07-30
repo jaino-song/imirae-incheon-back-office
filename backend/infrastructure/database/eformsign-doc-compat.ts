@@ -259,6 +259,15 @@ export const stripPendingEformsignDocPredicates = (
         operator: "AND" | "OR" | "NOT",
         value: Prisma.eformsign_docWhereInput | Prisma.eformsign_docWhereInput[],
     ): SimplifiedWhere => {
+        if (Array.isArray(value) && value.length === 0) {
+            // Empty logical arrays were authored by the caller, not produced by stripping
+            // a missing-column predicate. Prisma assigns them contextual semantics, so
+            // keep the node opaque just like an authored `{}` branch.
+            return {
+                kind: "where",
+                where: { [operator]: value },
+            };
+        }
         const entries = Array.isArray(value) ? value : [value];
         const simplifiedEntries = entries.map((entry) => strip(entry));
 

@@ -242,6 +242,34 @@ describe("stripPendingEformsignDocPredicates", () => {
         })).toEqual({ OR: [{}] });
     });
 
+    it("preserves an authored empty AND array nested inside OR", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { AND: [] },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({
+            OR: [
+                { AND: [] },
+                { branchId: "branch-1" },
+            ],
+        });
+    });
+
+    it("preserves an authored empty NOT array nested inside OR", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { NOT: [] },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({
+            OR: [
+                { NOT: [] },
+                { branchId: "branch-1" },
+            ],
+        });
+    });
+
     it("preserves a pre-existing empty branch inside NOT", () => {
         expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
             NOT: {},
