@@ -161,10 +161,11 @@ export function useInfiniteContracts({
   const lastSnapshotResetRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (
-      baseSnapshotGeneration === undefined
-      || conflictingSnapshotGeneration === undefined
-    ) return;
+    if (baseSnapshotGeneration === undefined) return;
+    if (conflictingSnapshotGeneration === undefined) {
+      lastSnapshotResetRef.current = null;
+      return;
+    }
     const signature =
       `${queryKey.join("|")}::${baseSnapshotGeneration}->${conflictingSnapshotGeneration}`;
     if (lastSnapshotResetRef.current === signature) return;

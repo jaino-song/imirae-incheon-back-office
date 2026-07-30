@@ -212,17 +212,17 @@ export function useInfiniteContracts({
       .find((generation) => generation !== baseSnapshotGeneration);
   }, [pages, baseSnapshotGeneration]);
 
-  // Loop guard: at most one reset per (query key, base -> conflicting) pair. A
-  // repeat of the exact same mismatch after a reset is swallowed rather than
-  // resetting forever.
+  // Loop guard: reset a given mismatch once while it remains present. Re-arm
+  // after the pages become coherent so a later recurrence is handled too.
   const lastSnapshotResetRef = useRef<string | null>(null);
   const queryKey = options.queryKey;
 
   useEffect(() => {
-    if (
-      baseSnapshotGeneration === undefined
-      || conflictingSnapshotGeneration === undefined
-    ) return;
+    if (baseSnapshotGeneration === undefined) return;
+    if (conflictingSnapshotGeneration === undefined) {
+      lastSnapshotResetRef.current = null;
+      return;
+    }
 
     const signature =
       `${queryKey.join("|")}::${baseSnapshotGeneration}->${conflictingSnapshotGeneration}`;

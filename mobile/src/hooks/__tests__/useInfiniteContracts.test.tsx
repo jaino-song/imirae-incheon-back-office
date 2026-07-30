@@ -348,7 +348,7 @@ describe("useInfiniteContracts", () => {
     expect(result.current.loadedCount).toBe(9);
   });
 
-  it("resets once on snapshot drift and suppresses the same mismatch after refetch", async () => {
+  it("re-arms the snapshot drift guard after a coherent refetch", async () => {
     const firstPage = createPage({
       ids: documentIds(1, 9),
       totalRows: 15,
@@ -369,7 +369,8 @@ describe("useInfiniteContracts", () => {
       .mockResolvedValueOnce(firstPage)
       .mockResolvedValueOnce(conflictingPage)
       .mockResolvedValueOnce(firstPage)
-      .mockResolvedValueOnce(conflictingPage);
+      .mockResolvedValueOnce(conflictingPage)
+      .mockResolvedValue(firstPage);
     const resetQueriesSpy = jest.spyOn(queryClient, "resetQueries");
 
     const { result } = renderHook(() => useInfiniteContracts(), {
@@ -396,7 +397,7 @@ describe("useInfiniteContracts", () => {
     });
     await waitFor(() => expect(mockedGetAllDocuments).toHaveBeenCalledTimes(4));
 
-    expect(resetQueriesSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(resetQueriesSpy).toHaveBeenCalledTimes(2));
     resetQueriesSpy.mockRestore();
   });
 
