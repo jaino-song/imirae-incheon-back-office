@@ -259,6 +259,15 @@ export const stripPendingEformsignDocPredicates = (
         operator: "AND" | "OR" | "NOT",
         value: Prisma.eformsign_docWhereInput | Prisma.eformsign_docWhereInput[],
     ): SimplifiedWhere => {
+        if (Array.isArray(value) && value.length === 0) {
+            // Empty logical arrays were authored by the caller, not produced by stripping
+            // a missing-column predicate. Prisma assigns them contextual semantics, so
+            // keep the node opaque just like an authored `{}` branch.
+            return {
+                kind: "where",
+                where: { [operator]: value },
+            };
+        }
         const entries = Array.isArray(value) ? value : [value];
         const simplifiedEntries = entries.map((entry) => strip(entry));
 
@@ -324,6 +333,23 @@ export const stripPendingEformsignDocPredicates = (
         return { kind: "where", where: { NOT: simplified!.where } };
     };
 
+    const isContextuallyEmpty = (node: Record<string, unknown>): boolean =>
+        Object.entries(node).every(([key, value]) => {
+            if (value === undefined) {
+                return true;
+            }
+            if (key !== "AND" && key !== "OR" && key !== "NOT") {
+                return false;
+            }
+            const entries = Array.isArray(value) ? value : [value];
+            return entries.every(
+                (entry) =>
+                    typeof entry === "object"
+                    && entry !== null
+                    && isContextuallyEmpty(entry as Record<string, unknown>),
+            );
+        });
+
     const strip = (node: Prisma.eformsign_docWhereInput): SimplifiedWhere => {
         const stripped: Record<string, unknown> = {};
         let removedTrue = false;
@@ -359,7 +385,15 @@ export const stripPendingEformsignDocPredicates = (
             }
             stripped[key] = value;
         }
-        if (Object.keys(stripped).length === 0) {
+        const strippedEntries = Object.entries(stripped);
+        if (removedTrue && strippedEntries.length > 0 && isContextuallyEmpty(stripped)) {
+            // Prisma changes an otherwise-empty logical node's meaning when it has a
+            // concrete sibling. Keep a schema-stable tautology in that exact object so
+            // stripping a pending-column `: null` does not change root or nested behavior.
+            // `id` predates every pending mirror migration and is a non-null primary key.
+            stripped["id"] = { notIn: [] };
+        }
+        if (strippedEntries.length === 0) {
             // `{}` is context-sensitive in Prisma (`OR: [{}]` and `NOT: {}` are not
             // interchangeable with our boolean identities). Only an empty node caused by
             // removing a known-true predicate is the true identity this helper may erase.
