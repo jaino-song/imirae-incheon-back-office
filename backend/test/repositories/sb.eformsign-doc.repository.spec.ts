@@ -4,6 +4,7 @@ import {
     EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
     UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
     UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
+    UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
 } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
@@ -899,8 +900,150 @@ describe("SbEformsignDocRepository", () => {
             markMirrorPending: true,
         });
 
-        expect(eformsignDocModel.updateMany.mock.calls[0][0].data)
+        const update = eformsignDocModel.updateMany.mock.calls[0][0];
+        expect(update.data)
             .toEqual(expect.objectContaining({ statusType: "050", syncStatus: "pending" }));
+        expect(update.where).toEqual({
+            AND: [
+                { documentId: "doc-1" },
+                {
+                    updatedDate: { lte: legacyRow.updatedDate },
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                    OR: [
+                        { updatedDate: { lt: legacyRow.updatedDate } },
+                        {
+                            statusType: {
+                                notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                            },
+                        },
+                        {
+                            statusType: {
+                                in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    it.each(["072", "050"])(
+        "allows a same-generation review-stage row to advance to terminal status %s",
+        async (statusType) => {
+            eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+            eformsignDocModel.findFirst.mockResolvedValue({
+                ...legacyRow,
+                statusType,
+                branchId: "branch-1",
+            });
+            const incoming = EformsignDocEntity.reconstitute({
+                ...legacyRow,
+                statusType,
+                documentKind: null,
+                employeeScheduleId: null,
+                templateId: null,
+            });
+
+            await repository.upsertUnassignedByDocumentId(incoming, {
+                allowAssignedUpdate: true,
+                markMirrorPending: true,
+            });
+
+            const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+            expect(staleGuard.OR).toContainEqual({
+                statusType: {
+                    in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
+                },
+            });
+        },
+    );
+
+    it("refuses a same-generation retry of an already terminal status", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+
+        await expect(repository.upsertUnassignedByDocumentId(createEntity(), {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        })).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard.OR).toEqual([
+            { updatedDate: { lt: legacyRow.updatedDate } },
+            {
+                statusType: {
+                    notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                },
+            },
+            {
+                statusType: {
+                    in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
+                },
+            },
+        ]);
+    });
+
+    it("refuses a same-generation terminal row moving back to review stage", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockRejectedValue(
+            Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+        );
+        eformsignDocModel.count.mockResolvedValue(1);
+        const incoming = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            statusType: "062",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await expect(repository.upsertUnassignedByDocumentId(incoming, {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        })).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
+
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard.AND[1].OR).toEqual([
+            { updatedDate: { lt: legacyRow.updatedDate } },
+            {
+                statusType: {
+                    notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                },
+            },
+        ]);
+    });
+
+    it("allows a newer terminal generation regardless of the stored completion status", async () => {
+        const newerUpdatedDate = new Date("2026-07-02T00:00:00.000Z");
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            updatedDate: newerUpdatedDate,
+            statusType: "072",
+            branchId: "branch-1",
+        });
+        const incoming = EformsignDocEntity.reconstitute({
+            ...legacyRow,
+            updatedDate: newerUpdatedDate,
+            statusType: "072",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertUnassignedByDocumentId(incoming, {
+            allowAssignedUpdate: true,
+            markMirrorPending: true,
+        });
+
+        const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
+        expect(staleGuard.OR).toContainEqual({
+            updatedDate: { lt: newerUpdatedDate },
+        });
     });
 
     it("creates a newly discovered document with every local-only field unassigned", async () => {
@@ -1015,6 +1158,10 @@ describe("SbEformsignDocRepository", () => {
         ["062", "063"],
         ["071", "060"],
         ["071", "063"],
+        ["62", "060"],
+        ["71", "060"],
+        ["doc_accept_participant", "060"],
+        ["doc_reject_reviewer", "060"],
     ])(
         "blocks review-stage status %s from transitioning backward to %s in the updateMany predicate",
         async (storedStatus, incomingStatus) => {
@@ -1045,7 +1192,7 @@ describe("SbEformsignDocRepository", () => {
                     OR: [
                         {
                             statusType: {
-                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_CODES],
+                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
                             },
                         },
                         { statusType: incomingStatus },

@@ -202,7 +202,7 @@ describe("EformsignDocumentSnapshotService", () => {
         ];
         const build = jest.fn().mockResolvedValue(staleEntries);
 
-        await service.getOrBuild(createMirrorParams(), build);
+        const initialResult = await service.getOrBuild(createMirrorParams(), build);
         redis.incr.mockRejectedValueOnce(new Error("Valkey unavailable during purge invalidation"));
         await expect(service.bumpVersion("branch-a")).resolves.toBeNull();
         exclusionLookup.findPermanentPurgeRequestedDocumentIds.mockResolvedValue([
@@ -226,14 +226,16 @@ describe("EformsignDocumentSnapshotService", () => {
                 createEntry("safe-document"),
                 createEntry("tombstoned-document"),
             ],
-            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
             cached: true,
         });
         expect(deletionFilteredResult).toEqual({
             entries: [createEntry("safe-document")],
-            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
             cached: true,
         });
+        expect(defaultResult.snapshotVersion).not.toBe(initialResult.snapshotVersion);
+        expect(deletionFilteredResult.snapshotVersion).not.toBe(defaultResult.snapshotVersion);
     });
 
     it("should fence an unready completed row from a stale mirror snapshot after a version bump fails", async () => {
@@ -259,7 +261,7 @@ describe("EformsignDocumentSnapshotService", () => {
             createEntry("completed-syncing-document"),
         ]);
 
-        await service.getOrBuild(createMirrorParams(), build);
+        const initialResult = await service.getOrBuild(createMirrorParams(), build);
         redis.incr.mockRejectedValueOnce(
             new Error("Valkey unavailable during completed mirror invalidation"),
         );
@@ -273,9 +275,21 @@ describe("EformsignDocumentSnapshotService", () => {
         expect(build).toHaveBeenCalledTimes(1);
         expect(result).toEqual({
             entries: [createEntry("safe-document")],
-            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
             cached: true,
         });
+        expect(result.snapshotVersion).not.toBe(initialResult.snapshotVersion);
+
+        const sameFence = await service.getOrBuild(createMirrorParams(), build);
+        expect(sameFence.snapshotVersion).toBe(result.snapshotVersion);
+
+        exclusionLookup.findUnreadyCompletedDocumentIds.mockResolvedValue([]);
+        const restored = await service.getOrBuild(createMirrorParams(), build);
+        expect(restored.entries).toEqual([
+            createEntry("safe-document"),
+            createEntry("completed-syncing-document"),
+        ]);
+        expect(restored.snapshotVersion).toBe(initialResult.snapshotVersion);
     });
 
     it("should apply the readiness fence only to mirror snapshots", async () => {
@@ -291,6 +305,21 @@ describe("EformsignDocumentSnapshotService", () => {
 
         expect(result.entries).toEqual([entry]);
         expect(exclusionLookup.findUnreadyCompletedDocumentIds).not.toHaveBeenCalled();
+    });
+
+    it("should keep the base generation when live exclusions do not affect membership", async () => {
+        const exclusionLookup = createSnapshotExclusionLookup();
+        const service = new EformsignDocumentSnapshotService(exclusionLookup);
+        const build = jest.fn().mockResolvedValue([createEntry("document-1")]);
+
+        const initial = await service.getOrBuild(createMirrorParams(), build);
+        exclusionLookup.findUnreadyCompletedDocumentIds.mockResolvedValue([
+            "not-in-this-snapshot",
+        ]);
+        const cached = await service.getOrBuild(createMirrorParams(), build);
+
+        expect(cached.entries).toEqual(initial.entries);
+        expect(cached.snapshotVersion).toBe(initial.snapshotVersion);
     });
 
     it("should fail closed when the mirror readiness fence is unavailable", async () => {
@@ -350,7 +379,7 @@ describe("EformsignDocumentSnapshotService", () => {
         expect(build).toHaveBeenCalledTimes(1);
         expect(result).toEqual({
             entries: [createEntry("hq-safe-document")],
-            snapshotVersion: expect.stringMatching(/^0:\d+$/),
+            snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
             cached: true,
         });
     });

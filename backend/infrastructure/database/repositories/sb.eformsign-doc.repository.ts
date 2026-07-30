@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import {
     EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
     UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE,
-    UNASSIGNED_REVIEW_STAGE_STATUS_CODES,
+    UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
 } from "domain/constants/eformsign-doc-status.constants";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
@@ -655,12 +655,35 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                     OR: [
                         {
                             statusType: {
-                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_CODES],
+                                notIn: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
                             },
                         },
                         { statusType: doc.statusType },
                     ],
                 }]),
+            ...(options?.markMirrorPending
+                ? [{
+                    // A completed projection owns a mirror attempt only if it advances
+                    // the vendor generation or changes an open row into a completion.
+                    // Equal-version completed retries must not downgrade a newer
+                    // syncing/ready attempt back to pending.
+                    OR: [
+                        { updatedDate: { lt: doc.updatedDate } },
+                        {
+                            statusType: {
+                                notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                            },
+                        },
+                        ...(UNASSIGNED_TERMINAL_STATUS_CODES.has(doc.statusType)
+                            ? [{
+                                statusType: {
+                                    in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
+                                },
+                            }]
+                            : []),
+                    ],
+                }]
+                : []),
         ];
         let statusGuard: Prisma.eformsign_docWhereInput = {};
         if (statusGuards.length === 1) {

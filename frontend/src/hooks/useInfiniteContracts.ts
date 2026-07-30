@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { eformsignApi } from "@/services/api";
 import { EformsignDocument, EformsignDocumentsResponse } from "@/lib/eformsign/types";
 import { eformsignQueryKeys } from "@/hooks/useEformsignDocuments";
@@ -91,8 +91,18 @@ export function useInfiniteContracts({
   excludedNames = EMPTY_EXCLUDED_NAMES,
   templateFilter,
 }: UseInfiniteContractsOptions = {}) {
+  const queryClient = useQueryClient();
+  const templateId = templateFilter?.templateId;
+  const templateMatch = templateFilter?.templateMatch;
+  const queryKey = useMemo(
+    () => infiniteContractsQueryKeys.documents(
+      filterType,
+      templateId && templateMatch ? { templateId, templateMatch } : undefined,
+    ),
+    [filterType, templateId, templateMatch],
+  );
   const query = useInfiniteQuery<EformsignDocumentsResponse>({
-    queryKey: infiniteContractsQueryKeys.documents(filterType, templateFilter),
+    queryKey,
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const skip = typeof pageParam === "number" ? pageParam : 0;
@@ -127,6 +137,36 @@ export function useInfiniteContracts({
     gcTime: 1000 * 60 * 60, // 1 hour
     refetchOnWindowFocus: false,
   });
+
+  // Offset pagination is valid only while every page belongs to the same effective
+  // mirror generation. A live readiness/tombstone fence can change membership even
+  // when Valkey invalidation fails, so restart from page 1 when a later page reports
+  // a different semantic snapshot version.
+  const pages = query.data?.pages;
+  const baseSnapshotVersion = pages?.[0]?.snapshot_version;
+  const conflictingSnapshotVersion = useMemo(() => {
+    if (!pages || !baseSnapshotVersion) return undefined;
+    return pages
+      .slice(1)
+      .find((page) =>
+        page.snapshot_version && page.snapshot_version !== baseSnapshotVersion)
+      ?.snapshot_version;
+  }, [pages, baseSnapshotVersion]);
+  const lastSnapshotResetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!baseSnapshotVersion || !conflictingSnapshotVersion) return;
+    const signature =
+      `${queryKey.join("|")}::${baseSnapshotVersion}->${conflictingSnapshotVersion}`;
+    if (lastSnapshotResetRef.current === signature) return;
+    lastSnapshotResetRef.current = signature;
+    void queryClient.resetQueries({ queryKey, exact: true });
+  }, [
+    baseSnapshotVersion,
+    conflictingSnapshotVersion,
+    queryClient,
+    queryKey,
+  ]);
 
   // Flatten loaded pages into a single document list, deduping by id.
   // The backend's getAllDocuments only dedupes within a single response, so a

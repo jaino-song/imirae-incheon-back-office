@@ -82,6 +82,15 @@ interface BuildOutcome<TDoc> {
     stored: boolean;
 }
 
+interface SnapshotExclusionResult<TDoc> {
+    entries: DocumentSnapshotEntry<TDoc>[];
+    /**
+     * Stable hash of live exclusions that actually changed this stored snapshot's
+     * membership. It becomes part of snapshotVersion so offset clients reset.
+     */
+    visibilityFence?: string;
+}
+
 interface MemoryEntry {
     expiresAt: number;
     payload: string;
@@ -372,11 +381,11 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         const version = await this.getVersion(params.branchId);
         if (version === null) {
             return {
-                entries: await this.excludeSnapshotEntries(
-                    await this.buildSafeEntries(build, params.source),
+                entries: (await this.excludeSnapshotEntries(
+                    await this.buildSafeEntries(build),
                     returnOptions,
                     params.source,
-                ),
+                )).entries,
                 cached: false,
             };
         }
@@ -385,11 +394,11 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
             const epoch = await this.getCompanyEpoch();
             if (epoch === null) {
                 return {
-                    entries: await this.excludeSnapshotEntries(
-                        await this.buildSafeEntries(build, params.source),
+                    entries: (await this.excludeSnapshotEntries(
+                        await this.buildSafeEntries(build),
                         returnOptions,
                         params.source,
-                    ),
+                    )).entries,
                     cached: false,
                 };
             }
@@ -400,26 +409,29 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         const read = await this.readSnapshot<TDoc>(key);
         if (read.status === "error") {
             return {
-                entries: await this.excludeSnapshotEntries(
-                    await this.buildSafeEntries(build, params.source),
+                entries: (await this.excludeSnapshotEntries(
+                    await this.buildSafeEntries(build),
                     returnOptions,
                     params.source,
-                ),
+                )).entries,
                 cached: false,
             };
         }
         if (read.status === "hit") {
-            const entries = await this.excludeSnapshotEntries(
+            const visible = await this.excludeSnapshotEntries(
                 read.snapshot.entries,
                 returnOptions,
                 params.source,
             );
             this.logger.log(
-                `documentSnapshot hit branch=${params.branchId} scope=${params.scope} docs=${entries.length}`,
+                `documentSnapshot hit branch=${params.branchId} scope=${params.scope} docs=${visible.entries.length}`,
             );
             return {
-                entries,
-                snapshotVersion: formatSnapshotVersion(read.snapshot),
+                entries: visible.entries,
+                snapshotVersion: formatSnapshotVersion(
+                    read.snapshot,
+                    visible.visibilityFence,
+                ),
                 cached: true,
             };
         }
@@ -427,13 +439,21 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         const inFlight = this.inFlight.get(key);
         if (inFlight) {
             const shared = (await inFlight) as BuildOutcome<TDoc>;
+            const visible = await this.excludeSnapshotEntries(
+                shared.snapshot.entries,
+                returnOptions,
+                params.source,
+            );
             return {
-                entries: await this.excludeSnapshotEntries(
-                    shared.snapshot.entries,
-                    returnOptions,
-                    params.source,
-                ),
-                ...(shared.stored ? { snapshotVersion: formatSnapshotVersion(shared.snapshot) } : {}),
+                entries: visible.entries,
+                ...(shared.stored
+                    ? {
+                        snapshotVersion: formatSnapshotVersion(
+                            shared.snapshot,
+                            visible.visibilityFence,
+                        ),
+                    }
+                    : {}),
                 cached: true,
             };
         }
@@ -444,13 +464,21 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         void pending.catch(() => undefined).finally(() => this.inFlight.delete(key));
 
         const outcome = await pending;
+        const visible = await this.excludeSnapshotEntries(
+            outcome.snapshot.entries,
+            returnOptions,
+            params.source,
+        );
         return {
-            entries: await this.excludeSnapshotEntries(
-                outcome.snapshot.entries,
-                returnOptions,
-                params.source,
-            ),
-            ...(outcome.stored ? { snapshotVersion: formatSnapshotVersion(outcome.snapshot) } : {}),
+            entries: visible.entries,
+            ...(outcome.stored
+                ? {
+                    snapshotVersion: formatSnapshotVersion(
+                        outcome.snapshot,
+                        visible.visibilityFence,
+                    ),
+                }
+                : {}),
             cached: false,
         };
     }
@@ -461,7 +489,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         params: DocumentSnapshotKeyParams,
         build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
     ): Promise<BuildOutcome<TDoc>> {
-        const entries = await this.buildSafeEntries(build, params.source);
+        const entries = await this.buildSafeEntries(build);
         const snapshot: StoredSnapshot<TDoc> = { version, builtAt: Date.now(), entries };
         const stored = await this.writeSnapshot(key, snapshot, params);
         return { snapshot, stored };
@@ -469,9 +497,11 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
 
     private async buildSafeEntries<TDoc>(
         build: () => Promise<DocumentSnapshotEntry<TDoc>[]>,
-        source: DocumentSnapshotKeyParams["source"],
     ): Promise<DocumentSnapshotEntry<TDoc>[]> {
-        return this.excludeSnapshotEntries(await build(), {}, source);
+        const excludedIds = new Set(
+            await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds(),
+        );
+        return this.filterExcludedSnapshotEntries(await build(), excludedIds);
     }
 
     /**
@@ -484,7 +514,7 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         entries: DocumentSnapshotEntry<TDoc>[],
         options: DocumentSnapshotReturnOptions,
         source: DocumentSnapshotKeyParams["source"],
-    ): Promise<DocumentSnapshotEntry<TDoc>[]> {
+    ): Promise<SnapshotExclusionResult<TDoc>> {
         const excludedIds = new Set(options.excludeTombstones
             ? await this.snapshotExclusionLookup.findListExcludedDocumentIds()
             : await this.snapshotExclusionLookup.findPermanentPurgeRequestedDocumentIds());
@@ -494,7 +524,33 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
                 excludedIds.add(documentId);
             }
         }
-        return this.filterExcludedSnapshotEntries(entries, excludedIds);
+        const effectiveExcludedIds = entries
+            .map((entry) => this.snapshotEntryDocumentId(entry))
+            .filter((documentId): documentId is string =>
+                documentId !== null && excludedIds.has(documentId))
+            .sort();
+        const filteredEntries = this.filterExcludedSnapshotEntries(entries, excludedIds);
+        if (effectiveExcludedIds.length === 0) {
+            return { entries: filteredEntries };
+        }
+        return {
+            entries: filteredEntries,
+            visibilityFence: createHash("sha256")
+                .update(effectiveExcludedIds.join("\0"))
+                .digest("hex")
+                .slice(0, 12),
+        };
+    }
+
+    private snapshotEntryDocumentId<TDoc>(
+        entry: DocumentSnapshotEntry<TDoc>,
+    ): string | null {
+        const document = entry.document;
+        if (typeof document !== "object" || document === null || !("id" in document)) {
+            return null;
+        }
+        const documentId = (document as { id?: unknown }).id;
+        return typeof documentId === "string" ? documentId : null;
     }
 
     private filterExcludedSnapshotEntries<TDoc>(
@@ -506,12 +562,8 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
         }
 
         return entries.filter((entry) => {
-            const document = entry.document;
-            if (typeof document !== "object" || document === null || !("id" in document)) {
-                return true;
-            }
-            const documentId = (document as { id?: unknown }).id;
-            return typeof documentId !== "string" || !excludedIds.has(documentId);
+            const documentId = this.snapshotEntryDocumentId(entry);
+            return documentId === null || !excludedIds.has(documentId);
         });
     }
 
@@ -656,8 +708,12 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
     }
 }
 
-function formatSnapshotVersion(snapshot: { version: number; builtAt: number }): string {
-    return `${snapshot.version}:${snapshot.builtAt}`;
+function formatSnapshotVersion(
+    snapshot: { version: number; builtAt: number },
+    visibilityFence?: string,
+): string {
+    const baseVersion = `${snapshot.version}:${snapshot.builtAt}`;
+    return visibilityFence ? `${baseVersion}:f${visibilityFence}` : baseVersion;
 }
 
 function describeError(error: unknown): string {

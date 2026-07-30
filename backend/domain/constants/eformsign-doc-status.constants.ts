@@ -65,6 +65,21 @@ export const TERMINAL_STATUS_CODES = new Set<string>([
  */
 export const UNASSIGNED_REVIEW_STAGE_STATUS_CODES = new Set<string>(["062", "071"]);
 
+/**
+ * Canonical review-stage codes plus raw values written by older vendor-ingestion paths.
+ * The repository normally receives normalized codes now, but an equal-generation forward
+ * transition must also be able to replace a legacy row without broadly reopening every
+ * completed status.
+ */
+export const UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES = [
+    "062",
+    "071",
+    "62",
+    "71",
+    "doc_accept_participant",
+    "doc_reject_reviewer",
+] as const;
+
 export const UNASSIGNED_TERMINAL_STATUS_CODES = new Set<string>(
     [...TERMINAL_STATUS_CODES].filter(
         (statusCode) => !UNASSIGNED_REVIEW_STAGE_STATUS_CODES.has(statusCode),
