@@ -8,6 +8,7 @@ import { serverAPIClient } from "@/lib/api/server";
 import { getServerRuntimeConfig } from "@/lib/env";
 import {
     ACCESS_TOKEN_MAX_AGE_SECONDS,
+    decodeAccessBranchId,
     getRefreshSessionMaxAgeSeconds,
 } from "@/lib/auth/session-policy";
 
@@ -145,6 +146,31 @@ export async function loginWithEmail(email: string, password: string, autoLogin 
             });
         } else {
             cookieStore.set("auto_login", autoLoginCookieValue, authCookieBaseOptions);
+        }
+
+        // middleware.ts gates every non-auth route on the selected_branch_id
+        // cookie. When the backend has already resolved a single accessible
+        // branch into the access token (requiresBranchSelection is false),
+        // reflect that branch here now — otherwise the user is bounced
+        // through /select-branch on the very next navigation.
+        //
+        // Every other case must CLEAR the cookie: this token carries no
+        // authorised branch, and a stale value left by a previous account on
+        // this device would otherwise satisfy the middleware gate and wave
+        // this login through to /dashboard with someone else's branch.
+        const branchId = data.requiresBranchSelection
+            ? null
+            : decodeAccessBranchId(data.accessToken);
+        if (branchId) {
+            cookieStore.set("selected_branch_id", branchId, {
+                httpOnly: false,
+                secure: isSecureCookie,
+                sameSite: "lax",
+                path: "/",
+                maxAge: 30 * 24 * 60 * 60,
+            });
+        } else {
+            cookieStore.delete("selected_branch_id");
         }
 
         console.log("[Server Action] Email login successful");
