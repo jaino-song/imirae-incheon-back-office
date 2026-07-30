@@ -423,40 +423,6 @@ export class EformsignDocumentSnapshotService implements OnModuleDestroy {
                 returnOptions,
                 params.source,
             );
-            if (params.source === "mirror") {
-                // Mirror snapshots are an optimization over local DB reads, not an
-                // authority boundary. A failed Valkey generation bump can leave an
-                // old snapshot that a subtractive readiness fence cannot repair when
-                // a newly-ready row was absent. Rebuild the exact local scope and use
-                // a stable content fence whenever it diverges. This keeps reads
-                // vendor-free while making cache invalidation failure fail closed.
-                const liveVisible = await this.excludeSnapshotEntries(
-                    await this.buildSafeEntries(build),
-                    returnOptions,
-                    params.source,
-                );
-                const contentFence = snapshotEntriesEqual(
-                    cachedVisible.entries,
-                    liveVisible.entries,
-                )
-                    ? (
-                        cachedVisible.visibilityFence
-                        ?? liveVisible.visibilityFence
-                    )
-                    : snapshotEntriesFence(liveVisible.entries);
-                this.logger.log(
-                    `documentSnapshot hit branch=${params.branchId} scope=${params.scope}`
-                    + ` docs=${liveVisible.entries.length}`,
-                );
-                return {
-                    entries: liveVisible.entries,
-                    snapshotVersion: formatSnapshotVersion(
-                        read.snapshot,
-                        contentFence,
-                    ),
-                    cached: true,
-                };
-            }
             this.logger.log(
                 `documentSnapshot hit branch=${params.branchId} scope=${params.scope} docs=${cachedVisible.entries.length}`,
             );
@@ -748,22 +714,6 @@ function formatSnapshotVersion(
 ): string {
     const baseVersion = `${snapshot.version}:${snapshot.builtAt}`;
     return visibilityFence ? `${baseVersion}:f${visibilityFence}` : baseVersion;
-}
-
-function snapshotEntriesEqual<TDoc>(
-    left: DocumentSnapshotEntry<TDoc>[],
-    right: DocumentSnapshotEntry<TDoc>[],
-): boolean {
-    return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function snapshotEntriesFence<TDoc>(
-    entries: DocumentSnapshotEntry<TDoc>[],
-): string {
-    return createHash("sha256")
-        .update(JSON.stringify(entries))
-        .digest("hex")
-        .slice(0, 12);
 }
 
 function describeError(error: unknown): string {

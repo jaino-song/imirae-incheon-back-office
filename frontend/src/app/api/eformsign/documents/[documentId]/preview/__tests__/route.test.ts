@@ -81,4 +81,56 @@ describe("eformsign document preview route", () => {
     expect((await response.arrayBuffer()).byteLength).toBe(0);
     expect(mockServerGet).not.toHaveBeenCalled();
   });
+
+  it("preserves a backend access denial for HEAD without returning its body", async () => {
+    mockServerGet.mockRejectedValue(
+      Object.assign(new Error("forbidden"), {
+        response: {
+          status: 403,
+          headers: { "content-type": "application/json" },
+          data: { error: "sensitive backend detail" },
+        },
+      }),
+    );
+
+    const response = await HEAD(createRequest("HEAD"), context);
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Content-Type")).toBe("application/json");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect((await response.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  it("preserves retry metadata for a pending local PDF without forwarding cookies", async () => {
+    mockServerGet.mockRejectedValue(
+      Object.assign(new Error("not ready"), {
+        response: {
+          status: 503,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "30",
+            "set-cookie": "backend-session=secret",
+          },
+          data: { error: "waiting for local synchronization" },
+        },
+      }),
+    );
+
+    const response = await HEAD(createRequest("HEAD"), context);
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("30");
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+    expect((await response.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  it("returns a bodyless bad-gateway response for a HEAD transport failure", async () => {
+    mockServerGet.mockRejectedValue(new Error("connection refused"));
+
+    const response = await HEAD(createRequest("HEAD"), context);
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect((await response.arrayBuffer()).byteLength).toBe(0);
+  });
 });

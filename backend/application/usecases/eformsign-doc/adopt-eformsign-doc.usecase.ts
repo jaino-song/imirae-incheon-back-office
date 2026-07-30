@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
@@ -18,6 +18,8 @@ export interface AdoptEformsignDocParams {
 
 @Injectable()
 export class AdoptEformsignDocUsecase {
+    private readonly logger = new Logger(AdoptEformsignDocUsecase.name);
+
     constructor(
         private readonly getAccessTokenUsecase: GetEformsignAccessTokenUsecase,
         private readonly fetchEformsignDocFromApiUsecase: FetchEformsignDocFromApiUsecase,
@@ -73,11 +75,29 @@ export class AdoptEformsignDocUsecase {
                 ?? null,
         });
 
-        await this.documentMirrorService.syncDocumentWithToken(
-            token.oauth_token.access_token,
-            remote.id || params.documentId,
-            { expectedUpdatedDate: remote.updated_date },
-        );
+        try {
+            await this.documentMirrorService.syncDocumentWithToken(
+                token.oauth_token.access_token,
+                remote.id || params.documentId,
+                { expectedUpdatedDate: remote.updated_date },
+            );
+        } catch {
+            // Ownership and client linkage were committed above. Returning a failure
+            // here would tell the caller to retry an adoption that already succeeded.
+            // Keep the row non-ready and expose a machine-readable warning so callers
+            // cannot report the local detail/PDF mirror as complete. The durable failed
+            // state remains eligible for an operational reconciliation without claiming
+            // that a scheduler or distributed lock is currently available.
+            this.logger.warn(
+                "Eformsign adoption committed, but the local mirror remains incomplete",
+            );
+            return Object.assign(result, {
+                warnings: [
+                    ...(result.warnings ?? []),
+                    "mirror_sync_failed" as const,
+                ],
+            });
+        }
 
         return result;
     }
