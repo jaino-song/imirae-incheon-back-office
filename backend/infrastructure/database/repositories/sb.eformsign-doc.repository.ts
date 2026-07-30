@@ -17,6 +17,7 @@ import {
     EformsignDocStaleUpdateError,
     EformsignDocUnscopedResult,
     IEformsignDocRepository,
+    UpsertEformsignDocByDocumentIdOptions,
     UpsertUnassignedEformsignDocOptions,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import {
@@ -49,6 +50,7 @@ const MIRROR_LIST_VISIBILITY_WHERE: Prisma.eformsign_docWhereInput = {
         },
     ],
 };
+const RETRYABLE_MIRROR_SYNC_STATUSES = ["pending", "partial", "failed"] as const;
 
 const toUnscopedResult = (
     documentId: string,
@@ -572,17 +574,26 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         return { document: updated, applied: true };
     }
 
-    async upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity> {
+    async upsertByDocumentId(
+        branchid: string,
+        doc: EformsignDocEntity,
+        options?: UpsertEformsignDocByDocumentIdOptions,
+    ): Promise<EformsignDocEntity> {
         const create = {
             ...EformsignDocMapper.toPrismaCreate(doc),
             branchId: branchid,
         };
-        const update: Partial<ReturnType<typeof EformsignDocMapper.toPrismaUpdate>> & {
-            branchId: string;
-        } = {
-            ...EformsignDocMapper.toPrismaUpdate(doc),
-            branchId: branchid,
-        };
+        const update: Partial<ReturnType<typeof EformsignDocMapper.toPrismaUpdate>>
+            & { branchId: string } = options?.preserveExistingMirrorProjection
+                ? {
+                    branchId: branchid,
+                    clientId: doc.clientId,
+                    documentKind: doc.documentKind,
+                }
+                : {
+                    ...EformsignDocMapper.toPrismaUpdate(doc),
+                    branchId: branchid,
+                };
         delete update.documentId;
 
         return this.conditionalUpsertByDocumentId({
@@ -663,24 +674,41 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 }]),
             ...(options?.markMirrorPending
                 ? [{
-                    // A completed projection owns a mirror attempt only if it advances
-                    // the vendor generation or changes an open row into a completion.
-                    // Equal-version completed retries must not downgrade a newer
-                    // syncing/ready attempt back to pending.
+                    // The detail attempt is the publication owner. A list status can
+                    // intentionally lag behind a completion webhook, so it must never
+                    // authorize a same-generation ready/syncing row to move back to
+                    // pending. Same-generation repair is limited to retryable attempts
+                    // or a detail that itself is still at the review stage.
                     OR: [
-                        { updatedDate: { lt: doc.updatedDate } },
+                        { detailSourceUpdatedDate: null },
+                        { detailSourceUpdatedDate: { lt: doc.updatedDate } },
                         {
-                            statusType: {
-                                notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
-                            },
-                        },
-                        ...(UNASSIGNED_TERMINAL_STATUS_CODES.has(doc.statusType)
-                            ? [{
-                                statusType: {
-                                    in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
+                            AND: [
+                                { detailSourceUpdatedDate: doc.updatedDate },
+                                {
+                                    OR: [
+                                        {
+                                            syncStatus: {
+                                                in: [...RETRYABLE_MIRROR_SYNC_STATUSES],
+                                            },
+                                        },
+                                        ...(UNASSIGNED_FORWARD_STATUS_CODES_AFTER_REVIEW_STAGE
+                                            .has(doc.statusType)
+                                            ? UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES
+                                                .map((statusType) => ({
+                                                    detailPayload: {
+                                                        path: [
+                                                            "current_status",
+                                                            "status_type",
+                                                        ],
+                                                        equals: statusType,
+                                                    },
+                                                }))
+                                            : []),
+                                    ],
                                 },
-                            }]
-                            : []),
+                            ],
+                        },
                     ],
                 }]
                 : []),

@@ -98,6 +98,16 @@ export interface UpsertUnassignedEformsignDocOptions {
     updateCreatedDate?: boolean;
 }
 
+export interface UpsertEformsignDocByDocumentIdOptions {
+    /**
+     * Adoption may assign branch/client ownership to a row whose detail/PDF
+     * generation is already ready. Keep that existing vendor projection intact
+     * until the mirror service has fetched and fenced the replacement generation.
+     * A newly inserted row still receives the complete projection and starts pending.
+     */
+    preserveExistingMirrorProjection?: boolean;
+}
+
 export interface IEformsignDocRepository {
     findById(branchid: string, id: number): Promise<EformsignDocEntity | null>;
     findByDocumentId(branchid: string, documentId: string): Promise<EformsignDocEntity | null>;
@@ -156,7 +166,11 @@ export interface IEformsignDocRepository {
         documentId: string,
         clientId: number,
     ): Promise<boolean>;
-    upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
+    upsertByDocumentId(
+        branchid: string,
+        doc: EformsignDocEntity,
+        options?: UpsertEformsignDocByDocumentIdOptions,
+    ): Promise<EformsignDocEntity>;
     upsertUnassignedByDocumentId(
         doc: EformsignDocEntity,
         options?: UpsertUnassignedEformsignDocOptions,

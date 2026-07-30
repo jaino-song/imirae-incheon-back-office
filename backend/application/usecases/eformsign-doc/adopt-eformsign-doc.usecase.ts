@@ -57,6 +57,10 @@ export class AdoptEformsignDocUsecase {
                 Date.now(),
             ),
             linkToClient: true,
+            // Existing ready detail/PDFs describe the stored projection. Assign
+            // ownership first, but let the fenced mirror sync below publish the
+            // newly fetched vendor projection only after its artifacts are ready.
+            preserveExistingMirrorProjection: true,
             documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
             templateId: remote.template?.id ?? null,
             documentName: remote.document_name,

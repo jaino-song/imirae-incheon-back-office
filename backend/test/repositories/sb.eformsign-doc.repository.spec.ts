@@ -687,6 +687,62 @@ describe("SbEformsignDocRepository", () => {
         expect(eformsignDocModel.create).not.toHaveBeenCalled();
     });
 
+    it("updates only ownership when adoption must preserve an existing ready projection", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 1 });
+        eformsignDocModel.findFirst.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: "contract",
+            employeeScheduleId: null,
+            templateId: "template-1",
+        });
+
+        await repository.upsertByDocumentId("branch-1", createEntity(), {
+            preserveExistingMirrorProjection: true,
+        });
+
+        expect(eformsignDocModel.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: {
+                    branchId: "branch-1",
+                    clientId: 55,
+                    documentKind: null,
+                },
+            }),
+        );
+        const update = eformsignDocModel.updateMany.mock.calls[0][0].data;
+        expect(update).not.toHaveProperty("statusType");
+        expect(update).not.toHaveProperty("statusDetail");
+        expect(update).not.toHaveProperty("updatedDate");
+        expect(update).not.toHaveProperty("stepType");
+        expect(update).not.toHaveProperty("templateId");
+        expect(update).not.toHaveProperty("expired");
+        expect(update).not.toHaveProperty("syncStatus");
+    });
+
+    it("still creates a complete pending projection for a newly adopted document", async () => {
+        eformsignDocModel.updateMany.mockResolvedValue({ count: 0 });
+        eformsignDocModel.create.mockResolvedValue({
+            ...legacyRow,
+            branchId: "branch-1",
+            documentKind: null,
+            employeeScheduleId: null,
+            templateId: null,
+        });
+
+        await repository.upsertByDocumentId("branch-1", createEntity(), {
+            preserveExistingMirrorProjection: true,
+        });
+
+        expect(eformsignDocModel.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+                documentId: "doc-1",
+                branchId: "branch-1",
+                statusType: "050",
+            }),
+        });
+    });
+
     it("retries the conditional documentId update and read without pending columns", async () => {
         eformsignDocModel.updateMany
             .mockRejectedValueOnce(pendingColumnError)
@@ -903,29 +959,39 @@ describe("SbEformsignDocRepository", () => {
         const update = eformsignDocModel.updateMany.mock.calls[0][0];
         expect(update.data)
             .toEqual(expect.objectContaining({ statusType: "050", syncStatus: "pending" }));
-        expect(update.where).toEqual({
-            AND: [
-                { documentId: "doc-1" },
-                {
-                    updatedDate: { lte: legacyRow.updatedDate },
-                    permanentPurgeRequestedAt: null,
-                    statusType: { notIn: ["047", "049", "099"] },
-                    OR: [
-                        { updatedDate: { lt: legacyRow.updatedDate } },
-                        {
-                            statusType: {
-                                notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
-                            },
-                        },
-                        {
-                            statusType: {
-                                in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
-                            },
-                        },
-                    ],
-                },
-            ],
+        const staleGuard = update.where.AND[1];
+        expect(staleGuard.OR).toContainEqual({
+            detailSourceUpdatedDate: { lt: legacyRow.updatedDate },
         });
+        expect(staleGuard.OR).toContainEqual({
+            AND: expect.arrayContaining([
+                { detailSourceUpdatedDate: legacyRow.updatedDate },
+                {
+                    OR: expect.arrayContaining([
+                        { syncStatus: { in: ["pending", "partial", "failed"] } },
+                        {
+                            detailPayload: {
+                                path: ["current_status", "status_type"],
+                                equals: "062",
+                            },
+                        },
+                        {
+                            detailPayload: {
+                                path: ["current_status", "status_type"],
+                                equals: "doc_reject_reviewer",
+                            },
+                        },
+                    ]),
+                },
+            ]),
+        });
+        expect(JSON.stringify(staleGuard)).not.toContain(
+            JSON.stringify({
+                statusType: {
+                    notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
+                },
+            }),
+        );
     });
 
     it.each(["072", "050"])(
@@ -952,9 +1018,25 @@ describe("SbEformsignDocRepository", () => {
 
             const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
             expect(staleGuard.OR).toContainEqual({
-                statusType: {
-                    in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
-                },
+                AND: expect.arrayContaining([
+                    { detailSourceUpdatedDate: legacyRow.updatedDate },
+                    {
+                        OR: expect.arrayContaining([
+                            {
+                                detailPayload: {
+                                    path: ["current_status", "status_type"],
+                                    equals: "062",
+                                },
+                            },
+                            {
+                                detailPayload: {
+                                    path: ["current_status", "status_type"],
+                                    equals: "071",
+                                },
+                            },
+                        ]),
+                    },
+                ]),
             });
         },
     );
@@ -973,16 +1055,17 @@ describe("SbEformsignDocRepository", () => {
 
         const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
         expect(staleGuard.OR).toEqual([
-            { updatedDate: { lt: legacyRow.updatedDate } },
+            { detailSourceUpdatedDate: null },
+            { detailSourceUpdatedDate: { lt: legacyRow.updatedDate } },
             {
-                statusType: {
-                    notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
-                },
-            },
-            {
-                statusType: {
-                    in: [...UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES],
-                },
+                AND: expect.arrayContaining([
+                    { detailSourceUpdatedDate: legacyRow.updatedDate },
+                    {
+                        OR: expect.arrayContaining([
+                            { syncStatus: { in: ["pending", "partial", "failed"] } },
+                        ]),
+                    },
+                ]),
             },
         ]);
     });
@@ -1007,14 +1090,20 @@ describe("SbEformsignDocRepository", () => {
         })).rejects.toBeInstanceOf(EformsignDocStaleUpdateError);
 
         const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
-        expect(staleGuard.AND[1].OR).toEqual([
-            { updatedDate: { lt: legacyRow.updatedDate } },
+        expect(staleGuard.AND[1].OR).toEqual(expect.arrayContaining([
+            { detailSourceUpdatedDate: null },
+            { detailSourceUpdatedDate: { lt: legacyRow.updatedDate } },
             {
-                statusType: {
-                    notIn: [...EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES],
-                },
+                AND: expect.arrayContaining([
+                    { detailSourceUpdatedDate: legacyRow.updatedDate },
+                    {
+                        OR: expect.arrayContaining([
+                            { syncStatus: { in: ["pending", "partial", "failed"] } },
+                        ]),
+                    },
+                ]),
             },
-        ]);
+        ]));
     });
 
     it("allows a newer terminal generation regardless of the stored completion status", async () => {
@@ -1042,7 +1131,7 @@ describe("SbEformsignDocRepository", () => {
 
         const staleGuard = eformsignDocModel.updateMany.mock.calls[0][0].where.AND[1];
         expect(staleGuard.OR).toContainEqual({
-            updatedDate: { lt: newerUpdatedDate },
+            detailSourceUpdatedDate: { lt: newerUpdatedDate },
         });
     });
 

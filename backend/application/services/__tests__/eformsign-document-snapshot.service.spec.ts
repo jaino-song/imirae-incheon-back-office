@@ -220,7 +220,7 @@ describe("EformsignDocumentSnapshotService", () => {
             { excludeTombstones: true },
         );
 
-        expect(build).toHaveBeenCalledTimes(1);
+        expect(build).toHaveBeenCalledTimes(3);
         expect(defaultResult).toEqual({
             entries: [
                 createEntry("safe-document"),
@@ -272,7 +272,7 @@ describe("EformsignDocumentSnapshotService", () => {
 
         const result = await service.getOrBuild(createMirrorParams(), build);
 
-        expect(build).toHaveBeenCalledTimes(1);
+        expect(build).toHaveBeenCalledTimes(2);
         expect(result).toEqual({
             entries: [createEntry("safe-document")],
             snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
@@ -290,6 +290,50 @@ describe("EformsignDocumentSnapshotService", () => {
             createEntry("completed-syncing-document"),
         ]);
         expect(restored.snapshotVersion).toBe(initialResult.snapshotVersion);
+    });
+
+    it("should add a newly ready row even when its version bump failed", async () => {
+        const exclusionLookup = createSnapshotExclusionLookup();
+        const redis = createRedisStub();
+        let snapshotPayload: string | null = null;
+        redis.get.mockImplementation(async (key) => {
+            if (key === "eformsign:doclist-version:branch-a") {
+                return "0";
+            }
+            return snapshotPayload;
+        });
+        redis.set.mockImplementation(async (key, value) => {
+            if (key.startsWith("eformsign:doclist:")) {
+                snapshotPayload = value;
+            }
+            return "OK";
+        });
+        useRedisStub(redis);
+        const service = new EformsignDocumentSnapshotService(exclusionLookup);
+        let liveEntries = [createEntry("safe-document")];
+        const build = jest.fn(async () => liveEntries);
+
+        const initial = await service.getOrBuild(createMirrorParams(), build);
+        redis.incr.mockRejectedValueOnce(
+            new Error("Valkey unavailable during ready publication"),
+        );
+        await expect(service.bumpVersion("branch-a")).resolves.toBeNull();
+        liveEntries = [
+            createEntry("safe-document"),
+            createEntry("newly-ready-document"),
+        ];
+
+        const recovered = await service.getOrBuild(createMirrorParams(), build);
+
+        expect(build).toHaveBeenCalledTimes(2);
+        expect(recovered.entries).toEqual(liveEntries);
+        expect(recovered.snapshotVersion).toMatch(/^0:\d+:f[0-9a-f]{12}$/);
+        expect(recovered.snapshotVersion).not.toBe(initial.snapshotVersion);
+
+        const stable = await service.getOrBuild(createMirrorParams(), build);
+        expect(build).toHaveBeenCalledTimes(3);
+        expect(stable.entries).toEqual(liveEntries);
+        expect(stable.snapshotVersion).toBe(recovered.snapshotVersion);
     });
 
     it("should apply the readiness fence only to mirror snapshots", async () => {
@@ -376,7 +420,7 @@ describe("EformsignDocumentSnapshotService", () => {
             { excludeTombstones: true },
         );
 
-        expect(build).toHaveBeenCalledTimes(1);
+        expect(build).toHaveBeenCalledTimes(2);
         expect(result).toEqual({
             entries: [createEntry("hq-safe-document")],
             snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
@@ -670,7 +714,7 @@ describe("EformsignDocumentSnapshotService", () => {
         const storedKeys = Array.from(internals.memoryStore.keys());
 
         expect(storedKeys).toEqual(["eformsign:doclist:v1:mirror:branch-a:all:0"]);
-        expect(build).toHaveBeenCalledTimes(1);
+        expect(build).toHaveBeenCalledTimes(2);
         // And still distinct from the vendor snapshot of the same scope, so flipping the
         // switch back does not keep serving the source it was flipped away from.
         expect(internals.snapshotKey(createParams(), 0)).not.toBe(storedKeys[0]);

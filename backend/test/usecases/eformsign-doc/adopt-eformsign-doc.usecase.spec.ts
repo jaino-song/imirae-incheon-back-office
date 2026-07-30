@@ -45,6 +45,7 @@ describe("AdoptEformsignDocUsecase", () => {
         expect(create.execute).toHaveBeenNthCalledWith(2, "branch-1", expect.objectContaining({
             documentId: "doc-1",
             clientId: 7,
+            preserveExistingMirrorProjection: true,
             templateName: "표준 계약서",
             customerName: "김고객",
             creatorName: "생성자",
