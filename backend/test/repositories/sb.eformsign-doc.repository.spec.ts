@@ -99,11 +99,15 @@ describe("SbEformsignDocRepository", () => {
         });
         expect(eformsignDocModel.findMany.mock.calls[0][0].select)
             .not.toHaveProperty("detailPayload");
+        // The retry drops `permanentPurgeRequestedAt: null` from the filter. A predicate
+        // naming a column the database does not have fails whatever is selected, so
+        // narrowing the select alone left the retry failing exactly like the first
+        // attempt. Dropping an "is null" test for a non-existent column changes nothing:
+        // with no column, no row can carry a value.
         expect(eformsignDocModel.findMany).toHaveBeenNthCalledWith(2, {
             where: {
                 clientId: 55,
                 branchId: "branch-1",
-                permanentPurgeRequestedAt: null,
             },
             select: expect.objectContaining({
                 documentId: true,
@@ -182,7 +186,6 @@ describe("SbEformsignDocRepository", () => {
             where: {
                 documentId: "doc-1",
                 branchId: "branch-1",
-                permanentPurgeRequestedAt: null,
             },
             select: expect.objectContaining({
                 documentId: true,

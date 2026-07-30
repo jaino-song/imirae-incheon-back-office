@@ -49,6 +49,7 @@ type PendingEformsignDocData = {
     documentKind?: unknown;
     employeeScheduleId?: unknown;
     templateId?: unknown;
+    permanentPurgeRequestedAt?: unknown;
     documentName?: unknown;
     documentNumber?: unknown;
     templateName?: unknown;
@@ -114,6 +115,15 @@ const PENDING_EFORMSIGN_DOC_COLUMN_GROUPS = [
             { databaseName: "sync_error_at", prismaName: "syncErrorAt" },
         ],
     },
+    {
+        // Migration: 20260730040000_add_eformsign_doc_permanent_purge_intent
+        columns: [
+            {
+                databaseName: "permanent_purge_requested_at",
+                prismaName: "permanentPurgeRequestedAt",
+            },
+        ],
+    },
 ] as const satisfies readonly { columns: readonly PendingEformsignDocColumn[] }[];
 
 export const PENDING_EFORMSIGN_DOC_COLUMN_NAMES = PENDING_EFORMSIGN_DOC_COLUMN_GROUPS.flatMap(
@@ -150,6 +160,7 @@ const PENDING_EFORMSIGN_DOC_NULLS = {
     documentKind: null,
     employeeScheduleId: null,
     templateId: null,
+    permanentPurgeRequestedAt: null,
     documentName: null,
     documentNumber: null,
     templateName: null,
@@ -200,6 +211,49 @@ export const readWithEformsignDocCompat = async <TRow>(
         }
         return read({ ...EFORMSIGN_DOC_COMPAT_READ_SELECT });
     }
+};
+
+/**
+ * Drops `pendingColumn: null` predicates from a filter so it can run against a database
+ * that does not have the column yet.
+ *
+ * Narrowing the select is only half of a compatibility read. Callers also filter on these
+ * columns — `permanentPurgeRequestedAt: null` appears in nearly every document read — and
+ * a predicate naming a missing column fails no matter what is selected, so the retry used
+ * to fail exactly like the first attempt.
+ *
+ * Only the `: null` form is dropped, and that is a semantic identity: if the column does
+ * not exist, no row can carry a value, so "is null" is true of every row. Any other
+ * comparison is left in place to fail loudly rather than be silently reinterpreted —
+ * `{ not: null }` would flip from matching nothing to matching everything.
+ */
+export const stripPendingEformsignDocPredicates = (
+    where: Prisma.eformsign_docWhereInput,
+): Prisma.eformsign_docWhereInput => {
+    const pendingNames = new Set<string>(
+        PENDING_EFORMSIGN_DOC_COLUMN_GROUPS.flatMap((group) =>
+            group.columns.map((column) => column.prismaName as string),
+        ),
+    );
+
+    const strip = (node: Prisma.eformsign_docWhereInput): Prisma.eformsign_docWhereInput => {
+        const stripped: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(node)) {
+            if (pendingNames.has(key) && value === null) {
+                continue;
+            }
+            if ((key === "AND" || key === "OR" || key === "NOT") && value !== undefined) {
+                stripped[key] = Array.isArray(value)
+                    ? value.map((entry) => strip(entry as Prisma.eformsign_docWhereInput))
+                    : strip(value as Prisma.eformsign_docWhereInput);
+                continue;
+            }
+            stripped[key] = value;
+        }
+        return stripped as Prisma.eformsign_docWhereInput;
+    };
+
+    return strip(where);
 };
 
 export const eformsignDocCompatReadSelect = (
