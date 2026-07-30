@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 
+import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { documentCustomerNameValue } from "application/utils/eformsign-document-customer-name";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
@@ -22,6 +23,7 @@ export class AdoptEformsignDocUsecase {
         private readonly fetchEformsignDocFromApiUsecase: FetchEformsignDocFromApiUsecase,
         private readonly createEformsignDocUsecase: CreateEformsignDocUsecase,
         @Inject(CLIENT_REPOSITORY) private readonly clientRepository: IClientRepository,
+        private readonly documentMirrorService: EformsignDocumentMirrorService,
     ) {}
 
     async execute(branchId: string, params: AdoptEformsignDocParams): Promise<CreateEformsignDocResult> {
@@ -39,7 +41,7 @@ export class AdoptEformsignDocUsecase {
             throw new Error("clientId가 필요합니다.");
         }
 
-        return this.createEformsignDocUsecase.execute(branchId, {
+        const result = await this.createEformsignDocUsecase.execute(branchId, {
             documentId: remote.id || params.documentId,
             clientId,
             statusType: normalizeEformsignStatusCode(remote.current_status.status_type),
@@ -66,5 +68,13 @@ export class AdoptEformsignDocUsecase {
                 ?.map((item) => item.recipient_type)
                 ?? null,
         });
+
+        await this.documentMirrorService.syncDocumentWithToken(
+            token.oauth_token.access_token,
+            remote.id || params.documentId,
+            { expectedUpdatedDate: remote.updated_date },
+        );
+
+        return result;
     }
 }

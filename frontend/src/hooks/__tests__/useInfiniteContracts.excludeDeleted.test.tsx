@@ -115,4 +115,61 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
       exact: true,
     });
   });
+
+  it.each([
+    ["the later page omits it", "1:100", undefined],
+    ["the first page omits it", undefined, "1:100"],
+  ])(
+    "restarts desktop offset pagination when %s",
+    async (_description, firstSnapshotVersion, laterSnapshotVersion) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      });
+      const documents = Array.from({ length: 20 }, (_, index) => ({
+        id: `document-${index + 1}`,
+        created_date: 100 - index,
+        current_status: { status_type: "060" },
+      }));
+      const firstPage = {
+        documents,
+        total_rows: 21,
+        limit: 20,
+        skip: 0,
+        has_more: true,
+        ...(firstSnapshotVersion === undefined
+          ? {}
+          : { snapshot_version: firstSnapshotVersion }),
+      };
+      const laterPage = {
+        documents: [{
+          id: "document-21",
+          created_date: 79,
+          current_status: { status_type: "060" },
+        }],
+        total_rows: 21,
+        limit: 20,
+        skip: 20,
+        has_more: false,
+        ...(laterSnapshotVersion === undefined
+          ? {}
+          : { snapshot_version: laterSnapshotVersion }),
+      };
+      mockedApi.getAllDocuments
+        .mockResolvedValueOnce(firstPage as never)
+        .mockResolvedValueOnce(laterPage as never)
+        .mockResolvedValue(firstPage as never);
+      const resetQueries = jest.spyOn(queryClient, "resetQueries");
+      const { result } = renderHook(
+        () => useInfiniteContracts({ filterType: null }),
+        { wrapper: wrapperFor(queryClient) },
+      );
+
+      await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+      await act(async () => {
+        await result.current.fetchNextPage();
+      });
+
+      await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(1));
+    },
+  );
 });

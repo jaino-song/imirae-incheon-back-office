@@ -9,10 +9,12 @@ describe("AdoptEformsignDocUsecase", () => {
         const now = Date.parse("2026-07-03T00:00:00.000Z");
         jest.spyOn(Date, "now").mockReturnValue(now);
         const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-1" }) };
+        const mirror = { syncDocumentWithToken: jest.fn().mockResolvedValue(undefined) };
         const usecase = new AdoptEformsignDocUsecase(
             { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
             { execute: jest.fn().mockResolvedValue({
                 id: "doc-1",
+                updated_date: 1_751_500_800_000,
                 document_name: "계약서 - 고객",
                 template: { id: "template-1", name: "표준 계약서" },
                 creator: { name: "생성자" },
@@ -33,6 +35,7 @@ describe("AdoptEformsignDocUsecase", () => {
             }) } as never,
             create as never,
             { findByPhone: jest.fn() } as never,
+            mirror as never,
         );
 
         await usecase.execute("branch-1", { documentId: "doc-1", clientId: 7 });
@@ -49,6 +52,15 @@ describe("AdoptEformsignDocUsecase", () => {
             stepRecipientTypes: ["01", "06"],
             expiredDate: new Date(now + 3 * 24 * 60 * 60 * 1000),
         }));
+        expect(mirror.syncDocumentWithToken).toHaveBeenNthCalledWith(
+            2,
+            "token",
+            "doc-1",
+            { expectedUpdatedDate: 1_751_500_800_000 },
+        );
+        expect(create.execute.mock.invocationCallOrder[0]!).toBeLessThan(
+            mirror.syncDocumentWithToken.mock.invocationCallOrder[0]!,
+        );
     });
 
     it.each([
@@ -56,6 +68,7 @@ describe("AdoptEformsignDocUsecase", () => {
         ["50", "050"],
     ])("normalizes persisted vendor status %s to %s", async (rawStatus, expectedStatus) => {
         const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-status" }) };
+        const mirror = { syncDocumentWithToken: jest.fn().mockResolvedValue(undefined) };
         const usecase = new AdoptEformsignDocUsecase(
             { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
             { execute: jest.fn().mockResolvedValue({
@@ -74,6 +87,7 @@ describe("AdoptEformsignDocUsecase", () => {
             }) } as never,
             create as never,
             { findByPhone: jest.fn() } as never,
+            mirror as never,
         );
 
         await usecase.execute("branch-1", { documentId: "doc-status", clientId: 7 });
@@ -86,6 +100,7 @@ describe("AdoptEformsignDocUsecase", () => {
 
     it("preserves no-expiry semantics when adopting a document with zero remaining days", async () => {
         const create = { execute: jest.fn().mockResolvedValue({ documentId: "doc-no-expiry" }) };
+        const mirror = { syncDocumentWithToken: jest.fn().mockResolvedValue(undefined) };
         const usecase = new AdoptEformsignDocUsecase(
             { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
             { execute: jest.fn().mockResolvedValue({
@@ -105,6 +120,7 @@ describe("AdoptEformsignDocUsecase", () => {
             }) } as never,
             create as never,
             { findByPhone: jest.fn() } as never,
+            mirror as never,
         );
 
         await usecase.execute("branch-1", { documentId: "doc-no-expiry", clientId: 7 });
@@ -115,5 +131,35 @@ describe("AdoptEformsignDocUsecase", () => {
                 expiredDate: new Date("9999-12-31T23:59:59.999Z"),
             }),
         );
+    });
+
+    it("fails adoption when the adopted document cannot be mirrored", async () => {
+        const mirrorError = new Error("mirror failed");
+        const usecase = new AdoptEformsignDocUsecase(
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: jest.fn().mockResolvedValue({
+                id: "doc-complete",
+                updated_date: 1_751_500_800_000,
+                document_name: "완료 계약서",
+                template: { id: "template-1", name: "표준 계약서" },
+                current_status: {
+                    status_type: "003",
+                    status_doc_detail: "완료",
+                    step_type: "05",
+                    step_index: "1",
+                    step_name: "완료",
+                    step_recipients: [],
+                    expired_date: 0,
+                },
+            }) } as never,
+            { execute: jest.fn().mockResolvedValue({ documentId: "doc-complete" }) } as never,
+            { findByPhone: jest.fn() } as never,
+            { syncDocumentWithToken: jest.fn().mockRejectedValue(mirrorError) } as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            documentId: "doc-complete",
+            clientId: 7,
+        })).rejects.toBe(mirrorError);
     });
 });

@@ -400,6 +400,48 @@ describe("useInfiniteContracts", () => {
     resetQueriesSpy.mockRestore();
   });
 
+  it.each([
+    ["the later page omits it", "1:100", undefined],
+    ["the first page omits it", undefined, "1:100"],
+  ])(
+    "resets mobile offset pagination when %s",
+    async (_description, firstSnapshotVersion, laterSnapshotVersion) => {
+      const firstPage = createPage({
+        ids: documentIds(1, 9),
+        totalRows: 15,
+        limit: 9,
+        skip: 0,
+        hasMore: true,
+        snapshotVersion: firstSnapshotVersion,
+      });
+      const laterPage = createPage({
+        ids: documentIds(10, 6),
+        totalRows: 15,
+        limit: 6,
+        skip: 9,
+        hasMore: false,
+        snapshotVersion: laterSnapshotVersion,
+      });
+      mockedGetAllDocuments
+        .mockResolvedValueOnce(firstPage)
+        .mockResolvedValueOnce(laterPage)
+        .mockResolvedValue(firstPage);
+      const resetQueriesSpy = jest.spyOn(queryClient, "resetQueries");
+
+      const { result } = renderHook(() => useInfiniteContracts(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+      await act(async () => {
+        await result.current.fetchNextPage();
+      });
+
+      await waitFor(() => expect(resetQueriesSpy).toHaveBeenCalledTimes(1));
+      resetQueriesSpy.mockRestore();
+    },
+  );
+
   it("keeps loaded documents and exposes a load-more error when the next page fails", async () => {
     mockedGetAllDocuments
       .mockResolvedValueOnce(
