@@ -1,5 +1,13 @@
 import axios from "axios";
 import { api } from "@/lib/api/client";
+/**
+ * Headless dispatch/finalize run a real browser against eformsign, so they blow
+ * far past the 30s default on `api`. The three hops must stay ordered — backend
+ * budget (≈160s worst case) < Next.js proxy (170s) < this — so the browser
+ * always ends up holding the backend's own verdict (which carries
+ * `fallbackHint`) instead of aborting first on an outcome it can't classify.
+ */
+const HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS = 180_000;
 import { safeStorageSetItem } from "@/lib/safe-storage";
 import type { RegisterRequest } from "@babyjamjam/shared";
 import { ContractDataDto } from '@/backend/application/dto/contract.dto';
@@ -257,7 +265,7 @@ export const eformsignApi = {
             clientId,
             progressId,
             force,
-        });
+        }, { timeout: HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS });
         return data;
     },
     adoptDocument: async (
@@ -284,7 +292,7 @@ export const eformsignApi = {
             documentId,
             prefillEndDate,
             progressId,
-        });
+        }, { timeout: HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS });
         return data;
     },
     getDocumentClientNames: async (): Promise<EformsignDocClientSummary[]> => {
