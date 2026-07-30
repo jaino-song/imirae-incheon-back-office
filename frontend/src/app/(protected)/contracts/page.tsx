@@ -1881,25 +1881,46 @@ function ContractDetail({
         <>
           {isMobile && stepperActions}
           {isReviewNeeded ? (
-            <ContractReviewActionButton
-              data-component={`${dataComponent}_header_review-trigger`}
-              action={reviewAction}
-              onPreview={handleServiceRecordReviewConfirm}
-              onFinalize={() => {
-                setFinalizeEndDate((current) => current || formatIsoDateInput(contractEndDateIso));
-                setIsFinalizeOpen(true);
-              }}
-            />
+            <div
+              className={
+                reviewAction === "finalize"
+                  ? "grid grid-cols-1 gap-[calc(12px*var(--glint-ui-scale,1))] sm:grid-cols-2 [&>button]:!w-full"
+                  : undefined
+              }
+            >
+              {reviewAction === "finalize" && (
+                <Button
+                  variant="positive-outline"
+                  size="sm"
+                  data-component={`${dataComponent}_header_preview-trigger`}
+                  className="w-full"
+                  onClick={() => setIsPreviewOpen(true)}
+                >
+                  <Eye className="h-4 w-4" />
+                  문서 보기
+                </Button>
+              )}
+              <ContractReviewActionButton
+                data-component={`${dataComponent}_header_review-trigger`}
+                action={reviewAction}
+                onPreview={handleServiceRecordReviewConfirm}
+                onFinalize={() => {
+                  setFinalizeEndDate((current) => current || formatIsoDateInput(contractEndDateIso));
+                  setIsFinalizeOpen(true);
+                }}
+              />
+            </div>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="positive"
+              size="sm"
               data-component={`${dataComponent}_header_preview-trigger`}
-              className="flex w-[calc(220px*var(--glint-ui-scale,1))] items-center justify-center gap-[calc(12px*var(--glint-ui-scale,1))] rounded-xl bg-[hsl(var(--v3-primary))] px-[calc(16px*var(--glint-ui-scale,1))] py-[calc(10px*var(--glint-ui-scale,1))] text-center text-[calc(14px*var(--glint-ui-scale,1))] font-medium text-white transition-all duration-200"
+              className="w-[calc(220px*var(--glint-ui-scale,1))]"
               onClick={() => setIsPreviewOpen(true)}
             >
-              <Eye className="h-[calc(16px*var(--glint-ui-scale,1))] w-[calc(16px*var(--glint-ui-scale,1))] shrink-0" />
+              <Eye className="h-4 w-4" />
               문서 보기
-            </button>
+            </Button>
           )}
         </>
       }
