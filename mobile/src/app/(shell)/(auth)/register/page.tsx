@@ -215,8 +215,10 @@ export default function RegisterPage() {
     const result = registerSchema.safeParse(getCombinedFormData());
     if (!result.success) {
       const fieldErrors = collectFieldErrors(result.error.issues, ACCOUNT_FIELDS);
-      setErrors(fieldErrors);
-      return;
+      if (Object.keys(fieldErrors).length > 0) {
+        setErrors(fieldErrors);
+        return;
+      }
     }
 
     setErrors({});
