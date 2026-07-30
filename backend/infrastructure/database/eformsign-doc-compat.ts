@@ -329,10 +329,9 @@ export const stripPendingEformsignDocPredicates = (
         let removedTrue = false;
         for (const [key, value] of Object.entries(node)) {
             if (value === undefined) {
-                // Prisma omits undefined filters. If they are all that remain after a
-                // missing-column predicate is removed, this node is the true identity
-                // rather than an authored empty predicate with contextual semantics.
-                removedTrue = true;
+                // Prisma omits undefined filters, but an undefined-only logical branch
+                // still has the contextual semantics of an authored empty predicate.
+                // Only removing a known missing-column `: null` marks this node true.
                 continue;
             }
             if (missing.has(key) && value === null) {
