@@ -172,7 +172,8 @@ describe("AdoptEformsignDocUsecase", () => {
             documentId: "doc-complete",
             warnings: ["client_link_failed", "mirror_sync_failed"],
         });
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining("scheduled reconciliation"));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("local mirror remains incomplete"));
+        expect(warn.mock.calls.flat().join(" ")).not.toContain("will retry");
         expect(warn.mock.calls.flat().join(" ")).not.toContain("doc-complete");
         expect(warn.mock.calls.flat().join(" ")).not.toContain(mirrorError.message);
     });

@@ -84,11 +84,12 @@ export class AdoptEformsignDocUsecase {
         } catch {
             // Ownership and client linkage were committed above. Returning a failure
             // here would tell the caller to retry an adoption that already succeeded.
-            // Keep the row non-ready and let the six-hour reconciliation sweep retry
-            // the local detail/PDF mirror without exposing identifiers in logs.
+            // Keep the row non-ready and expose a machine-readable warning so callers
+            // cannot report the local detail/PDF mirror as complete. The durable failed
+            // state remains eligible for an operational reconciliation without claiming
+            // that a scheduler or distributed lock is currently available.
             this.logger.warn(
-                "Eformsign adoption committed, but immediate mirror synchronization failed;"
-                + " scheduled reconciliation will retry",
+                "Eformsign adoption committed, but the local mirror remains incomplete",
             );
             return Object.assign(result, {
                 warnings: [
