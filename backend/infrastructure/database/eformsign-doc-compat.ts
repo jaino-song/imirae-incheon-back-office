@@ -228,21 +228,34 @@ export const readWithEformsignDocCompat = async <TRow>(
  * `{ not: null }` would flip from matching nothing to matching everything.
  */
 export const stripPendingEformsignDocPredicates = (
+    error: unknown,
     where: Prisma.eformsign_docWhereInput,
 ): Prisma.eformsign_docWhereInput => {
-    const pendingNames = new Set<string>(
-        PENDING_EFORMSIGN_DOC_COLUMN_GROUPS.flatMap((group) =>
-            group.columns.map((column) => column.prismaName as string),
-        ),
-    );
+    // Only the columns the database is actually missing. A predicate on a column an
+    // earlier migration already added still means what it says, and dropping it would
+    // widen the retry — a filter excluding purge-pending rows would start including them.
+    const kept = keptPendingEformsignDocColumns(error);
+    const missingNames = PENDING_EFORMSIGN_DOC_COLUMN_GROUPS
+        .flatMap((group) => group.columns.map((column) => column.prismaName as string))
+        .filter((name) => !kept.has(name));
+    if (missingNames.length === 0) {
+        return where;
+    }
+    const missing = new Set(missingNames);
 
+    // AND is the only operator this descends into, because it is the only one where
+    // deleting a vacuously-true leaf preserves the meaning of the whole. Under OR a true
+    // leaf makes the branch true, and under NOT it makes it false; an empty object says
+    // neither, so both are left exactly as they are and fail loudly instead of quietly
+    // answering a different question. Every filter that actually needs this puts its
+    // pending predicates at the top level or in an AND chain.
     const strip = (node: Prisma.eformsign_docWhereInput): Prisma.eformsign_docWhereInput => {
         const stripped: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(node)) {
-            if (pendingNames.has(key) && value === null) {
+            if (missing.has(key) && value === null) {
                 continue;
             }
-            if ((key === "AND" || key === "OR" || key === "NOT") && value !== undefined) {
+            if (key === "AND" && value !== undefined && value !== null) {
                 stripped[key] = Array.isArray(value)
                     ? value.map((entry) => strip(entry as Prisma.eformsign_docWhereInput))
                     : strip(value as Prisma.eformsign_docWhereInput);
@@ -258,20 +271,35 @@ export const stripPendingEformsignDocPredicates = (
 
 export const eformsignDocCompatReadSelect = (
     error: unknown,
+    // The caller's own projection, so a compatibility retry reads no more than the query
+    // it is standing in for. Widening to every surviving pending column would have pulled
+    // detailPayload into list reads — the one column EFORMSIGN_DOC_DOMAIN_READ_SELECT
+    // exists to keep out of them.
+    desiredSelect: Prisma.eformsign_docSelect = EFORMSIGN_DOC_DOMAIN_READ_SELECT,
 ): Prisma.eformsign_docSelect => {
     // Prisma sometimes raises P2022 with no column metadata and nothing nameable in the
     // message. That says a pending column is missing without saying which, so a read drops
     // to the floor — the assumption that cannot be wrong. Writes throw in the same
     // situation instead, because silently dropping data a caller asked to store is worse
     // than failing; a read losing columns it could have kept is recoverable.
-    const keptGroupCount = Math.max(findEformsignDocGroupIndex(error), 0);
+    const kept = keptPendingEformsignDocColumns(error);
     const select: Prisma.eformsign_docSelect = { ...EFORMSIGN_DOC_COMPAT_READ_SELECT };
-    for (const group of PENDING_EFORMSIGN_DOC_COLUMN_GROUPS.slice(0, keptGroupCount)) {
-        for (const column of group.columns) {
-            select[column.prismaName] = true;
+    for (const [column, wanted] of Object.entries(desiredSelect)) {
+        if (wanted && kept.has(column)) {
+            select[column as keyof Prisma.eformsign_docSelect] = true;
         }
     }
     return select;
+};
+
+/** Pending columns from migrations that ran before the one the error names. */
+const keptPendingEformsignDocColumns = (error: unknown): Set<string> => {
+    const keptGroupCount = Math.max(findEformsignDocGroupIndex(error), 0);
+    return new Set(
+        PENDING_EFORMSIGN_DOC_COLUMN_GROUPS
+            .slice(0, keptGroupCount)
+            .flatMap((group) => group.columns.map((column) => column.prismaName as string)),
+    );
 };
 
 /**

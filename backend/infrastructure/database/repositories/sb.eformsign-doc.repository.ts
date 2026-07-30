@@ -811,7 +811,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             const doc = await readWithEformsignDocCompat(error, (select) =>
                 this.prismaService.eformsign_doc.findFirst({
-                    where: stripPendingEformsignDocPredicates(where),
+                    where: stripPendingEformsignDocPredicates(error, where),
                     select,
                 }));
             return doc ? EformsignDocMapper.toDomain(toCompatDomainRow(doc)) : null;
@@ -832,7 +832,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
             const docs = await readWithEformsignDocCompat(error, (select) =>
                 this.prismaService.eformsign_doc.findMany({
-                    where: stripPendingEformsignDocPredicates(where),
+                    where: stripPendingEformsignDocPredicates(error, where),
                     select,
                 }));
             return docs.map((doc) => EformsignDocMapper.toDomain(toCompatDomainRow(doc)));
