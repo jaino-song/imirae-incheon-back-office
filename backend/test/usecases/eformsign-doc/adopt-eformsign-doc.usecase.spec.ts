@@ -1,3 +1,5 @@
+import { Logger } from "@nestjs/common";
+
 import { AdoptEformsignDocUsecase } from "application/usecases/eformsign-doc/adopt-eformsign-doc.usecase";
 
 describe("AdoptEformsignDocUsecase", () => {
@@ -134,8 +136,13 @@ describe("AdoptEformsignDocUsecase", () => {
         );
     });
 
-    it("fails adoption when the adopted document cannot be mirrored", async () => {
+    it("keeps adoption successful when post-commit mirroring must be retried", async () => {
         const mirrorError = new Error("mirror failed");
+        const createResult = {
+            documentId: "doc-complete",
+            warnings: ["client_link_failed" as const],
+        };
+        const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
         const usecase = new AdoptEformsignDocUsecase(
             { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
             { execute: jest.fn().mockResolvedValue({
@@ -153,7 +160,7 @@ describe("AdoptEformsignDocUsecase", () => {
                     expired_date: 0,
                 },
             }) } as never,
-            { execute: jest.fn().mockResolvedValue({ documentId: "doc-complete" }) } as never,
+            { execute: jest.fn().mockResolvedValue(createResult) } as never,
             { findByPhone: jest.fn() } as never,
             { syncDocumentWithToken: jest.fn().mockRejectedValue(mirrorError) } as never,
         );
@@ -161,6 +168,12 @@ describe("AdoptEformsignDocUsecase", () => {
         await expect(usecase.execute("branch-1", {
             documentId: "doc-complete",
             clientId: 7,
-        })).rejects.toBe(mirrorError);
+        })).resolves.toMatchObject({
+            documentId: "doc-complete",
+            warnings: ["client_link_failed", "mirror_sync_failed"],
+        });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("scheduled reconciliation"));
+        expect(warn.mock.calls.flat().join(" ")).not.toContain("doc-complete");
+        expect(warn.mock.calls.flat().join(" ")).not.toContain(mirrorError.message);
     });
 });

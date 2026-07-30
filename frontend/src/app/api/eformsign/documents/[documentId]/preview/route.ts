@@ -3,10 +3,45 @@ import { serverAPIClient } from "@/lib/api/server";
 import {
   getAuthHeaders,
   getAuthToken,
+  getUpstreamErrorStatus,
   unauthorizedResponse,
 } from "@/lib/api/route-utils";
 
 type RouteParams = { params: Promise<{ documentId: string }> };
+type UpstreamErrorWithHeaders = {
+  response?: {
+    headers?: Record<string, unknown>;
+  };
+};
+
+const HEAD_ERROR_HEADER_ALLOWLIST = [
+  "content-type",
+  "retry-after",
+  "www-authenticate",
+] as const;
+
+function headErrorResponse(error: unknown): NextResponse {
+  const upstreamHeaders = (
+    error && typeof error === "object"
+      ? (error as UpstreamErrorWithHeaders).response?.headers
+      : undefined
+  );
+  const headers = new Headers();
+
+  for (const name of HEAD_ERROR_HEADER_ALLOWLIST) {
+    const value = upstreamHeaders?.[name];
+    if (typeof value === "string" || typeof value === "number") {
+      headers.set(name, String(value));
+    }
+  }
+
+  headers.set("Cache-Control", "no-store");
+
+  return new NextResponse(null, {
+    status: getUpstreamErrorStatus(error, 502),
+    headers,
+  });
+}
 
 async function proxyPreview(
   request: NextRequest,
@@ -59,7 +94,7 @@ async function proxyPreview(
     });
   } catch (error) {
     if (!includeBody) {
-      return new NextResponse(null, { status: 500 });
+      return headErrorResponse(error);
     }
 
     return NextResponse.json(
