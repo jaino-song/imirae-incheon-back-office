@@ -816,9 +816,9 @@ describe("EformsignController (Integration)", () => {
             expect(shadowCompareService.compareInBackground).not.toHaveBeenCalled();
         });
 
-        it("changes the generation when the local mirror list moves between pages", async () => {
-            // 페이지 사이에 로컬 미러가 바뀌면 새 세대를 발행한다. 클라이언트는 이 신호를
-            // 보고 첫 페이지부터 다시 읽으므로 이동한 문서를 조용히 건너뛰지 않는다.
+        it("keeps the cached generation stable when the local mirror moves between pages", async () => {
+            // 이미 배포된 클라이언트는 snapshot_version을 해석하지 않을 수 있다.
+            // 캐시 hit에서 live 목록으로 바꾸지 않아 offset이 같은 세대를 계속 걷게 한다.
             mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-1", createdDate: "2026-07-03T00:00:00.000Z" }),
                 createMirrorRow({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
@@ -828,18 +828,21 @@ describe("EformsignController (Integration)", () => {
                 .get("/api/documents?accessToken=access-token&limit=1&skip=0");
             expect(first.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-1"]);
             expect(typeof first.body.snapshot_version).toBe("string");
+            const callsAfterFirstPage = mirrorRepository.findAllVisibleInMirror.mock.calls.length;
 
-            // 첫 페이지의 문서가 사라지면 stale 세대를 재사용하지 않고 새 세대를 돌려준다.
+            // 첫 페이지 뒤에 live 목록이 바뀌어도 두 번째 페이지는 저장된 세대의 doc-2다.
             mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
                 createMirrorRow({ documentId: "doc-2", createdDate: "2026-07-02T00:00:00.000Z" }),
             ]);
             const second = await request(mirrorApp.getHttpServer())
                 .get("/api/documents?accessToken=access-token&limit=1&skip=1");
 
-            expect(second.body.documents).toEqual([]);
+            expect(second.body.documents.map((d: { id: string }) => d.id)).toEqual(["doc-2"]);
             expect(second.body.has_more).toBe(false);
-            expect(typeof second.body.snapshot_version).toBe("string");
-            expect(second.body.snapshot_version).not.toBe(first.body.snapshot_version);
+            expect(second.body.snapshot_version).toBe(first.body.snapshot_version);
+            expect(mirrorRepository.findAllVisibleInMirror).toHaveBeenCalledTimes(
+                callsAfterFirstPage,
+            );
         });
 
         it("reports the generation so the client can notice the list moved", async () => {

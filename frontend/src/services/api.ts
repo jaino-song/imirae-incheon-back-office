@@ -260,7 +260,14 @@ export const eformsignApi = {
         });
         return data;
     },
-    adoptDocument: async (documentId: string, clientId?: number): Promise<{ id?: number; documentId: string }> => {
+    adoptDocument: async (
+        documentId: string,
+        clientId?: number,
+    ): Promise<{
+        id?: number;
+        documentId: string;
+        warnings?: Array<"client_link_failed" | "mirror_sync_failed">;
+    }> => {
         const { data } = await api.post('/eformsign-docs/adopt', { documentId, clientId });
         return data;
     },

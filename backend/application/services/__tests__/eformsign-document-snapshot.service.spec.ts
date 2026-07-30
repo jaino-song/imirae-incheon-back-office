@@ -220,7 +220,7 @@ describe("EformsignDocumentSnapshotService", () => {
             { excludeTombstones: true },
         );
 
-        expect(build).toHaveBeenCalledTimes(3);
+        expect(build).toHaveBeenCalledTimes(1);
         expect(defaultResult).toEqual({
             entries: [
                 createEntry("safe-document"),
@@ -272,7 +272,7 @@ describe("EformsignDocumentSnapshotService", () => {
 
         const result = await service.getOrBuild(createMirrorParams(), build);
 
-        expect(build).toHaveBeenCalledTimes(2);
+        expect(build).toHaveBeenCalledTimes(1);
         expect(result).toEqual({
             entries: [createEntry("safe-document")],
             snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
@@ -292,7 +292,7 @@ describe("EformsignDocumentSnapshotService", () => {
         expect(restored.snapshotVersion).toBe(initialResult.snapshotVersion);
     });
 
-    it("should add a newly ready row even when its version bump failed", async () => {
+    it("should preserve a cached pagination generation when a ready-row bump fails", async () => {
         const exclusionLookup = createSnapshotExclusionLookup();
         const redis = createRedisStub();
         let snapshotPayload: string | null = null;
@@ -323,17 +323,17 @@ describe("EformsignDocumentSnapshotService", () => {
             createEntry("newly-ready-document"),
         ];
 
-        const recovered = await service.getOrBuild(createMirrorParams(), build);
+        const cached = await service.getOrBuild(createMirrorParams(), build);
 
+        expect(build).toHaveBeenCalledTimes(1);
+        expect(cached.entries).toEqual([createEntry("safe-document")]);
+        expect(cached.snapshotVersion).toBe(initial.snapshotVersion);
+
+        snapshotPayload = null;
+        const rebuilt = await service.getOrBuild(createMirrorParams(), build);
         expect(build).toHaveBeenCalledTimes(2);
-        expect(recovered.entries).toEqual(liveEntries);
-        expect(recovered.snapshotVersion).toMatch(/^0:\d+:f[0-9a-f]{12}$/);
-        expect(recovered.snapshotVersion).not.toBe(initial.snapshotVersion);
-
-        const stable = await service.getOrBuild(createMirrorParams(), build);
-        expect(build).toHaveBeenCalledTimes(3);
-        expect(stable.entries).toEqual(liveEntries);
-        expect(stable.snapshotVersion).toBe(recovered.snapshotVersion);
+        expect(rebuilt.entries).toEqual(liveEntries);
+        expect(rebuilt.cached).toBe(false);
     });
 
     it("should apply the readiness fence only to mirror snapshots", async () => {
@@ -420,7 +420,7 @@ describe("EformsignDocumentSnapshotService", () => {
             { excludeTombstones: true },
         );
 
-        expect(build).toHaveBeenCalledTimes(2);
+        expect(build).toHaveBeenCalledTimes(1);
         expect(result).toEqual({
             entries: [createEntry("hq-safe-document")],
             snapshotVersion: expect.stringMatching(/^0:\d+:f[0-9a-f]{12}$/),
@@ -714,7 +714,7 @@ describe("EformsignDocumentSnapshotService", () => {
         const storedKeys = Array.from(internals.memoryStore.keys());
 
         expect(storedKeys).toEqual(["eformsign:doclist:v1:mirror:branch-a:all:0"]);
-        expect(build).toHaveBeenCalledTimes(2);
+        expect(build).toHaveBeenCalledTimes(1);
         // And still distinct from the vendor snapshot of the same scope, so flipping the
         // switch back does not keep serving the source it was flipped away from.
         expect(internals.snapshotKey(createParams(), 0)).not.toBe(storedKeys[0]);

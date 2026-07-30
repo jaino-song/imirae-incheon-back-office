@@ -35,8 +35,10 @@ export interface CreateEformsignDocParams {
     preserveExistingMirrorProjection?: boolean;
 }
 
+export type CreateEformsignDocWarning = "client_link_failed" | "mirror_sync_failed";
+
 export type CreateEformsignDocResult = EformsignDocEntity & {
-    warnings?: Array<"client_link_failed">;
+    warnings?: CreateEformsignDocWarning[];
 };
 
 @Injectable()
@@ -97,7 +99,7 @@ export class CreateEformsignDocUsecase {
                 { preserveExistingMirrorProjection: true },
             )
             : await this.eformsignDocRepository.upsertByDocumentId(branchid, entity);
-        const warnings: Array<"client_link_failed"> = [];
+        const warnings: CreateEformsignDocWarning[] = [];
 
         // If linkToClient is true, also update client.e_doc_id to track this document
         if (params.linkToClient) {
