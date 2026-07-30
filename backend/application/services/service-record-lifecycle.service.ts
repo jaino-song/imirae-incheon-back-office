@@ -320,7 +320,7 @@ export class ServiceRecordLifecycleService {
                 SELECT id
                 FROM eformsign_doc
                 WHERE document_id = ${params.documentId}
-                  AND branch_id = ${params.branchId}
+                  AND branch_id = ${params.branchId}::uuid
                   AND detail_source_updated_date = ${params.detailSourceUpdatedDate}
                   AND detail_synced_at = ${params.detailSyncedAt}
                   AND sync_status = 'ready'
@@ -389,8 +389,8 @@ export class ServiceRecordLifecycleService {
         const cases = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
             SELECT id
             FROM service_record_case
-            WHERE id = ${trigger.serviceRecordCaseId}
-              AND branch_id = ${params.branchId}
+            WHERE id = ${trigger.serviceRecordCaseId}::uuid
+              AND branch_id = ${params.branchId}::uuid
               AND status = ${SERVICE_RECORD_CASE_STATUS.DOCUMENTS_CREATED}
             FOR UPDATE
         `);
@@ -425,8 +425,8 @@ export class ServiceRecordLifecycleService {
                         = eformsign_doc.detail_source_updated_date
                 ) AS "hasCurrentAuditTrailPdf"
             FROM eformsign_doc
-            WHERE branch_id = ${params.branchId}
-              AND service_record_case_id = ${trigger.serviceRecordCaseId}
+            WHERE branch_id = ${params.branchId}::uuid
+              AND service_record_case_id = ${trigger.serviceRecordCaseId}::uuid
               AND document_kind = ${EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT}
             ORDER BY id ASC
             FOR UPDATE
