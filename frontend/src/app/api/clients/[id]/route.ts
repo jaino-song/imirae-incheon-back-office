@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
-import { errorResponse, getUpstreamErrorStatus, logUpstreamError } from "@/lib/api/route-utils";
+import {
+    errorResponse,
+    getUpstreamErrorStatus,
+    logUpstreamError,
+    sanitizeUpstreamClientError,
+} from "@/lib/api/route-utils";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -10,11 +15,16 @@ const CLIENT_DELETE_CONFLICT_MESSAGE =
 const CLIENT_DELETE_CONFLICT_FALLBACK =
     "연결된 정보 때문에 고객을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.";
 
-function getUpstreamErrorCode(error: unknown): unknown {
+function getUpstreamErrorData(error: unknown): unknown {
     if (!error || typeof error !== "object" || !("response" in error)) return undefined;
     const response = (error as { response?: { data?: unknown } }).response;
-    if (!response?.data || typeof response.data !== "object") return undefined;
-    return (response.data as { code?: unknown }).code;
+    return response?.data;
+}
+
+function getUpstreamErrorCode(error: unknown): unknown {
+    const data = getUpstreamErrorData(error);
+    if (!data || typeof data !== "object") return undefined;
+    return (data as { code?: unknown }).code;
 }
 
 // Helper to get auth token from request
@@ -41,10 +51,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         });
         return NextResponse.json(response.data);
     } catch (error) {
-        console.error("[API] Error fetching client:", error);
+        logUpstreamError("fetch client", error);
         return NextResponse.json(
-            { error: "Failed to fetch client" },
-            { status: 500 }
+            sanitizeUpstreamClientError(
+                getUpstreamErrorData(error),
+                "Failed to fetch client",
+            ),
+            { status: getUpstreamErrorStatus(error) },
         );
     }
 }
@@ -64,10 +77,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         });
         return NextResponse.json(response.data);
     } catch (error) {
-        console.error("[API] Error updating client:", error);
+        logUpstreamError("update client", error);
         return NextResponse.json(
-            { error: "Failed to update client" },
-            { status: 500 }
+            sanitizeUpstreamClientError(
+                getUpstreamErrorData(error),
+                "Failed to update client",
+            ),
+            { status: getUpstreamErrorStatus(error) },
         );
     }
 }

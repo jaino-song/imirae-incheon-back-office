@@ -145,12 +145,13 @@ describe("EformsignMirrorListService", () => {
         repository.findAll.mockResolvedValue([
             createMirrorDocument({ documentId: "doc-live", statusType: "060" }),
             createMirrorDocument({ documentId: "doc-deleted", statusType: "047" }),
+            createMirrorDocument({ documentId: "doc-deleted-legacy", statusType: "099" }),
         ]);
 
         const kept = await service.buildList(createQuery());
         const dropped = await service.buildList(createQuery({ excludeDeleted: true }));
 
-        expect(kept.documents).toHaveLength(2);
+        expect(kept.documents).toHaveLength(3);
         expect(dropped.documents.map((d) => d.id)).toEqual(["doc-live"]);
     });
 

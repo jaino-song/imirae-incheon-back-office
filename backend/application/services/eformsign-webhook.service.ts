@@ -11,6 +11,8 @@ import {
     SyncClientEndDateUsecase,
     type SyncedClientEndDate,
 } from "application/usecases/eformsign-doc/sync-client-end-date.usecase";
+import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/usecases/eformsign-doc/reconcile-completed-mirrored-eformsign-doc.usecase";
+import { sanitizeEformsignErrorMessage } from "application/utils/eformsign-error-message";
 import { EformsignWebhookPayloadDto } from "interface/dto/eformsign-webhook.dto";
 import { EformsignDocsEventBus } from "./eformsign-docs-event-bus.service";
 import { NotificationService } from "./notification.service";
@@ -32,11 +34,9 @@ import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/em
 import { EformsignDocEntity, EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import {
-    SERVICE_RECORD_CASE_STATUS,
-    ServiceRecordLifecycleService,
-} from "./service-record-lifecycle.service";
+import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import { EformsignDocumentSnapshotService } from "./eformsign-document-snapshot.service";
+import { EformsignDocumentMirrorService } from "./eformsign-document-mirror.service";
 
 /**
  * Eformsign document status codes (from document.status field)
@@ -84,8 +84,34 @@ type LocalDocumentLookupResult =
     | { branchId: null; document: EformsignDocEntity }
     | { branchId: string; document?: EformsignDocEntity };
 
+export interface EformsignWebhookProcessingContext {
+    mirroredDocument?: EformsignApiDocumentResponse | null;
+    /**
+     * The controller has already stored and validated the detail/PDF mirror.
+     * Keep the live update deferred until the durable status claim succeeds.
+     */
+    deferCompletionEvent?: boolean;
+    /**
+     * Durable completion effects are owned by the generation-fenced mirror
+     * reconciler, so the webhook status claim must not repeat them.
+     */
+    deferCompletionEffects?: boolean;
+}
+
+export type EformsignWebhookCompletionClaim =
+    | "claimed"
+    | "duplicate"
+    | "missing"
+    | "stale";
+
+export interface EformsignWebhookProcessResult {
+    completionClaim?: EformsignWebhookCompletionClaim;
+    completionBranchId?: string;
+    duplicateServiceRecordLifecycleChanged?: boolean;
+}
+
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
-const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
+const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080", "099"]);
 const UNASSIGNED_REVIEW_STATUS_DETAILS: Record<string, string> = {
     "070": "검토 요청",
     "071": "검토 반려",
@@ -120,6 +146,9 @@ export class EformsignWebhookService {
         @Optional() private readonly prisma?: PrismaService,
         @Optional() private readonly serviceRecordLifecycle?: ServiceRecordLifecycleService,
         @Optional() private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
+        private readonly documentMirrorService?: EformsignDocumentMirrorService,
+        @Optional()
+        private readonly completedMirrorReconciler?: ReconcileCompletedMirroredEformsignDocUsecase,
     ) {}
 
     /**
@@ -142,7 +171,10 @@ export class EformsignWebhookService {
         return serviceRecordTemplateIds.has(templateId);
     }
 
-    async processWebhook(payload: EformsignWebhookPayloadDto): Promise<void> {
+    async processWebhook(
+        payload: EformsignWebhookPayloadDto,
+        context: EformsignWebhookProcessingContext = {},
+    ): Promise<EformsignWebhookProcessResult | undefined> {
         const { webhook_id, document, ready_document_pdf, document_action } = payload;
         const documentId = document?.id ?? ready_document_pdf?.document_id ?? document_action?.document_id;
         if (!documentId) {
@@ -163,8 +195,11 @@ export class EformsignWebhookService {
                 );
             } catch (error) {
                 if (error instanceof EformsignDocOwnershipConflictError) {
-                    await this.retryBranchOwnedWebhookAfterOwnershipConflict(payload, documentId);
-                    return;
+                    return this.retryBranchOwnedWebhookAfterOwnershipConflict(
+                        payload,
+                        documentId,
+                        context,
+                    );
                 }
                 if (error instanceof EformsignDocStaleUpdateError) {
                     this.logger.log(
@@ -173,7 +208,8 @@ export class EformsignWebhookService {
                     return;
                 }
                 this.logger.warn(
-                    `Failed to mirror external document ${documentId} from webhook ${webhook_id}: ${error}`,
+                    `Failed to mirror external document ${documentId} from webhook ${webhook_id}: ` +
+                    sanitizeEformsignErrorMessage(error),
                 );
             }
             return;
@@ -184,8 +220,11 @@ export class EformsignWebhookService {
                 await this.updateUnassignedDocumentFromWebhook(payload, localDocument.document);
             } catch (error) {
                 if (error instanceof EformsignDocOwnershipConflictError) {
-                    await this.retryBranchOwnedWebhookAfterOwnershipConflict(payload, documentId);
-                    return;
+                    return this.retryBranchOwnedWebhookAfterOwnershipConflict(
+                        payload,
+                        documentId,
+                        context,
+                    );
                 }
                 // The row already holds state at least as new as this event. Retrying it as
                 // branch-owned would apply the stale event we just refused.
@@ -196,19 +235,97 @@ export class EformsignWebhookService {
                     return;
                 }
                 this.logger.warn(
-                    `Failed to update unassigned document ${documentId} from webhook ${webhook_id}: ${error}`,
+                    `Failed to update unassigned document ${documentId} from webhook ${webhook_id}: ` +
+                    sanitizeEformsignErrorMessage(error),
                 );
             }
             return;
         }
 
-        await this.processBranchOwnedWebhook(payload, localDocument.branchId);
+        return this.processBranchOwnedWebhook(
+            payload,
+            localDocument.branchId,
+            context,
+        );
+    }
+
+    async publishCompletionEvent(
+        payload: EformsignWebhookPayloadDto,
+        readyContext?: {
+            branchId: string;
+            mirroredDocument: EformsignApiDocumentResponse;
+        },
+    ): Promise<void> {
+        const documentId = payload.document?.id ?? payload.ready_document_pdf?.document_id;
+        if (!documentId) {
+            return;
+        }
+        const status = payload.document?.status ?? payload.ready_document_pdf?.document_status;
+        if (status !== DOCUMENT_STATUS.DOC_COMPLETE) {
+            return;
+        }
+
+        let branchId = readyContext?.branchId;
+        let mirroredDocument = readyContext?.mirroredDocument;
+        if (!branchId || !mirroredDocument) {
+            const localDocument = await this.findLocalDocument(documentId);
+            if (!localDocument || localDocument.branchId === null) {
+                return;
+            }
+            branchId = localDocument.branchId;
+            if (
+                !this.documentMirrorService
+                || !(await this.documentMirrorService.isDocumentReady(documentId))
+            ) {
+                throw new Error(
+                    `Eformsign mirror is not ready for completion publication ${documentId}`,
+                );
+            }
+            mirroredDocument =
+                await this.documentMirrorService.getStoredDetail(documentId) ?? undefined;
+        }
+        const mirroredStatusType = normalizeEformsignStatusCode(
+            mirroredDocument?.current_status?.status_type,
+        );
+        if (!COMPLETED_STATUS_CODES.has(mirroredStatusType)) {
+            this.logger.log(
+                `Ignoring stale completion publication for ${documentId}; mirror is ${mirroredStatusType}`,
+            );
+            return;
+        }
+        // The SSE is an invalidation signal, not a status-bearing source of truth.
+        // Once the controller has supplied a ready mirror snapshot, use a generic
+        // reason so a tombstone or newer generation that lands before delivery
+        // still triggers the correct action: refetch the current local DB state.
+        const reason = readyContext
+            ? "mirror:changed"
+            : payload.event_type === EVENT_TYPES.READY_DOCUMENT_PDF
+                ? `pdf:${status}`
+                : `doc:${status}`;
+        this.eventBus.emit({ branchId, documentId, reason });
+    }
+
+    async publishLocalDocumentChange(documentId: string): Promise<void> {
+        const branchId = await this.eformsignDocRepository
+            .findBranchIdByDocumentId(documentId);
+        if (!branchId) {
+            return;
+        }
+
+        // A deletion tombstone is committed locally without a fresh vendor detail.
+        // Keep the SSE payload generic so clients refetch the current local state.
+        this.eventBus.emit({
+            branchId,
+            documentId,
+            reason: "mirror:changed",
+        });
     }
 
     private async retryBranchOwnedWebhookAfterOwnershipConflict(
         payload: EformsignWebhookPayloadDto,
         documentId: string,
-    ): Promise<void> {
+        context: EformsignWebhookProcessingContext,
+    ): Promise<EformsignWebhookProcessResult | undefined> {
         const localDocument = await this.findLocalDocument(documentId);
         if (!localDocument || localDocument.branchId === null) {
             this.logger.warn(
@@ -220,37 +337,57 @@ export class EformsignWebhookService {
         this.logger.log(
             `Retrying webhook ${payload.webhook_id} through branch-owned path after document ${documentId} ownership changed`,
         );
-        await this.processBranchOwnedWebhook(payload, localDocument.branchId);
+        return this.processBranchOwnedWebhook(
+            payload,
+            localDocument.branchId,
+            context,
+        );
     }
 
     private async processBranchOwnedWebhook(
         payload: EformsignWebhookPayloadDto,
         branchId: string,
-    ): Promise<void> {
+        context: EformsignWebhookProcessingContext,
+    ): Promise<EformsignWebhookProcessResult | undefined> {
         const { event_type, webhook_id, document, ready_document_pdf } = payload;
         const resolvedBranchId = branchId;
         this.logger.log(`Processing webhook ${webhook_id}: event_type=${event_type}`);
 
         // Handle document events (status changes)
         if (event_type === EVENT_TYPES.DOCUMENT && document) {
-            await this.handleDocumentEvent(resolvedBranchId, document);
-            return;
+            return this.handleDocumentEvent(
+                resolvedBranchId,
+                document,
+                context.mirroredDocument,
+                context.deferCompletionEvent,
+                context.deferCompletionEffects,
+            );
         }
 
         // Handle document_action events (open, view actions)
         // Note: eformsign sends action data inside the `document` object (document.action field)
         if (event_type === EVENT_TYPES.DOCUMENT_ACTION && document) {
-            await this.handleDocumentActionEvent(resolvedBranchId, document);
+            await this.handleDocumentActionEvent(
+                resolvedBranchId,
+                document,
+                context.mirroredDocument,
+            );
             return;
         }
 
         // Handle PDF ready events - also update status since it contains document_status
         if (event_type === EVENT_TYPES.READY_DOCUMENT_PDF && ready_document_pdf) {
-            await this.handleReadyDocumentPdfEvent(resolvedBranchId, ready_document_pdf);
-            return;
+            return this.handleReadyDocumentPdfEvent(
+                resolvedBranchId,
+                ready_document_pdf,
+                context.mirroredDocument,
+                context.deferCompletionEvent,
+                context.deferCompletionEffects,
+            );
         }
 
         this.logger.warn(`Unknown webhook event type: ${event_type}`);
+        return;
     }
 
     /**
@@ -259,8 +396,11 @@ export class EformsignWebhookService {
      */
     private async handleReadyDocumentPdfEvent(
         branchid: string,
-        pdfEvent: NonNullable<EformsignWebhookPayloadDto["ready_document_pdf"]>
-    ): Promise<void> {
+        pdfEvent: NonNullable<EformsignWebhookPayloadDto["ready_document_pdf"]>,
+        mirroredDocument?: EformsignApiDocumentResponse | null,
+        deferCompletionEvent = false,
+        deferCompletionEffects = false,
+    ): Promise<EformsignWebhookProcessResult | undefined> {
         const {
             document_id: documentId,
             document_title,
@@ -271,10 +411,11 @@ export class EformsignWebhookService {
             workflow_name,
         } = pdfEvent;
 
-        this.logger.log(`PDF ready event: ${documentId} -> status=${status}, workflow=${workflow_name}`);
+        this.logger.log(`PDF ready event: ${documentId} -> status=${status}`);
 
         if (status === DOCUMENT_STATUS.DOC_COMPLETE) {
-            const claimed = await this.claimDocumentCompletion(
+            const shouldReturnClaim = deferCompletionEvent || deferCompletionEffects;
+            const claimResult = await this.claimDocumentCompletion(
                 branchid,
                 documentId,
                 workflow_seq,
@@ -282,29 +423,71 @@ export class EformsignWebhookService {
                 "ready_document_pdf",
                 document_title,
                 template_name,
+                webhookSourceUpdatedDate(mirroredDocument?.updated_date),
             );
-            if (!claimed) {
-                if (this.isServiceRecordTemplate(template_id)) {
+            if (claimResult !== "claimed") {
+                let duplicateServiceRecordLifecycleChanged = false;
+                if (claimResult === "duplicate" && deferCompletionEffects) {
+                    duplicateServiceRecordLifecycleChanged =
+                        await this.reconcileDeferredServiceRecordSnapshotCompletion(
+                            documentId,
+                            template_id,
+                        );
+                }
+                if (
+                    claimResult === "duplicate"
+                    && !deferCompletionEffects
+                    && this.isServiceRecordTemplate(template_id)
+                ) {
                     await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
                 }
-                return;
+                return shouldReturnClaim
+                    ? {
+                          completionClaim: claimResult,
+                          completionBranchId: branchid,
+                          ...(duplicateServiceRecordLifecycleChanged
+                              ? { duplicateServiceRecordLifecycleChanged: true }
+                              : {}),
+                      }
+                    : undefined;
             }
 
-            if (this.isServiceRecordTemplate(template_id)) {
-                this.logger.log(
-                    `Document ${documentId} is a service-record snapshot (template ${template_id}); skipping contract-completion side effects (BJJ-247 gate).`
+            if (deferCompletionEffects) {
+                await this.reconcileDeferredServiceRecordSnapshotCompletion(
+                    documentId,
+                    template_id,
                 );
-                await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
-            } else {
-                await this.handleCompletedDocument(branchid, documentId, workflow_name, "PDF event");
             }
-            this.eventBus.emit({ branchId: branchid, documentId, reason: `pdf:${status}` });
-            return;
+            if (!deferCompletionEffects) {
+                if (this.isServiceRecordTemplate(template_id)) {
+                    this.logger.log(
+                        `Document ${documentId} is a service-record snapshot (template ${template_id}); skipping contract-completion side effects (BJJ-247 gate).`
+                    );
+                    await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
+                } else {
+                    await this.handleCompletedDocument(
+                        branchid,
+                        documentId,
+                        workflow_name,
+                        "PDF event",
+                        mirroredDocument,
+                    );
+                }
+            }
+            if (!deferCompletionEvent) {
+                this.eventBus.emit({ branchId: branchid, documentId, reason: `pdf:${status}` });
+            }
+            return shouldReturnClaim
+                ? { completionClaim: claimResult, completionBranchId: branchid }
+                : undefined;
         }
 
         const { statusType, statusDetail } = this.mapStatus(status);
         try {
-            await this.updateStatusAndLinkClient(branchid, {
+            if (!this.isCurrentMirrorStatus(mirroredDocument, statusType)) {
+                return;
+            }
+            const applied = await this.updateStatusAndLinkClient(branchid, {
                 documentId,
                 statusType,
                 statusDetail,
@@ -314,18 +497,22 @@ export class EformsignWebhookService {
                 expired: status === DOCUMENT_STATUS.DOC_EXPIRED,
                 documentName: document_title,
                 templateName: template_name,
+                sourceUpdatedDate: webhookSourceUpdatedDate(mirroredDocument?.updated_date),
             });
+            if (!applied) return;
 
             this.logger.log(`Document ${documentId} status updated from PDF event: ${status} -> ${statusDetail}`);
         } catch (error) {
             this.logger.warn(
                 `[ready_document_pdf] Document ${documentId} not found in DB. ` +
-                `Ensure frontend calls POST /eformsign-docs to create the record with clientId first. Error: ${error}`
+                "Ensure frontend calls POST /eformsign-docs to create the record with clientId first. Error: " +
+                sanitizeEformsignErrorMessage(error),
             );
             return;
         }
 
         this.eventBus.emit({ branchId: branchid, documentId, reason: `pdf:${status}` });
+        return;
     }
 
     /**
@@ -335,7 +522,8 @@ export class EformsignWebhookService {
      */
     private async handleDocumentActionEvent(
         branchid: string,
-        document: NonNullable<EformsignWebhookPayloadDto["document"]>
+        document: NonNullable<EformsignWebhookPayloadDto["document"]>,
+        mirroredDocument?: EformsignApiDocumentResponse | null,
     ): Promise<void> {
         const {
             id: documentId,
@@ -346,16 +534,19 @@ export class EformsignWebhookService {
             workflow_name,
         } = document;
 
-        this.logger.log(`Document action event: ${documentId} -> action=${action}, workflow=${workflow_name}`);
+        this.logger.log(`Document action event: ${documentId} -> action=${action}`);
 
         // Map action type to status (opened = 서명 페이지 열림)
         const isOpenAction = action?.includes("open");
         const statusDetail = isOpenAction ? "서명 페이지 열림" : `액션: ${action}`;
+        const statusType = mirroredDocument
+            ? normalizeEformsignStatusCode(mirroredDocument.current_status.status_type)
+            : "020";
 
         try {
-            await this.updateStatusAndLinkClient(branchid, {
+            const applied = await this.updateStatusAndLinkClient(branchid, {
                 documentId,
-                statusType: "020", // In-progress/opened
+                statusType,
                 statusDetail,
                 stepType: String(workflow_seq || 0),
                 stepIndex: String(workflow_seq || 0),
@@ -363,13 +554,16 @@ export class EformsignWebhookService {
                 expired: false,
                 documentName: document_title,
                 templateName: template_name,
+                sourceUpdatedDate: webhookSourceUpdatedDate(document.updated_date),
             });
+            if (!applied) return;
 
             this.logger.log(`Document ${documentId} action recorded: ${action}`);
         } catch (error) {
             this.logger.warn(
                 `[document_action] Document ${documentId} not found in DB. ` +
-                `Ensure frontend calls POST /eformsign-docs to create the record first. Error: ${error}`
+                "Ensure frontend calls POST /eformsign-docs to create the record first. Error: " +
+                sanitizeEformsignErrorMessage(error),
             );
             return;
         }
@@ -379,8 +573,11 @@ export class EformsignWebhookService {
 
     private async handleDocumentEvent(
         branchid: string,
-        document: NonNullable<EformsignWebhookPayloadDto["document"]>
-    ): Promise<void> {
+        document: NonNullable<EformsignWebhookPayloadDto["document"]>,
+        mirroredDocument?: EformsignApiDocumentResponse | null,
+        deferCompletionEvent = false,
+        deferCompletionEffects = false,
+    ): Promise<EformsignWebhookProcessResult | undefined> {
         const {
             id: documentId,
             status,
@@ -391,12 +588,13 @@ export class EformsignWebhookService {
             workflow_name,
         } = document;
 
-        this.logger.log(`Document event: ${documentId} -> status=${status}, title=${document_title}`);
+        this.logger.log(`Document event: ${documentId} -> status=${status}`);
 
         const { statusType, statusDetail } = this.mapStatus(status);
 
         if (status === DOCUMENT_STATUS.DOC_COMPLETE) {
-            const claimed = await this.claimDocumentCompletion(
+            const shouldReturnClaim = deferCompletionEvent || deferCompletionEffects;
+            const claimResult = await this.claimDocumentCompletion(
                 branchid,
                 documentId,
                 workflow_seq,
@@ -404,16 +602,46 @@ export class EformsignWebhookService {
                 status,
                 document_title,
                 template_name,
+                webhookSourceUpdatedDate(document.updated_date),
             );
-            if (!claimed) {
-                if (this.isServiceRecordTemplate(template_id)) {
+            if (claimResult !== "claimed") {
+                let duplicateServiceRecordLifecycleChanged = false;
+                if (claimResult === "duplicate" && deferCompletionEffects) {
+                    duplicateServiceRecordLifecycleChanged =
+                        await this.reconcileDeferredServiceRecordSnapshotCompletion(
+                            documentId,
+                            template_id,
+                        );
+                }
+                if (
+                    claimResult === "duplicate"
+                    && !deferCompletionEffects
+                    && this.isServiceRecordTemplate(template_id)
+                ) {
                     await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
                 }
-                return;
+                return shouldReturnClaim
+                    ? {
+                          completionClaim: claimResult,
+                          completionBranchId: branchid,
+                          ...(duplicateServiceRecordLifecycleChanged
+                              ? { duplicateServiceRecordLifecycleChanged: true }
+                              : {}),
+                      }
+                    : undefined;
+            }
+            if (deferCompletionEffects) {
+                await this.reconcileDeferredServiceRecordSnapshotCompletion(
+                    documentId,
+                    template_id,
+                );
             }
         } else {
             try {
-                await this.updateStatusAndLinkClient(branchid, {
+                if (!this.isCurrentMirrorStatus(mirroredDocument, statusType)) {
+                    return;
+                }
+                const applied = await this.updateStatusAndLinkClient(branchid, {
                     documentId,
                     statusType,
                     statusDetail,
@@ -423,32 +651,53 @@ export class EformsignWebhookService {
                     expired: status === DOCUMENT_STATUS.DOC_EXPIRED,
                     documentName: document_title,
                     templateName: template_name,
+                    sourceUpdatedDate: webhookSourceUpdatedDate(document.updated_date),
                 });
+                if (!applied) return;
 
                 this.logger.log(`Document ${documentId} status updated: ${status} -> ${statusDetail}`);
             } catch (error) {
                 this.logger.warn(
                     `[${status}] Document ${documentId} not found in DB. ` +
-                    `Ensure frontend calls POST /eformsign-docs to create the record with clientId first. Error: ${error}`
+                    "Ensure frontend calls POST /eformsign-docs to create the record with clientId first. Error: " +
+                    sanitizeEformsignErrorMessage(error),
                 );
                 return;
             }
         }
 
-        await this.notifyReviewRequiredIfNeeded(branchid, documentId, document_title, statusType);
+        await this.notifyReviewRequiredIfNeeded(
+            branchid,
+            documentId,
+            document_title,
+            statusType,
+            mirroredDocument,
+        );
 
-        if (status === DOCUMENT_STATUS.DOC_COMPLETE) {
+        if (status === DOCUMENT_STATUS.DOC_COMPLETE && !deferCompletionEffects) {
             if (this.isServiceRecordTemplate(template_id)) {
                 this.logger.log(
                     `Document ${documentId} is a service-record snapshot (template ${template_id}); skipping contract-completion side effects (BJJ-247 gate).`
                 );
                 await this.handleServiceRecordSnapshotCompleted(branchid, documentId);
             } else {
-                await this.handleCompletedDocument(branchid, documentId, workflow_name, "document event");
+                await this.handleCompletedDocument(
+                    branchid,
+                    documentId,
+                    workflow_name,
+                    "document event",
+                    mirroredDocument,
+                );
             }
         }
 
-        this.eventBus.emit({ branchId: branchid, documentId, reason: `doc:${status}` });
+        if (status !== DOCUMENT_STATUS.DOC_COMPLETE || !deferCompletionEvent) {
+            this.eventBus.emit({ branchId: branchid, documentId, reason: `doc:${status}` });
+        }
+        return status === DOCUMENT_STATUS.DOC_COMPLETE
+            && (deferCompletionEvent || deferCompletionEffects)
+            ? { completionClaim: "claimed", completionBranchId: branchid }
+            : undefined;
     }
 
     private async claimDocumentCompletion(
@@ -459,7 +708,8 @@ export class EformsignWebhookService {
         source: string,
         documentName?: string,
         templateName?: string,
-    ): Promise<boolean> {
+        sourceUpdatedDate?: Date,
+    ): Promise<EformsignWebhookCompletionClaim> {
         const claimResult = await this.eformsignDocRepository.claimCompletionStatus(branchid, {
             documentId,
             statusType: "050",
@@ -468,6 +718,7 @@ export class EformsignWebhookService {
             stepIndex: String(workflowSeq),
             stepName: workflowName,
             expired: false,
+            sourceUpdatedDate,
             documentName: documentName?.trim() || undefined,
             templateName: templateName?.trim() || undefined,
         });
@@ -475,34 +726,53 @@ export class EformsignWebhookService {
         if (claimResult === "claimed") {
             await this.bumpDocumentSnapshotVersion(branchid);
             this.logger.log(`Document ${documentId} completion claimed from ${source}`);
-            return true;
+            return "claimed";
         }
 
         if (claimResult === "duplicate") {
             this.logger.log(`Duplicate completion webhook ignored for document ${documentId} (${source})`);
-            return false;
+            return "duplicate";
+        }
+
+        if (claimResult === "stale") {
+            this.logger.log(`Ignoring stale completion webhook for document ${documentId} (${source})`);
+            return "stale";
         }
 
         this.logger.warn(
             `[${source}] Document ${documentId} not found in DB. ` +
             "Ensure frontend calls POST /eformsign-docs to create the record with clientId first."
         );
-        return false;
+        return "missing";
     }
 
     private async updateStatusAndLinkClient(
         branchid: string,
         params: Parameters<UpdateEformsignDocStatusUsecase["execute"]>[1],
-    ): Promise<void> {
-        const updated = await this.updateStatusUsecase.execute(branchid, params);
-        if (updated.statusType === params.statusType) {
-            await this.bumpDocumentSnapshotVersion(branchid);
+    ): Promise<boolean> {
+        const { document: updated, applied } =
+            await this.updateStatusUsecase.executeWithOutcome(branchid, params);
+        if (
+            !applied
+            || updated.statusType !== params.statusType
+            || (
+                params.sourceUpdatedDate
+                && updated.updatedDate.getTime() > params.sourceUpdatedDate.getTime()
+            )
+        ) {
+            this.logger.log(`Ignoring stale status webhook for ${params.documentId}`);
+            return false;
         }
+        await this.bumpDocumentSnapshotVersion(branchid);
         try {
             await this.linkDocumentUsecase.execute(branchid, params.documentId);
         } catch (error) {
-            this.logger.warn(`Failed to keep client linked for document ${params.documentId}: ${error}`);
+            this.logger.warn(
+                `Failed to keep client linked for document ${params.documentId}: ` +
+                sanitizeEformsignErrorMessage(error),
+            );
         }
+        return true;
     }
 
     private async bumpDocumentSnapshotVersion(branchId: string): Promise<void> {
@@ -520,6 +790,7 @@ export class EformsignWebhookService {
         documentId: string,
         workflowName: string,
         source: string,
+        mirroredDocument?: EformsignApiDocumentResponse | null,
     ): Promise<void> {
         const doc = await this.eformsignDocRepository.findByDocumentId(branchid, documentId);
         if (doc?.documentKind === EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT) {
@@ -536,35 +807,52 @@ export class EformsignWebhookService {
             await this.linkDocumentUsecase.execute(branchid, documentId);
             this.logger.log(`Document ${documentId} successfully linked to client`);
 
-            try {
-                const accessTokenResponse = await this.eformsignApiClient.getAccessToken(Date.now());
-                if (this.serviceRecordLifecycle) {
-                    await this.syncClientEndDateUsecase.execute(
-                        branchid,
-                        documentId,
-                        accessTokenResponse.oauth_token.access_token,
-                        {
+            if (mirroredDocument && this.completedMirrorReconciler) {
+                await this.completedMirrorReconciler.syncLinkedContract({
+                    branchId: branchid,
+                    documentId,
+                    detail: mirroredDocument,
+                });
+            } else {
+                try {
+                    const persist = this.serviceRecordLifecycle
+                        ? {
                             persist: (target: SyncedClientEndDate) =>
                                 this.serviceRecordLifecycle!.syncEndDateFromContract({
                                     branchId: branchid,
                                     clientId: target.clientId,
                                     endDate: target.endDate,
                                 }),
-                        },
-                    );
-                } else {
-                    await this.syncClientEndDateUsecase.execute(
-                        branchid,
-                        documentId,
-                        accessTokenResponse.oauth_token.access_token,
+                        }
+                        : {};
+                    if (mirroredDocument) {
+                        await this.syncClientEndDateUsecase.executeFromDocument(
+                            branchid,
+                            documentId,
+                            mirroredDocument,
+                            persist,
+                        );
+                    } else {
+                        const accessTokenResponse =
+                            await this.eformsignApiClient.getAccessToken(Date.now());
+                        await this.syncClientEndDateUsecase.execute(
+                            branchid,
+                            documentId,
+                            accessTokenResponse.oauth_token.access_token,
+                            persist,
+                        );
+                    }
+                } catch (error) {
+                    this.logger.error(
+                        `Failed to sync end date for document ${documentId}: ${sanitizeEformsignErrorMessage(error)}`,
                     );
                 }
-            } catch (error) {
-                this.logger.error(`Failed to sync end date for document ${documentId}: ${error}`);
             }
 
         } catch (error) {
-            this.logger.error(`Failed to link document ${documentId} to client: ${error}`);
+            this.logger.error(
+                `Failed to link document ${documentId} to client: ${sanitizeEformsignErrorMessage(error)}`,
+            );
         }
     }
 
@@ -572,43 +860,30 @@ export class EformsignWebhookService {
         branchId: string,
         documentId: string,
     ): Promise<void> {
-        if (!this.prisma) return;
-        const document = await this.prisma.eformsign_doc.findFirst({
-            where: {
-                branchId,
-                documentId,
-                documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
-                serviceRecordCaseId: { not: null },
-            },
-            select: { serviceRecordCaseId: true },
-        });
-        if (!document?.serviceRecordCaseId) return;
-
-        const incompleteDocuments = await this.prisma.eformsign_doc.count({
-            where: {
-                branchId,
-                serviceRecordCaseId: document.serviceRecordCaseId,
-                documentKind: EFORMSIGN_DOCUMENT_KIND.SERVICE_RECORD_SNAPSHOT,
-                statusType: { notIn: [...COMPLETED_STATUS_CODES] },
-            },
-        });
-        if (incompleteDocuments > 0) return;
-
-        const completed = await this.prisma.service_record_case.updateMany({
-            where: {
-                id: document.serviceRecordCaseId,
-                branchId,
-                status: SERVICE_RECORD_CASE_STATUS.DOCUMENTS_CREATED,
-            },
-            data: {
-                status: SERVICE_RECORD_CASE_STATUS.COMPLETED,
-                documentsCompletedAt: new Date(),
-                version: { increment: 1 },
-            },
-        });
-        if (completed.count === 1) {
-            this.logger.log(`Service record documents completed: case=${document.serviceRecordCaseId}`);
+        if (!this.serviceRecordLifecycle) return;
+        const completed = await this.serviceRecordLifecycle
+            .completeServiceRecordSnapshotIfReady({ branchId, documentId });
+        if (completed) {
+            this.logger.log(`Service record documents completed for document=${documentId}`);
         }
+    }
+
+    private async reconcileDeferredServiceRecordSnapshotCompletion(
+        documentId: string,
+        templateId?: string,
+    ): Promise<boolean> {
+        if (!this.isServiceRecordTemplate(templateId) || !this.completedMirrorReconciler) {
+            return false;
+        }
+        const lifecycleChanged = await this.completedMirrorReconciler
+            .reconcileServiceRecordSnapshotCompletion(documentId);
+        if (lifecycleChanged === null) {
+            throw new Error(
+                `Eformsign mirror is not ready for service-record completion ${documentId}`,
+            );
+        }
+
+        return lifecycleChanged;
     }
 
     // 클라이언트에 배정된 담당 직원 이름을 조회
@@ -652,12 +927,16 @@ export class EformsignWebhookService {
             };
         } catch (error) {
             if (!(error instanceof EformsignDocMappingError)) {
-                this.logger.warn(`Failed to query local document ${documentId}: ${error}`);
+                this.logger.warn(
+                    `Failed to query local document ${documentId}: ` +
+                    sanitizeEformsignErrorMessage(error),
+                );
                 return undefined;
             }
 
             this.logger.warn(
-                `Failed to map local document ${documentId}; falling back to branch-only lookup: ${error.originalError}`,
+                `Failed to map local document ${documentId}; falling back to branch-only lookup: ` +
+                sanitizeEformsignErrorMessage(error.originalError),
             );
             try {
                 const branchId = await this.eformsignDocRepository.findBranchIdByDocumentId(documentId);
@@ -670,7 +949,8 @@ export class EformsignWebhookService {
                 return { branchId };
             } catch (fallbackError) {
                 this.logger.warn(
-                    `Failed branch-only lookup for document ${documentId}: ${fallbackError}`,
+                    `Failed branch-only lookup for document ${documentId}: ` +
+                    sanitizeEformsignErrorMessage(fallbackError),
                 );
                 return undefined;
             }
@@ -782,9 +1062,19 @@ export class EformsignWebhookService {
         await this.eformsignDocRepository.upsertUnassignedByDocumentId(updated, {
             updateCreatedDate: false,
         });
+        await this.bumpCompanySnapshotEpoch();
         this.logger.log(
             `Updated unassigned document ${existing.documentId} from webhook ${webhook_id}: event_type=${event_type}`,
         );
+    }
+
+    private async bumpCompanySnapshotEpoch(): Promise<void> {
+        try {
+            await this.documentSnapshotService?.bumpCompanyEpoch();
+        } catch {
+            // The local document write remains authoritative when cache invalidation
+            // is temporarily unavailable.
+        }
     }
 
     private mapUnassignedStatus(status: string): { statusType: string; statusDetail: string } {
@@ -834,17 +1124,21 @@ export class EformsignWebhookService {
         documentId: string,
         documentTitle: string,
         localStatusType: string,
+        mirroredDocument?: EformsignApiDocumentResponse | null,
     ): Promise<void> {
         if (localStatusType !== "060") {
             return;
         }
 
         try {
-            const accessTokenResponse = await this.eformsignApiClient.getAccessToken(Date.now());
-            const document = await this.eformsignApiClient.getDocument(
-                accessTokenResponse.oauth_token.access_token,
-                documentId,
-            );
+            const document = mirroredDocument ?? await (async () => {
+                const accessTokenResponse =
+                    await this.eformsignApiClient.getAccessToken(Date.now());
+                return this.eformsignApiClient.getDocument(
+                    accessTokenResponse.oauth_token.access_token,
+                    documentId,
+                );
+            })();
 
             if (!this.isReviewRequiredStatus(document.current_status)) {
                 return;
@@ -875,9 +1169,25 @@ export class EformsignWebhookService {
             );
         } catch (error) {
             this.logger.warn(
-                `Failed to send review-required notification for document ${documentId}: ${error}`
+                `Failed to send review-required notification for document ${documentId}: ` +
+                sanitizeEformsignErrorMessage(error),
             );
         }
+    }
+
+    private isCurrentMirrorStatus(
+        mirroredDocument: EformsignApiDocumentResponse | null | undefined,
+        webhookStatusType: string,
+    ): boolean {
+        if (!mirroredDocument) return true;
+        const mirroredStatusType = normalizeEformsignStatusCode(
+            mirroredDocument.current_status.status_type,
+        );
+        if (mirroredStatusType === webhookStatusType) return true;
+        this.logger.log(
+            `Ignoring stale PDF webhook status ${webhookStatusType}; mirror is ${mirroredStatusType}`,
+        );
+        return false;
     }
 
     private mapStatus(status: string): { statusType: string; statusDetail: string } {
@@ -899,7 +1209,7 @@ export class EformsignWebhookService {
             case DOCUMENT_STATUS.DOC_REQUEST_REVOKE:
                 return { statusType: "090", statusDetail: "철회" };
             case DOCUMENT_STATUS.DOC_DELETED:
-                return { statusType: "099", statusDetail: "삭제됨" };
+                return { statusType: "049", statusDetail: "삭제됨" };
 
             // Created state
             case DOCUMENT_STATUS.DOC_CREATE:
@@ -924,4 +1234,12 @@ export class EformsignWebhookService {
                 return { statusType: "060", statusDetail: status };
         }
     }
+}
+
+function webhookSourceUpdatedDate(timestamp: unknown): Date | undefined {
+    if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+        return undefined;
+    }
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? undefined : date;
 }

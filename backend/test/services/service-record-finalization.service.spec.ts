@@ -48,7 +48,10 @@ function setup(options: {
     };
     const transaction = jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
     const prismaWithTransaction = Object.assign(prisma, { $transaction: transaction });
-    const lifecycle = { recompute: jest.fn() };
+    const lifecycle = {
+        completeServiceRecordSnapshotIfReady: jest.fn().mockResolvedValue(false),
+        recompute: jest.fn(),
+    };
     const snapshot = {
         executeCase: options.snapshotError
             ? jest.fn().mockRejectedValue(options.snapshotError)
@@ -127,6 +130,29 @@ describe("ServiceRecordFinalizationService", () => {
 
         await expect(service.processDueCases()).resolves.toBe(0);
         expect(snapshot.executeCase).not.toHaveBeenCalled();
+    });
+
+    it("does not complete reviewed snapshots until the lifecycle mirror-readiness gate allows it", async () => {
+        const { service, prisma, lifecycle } = setup({ includeCandidate: false });
+        prisma.service_record_case.findMany.mockReset()
+            .mockResolvedValueOnce([{
+                branchId: "branch-1",
+                eformsignDocs: [{ documentId: "snapshot-062" }],
+            }])
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([]);
+
+        await expect(service.processDueCases()).resolves.toBe(0);
+
+        expect(lifecycle.completeServiceRecordSnapshotIfReady).toHaveBeenCalledWith({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+        });
+        expect(prisma.service_record_case.updateMany).not.toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: expect.objectContaining({ status: SERVICE_RECORD_CASE_STATUS.COMPLETED }),
+            }),
+        );
     });
 
     it("records a retryable case failure when snapshot creation fails", async () => {

@@ -22,6 +22,25 @@ export const EFORMSIGN_DOC_COMPAT_READ_SELECT = {
     clientId: true,
 } satisfies Prisma.eformsign_docSelect;
 
+/**
+ * Domain/list reads deliberately exclude the large detail JSON and PDF relation.
+ * Detail and files have dedicated mirror repository methods; loading them while
+ * building every contracts list would turn one page view into an unbounded JSON read.
+ */
+export const EFORMSIGN_DOC_DOMAIN_READ_SELECT = {
+    ...EFORMSIGN_DOC_COMPAT_READ_SELECT,
+    documentName: true,
+    documentNumber: true,
+    templateName: true,
+    customerName: true,
+    creatorName: true,
+    lastEditorName: true,
+    stepRecipientTypes: true,
+    documentKind: true,
+    employeeScheduleId: true,
+    templateId: true,
+} satisfies Prisma.eformsign_docSelect;
+
 type EformsignDocCompatReadRow = Prisma.eformsign_docGetPayload<{
     select: typeof EFORMSIGN_DOC_COMPAT_READ_SELECT;
 }>;
@@ -34,9 +53,16 @@ type PendingEformsignDocData = {
     documentNumber?: unknown;
     templateName?: unknown;
     customerName?: unknown;
+    customerPhone?: unknown;
     creatorName?: unknown;
     lastEditorName?: unknown;
     stepRecipientTypes?: unknown;
+    detailPayload?: unknown;
+    detailSourceUpdatedDate?: unknown;
+    detailSyncedAt?: unknown;
+    syncStatus?: unknown;
+    syncError?: unknown;
+    syncErrorAt?: unknown;
 };
 
 type PendingEformsignDocColumn = {
@@ -71,6 +97,21 @@ const PENDING_EFORMSIGN_DOC_COLUMN_GROUPS = [
             { databaseName: "creator_name", prismaName: "creatorName" },
             { databaseName: "last_editor_name", prismaName: "lastEditorName" },
             { databaseName: "step_recipient_types", prismaName: "stepRecipientTypes" },
+        ],
+    },
+    {
+        // Migration: 20260729120000_add_eformsign_local_source_of_truth
+        columns: [
+            { databaseName: "customer_phone", prismaName: "customerPhone" },
+            { databaseName: "detail_payload", prismaName: "detailPayload" },
+            {
+                databaseName: "detail_source_updated_date",
+                prismaName: "detailSourceUpdatedDate",
+            },
+            { databaseName: "detail_synced_at", prismaName: "detailSyncedAt" },
+            { databaseName: "sync_status", prismaName: "syncStatus" },
+            { databaseName: "sync_error", prismaName: "syncError" },
+            { databaseName: "sync_error_at", prismaName: "syncErrorAt" },
         ],
     },
 ] as const satisfies readonly { columns: readonly PendingEformsignDocColumn[] }[];
@@ -116,6 +157,13 @@ const PENDING_EFORMSIGN_DOC_NULLS = {
     creatorName: null,
     lastEditorName: null,
     stepRecipientTypes: null,
+    customerPhone: null,
+    detailPayload: null,
+    detailSourceUpdatedDate: null,
+    detailSyncedAt: null,
+    syncStatus: null,
+    syncError: null,
+    syncErrorAt: null,
 } as const satisfies Record<keyof PendingEformsignDocData, null>;
 
 /**

@@ -38,6 +38,312 @@ describe("BackfillEformsignDocsUsecase", () => {
         jest.clearAllMocks();
     });
 
+    it("purges a requested document only after the post-scan verification confirms vendor 404", async () => {
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockRejectedValue(new EformsignApiError("missing", 404)),
+        };
+        const mirrorService = {
+            // Permanent deletion is normally requested for a 049 trash row, which is
+            // intentionally absent from the active-id query.
+            findActiveDocumentIds: jest.fn().mockResolvedValue([]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue(["missing-doc"]),
+            purgeDocuments: jest.fn().mockResolvedValue(undefined),
+            markDocumentsDeleted: jest.fn(),
+            clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn() } as never,
+            { mirrorRemoteDocument: jest.fn() } as never,
+            mirrorService as never,
+        );
+
+        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        expect(mirrorService.purgeDocuments).toHaveBeenCalledWith(["missing-doc"]);
+        expect(mirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
+    });
+
+    it("keeps an ordinary vendor-absent document as a recoverable tombstone", async () => {
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockRejectedValue(new EformsignApiError("missing", 404)),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["missing-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
+            purgeDocuments: jest.fn(),
+            markDocumentsDeleted: jest.fn().mockResolvedValue(undefined),
+            clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn() } as never,
+            { mirrorRemoteDocument: jest.fn() } as never,
+            mirrorService as never,
+        );
+
+        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        expect(mirrorService.markDocumentsDeleted).toHaveBeenCalledWith(["missing-doc"]);
+        expect(mirrorService.purgeDocuments).not.toHaveBeenCalled();
+    });
+
+    it("tombstones a document when detail returns the vendor deleted-document code", async () => {
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockRejectedValue(
+                new EformsignApiError("deleted", 400, "4000006"),
+            ),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["deleted-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
+            purgeDocuments: jest.fn(),
+            markDocumentsDeleted: jest.fn().mockResolvedValue(undefined),
+            clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn() } as never,
+            { mirrorRemoteDocument: jest.fn() } as never,
+            mirrorService as never,
+        );
+
+        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        expect(mirrorService.markDocumentsDeleted).toHaveBeenCalledWith(["deleted-doc"]);
+    });
+
+    it("fails closed for an unrelated vendor 400 during absence verification", async () => {
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockRejectedValue(
+                new EformsignApiError("bad request", 400, "4000001"),
+            ),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["uncertain-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
+            purgeDocuments: jest.fn(),
+            markDocumentsDeleted: jest.fn(),
+            clearPermanentPurgeRequest: jest.fn(),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn() } as never,
+            { mirrorRemoteDocument: jest.fn() } as never,
+            mirrorService as never,
+        );
+
+        await expect(usecase.execute()).rejects.toThrow(
+            /failed to verify locally active eformsign document uncertain-doc/i,
+        );
+        expect(mirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
+    });
+
+    it("retries a confirmed-present permanent purge and purges only after vendor success", async () => {
+        const document = createRemoteDocument("pending-doc");
+        const retryGeneration = new Date("2026-07-30T01:00:00.000Z");
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [document],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockResolvedValue(document),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            syncDocumentWithToken: jest.fn().mockResolvedValue({ status: "synced" }),
+            requestPermanentPurge: jest.fn().mockResolvedValue([
+                { documentId: "pending-doc", generation: retryGeneration },
+            ]),
+            purgeDocuments: jest.fn().mockResolvedValue(undefined),
+            markDocumentsDeleted: jest.fn(),
+            clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+        };
+        const eformsignService = {
+            deleteDocuments: jest.fn().mockResolvedValue({
+                result: { success_result: ["pending-doc"] },
+            }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
+            { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
+            mirrorService as never,
+            eformsignService as never,
+        );
+
+        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        expect(client.getDocument).toHaveBeenCalledWith(accessToken, "pending-doc");
+        expect(mirrorService.requestPermanentPurge).toHaveBeenCalledWith(["pending-doc"]);
+        expect(eformsignService.deleteDocuments).toHaveBeenCalledWith(
+            accessToken,
+            ["pending-doc"],
+            true,
+        );
+        expect(mirrorService.clearPermanentPurgeRequest).not.toHaveBeenCalled();
+        expect(mirrorService.purgeDocuments).toHaveBeenCalledWith(["pending-doc"]);
+    });
+
+    it("retains a retried permanent purge intent for an ambiguous vendor delete outcome", async () => {
+        const document = createRemoteDocument("pending-doc");
+        const retryGeneration = new Date("2026-07-30T01:00:00.000Z");
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [document],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockResolvedValue(document),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            syncDocumentWithToken: jest.fn().mockResolvedValue({ status: "synced" }),
+            requestPermanentPurge: jest.fn().mockResolvedValue([
+                { documentId: "pending-doc", generation: retryGeneration },
+            ]),
+            purgeDocuments: jest.fn(),
+            markDocumentsDeleted: jest.fn(),
+            clearPermanentPurgeRequest: jest.fn(),
+        };
+        const eformsignService = {
+            deleteDocuments: jest.fn().mockResolvedValue({
+                result: {
+                    fail_result: [{ document_id: "pending-doc", code: "4000031" }],
+                },
+            }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
+            { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
+            mirrorService as never,
+            eformsignService as never,
+        );
+
+        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        expect(mirrorService.requestPermanentPurge).toHaveBeenCalledWith(["pending-doc"]);
+        expect(mirrorService.clearPermanentPurgeRequest).not.toHaveBeenCalled();
+        expect(mirrorService.purgeDocuments).not.toHaveBeenCalled();
+    });
+
+    it("clears only the retry generation for a definitive permanent delete rejection", async () => {
+        const document = createRemoteDocument("pending-doc");
+        const retryGeneration = new Date("2026-07-30T01:00:00.000Z");
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [document],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockResolvedValue(document),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue(["pending-doc"]),
+            syncDocumentWithToken: jest.fn().mockResolvedValue({ status: "synced" }),
+            requestPermanentPurge: jest.fn().mockResolvedValue([
+                { documentId: "pending-doc", generation: retryGeneration },
+            ]),
+            purgeDocuments: jest.fn(),
+            markDocumentsDeleted: jest.fn(),
+            clearPermanentPurgeRequest: jest.fn().mockResolvedValue(["pending-doc"]),
+        };
+        const eformsignService = {
+            deleteDocuments: jest.fn().mockResolvedValue({
+                result: {
+                    fail_result: [{ document_id: "pending-doc", code: "4000164" }],
+                },
+            }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn().mockResolvedValue({ id: 1 }) } as never,
+            { mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "pending-doc" }) } as never,
+            mirrorService as never,
+            eformsignService as never,
+        );
+
+        await expect(usecase.execute()).resolves.toEqual(expect.objectContaining({ failed: 0 }));
+        expect(mirrorService.clearPermanentPurgeRequest).toHaveBeenCalledWith([
+            { documentId: "pending-doc", generation: retryGeneration },
+        ]);
+        expect(mirrorService.purgeDocuments).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when an absent local document cannot be verified", async () => {
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getDocument: jest.fn().mockRejectedValue(new EformsignApiError("unavailable", 503)),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn().mockResolvedValue(["uncertain-doc"]),
+            findPermanentPurgeRequestedDocumentIds: jest.fn().mockResolvedValue([]),
+            purgeDocuments: jest.fn(),
+            markDocumentsDeleted: jest.fn(),
+            clearPermanentPurgeRequest: jest.fn().mockResolvedValue(undefined),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn() } as never,
+            { mirrorRemoteDocument: jest.fn() } as never,
+            mirrorService as never,
+        );
+
+        await expect(usecase.execute()).rejects.toThrow(
+            /failed to verify locally active eformsign document uncertain-doc/i,
+        );
+        expect(mirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
+        expect(mirrorService.purgeDocuments).not.toHaveBeenCalled();
+    });
+
+    it("does not run the absence post-pass after an incomplete vendor scan", async () => {
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({ oauth_token: { access_token: accessToken } }),
+            getInProgressDocumentsPage: jest.fn().mockRejectedValue(new Error("list unavailable")),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({ documents: [], total_rows: 0 }),
+        };
+        const mirrorService = {
+            findActiveDocumentIds: jest.fn(),
+            findPermanentPurgeRequestedDocumentIds: jest.fn(),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn() } as never,
+            { mirrorRemoteDocument: jest.fn() } as never,
+            mirrorService as never,
+        );
+
+        await expect(usecase.execute()).rejects.toThrow(/failed for types=01/i);
+        expect(mirrorService.findActiveDocumentIds).not.toHaveBeenCalled();
+        expect(mirrorService.findPermanentPurgeRequestedDocumentIds).not.toHaveBeenCalled();
+    });
+
     it("reuses one token and scans beyond 1000 documents until total_rows", async () => {
         const inProgress = Array.from(
             { length: 1_205 },
@@ -78,7 +384,7 @@ describe("BackfillEformsignDocsUsecase", () => {
         const summary = await usecase.execute();
 
         expect(client.getAccessToken).toHaveBeenCalledTimes(1);
-        expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(13);
+        expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(26);
         expect(client.getInProgressDocumentsPage).toHaveBeenLastCalledWith(
             accessToken,
             100,
@@ -221,11 +527,11 @@ describe("BackfillEformsignDocsUsecase", () => {
             },
         });
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
-        expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(1);
-        expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(1);
+        expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(2);
+        expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(2);
     });
 
-    it("counts repository stale-write errors as skipped and continues", async () => {
+    it("syncs full detail and PDFs after a stale projection write, then counts it as skipped", async () => {
         const client = {
             getAccessToken: jest.fn().mockResolvedValue({
                 oauth_token: { access_token: accessToken },
@@ -257,10 +563,14 @@ describe("BackfillEformsignDocsUsecase", () => {
                 .mockRejectedValueOnce(new EformsignDocStaleUpdateError("terminal-doc"))
                 .mockResolvedValueOnce({ documentId: "fresh-doc" }),
         };
+        const documentMirrorService = {
+            syncDocumentWithToken: jest.fn().mockResolvedValue({ status: "synced" }),
+        };
         const usecase = new BackfillEformsignDocsUsecase(
             client as never,
             repository as never,
             mirror as never,
+            documentMirrorService as never,
         );
 
         const summary = await usecase.execute();
@@ -277,6 +587,12 @@ describe("BackfillEformsignDocsUsecase", () => {
             1,
             expect.objectContaining({ id: "terminal-doc" }),
             { allowAssignedUpdate: true },
+        );
+        expect(documentMirrorService.syncDocumentWithToken).toHaveBeenNthCalledWith(
+            1,
+            accessToken,
+            "terminal-doc",
+            { expectedUpdatedDate: expect.any(Number) },
         );
     });
 
@@ -333,6 +649,59 @@ describe("BackfillEformsignDocsUsecase", () => {
             }),
         });
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails closed when a completed document is missing its current-version audit trail", async () => {
+        const completedDocument = createRemoteDocument("completed-doc", "doc_complete");
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [completedDocument],
+                total_rows: 1,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn().mockResolvedValue({
+                documentId: completedDocument.id,
+            }),
+        };
+        const documentMirrorService = {
+            syncDocumentWithToken: jest.fn().mockRejectedValue(
+                new Error("missing current-version files: audit_trail"),
+            ),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            { findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null) } as never,
+            mirror as never,
+            documentMirrorService as never,
+        );
+
+        await expect(usecase.execute()).rejects.toMatchObject({
+            summary: expect.objectContaining({
+                fetched: 1,
+                created: 0,
+                failed: 1,
+                byDocumentType: expect.objectContaining({
+                    "03": expect.objectContaining({ status: "failed" }),
+                }),
+            }),
+        });
+        expect(documentMirrorService.syncDocumentWithToken).toHaveBeenCalledWith(
+            accessToken,
+            completedDocument.id,
+            { expectedUpdatedDate: completedDocument.updated_date },
+        );
     });
 
     it("fails the sweep when the execution lease is lost during the final write", async () => {
@@ -414,8 +783,8 @@ describe("BackfillEformsignDocsUsecase", () => {
         await expect(usecase.execute()).rejects.toBeInstanceOf(BackfillEformsignDocsError);
 
         expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(2);
-        expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(1);
-        expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(1);
+        expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(2);
+        expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(2);
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(1);
     });
 
@@ -611,6 +980,93 @@ describe("BackfillEformsignDocsUsecase", () => {
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(199);
     });
 
+    it("fails closed when same-size list churn hides a live document across offsets", async () => {
+        const firstPage = Array.from(
+            { length: 100 },
+            (_, index) => createRemoteDocument(`document-${index + 1}`),
+        );
+        const churnedSecondPage = [
+            ...Array.from(
+                { length: 99 },
+                (_, index) => createRemoteDocument(`document-${index + 102}`),
+            ),
+            createRemoteDocument("replacement-document"),
+        ];
+        const stableFirstPage = Array.from(
+            { length: 100 },
+            (_, index) => createRemoteDocument(`document-${index + 2}`),
+        );
+        const stableSecondPage = [
+            ...Array.from(
+                { length: 99 },
+                (_, index) => createRemoteDocument(`document-${index + 102}`),
+            ),
+            createRemoteDocument("replacement-document"),
+        ];
+        const client = {
+            getAccessToken: jest.fn().mockResolvedValue({
+                oauth_token: { access_token: accessToken },
+            }),
+            getInProgressDocumentsPage: jest.fn()
+                .mockResolvedValueOnce({
+                    documents: firstPage,
+                    total_rows: 200,
+                })
+                .mockResolvedValueOnce({
+                    documents: churnedSecondPage,
+                    total_rows: 200,
+                })
+                .mockResolvedValueOnce({
+                    documents: stableFirstPage,
+                    total_rows: 200,
+                })
+                .mockResolvedValueOnce({
+                    documents: stableSecondPage,
+                    total_rows: 200,
+                }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn(
+                (document: EformsignApiDocumentResponse) =>
+                    Promise.resolve({ documentId: document.id }),
+            ),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        await expect(usecase.execute()).rejects.toMatchObject({
+            summary: {
+                byDocumentType: {
+                    "01": expect.objectContaining({
+                        status: "failed",
+                        error: expect.stringMatching(
+                            /coverage changed between consecutive scans.*firstCount=200.*verificationCount=200.*missingFromVerification=1.*newInVerification=1.*retry/i,
+                        ),
+                    }),
+                    "03": expect.objectContaining({ status: "completed" }),
+                    "04": expect.objectContaining({ status: "completed" }),
+                },
+            },
+        });
+
+        expect(client.getInProgressDocumentsPage).toHaveBeenCalledTimes(4);
+        expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(200);
+    });
+
     it("fails fast when total_rows is missing from a list response", async () => {
         const client = {
             getAccessToken: jest.fn().mockResolvedValue({
@@ -720,12 +1176,164 @@ describe("BackfillEformsignDocsUsecase", () => {
             [accessToken, 100, 0],
             [accessToken, 100, 1],
             [refreshedAccessToken, 100, 1],
+            [refreshedAccessToken, 100, 0],
+            [refreshedAccessToken, 100, 1],
         ]);
         expect(client.getAccessToken).toHaveBeenCalledTimes(2);
         expect(client.getAccessToken).toHaveBeenNthCalledWith(2, expect.any(Number));
         expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
-        expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(1);
-        expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(1);
+        expect(client.getCompletedDocumentsPage).toHaveBeenCalledTimes(2);
+        expect(client.getRejectedDocumentsPage).toHaveBeenCalledTimes(2);
+    });
+
+    it("reissues an access token after 401 during the coverage confirmation pass", async () => {
+        const refreshedAccessToken = "refreshed-confirmation-token";
+        const documents = [
+            createRemoteDocument("confirmation-page-1"),
+            createRemoteDocument("confirmation-page-2"),
+        ];
+        const getInProgressDocumentsPage = jest.fn()
+            .mockResolvedValueOnce({
+                documents: [documents[0]],
+                total_rows: documents.length,
+            })
+            .mockResolvedValueOnce({
+                documents: [documents[1]],
+                total_rows: documents.length,
+            })
+            .mockRejectedValueOnce(new EformsignApiError("expired", 401))
+            .mockResolvedValueOnce({
+                documents: [documents[0]],
+                total_rows: documents.length,
+            })
+            .mockResolvedValueOnce({
+                documents: [documents[1]],
+                total_rows: documents.length,
+            });
+        const client = {
+            getAccessToken: jest.fn()
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: accessToken },
+                })
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: refreshedAccessToken },
+                }),
+            getInProgressDocumentsPage,
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn(
+                (document: EformsignApiDocumentResponse) =>
+                    Promise.resolve({ documentId: document.id }),
+            ),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+        );
+
+        await expect(usecase.execute()).resolves.toMatchObject({
+            fetched: 2,
+            created: 2,
+            failed: 0,
+        });
+
+        expect(getInProgressDocumentsPage.mock.calls).toEqual([
+            [accessToken, 100, 0],
+            [accessToken, 100, 1],
+            [accessToken, 100, 0],
+            [refreshedAccessToken, 100, 0],
+            [refreshedAccessToken, 100, 1],
+        ]);
+        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
+        expect(mirror.mirrorRemoteDocument).toHaveBeenCalledTimes(2);
+    });
+
+    it("reissues an access token after a per-document detail or PDF sync returns 401", async () => {
+        const refreshedAccessToken = "refreshed-document-token";
+        const document = createRemoteDocument("detail-auth-retry");
+        const client = {
+            getAccessToken: jest.fn()
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: accessToken },
+                })
+                .mockResolvedValueOnce({
+                    oauth_token: { access_token: refreshedAccessToken },
+                }),
+            getInProgressDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [document],
+                total_rows: 1,
+            }),
+            getCompletedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+            getRejectedDocumentsPage: jest.fn().mockResolvedValue({
+                documents: [],
+                total_rows: 0,
+            }),
+        };
+        const repository = {
+            findByDocumentIdUnscoped: jest.fn().mockResolvedValue(null),
+        };
+        const mirror = {
+            mirrorRemoteDocument: jest.fn().mockResolvedValue({
+                documentId: document.id,
+            }),
+        };
+        const documentMirrorService = {
+            syncDocumentWithToken: jest.fn()
+                .mockRejectedValueOnce(new EformsignApiError("expired", 401))
+                .mockResolvedValueOnce({
+                    status: "synced",
+                    documentId: document.id,
+                }),
+        };
+        const usecase = new BackfillEformsignDocsUsecase(
+            client as never,
+            repository as never,
+            mirror as never,
+            documentMirrorService as never,
+        );
+
+        await expect(usecase.execute({
+            suppressOutboundAutomation: true,
+        })).resolves.toMatchObject({
+            fetched: 1,
+            created: 1,
+            failed: 0,
+        });
+
+        expect(documentMirrorService.syncDocumentWithToken.mock.calls).toEqual([
+            [
+                accessToken,
+                document.id,
+                {
+                    expectedUpdatedDate: document.updated_date,
+                    suppressOutboundAutomation: true,
+                },
+            ],
+            [
+                refreshedAccessToken,
+                document.id,
+                {
+                    expectedUpdatedDate: document.updated_date,
+                    suppressOutboundAutomation: true,
+                },
+            ],
+        ]);
+        expect(client.getAccessToken).toHaveBeenCalledTimes(2);
     });
 
     it("stops after one token reissue when the retried page is still unauthorized", async () => {

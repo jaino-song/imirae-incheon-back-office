@@ -176,6 +176,35 @@ function getProxyGetParams(
     return params;
 }
 
+function getLocalProxyGetParams(
+    request: NextRequest,
+    backendPathHasQuery: boolean,
+): Record<string, string> {
+    if (backendPathHasQuery) {
+        return {};
+    }
+
+    const params: Record<string, string> = {};
+    const { searchParams } = new URL(request.url);
+    for (const [key, value] of searchParams.entries()) {
+        if (!isEformsignCredentialParam(key)) {
+            params[key] = value;
+        }
+    }
+    return params;
+}
+
+function isEformsignCredentialParam(key: string): boolean {
+    return new Set([
+        "accesstoken",
+        "apikey",
+        "authorization",
+        "externaltoken",
+        "oauthtoken",
+        "refreshtoken",
+    ]).has(key.toLowerCase().replace(/[^a-z0-9]/g, ""));
+}
+
 export function backendJsonResponse(response: UpstreamResponseLike): NextResponse {
     const status = response.status ?? 200;
 
@@ -406,6 +435,39 @@ export function createRouteUtils({
         }
     }
 
+    /**
+     * Proxies an application-authenticated read whose source of truth is local.
+     * Unlike proxyGetRequest, this never reads or forwards an eformsign credential.
+     */
+    async function proxyLocalGetRequest(
+        request: NextRequest,
+        backendPath: string,
+        context: string,
+    ): Promise<NextResponse> {
+        const authToken = getAuthToken(request);
+        if (!authToken) {
+            return unauthorizedResponse("Authentication required. Please log in.");
+        }
+
+        try {
+            const response = await serverAPIClient.get(backendPath, {
+                params: getLocalProxyGetParams(request, backendPath.includes("?")),
+                headers: getAuthHeaders(authToken),
+            });
+
+            if ((response.status ?? 200) >= 400) {
+                return NextResponse.json(
+                    sanitizeUpstreamClientError(response.data, `Failed to ${context}`),
+                    { status: response.status },
+                );
+            }
+
+            return NextResponse.json(response.data);
+        } catch (error) {
+            return boundErrorResponse(error, context);
+        }
+    }
+
     async function proxyPostRequest(
         request: NextRequest,
         backendPath: string,
@@ -532,6 +594,7 @@ export function createRouteUtils({
         errorResponse: boundErrorResponse,
         proxyDeleteRequest,
         proxyGetRequest,
+        proxyLocalGetRequest,
         proxyPostRequest,
         setAuthCookies,
     };

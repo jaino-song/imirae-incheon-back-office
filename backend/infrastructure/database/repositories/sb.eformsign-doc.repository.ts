@@ -19,6 +19,7 @@ import {
     UpsertUnassignedEformsignDocOptions,
 } from "domain/repositories/eformsign-doc.repository.interface";
 import {
+    EFORMSIGN_DOC_DOMAIN_READ_SELECT,
     readWithEformsignDocCompat,
     isPendingEformsignDocColumnError,
     omitPendingEformsignDocColumns,
@@ -32,6 +33,8 @@ const isUniqueConstraintError = (error: unknown): boolean =>
     && error !== null
     && "code" in error
     && (error as { code?: unknown }).code === "P2002";
+
+const DELETED_EFORMSIGN_STATUS_TYPES = ["047", "049", "099"];
 
 const toUnscopedResult = (
     documentId: string,
@@ -52,10 +55,25 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
     constructor(private readonly prismaService: PrismaService) {}
 
     async findById(branchid: string, id: number): Promise<EformsignDocEntity | null> {
-        return this.findFirstDomain({ id, branchId: branchid });
+        return this.findFirstDomain({
+            id,
+            branchId: branchid,
+            permanentPurgeRequestedAt: null,
+        });
     }
 
     async findByDocumentId(branchid: string, documentId: string): Promise<EformsignDocEntity | null> {
+        return this.findFirstDomain({
+            documentId: documentId,
+            branchId: branchid,
+            permanentPurgeRequestedAt: null,
+        });
+    }
+
+    async findByDocumentIdIncludingPurgePending(
+        branchid: string,
+        documentId: string,
+    ): Promise<EformsignDocEntity | null> {
         return this.findFirstDomain({ documentId: documentId, branchId: branchid });
     }
 
@@ -108,14 +126,22 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             stepIndex: params.stepIndex,
             stepName: params.stepName,
             expired: params.expired,
-            updatedDate: new Date(),
+            ...(params.sourceUpdatedDate
+                ? { updatedDate: params.sourceUpdatedDate }
+                : {}),
             documentName,
             templateName,
         };
         const where = {
             branchId: branchid,
             documentId: params.documentId,
-            statusType: { not: params.statusType },
+            permanentPurgeRequestedAt: null,
+            statusType: {
+                notIn: [params.statusType, ...DELETED_EFORMSIGN_STATUS_TYPES],
+            },
+            ...(params.sourceUpdatedDate
+                ? { updatedDate: { lt: params.sourceUpdatedDate } }
+                : {}),
         };
         let result: Prisma.BatchPayload;
 
@@ -140,14 +166,41 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 branchId: branchid,
                 documentId: params.documentId,
             },
-            select: { id: true },
+            select: {
+                id: true,
+                statusType: true,
+                updatedDate: true,
+                permanentPurgeRequestedAt: true,
+            },
         });
 
         if (!existing) {
             return "missing";
         }
 
-        if (documentName || templateName) {
+        if (
+            existing.permanentPurgeRequestedAt
+            || DELETED_EFORMSIGN_STATUS_TYPES.includes(existing.statusType)
+        ) {
+            return "stale";
+        }
+
+        if (
+            params.sourceUpdatedDate
+            && (
+                existing.updatedDate.getTime() > params.sourceUpdatedDate.getTime()
+                || (
+                    existing.updatedDate.getTime() === params.sourceUpdatedDate.getTime()
+                    && existing.statusType !== params.statusType
+                )
+            )
+        ) {
+            return "stale";
+        }
+
+        const canApplyMetadata = !params.sourceUpdatedDate
+            || existing.updatedDate.getTime() < params.sourceUpdatedDate.getTime();
+        if ((documentName || templateName) && canApplyMetadata) {
             const metadata = {
                 ...(documentName ? { documentName } : {}),
                 ...(templateName ? { templateName } : {}),
@@ -175,17 +228,25 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
     }
 
     async findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]> {
-        return this.findManyDomain({ clientId: clientId, branchId: branchid });
+        return this.findManyDomain({
+            clientId: clientId,
+            branchId: branchid,
+            permanentPurgeRequestedAt: null,
+        });
     }
 
     async findAll(branchid: string): Promise<EformsignDocEntity[]> {
-        return this.findManyDomain({ branchId: branchid });
+        return this.findManyDomain({
+            branchId: branchid,
+            permanentPurgeRequestedAt: null,
+        });
     }
 
     async findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]> {
         // Mirrors the scan filter the API path uses: headquarters keeps everything except
         // what another branch owns, so an unclaimed document (branchId null) stays in.
         return this.findManyDomain({
+            permanentPurgeRequestedAt: null,
             OR: [
                 { branchId: branchid },
                 { branchId: null },
@@ -219,6 +280,7 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             where: {
                 branchId: branchid,
                 documentId: { in: documentIds },
+                permanentPurgeRequestedAt: null,
             },
             select: {
                 documentId: true,
@@ -240,7 +302,10 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
     async findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]> {
         const docs = await this.prismaService.eformsign_doc.findMany({
-            where: { branchId: branchid },
+            where: {
+                branchId: branchid,
+                permanentPurgeRequestedAt: null,
+            },
             select: {
                 documentId: true,
                 clientId: true,
@@ -322,16 +387,133 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
         }
     }
 
-    async update(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity> {
+    async update(
+        branchid: string,
+        doc: EformsignDocEntity,
+    ): Promise<EformsignDocEntity> {
+        return (await this.updateDocument(branchid, doc, false)).document;
+    }
+
+    async updateIfSourceNewer(
+        branchid: string,
+        doc: EformsignDocEntity,
+    ): Promise<{ document: EformsignDocEntity; applied: boolean }> {
+        return this.updateDocument(branchid, doc, true);
+    }
+
+    async linkClientIfActive(
+        branchid: string,
+        documentId: string,
+        clientId: number,
+    ): Promise<boolean> {
+        return this.prismaService.$transaction(async (tx) => {
+            // Permanent purge takes this same row lock before clearing eDocId and
+            // writing the tombstone. Whichever transaction follows it must observe
+            // the terminal row; whichever precedes it is cleared by the purge.
+            const documents = await tx.$queryRaw<{ id: number; clientId: number | null }[]>(Prisma.sql`
+                SELECT id, client_id AS "clientId"
+                FROM eformsign_doc
+                WHERE document_id = ${documentId}
+                  AND branch_id = ${branchid}
+                  AND permanent_purge_requested_at IS NULL
+                  AND status_type NOT IN ('047', '049', '099')
+                FOR UPDATE
+            `);
+            const document = documents[0];
+            if (!document) {
+                return false;
+            }
+
+            // Verify and lock the target before clearing the old pointer. Lock both
+            // client rows in id order to preserve a consistent document -> client
+            // order across competing relinks; a missing target must be a clean no-op.
+            const clientIdsToLock = [document.clientId, clientId]
+                .filter((id): id is number => id !== null)
+                .filter((id, index, ids) => ids.indexOf(id) === index)
+                .sort((left, right) => left - right);
+            const lockedClients = await tx.$queryRaw<{ id: number }[]>(Prisma.sql`
+                SELECT id
+                FROM client
+                WHERE id IN (${Prisma.join(clientIdsToLock)})
+                  AND branch_id = ${branchid}
+                ORDER BY id
+                FOR UPDATE
+            `);
+            if (!lockedClients.some((client) => client.id === clientId)) {
+                return false;
+            }
+
+            if (document.clientId !== null && document.clientId !== clientId) {
+                // The eDocId unique key only permits one pointer. Clear the previous
+                // owner's pointer first, but only if it still points at this document:
+                // a newer contract pointer on that client must survive this relink.
+                await tx.client.updateMany({
+                    where: {
+                        id: document.clientId,
+                        branchId: branchid,
+                        eDocId: documentId,
+                    },
+                    data: { eDocId: null },
+                });
+            }
+
+            const client = await tx.client.updateMany({
+                where: { id: clientId, branchId: branchid },
+                data: { eDocId: documentId },
+            });
+            if (client.count !== 1) {
+                // The target was locked above. A zero-row write after mutating the
+                // old pointer is unexpected, so abort the transaction rather than
+                // committing an orphaned document-to-client relationship.
+                throw new Error("Client changed while linking eformsign document");
+            }
+
+            if (document.clientId !== clientId) {
+                const reassigned = await tx.eformsign_doc.updateMany({
+                    where: {
+                        id: document.id,
+                        branchId: branchid,
+                        permanentPurgeRequestedAt: null,
+                        statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
+                    },
+                    data: { clientId },
+                });
+                if (reassigned.count !== 1) {
+                    // We hold the parent-row lock, so this cannot be a normal
+                    // contention result. Abort rather than commit a pointer that
+                    // lacks its matching document ownership.
+                    throw new Error("Eformsign document changed while linking client");
+                }
+            }
+
+            return true;
+        });
+    }
+
+    private async updateDocument(
+        branchid: string,
+        doc: EformsignDocEntity,
+        onlyIfSourceNewer: boolean,
+    ): Promise<{ document: EformsignDocEntity; applied: boolean }> {
         if (!doc.id) {
             throw new Error("Cannot update eformsign_doc without id");
         }
         const data = EformsignDocMapper.toPrismaUpdate(doc);
+        // Keep the purge/deleted fence in the UPDATE predicate for every write, not
+        // only webhook CAS writes: a permanent purge can otherwise finish between
+        // a caller's read and this write and let the stale payload restore scrubbed PII.
+        const updateWhere: Prisma.eformsign_docWhereInput = {
+            id: doc.id,
+            branchId: branchid,
+            permanentPurgeRequestedAt: null,
+            statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
+            ...(onlyIfSourceNewer ? { updatedDate: { lt: doc.updatedDate } } : {}),
+        };
         let result: Prisma.BatchPayload;
 
         try {
             result = await this.prismaService.eformsign_doc.updateMany({
-                where: { id: doc.id, branchId: branchid },
+                where: updateWhere,
                 data,
             });
         } catch (error) {
@@ -340,19 +522,25 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             }
 
             result = await this.prismaService.eformsign_doc.updateMany({
-                where: { id: doc.id, branchId: branchid },
+                where: updateWhere,
                 data: omitPendingEformsignDocColumns(data, error),
             });
         }
 
         if (result.count === 0) {
+            if (onlyIfSourceNewer) {
+                const current = await this.findFirstDomain({ id: doc.id, branchId: branchid });
+                if (current) {
+                    return { document: current, applied: false };
+                }
+            }
             throw new Error("Eformsign doc not found for branch");
         }
         const updated = await this.findFirstDomain({ id: doc.id, branchId: branchid });
         if (!updated) {
             throw new Error("Eformsign doc not found after update");
         }
-        return updated;
+        return { document: updated, applied: true };
     }
 
     async upsertByDocumentId(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity> {
@@ -467,6 +655,8 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
             // carries no time of its own — it reuses the stored value — still applies.
             staleGuard: {
                 updatedDate: { lte: doc.updatedDate },
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
                 ...statusGuard,
             },
             // Creation time is not state, so a refusal on ordering grounds must not take
@@ -550,6 +740,8 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                     where: {
                         AND: [
                             params.allowedWhere,
+                            { permanentPurgeRequestedAt: null },
+                            { statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES } },
                             { createdDate: { not: params.repairCreatedDateWhenStale } },
                         ],
                     },
@@ -624,7 +816,10 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
 
     private async findManyDomain(where: Prisma.eformsign_docWhereInput): Promise<EformsignDocEntity[]> {
         try {
-            const docs = await this.prismaService.eformsign_doc.findMany({ where });
+            const docs = await this.prismaService.eformsign_doc.findMany({
+                where,
+                select: EFORMSIGN_DOC_DOMAIN_READ_SELECT,
+            });
             return docs.map(EformsignDocMapper.toDomain);
         } catch (error) {
             if (!isPendingEformsignDocColumnError(error)) {

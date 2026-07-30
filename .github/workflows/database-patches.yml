@@ -167,6 +167,16 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-list-display-columns.sql
 
+      - name: Apply eformsign local source-of-truth patches
+        working-directory: backend
+        run: |
+          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260729120000_add_eformsign_local_source_of_truth/migration.sql
+          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260730040000_add_eformsign_doc_permanent_purge_intent/migration.sql
+
+      - name: Verify eformsign local source-of-truth patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
+
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -460,6 +470,16 @@ jobs:
         working-directory: backend
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-list-display-columns.sql
 
+      - name: Apply eformsign local source-of-truth patches
+        working-directory: backend
+        run: |
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260729120000_add_eformsign_local_source_of_truth/migration.sql
+          ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260730040000_add_eformsign_doc_permanent_purge_intent/migration.sql
+
+      - name: Verify eformsign local source-of-truth patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
+
   apply-production:
     name: apply production database patches
     needs: [apply-preview]
@@ -732,3 +752,13 @@ jobs:
       - name: Verify eformsign list display columns patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-list-display-columns.sql
+
+      - name: Apply eformsign local source-of-truth patches
+        working-directory: backend
+        run: |
+          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260729120000_add_eformsign_local_source_of_truth/migration.sql
+          pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260730040000_add_eformsign_doc_permanent_purge_intent/migration.sql
+
+      - name: Verify eformsign local source-of-truth patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql

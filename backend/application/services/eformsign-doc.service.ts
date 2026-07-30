@@ -94,12 +94,21 @@ export class EformsignDocService {
         return this.findEformsignDocByDocumentIdUsecase.execute(branchid, documentId);
     }
 
+    findByDocumentIdIncludingPurgePending(
+        branchid: string,
+        documentId: string,
+    ): Promise<EformsignDocEntity | null> {
+        return this.findEformsignDocByDocumentIdUsecase.executeIncludingPurgePending(
+            branchid,
+            documentId,
+        );
+    }
+
     /**
      * Find all stored eformsign docs linked to a client
      */
-    async findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]> {
-        const docs = await this.findEformsignDocsByClientIdUsecase.execute(branchid, clientId);
-        return this.refreshDocsFromApiBestEffort(branchid, docs);
+    findByClientId(branchid: string, clientId: number): Promise<EformsignDocEntity[]> {
+        return this.findEformsignDocsByClientIdUsecase.execute(branchid, clientId);
     }
 
     /**
@@ -107,6 +116,10 @@ export class EformsignDocService {
      */
     findAll(branchid: string): Promise<EformsignDocEntity[]> {
         return this.listEformsignDocsUsecase.execute(branchid);
+    }
+
+    findAllForHeadquarters(branchid: string): Promise<EformsignDocEntity[]> {
+        return this.listEformsignDocsUsecase.executeForHeadquarters(branchid);
     }
 
     /**
@@ -199,35 +212,6 @@ export class EformsignDocService {
             return "거부";
         }
         return stepName?.trim() || "진행중";
-    }
-
-    private async refreshDocsFromApiBestEffort(
-        branchid: string,
-        docs: EformsignDocEntity[],
-    ): Promise<EformsignDocEntity[]> {
-        if (docs.length === 0) {
-            return docs;
-        }
-
-        let accessToken: string;
-        try {
-            const tokenResponse = await this.getEformsignAccessTokenUsecase.execute(Date.now());
-            accessToken = tokenResponse.oauth_token.access_token;
-        } catch (error) {
-            this.logger.warn(`Failed to get eformsign access token for client doc refresh: ${error}`);
-            return docs;
-        }
-
-        return Promise.all(
-            docs.map(async (doc) => {
-                try {
-                    return await this.syncStatusFromApi(branchid, accessToken, doc.documentId);
-                } catch (error) {
-                    this.logger.warn(`Failed to refresh eformsign doc ${doc.documentId}: ${error}`);
-                    return doc;
-                }
-            }),
-        );
     }
 
     private async linkDocumentToClientBestEffort(branchid: string, documentId: string): Promise<void> {

@@ -14,20 +14,9 @@ import { useLocale } from "@/providers/LocaleProvider";
 import { eformsignQueryKeys } from "@/hooks/useEformsignDocuments";
 import { eformsignApi } from "@/services/api";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
-import { safeStorageGetItem } from "@/lib/safe-storage";
 
 interface NavBarProps {
     onClose: () => void;
-}
-
-function isEformsignAuthenticated(): boolean {
-    if (typeof window === "undefined") return false;
-    const authTimeStr = safeStorageGetItem("session", "eformsign_auth_time");
-    if (!authTimeStr) return false;
-    const authTime = parseInt(authTimeStr, 10);
-    const tokenExpiryMs = 60 * 60 * 1000;
-    const bufferMs = 5 * 60 * 1000;
-    return Date.now() - authTime < tokenExpiryMs - bufferMs;
 }
 
 export const NavBar = ({ onClose }: NavBarProps) => {
@@ -41,10 +30,8 @@ export const NavBar = ({ onClose }: NavBarProps) => {
 
         const prefetchDocuments = async () => {
             try {
-                if (!isEformsignAuthenticated()) return;
-
                 const authStatus = await eformsignApi.getAuthStatus();
-                if (!authStatus.hasAppAuthToken || !authStatus.hasAccessToken || cancelled) {
+                if (!authStatus.hasAppAuthToken || cancelled) {
                     return;
                 }
 

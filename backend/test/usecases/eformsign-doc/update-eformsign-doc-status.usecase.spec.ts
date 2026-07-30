@@ -35,6 +35,7 @@ describe("UpdateEformsignDocStatusUsecase", () => {
     const eformsignDocRepository = {
         findByDocumentId: jest.fn(),
         update: jest.fn(),
+        updateIfSourceNewer: jest.fn(),
     };
 
     let usecase: UpdateEformsignDocStatusUsecase;
@@ -112,6 +113,55 @@ describe("UpdateEformsignDocStatusUsecase", () => {
 
         expect(result.statusType).toBe("080");
         expect(eformsignDocRepository.update).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not project an older webhook timestamp over a newer vendor mirror", async () => {
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(createDocEntity("071"));
+
+        const result = await usecase.execute(branchId, {
+            documentId,
+            statusType: "080",
+            statusDetail: "만료",
+            sourceUpdatedDate: new Date("2026-05-01T00:00:00.000Z"),
+        });
+
+        expect(result.statusType).toBe("071");
+        expect(eformsignDocRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("keeps the authoritative mirror status when a conflicting webhook has the same timestamp", async () => {
+        const existing = createDocEntity("071");
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(existing);
+
+        const result = await usecase.execute(branchId, {
+            documentId,
+            statusType: "080",
+            statusDetail: "만료",
+            sourceUpdatedDate: existing.updatedDate,
+        });
+
+        expect(result.statusType).toBe("071");
+        expect(eformsignDocRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("stores the vendor timestamp and enables the repository CAS for a current webhook", async () => {
+        const sourceUpdatedDate = new Date("2026-05-03T00:00:00.000Z");
+        eformsignDocRepository.findByDocumentId.mockResolvedValue(createDocEntity("060"));
+        eformsignDocRepository.updateIfSourceNewer.mockImplementation(
+            (_branchId, doc) => Promise.resolve({ document: doc, applied: true }),
+        );
+
+        await usecase.execute(branchId, {
+            documentId,
+            statusType: "070",
+            statusDetail: "검토 요청",
+            sourceUpdatedDate,
+        });
+
+        expect(eformsignDocRepository.updateIfSourceNewer).toHaveBeenCalledWith(
+            branchId,
+            expect.objectContaining({ updatedDate: sourceUpdatedDate }),
+        );
     });
 
     it("stores webhook documentName without replacing the locally selected templateId", async () => {

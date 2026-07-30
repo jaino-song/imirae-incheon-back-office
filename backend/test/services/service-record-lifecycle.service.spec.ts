@@ -7,6 +7,24 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
 
+function lockedSnapshot(overrides: Record<string, unknown> = {}) {
+    return {
+        id: 7,
+        documentId: "snapshot-062",
+        branchId: "branch-1",
+        documentKind: "service_record_snapshot",
+        statusType: "062",
+        detailPayload: { id: "snapshot-062" },
+        detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
+        detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
+        syncStatus: "ready",
+        permanentPurgeRequestedAt: null,
+        hasCurrentDocumentPdf: true,
+        hasCurrentAuditTrailPdf: true,
+        ...overrides,
+    };
+}
+
 function conflictCode(error: unknown): unknown {
     return error instanceof ConflictException ? error.getResponse() : null;
 }
@@ -109,6 +127,324 @@ describe("ServiceRecordLifecycleService", () => {
             data: { endDate: date("2026-07-20") },
         });
         expect(ensureSpy).toHaveBeenCalledWith(1, transactionClient);
+    });
+
+    it("does not let a stale mirror version update a client after the parent-row fence loses", async () => {
+        const transactionClient = {
+            $queryRaw: jest.fn().mockResolvedValue([]),
+            client: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        const ensureSpy = jest.spyOn(service, "ensureForClient");
+
+        await expect(service.syncEndDateFromMirroredContract({
+            branchId: "branch-1",
+            clientId: 1,
+            endDate: date("2026-07-20"),
+            documentId: "doc-1",
+            detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
+            detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
+        })).resolves.toBe(false);
+
+        expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(1);
+        const [fenceQuery] = transactionClient.$queryRaw.mock.calls[0] ?? [];
+        const fenceSql = fenceQuery.strings.join(" ");
+        expect(fenceSql).toContain("permanent_purge_requested_at IS NULL");
+        expect(fenceSql).toContain("file_type = 'document'");
+        expect(fenceSql).toContain("file_type = 'audit_trail'");
+        expect(transactionClient.client.updateMany).not.toHaveBeenCalled();
+        expect(ensureSpy).not.toHaveBeenCalled();
+    });
+
+    it("completes a service-record case idempotently when every locked snapshot is in the completed set", async () => {
+        const transactionClient = {
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+            },
+            $queryRaw: jest.fn()
+                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([lockedSnapshot()])
+                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([lockedSnapshot()]),
+            service_record_case: {
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+            mirrorVersion: {
+                detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
+                detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
+            },
+        })).resolves.toBe(true);
+
+        expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(2);
+        const [caseLockQuery] = transactionClient.$queryRaw.mock.calls[0];
+        const [snapshotLockQuery] = transactionClient.$queryRaw.mock.calls[1];
+        expect(caseLockQuery.strings.join(" ")).toContain("FROM service_record_case");
+        expect(caseLockQuery.strings.join(" ")).toContain("FOR UPDATE");
+        expect(snapshotLockQuery.strings.join(" ")).toContain("ORDER BY id ASC");
+        expect(snapshotLockQuery.strings.join(" ")).toContain("FOR UPDATE");
+        expect(snapshotLockQuery.strings.join(" ")).toContain("file_type = 'document'");
+        expect(snapshotLockQuery.strings.join(" ")).toContain("file_type = 'audit_trail'");
+        expect(transactionClient.service_record_case.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: expect.objectContaining({ status: SERVICE_RECORD_CASE_STATUS.DOCUMENTS_CREATED }),
+            }),
+        );
+
+        transactionClient.service_record_case.updateMany.mockResolvedValue({ count: 0 });
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+        })).resolves.toBe(false);
+
+        expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(4);
+    });
+
+    it("does not lock snapshots when the case is absent or no longer awaits documents", async () => {
+        const transactionClient = {
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+            },
+            $queryRaw: jest.fn().mockResolvedValue([]),
+            service_record_case: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+        })).resolves.toBe(false);
+
+        expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(1);
+        expect(transactionClient.service_record_case.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("does not include a permanently purged snapshot tombstone in lifecycle readiness", async () => {
+        const transactionClient = {
+            // purgeContent clears the service-record linkage before its purge
+            // intent is cleared, so a tombstone cannot reveal a client through
+            // this lifecycle path or affect case completion.
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
+            $queryRaw: jest.fn(),
+            service_record_case: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "purged-snapshot",
+        })).resolves.toBe(false);
+
+        expect(transactionClient.eformsign_doc.findFirst).toHaveBeenCalledWith({
+            where: expect.objectContaining({
+                branchId: "branch-1",
+                documentId: "purged-snapshot",
+                documentKind: "service_record_snapshot",
+                serviceRecordCaseId: { not: null },
+            }),
+            select: { serviceRecordCaseId: true },
+        });
+        expect(transactionClient.$queryRaw).not.toHaveBeenCalled();
+        expect(transactionClient.service_record_case.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("does not mutate a service-record case when the mirror generation fence is stale", async () => {
+        const transactionClient = {
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+            },
+            $queryRaw: jest.fn()
+                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([lockedSnapshot({
+                    detailSourceUpdatedDate: new Date("2026-07-30T01:02:00.000Z"),
+                })]),
+            service_record_case: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+            mirrorVersion: {
+                detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
+                detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
+            },
+        })).resolves.toBe(false);
+
+        expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(2);
+        expect(transactionClient.service_record_case.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("does not complete a case while a sibling snapshot is partial", async () => {
+        const transactionClient = {
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+            },
+            $queryRaw: jest.fn()
+                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([
+                    lockedSnapshot(),
+                    lockedSnapshot({
+                        id: 8,
+                        documentId: "snapshot-partial",
+                        syncStatus: "partial",
+                    }),
+                ]),
+            service_record_case: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+            mirrorVersion: {
+                detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
+                detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
+            },
+        })).resolves.toBe(false);
+
+        expect(transactionClient.service_record_case.updateMany).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["missing document PDF", { hasCurrentDocumentPdf: false }],
+        ["stale document PDF", { hasCurrentDocumentPdf: false }],
+        ["missing audit-trail PDF", { hasCurrentAuditTrailPdf: false }],
+        ["stale audit-trail PDF", { hasCurrentAuditTrailPdf: false }],
+    ])("does not complete a case with a sibling snapshot that has a %s", async (_label, overrides) => {
+        const transactionClient = {
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+            },
+            $queryRaw: jest.fn()
+                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([
+                    lockedSnapshot(),
+                    lockedSnapshot({ id: 8, documentId: "snapshot-sibling", ...overrides }),
+                ]),
+            service_record_case: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+            mirrorVersion: {
+                detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
+                detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
+            },
+        })).resolves.toBe(false);
+
+        expect(transactionClient.service_record_case.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("does not mutate a service-record case when a locked snapshot is pending purge", async () => {
+        const transactionClient = {
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+            },
+            $queryRaw: jest.fn()
+                .mockResolvedValueOnce([{ id: "case-1" }])
+                .mockResolvedValueOnce([lockedSnapshot({
+                    permanentPurgeRequestedAt: new Date("2026-07-30T01:02:00.000Z"),
+                })]),
+            service_record_case: { updateMany: jest.fn() },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expect(service.completeServiceRecordSnapshotIfReady({
+            branchId: "branch-1",
+            documentId: "snapshot-062",
+            mirrorVersion: {
+                detailSourceUpdatedDate: new Date("2026-07-30T01:00:00.000Z"),
+                detailSyncedAt: new Date("2026-07-30T01:01:00.000Z"),
+            },
+        })).resolves.toBe(false);
+
+        expect(transactionClient.service_record_case.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("uses the same deterministic parent-row lock order for concurrent snapshot triggers", async () => {
+        const snapshots = [
+            lockedSnapshot({ id: 7, documentId: "snapshot-a" }),
+            lockedSnapshot({ id: 8, documentId: "snapshot-b" }),
+        ];
+        const transactionClient = {
+            eformsign_doc: {
+                findFirst: jest.fn().mockResolvedValue({ serviceRecordCaseId: "case-1" }),
+            },
+            $queryRaw: jest.fn((query: { strings: string[] }) =>
+                query.strings.join(" ").includes("FROM service_record_case")
+                    ? Promise.resolve([{ id: "case-1" }])
+                    : Promise.resolve(snapshots)),
+            service_record_case: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+        };
+        const prisma = {
+            $transaction: jest.fn((callback: (tx: typeof transactionClient) => Promise<unknown>) =>
+                callback(transactionClient)),
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await Promise.all([
+            service.completeServiceRecordSnapshotIfReady({
+                branchId: "branch-1",
+                documentId: "snapshot-a",
+            }),
+            service.completeServiceRecordSnapshotIfReady({
+                branchId: "branch-1",
+                documentId: "snapshot-b",
+            }),
+        ]);
+
+        expect(transactionClient.$queryRaw).toHaveBeenCalledTimes(4);
+        const lockQueries = transactionClient.$queryRaw.mock.calls.map(([query]) => query.strings.join(" "));
+        expect(lockQueries.filter((query) => query.includes("FROM service_record_case"))).toHaveLength(2);
+        expect(lockQueries.filter((query) => query.includes("ORDER BY id ASC"))).toHaveLength(2);
+        expect(lockQueries).toEqual(expect.arrayContaining([
+            expect.stringContaining("FROM service_record_case"),
+            expect.stringContaining("ORDER BY id ASC"),
+        ]));
     });
 
     it("rejects an end date before any recorded row, including a draft", async () => {

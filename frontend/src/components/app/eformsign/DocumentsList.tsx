@@ -77,8 +77,10 @@ export function DocumentsList() {
   const locale = useLocale();
   const [selectedFilter, setSelectedFilter] = useState<DocumentFilterType>(null);
 
-  // Auth hook - checks existing token before making API call
-  const { isAuthenticated, isLoading: isLoadingAuth, error: authError } = useEformsignAuth();
+  // Local document reads only require the app session.
+  const { isAuthenticated, isLoading: isLoadingAuth, error: authError } = useEformsignAuth({
+    requireAccessToken: false,
+  });
 
   // Documents hook
   const { data, isLoading, error } = useEformsignDocumentsByType(

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { proxyGetRequest } from "@/lib/api/route-utils";
+import { proxyLocalGetRequest } from "@/lib/api/route-utils";
 
 // Filter params forwarded verbatim to the backend, which owns their validation.
 // Blank values are dropped so the backend keeps its own defaults.
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     }
 
     const query = backendParams.toString();
-    return proxyGetRequest(
+    return proxyLocalGetRequest(
         request,
         `/api/documents/status-counts${query ? `?${query}` : ""}`,
         "fetch eformsign document status counts",

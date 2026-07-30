@@ -4,7 +4,7 @@
 import { NextRequest } from "next/server";
 
 import { serverAPIClient } from "@/lib/api/server";
-import { proxyGetRequest, proxyPostRequest } from "../route-utils";
+import { proxyGetRequest, proxyLocalGetRequest, proxyPostRequest } from "../route-utils";
 
 jest.mock("@/lib/api/server", () => ({
     serverAPIClient: {
@@ -81,5 +81,32 @@ describe("route-utils proxy body parsing", () => {
                 headers: { Authorization: "Bearer token-1" },
             },
         );
+    });
+
+    it("proxies local reads without requiring or forwarding an eformsign token", async () => {
+        mockGet.mockResolvedValue({
+            status: 200,
+            data: { documents: [], total_rows: 0 },
+        });
+        const request = new NextRequest(
+            "http://localhost/api/eformsign/documents?limit=20&accessToken=client-token"
+            + "&refresh_token=refresh-secret&external-token=external-secret"
+            + "&oauth_token=oauth-secret&apiKey=api-secret&authorization=bearer-secret",
+            {
+                headers: { cookie: "auth_token=token-1" },
+            },
+        );
+
+        const response = await proxyLocalGetRequest(
+            request,
+            "/api/documents",
+            "fetch local documents",
+        );
+
+        expect(response.status).toBe(200);
+        expect(mockGet).toHaveBeenCalledWith("/api/documents", {
+            params: { limit: "20" },
+            headers: { Authorization: "Bearer token-1" },
+        });
     });
 });

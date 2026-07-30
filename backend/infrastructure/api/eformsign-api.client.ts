@@ -10,7 +10,10 @@ import {
     CreateDocumentResponse,
     EformsignReviewerMember,
 } from "domain/repositories/eformsign.client.interface";
-import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
+import {
+    EformsignApiError,
+    extractEformsignVendorCode,
+} from "infrastructure/api/eformsign-api.error";
 import {
     normalizeEformsignDocumentResponse,
     normalizeEformsignListResponse,
@@ -347,7 +350,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
             include_histories: "true",
             include_previous_status: "true",
             include_next_status: "true",
-            include_external_token: "true",
+            include_external_token: "false",
             include_detail_template_info: "true",
         });
 
@@ -527,6 +530,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
                     httpError = new EformsignApiError(
                         `${errorPrefix}: ${response.status} - ${errorData}`,
                         response.status,
+                        extractEformsignVendorCode(errorData),
                     );
                 }
             } catch (error) {

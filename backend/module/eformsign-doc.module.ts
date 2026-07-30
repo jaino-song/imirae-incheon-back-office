@@ -22,6 +22,7 @@ import {
     AdoptEformsignDocUsecase,
     MirrorUnassignedEformsignDocUsecase,
     BackfillEformsignDocsUsecase,
+    LinkMirroredEformsignDocByPhoneUsecase,
 } from "application/usecases/eformsign-doc";
 import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_CLIENT_REPOSITORY } from "domain/repositories/eformsign.client.interface";
@@ -36,19 +37,32 @@ import { EformsignDocsEventBus } from "application/services/eformsign-docs-event
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import { EformsignHeadlessService } from "infrastructure/automation/eformsign-headless.service";
 import { AreaTemplateModule } from "module/area-template.module";
+import { MessageModule } from "module/message.module";
+import { SystemSettingModule } from "module/system-setting.module";
 import { EformsignDocController } from "interface/controllers/eformsign-doc.controller";
 import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/eformsign-doc/create-and-send-service-record-snapshot.usecase";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
+import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
+import { EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY } from "domain/repositories/eformsign-document-mirror.repository.interface";
+import { SbEformsignDocumentMirrorRepository } from "infrastructure/database/repositories/sb.eformsign-document-mirror.repository";
 import {
     createEformsignBackfillRedisClient,
     EFORMSIGN_BACKFILL_REDIS_CLIENT,
     EformsignBackfillLockService,
 } from "infrastructure/locking/eformsign-backfill-lock.service";
+import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
+import { EformsignMirrorReadinessService } from "application/services/eformsign-mirror-readiness.service";
+import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/usecases/eformsign-doc/reconcile-completed-mirrored-eformsign-doc.usecase";
 
 @Module({
-    imports: [DatabaseModule, AreaTemplateModule],
+    imports: [
+        DatabaseModule,
+        AreaTemplateModule,
+        MessageModule,
+        SystemSettingModule,
+    ],
     controllers: [EformsignDocController],
     providers: [
         // Use cases - Local DB
@@ -77,6 +91,8 @@ import {
         FinalizeDocumentHeadlessUsecase,
         AdoptEformsignDocUsecase,
         MirrorUnassignedEformsignDocUsecase,
+        LinkMirroredEformsignDocByPhoneUsecase,
+        ReconcileCompletedMirroredEformsignDocUsecase,
         BackfillEformsignDocsUsecase,
         // Services
         EformsignDocService,
@@ -88,6 +104,9 @@ import {
         EformsignDocumentSnapshotService,
         EformsignBackfillLockService,
         EformsignDocReconcileSchedulerService,
+        EformsignDocumentMirrorService,
+        ServiceRecordLifecycleService,
+        EformsignMirrorReadinessService,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
@@ -97,6 +116,10 @@ import {
             provide: EFORMSIGN_CLIENT_REPOSITORY,
             inject: [ConfigService],
             useFactory: createEformsignClientRepository,
+        },
+        {
+            provide: EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY,
+            useClass: SbEformsignDocumentMirrorRepository,
         },
         {
             provide: CLIENT_REPOSITORY,
@@ -120,6 +143,9 @@ import {
         MirrorUnassignedEformsignDocUsecase,
         BackfillEformsignDocsUsecase,
         EformsignBackfillLockService,
+        EformsignDocumentMirrorService,
+        EformsignMirrorReadinessService,
+        ReconcileCompletedMirroredEformsignDocUsecase,
     ],
 })
 export class EformsignDocModule {}
