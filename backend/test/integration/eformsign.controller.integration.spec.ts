@@ -38,6 +38,7 @@ describe("EformsignController (Integration)", () => {
         | "refreshAccessToken"
         | "generateDocumentOptions"
         | "deleteDocuments"
+        | "cancelDocuments"
         | "downloadDocumentFile"
         | "getAllDocuments"
         | "getInProgressDocuments"
@@ -82,6 +83,7 @@ describe("EformsignController (Integration)", () => {
         getStoredFileMetadata: jest.fn(),
         markDocumentsDeleted: jest.fn(),
         purgeDocuments: jest.fn(),
+        findTerminalDocumentIds: jest.fn(),
         requestPermanentPurge: jest.fn(),
         clearPermanentPurgeRequest: jest.fn(),
     };
@@ -98,6 +100,7 @@ describe("EformsignController (Integration)", () => {
         documentMirrorService.getStoredFileMetadata.mockReset();
         documentMirrorService.markDocumentsDeleted.mockReset();
         documentMirrorService.purgeDocuments.mockReset();
+        documentMirrorService.findTerminalDocumentIds.mockReset();
         documentMirrorService.requestPermanentPurge.mockReset();
         documentMirrorService.clearPermanentPurgeRequest.mockReset();
         permanentPurgeLookup.findListExcludedDocumentIds.mockReset();
@@ -117,6 +120,7 @@ describe("EformsignController (Integration)", () => {
                         refreshAccessToken: jest.fn(),
                         generateDocumentOptions: jest.fn(),
                         deleteDocuments: jest.fn(),
+                        cancelDocuments: jest.fn(),
                         downloadDocumentFile: jest.fn(),
                         getAllDocuments: jest.fn(),
                         getInProgressDocuments: jest.fn(),
@@ -220,6 +224,8 @@ describe("EformsignController (Integration)", () => {
         documentMirrorService.getStoredFileMetadata.mockResolvedValue(null);
         documentMirrorService.markDocumentsDeleted.mockResolvedValue(undefined);
         documentMirrorService.purgeDocuments.mockResolvedValue(undefined);
+        // Default: nothing is already finished, so a refused cancellation stays unresolved.
+        documentMirrorService.findTerminalDocumentIds.mockResolvedValue([]);
         documentMirrorService.requestPermanentPurge.mockImplementation(
             async (documentIds: string[]) => documentIds.map((documentId) => ({
                 documentId,
@@ -321,14 +327,14 @@ describe("EformsignController (Integration)", () => {
             .send({ document_ids: ["doc-1"] });
 
         expect(response.status).toBe(400);
-        expect(eformsignService.deleteDocuments).not.toHaveBeenCalled();
+        expect(eformsignService.cancelDocuments).not.toHaveBeenCalled();
     });
 
-    it("permanently deletes only an owned document and purges mirrored PII and PDFs", async () => {
+    it("cancels only an owned document at the vendor and purges mirrored PII and PDFs", async () => {
         eformsignDocService.findAll.mockResolvedValue([
             { documentId: "doc-1" },
         ] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: {
                 success_result: ["doc-1"],
                 fail_result: [],
@@ -340,11 +346,13 @@ describe("EformsignController (Integration)", () => {
             .send({ document_ids: ["doc-1"] });
 
         expect(response.status).toBe(200);
-        expect(eformsignService.deleteDocuments).toHaveBeenCalledWith(
+        // A delete cancels at the vendor rather than deleting: cancelling expires the
+        // recipient's signing link while eformsign keeps the document and its audit trail.
+        expect(eformsignService.cancelDocuments).toHaveBeenCalledWith(
             "access-token",
             ["doc-1"],
-            true,
         );
+        expect(eformsignService.deleteDocuments).not.toHaveBeenCalled();
         expect(documentMirrorService.requestPermanentPurge).toHaveBeenCalledWith(["doc-1"]);
         expect(documentMirrorService.purgeDocuments).toHaveBeenCalledWith([
             "doc-1",
@@ -354,7 +362,7 @@ describe("EformsignController (Integration)", () => {
 
     it("retains permanent-purge intent when vendor success is followed by a local purge failure", async () => {
         eformsignDocService.findAll.mockResolvedValue([{ documentId: "doc-1" }] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: { success_result: ["doc-1"], fail_result: [] },
         });
         documentMirrorService.purgeDocuments.mockRejectedValue(
@@ -375,7 +383,7 @@ describe("EformsignController (Integration)", () => {
             { documentId: "deleted-doc" },
             { documentId: "rejected-doc" },
         ] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: {
                 success_result: ["deleted-doc"],
                 fail_result: [
@@ -409,7 +417,7 @@ describe("EformsignController (Integration)", () => {
             { documentId: "deleted-doc" },
             { documentId: "rejected-doc" },
         ] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: {
                 success_result: ["deleted-doc"],
                 fail_result: [
@@ -437,7 +445,7 @@ describe("EformsignController (Integration)", () => {
             { documentId: "deleted-doc" },
             { documentId: "rejected-doc" },
         ] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: {
                 success_result: ["deleted-doc"],
                 fail_result: [
@@ -457,14 +465,14 @@ describe("EformsignController (Integration)", () => {
             .send({ document_ids: ["deleted-doc", "rejected-doc"] });
 
         expect(response.status).toBe(500);
-        expect(response.body).toEqual({ error: "Permanent document cleanup was incomplete" });
+        expect(response.body).toEqual({ error: "Document cleanup was incomplete" });
         expect(documentMirrorService.clearPermanentPurgeRequest).toHaveBeenCalledTimes(1);
         expect(documentMirrorService.purgeDocuments).toHaveBeenCalledWith(["deleted-doc"]);
     });
 
     it("clears permanent-purge intent after a definitive vendor rejection", async () => {
         eformsignDocService.findAll.mockResolvedValue([{ documentId: "doc-1" }] as never);
-        eformsignService.deleteDocuments.mockRejectedValue(
+        eformsignService.cancelDocuments.mockRejectedValue(
             new EformsignApiError("rejected", 400),
         );
 
@@ -501,7 +509,7 @@ describe("EformsignController (Integration)", () => {
         error,
     ) => {
         eformsignDocService.findAll.mockResolvedValue([{ documentId: "doc-1" }] as never);
-        eformsignService.deleteDocuments.mockRejectedValue(error);
+        eformsignService.cancelDocuments.mockRejectedValue(error);
 
         const response = await request(app.getHttpServer())
             .delete("/api/documents?accessToken=access-token&is_permanent=true")
@@ -515,7 +523,7 @@ describe("EformsignController (Integration)", () => {
 
     it("retains permanent-purge intent after an ambiguous vendor failure", async () => {
         eformsignDocService.findAll.mockResolvedValue([{ documentId: "doc-1" }] as never);
-        eformsignService.deleteDocuments.mockRejectedValue(
+        eformsignService.cancelDocuments.mockRejectedValue(
             new EformsignApiError("unavailable", 503),
         );
 
@@ -534,7 +542,7 @@ describe("EformsignController (Integration)", () => {
             { documentId: "rejected-doc" },
             { documentId: "retry-doc" },
         ] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: {
                 success_result: ["deleted-doc"],
                 fail_result: [
@@ -561,7 +569,7 @@ describe("EformsignController (Integration)", () => {
 
     it("retains intent for malformed or transient structured failures without purging them", async () => {
         eformsignDocService.findAll.mockResolvedValue([{ documentId: "retry-doc" }] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: {
                 success_result: [],
                 fail_result: [
@@ -582,11 +590,15 @@ describe("EformsignController (Integration)", () => {
         expect(documentMirrorService.clearPermanentPurgeRequest).toHaveBeenCalledWith([]);
     });
 
-    it("keeps a recoverable tombstone for a non-permanent vendor deletion", async () => {
+    // is_permanent used to select between a content-preserving tombstone and a full purge. The
+    // "recoverable" variant was never recoverable — every tab hid the tombstone and there was no
+    // restore action — so a delete is now one thing regardless of the flag. The parameter is
+    // still accepted so existing clients keep working.
+    it("purges regardless of is_permanent", async () => {
         eformsignDocService.findAll.mockResolvedValue([
             { documentId: "doc-1" },
         ] as never);
-        eformsignService.deleteDocuments.mockResolvedValue({
+        eformsignService.cancelDocuments.mockResolvedValue({
             result: {
                 success_result: ["doc-1"],
                 fail_result: [],
@@ -598,9 +610,60 @@ describe("EformsignController (Integration)", () => {
             .send({ document_ids: ["doc-1"] });
 
         expect(response.status).toBe(200);
-        expect(documentMirrorService.markDocumentsDeleted).toHaveBeenCalledWith([
-            "doc-1",
-        ]);
+        expect(documentMirrorService.purgeDocuments).toHaveBeenCalledWith(["doc-1"]);
+        expect(documentMirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
+    });
+
+    it("purges a document the vendor refuses to cancel when it is already finished", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "completed-doc" },
+        ] as never);
+        eformsignService.cancelDocuments.mockResolvedValue({
+            result: { success_result: [], fail_result: [{ document_id: "completed-doc" }] },
+        });
+        documentMirrorService.findTerminalDocumentIds.mockResolvedValue(["completed-doc"]);
+
+        const response = await request(app.getHttpServer())
+            .delete("/api/documents?accessToken=access-token")
+            .send({ document_ids: ["completed-doc"] });
+
+        expect(response.status).toBe(200);
+        // Nothing was signable, so refusing to delete it would strand every completed contract.
+        expect(documentMirrorService.purgeDocuments).toHaveBeenCalledWith(["completed-doc"]);
+        expect(response.body.unresolved_document_ids).toEqual([]);
+    });
+
+    it("leaves a still-live document unpurged when the vendor refuses to cancel it", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "in-progress-doc" },
+        ] as never);
+        eformsignService.cancelDocuments.mockResolvedValue({
+            result: { success_result: [], fail_result: [{ document_id: "in-progress-doc" }] },
+        });
+        documentMirrorService.findTerminalDocumentIds.mockResolvedValue([]);
+
+        const response = await request(app.getHttpServer())
+            .delete("/api/documents?accessToken=access-token")
+            .send({ document_ids: ["in-progress-doc"] });
+
+        expect(response.status).toBe(200);
+        // Its signing link may still be live. Purging would destroy the local record while
+        // leaving the document signable — the failure this whole flow exists to prevent.
+        expect(documentMirrorService.purgeDocuments).toHaveBeenCalledWith([]);
+        expect(response.body.unresolved_document_ids).toEqual(["in-progress-doc"]);
+    });
+
+    it("does not purge anything when the vendor cancel call itself fails", async () => {
+        eformsignDocService.findAll.mockResolvedValue([{ documentId: "doc-1" }] as never);
+        eformsignService.cancelDocuments.mockRejectedValue(
+            new EformsignApiError("unavailable", 503),
+        );
+
+        const response = await request(app.getHttpServer())
+            .delete("/api/documents?accessToken=access-token")
+            .send({ document_ids: ["doc-1"] });
+
+        expect(response.status).toBe(500);
         expect(documentMirrorService.purgeDocuments).not.toHaveBeenCalled();
     });
 
@@ -614,7 +677,7 @@ describe("EformsignController (Integration)", () => {
             .send({ document_ids: ["other-branch-doc"] });
 
         expect(response.status).toBe(403);
-        expect(eformsignService.deleteDocuments).not.toHaveBeenCalled();
+        expect(eformsignService.cancelDocuments).not.toHaveBeenCalled();
         expect(documentMirrorService.markDocumentsDeleted).not.toHaveBeenCalled();
     });
 

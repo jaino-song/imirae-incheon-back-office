@@ -352,6 +352,11 @@ describe("SbEformsignDocumentMirrorRepository", () => {
                 detailSourceUpdatedDate: deletedAt,
                 detailSyncedAt: deletedAt,
                 syncStatus: "ready",
+                // The purge must release its own intent. A retained intent means "the vendor
+                // still owes us a purge", which the reconcile sweep acts on by retrying the
+                // vendor call; leaving it set would have the sweep permanently delete a
+                // document the delete deliberately only cancelled. Burial is the 049 status's
+                // job, not this field's.
                 permanentPurgeRequestedAt: null,
             }),
         });

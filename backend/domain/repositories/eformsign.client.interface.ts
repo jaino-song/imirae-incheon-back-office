@@ -86,9 +86,17 @@ export interface EformsignReviewerMember {
 
 export interface CreateDocumentPayload {
     templateId: string;
-    documentName: string;
+    /**
+     * Omit for templates whose `title_change` is false — they generate the title from their
+     * own pattern and reject an explicit name with 4000010. The generated title comes back
+     * on CreateDocumentResponse.
+     */
+    documentName?: string;
     prefillFields: Array<{ id: string; value: string }>;
-    /** Legacy participant recipient (contract flow: step 2 participant receives by SMS). */
+    /**
+     * Participant recipient (contract flow: the step-2 participant receives by SMS).
+     * Phone only — `client` carries no email, and eformsign accepts a member without one.
+     */
     recipient?: {
         name: string;
         sms: string;
@@ -104,6 +112,8 @@ export interface CreateDocumentPayload {
 export interface CreateDocumentResponse {
     documentId: string;
     status: string;
+    /** Title eformsign assigned, present when the template generated it. */
+    documentName?: string;
 }
 
 /**

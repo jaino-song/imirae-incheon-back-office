@@ -661,6 +661,81 @@ export class EformsignService {
     }
 
     /**
+     * Cancel one or more documents.
+     * POST /v2.0/api/documents/cancel
+     *
+     * This is what "삭제" performs against the vendor. Cancelling expires the recipient's
+     * signing link immediately — verified live: a link that opened before the call showed
+     * an expiry notice after it — which is the point, since deletions are usually mis-sends.
+     * Unlike DELETE it leaves the document and its audit trail at eformsign; a non-permanent
+     * DELETE would only park it in the vendor's trash for 14 days before erasing it.
+     *
+     * Only in-progress documents can be cancelled. Already completed/rejected/cancelled ones
+     * come back in `fail_result`; that is expected and is not an error — they have no live
+     * signing link left to revoke. The caller decides what to do with them.
+     *
+     * Note: a cancelled document still reports `recipients[].token_id`, despite the vendor
+     * spec claiming otherwise. Never treat that token's presence as "the link is alive".
+     *
+     * Shares the delete timeout helpers: both are single-shot mutating vendor calls that
+     * must not be retried blindly.
+     */
+    async cancelDocuments(
+        accessToken: string,
+        documentIds: string[],
+        comment: string = "관리자 삭제",
+    ): Promise<any> {
+        if (this.vendorStubsEnabled) {
+            const result = buildEformsignStubDeleteResponse(documentIds);
+            await this.bumpDocumentSnapshotVersions(documentIds);
+            return result;
+        }
+
+        this.assertConfigured();
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+            controller.abort(createDeleteTimeoutError());
+        }, EFORMSIGN_DELETE_TIMEOUT_MS);
+        try {
+            const response = await waitForDeleteOperation(
+                fetch(`${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/cancel`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({
+                        input: {
+                            document_ids: documentIds,
+                            comment,
+                        },
+                    }),
+                    signal: controller.signal,
+                }),
+                controller.signal,
+            );
+
+            if (!response.ok) {
+                const errorData = await waitForDeleteOperation(
+                    response.text(),
+                    controller.signal,
+                );
+                throw new EformsignApiError(
+                    `Failed to cancel documents: ${response.status} - ${errorData}`,
+                    response.status,
+                    extractEformsignVendorCode(errorData),
+                );
+            }
+
+            const result = await waitForDeleteOperation(response.json(), controller.signal);
+            await this.bumpDocumentSnapshotVersions(documentIds);
+            return result;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    /**
      * Re-request a document for the current outsider recipient.
      * Reuses the existing recipient settings by omitting recipients from next_steps.
      */
