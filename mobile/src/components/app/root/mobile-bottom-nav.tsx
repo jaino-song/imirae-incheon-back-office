@@ -164,6 +164,7 @@ export function MobileBottomNav() {
           <Link
             key={item.href}
             href={item.href}
+            prefetch={true}
             aria-current={isActive ? "page" : undefined}
             data-visual-active={isIndicated ? "true" : undefined}
             onClick={() => {
