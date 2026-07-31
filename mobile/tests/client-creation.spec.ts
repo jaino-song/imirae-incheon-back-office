@@ -232,7 +232,7 @@ test.describe("clients/new wizard", () => {
 
     await employeeInput.click();
     await employeeInput.fill("김정인");
-    await page.locator(`[data-component="${primaryAutocomplete}_add-button"]`).click();
+    await page.locator(`[data-component="${primaryAutocomplete}_toggle"]`).click();
 
     const dialog = page.locator('[data-component="employees-form-dialog"]');
     await expect(dialog).toBeVisible();
