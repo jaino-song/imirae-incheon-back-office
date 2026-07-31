@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { useMutation } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
