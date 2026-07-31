@@ -3728,18 +3728,26 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
 }
 .logout-link {
   min-height: 44px;
-  background: none;
-  border: 0;
+  background: white;
+  border: 1.5px solid hsl(var(--v3-primary));
+  border-radius: 14px;
   text-align: center;
-  font-size: 0.74rem;
-  color: hsl(var(--v3-text-muted));
-  padding: 8px;
+  font-size: 0.82rem;
+  color: hsl(var(--v3-primary));
+  padding: 8px 14px;
   cursor: pointer;
   font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease-out;
+}
+.logout-link:hover {
+  background: hsl(var(--v3-primary-light));
 }
 .logout-link span {
-  color: hsl(var(--v3-burgundy));
-  font-weight: 600;
+  color: hsl(var(--v3-primary));
+  font-weight: 700;
 }
 
 /* ===== Register page wizard (/register) ===== */
