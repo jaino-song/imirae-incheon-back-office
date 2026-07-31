@@ -3,7 +3,7 @@
 import { type CSSProperties, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, User, FileText, Phone, Menu } from "lucide-react";
+import { Home, User, FileText, MessageSquareText, Menu } from "lucide-react";
 import { useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { isLayoutExcluded } from "@/lib/constants/v3-layout";
@@ -17,7 +17,7 @@ const NAV_ITEMS: Array<{
 }> = [
   { href: "/dashboard", label: "홈", icon: Home, kind: "normal" },
   { href: "/clients", label: "고객", icon: User, kind: "normal" },
-  { href: "/calls", label: "통화요약", icon: Phone, kind: "chat", disabled: true },
+  { href: "/messages/new", label: "메시지", icon: MessageSquareText, kind: "normal" },
   { href: "/contracts", label: "계약", icon: FileText, kind: "normal" },
   { href: "/all", label: "전체", icon: Menu, kind: "normal" },
 ];
@@ -30,7 +30,7 @@ interface PressedNavItem {
 
 function isNavItemActive(href: string, pathname: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
-  if (href === "/calls") return pathname.startsWith("/calls");
+  if (href === "/messages/new") return pathname.startsWith("/messages");
   if (href === "/all") return pathname === "/all";
   return pathname.startsWith(href);
 }
