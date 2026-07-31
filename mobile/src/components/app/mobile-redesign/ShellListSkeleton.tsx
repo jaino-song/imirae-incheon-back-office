@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { type LucideIcon } from "lucide-react";
+import { Users, Workflow, FileSignature, ClipboardList, type LucideIcon } from "lucide-react";
 import {
   ListCard,
   ListRowsSkeleton,
@@ -10,10 +10,20 @@ import {
 import { MobileDetailSheet } from "@/components/app/mobile-redesign/detail-sheet";
 import "@/components/app/mobile-redesign/redesign.css";
 
+const ICON_MAP = {
+  users: Users,
+  workflow: Workflow,
+  "file-signature": FileSignature,
+  "clipboard-list": ClipboardList,
+} as const;
+
+export type SkeletonIconName = keyof typeof ICON_MAP;
+
 type SectionNavItem = {
   id: string;
   label: string;
-  icon: LucideIcon;
+  icon?: LucideIcon;
+  iconName?: SkeletonIconName;
 };
 
 export type ShellListSkeletonProps = {
@@ -81,6 +91,12 @@ export function ShellListSkeleton({
     skeleton: true,
   }));
 
+  const mappedSectionNav = sectionNav?.map((item) => ({
+    id: item.id,
+    label: item.label,
+    icon: item.icon ?? (item.iconName ? ICON_MAP[item.iconName] : Users),
+  }));
+
   const listContent = (
     <div
       className={
@@ -91,12 +107,12 @@ export function ShellListSkeleton({
       data-component={`${prefix}_list-content`}
       data-slot={listDataSlot}
     >
-      {sectionNav && (
+      {mappedSectionNav && (
         <MobileSectionNav
           data-component={`${prefix}_section-nav`}
           ariaLabel={`${title} 섹션`}
-          items={sectionNav}
-          activeId={activeSectionId ?? sectionNav[0]?.id ?? ""}
+          items={mappedSectionNav}
+          activeId={activeSectionId ?? mappedSectionNav[0]?.id ?? ""}
           onSelect={() => {}}
         />
       )}

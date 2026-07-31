@@ -1,4 +1,3 @@
-import { Users, Workflow } from "lucide-react";
 import { ShellListSkeleton } from "@/components/app/mobile-redesign/ShellListSkeleton";
 
 export default function ClientsLoading() {
@@ -8,8 +7,8 @@ export default function ClientsLoading() {
       title="고객 목록"
       filterLabels={["전체", "계약서 필요", "신규"]}
       sectionNav={[
-        { id: "list", label: "고객 목록", icon: Users },
-        { id: "automation", label: "자동화", icon: Workflow },
+        { id: "list", label: "고객 목록", iconName: "users" },
+        { id: "automation", label: "자동화", iconName: "workflow" },
       ]}
       activeSectionId="list"
       listDataSlot="clients-content"
