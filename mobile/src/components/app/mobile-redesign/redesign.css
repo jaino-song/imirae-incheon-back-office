@@ -3617,7 +3617,7 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   gap: 2px;
 }
 .branch-user-name {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: hsl(var(--v3-dark));
 }
