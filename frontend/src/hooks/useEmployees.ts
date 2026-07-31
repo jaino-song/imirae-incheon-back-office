@@ -67,8 +67,8 @@ export function useCreateEmployee() {
             const { data } = await api.post<Employee>("/employees", dto);
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
         },
         onError: (error) => {
             console.error("[useCreateEmployee] onError called:", error);
@@ -85,8 +85,8 @@ export function useUpdateEmployee() {
             const { data } = await api.patch("/employees", dto, { params: { id } });
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
         },
     });
 }
@@ -99,8 +99,8 @@ export function useDeleteEmployee() {
         mutationFn: async (id: number) => {
             await api.delete("/employees", { params: { id } });
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
         },
     });
 }
@@ -114,8 +114,8 @@ export function useToggleEmployeeOpenStatus() {
             const { data } = await api.patch("/employees/open-status", { openToNextWork }, { params: { id } });
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
         },
     });
 }

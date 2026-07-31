@@ -522,6 +522,7 @@ export function ListCard({
   beforeScroll,
   scrollRef,
   loadMore,
+  className,
   children,
 }: {
   "data-component": string;
@@ -540,6 +541,7 @@ export function ListCard({
   beforeScroll?: ReactNode;
   scrollRef?: RefObject<HTMLDivElement | null>;
   loadMore?: ReactNode;
+  className?: string;
   children: ReactNode;
 }) {
   const [actionFeedback, setActionFeedback] = useState("");
@@ -549,7 +551,7 @@ export function ListCard({
 
   return (
     <div
-      className="list-card flex flex-col gap-4"
+      className={cn("list-card pop-up flex flex-col gap-4", className)}
       data-component={dataComponent}
       data-source-component={LIST_CARD_SOURCE_COMPONENT}
     >

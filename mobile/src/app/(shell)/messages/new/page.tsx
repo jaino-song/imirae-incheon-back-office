@@ -1096,7 +1096,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
               actionDisabled={isSubmitDisabled}
               filters={[]}
             >
-            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card" className={styles.recipientCard}>
+            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card" className={`${styles.recipientCard} pop-up`}>
               <div
                 data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content"
                 className={styles.unifiedFormCardContent}

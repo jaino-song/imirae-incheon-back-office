@@ -99,16 +99,11 @@ test.describe("Mobile nav: center chat + /all menu", () => {
 
     await page.goto("/all");
     await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(4);
+    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(3);
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(1);
     await expect(
       page
         .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "메시지" })
-        .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
-    ).toBeVisible();
-    await expect(
-      page
-        .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "발송 자동화" })
         .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
     ).toBeVisible();
 

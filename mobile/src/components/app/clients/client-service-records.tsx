@@ -276,6 +276,7 @@ function LinkCard({
     const dataComponent = useClientServiceRecordsDataComponent("link-card");
     const sendLinkMutation = useSendServiceRecordLink();
     const [resendModalOpen, setResendModalOpen] = useState(false);
+    const [isSending, setIsSending] = useState(false);
     const statusMeta = LINK_STATUS_META[assignment.link.status];
     const isResend = assignment.link.status === "sent" || assignment.link.status === "failed";
     const showSentMetadata = assignment.link.status === "sent"
@@ -286,8 +287,10 @@ function LinkCard({
     const isExpired = assignment.link.token
         ? assignment.link.token.state === "expired" || isPastDate(expiresAt)
         : false;
+    const isPending = isSending || sendLinkMutation.isPending;
 
     const sendLink = async () => {
+        setIsSending(true);
         try {
             await sendLinkMutation.mutateAsync({
                 scheduleId: assignment.scheduleId,
@@ -299,6 +302,8 @@ function LinkCard({
                 description: getErrorDescription(error),
                 variant: "destructive",
             });
+        } finally {
+            setIsSending(false);
         }
     };
 
@@ -368,16 +373,16 @@ function LinkCard({
                     data-component={isResend
                         ? `${dataComponent}_actions_resend`
                         : `${dataComponent}_actions_send`}
-                    disabled={sendLinkMutation.isPending}
+                    disabled={isPending}
                     onClick={handleSendClick}
                 >
-                    {sendLinkMutation.isPending ? "발송 중..." : isResend ? "메시지 재전송" : "링크 수동 전송"}
+                    {isPending ? "발송 중..." : isResend ? "메시지 재전송" : "링크 수동 전송"}
                 </button>
             </div>
             <ApprovalTwoButtonModal
                 open={resendModalOpen}
                 onOpenChange={(open) => {
-                    if (!sendLinkMutation.isPending) {
+                    if (!isPending) {
                         setResendModalOpen(open);
                     }
                 }}
@@ -387,7 +392,7 @@ function LinkCard({
                 isDescriptionVisuallyHidden={false}
                 approvalLabel="메시지 재전송"
                 pendingLabel="메시지 재전송 중..."
-                isPending={sendLinkMutation.isPending}
+                isPending={isPending}
                 onApprove={handleConfirmResend}
             />
         </InfoCard>

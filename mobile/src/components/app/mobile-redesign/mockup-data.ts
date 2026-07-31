@@ -264,7 +264,7 @@ export const menuGroups: MenuGroup[] = [
     rows: [
       { label: "가격표", href: "/prices", icon: Calculator, tone: "orange" },
       { label: "메시지", href: "/messages", icon: MessageSquareText, tone: "primary", value: "36건" },
-      { label: "발송 자동화", href: "/messages/automation", icon: Send, tone: "gold", value: "2개" },
+      { label: "발송 자동화", href: "/messages/automation", icon: Send, tone: "gold", disabled: true, statusLabel: "출시 예정" },
     ],
   },
   {

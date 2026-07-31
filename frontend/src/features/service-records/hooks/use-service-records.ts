@@ -29,15 +29,15 @@ export function useSendServiceRecordLink() {
         mutationFn: ({ scheduleId, preparedLinkToken }: { scheduleId: number; clientId?: number; preparedLinkToken?: string }) =>
             serviceRecordsApi.sendLink(scheduleId, preparedLinkToken ? { preparedLinkToken } : {})
                 .then((response) => response.data),
-        onSuccess: (_, variables) => {
+        onSuccess: async (_, variables) => {
             if (variables.clientId !== undefined) {
-                queryClient.invalidateQueries({
+                await queryClient.invalidateQueries({
                     queryKey: serviceRecordKeys.clientOverview(variables.clientId),
                 });
                 return;
             }
 
-            queryClient.invalidateQueries({ queryKey: serviceRecordKeys.all });
+            await queryClient.invalidateQueries({ queryKey: serviceRecordKeys.all });
         },
     });
 }

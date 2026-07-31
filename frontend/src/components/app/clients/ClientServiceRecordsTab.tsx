@@ -98,8 +98,10 @@ function ClientServiceRecordsTabContent({
         ?? assignments[0]
         ?? null;
     const [pendingResendAssignment, setPendingResendAssignment] = useState<ServiceRecordAssignment | null>(null);
+    const [sendingScheduleId, setSendingScheduleId] = useState<number | null>(null);
 
     const sendLink = async (assignment: ServiceRecordAssignment): Promise<boolean> => {
+        setSendingScheduleId(assignment.scheduleId);
         try {
             await sendLinkMutation.mutateAsync({
                 scheduleId: assignment.scheduleId,
@@ -113,6 +115,8 @@ function ClientServiceRecordsTabContent({
                 variant: "destructive",
             });
             return false;
+        } finally {
+            setSendingScheduleId(null);
         }
     };
 
@@ -184,8 +188,9 @@ function ClientServiceRecordsTabContent({
                             {activeAssignment ? (
                                 <LinkStatusCard
                                     assignment={activeAssignment}
-                                    isPending={sendLinkMutation.isPending
-                                        && sendLinkMutation.variables?.scheduleId === activeAssignment.scheduleId}
+                                    isPending={sendingScheduleId === activeAssignment.scheduleId
+                                        || (sendLinkMutation.isPending
+                                            && sendLinkMutation.variables?.scheduleId === activeAssignment.scheduleId)}
                                     onSendLink={() => void handleSendLink(activeAssignment)}
                                     showStatusBadge={false}
                                 />
@@ -229,8 +234,9 @@ function ClientServiceRecordsTabContent({
                         )}
                         <LinkStatusCard
                             assignment={assignment}
-                            isPending={sendLinkMutation.isPending
-                                && sendLinkMutation.variables?.scheduleId === assignment.scheduleId}
+                            isPending={sendingScheduleId === assignment.scheduleId
+                                || (sendLinkMutation.isPending
+                                    && sendLinkMutation.variables?.scheduleId === assignment.scheduleId)}
                             onSendLink={() => void handleSendLink(assignment)}
                         />
                         <ServiceRecordHeaderCard

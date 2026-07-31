@@ -76,9 +76,9 @@ export function useBulkUpdateVoucherPrices() {
 
       return data;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       // 모든 바우처 가격 정보 쿼리 무효화
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: voucherQueryKeys.voucherPriceInfos(""),
       });
     },

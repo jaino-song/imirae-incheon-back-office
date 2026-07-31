@@ -10,8 +10,8 @@ export function useResetTemplate() {
 
     return useMutation({
         mutationFn: (key: string) => systemTemplateService.reset(key).then((r) => r.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: systemTemplateKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: systemTemplateKeys.all });
         },
     });
 }

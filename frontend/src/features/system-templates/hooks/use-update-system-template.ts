@@ -22,9 +22,9 @@ export function useUpdateSystemTemplate() {
   return useMutation<UpdateSystemTemplateResponse, ApiErrorResponse, UpdateParams>({
     mutationFn: ({ key, content, customVariables }) =>
       systemTemplateService.update(key, content, customVariables).then(r => r.data),
-    onSuccess: (_, { key }) => {
-      queryClient.invalidateQueries({ queryKey: systemTemplateKeys.detail(key) });
-      queryClient.invalidateQueries({ queryKey: systemTemplateKeys.all });
+    onSuccess: async (_, { key }) => {
+      await queryClient.invalidateQueries({ queryKey: systemTemplateKeys.detail(key) });
+      await queryClient.invalidateQueries({ queryKey: systemTemplateKeys.all });
     },
   });
 }

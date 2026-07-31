@@ -173,7 +173,7 @@ function ClientAutomationSection() {
             toast({ variant: "destructive", description: "고객 자동 등록 설정 저장 중 오류가 발생했습니다." });
         },
         onSuccess: (saved) => queryClient.setQueryData(["settings", "client-registration-policy"], saved),
-        onSettled: () => void queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] }),
+        onSettled: async () => { await queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] }); },
     });
     const selectedAutomation =
         CLIENT_AUTOMATION_ITEMS.find((item) => item.id === selectedAutomationId) ?? null;
