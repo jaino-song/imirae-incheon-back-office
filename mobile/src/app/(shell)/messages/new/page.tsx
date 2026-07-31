@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSystemTemplate, useSystemTemplates } from "@/features/system-templates/hooks";
+import { useSystemTemplates } from "@/features/system-templates/hooks";
 import type { CustomVariable, TemplateVariable } from "@/features/system-templates/types";
 import { useBankAccountInfos, useVoucherPriceInfos, type BankAccountInfo } from "@/hooks";
 import { useAllClients, useClient } from "@/hooks/useClients";
@@ -519,10 +519,12 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
   const [recipientNameInputValue, setRecipientNameInputValue] = useState("");
   const [recipients, setRecipients] = useState<RecipientChip[]>(() => initialRecipient ? [initialRecipient] : []);
 
-  useEffect(() => {
+  const [prevInitialClient, setPrevInitialClient] = useState(initialClient);
+  if (initialClient !== prevInitialClient) {
+    setPrevInitialClient(initialClient);
     if (initialClient) {
       const phone = normalizeKoreanPhoneDigits(initialClient.phone);
-      if (phone) {
+      if (phone && !recipients.some((item) => item.clientId === initialClient.id)) {
         const chip: RecipientChip = {
           id: `client-${initialClient.id}`,
           clientId: initialClient.id,
@@ -531,13 +533,10 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
           initial: getRecipientInitial(initialClient.name),
           tone: "primary",
         };
-        setRecipients((prev) => {
-          if (prev.some((item) => item.clientId === initialClient.id)) return prev;
-          return [chip, ...prev];
-        });
+        setRecipients((prev) => [chip, ...prev]);
       }
     }
-  }, [initialClient]);
+  }
   const [bodyOverride, setBodyOverride] = useState<string | null>(initialBody.trim() ? initialBody : null);
   const [templateVariableValues, setTemplateVariableValues] = useState<Record<string, string>>(() => {
     const values: Record<string, string> = {};
