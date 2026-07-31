@@ -248,6 +248,91 @@ describe("DispatchDocumentHeadlessUsecase", () => {
         }));
     });
 
+    // A headless failure is only safe to retry in the iframe if the run never got
+    // as far as clicking 전송. Past that point eformsign may already hold the
+    // document, and reopening the editor sends a second contract.
+    describe("post-send failures", () => {
+        const buildUsecase = (overrides: {
+            dispatchCreation: jest.Mock;
+            remoteDocuments?: unknown[];
+            createDoc?: jest.Mock;
+        }) => new DispatchDocumentHeadlessUsecase(
+            { generateDocumentOptions: jest.fn().mockReturnValue({}) } as never,
+            { dispatchCreation: overrides.dispatchCreation } as never,
+            { findByArea: jest.fn().mockResolvedValue(null) } as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "a", refresh_token: "r" } }) } as never,
+            { execute: overrides.createDoc ?? jest.fn().mockResolvedValue(undefined) } as never,
+            { execute: jest.fn().mockRejectedValue(new Error("not found")) } as never,
+            { emit: jest.fn() } as never,
+            { findById: jest.fn().mockResolvedValue(null) } as never,
+            { assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }) } as never,
+            { findByClientId: jest.fn().mockResolvedValue([]) } as never,
+            { execute: jest.fn().mockResolvedValue(overrides.remoteDocuments ?? []) } as never,
+        );
+
+        const params = {
+            clientId: 7,
+            contractData: { customerName: "김고객", customerContact: "010-0000-0000" } as never,
+        };
+
+        it("still offers the iframe when the run failed before reaching 전송", async () => {
+            const dispatchCreation = jest.fn().mockImplementation(async ({ onProgress }) => {
+                onProgress?.("client-started");
+                return { ok: false, reason: "Timed out ... no gate became actionable", durationMs: 70_000 };
+            });
+
+            await expect(buildUsecase({ dispatchCreation }).execute("branch-1", params))
+                .resolves.toEqual(expect.objectContaining({
+                    ok: false,
+                    fallbackHint: "iframe",
+                    failedStep: "client-started",
+                }));
+        });
+
+        it("never offers the iframe once 전송 was already clicked", async () => {
+            const dispatchCreation = jest.fn().mockImplementation(async ({ onProgress }) => {
+                onProgress?.("client-started");
+                onProgress?.("info-inserted");
+                onProgress?.("creating"); // emitted at the moment 전송 is clicked
+                return { ok: false, reason: "eformsign SDK completed without a success callback", durationMs: 90_000 };
+            });
+
+            const result = await buildUsecase({ dispatchCreation }).execute("branch-1", params);
+
+            // Reopening the editor here is what duplicates a contract that may
+            // already have gone out, so this hint must never be "iframe".
+            expect(result).toEqual(expect.objectContaining({
+                ok: false,
+                reason: "remote_unconfirmed",
+                fallbackHint: "manual_check",
+            }));
+        });
+
+        it("adopts the document when a post-send failure turns out to have sent it", async () => {
+            const dispatchCreation = jest.fn().mockImplementation(async ({ onProgress }) => {
+                onProgress?.("creating");
+                return { ok: false, reason: "eformsign SDK completed without a success callback", durationMs: 90_000 };
+            });
+            const createDoc = jest.fn().mockResolvedValue(undefined);
+
+            const result = await buildUsecase({
+                dispatchCreation,
+                createDoc,
+                remoteDocuments: [{
+                    id: "recovered-1",
+                    created_date: Date.now(),
+                    document_name: "김고객 산모신생아건강관리서비스 계약서",
+                }],
+            }).execute("branch-1", params);
+
+            expect(result).toEqual(expect.objectContaining({ ok: true, documentId: "recovered-1" }));
+            expect(createDoc).toHaveBeenCalledWith("branch-1", expect.objectContaining({
+                documentId: "recovered-1",
+                clientId: 7,
+            }));
+        });
+    });
+
     it("rejects a recent pending duplicate and allows force", async () => {
         const dispatchCreation = jest.fn().mockResolvedValue({ ok: false, reason: "stop", durationMs: 1 });
         const repository = { findByClientId: jest.fn().mockResolvedValue([{

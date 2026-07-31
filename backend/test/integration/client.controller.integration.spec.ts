@@ -64,6 +64,7 @@ describe("ClientController (Integration)", () => {
         hasSigned: false,
         documentStatus: null,
         badges: [],
+        actionRequired: null,
     });
 
     beforeEach(async () => {

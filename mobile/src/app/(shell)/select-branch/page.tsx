@@ -2,15 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
 import { Building2, Check } from "lucide-react";
 
 import { useInitialUser } from "@/providers/UserProvider";
 import { useLocale } from "@/providers/LocaleProvider";
 import { t } from "@/lib/i18n/translations";
 import { logout } from "@/app/(shell)/logout/actions";
-import { AUTH_USER_QUERY_KEY } from "@/hooks/useGetAuthUser";
-import { eformsignQueryKeys } from "@/hooks/useEformsignDocuments";
 import { getUserBranches, setCurrentBranch } from "./actions";
 import "@/components/app/mobile-redesign/redesign.css";
 
@@ -37,7 +34,6 @@ const SELECT_BRANCH_ROW = `${SELECT_BRANCH_BASE}_list_row`;
 export default function SelectBranchPage() {
   const router = useRouter();
   const locale = useLocale();
-  const queryClient = useQueryClient();
   const user = useInitialUser();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,21 +53,11 @@ export default function SelectBranchPage() {
         return false;
       }
 
-      // The auth user query caches branchId for 30 minutes, and eformsign
-      // document caches are branch-scoped data under a branch-agnostic key.
-      // Without this, the app would keep serving the previous branch's identity
-      // (and its documents) long after the switch.
-      queryClient.removeQueries({ queryKey: eformsignQueryKeys.documents() });
-      // Not awaited: the cookie is already switched, so navigation must not wait
-      // on /auth/me. `refetchType: "all"` starts the refetch immediately even
-      // though this page has no mounted auth-user observer, so the cache holds
-      // the new branchId within one round trip instead of up to 30 minutes.
-      void queryClient.invalidateQueries({
-        queryKey: AUTH_USER_QUERY_KEY,
-        refetchType: "all",
-      });
-
-      router.replace("/dashboard");
+      // The branch switch changes the server-rendered identity (UserProvider /
+      // header branch name) as well as every branch-scoped query. A soft
+      // navigation within the shared (shell) layout would re-render neither,
+      // so reload the document instead.
+      window.location.replace("/dashboard");
       return true;
     } catch (err) {
       console.error("[Select Branch] Error selecting branch:", err);
@@ -79,7 +65,7 @@ export default function SelectBranchPage() {
       setSubmitting(false);
       return false;
     }
-  }, [queryClient, router]);
+  }, []);
 
   useEffect(() => {
     const fetchBranches = async () => {
@@ -123,7 +109,7 @@ export default function SelectBranchPage() {
     // from /login. The server action clears them properly.
     try {
       await logout();
-      router.replace("/login");
+      window.location.replace("/login");
     } catch (err) {
       console.error("[Select Branch] Error logging out:", err);
       setError("로그아웃에 실패했습니다.");

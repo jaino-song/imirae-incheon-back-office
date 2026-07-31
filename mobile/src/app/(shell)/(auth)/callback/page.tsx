@@ -48,17 +48,21 @@ export default function AuthCallbackPage() {
 
                 console.log("[Auth Callback] Token exchange successful");
 
+                // Every navigation below crosses an identity boundary (new
+                // account/branch session). The shared (shell) layout would not
+                // re-render its server-rendered UserProvider on a soft navigation, so
+                // reload the document instead.
                 if (result.onboardingRequired) {
-                    router.replace(result.onboardingRoute || "/kakao/onboarding");
+                    window.location.replace(result.onboardingRoute || "/kakao/onboarding");
                     return;
                 }
 
                 if (result.requiresBranchSelection) {
                     console.log("[Auth Callback] Multiple branches detected, redirecting to selection");
-                    router.replace("/select-branch");
+                    window.location.replace("/select-branch");
                 } else {
                     console.log("[Auth Callback] Redirecting to dashboard");
-                    router.replace("/dashboard");
+                    window.location.replace("/dashboard");
                 }
             }
             catch (err) {
@@ -68,7 +72,7 @@ export default function AuthCallbackPage() {
             }
         }
         exchangeCodeForTokens();
-    }, [searchParams, router]);
+    }, [searchParams]);
 
     if (error) {
         return (

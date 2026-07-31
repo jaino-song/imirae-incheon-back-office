@@ -372,6 +372,11 @@ export const ContractCreationForm = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [allowIframeFallback, setAllowIframeFallback] = useState(false);
+  // Kept out of `submitError` on purpose: opening the iframe fallback re-enters
+  // handleContractCreation, which clears submitError. This warning has to outlive
+  // that, because it is the only thing standing between staff and a duplicate
+  // contract when the dispatch outcome is unknown.
+  const [unverifiedDispatchNotice, setUnverifiedDispatchNotice] = useState<string | null>(null);
   const [creationProgress, setCreationProgress] = useState<HeadlessProgressState>(INITIAL_CREATION_PROGRESS);
   const [dueDateInput, setDueDateInput] = useState("");
   const [startDateInput, setStartDateInput] = useState("");
@@ -529,6 +534,7 @@ export const ContractCreationForm = ({
     setIsSubmitting(false);
     setSubmitError(null);
     setAllowIframeFallback(false);
+    setUnverifiedDispatchNotice(null);
     setCreationProgress(INITIAL_CREATION_PROGRESS);
   };
 
@@ -674,6 +680,10 @@ export const ContractCreationForm = ({
 
     setIsSubmitting(true);
     setSubmitError(null);
+    // A manual run is usually the automatic iframe fallback re-entering after a
+    // failure, so it must not wipe the warning that failure just raised. Only a
+    // genuinely fresh attempt clears it.
+    if (mode !== "manual") setUnverifiedDispatchNotice(null);
     setIsDialogOpen(false);
     setCreationProgress(INITIAL_CREATION_PROGRESS);
 
@@ -804,6 +814,15 @@ export const ContractCreationForm = ({
         const progressId = createHeadlessProgressId();
         let progressSource: ReturnType<typeof createReconnectingEventSource> | null = null;
 
+        // Reopen the eformsign editor so staff are never stranded on a failed
+        // automatic run. Deferred a tick so this run's `finally` (which clears
+        // isSubmitting) lands before the manual run sets it again.
+        const openIframeFallback = () => {
+          setTimeout(() => {
+            void handleContractCreation({ mode: "manual" });
+          }, 0);
+        };
+
         try {
           setCreationProgress({ step: "client-started", completed: false, failed: false });
           progressSource = createReconnectingEventSource({
@@ -901,7 +920,8 @@ export const ContractCreationForm = ({
             "[contract-creation] headless dispatch returned ok=false",
             headless.reason,
           );
-          setAllowIframeFallback(headless.fallbackHint === "iframe");
+          const canFallBackToIframe = headless.fallbackHint === "iframe";
+          setAllowIframeFallback(canFallBackToIframe);
           setSubmitError(getSafeHeadlessFailureMessage(headless.reason));
           setCreationProgress((current) => ({
             step: headless.failedStep && isHeadlessProgressStepKey(headless.failedStep)
@@ -910,14 +930,28 @@ export const ContractCreationForm = ({
             completed: false,
             failed: true,
           }));
+          if (canFallBackToIframe) {
+            // fallbackHint:"iframe" is the backend stating it got far enough to
+            // know nothing was sent, so reopening the editor cannot duplicate.
+            openIframeFallback();
+          }
           return;
         } catch (headlessError) {
           console.warn(
             "[contract-creation] headless dispatch threw",
             headlessError,
           );
-          setSubmitError(getSafeHeadlessFailureMessage(headlessError instanceof Error ? headlessError.message : undefined));
+          // The backend's verdict never reached us, so whether the document was
+          // sent is genuinely unknown. The editor still opens so staff are never
+          // stranded, but the warning has to stay: finishing here on top of a run
+          // that actually succeeded is how a contract gets sent twice.
+          setAllowIframeFallback(true);
+          setUnverifiedDispatchNotice(
+            "자동 생성 결과를 확인하지 못했습니다. 전자문서 목록에서 생성 여부를 먼저 확인하시고, "
+            + "이미 생성되어 있다면 중복 생성하지 말고 이 창을 닫아 주세요.",
+          );
           markCreationProgressFailed();
+          openIframeFallback();
           return;
         } finally {
           progressSource?.close();
@@ -1471,7 +1505,7 @@ export const ContractCreationForm = ({
     {
       label: "전자문서 생성",
       content: (
-        <div className="flex h-full w-full items-center justify-center py-2">
+        <div className="flex h-full w-full items-stretch justify-center py-2">
           <HeadlessProgressStepper
             steps={CONTRACT_CREATION_PROGRESS_STEPS}
             progress={creationProgress}
@@ -1480,7 +1514,7 @@ export const ContractCreationForm = ({
             testIdPrefix="contract-creation-progress"
             errorHint={CONTRACT_CREATION_MANUAL_HELP}
             spinnerClassName="contract-creation-processing-spinner"
-            className="w-full max-w-[22rem]"
+            className="h-full w-full max-w-[22rem] [&>li:not(:last-child)]:flex-1"
           />
         </div>
       ),
@@ -1497,6 +1531,16 @@ export const ContractCreationForm = ({
           {(submitError || eformsignError) && (
             <Alert variant="destructive" data-component="desktop_messages_sections_contract-form-error">
               <AlertDescription>{submitError || eformsignError}</AlertDescription>
+            </Alert>
+          )}
+
+          {unverifiedDispatchNotice && (
+            <Alert
+              variant="destructive"
+              data-component="desktop_contracts_creation_unverified-dispatch-notice"
+              data-testid="contract-creation-unverified-notice"
+            >
+              <AlertDescription>{unverifiedDispatchNotice}</AlertDescription>
             </Alert>
           )}
 

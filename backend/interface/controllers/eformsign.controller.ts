@@ -646,7 +646,6 @@ export class EformsignController {
         @Query("is_permanent") isPermanent: string,
         @Body() body: DeleteDocumentsRequestDto
     ) {
-        let permanent = false;
         let requestedDocumentIds: string[] = [];
         let permanentPurgeRequests: EformsignPermanentPurgeRequest[] = [];
         try {
@@ -662,12 +661,16 @@ export class EformsignController {
                     HttpStatus.BAD_REQUEST
                 );
             }
-            permanent = parseBooleanQuery(isPermanent, "is_permanent", false);
+            // is_permanent no longer selects a behaviour. A delete now always cancels at the
+            // vendor and purges locally; the old recoverable variant hid the document from
+            // every list anyway, so it was never recoverable. The parameter is still parsed so
+            // existing clients that send it keep working unchanged.
+            parseBooleanQuery(isPermanent, "is_permanent", false);
             requestedDocumentIds = [...new Set(body.document_ids)];
             const allowedDocuments = await this.filterDocumentsByBranch(
                 tenant.branchId ?? "",
                 requestedDocumentIds.map((id) => ({ id })),
-                { includePermanentPurgePending: permanent },
+                { includePermanentPurgePending: true },
             );
             if (allowedDocuments.length !== requestedDocumentIds.length) {
                 throw new HttpException(
@@ -675,78 +678,86 @@ export class EformsignController {
                     HttpStatus.FORBIDDEN,
                 );
             }
-            if (permanent) {
-                // Persist before the vendor call: a timeout after eformsign accepted the
-                // deletion must not leave local PII without a durable retry record.
-                permanentPurgeRequests = await this.documentMirrorService.requestPermanentPurge(
-                    requestedDocumentIds,
-                );
-            }
-            const result = await this.eformsignService.deleteDocuments(
+            // Persist before the vendor call: a timeout after eformsign accepted the
+            // cancellation must not leave local PII without a durable retry record.
+            permanentPurgeRequests = await this.documentMirrorService.requestPermanentPurge(
+                requestedDocumentIds,
+            );
+            // Cancel, not delete. Cancelling expires the recipient's signing link — the whole
+            // point, since deletions are usually mis-sends — while leaving the document and its
+            // audit trail at eformsign.
+            const result = await this.eformsignService.cancelDocuments(
                 accessToken,
                 requestedDocumentIds,
-                permanent
             );
-            const deletedDocumentIds = successfulDeletedDocumentIds(result);
-            if (permanent) {
-                const failedDocumentIds = new Set(
-                    failedDeletedDocumentIds(result, requestedDocumentIds),
-                );
-                const definitiveFailurePurgeRequests = permanentPurgeRequests.filter((request) =>
-                    failedDocumentIds.has(request.documentId),
-                );
-                // A permanent purge request hides the document from local reads. Clear
-                // only vendor-definitive failures before attempting successful local
-                // purges, so one database failure cannot strand an unrelated rejected
-                // document behind its generation-fenced purge intent.
-                if (definitiveFailurePurgeRequests.length > 0) {
-                    const cleanupErrors: unknown[] = [];
-                    try {
-                        await this.documentMirrorService.clearPermanentPurgeRequest(
-                            definitiveFailurePurgeRequests,
-                        );
-                    } catch (error) {
-                        cleanupErrors.push(error);
-                    }
-                    try {
-                        await this.documentMirrorService.purgeDocuments(
-                            deletedDocumentIds,
-                        );
-                    } catch (error) {
-                        cleanupErrors.push(error);
-                    }
-
-                    if (cleanupErrors.length > 0) {
-                        throw new AggregateError(
-                            cleanupErrors,
-                            "Permanent document cleanup was incomplete",
-                        );
-                    }
-                } else {
-                    await this.documentMirrorService.purgeDocuments(
-                        deletedDocumentIds,
+            const cancelledDocumentIds = successfulDeletedDocumentIds(result);
+            const uncancelledDocumentIds = requestedDocumentIds.filter(
+                (documentId) => !cancelledDocumentIds.includes(documentId),
+            );
+            // eformsign only cancels in-progress documents, so every completed, rejected or
+            // already-cancelled one comes back refused. Those have no live signing link left to
+            // revoke, so the local purge proceeds — otherwise a completed contract could never
+            // be deleted at all.
+            const terminalDocumentIds = await this.documentMirrorService
+                .findTerminalDocumentIds(uncancelledDocumentIds);
+            const purgeableDocumentIds = [
+                ...new Set([...cancelledDocumentIds, ...terminalDocumentIds]),
+            ];
+            // Anything left was neither cancelled nor already finished, so its signing link may
+            // still be live. Purging it would destroy the local record while leaving the
+            // document signable — the exact failure this flow exists to prevent.
+            const unresolvedDocumentIds = uncancelledDocumentIds.filter(
+                (documentId) => !terminalDocumentIds.includes(documentId),
+            );
+            // Of those, release the purge intent only for vendor-definitive refusals. Transient
+            // and unrecognised outcomes keep their generation-fenced intent so reconciliation
+            // can finish the job later — a purge request hides the document from local reads,
+            // and one document's failure must not strand an unrelated document's intent.
+            const definitiveFailureDocumentIds = new Set(
+                failedDeletedDocumentIds(result, requestedDocumentIds),
+            );
+            const definitiveFailurePurgeRequests = permanentPurgeRequests.filter((request) =>
+                unresolvedDocumentIds.includes(request.documentId)
+                && definitiveFailureDocumentIds.has(request.documentId),
+            );
+            if (definitiveFailurePurgeRequests.length > 0) {
+                const cleanupErrors: unknown[] = [];
+                try {
+                    await this.documentMirrorService.clearPermanentPurgeRequest(
+                        definitiveFailurePurgeRequests,
                     );
-                    // Preserve the previous empty-clear call after a successful purge,
-                    // while ensuring it cannot run after a failed local purge.
-                    await this.documentMirrorService.clearPermanentPurgeRequest([]);
+                } catch (error) {
+                    cleanupErrors.push(error);
+                }
+                try {
+                    await this.documentMirrorService.purgeDocuments(purgeableDocumentIds);
+                } catch (error) {
+                    cleanupErrors.push(error);
+                }
+
+                if (cleanupErrors.length > 0) {
+                    throw new AggregateError(
+                        cleanupErrors,
+                        "Document cleanup was incomplete",
+                    );
                 }
             } else {
-                await this.documentMirrorService.markDocumentsDeleted(
-                    deletedDocumentIds,
-                );
+                await this.documentMirrorService.purgeDocuments(purgeableDocumentIds);
+                // Preserve the previous empty-clear call after a successful purge,
+                // while ensuring it cannot run after a failed local purge.
+                await this.documentMirrorService.clearPermanentPurgeRequest([]);
             }
-            return result;
+            return { ...result, unresolved_document_ids: unresolvedDocumentIds };
         } catch (error) {
             const apiError = error instanceof EformsignApiError ? error : null;
             const isConfirmedDocumentAbsence = isEformsignDocumentAbsentError(error);
             if (
-                permanent
-                && apiError !== null
+                apiError !== null
                 && apiError.status >= 400
                 && apiError.status < 500
-                // A confirmed absence may mean eformsign already accepted the
-                // permanent delete. Retain the generation-fenced intent until
-                // reconciliation can purge the local detail and PDFs safely.
+                // A confirmed absence may mean the document is already gone at the vendor,
+                // so there is nothing left to cancel. Retain the generation-fenced intent
+                // until reconciliation can purge the local detail and PDFs safely.
                 && !isConfirmedDocumentAbsence
                 && ![408, 429].includes(apiError.status)
             ) {

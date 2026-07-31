@@ -139,7 +139,15 @@ export class DispatchDocumentHeadlessUsecase {
                 },
             });
 
-            if (!result.ok) {
+            // The gate runner emits "creating" at the moment it clicks 전송, so a
+            // failure at or after that step means eformsign may already hold the
+            // document and only the SDK callback went missing. Those runs must not
+            // report fallbackHint:"iframe" — that reopens the editor and a second
+            // contract goes out. Only a failure that never reached the send button
+            // is safe to retry in the iframe.
+            const sendWasAttempted = latestProgressStep === "creating" || latestProgressStep === "sent";
+
+            if (!result.ok && !sendWasAttempted) {
                 this.progressService.emit(params.progressId, "failed", result.reason, latestProgressStep);
                 return {
                     ok: false,
@@ -149,6 +157,10 @@ export class DispatchDocumentHeadlessUsecase {
                     failedStep: latestProgressStep,
                 };
             }
+            // A post-send failure falls through to the same reconciliation as a run
+            // that finished without a document_id: look the document up remotely,
+            // adopt it if it exists, and otherwise surface "confirm before retrying"
+            // instead of silently reopening the editor.
 
             // The SDK success callback (`__eformsignSuccess.document_id`) is
             // the only authoritative source of the new document id — mode:"01"
