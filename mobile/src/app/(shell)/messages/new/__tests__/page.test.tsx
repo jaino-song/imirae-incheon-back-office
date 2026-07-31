@@ -185,7 +185,7 @@ describe("NewMessagePage", () => {
     }));
     mockUseSystemTemplate.mockReset();
     mockUseSystemTemplate.mockImplementation((key: string) => {
-      if (key === "GREETING") {
+      if (key === "GREETING" || key === "greeting") {
         return {
           data: {
             id: "system-greeting",
@@ -200,7 +200,7 @@ describe("NewMessagePage", () => {
         };
       }
 
-      if (key === "SERVICE_INFO") {
+      if (key === "SERVICE_INFO" || key === "service-info") {
         return {
           data: {
             id: "system-service-info",
@@ -628,6 +628,7 @@ describe("NewMessagePage", () => {
     fireEvent.focus(recipientNameInput);
     fireEvent.change(recipientNameInput, { target: { value: "박서연" } });
     fireEvent.click(await screen.findByText("박서연"));
+    fireEvent.blur(recipientNameInput);
 
     expect(recipientNameInput).toHaveValue("");
     expect(screen.queryByRole("button", { name: "선택 해제" })).not.toBeInTheDocument();

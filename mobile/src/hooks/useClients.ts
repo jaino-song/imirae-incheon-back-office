@@ -72,7 +72,12 @@ export function useAllClients() {
         queryKey: clientQueryKeys.all,
         queryFn: async () => {
             const { data } = await api.get("/clients");
-            return data;
+            if (Array.isArray(data)) return data as Client[];
+            if (data && typeof data === "object") {
+                if (Array.isArray((data as Record<string, unknown>).data)) return (data as Record<string, unknown>).data as Client[];
+                if (Array.isArray((data as Record<string, unknown>).items)) return (data as Record<string, unknown>).items as Client[];
+            }
+            return [];
         },
         staleTime: 1000 * 60 * 5,
     });

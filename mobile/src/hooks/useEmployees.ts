@@ -62,7 +62,12 @@ export function useEmployees() {
         queryKey: employeeQueryKeys.lists(),
         queryFn: async () => {
             const { data } = await api.get("/employees");
-            return data;
+            if (Array.isArray(data)) return data as Employee[];
+            if (data && typeof data === "object") {
+                if (Array.isArray((data as Record<string, unknown>).data)) return (data as Record<string, unknown>).data as Employee[];
+                if (Array.isArray((data as Record<string, unknown>).items)) return (data as Record<string, unknown>).items as Employee[];
+            }
+            return [];
         },
         staleTime: 1000 * 60 * 10, // 10 minutes
     });
