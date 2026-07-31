@@ -406,10 +406,10 @@ export function FilterPills({
       data-source-component={FILTER_PILLS_SOURCE_COMPONENT}
       onScroll={updateOverflow}
     >
-      {items.map((item) => (
+      {items.map((item, index) => (
         item.skeleton ? (
           <button
-            key={item.label}
+            key={`skeleton-${item.label}-${index}`}
             type="button"
             className="filter-pill filter-pill-skeleton"
             data-component={`${dataComponent}_pill`}
@@ -425,7 +425,7 @@ export function FilterPills({
           </button>
         ) : (
           <button
-            key={item.label}
+            key={`${item.label}-${index}`}
             type="button"
             className={`filter-pill ${item.label === activeLabel ? "active" : ""}`}
             data-component={`${dataComponent}_pill`}
