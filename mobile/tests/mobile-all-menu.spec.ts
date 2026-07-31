@@ -199,8 +199,8 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     const nav = page.locator('[data-slot="mobile-bottom-nav"]');
     await expect(nav).toBeVisible();
 
-    // Center chat button.
-    await expect(page.locator('[data-slot="mobile-bottom-nav-chat"]')).toBeVisible();
+    // Center messages button.
+    await expect(page.locator('[data-slot="mobile-bottom-nav-messages"]')).toBeVisible();
 
     // "전체" button should exist.
     const allNav = page.locator('[data-slot="mobile-bottom-nav-all"]');

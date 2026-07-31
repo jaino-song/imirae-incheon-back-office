@@ -571,7 +571,7 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
 }
 
 [data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot^="mobile-bottom-nav-"],
-[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-chat"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-messages"] {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
