@@ -10,6 +10,7 @@ export default function PricesLoading() {
       <ListCard
         data-component="mobile_prices_loading_list-card"
         title="가격표 및 이용안내"
+        filters={[]}
       >
         <ListRowsSkeleton
           data-component="mobile_prices_loading_skeleton_rows"

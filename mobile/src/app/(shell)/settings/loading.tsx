@@ -10,6 +10,7 @@ export default function SettingsLoading() {
       <ListCard
         data-component="mobile_settings_loading_list-card"
         title="설정"
+        filters={[]}
       >
         <div className="flex flex-col gap-3 p-2">
           {Array.from({ length: 4 }).map((_, idx) => (

@@ -10,6 +10,7 @@ export default function AllMenuLoading() {
       <ListCard
         data-component="mobile_all_loading_list-card"
         title="전체 메뉴"
+        filters={[]}
       >
         <div className="flex flex-col gap-3 p-2">
           {Array.from({ length: 6 }).map((_, idx) => (

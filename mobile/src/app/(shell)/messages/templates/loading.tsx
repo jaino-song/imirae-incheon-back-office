@@ -19,7 +19,11 @@ export default function TemplatesLoading() {
         data-component="mobile_messages_templates_loading_list-card"
         title="템플릿 내역"
         count={<span className="inline-block h-4 w-8 rounded bg-v3-dim-white animate-pulse" />}
-        filters={["전체", "기본 템플릿", "지점 템플릿"]}
+        filters={[
+          { label: "전체", count: "", skeleton: true },
+          { label: "기본 템플릿", count: "", skeleton: true },
+          { label: "지점 템플릿", count: "", skeleton: true },
+        ]}
         activeFilter="전체"
       >
         <ListRowsSkeleton

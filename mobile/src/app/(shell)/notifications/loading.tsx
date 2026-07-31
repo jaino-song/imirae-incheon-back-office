@@ -10,6 +10,7 @@ export default function NotificationsLoading() {
       <ListCard
         data-component="mobile_notifications_loading_list-card"
         title="알림 목록"
+        filters={[]}
       >
         <ListRowsSkeleton
           data-component="mobile_notifications_loading_skeleton_rows"

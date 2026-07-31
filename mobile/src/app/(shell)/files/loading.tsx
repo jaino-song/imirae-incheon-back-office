@@ -11,6 +11,7 @@ export default function FilesLoading() {
         data-component="mobile_files_loading_list-card"
         title="서류함"
         count={<span className="inline-block h-4 w-8 rounded bg-v3-dim-white animate-pulse" />}
+        filters={[]}
       >
         <ListRowsSkeleton
           data-component="mobile_files_loading_skeleton_rows"

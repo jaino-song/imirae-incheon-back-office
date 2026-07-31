@@ -19,7 +19,11 @@ export default function MessageHistoryLoading() {
         data-component="mobile_messages_history_loading_list-card"
         title="메시지 전송 내역"
         count={<span className="inline-block h-4 w-8 rounded bg-v3-dim-white animate-pulse" />}
-        filters={["전체", "발송 성공", "발송 실패"]}
+        filters={[
+          { label: "전체", count: "", skeleton: true },
+          { label: "발송 성공", count: "", skeleton: true },
+          { label: "발송 실패", count: "", skeleton: true },
+        ]}
         activeFilter="전체"
       >
         <ListRowsSkeleton

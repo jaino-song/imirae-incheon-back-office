@@ -10,6 +10,7 @@ export default function CallsLoading() {
       <ListCard
         data-component="mobile_calls_loading_list-card"
         title="통화 요약"
+        filters={[]}
       >
         <ListRowsSkeleton
           data-component="mobile_calls_loading_skeleton_rows"

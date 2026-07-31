@@ -19,7 +19,7 @@ export default function MessageScheduledLoading() {
         data-component="mobile_messages_scheduled_loading_list-card"
         title="발송 예정 내역"
         count={<span className="inline-block h-4 w-8 rounded bg-v3-dim-white animate-pulse" />}
-        filters={["전체"]}
+        filters={[{ label: "전체", count: "", skeleton: true }]}
         activeFilter="전체"
       >
         <ListRowsSkeleton

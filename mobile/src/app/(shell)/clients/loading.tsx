@@ -11,7 +11,11 @@ export default function ClientsLoading() {
         data-component="mobile_clients_loading_list-card"
         title="전체 고객"
         count={<span className="inline-block h-4 w-8 rounded bg-v3-dim-white animate-pulse" />}
-        filters={["전체", "계약서 필요", "신규"]}
+        filters={[
+          { label: "전체", count: "", skeleton: true },
+          { label: "계약서 필요", count: "", skeleton: true },
+          { label: "신규", count: "", skeleton: true },
+        ]}
         activeFilter="전체"
       >
         <ListRowsSkeleton

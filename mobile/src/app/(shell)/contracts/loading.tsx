@@ -11,7 +11,12 @@ export default function ContractsLoading() {
         data-component="mobile_contracts_loading_list-card"
         title="최근 현황"
         count={<span className="inline-block h-4 w-8 rounded bg-v3-dim-white animate-pulse" />}
-        filters={["전체", "조치 필요", "시작 예정", "종료 예정"]}
+        filters={[
+          { label: "전체", count: "", skeleton: true },
+          { label: "조치 필요", count: "", skeleton: true },
+          { label: "시작 예정", count: "", skeleton: true },
+          { label: "종료 예정", count: "", skeleton: true },
+        ]}
         activeFilter="전체"
       >
         <ListRowsSkeleton
