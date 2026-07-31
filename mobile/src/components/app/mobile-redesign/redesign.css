@@ -3566,7 +3566,7 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   height: 100%;
   min-height: 0;
   background: hsl(var(--v3-dim-white));
-  padding: 24px 20px;
+  padding: 20px 20px;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
