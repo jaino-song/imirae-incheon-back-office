@@ -29,10 +29,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSystemTemplate } from "@/features/system-templates/hooks";
+import { useSystemTemplate, useSystemTemplates } from "@/features/system-templates/hooks";
 import type { CustomVariable, TemplateVariable } from "@/features/system-templates/types";
 import { useBankAccountInfos, useVoucherPriceInfos, type BankAccountInfo } from "@/hooks";
-import { useAllClients } from "@/hooks/useClients";
+import { useAllClients, useClient } from "@/hooks/useClients";
 import { useMessageTemplates } from "@/hooks/use-message-templates";
 import type { Client } from "@/lib/client/types";
 import { api } from "@/lib/api/client";
@@ -482,13 +482,14 @@ function renderTemplateWithValues(
 
 export default function NewMessagePage() {
   const searchParams = useSearchParams();
-  const { data: allClients = [] } = useAllClients();
   const initialBody = searchParams.get("body") ?? "";
   const initialTemplateId = searchParams.get("template") ?? GREETING_TEMPLATE_ID;
   const initialClientId = parsePositiveIntQueryParam(searchParams.get("clientId"));
-  const initialClient = initialClientId === null
+  const { data: directClient } = useClient(initialClientId ?? 0);
+  const { data: allClients = [] } = useAllClients();
+  const initialClient = directClient ?? (initialClientId === null
     ? null
-    : allClients.find((candidate) => candidate.id === initialClientId) ?? null;
+    : allClients.find((candidate) => candidate.id === initialClientId) ?? null);
   const routeSeedKey = `${initialBody}\u0000${initialTemplateId}\u0000${initialClientId ?? ""}`;
 
   return (
@@ -557,13 +558,23 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
     needsSenderApproval,
   } = useMessagesPermissionGuard();
 
-  const { data: greetingSystemTemplate } = useSystemTemplate(GREETING_TEMPLATE_ID);
-  const { data: infoSystemTemplate } = useSystemTemplate(INFO_TEMPLATE_ID);
-  const { data: priceInfoSystemTemplate } = useSystemTemplate(PRICE_INFO_TEMPLATE_ID);
-  const { data: reminderSystemTemplate } = useSystemTemplate(REMINDER_TEMPLATE_ID);
-  const { data: serviceInfoSystemTemplate } = useSystemTemplate(SERVICE_INFO_TEMPLATE_ID);
-  const { data: surveySystemTemplate } = useSystemTemplate(SURVEY_TEMPLATE_ID);
-  const { data: thanksSystemTemplate } = useSystemTemplate(THANKS_TEMPLATE_ID);
+  const { data: systemTemplates = [] } = useSystemTemplates();
+  const systemTemplateMap = useMemo(() => {
+    const map = new Map<string, typeof systemTemplates[number]>();
+    systemTemplates.forEach((t) => {
+      const key = (t as { templateKey?: string; key?: string }).templateKey ?? (t as { templateKey?: string; key?: string }).key;
+      if (key) map.set(key, t);
+    });
+    return map;
+  }, [systemTemplates]);
+
+  const greetingSystemTemplate = systemTemplateMap.get(GREETING_TEMPLATE_ID);
+  const infoSystemTemplate = systemTemplateMap.get(INFO_TEMPLATE_ID);
+  const priceInfoSystemTemplate = systemTemplateMap.get(PRICE_INFO_TEMPLATE_ID);
+  const reminderSystemTemplate = systemTemplateMap.get(REMINDER_TEMPLATE_ID);
+  const serviceInfoSystemTemplate = systemTemplateMap.get(SERVICE_INFO_TEMPLATE_ID);
+  const surveySystemTemplate = systemTemplateMap.get(SURVEY_TEMPLATE_ID);
+  const thanksSystemTemplate = systemTemplateMap.get(THANKS_TEMPLATE_ID);
   const { data: userTemplates = [] } = useMessageTemplates();
   const { data: bankAccountInfos = [], isLoading: isBankAccountInfosLoading } = useBankAccountInfos();
   const { data: voucherPriceInfos = [], isLoading: isVoucherPriceInfosLoading } = useVoucherPriceInfos(
