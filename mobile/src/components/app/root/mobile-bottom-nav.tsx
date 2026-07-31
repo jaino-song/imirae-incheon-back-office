@@ -122,8 +122,7 @@ export function MobileBottomNav() {
         const isDisabled = item.disabled === true;
         const isIndicated = !isDisabled && indicatorVisible && index === indicatorIndex;
         const Icon = item.icon;
-        const itemName =
-          item.kind === "chat" ? "chat" : item.href.replace("/", "");
+        const itemName = item.href.replace(/^\//, "").replace(/\//g, "-");
         const dataComponent = `${NAV_BASE}_${itemName}`;
         const dataSlot = `mobile-bottom-nav-${itemName}`;
         const itemClassName = cn(
