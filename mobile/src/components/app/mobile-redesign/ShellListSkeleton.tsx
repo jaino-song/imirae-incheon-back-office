@@ -7,7 +7,7 @@ import {
   ListRowsSkeleton,
   MobileSectionNav,
 } from "@/components/app/mobile-redesign/primitives";
-import { MobileDetailSheet } from "@/components/app/mobile-redesign/detail-sheet";
+import { MobileDetailSheet, MobileSearchBar } from "@/components/app/mobile-redesign/detail-sheet";
 import "@/components/app/mobile-redesign/redesign.css";
 
 const ICON_MAP = {
@@ -33,6 +33,8 @@ export type ShellListSkeletonProps = {
   title: string;
   /** Filter pill labels for the skeleton. Omit or pass [] for no filters. */
   filterLabels?: string[];
+  /** Search bar placeholder text for MobileSearchBar in beforeFilters */
+  searchPlaceholder?: string;
   /** Section nav items (only for pages that use MobileSectionNav) */
   sectionNav?: SectionNavItem[];
   /** Default active section id (defaults to first item) */
@@ -75,6 +77,7 @@ export function ShellListSkeleton({
   name,
   title,
   filterLabels = [],
+  searchPlaceholder,
   sectionNav,
   activeSectionId,
   action,
@@ -96,6 +99,14 @@ export function ShellListSkeleton({
     label: item.label,
     icon: item.icon ?? (item.iconName ? ICON_MAP[item.iconName] : Users),
   }));
+
+  const searchBar = searchPlaceholder ? (
+    <MobileSearchBar
+      data-component={`${prefix}_search`}
+      placeholder={searchPlaceholder}
+      label={name}
+    />
+  ) : undefined;
 
   const listContent = (
     <div
@@ -124,6 +135,7 @@ export function ShellListSkeleton({
         activeFilter={filterLabels[0] ?? ""}
         actionLabel={action?.label}
         actionHref={action?.href}
+        beforeFilters={searchBar}
       >
         <ListRowsSkeleton
           data-component={`${prefix}_skeleton-rows`}
