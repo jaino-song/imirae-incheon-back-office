@@ -152,8 +152,8 @@ export function useMarkAsRead() {
 
     return useMutation({
         mutationFn: markAsReadApi,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
         },
     });
 }
@@ -166,8 +166,8 @@ export function useMarkAllAsRead() {
 
     return useMutation({
         mutationFn: markAllAsReadApi,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
         },
     });
 }

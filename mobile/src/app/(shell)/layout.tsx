@@ -26,6 +26,7 @@ export const metadata: Metadata = {
   description: "아가잼잼 관리자",
   manifest: "/manifest.json",
   icons: {
+    icon: "/icon.svg",
     apple: "/apple-touch-icon.png",
   },
   appleWebApp: {

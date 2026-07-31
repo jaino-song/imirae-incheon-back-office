@@ -27,8 +27,8 @@ export function useCreateMessageTemplate() {
     return useMutation({
         mutationFn: (dto: CreateTemplateDto) =>
             messageTemplatesApi.create(dto).then(r => r.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTemplateKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTemplateKeys.all });
         },
     });
 }
@@ -39,8 +39,8 @@ export function useUpdateMessageTemplate() {
     return useMutation({
         mutationFn: ({ id, dto }: { id: string; dto: UpdateTemplateDto }) =>
             messageTemplatesApi.update(id, dto).then(r => r.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTemplateKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTemplateKeys.all });
         },
     });
 }
@@ -50,8 +50,8 @@ export function useDeleteMessageTemplate() {
 
     return useMutation({
         mutationFn: (id: string) => messageTemplatesApi.delete(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTemplateKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTemplateKeys.all });
         },
     });
 }

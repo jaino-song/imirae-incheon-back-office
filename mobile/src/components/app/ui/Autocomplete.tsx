@@ -7,7 +7,7 @@ import {
     useRef,
     type ReactNode,
 } from "react";
-import { Check, ChevronDown, X, Loader2 } from "lucide-react";
+import { Check, X, Loader2, Play } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
@@ -73,7 +73,6 @@ export function Autocomplete<T>({
     required,
     error,
     helperText,
-    emptyMessage,
     manualEntry,
     disabled = false,
     className,
@@ -123,7 +122,8 @@ export function Autocomplete<T>({
     }, [items, displayInputValue, filter, getItemLabel]);
 
     const showDropdown = !disabled && (isFocused || isToggledOpen);
-    const optionCount = filteredItems.length + (manualEntry ? 1 : 0);
+    const isDropdownVisible = showDropdown && filteredItems.length > 0;
+    const optionCount = filteredItems.length;
     const activeHighlightedIndex =
         highlightedIndex >= 0 && highlightedIndex < optionCount ? highlightedIndex : -1;
 
@@ -210,7 +210,6 @@ export function Autocomplete<T>({
     const inputDc = sub("input");
     const toggleDc = sub("toggle");
     const dropdownDc = sub("dropdown");
-    const addBtnDc = sub("add-button");
     const clearBtnDc = sub("clear");
     const resolvedInputId = inputId ?? name;
 
@@ -259,7 +258,7 @@ export function Autocomplete<T>({
                     disabled={disabled}
                     data-component={inputDc}
                     data-slot="autocomplete-input"
-                    data-state={showDropdown ? "open" : "closed"}
+                    data-state={isDropdownVisible ? "open" : "closed"}
                     className={cn(
                         "h-[44px] pr-24 data-[state=open]:!rounded-b-none data-[state=open]:!shadow-none",
                         !error &&
@@ -285,32 +284,39 @@ export function Autocomplete<T>({
                     {isLoading && (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     )}
-                    {!value && !isLoading && !disabled ? (
+                    {!value && !isLoading && !disabled && (isFocused || isToggledOpen) ? (
                         <button
                             type="button"
-                            onClick={() => {
-                                if (showDropdown) {
-                                    setIsToggledOpen(false);
-                                    setIsFocused(false);
-                                    inputRef.current?.blur();
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (currentInputValue.trim().length > 0 && manualEntry) {
+                                    handleManualEntry();
                                 } else {
-                                    updateInputValue(selectedInputValue || currentInputValue);
-                                    setHighlightedIndex(-1);
-                                    setIsToggledOpen(true);
-                                    inputRef.current?.focus();
+                                    if (showDropdown) {
+                                        setIsToggledOpen(false);
+                                        setIsFocused(false);
+                                        inputRef.current?.blur();
+                                    } else {
+                                        updateInputValue(selectedInputValue || currentInputValue);
+                                        setHighlightedIndex(-1);
+                                        setIsToggledOpen(true);
+                                        inputRef.current?.focus();
+                                    }
                                 }
                             }}
-                            className="flex h-[44px] w-[44px] items-center justify-center rounded-2xl"
-                            aria-label="목록 열기"
+                            className="flex h-[44px] w-[44px] items-center justify-center rounded-2xl text-v3-primary transition-colors hover:text-v3-primary/80 disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label="수동 입력으로 진행"
+                            title="수동 입력으로 진행"
                             data-component={toggleDc}
                             data-slot="autocomplete-toggle"
                         >
-                            <ChevronDown className="size-4 translate-x-[9px] text-muted-foreground opacity-50" />
+                            <Play className="h-3.5 w-3.5 translate-x-[9px] fill-current" aria-hidden="true" />
                         </button>
                     ) : null}
                 </div>
 
-                {showDropdown && (
+                {isDropdownVisible && (
                     <div
                         data-component={dropdownDc}
                         data-slot="autocomplete-dropdown"
@@ -321,10 +327,6 @@ export function Autocomplete<T>({
                         {isLoading ? (
                             <div data-component={sub("loading")} className="flex items-center justify-center py-6">
                                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                            </div>
-                        ) : filteredItems.length === 0 ? (
-                            <div data-component={sub("empty")} className="py-6 text-center text-sm text-muted-foreground">
-                                {emptyMessage ?? "결과 없음"}
                             </div>
                         ) : (
                             <div data-component={sub("options")} className="max-h-[200px] overflow-y-auto">
@@ -392,62 +394,6 @@ export function Autocomplete<T>({
                                     );
                                 })}
                             </div>
-                        )}
-
-                        {manualEntry && (
-                            <>
-                                <div data-component={sub("manual-divider")} className="h-px bg-v3-border" />
-                                <div
-                                    onPointerDown={(e) => {
-                                        e.preventDefault();
-                                        markSuppressedClick("manual-entry");
-                                        handleManualEntry();
-                                    }}
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        if (shouldSkipClick("manual-entry")) {
-                                            return;
-                                        }
-                                        handleManualEntry();
-                                    }}
-                                    onMouseEnter={() =>
-                                        setHighlightedIndex(filteredItems.length)
-                                    }
-                                    className={cn(
-                                        "flex flex-col w-full py-3 px-3 cursor-pointer transition-colors",
-                                        activeHighlightedIndex === filteredItems.length &&
-                                            "bg-v3-primary text-white"
-                                    )}
-                                    data-component={addBtnDc}
-                                    data-testid={addBtnDc}
-                                >
-                                    <div data-component={sub("manual-header")} className="flex items-center gap-2">
-                                        {manualEntry.icon}
-                                        <span
-                                            data-component={sub("manual-label")}
-                                            className={cn(
-                                                "text-sm font-medium",
-                                                activeHighlightedIndex !== filteredItems.length &&
-                                                    "text-primary"
-                                            )}
-                                        >
-                                            {manualEntry.label}
-                                        </span>
-                                    </div>
-                                    {manualEntry.description && (
-                                        <span
-                                            data-component={sub("manual-description")}
-                                            className={cn(
-                                                "text-xs mt-1 ml-6",
-                                                activeHighlightedIndex !== filteredItems.length &&
-                                                    "text-muted-foreground"
-                                            )}
-                                        >
-                                            {manualEntry.description}
-                                        </span>
-                                    )}
-                                </div>
-                            </>
                         )}
                     </div>
                 )}

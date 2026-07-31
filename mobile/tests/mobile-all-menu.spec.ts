@@ -106,11 +106,6 @@ test.describe("Mobile nav: center chat + /all menu", () => {
         .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "메시지" })
         .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
     ).toBeVisible();
-    await expect(
-      page
-        .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "발송 자동화" })
-        .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
-    ).toBeVisible();
 
     const before = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('[data-component="mobile_all_page_menu_group_row"]'));
@@ -204,8 +199,8 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     const nav = page.locator('[data-slot="mobile-bottom-nav"]');
     await expect(nav).toBeVisible();
 
-    // Center chat button.
-    await expect(page.locator('[data-slot="mobile-bottom-nav-chat"]')).toBeVisible();
+    // Center messages button.
+    await expect(page.locator('[data-slot="mobile-bottom-nav-messages"]')).toBeVisible();
 
     // "전체" button should exist.
     const allNav = page.locator('[data-slot="mobile-bottom-nav-all"]');

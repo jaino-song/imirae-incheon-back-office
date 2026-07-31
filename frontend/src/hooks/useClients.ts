@@ -158,9 +158,9 @@ export function useCreateClient() {
             const { data } = await api.post("/clients", dto);
             return data as Client;
         },
-        onSuccess: () => {
+        onSuccess: async () => {
             // Invalidate all client queries (lists + details) using prefix match
-            queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
+            await queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
         },
     });
 }
@@ -174,14 +174,14 @@ export function useUpdateClient() {
             const { data } = await api.patch(`/clients/${id}`, dto);
             return data as Client;
         },
-        onSuccess: (updatedClient, variables) => {
+        onSuccess: async (updatedClient, variables) => {
             queryClient.setQueriesData(
                 { queryKey: clientQueryKeys.all },
                 (currentData) => updateClientCacheData(currentData, updatedClient)
             );
             queryClient.setQueryData(clientQueryKeys.detail(variables.id), updatedClient);
 
-            queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
+            await queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
         },
     });
 }
@@ -194,9 +194,9 @@ export function useDeleteClient() {
         mutationFn: async (id: number) => {
             await api.delete(`/clients/${id}`);
         },
-        onSuccess: () => {
+        onSuccess: async () => {
             // Invalidate all client queries (lists + details) using prefix match
-            queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
+            await queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
         },
     });
 }

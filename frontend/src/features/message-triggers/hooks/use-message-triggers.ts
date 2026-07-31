@@ -109,8 +109,8 @@ export function useRetryMessageHistory() {
     return useMutation({
         mutationFn: (id: number) =>
             messageTriggersApi.retryHistory(id).then((response) => response.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
         },
     });
 }
@@ -121,9 +121,9 @@ export function useCreateMessageTriggerRule() {
     return useMutation({
         mutationFn: (dto: CreateMessageTriggerRuleDto) =>
             messageTriggersApi.create(dto).then((response) => response.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
         },
     });
 }
@@ -134,9 +134,9 @@ export function useUpdateMessageTriggerRule() {
     return useMutation({
         mutationFn: ({ id, dto }: { id: string; dto: UpdateMessageTriggerRuleDto }) =>
             messageTriggersApi.update(id, dto).then((response) => response.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
         },
     });
 }
@@ -146,8 +146,8 @@ export function useDeleteMessageTriggerRule() {
 
     return useMutation({
         mutationFn: (id: string) => messageTriggersApi.delete(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
         },
     });
 }

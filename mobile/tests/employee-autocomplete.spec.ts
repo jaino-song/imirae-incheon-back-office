@@ -120,25 +120,18 @@ test.describe('EmployeeAutocomplete', () => {
     const autocompleteInput = page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_input"]`);
 
     await autocompleteInput.click();
-
-    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible({
-      timeout: 5000,
-    });
-    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_add-button"]`)).toBeVisible();
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible();
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_toggle"]`)).toBeVisible();
   });
 
   test('keeps the manual-entry action visible while filtering', async ({ page }) => {
     const autocompleteInput = page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_input"]`);
 
     await autocompleteInput.click();
-    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible({
-      timeout: 5000,
-    });
-
-    await autocompleteInput.fill('김');
-
     await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible();
-    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_add-button"]`)).toBeVisible();
+
+    await autocompleteInput.fill('xyz-nonexistent');
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_toggle"]`)).toBeVisible();
   });
 
   test('opens the employee dialog with the typed name prefilled', async ({ page }) => {
@@ -151,7 +144,7 @@ test.describe('EmployeeAutocomplete', () => {
     });
 
     await autocompleteInput.fill(typedName);
-    await page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_add-button"]`).click();
+    await page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_toggle"]`).click();
 
     const employeeDialog = page.locator('[data-component="employees-form-dialog"]');
     await expect(employeeDialog).toBeVisible({ timeout: 5000 });

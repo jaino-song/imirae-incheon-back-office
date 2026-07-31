@@ -81,6 +81,12 @@ jest.mock("@/hooks/use-message-templates", () => ({
 
 jest.mock("@/features/system-templates/hooks", () => ({
   useSystemTemplate: (key: string) => mockUseSystemTemplate(key),
+  useSystemTemplates: () => ({
+    data: ["GREETING", "INFO", "PRICE_INFO", "REMINDER", "SERVICE_INFO", "SURVEY", "THANKS"]
+      .map((k) => mockUseSystemTemplate(k)?.data)
+      .filter(Boolean),
+    isLoading: false,
+  }),
 }));
 
 jest.mock("@/hooks/useClients", () => ({
@@ -185,7 +191,7 @@ describe("NewMessagePage", () => {
     }));
     mockUseSystemTemplate.mockReset();
     mockUseSystemTemplate.mockImplementation((key: string) => {
-      if (key === "GREETING") {
+      if (key === "GREETING" || key === "greeting") {
         return {
           data: {
             id: "system-greeting",
@@ -200,7 +206,7 @@ describe("NewMessagePage", () => {
         };
       }
 
-      if (key === "SERVICE_INFO") {
+      if (key === "SERVICE_INFO" || key === "service-info") {
         return {
           data: {
             id: "system-service-info",
@@ -628,10 +634,10 @@ describe("NewMessagePage", () => {
     fireEvent.focus(recipientNameInput);
     fireEvent.change(recipientNameInput, { target: { value: "박서연" } });
     fireEvent.click(await screen.findByText("박서연"));
+    fireEvent.blur(recipientNameInput);
 
     expect(recipientNameInput).toHaveValue("");
     expect(screen.queryByRole("button", { name: "선택 해제" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "목록 열기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "박서연 수신자 제거" })).toBeInTheDocument();
 
     await waitFor(() => {

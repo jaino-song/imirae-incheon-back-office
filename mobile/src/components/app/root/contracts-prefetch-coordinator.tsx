@@ -8,6 +8,9 @@ import {
   infiniteContractsQueryOptions,
 } from "@/hooks/useInfiniteContracts";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
+import { dashboardQueryKeys } from "@/hooks/useDashboardAnalytics";
+import { clientQueryKeys } from "@/hooks/useClients";
+import { api } from "@/lib/api/client";
 import { eformsignApi } from "@/services/api";
 
 export function ContractsPrefetchCoordinator(): null {
@@ -21,8 +24,29 @@ export function ContractsPrefetchCoordinator(): null {
 
     let cancelled = false;
 
-    const prefetchContracts = async () => {
+    const prefetchShellData = async () => {
       try {
+        attemptedBranchIdsRef.current.add(branchId);
+
+        // Prefetch Dashboard queries in background
+        void queryClient.prefetchQuery({
+          queryKey: dashboardQueryKeys.analytics(),
+          queryFn: async () => {
+            const response = await fetch("/api/clients/analytics", { cache: "no-store" });
+            return response.json();
+          },
+          staleTime: 60_000,
+        });
+
+        void queryClient.prefetchQuery({
+          queryKey: clientQueryKeys.list(1, 50, undefined),
+          queryFn: async () => {
+            const { data } = await api.get("/clients", { params: { page: 1, limit: 50 } });
+            return data;
+          },
+          staleTime: 60_000,
+        });
+
         const authStatus = await eformsignApi.getAuthStatus();
         if (
           cancelled
@@ -30,8 +54,6 @@ export function ContractsPrefetchCoordinator(): null {
         ) {
           return;
         }
-
-        attemptedBranchIdsRef.current.add(branchId);
 
         // 계약 페이지의 기본 뷰(산모 계약서 섹션)와 완전히 같은 쿼리 키로 프리페치해야
         // 캐시가 재사용된다: 섹션은 제공기록지 template id의 exclude 필터로 표현되므로
@@ -67,7 +89,7 @@ export function ContractsPrefetchCoordinator(): null {
       }
     };
 
-    void prefetchContracts();
+    void prefetchShellData();
 
     return () => {
       cancelled = true;

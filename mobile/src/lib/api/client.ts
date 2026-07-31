@@ -85,6 +85,13 @@ api.interceptors.response.use(
     async (err: AxiosError) => {
         const originalRequest = err.config as AxiosRequestConfig & { _retry?: boolean };
 
+        // Handle 409 Conflict during concurrent auth refresh replay
+        if (isConcurrentAuthRefreshError(err) && originalRequest && !originalRequest._retry) {
+            originalRequest._retry = true;
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            return api(originalRequest);
+        }
+
         // Network error - single retry
         if (err.message === "Network Error" && originalRequest && !originalRequest._retry) {
             originalRequest._retry = true;
