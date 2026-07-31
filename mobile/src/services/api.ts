@@ -432,21 +432,20 @@ export const eformsignApi = {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/rejected');
         return normalizeDocumentListResponse(data);
     },
+    // A delete cancels the document at eformsign and purges the local copy. There is no
+    // permanence choice any more, so is_permanent is no longer sent.
     deleteDocuments: async (
-        documentIds: string[],
-        isPermanent: boolean = false
+        documentIds: string[]
     ): Promise<EformsignDeleteDocumentsResponse> => {
         const { data } = await api.delete('/eformsign/documents', {
-            params: { is_permanent: isPermanent },
             data: { document_ids: documentIds },
         });
         return data;
     },
     deleteDocument: async (
-        documentId: string,
-        isPermanent: boolean = false
+        documentId: string
     ): Promise<EformsignDeleteDocumentsResponse> => {
-        return eformsignApi.deleteDocuments([documentId], isPermanent);
+        return eformsignApi.deleteDocuments([documentId]);
     },
     // Legacy alias
     getDocuments: async (): Promise<EformsignDocumentsResponse> => {

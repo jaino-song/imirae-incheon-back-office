@@ -119,7 +119,7 @@ export function useDeleteEformsignDocument() {
 
   return useMutation<EformsignDeleteDocumentsResponse, Error, string>({
     mutationFn: async (documentId: string) =>
-      withEformsignReauth(() => eformsignApi.deleteDocument(documentId, true)),
+      withEformsignReauth(() => eformsignApi.deleteDocument(documentId)),
     onMutate: async (documentId: string) => {
       await queryClient.cancelQueries({ queryKey: ["eformsign-documents"] });
 

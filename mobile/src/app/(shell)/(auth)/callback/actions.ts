@@ -8,6 +8,7 @@ import { serverAPIClient } from "@/lib/api/server";
 import { getServerRuntimeConfig } from "@/lib/env";
 import {
     ACCESS_TOKEN_MAX_AGE_SECONDS,
+    decodeAccessBranchId,
     getRefreshSessionMaxAgeSeconds,
 } from "@/lib/auth/session-policy";
 
@@ -124,12 +125,43 @@ export async function exchangeToken(code: string): Promise<{
             maxAge: getRefreshSessionMaxAgeSeconds(role),
         });
 
+        // The cookie guard below and the requiresBranchSelection this function
+        // returns (which the client routes on) must agree on what "branch
+        // selection required" means, or the cookie and the redirect can
+        // contradict each other. Compute it once and reuse it for both.
+        const requiresBranchSelection = loginData.requiresBranchSelection || loginData.requiresOrgSelection || false;
+
+        // middleware.ts gates every non-auth route on the selected_branch_id
+        // cookie. When the backend has already resolved a single accessible
+        // branch into the access token, reflect that branch here now —
+        // otherwise the user is bounced through /select-branch on the very
+        // next navigation.
+        //
+        // Every other case must CLEAR the cookie: this token carries no
+        // authorised branch, and a stale value left by a previous account on
+        // this device would otherwise satisfy the middleware gate and wave
+        // this login through to /dashboard with someone else's branch.
+        const branchId = requiresBranchSelection
+            ? null
+            : decodeAccessBranchId(loginData.accessToken);
+        if (branchId) {
+            cookieStore.set("selected_branch_id", branchId, {
+                httpOnly: false,
+                secure: isSecureCookie,
+                sameSite: "lax",
+                path: "/",
+                maxAge: 30 * 24 * 60 * 60,
+            });
+        } else {
+            cookieStore.delete("selected_branch_id");
+        }
+
         console.log("[Server Action] Token exchange successful");
-        console.log("[Server Action] requiresBranchSelection:", loginData.requiresBranchSelection);
+        console.log("[Server Action] requiresBranchSelection:", requiresBranchSelection);
 
         return {
             success: true,
-            requiresBranchSelection: loginData.requiresBranchSelection || loginData.requiresOrgSelection || false,
+            requiresBranchSelection,
         };
     } catch (error) {
         console.error("[Server Action] Token Exchange Error:", error);

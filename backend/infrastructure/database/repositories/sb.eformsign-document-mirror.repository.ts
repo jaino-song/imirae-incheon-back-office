@@ -1,7 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 
-import { EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES } from "domain/constants/eformsign-doc-status.constants";
+import {
+    EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
+    UNASSIGNED_TERMINAL_STATUS_CODES,
+} from "domain/constants/eformsign-doc-status.constants";
 import {
     EformsignDocumentFileType,
     EformsignDocumentFileMetadata,
@@ -115,6 +118,33 @@ implements IEformsignDocumentMirrorRepository {
             where: {
                 statusType: { not: "049" },
                 permanentPurgeRequestedAt: null,
+            },
+            select: { documentId: true },
+        });
+        return rows.map((row) => row.documentId);
+    }
+
+    /**
+     * Of the given documents, those already in a terminal state locally.
+     *
+     * A delete cancels the document at the vendor first, and eformsign only cancels
+     * in-progress documents. Terminal ones are refused, but they have no live signing
+     * link left to revoke, so refusing to delete them locally would strand every
+     * completed contract. This separates "refused because there was nothing to cancel"
+     * from "refused for a reason we do not understand".
+     *
+     * Deliberately the unassigned set, which drops the review-stage codes 062 and 071:
+     * those end the reviewer stage, not the document, so a review request can still
+     * follow and the recipient's link is still live.
+     */
+    async findTerminalDocumentIds(documentIds: string[]): Promise<string[]> {
+        if (documentIds.length === 0) {
+            return [];
+        }
+        const rows = await this.prisma.eformsign_doc.findMany({
+            where: {
+                documentId: { in: documentIds },
+                statusType: { in: [...UNASSIGNED_TERMINAL_STATUS_CODES] },
             },
             select: { documentId: true },
         });
@@ -486,10 +516,9 @@ implements IEformsignDocumentMirrorRepository {
                     updatedDate: deletedAt,
                     expired: false,
                     clientId: null,
-                    // A permanent-purge tombstone must retain only its deletion
-                    // audit trail. Keep it out of client/service-record views and
-                    // lifecycle readiness sets even after the purge intent is
-                    // cleared below.
+                    // A purge tombstone must retain only its deletion audit trail.
+                    // Keep it out of client/service-record views and lifecycle
+                    // readiness sets.
                     documentKind: null,
                     employeeScheduleId: null,
                     serviceRecordCaseId: null,
@@ -501,6 +530,13 @@ implements IEformsignDocumentMirrorRepository {
                     syncStatus: "ready",
                     syncError: null,
                     syncErrorAt: null,
+                    // Clearing the intent is what ends the purge. It is not what keeps the
+                    // document buried: the 049 status does that on its own, because the
+                    // conditional upsert throws EformsignDocStaleUpdateError when the row
+                    // exists and its staleGuard refuses, and only creates when no row exists
+                    // at all. A retained intent instead means "we still owe the vendor a
+                    // purge", which the reconcile sweep acts on — see the retry it drives in
+                    // backfill-eformsign-docs.usecase.ts.
                     permanentPurgeRequestedAt: null,
                 },
             });

@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 import { logout } from "./actions";
 
 export default function LogoutPage() {
-    const router = useRouter();
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -14,19 +12,20 @@ export default function LogoutPage() {
             const result = await logout();
 
             if (result.success) {
-                // Redirect to login page after successful logout
-                router.replace("/login");
+                // Hard navigation: destroys the React Query cache and Next.js
+                // Router Cache so the next account never sees this one's data.
+                window.location.replace("/login");
             } else {
                 setError(result.error || "로그아웃 중 오류가 발생했습니다.");
                 // Still redirect to login after a short delay even on error
                 setTimeout(() => {
-                    router.replace("/login");
+                    window.location.replace("/login");
                 }, 2000);
             }
         };
 
         performLogout();
-    }, [router]);
+    }, []);
 
     if (error) {
         return (

@@ -90,14 +90,18 @@ const LoginPage = () => {
 
       if (response.success) {
         startNavigation();
+        // Every navigation below crosses an identity boundary (new
+        // account/branch session). The shared (shell) layout would not
+        // re-render its server-rendered UserProvider on a soft navigation, so
+        // reload the document instead.
         if (response.onboardingRequired) {
-          router.replace(response.onboardingRoute || "/onboarding");
+          window.location.replace(response.onboardingRoute || "/onboarding");
           return;
         }
         if (response.requiresBranchSelection) {
-          router.replace("/select-branch");
+          window.location.replace("/select-branch");
         } else {
-          router.replace("/dashboard");
+          window.location.replace("/dashboard");
         }
       } else {
         if (response.authErrorCode) {

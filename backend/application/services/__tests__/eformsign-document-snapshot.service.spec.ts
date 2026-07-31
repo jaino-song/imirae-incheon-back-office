@@ -435,8 +435,9 @@ describe("EformsignDocumentSnapshotService", () => {
         const deferred = createDeferred<DocumentSnapshotEntry<TestDocument>[]>();
         const build = jest.fn(() => deferred.promise);
 
+        // One lookup per return (owner, waiter). Snapshots are no longer filtered a third time
+        // at storage; return-time filtering is the single place visibility is decided.
         purgeLookup.findPermanentPurgeRequestedDocumentIds
-            .mockResolvedValueOnce([])
             .mockResolvedValueOnce(["purge-pending-document"])
             .mockResolvedValueOnce(["purge-pending-document"]);
         const owner = service.getOrBuild(createMirrorParams(), build);
@@ -450,7 +451,7 @@ describe("EformsignDocumentSnapshotService", () => {
         expect(build).toHaveBeenCalledTimes(1);
         expect(ownerResult.entries).toEqual([createEntry("safe-document")]);
         expect(waiterResult.entries).toEqual([createEntry("safe-document")]);
-        expect(purgeLookup.findPermanentPurgeRequestedDocumentIds).toHaveBeenCalledTimes(3);
+        expect(purgeLookup.findPermanentPurgeRequestedDocumentIds).toHaveBeenCalledTimes(2);
     });
 
     it("should fail closed when the cache-miss return fence is unavailable", async () => {
@@ -459,8 +460,8 @@ describe("EformsignDocumentSnapshotService", () => {
         const fenceError = new Error("purge lookup unavailable at return");
         const build = jest.fn().mockResolvedValue([createEntry("document-1")]);
 
+        // The first lookup is now the return fence itself — the storage-time pass is gone.
         purgeLookup.findPermanentPurgeRequestedDocumentIds
-            .mockResolvedValueOnce([])
             .mockRejectedValueOnce(fenceError);
 
         await expect(service.getOrBuild(createMirrorParams(), build)).rejects.toBe(fenceError);
