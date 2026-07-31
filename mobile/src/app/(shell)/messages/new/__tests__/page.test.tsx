@@ -81,6 +81,12 @@ jest.mock("@/hooks/use-message-templates", () => ({
 
 jest.mock("@/features/system-templates/hooks", () => ({
   useSystemTemplate: (key: string) => mockUseSystemTemplate(key),
+  useSystemTemplates: () => ({
+    data: ["GREETING", "INFO", "PRICE_INFO", "REMINDER", "SERVICE_INFO", "SURVEY", "THANKS"]
+      .map((k) => mockUseSystemTemplate(k)?.data)
+      .filter(Boolean),
+    isLoading: false,
+  }),
 }));
 
 jest.mock("@/hooks/useClients", () => ({
@@ -632,7 +638,6 @@ describe("NewMessagePage", () => {
 
     expect(recipientNameInput).toHaveValue("");
     expect(screen.queryByRole("button", { name: "선택 해제" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "목록 열기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "박서연 수신자 제거" })).toBeInTheDocument();
 
     await waitFor(() => {

@@ -29,10 +29,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSystemTemplates } from "@/features/system-templates/hooks";
+import { useSystemTemplate } from "@/features/system-templates/hooks";
 import type { CustomVariable, TemplateVariable } from "@/features/system-templates/types";
 import { useBankAccountInfos, useVoucherPriceInfos, type BankAccountInfo } from "@/hooks";
-import { useAllClients, useClient } from "@/hooks/useClients";
+import { useAllClients } from "@/hooks/useClients";
 import { useMessageTemplates } from "@/hooks/use-message-templates";
 import type { Client } from "@/lib/client/types";
 import { api } from "@/lib/api/client";
@@ -485,11 +485,10 @@ export default function NewMessagePage() {
   const initialBody = searchParams.get("body") ?? "";
   const initialTemplateId = searchParams.get("template") ?? GREETING_TEMPLATE_ID;
   const initialClientId = parsePositiveIntQueryParam(searchParams.get("clientId"));
-  const { data: directClient } = useClient(initialClientId ?? 0);
   const { data: allClients = [] } = useAllClients();
-  const initialClient = directClient ?? (initialClientId === null
+  const initialClient = initialClientId === null
     ? null
-    : allClients.find((candidate) => candidate.id === initialClientId) ?? null);
+    : allClients.find((candidate) => candidate.id === initialClientId) ?? null;
   const routeSeedKey = `${initialBody}\u0000${initialTemplateId}\u0000${initialClientId ?? ""}`;
 
   return (
@@ -519,12 +518,10 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
   const [recipientNameInputValue, setRecipientNameInputValue] = useState("");
   const [recipients, setRecipients] = useState<RecipientChip[]>(() => initialRecipient ? [initialRecipient] : []);
 
-  const [prevInitialClient, setPrevInitialClient] = useState(initialClient);
-  if (initialClient !== prevInitialClient) {
-    setPrevInitialClient(initialClient);
+  useEffect(() => {
     if (initialClient) {
       const phone = normalizeKoreanPhoneDigits(initialClient.phone);
-      if (phone && !recipients.some((item) => item.clientId === initialClient.id)) {
+      if (phone) {
         const chip: RecipientChip = {
           id: `client-${initialClient.id}`,
           clientId: initialClient.id,
@@ -533,10 +530,15 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
           initial: getRecipientInitial(initialClient.name),
           tone: "primary",
         };
-        setRecipients((prev) => [chip, ...prev]);
+        queueMicrotask(() => {
+          setRecipients((prev) => {
+            if (prev.some((item) => item.clientId === initialClient.id)) return prev;
+            return [chip, ...prev];
+          });
+        });
       }
     }
-  }
+  }, [initialClient]);
   const [bodyOverride, setBodyOverride] = useState<string | null>(initialBody.trim() ? initialBody : null);
   const [templateVariableValues, setTemplateVariableValues] = useState<Record<string, string>>(() => {
     const values: Record<string, string> = {};
@@ -557,23 +559,13 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
     needsSenderApproval,
   } = useMessagesPermissionGuard();
 
-  const { data: systemTemplates = [] } = useSystemTemplates();
-  const systemTemplateMap = useMemo(() => {
-    const map = new Map<string, typeof systemTemplates[number]>();
-    systemTemplates.forEach((t) => {
-      const key = (t as { templateKey?: string; key?: string }).templateKey ?? (t as { templateKey?: string; key?: string }).key;
-      if (key) map.set(key, t);
-    });
-    return map;
-  }, [systemTemplates]);
-
-  const greetingSystemTemplate = systemTemplateMap.get(GREETING_TEMPLATE_ID);
-  const infoSystemTemplate = systemTemplateMap.get(INFO_TEMPLATE_ID);
-  const priceInfoSystemTemplate = systemTemplateMap.get(PRICE_INFO_TEMPLATE_ID);
-  const reminderSystemTemplate = systemTemplateMap.get(REMINDER_TEMPLATE_ID);
-  const serviceInfoSystemTemplate = systemTemplateMap.get(SERVICE_INFO_TEMPLATE_ID);
-  const surveySystemTemplate = systemTemplateMap.get(SURVEY_TEMPLATE_ID);
-  const thanksSystemTemplate = systemTemplateMap.get(THANKS_TEMPLATE_ID);
+  const { data: greetingSystemTemplate } = useSystemTemplate(GREETING_TEMPLATE_ID);
+  const { data: infoSystemTemplate } = useSystemTemplate(INFO_TEMPLATE_ID);
+  const { data: priceInfoSystemTemplate } = useSystemTemplate(PRICE_INFO_TEMPLATE_ID);
+  const { data: reminderSystemTemplate } = useSystemTemplate(REMINDER_TEMPLATE_ID);
+  const { data: serviceInfoSystemTemplate } = useSystemTemplate(SERVICE_INFO_TEMPLATE_ID);
+  const { data: surveySystemTemplate } = useSystemTemplate(SURVEY_TEMPLATE_ID);
+  const { data: thanksSystemTemplate } = useSystemTemplate(THANKS_TEMPLATE_ID);
   const { data: userTemplates = [] } = useMessageTemplates();
   const { data: bankAccountInfos = [], isLoading: isBankAccountInfosLoading } = useBankAccountInfos();
   const { data: voucherPriceInfos = [], isLoading: isVoucherPriceInfosLoading } = useVoucherPriceInfos(
