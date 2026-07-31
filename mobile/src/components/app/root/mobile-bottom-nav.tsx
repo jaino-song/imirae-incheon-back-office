@@ -13,13 +13,14 @@ const NAV_ITEMS: Array<{
   label: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   kind?: "normal" | "chat";
+  slot?: string;
   disabled?: boolean;
 }> = [
-  { href: "/dashboard", label: "홈", icon: Home, kind: "normal" },
-  { href: "/clients", label: "고객", icon: User, kind: "normal" },
-  { href: "/messages/new", label: "메시지", icon: MessageSquareText, kind: "normal" },
-  { href: "/contracts", label: "계약", icon: FileText, kind: "normal" },
-  { href: "/all", label: "전체", icon: Menu, kind: "normal" },
+  { href: "/dashboard", label: "홈", icon: Home, kind: "normal", slot: "mobile-bottom-nav-dashboard" },
+  { href: "/clients", label: "고객", icon: User, kind: "normal", slot: "mobile-bottom-nav-clients" },
+  { href: "/messages/new", label: "메시지", icon: MessageSquareText, kind: "normal", slot: "mobile-bottom-nav-messages" },
+  { href: "/contracts", label: "계약", icon: FileText, kind: "normal", slot: "mobile-bottom-nav-contracts" },
+  { href: "/all", label: "전체", icon: Menu, kind: "normal", slot: "mobile-bottom-nav-all" },
 ];
 const ALL_NAV_INDEX = NAV_ITEMS.findIndex((item) => item.href === "/all");
 const NAV_BASE = "mobile_shell_bottom-nav";
@@ -124,7 +125,7 @@ export function MobileBottomNav() {
         const Icon = item.icon;
         const itemName = item.href.replace(/^\//, "").replace(/\//g, "-");
         const dataComponent = `${NAV_BASE}_${itemName}`;
-        const dataSlot = `mobile-bottom-nav-${itemName}`;
+        const dataSlot = item.slot ?? `mobile-bottom-nav-${itemName}`;
         const itemClassName = cn(
           "relative z-10 flex h-10 flex-col items-center gap-[2px] rounded-[14px] px-1 py-[5px]",
           prefersReducedMotion ? null : "transition-colors duration-300 ease-out",
