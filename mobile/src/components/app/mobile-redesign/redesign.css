@@ -3566,22 +3566,24 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   height: 100%;
   min-height: 0;
   background: hsl(var(--v3-dim-white));
-  padding: 20px 20px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
   box-sizing: border-box;
   overflow: hidden;
   line-height: normal;
 }
 .branch-header {
-  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex-shrink: 0;
 }
 .branch-title {
   font-size: 1.3rem;
   font-weight: 800;
   color: hsl(var(--v3-dark));
-  margin-bottom: 6px;
 }
 .branch-user {
   display: flex;
@@ -3590,7 +3592,6 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   background: white;
   border-radius: 14px;
   padding: 10px 12px;
-  margin-bottom: 18px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   flex-shrink: 0;
 }
@@ -3611,6 +3612,9 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   flex: 1;
   min-width: 0;
   line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .branch-user-name {
   font-size: 0.85rem;
@@ -3620,7 +3624,6 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
 .branch-user-email {
   font-size: 0.66rem;
   color: hsl(var(--v3-text-muted));
-  margin-top: 2px;
 }
 .branch-list {
   display: flex;
@@ -3701,7 +3704,6 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   display: block;
 }
 .branch-actions {
-  margin-top: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
