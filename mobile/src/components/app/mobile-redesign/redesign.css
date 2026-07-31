@@ -398,6 +398,10 @@ body:has([data-slot="messages-page"]) [data-slot="messages-content"] {
   border-radius: 16px;
   box-shadow: 0 4px 24px hsla(214, 50%, 20%, 0.06);
 }
+.stats-grid > .mini-stat:nth-child(1) { animation-delay: 0ms; }
+.stats-grid > .mini-stat:nth-child(2) { animation-delay: 60ms; }
+.stats-grid > .mini-stat:nth-child(3) { animation-delay: 120ms; }
+.stats-grid > .mini-stat:nth-child(4) { animation-delay: 180ms; }
 .mini-stat-icon {
   width: 36px;
   height: 36px;
@@ -567,7 +571,7 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
 }
 
 [data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot^="mobile-bottom-nav-"],
-[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-chat"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-messages"] {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
@@ -663,18 +667,9 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   gap: 0.5rem; /* Tailwind gap-2 — section-header/list-item/contract-item 간 균일 간격 */
 }
 .list-card-scroll::-webkit-scrollbar { display: none; }
-.list-card-scroll.has-top-overflow::before {
-  content: "";
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: block;
-  align-self: stretch;
-  height: 18px;
-  flex: 0 0 18px;
-  margin-bottom: calc(-18px - 0.5rem);
-  background: linear-gradient(to bottom, white, transparent);
-  pointer-events: none;
+.list-card-scroll.has-top-overflow {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
 }
 
 /* ===== Filter pills ===== */
@@ -2511,8 +2506,14 @@ body.mobile-clients-route [data-slot="mobile-header"] {
     sans-serif;
 }
 
-/* ===== Pop-up entrance animation (shared) ===== */
-.pop-up {
+/* ===== Pop-up entrance animation (shared across mobile elements) ===== */
+.pop-up,
+.mini-stat,
+.profile-card,
+.info-card,
+.list-card,
+.message-detail,
+.price-breakdown {
   animation: mobile-redesign-pop-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -3565,22 +3566,24 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   height: 100%;
   min-height: 0;
   background: hsl(var(--v3-dim-white));
-  padding: 24px 20px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
   box-sizing: border-box;
   overflow: hidden;
   line-height: normal;
 }
 .branch-header {
-  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex-shrink: 0;
 }
 .branch-title {
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   font-weight: 800;
   color: hsl(var(--v3-dark));
-  margin-bottom: 6px;
 }
 .branch-user {
   display: flex;
@@ -3589,7 +3592,6 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   background: white;
   border-radius: 14px;
   padding: 10px 12px;
-  margin-bottom: 18px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   flex-shrink: 0;
 }
@@ -3610,16 +3612,18 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   flex: 1;
   min-width: 0;
   line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .branch-user-name {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: hsl(var(--v3-dark));
 }
 .branch-user-email {
   font-size: 0.66rem;
   color: hsl(var(--v3-text-muted));
-  margin-top: 2px;
 }
 .branch-list {
   display: flex;
@@ -3700,7 +3704,6 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   display: block;
 }
 .branch-actions {
-  margin-top: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3725,18 +3728,26 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
 }
 .logout-link {
   min-height: 44px;
-  background: none;
-  border: 0;
+  background: white;
+  border: 1.5px solid hsl(var(--v3-primary));
+  border-radius: 14px;
   text-align: center;
-  font-size: 0.74rem;
-  color: hsl(var(--v3-text-muted));
-  padding: 8px;
+  font-size: 0.82rem;
+  color: hsl(var(--v3-primary));
+  padding: 8px 14px;
   cursor: pointer;
   font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease-out;
+}
+.logout-link:hover {
+  background: hsl(var(--v3-primary-light));
 }
 .logout-link span {
-  color: hsl(var(--v3-burgundy));
-  font-weight: 600;
+  color: hsl(var(--v3-primary));
+  font-weight: 700;
 }
 
 /* ===== Register page wizard (/register) ===== */

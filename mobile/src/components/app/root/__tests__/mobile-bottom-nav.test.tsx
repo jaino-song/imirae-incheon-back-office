@@ -62,21 +62,18 @@ describe("MobileBottomNav", () => {
     });
   });
 
-  it("renders 통화요약 as disabled", () => {
-    mockUsePathname.mockReturnValue("/calls");
+  it("renders 메시지 as an active nav link navigating to /messages/new", () => {
+    mockUsePathname.mockReturnValue("/messages/new");
 
-    const { container } = render(<MobileBottomNav />);
-    const callsItem = container.querySelector('[data-slot="mobile-bottom-nav-chat"]');
+    render(<MobileBottomNav />);
 
-    expect(callsItem).toHaveTextContent("통화요약");
-    expect(callsItem).toHaveAttribute("aria-disabled", "true");
-    expect(callsItem).toHaveAttribute("data-disabled", "true");
-    expect(callsItem).toHaveClass("text-gray-300");
-    expect(callsItem).not.toHaveClass("opacity-60");
-    expect(screen.queryByRole("link", { name: /통화요약/ })).not.toBeInTheDocument();
+    const messagesLink = screen.getByRole("link", { name: "메시지" });
+    expect(messagesLink).toBeInTheDocument();
+    expect(messagesLink).toHaveAttribute("href", "/messages/new");
+    expect(messagesLink).toHaveAttribute("aria-current", "page");
   });
 
-  it("does not fetch the calls pending count while 통화요약 is disabled", () => {
+  it("does not fetch any calls pending count", () => {
     mockUsePathname.mockReturnValue("/dashboard");
 
     render(<MobileBottomNav />);

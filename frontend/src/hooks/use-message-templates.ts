@@ -45,8 +45,8 @@ export function useCreateMessageTemplate() {
             const { data } = await api.post("/message-templates", request);
             return data as MessageTemplate;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: templateQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: templateQueryKeys.all });
         },
     });
 }
@@ -59,9 +59,9 @@ export function useUpdateMessageTemplate() {
             const { data } = await api.patch(`/message-templates/${id}`, request);
             return data as MessageTemplate;
         },
-        onSuccess: (_, variables) => {
-            queryClient.invalidateQueries({ queryKey: templateQueryKeys.all });
-            queryClient.invalidateQueries({ queryKey: templateQueryKeys.detail(variables.id) });
+        onSuccess: async (_, variables) => {
+            await queryClient.invalidateQueries({ queryKey: templateQueryKeys.all });
+            await queryClient.invalidateQueries({ queryKey: templateQueryKeys.detail(variables.id) });
         },
     });
 }
@@ -73,8 +73,8 @@ export function useDeleteMessageTemplate() {
         mutationFn: async (id: string) => {
             await api.delete(`/message-templates/${id}`);
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: templateQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: templateQueryKeys.all });
         },
     });
 }

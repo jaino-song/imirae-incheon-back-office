@@ -110,10 +110,12 @@ function MessagePageShell({
         data-component={`${dataComponent}_content`}
         data-slot="messages-content"
       >
-        <MessageSectionNav
-          data-component={`${dataComponent}_content_section-nav`}
-          activeId={activeSection}
-        />
+        <div data-component={`${dataComponent}_content_section-nav-wrapper`} className="shrink-0">
+          <MessageSectionNav
+            data-component={`${dataComponent}_content_section-nav`}
+            activeId={activeSection}
+          />
+        </div>
         <ListCard
           data-component={`${dataComponent}_content_list-card`}
           title={title}
@@ -268,7 +270,6 @@ export function MessagesHistoryPage() {
           count={`${records.length}건`}
           activeSection="history"
           dataComponent={HISTORY_LIST_BASE}
-          dataSlot="messages-history-list"
         >
           {isLoading ? (
             <LoadingState />

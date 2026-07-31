@@ -35,8 +35,8 @@ export function useCreateDocumentCategory() {
             const { data } = await api.post<DocumentCategory>("/document-categories", params);
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: documentCategoryQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: documentCategoryQueryKeys.all });
         },
     });
 }

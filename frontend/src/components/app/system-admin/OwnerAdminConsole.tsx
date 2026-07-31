@@ -737,13 +737,13 @@ export function OwnerAdminConsole() {
   });
   const approveMessageSenderMutation = useMutation({
     mutationFn: approveSystemAdminMessageSenderApproval,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
     },
   });
   const createBranchMutation = useMutation({
     mutationFn: createSystemAdminBranch,
-    onSuccess: (branch) => {
+    onSuccess: async (branch) => {
       queryClient.setQueryData<SystemAdminBranchRequest[]>(
         ["systemAdminBranchRequests"],
         (current = []) => [branch, ...current.filter((item) => item.id !== branch.id)],
@@ -753,19 +753,19 @@ export function OwnerAdminConsole() {
         branches: { ...currentState.branches, selectedRecordId: branch.id },
       }));
       setBranchFormMode(null);
-      void queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
+      await queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
     },
   });
   const updateBranchMutation = useMutation({
     mutationFn: ({ branchId, input }: { branchId: string; input: SystemAdminBranchInput }) =>
       updateSystemAdminBranch(branchId, input),
-    onSuccess: (branch) => {
+    onSuccess: async (branch) => {
       queryClient.setQueryData<SystemAdminBranchRequest[]>(
         ["systemAdminBranchRequests"],
         (current = []) => current.map((item) => (item.id === branch.id ? branch : item)),
       );
       setBranchFormMode(null);
-      void queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
+      await queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
     },
   });
   const [pendingRoleSelections, setPendingRoleSelections] = useState<Record<string, string>>({});
@@ -785,14 +785,14 @@ export function OwnerAdminConsole() {
       branchId: string;
       ownerBranchId?: string;
     }) => approveUser(id, role, branchId, ownerBranchId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["systemAdminUsers"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["systemAdminUsers"] });
     },
   });
   const rejectUserMutation = useMutation({
     mutationFn: (id: string) => rejectUser(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["systemAdminUsers"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["systemAdminUsers"] });
     },
   });
   const isPendingApprovalActionRunning = approveUserMutation.isPending || rejectUserMutation.isPending;
@@ -801,10 +801,10 @@ export function OwnerAdminConsole() {
   const updateUserRoleMutation = useMutation({
     mutationFn: ({ id, role }: { id: string; role: "manager" | "user" }) =>
       updateUserRole(id, role),
-    onSuccess: () => {
+    onSuccess: async () => {
       setAccountEditUserId(null);
-      void queryClient.invalidateQueries({ queryKey: ["systemAdminUsers"] });
-      void queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
+      await queryClient.invalidateQueries({ queryKey: ["systemAdminUsers"] });
+      await queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
     },
   });
 

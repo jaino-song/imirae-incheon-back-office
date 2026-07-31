@@ -193,10 +193,10 @@ const TEMPLATE_FILTERS: Array<{ value: TemplateFilter; label: string }> = [
 
 const MESSAGE_SECTIONS = [
   { ...MESSAGE_SECTION_DEFINITIONS[0], icon: Send },
-  { ...MESSAGE_SECTION_DEFINITIONS[1], icon: Clock3 },
-  { ...MESSAGE_SECTION_DEFINITIONS[2], icon: History },
+  { ...MESSAGE_SECTION_DEFINITIONS[1], icon: Clock3, disabled: true },
+  { ...MESSAGE_SECTION_DEFINITIONS[2], icon: History, disabled: true },
   { ...MESSAGE_SECTION_DEFINITIONS[3], icon: FileText, disabled: true },
-  { ...MESSAGE_SECTION_DEFINITIONS[4], icon: Workflow },
+  { ...MESSAGE_SECTION_DEFINITIONS[4], icon: Workflow, disabled: true },
   { ...MESSAGE_SECTION_DEFINITIONS[5], icon: Settings2 },
 ] as const;
 
