@@ -34,7 +34,7 @@ export default function NewMessageLoading() {
             >
               <div
                 data-component="mobile_messages_new_loading_form-card"
-                className={`${styles.recipientCard} pop-up`}
+                className={styles.recipientCard}
               >
                 <div
                   data-component="mobile_messages_new_loading_form-card_content"

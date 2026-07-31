@@ -489,7 +489,7 @@ export default function NewMessagePage() {
   const initialClient = initialClientId === null
     ? null
     : allClients.find((candidate) => candidate.id === initialClientId) ?? null;
-  const routeSeedKey = `${initialBody}\u0000${initialTemplateId}\u0000${initialClientId ?? ""}\u0000${initialClient?.phone ?? "pending"}`;
+  const routeSeedKey = `${initialBody}\u0000${initialTemplateId}\u0000${initialClientId ?? ""}`;
 
   return (
     <NewMessageForm
@@ -517,6 +517,26 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
   const [receiver, setReceiver] = useState("");
   const [recipientNameInputValue, setRecipientNameInputValue] = useState("");
   const [recipients, setRecipients] = useState<RecipientChip[]>(() => initialRecipient ? [initialRecipient] : []);
+
+  useEffect(() => {
+    if (initialClient) {
+      const phone = normalizeKoreanPhoneDigits(initialClient.phone);
+      if (phone) {
+        const chip: RecipientChip = {
+          id: `client-${initialClient.id}`,
+          clientId: initialClient.id,
+          name: initialClient.name,
+          phone: formatRecipientPhone(phone),
+          initial: getRecipientInitial(initialClient.name),
+          tone: "primary",
+        };
+        setRecipients((prev) => {
+          if (prev.some((item) => item.clientId === initialClient.id)) return prev;
+          return [chip, ...prev];
+        });
+      }
+    }
+  }, [initialClient]);
   const [bodyOverride, setBodyOverride] = useState<string | null>(initialBody.trim() ? initialBody : null);
   const [templateVariableValues, setTemplateVariableValues] = useState<Record<string, string>>(() => {
     const values: Record<string, string> = {};
@@ -1096,7 +1116,7 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
               actionDisabled={isSubmitDisabled}
               filters={[]}
             >
-            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card" className={`${styles.recipientCard} pop-up`}>
+            <div data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card" className={styles.recipientCard}>
               <div
                 data-component="mobile_messages_new_page_screen_form_scroll_list-card_body_form-card_content"
                 className={styles.unifiedFormCardContent}
