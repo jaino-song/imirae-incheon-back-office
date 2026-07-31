@@ -3581,7 +3581,7 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   flex-shrink: 0;
 }
 .branch-title {
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   font-weight: 800;
   color: hsl(var(--v3-dark));
 }
