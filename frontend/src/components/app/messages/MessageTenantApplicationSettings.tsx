@@ -216,7 +216,10 @@ export function MessageTenantApplicationSettings() {
     queryKey: ["settings", "message-sender-approval"],
     queryFn: settingsApi.getMessageSenderApproval,
   });
-  const { data: messageAutomationPolicies } = useQuery({
+  const {
+    data: messageAutomationPolicies,
+    isLoading: isMessageAutomationPoliciesLoading,
+  } = useQuery({
     queryKey: ["settings", "message-automation-policies"],
     queryFn: settingsApi.getMessageAutomationPolicies,
   });
@@ -237,9 +240,11 @@ export function MessageTenantApplicationSettings() {
   const allAgreed = ALIGO_POLICY_ITEMS.every((item) => agreements[item.id]);
   const canSubmit = allAgreed;
   const isMessageSenderApproved = messageSenderApproval?.isApproved === true;
+  const isMessageSettingsListLoading =
+    isMessageSenderApprovalLoading || isMessageAutomationPoliciesLoading;
   const listItems = useMemo<TenantApplicationListItem[]>(
     () => {
-      if (isMessageSenderApprovalLoading) {
+      if (isMessageSettingsListLoading) {
         return [];
       }
 
@@ -289,7 +294,7 @@ export function MessageTenantApplicationSettings() {
     },
     [
       canSubmit,
-      isMessageSenderApprovalLoading,
+      isMessageSettingsListLoading,
       isMessageSenderApproved,
       messageAutomationPolicies?.policies,
       clientRegistrationPolicy?.clientAutoRegistration,
@@ -433,14 +438,14 @@ export function MessageTenantApplicationSettings() {
       ruleOrder: retroactiveTriggerOrderItems.map((item) => item.id),
     });
   };
-  const emptyListMessage = isMessageSenderApprovalLoading
+  const emptyListMessage = isMessageSettingsListLoading
     ? "설정 정보를 불러오는 중입니다."
     : "표시할 설정 항목이 없습니다.";
-  const emptyDetailMessage = isMessageSenderApprovalLoading
+  const emptyDetailMessage = isMessageSettingsListLoading
     ? "설정 정보를 불러오는 중입니다."
     : "설정 항목을 선택해 주세요.";
 
-  if (isMessageSenderApprovalLoading) {
+  if (isMessageSettingsListLoading) {
     return (
       <div
         data-component="desktop_messages_sections_settings-layout"
