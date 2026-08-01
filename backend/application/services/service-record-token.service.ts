@@ -206,23 +206,47 @@ export class ServiceRecordTokenService {
     /**
      * Verify a phone number against the link token. On success mint + persist a new access token.
      * Wrong phone numbers may be retried without limit — the attempt count is kept for audit only.
+     *
+     * expectedPhoneHash is a snapshot taken at link issuance. If the employee's phone was
+     * corrected in admin after issuance, the snapshot goes stale, so a mismatch falls back to
+     * the live employee record: a phone matching the employee's current number verifies and
+     * heals the snapshot. Links issued to an explicit override phone keep working through the
+     * snapshot compare and are never loosened — the fallback only ever accepts the live phone.
      */
     async verifyPhoneAndMintAccess(linkToken: string, phone: string): Promise<VerifyPhoneResult> {
         const record = await this.resolveLink(linkToken);
         if (!record) return { ok: false, reason: "invalid_token" };
 
-        if (this.hash(this.normalizePhone(phone)) !== record.expectedPhoneHash) {
-            await this.prismaService.service_record_token.update({
-                where: { id: record.id },
-                data: { failedAttempts: { increment: 1 } },
+        const submittedPhoneHash = this.hash(this.normalizePhone(phone));
+        let healedPhoneHash: string | null = null;
+        if (submittedPhoneHash !== record.expectedPhoneHash) {
+            const employee = await this.prismaService.employee.findFirst({
+                where: { id: record.employeeId, deletedAt: null },
+                select: { phone: true },
             });
-            return { ok: false, reason: "wrong_phone" };
+            const livePhone = this.normalizePhone(employee?.phone ?? "");
+            if (!livePhone || this.hash(livePhone) !== submittedPhoneHash) {
+                await this.prismaService.service_record_token.update({
+                    where: { id: record.id },
+                    data: { failedAttempts: { increment: 1 } },
+                });
+                return { ok: false, reason: "wrong_phone" };
+            }
+            healedPhoneHash = submittedPhoneHash;
+            this.logger.log(
+                `service-record token ${record.id}: stale phone snapshot healed from live employee record`,
+            );
         }
 
         const accessToken = `efa_${randomBytes(32).toString("base64url")}`;
         await this.prismaService.service_record_token.update({
             where: { id: record.id },
-            data: { accessTokenHash: this.hash(accessToken), verifiedAt: new Date(), failedAttempts: 0 },
+            data: {
+                accessTokenHash: this.hash(accessToken),
+                verifiedAt: new Date(),
+                failedAttempts: 0,
+                ...(healedPhoneHash ? { expectedPhoneHash: healedPhoneHash } : {}),
+            },
         });
         return { ok: true, accessToken };
     }

@@ -75,6 +75,10 @@ function makePrismaMock() {
                 return { count };
             }),
         },
+        employee: {
+            // Live employee lookup used by the stale-snapshot fallback; tests override per case.
+            findFirst: jest.fn<Promise<{ phone: string } | null>, [any]>(async () => null),
+        },
     };
     return Object.assign(prisma, {
         $transaction: jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma)),
@@ -121,6 +125,58 @@ describe("ServiceRecordTokenService", () => {
 
         // The correct phone number still mints an access token despite the wrong tries.
         expect(await svc.verifyPhoneAndMintAccess(linkToken, "010-1111-2222")).toMatchObject({ ok: true });
+    });
+
+    it("accepts the employee's corrected live phone when the issuance snapshot is stale, and heals the snapshot", async () => {
+        const { prisma, svc } = setup();
+        // Link issued while the employee record still held a wrong number.
+        const { linkToken } = await svc.issueLink({
+            branchId: "b1", scheduleId: 10, employeeId: 7, expectedPhone: "010-1111-2222", expiresAt: future(),
+        });
+        const staleHash = prisma.__rows[0].expectedPhoneHash;
+        // Admin has since corrected the employee's phone.
+        prisma.employee.findFirst.mockResolvedValue({ phone: "010-9999-8888" });
+
+        const result = await svc.verifyPhoneAndMintAccess(linkToken, "010-9999-8888");
+        expect(result).toMatchObject({ ok: true });
+
+        // Only non-deleted employees back the fallback.
+        expect(prisma.employee.findFirst).toHaveBeenCalledWith(
+            expect.objectContaining({ where: expect.objectContaining({ id: 7, deletedAt: null }) }),
+        );
+
+        // The snapshot is healed to the corrected phone…
+        expect(prisma.__rows[0].expectedPhoneHash).not.toBe(staleHash);
+        // …so the old (wrong) number no longer verifies.
+        expect(await svc.verifyPhoneAndMintAccess(linkToken, "010-1111-2222")).toEqual({ ok: false, reason: "wrong_phone" });
+        // And the corrected number keeps matching via the snapshot alone.
+        prisma.employee.findFirst.mockResolvedValue(null);
+        expect(await svc.verifyPhoneAndMintAccess(linkToken, "01099998888")).toMatchObject({ ok: true });
+
+        const accessToken = (result as { ok: true; accessToken: string }).accessToken;
+        expect(await svc.resolveAccess(accessToken)).toBeNull(); // superseded by the later mint
+    });
+
+    it("rejects a phone matching neither the snapshot nor the live employee record", async () => {
+        const { prisma, svc } = setup();
+        const { linkToken } = await svc.issueLink({
+            branchId: "b1", scheduleId: 10, employeeId: 7, expectedPhone: "010-1111-2222", expiresAt: future(),
+        });
+        prisma.employee.findFirst.mockResolvedValue({ phone: "010-9999-8888" });
+
+        expect(await svc.verifyPhoneAndMintAccess(linkToken, "010-0000-0000")).toEqual({ ok: false, reason: "wrong_phone" });
+        expect(prisma.__rows[0].failedAttempts).toBe(1);
+        expect(prisma.__rows[0].expectedPhoneHash).toBeDefined();
+    });
+
+    it("does not mint through the fallback when the live employee phone is empty", async () => {
+        const { prisma, svc } = setup();
+        const { linkToken } = await svc.issueLink({
+            branchId: "b1", scheduleId: 10, employeeId: 7, expectedPhone: "010-1111-2222", expiresAt: future(),
+        });
+        prisma.employee.findFirst.mockResolvedValue({ phone: "" });
+
+        expect(await svc.verifyPhoneAndMintAccess(linkToken, "")).toEqual({ ok: false, reason: "wrong_phone" });
     });
 
     it("treats an expired token as unusable for both link resolution and access", async () => {
