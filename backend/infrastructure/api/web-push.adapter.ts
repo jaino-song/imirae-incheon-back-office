@@ -127,6 +127,10 @@ export class WebPushAdapter implements IWebPushPort {
         return results;
     }
 
+    isEnabled(): boolean {
+        return this.isConfigured;
+    }
+
     getVapidPublicKey(): string {
         return this.isConfigured ? this.vapidPublicKey : '';
     }

@@ -25,6 +25,7 @@ describe("WebPushAdapter", () => {
         process.env["PWA_NOTIFICATIONS_ENABLED"] = "false";
         const adapter = new WebPushAdapter(configService as never);
 
+        expect(adapter.isEnabled()).toBe(false);
         expect(adapter.getVapidPublicKey()).toBe("");
         await expect(adapter.sendNotificationToMany([], "payload")).resolves.toEqual(new Map());
         expect(webpush.setVapidDetails).not.toHaveBeenCalled();
