@@ -40,7 +40,6 @@ async function enableOwnerE2EUser(page: Page) {
       name: "e2e_role",
       value: "owner",
       url: new URL(page.url()).origin,
-      path: "/",
     },
   ]);
   await page.reload();
