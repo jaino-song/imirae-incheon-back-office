@@ -12,6 +12,12 @@ export const AUTH_ROUTES = {
 
 export const PUBLIC_AUTH_PATHS = new Set<string>(Object.values(AUTH_ROUTES));
 
+export function isAuthPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return PUBLIC_AUTH_PATHS.has(normalized);
+}
+
 export function isPublicAuthPath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
   // Normalize trailing slash
@@ -23,4 +29,3 @@ export function isPublicAuthPath(pathname: string | null | undefined): boolean {
   if (normalized === "/service-record" || normalized.startsWith("/service-record/")) return true;
   return PUBLIC_AUTH_PATHS.has(normalized);
 }
-

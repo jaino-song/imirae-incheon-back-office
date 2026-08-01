@@ -103,6 +103,7 @@ export default function ResetPasswordPage() {
         return (
             <CardContainer
                 data-component={RESET_PASSWORD_BASE}
+                data-slot="auth-reset-password-page"
                 className="max-w-[400px] border bg-card text-card-foreground shadow-lg"
             >
                 <div data-component={`${RESET_PASSWORD_CARD_CONTENT}_invalid`} className="flex flex-col items-center gap-4 text-center">
@@ -138,6 +139,7 @@ export default function ResetPasswordPage() {
         return (
             <CardContainer
                 data-component={RESET_PASSWORD_BASE}
+                data-slot="auth-reset-password-page"
                 className="max-w-[400px] border bg-card text-card-foreground shadow-lg"
             >
                 <div data-component={`${RESET_PASSWORD_CARD_CONTENT}_success`} className="flex flex-col items-center gap-4 text-center">
@@ -164,6 +166,7 @@ export default function ResetPasswordPage() {
     return (
         <CardContainer
             data-component={RESET_PASSWORD_BASE}
+            data-slot="auth-reset-password-page"
             className="max-w-[400px] border bg-card text-card-foreground shadow-lg"
             contentClassName="flex flex-col gap-6"
             title="새 비밀번호 설정"
