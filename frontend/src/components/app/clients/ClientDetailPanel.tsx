@@ -843,6 +843,10 @@ function ClientDetailPanelBody({
                                             value={formatDate(client.dueDate)}
                                         />
                                         <InfoRow
+                                            label={t(locale, "clients.form.birth-date")}
+                                            value={formatDate(client.birthDate)}
+                                        />
+                                        <InfoRow
                                             label={t(locale, "clients.form.phone")}
                                             value={client.phone
                                                 ? formatKoreanPhoneNumber(client.phone)

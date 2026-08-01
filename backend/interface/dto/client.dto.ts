@@ -66,6 +66,10 @@ export class CreateClientDto {
     dueDate?: string | null;
 
     @IsOptional()
+    @IsDateString()
+    birthDate?: string | null;
+
+    @IsOptional()
     @IsIn(SERVICE_STATUS_VALUES)
     serviceStatus?: string | null;
 
@@ -162,6 +166,10 @@ export class UpdateClientDto {
     @IsOptional()
     @IsDateString()
     dueDate?: string | null;
+
+    @IsOptional()
+    @IsDateString()
+    birthDate?: string | null;
 
     @IsOptional()
     @IsIn(SERVICE_STATUS_VALUES)

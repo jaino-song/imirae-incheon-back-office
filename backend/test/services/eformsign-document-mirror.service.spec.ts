@@ -174,10 +174,30 @@ describe("EformsignDocumentMirrorService", () => {
 
     it("persists every non-secret detail value and both PDF files", async () => {
         const detail = richDetail();
+        const sourceUpdatedDate = new Date(UPDATED_AT);
+        const readyState = {
+            documentId: "doc-1",
+            branchId: "branch-1",
+            detailPayload: detail,
+            detailSourceUpdatedDate: sourceUpdatedDate,
+            detailSyncedAt: sourceUpdatedDate,
+            syncStatus: "ready",
+            syncError: null,
+            permanentPurgeRequestedAt: null,
+            files: ["document", "audit_trail"].map((fileType) => ({
+                fileType,
+                contentType: "application/pdf",
+                contentDisposition: null,
+                byteSize: PDF.length,
+                sha256: "hash",
+                sourceUpdatedDate,
+                syncedAt: sourceUpdatedDate,
+            })),
+        };
         const repository = {
             findState: jest.fn()
                 .mockResolvedValueOnce(null)
-                .mockResolvedValue({ branchId: "branch-1" }),
+                .mockResolvedValue(readyState),
             findFile: jest.fn(),
             saveDetail: jest.fn().mockResolvedValue(true),
             saveFile: jest.fn().mockResolvedValue(true),
@@ -274,7 +294,7 @@ describe("EformsignDocumentMirrorService", () => {
             "ready",
             null,
         );
-        expect(snapshots.bumpVersion).toHaveBeenCalledTimes(2);
+        expect(snapshots.bumpVersion).toHaveBeenCalledTimes(3);
     });
 
     it("reports ownership changes when ready mirror reconciliation links a branchless document", async () => {
@@ -812,7 +832,7 @@ describe("EformsignDocumentMirrorService", () => {
         expect(linkByPhoneUsecase.execute).not.toHaveBeenCalled();
     });
 
-    it("keeps a partial non-completed mirror retryable without completion effects", async () => {
+    it("links an existing client while a non-completed mirror remains partial", async () => {
         const completedDetail = richDetail();
         const detail = {
             ...completedDetail,
@@ -822,14 +842,34 @@ describe("EformsignDocumentMirrorService", () => {
             },
         };
         const repository = {
-            findState: jest.fn().mockResolvedValue(null),
+            findState: jest.fn()
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce({
+                    branchId: null,
+                    detailPayload: detail,
+                    detailSourceUpdatedDate: new Date(UPDATED_AT),
+                    detailSyncedAt: new Date(UPDATED_AT),
+                    syncStatus: "partial",
+                    permanentPurgeRequestedAt: null,
+                    files: [{
+                        fileType: "document",
+                        sourceUpdatedDate: new Date(UPDATED_AT),
+                    }],
+                })
+                .mockResolvedValue({ branchId: "branch-1" }),
             saveDetail: jest.fn().mockResolvedValue(true),
             saveFile: jest.fn().mockResolvedValue(true),
             markSyncFinished: jest.fn().mockResolvedValue(true),
             markSyncFailed: jest.fn().mockResolvedValue(undefined),
         };
-        const linkByPhoneUsecase = { execute: jest.fn() };
+        const linkByPhoneUsecase = {
+            execute: jest.fn().mockResolvedValue("linked"),
+        };
         const completedMirrorReconciler = { execute: jest.fn() };
+        const snapshots = {
+            bumpVersion: jest.fn().mockResolvedValue(1),
+            bumpCompanyEpoch: jest.fn().mockResolvedValue(undefined),
+        };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
             repository as never,
@@ -850,7 +890,7 @@ describe("EformsignDocumentMirrorService", () => {
                         body: Buffer.alloc(0),
                     }),
             } as never,
-            undefined,
+            snapshots as never,
             completedMirrorReconciler as never,
         );
 
@@ -858,6 +898,7 @@ describe("EformsignDocumentMirrorService", () => {
             .resolves.toEqual(expect.objectContaining({
                 status: "synced",
                 missingFileTypes: ["audit_trail"],
+                ownershipChanged: true,
             }));
 
         expect(repository.markSyncFinished).toHaveBeenCalledWith(
@@ -867,7 +908,10 @@ describe("EformsignDocumentMirrorService", () => {
             "partial",
             "Files not ready: audit_trail",
         );
-        expect(linkByPhoneUsecase.execute).not.toHaveBeenCalled();
+        expect(linkByPhoneUsecase.execute).toHaveBeenCalledWith("doc-1", {
+            linkExistingOnly: true,
+        });
+        expect(snapshots.bumpVersion).toHaveBeenCalledWith("branch-1");
         expect(completedMirrorReconciler.execute).not.toHaveBeenCalled();
     });
 
@@ -1278,7 +1322,7 @@ describe("EformsignDocumentMirrorService", () => {
         );
     });
 
-    it("does not reconcile when a CAS winner is still syncing its current-version PDFs", async () => {
+    it("does not invalidate snapshots when a not-ready CAS winner has no client match", async () => {
         const detail = richDetail();
         const newerSourceUpdatedDate = new Date(UPDATED_AT + 60_000);
         const currentState = {
@@ -1305,10 +1349,14 @@ describe("EformsignDocumentMirrorService", () => {
             mirrorRemoteDocument: jest.fn().mockResolvedValue({ documentId: "doc-1" }),
         };
         const linkByPhoneUsecase = {
-            execute: jest.fn().mockResolvedValue("already_linked"),
+            execute: jest.fn().mockResolvedValue("no_match"),
         };
         const vendorService = {
             downloadDocumentFile: jest.fn(),
+        };
+        const snapshots = {
+            bumpVersion: jest.fn().mockResolvedValue(1),
+            bumpCompanyEpoch: jest.fn().mockResolvedValue(undefined),
         };
         const service = new EformsignDocumentMirrorService(
             { getDocument: jest.fn().mockResolvedValue(detail) } as never,
@@ -1316,6 +1364,7 @@ describe("EformsignDocumentMirrorService", () => {
             mirrorUsecase as never,
             linkByPhoneUsecase as never,
             vendorService as never,
+            snapshots as never,
         );
 
         await expect(service.syncDocumentWithToken("token", "doc-1", { force: true }))
@@ -1330,7 +1379,11 @@ describe("EformsignDocumentMirrorService", () => {
         expect(repository.markSyncFinished).not.toHaveBeenCalled();
         expect(repository.markSyncFailed).not.toHaveBeenCalled();
         expect(vendorService.downloadDocumentFile).not.toHaveBeenCalled();
-        expect(linkByPhoneUsecase.execute).not.toHaveBeenCalled();
+        expect(linkByPhoneUsecase.execute).toHaveBeenCalledWith("doc-1", {
+            linkExistingOnly: true,
+        });
+        expect(snapshots.bumpVersion).not.toHaveBeenCalled();
+        expect(snapshots.bumpCompanyEpoch).not.toHaveBeenCalled();
     });
 
     it("reconciles when a CAS winner is ready with both current-version PDFs", async () => {

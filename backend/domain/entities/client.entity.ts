@@ -15,6 +15,7 @@ interface UpdateClientProps {
     voucherClient?: boolean;
     birthday?: string | null;
     dueDate?: Date | null;
+    birthDate?: Date | null;
     serviceStatus?: string | null;
     breastPump?: boolean;
     eDocId?: string | null;
@@ -36,6 +37,7 @@ interface CreateClientProps {
     voucherClient: boolean;
     birthday: string | null;
     dueDate: Date | null;
+    birthDate: Date | null;
     serviceStatus: string | null;
     breastPump: boolean;
     eDocId: string | null;
@@ -70,6 +72,7 @@ export class ClientEntity {
         // consumers (e.g. message log rows) can scope records to the branch.
         public branchId: string | null = null,
         public suppressGreetingSms: boolean = false,
+        public birthDate: Date | null = null,
     ) {}
 
     isGoingToCareCenter(): boolean {
@@ -123,6 +126,7 @@ export class ClientEntity {
             props.areaId ?? null,
             null,
             props.suppressGreetingSms ?? false,
+            props.birthDate,
         );
     }
 
@@ -141,6 +145,7 @@ export class ClientEntity {
         this.voucherClient = props.voucherClient ?? this.voucherClient;
         this.birthday = props.birthday ?? this.birthday;
         this.dueDate = props.dueDate ?? this.dueDate;
+        if ("birthDate" in props) this.birthDate = props.birthDate ?? null;
         this.serviceStatus = props.serviceStatus ?? this.serviceStatus;
         this.breastPump = props.breastPump ?? this.breastPump;
         this.eDocId = props.eDocId ?? this.eDocId;
@@ -174,6 +179,7 @@ export class ClientEntity {
         areaId: string | null = null,
         branchId: string | null = null,
         suppressGreetingSms: boolean = false,
+        birthDate: Date | null = null,
     ): ClientEntity {
         return new ClientEntity(
             id,
@@ -198,6 +204,7 @@ export class ClientEntity {
             areaId,
             branchId,
             suppressGreetingSms,
+            birthDate,
         );
     }
 }

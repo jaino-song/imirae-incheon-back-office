@@ -346,6 +346,7 @@ export default function NewClientPage() {
         name: store.name,
         birthday: store.birthday || null,
         dueDate: store.dueDate || null,
+        birthDate: store.birthDate || null,
         address: store.address || null,
         phone: store.phone || null,
         primaryEmployeeId: store.primaryEmployeeId,
@@ -416,6 +417,14 @@ export default function NewClientPage() {
               type="date"
               value={store.dueDate}
               onChange={(e) => setField("dueDate", e.target.value)}
+            />
+          </div>
+          <div data-component="desktop_clients-new_basic_step_birth-date-field">
+            <FormField
+              label={t(locale, "clients.form.birth-date")}
+              type="date"
+              value={store.birthDate}
+              onChange={(e) => setField("birthDate", e.target.value)}
             />
           </div>
           <div data-component="desktop_clients-new_basic_step_phone-field">
