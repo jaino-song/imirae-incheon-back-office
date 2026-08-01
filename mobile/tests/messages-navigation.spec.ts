@@ -16,9 +16,27 @@ async function mockMessagesApproval(page: Page) {
   });
 }
 
+// The 출시 예정 sections are owner-only, so the navigation test runs as the owner.
+async function mockOwnerUser(page: Page) {
+  const body = JSON.stringify({
+    id: "e2e-owner",
+    name: "E2E Owner",
+    role: "owner",
+    branchName: "테스트 지점",
+  });
+
+  await page.route("**/api/auth/me", async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body });
+  });
+  await page.route("**/auth/me", async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body });
+  });
+}
+
 test.describe("mobile messages navigation", () => {
   test.beforeEach(async ({ page }) => {
     await mockMessagesApproval(page);
+    await mockOwnerUser(page);
   });
 
   test("exposes the currently available message sections as mobile destinations", async ({ page }) => {
@@ -28,13 +46,13 @@ test.describe("mobile messages navigation", () => {
       ["전송하기", "/messages/new"],
       ["발송 예정", "/messages/scheduled"],
       ["발송 기록", "/messages/history"],
+      ["템플릿", "/messages/templates"],
       ["자동 전송", "/messages/automation"],
       ["설정", "/messages/sender-approval"],
     ] as const;
 
     const sectionNavigation = page.getByRole("navigation", { name: "메시지 기능" });
     await expect(sectionNavigation).toBeVisible();
-    await expect(page.getByRole("button", { name: "템플릿" })).toBeDisabled();
 
     for (const [label, href] of expectedDestinations) {
       await page.goto("/messages");
