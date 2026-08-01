@@ -5,6 +5,8 @@ import { CalendarDays, CircleAlert, FileCheck2, MessageCircle, MoreVertical, Rot
 
 import { Client } from "@/lib/client/types";
 import { getMobileClientBadges } from "@/lib/client/badges";
+import { getClientDocumentStatusMeta } from "@babyjamjam/shared/constants/client-document-status";
+import type { StatusBadgeVariant } from "@babyjamjam/shared/tokens/status-badge";
 import { EformsignDocument } from "@/lib/eformsign/types";
 import {
   applyServiceScheduleChange,
@@ -334,39 +336,20 @@ function contractPrimaryEmployeeName(doc: EformsignDocument | null | undefined):
 }
 
 function documentStatusLabel(status: Client["documentStatus"]): string {
-  switch (status) {
-    case "completed":
-      return "계약 완료";
-    case "opened":
-    case "requested":
-      return "검토 필요";
-    case "created":
-      return "발송 대기";
-    case "rejected":
-    case "revoked":
-    case "deleted":
-      return "확인 필요";
-    default:
-      return "미발급";
-  }
+  return getClientDocumentStatusMeta(status).label;
 }
 
+const DOCUMENT_STATUS_TONES = {
+  success: "green",
+  warning: "orange",
+  info: "primary",
+  primary: "primary",
+  danger: "burgundy",
+  neutral: "muted",
+} as const satisfies Record<StatusBadgeVariant, "green" | "primary" | "orange" | "muted" | "burgundy">;
+
 function documentStatusTone(status: Client["documentStatus"]): "green" | "primary" | "orange" | "muted" | "burgundy" {
-  switch (status) {
-    case "completed":
-      return "green";
-    case "opened":
-    case "requested":
-      return "primary";
-    case "created":
-      return "orange";
-    case "rejected":
-    case "revoked":
-    case "deleted":
-      return "burgundy";
-    default:
-      return "muted";
-  }
+  return DOCUMENT_STATUS_TONES[getClientDocumentStatusMeta(status).variant];
 }
 
 export interface ClientGroup {

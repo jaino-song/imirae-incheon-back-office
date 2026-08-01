@@ -1,10 +1,16 @@
 import { Inject, Injectable } from "@nestjs/common";
+import {
+    resolveEformsignDocDisplayStatus,
+    type EformsignDocDisplayStatus,
+} from "application/utils/eformsign-doc-display-status";
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
 
 export type EformsignDocWithContractEndDate = ReturnType<EformsignDocEntity["toJSON"]> & {
     /** YYYY-MM-DD from the mirrored detail payload; null when not recoverable. */
     contractEndDate: string | null;
+    /** Authoritative display status, stamped at serve time. */
+    displayStatus: EformsignDocDisplayStatus;
 };
 
 @Injectable()
@@ -32,10 +38,22 @@ export class FindEformsignDocsByClientIdUsecase {
                 docs.map((doc) => doc.documentId),
             )
             : new Map<string, string>();
-        return docs.map((doc) => ({
-            ...doc.toJSON(),
-            contractEndDate: endDates.get(doc.documentId) ?? null,
-        }));
+        return docs.map((doc) => {
+            const contractEndDate = endDates.get(doc.documentId) ?? null;
+            return {
+                ...doc.toJSON(),
+                contractEndDate,
+                displayStatus: resolveEformsignDocDisplayStatus({
+                    id: doc.documentId,
+                    current_status: {
+                        status_type: doc.statusType,
+                        step_type: doc.stepType,
+                        step_name: doc.stepName,
+                    },
+                    ...(contractEndDate ? { contract_end_date: contractEndDate } : {}),
+                }),
+            };
+        });
     }
 }
 

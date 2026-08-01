@@ -59,6 +59,8 @@ export interface LocalEformsignDocRecord {
     templateId: string | null;
     /** YYYY-MM-DD, attached for provider-review docs; splits 서명 완료 vs 검토 필요. */
     contractEndDate?: string | null;
+    /** Authoritative display status stamped by the backend at serve time. */
+    displayStatus?: string | null;
 }
 
 export function normalizeDocumentListResponse(

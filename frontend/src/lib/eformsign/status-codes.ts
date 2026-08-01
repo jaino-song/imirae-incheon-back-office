@@ -18,6 +18,8 @@ import {
   isProviderReviewWorkflowStep,
 } from "@babyjamjam/shared/constants/eformsign-status-codes";
 import {
+  CONTRACT_DOC_DISPLAY_STATUS_LABELS,
+  isContractDocDisplayStatus,
   isContractReviewWindowOpen,
   resolveContractDocStatusLabel,
   type ContractDocStatusLabel,
@@ -58,7 +60,12 @@ type EformsignWorkflowStatus = {
 export function mapDocStatusLabel(
   currentStatus: EformsignWorkflowStatus | null | undefined,
   contractEndDate?: string | null,
+  displayStatus?: string | null,
 ): DocumentStatusLabel {
+  // The backend's serve-time display_status is authoritative when present.
+  if (isContractDocDisplayStatus(displayStatus) && displayStatus !== "unknown") {
+    return CONTRACT_DOC_DISPLAY_STATUS_LABELS[displayStatus];
+  }
   return resolveContractDocStatusLabel({
     category: getStatusCategory(currentStatus?.status_type),
     currentStatus,
@@ -221,6 +228,7 @@ export function foldContractStats(
     step_name?: string | null;
     step_recipient_types?: ReadonlyArray<string | null>;
     contract_end_date?: string | null;
+    display_status?: string | null;
   }>,
 ): ContractStatsBuckets {
   const buckets: ContractStatsBuckets = { reviewNeeded: 0, signed: 0, sendRequired: 0, drafting: 0, expired: 0 };
@@ -238,8 +246,15 @@ export function foldContractStats(
       continue;
     }
 
-    if (!isProviderReviewWorkflowStep(doc)) buckets.sendRequired++;
-    else if (isContractReviewWindowOpen(doc.contract_end_date)) buckets.reviewNeeded++;
+    if (!isProviderReviewWorkflowStep(doc)) {
+      buckets.sendRequired++;
+      continue;
+    }
+    // The backend's serve-time display_status decides the split when present.
+    const isReviewDue = isContractDocDisplayStatus(doc.display_status)
+      ? doc.display_status === "review"
+      : isContractReviewWindowOpen(doc.contract_end_date);
+    if (isReviewDue) buckets.reviewNeeded++;
     else buckets.signed++;
   }
   return buckets;

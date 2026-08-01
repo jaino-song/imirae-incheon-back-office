@@ -1,6 +1,11 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+    formatSignatureStatus,
+    getServiceRecordStatusMeta,
+    getSignatureStatusVariant,
+} from "@babyjamjam/shared/constants/service-record-display";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
 
@@ -438,22 +443,8 @@ function getRecordStatusMeta(status: string): {
     label: string;
     variant: "neutral" | "primary" | "success" | "warning" | "danger";
 } {
-    switch (status) {
-        case "WAITING_FOR_DETAILS": return { label: "정보 대기", variant: "neutral" };
-        case "WAITING_FOR_ASSIGNMENT": return { label: "배정 대기", variant: "warning" };
-        case "SCHEDULED": return { label: "시작 전", variant: "primary" };
-        case "IN_PROGRESS": return { label: "작성 중", variant: "primary" };
-        case "WAITING_FOR_END": return { label: "종료 대기", variant: "success" };
-        case "AWAITING_COMPLETION": return { label: "기록 미완료", variant: "warning" };
-        case "READY_TO_FINALIZE": return { label: "문서 생성 대기", variant: "primary" };
-        case "FINALIZING": return { label: "문서 생성 중", variant: "primary" };
-        case "DOCUMENTS_CREATED": return { label: "기관 검토 중", variant: "success" };
-        case "COMPLETED": return { label: "완료", variant: "success" };
-        case "FINALIZATION_FAILED": return { label: "문서 생성 실패", variant: "danger" };
-        case "TERMINATED_REVIEW_REQUIRED": return { label: "중단 확인 필요", variant: "warning" };
-        case "MIGRATION_REVIEW_REQUIRED": return { label: "데이터 확인 필요", variant: "warning" };
-        default: return { label: "상태 확인", variant: "neutral" };
-    }
+    const meta = getServiceRecordStatusMeta(status);
+    return { label: meta.label, variant: meta.variant === "info" ? "primary" : meta.variant };
 }
 
 function LinkStatusCard({
@@ -960,20 +951,7 @@ function formatUnknownValue(value: unknown): string {
     return String(value);
 }
 
-function formatSignatureStatus(statusDetail: string): string {
-    const normalized = statusDetail.trim().toLowerCase();
-    if (normalized.includes("complete")) return "서명 완료";
-    if (normalized.includes("created")) return "발송됨";
-    return statusDetail.trim() || "상태 확인";
-}
-
-function getSignatureVariant(statusDetail: string): "neutral" | "primary" | "success" | "warning" | "danger" {
-    const normalized = statusDetail.trim().toLowerCase();
-    if (normalized.includes("complete")) return "success";
-    if (normalized.includes("reject") || normalized.includes("fail")) return "danger";
-    if (normalized.includes("created")) return "primary";
-    return "neutral";
-}
+const getSignatureVariant = getSignatureStatusVariant;
 
 function getErrorDescription(error: unknown): string {
     if (error && typeof error === "object" && "response" in error) {

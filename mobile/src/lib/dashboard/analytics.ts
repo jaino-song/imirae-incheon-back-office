@@ -1,3 +1,5 @@
+import { isContractReviewWindowOpen } from "@babyjamjam/shared/constants/eformsign-doc-status";
+
 export interface DashboardAnalytics {
   activeClients: number;
   contractsNotSent: number;
@@ -9,6 +11,7 @@ export interface DashboardAnalytics {
 export interface DashboardAnalyticsClient {
   serviceStatus: string | null;
   startDate: string | null;
+  endDate?: string | null;
   eDocId: string | null;
   documentStatus: string | null;
 }
@@ -165,7 +168,15 @@ export function deriveDashboardAnalyticsFromClients(
         }
       }
 
-      if (client.eDocId && client.documentStatus && client.documentStatus !== "completed") {
+      // Client-side approximation of the server rule: an unfinished contract only
+      // counts as 검토 필요 once the review window (계약 종료 영업일 1일 전~) opens.
+      // Without an end date the window is treated as open, like the server does.
+      if (
+        client.eDocId
+        && client.documentStatus
+        && client.documentStatus !== "completed"
+        && isContractReviewWindowOpen(client.endDate ?? null, now)
+      ) {
         acc.contractsPendingSignature += 1;
       }
 

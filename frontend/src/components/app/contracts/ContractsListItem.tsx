@@ -51,7 +51,11 @@ function ContractsListItemComponent({
   }
 
   const category = getStatusCategory(document.current_status?.status_type);
-  const statusLabel = mapDocStatusLabel(document.current_status, document.contract_end_date);
+  const statusLabel = mapDocStatusLabel(
+    document.current_status,
+    document.contract_end_date,
+    document.display_status,
+  );
   const isReviewNeeded = statusLabel === "검토 필요";
   const statusType: StatusType = contractStatusBadgeType(statusLabel);
   const sentDate = formatDate(document.created_date);

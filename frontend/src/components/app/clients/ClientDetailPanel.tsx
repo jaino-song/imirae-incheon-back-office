@@ -330,9 +330,9 @@ function ClientContractsList({
     return (
         <div data-component={`${dataComponentPrefix}-contracts-list`} className="space-y-3">
             {docs.map((doc) => {
-                // The stored statusDetail "검토 필요" marks a provider-review doc even when
-                // the mirrored step fields are stale; force the provider step so the shared
-                // signed/review-window rule still applies.
+                // The backend stamps displayStatus at serve time; the local derivation
+                // (including the legacy statusDetail-string nudge for stale step fields)
+                // only backstops payloads that predate the field.
                 const statusLabel = mapDocStatusLabel(
                     {
                         status_type: doc.statusType,
@@ -340,6 +340,7 @@ function ClientContractsList({
                         step_name: doc.stepName,
                     },
                     doc.contractEndDate ?? null,
+                    doc.displayStatus,
                 );
                 return (
                     <InfoCard

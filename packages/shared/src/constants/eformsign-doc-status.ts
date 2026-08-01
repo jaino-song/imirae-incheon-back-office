@@ -13,6 +13,74 @@ export type ContractDocStatusLabel = "대기" | "서명 완료" | "검토 필요
 
 export type ContractDocStatusCategory = "completed" | "expired" | "in-progress";
 
+/**
+ * Wire enum for a document's display status. The BACKEND is the authority: it
+ * stamps `display_status` on document payloads at serve time, and clients map
+ * it to a label/variant without re-deriving. The client-side resolver below is
+ * the fallback for payloads that predate the field, and the backend keeps a
+ * byte-identical copy of this rule pinned by parity tests
+ * (backend/application/utils/eformsign-doc-display-status.ts).
+ */
+export type ContractDocDisplayStatus =
+    | "pending"
+    | "signed"
+    | "review"
+    | "completed"
+    | "expired"
+    | "unknown";
+
+export const CONTRACT_DOC_DISPLAY_STATUS_LABELS = {
+    pending: "대기",
+    signed: "서명 완료",
+    review: "검토 필요",
+    completed: "계약 완료",
+    expired: "기간 만료",
+    unknown: "알 수 없음",
+} as const satisfies Record<ContractDocDisplayStatus, string>;
+
+export function isContractDocDisplayStatus(value: unknown): value is ContractDocDisplayStatus {
+    return typeof value === "string" && value in CONTRACT_DOC_DISPLAY_STATUS_LABELS;
+}
+
+/**
+ * 한국 공휴일 — backend/domain/utils/business-days.ts의 KR_HOLIDAYS 사본.
+ * 발급 가능 연도 기준 2026~2027 hardcode, 매년 두 파일을 함께 갱신할 것.
+ * (백엔드 빌드는 workspace TS를 import하지 못해 사본으로 유지한다.)
+ */
+export const KR_HOLIDAYS = new Set<string>([
+    // 2026
+    "2026-01-01", // 신정
+    "2026-02-16", "2026-02-17", "2026-02-18", // 설날
+    "2026-03-01", // 삼일절
+    "2026-03-02", // 삼일절 대체 (일요일)
+    "2026-05-01", // 노동절
+    "2026-05-05", // 어린이날
+    "2026-05-24", "2026-05-25", // 부처님오신날 + 대체
+    "2026-06-03", // 제9회 전국동시지방선거
+    "2026-06-06", // 현충일
+    "2026-07-17", // 제헌절
+    "2026-08-15", // 광복절
+    "2026-08-17", // 광복절 대체 (토요일)
+    "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-28", // 추석 + 대체
+    "2026-10-03", "2026-10-05", // 개천절 + 대체 (토요일)
+    "2026-10-09", // 한글날
+    "2026-12-25", // 크리스마스
+    // 2027
+    "2027-01-01", // 신정
+    "2027-02-06", "2027-02-07", "2027-02-08", "2027-02-09", // 설날 + 대체
+    "2027-03-01", // 삼일절
+    "2027-05-01", // 노동절
+    "2027-05-05", // 어린이날
+    "2027-05-13", // 부처님오신날
+    "2027-06-06", "2027-06-07", // 현충일 + 대체 (일요일)
+    "2027-07-17", // 제헌절
+    "2027-08-15", "2027-08-16", // 광복절 + 대체 (일요일)
+    "2027-09-14", "2027-09-15", "2027-09-16", // 추석
+    "2027-10-03", "2027-10-04", // 개천절 + 대체 (일요일)
+    "2027-10-09", // 한글날
+    "2027-12-25",
+]);
+
 const KST_TIME_ZONE = "Asia/Seoul";
 
 /** en-CA locale renders YYYY-MM-DD, giving the KST calendar day of an instant. */
@@ -32,22 +100,30 @@ function parseYmdToUtc(ymd: string): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/** Step back `days` business days, skipping Saturdays and Sundays. */
+function isBusinessDayKr(ymd: string, date: Date): boolean {
+    const weekday = date.getUTCDay();
+    if (weekday === 0 || weekday === 6) return false;
+    return !KR_HOLIDAYS.has(ymd);
+}
+
+const SUBTRACT_BUSINESS_DAY_SEARCH_LIMIT = 30;
+
+/** Step back `days` Korean business days (weekends AND KR holidays skipped). */
 function subtractBusinessDays(date: Date, days: number): Date {
     const result = new Date(date.getTime());
     let remaining = days;
-    while (remaining > 0) {
+    for (let i = 0; remaining > 0 && i < SUBTRACT_BUSINESS_DAY_SEARCH_LIMIT; i += 1) {
         result.setUTCDate(result.getUTCDate() - 1);
-        const weekday = result.getUTCDay();
-        if (weekday !== 0 && weekday !== 6) remaining -= 1;
+        if (isBusinessDayKr(result.toISOString().slice(0, 10), result)) remaining -= 1;
     }
     return result;
 }
 
 /**
- * True when today (KST) is on or after 1 business day before the contract end
- * date — e.g. a Friday end date opens on Thursday, a Monday end date on the
- * preceding Friday — and stays true after the end date passes.
+ * True when today (KST) is on or after 1 Korean business day before the
+ * contract end date — e.g. a Friday end date opens on Thursday, a Monday end
+ * date on the preceding Friday, and holidays are skipped like weekends — and
+ * stays true after the end date passes.
  *
  * A missing or malformed end date opens the window (the pre-date-rule
  * behavior), so documents without recoverable dates never hide the review cue.
@@ -64,6 +140,23 @@ export function isContractReviewWindowOpen(
     return todayKst >= threshold.toISOString().slice(0, 10);
 }
 
+/**
+ * Resolve the wire display status for a contract document from its category,
+ * workflow step, and end date. Single rule shared by both apps; the backend
+ * keeps a parity-tested copy.
+ */
+export function resolveContractDocDisplayStatus(params: {
+    category: ContractDocStatusCategory;
+    currentStatus: { step_type?: string | null; step_name?: string | null } | null | undefined;
+    contractEndDate: string | null | undefined;
+    now?: Date;
+}): Exclude<ContractDocDisplayStatus, "unknown"> {
+    if (params.category === "completed") return "completed";
+    if (params.category === "expired") return "expired";
+    if (!isProviderReviewWorkflowStep(params.currentStatus)) return "pending";
+    return isContractReviewWindowOpen(params.contractEndDate, params.now) ? "review" : "signed";
+}
+
 /** Resolve the display label for a contract document from its category, workflow step, and end date. */
 export function resolveContractDocStatusLabel(params: {
     category: ContractDocStatusCategory;
@@ -71,8 +164,5 @@ export function resolveContractDocStatusLabel(params: {
     contractEndDate: string | null | undefined;
     now?: Date;
 }): ContractDocStatusLabel {
-    if (params.category === "completed") return "계약 완료";
-    if (params.category === "expired") return "기간 만료";
-    if (!isProviderReviewWorkflowStep(params.currentStatus)) return "대기";
-    return isContractReviewWindowOpen(params.contractEndDate, params.now) ? "검토 필요" : "서명 완료";
+    return CONTRACT_DOC_DISPLAY_STATUS_LABELS[resolveContractDocDisplayStatus(params)];
 }

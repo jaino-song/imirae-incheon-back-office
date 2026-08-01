@@ -37,5 +37,9 @@ export interface EformsignStatusCountsResponse {
     step_type: string | null;
     step_name: string | null;
     step_recipient_types: Array<string | null>;
+    /** YYYY-MM-DD when known; splits the 서명 완료/검토 필요 counters. */
+    contract_end_date?: string | null;
+    /** Authoritative display status stamped by the backend at serve time. */
+    display_status?: string | null;
   }>;
 }

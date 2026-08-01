@@ -8,9 +8,10 @@
 import {
   COMPLETED_STATUS_CODES,
   EXPIRED_STATUS_CODES,
-  isProviderReviewWorkflowStep,
 } from "@babyjamjam/shared/constants/eformsign-status-codes";
 import {
+  CONTRACT_DOC_DISPLAY_STATUS_LABELS,
+  isContractDocDisplayStatus,
   resolveContractDocStatusLabel,
   type ContractDocStatusLabel,
 } from "@babyjamjam/shared/constants/eformsign-doc-status";
@@ -71,7 +72,12 @@ type EformsignWorkflowStatus = {
 export function mapDocStatusLabel(
   currentStatus: EformsignWorkflowStatus | null | undefined,
   contractEndDate?: string | null,
+  displayStatus?: string | null,
 ): DocumentStatusLabel {
+  // The backend's serve-time display_status is authoritative when present.
+  if (isContractDocDisplayStatus(displayStatus)) {
+    return CONTRACT_DOC_DISPLAY_STATUS_LABELS[displayStatus];
+  }
   const category = getStatusCategory(currentStatus?.status_type);
   if (category === "unknown") return "알 수 없음";
   return resolveContractDocStatusLabel({

@@ -37,6 +37,14 @@ describe("isContractReviewWindowOpen", () => {
         expect(isContractReviewWindowOpen("2026-08-09", kstNoon("2026-08-07"))).toBe(true); // Fri
     });
 
+    it("skips Korean holidays like weekends (Tuesday end after 광복절 대체휴일 → preceding Friday)", () => {
+        // 2026-08-18 is a Tuesday; 8/17(Mon) is the 광복절 substitute holiday and
+        // 8/15(Sat) the holiday itself, so 1 business day before Tue is Fri 8/14.
+        expect(isContractReviewWindowOpen("2026-08-18", kstNoon("2026-08-13"))).toBe(false); // Thu
+        expect(isContractReviewWindowOpen("2026-08-18", kstNoon("2026-08-14"))).toBe(true); // Fri
+        expect(isContractReviewWindowOpen("2026-08-18", kstNoon("2026-08-17"))).toBe(true); // holiday Mon
+    });
+
     it("uses the KST calendar day, not the UTC one", () => {
         // 2026-08-05T16:00:00Z is already 2026-08-06 01:00 KST (Thursday).
         expect(isContractReviewWindowOpen("2026-08-07", new Date("2026-08-05T16:00:00.000Z"))).toBe(true);

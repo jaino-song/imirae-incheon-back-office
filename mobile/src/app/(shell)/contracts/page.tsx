@@ -50,6 +50,7 @@ import {
   mapDocStatusLabel,
   normalizeStatusCode,
 } from "@/lib/eformsign/status-codes";
+import { isContractDocDisplayStatus } from "@babyjamjam/shared/constants/eformsign-doc-status";
 import {
   UNKNOWN_CUSTOMER_NAME,
   contractDisplayName,
@@ -234,7 +235,20 @@ function ContractListLoadingRows() {
   );
 }
 
+const CATEGORY_BY_DISPLAY_STATUS: Record<string, ContractCategory> = {
+  pending: "drafting",
+  signed: "signed",
+  review: "in-progress",
+  completed: "completed",
+  expired: "expired",
+  unknown: "unknown",
+};
+
 function categorize(doc: EformsignDocument): ContractCategory {
+  // The backend's serve-time display_status is authoritative when present.
+  if (isContractDocDisplayStatus(doc.display_status)) {
+    return CATEGORY_BY_DISPLAY_STATUS[doc.display_status] ?? "unknown";
+  }
   const cat = getStatusCategory(doc.current_status?.status_type);
   if (cat === "completed" || cat === "expired" || cat === "unknown") return cat;
   if (!isProviderReviewStep(doc)) return "drafting";
@@ -263,6 +277,9 @@ const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
 
 /** status-counts 신호를 문서와 동일한 규칙으로 분류한다(categorize와 같은 로직). */
 function categorizeSignal(signal: EformsignStatusSignal): ContractCategory {
+  if (isContractDocDisplayStatus(signal.display_status)) {
+    return CATEGORY_BY_DISPLAY_STATUS[signal.display_status] ?? "unknown";
+  }
   const cat = getStatusCategory(signal.status_type ?? undefined);
   if (cat === "completed" || cat === "expired" || cat === "unknown") return cat;
   if (!isProviderReviewWorkflowStep(signal)) return "drafting";
@@ -2278,7 +2295,7 @@ export default function ContractsPage() {
                       ? serviceRecordCustomerName === "-" ? "이름 없음" : serviceRecordCustomerName
                       : contractDisplayName(doc);
                     const badgeLabel = isServiceRecordRow
-                      ? mapDocStatusLabel(doc.current_status, doc.contract_end_date)
+                      ? mapDocStatusLabel(doc.current_status, doc.contract_end_date, doc.display_status)
                       : tones.badge;
 
                     return (
