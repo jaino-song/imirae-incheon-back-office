@@ -67,6 +67,32 @@ describe("MessagesPermissionGuard", () => {
     expect(mockPush).toHaveBeenCalledWith("/messages/sender-approval");
   });
 
+  it("hides the protected message page while checking sender approval", async () => {
+    const pendingApproval = {
+      approvalStatus: "not_requested" as const,
+      isApproved: false,
+      canRequest: true,
+      requestedAt: null,
+      approvedAt: null,
+    };
+    let resolveApproval: (value: typeof pendingApproval) => void = () => undefined;
+    mockGetMessageSenderApproval.mockReturnValue(
+      new Promise<typeof pendingApproval>((resolve) => {
+        resolveApproval = resolve;
+      }),
+    );
+
+    renderGuard();
+
+    expect(await screen.findByRole("status")).toHaveTextContent("메시지 권한 확인 중...");
+    expect(screen.queryByTestId("messages-route-child")).not.toBeInTheDocument();
+
+    resolveApproval(pendingApproval);
+
+    expect(await screen.findByText("메시지 전송 권한이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
+  });
+
   it("routes to /all when the approval modal cancel button is clicked", async () => {
     renderGuard();
 

@@ -42,6 +42,7 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
     senderApproval && !senderApproval.isApproved && !senderApproval.canRequest,
   );
   const shouldShowApprovalModal = !isPermissionExemptRoute && needsSenderApproval;
+  const isPermissionCheckLoading = !isPermissionExemptRoute && isLoading;
 
   const handleApprovalModalCancel = () => {
     router.replace("/all");
@@ -55,6 +56,19 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
 
     router.push("/messages/sender-approval");
   };
+
+  if (isPermissionCheckLoading) {
+    return (
+      <div
+        data-component="mobile_messages_permission-guard_loading"
+        className="flex min-h-screen items-center justify-center"
+        role="status"
+        aria-live="polite"
+      >
+        메시지 권한 확인 중...
+      </div>
+    );
+  }
 
   return (
     <MessagesPermissionGuardContext.Provider
