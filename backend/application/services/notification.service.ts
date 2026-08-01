@@ -12,6 +12,7 @@ import { NotificationEntity } from "domain/entities/notification.entity";
 import { IUserRepository, USER_REPOSITORY } from "domain/repositories/user.repository.interface";
 import { EMAIL_PORT, EmailPort } from "domain/ports/email.port";
 import { SystemSettingService } from "./system-setting.service";
+import { isNotificationEmailEnabled } from "application/constants/notification";
 
 const EMAIL_SEND_INTERVAL_MS = 600;
 
@@ -55,6 +56,10 @@ export class NotificationService {
         body: string,
         emailTemplateContext?: NotificationEmailTemplateContext,
     ) {
+        if (!isNotificationEmailEnabled()) {
+            return;
+        }
+
         const user = await this.userRepository.findById(userId);
         if (!user?.email) {
             return;

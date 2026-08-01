@@ -65,6 +65,10 @@ export class SendNotificationUsecase {
             notification
         );
 
+        if (!this.webPushPort.isEnabled()) {
+            return savedNotification;
+        }
+
         // 사용자의 모든 구독 가져오기
         const subscriptions = await this.pushSubscriptionRepository.findByUserId(userId);
 
@@ -93,6 +97,10 @@ export class SendNotificationUsecase {
      */
     async broadcast(params: SendBroadcastParams): Promise<{ sent: number; failed: number }> {
         const { title, body, data } = params;
+
+        if (!this.webPushPort.isEnabled()) {
+            return { sent: 0, failed: 0 };
+        }
 
         // 모든 구독 가져오기
         const subscriptions = await this.pushSubscriptionRepository.findAll();
@@ -131,6 +139,10 @@ export class SendNotificationUsecase {
 
     async sendToUsers(params: SendToUsersParams): Promise<{ sent: number; failed: number }> {
         const { userIds, title, body, data } = params;
+
+        if (!this.webPushPort.isEnabled()) {
+            return { sent: 0, failed: 0 };
+        }
 
         if (userIds.length === 0) {
             this.logger.warn('No user IDs provided for notification');

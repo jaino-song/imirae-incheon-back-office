@@ -90,7 +90,7 @@ export default function VerifyEmailPage() {
     // Loading State
     if (status === "loading") {
         return (
-            <AuthCard data-component={VERIFY_EMAIL_BASE} disableAnimation>
+            <AuthCard data-component={VERIFY_EMAIL_BASE} data-slot="auth-verify-email-page" disableAnimation>
                 <div data-component={`${VERIFY_EMAIL_BASE}_loading`} className="flex flex-col items-center gap-4 text-center">
                     <Loader2 className="h-12 w-12 text-primary animate-spin" />
                     <p className="text-muted-foreground">이메일 인증 중...</p>
@@ -102,7 +102,7 @@ export default function VerifyEmailPage() {
     // Success State
     if (status === "success") {
         return (
-            <AuthCard data-component={VERIFY_EMAIL_BASE}>
+            <AuthCard data-component={VERIFY_EMAIL_BASE} data-slot="auth-verify-email-page">
                 <div data-component={`${VERIFY_EMAIL_BASE}_success`} className="flex flex-col items-center gap-4 text-center">
                     <div data-component={`${VERIFY_EMAIL_BASE}_success_icon`} className="rounded-full bg-success/10 p-3">
                         <CheckCircle className="h-12 w-12 text-success" />
@@ -125,7 +125,7 @@ export default function VerifyEmailPage() {
     // Error State
     if (status === "error") {
         return (
-            <AuthCard data-component={VERIFY_EMAIL_BASE}>
+            <AuthCard data-component={VERIFY_EMAIL_BASE} data-slot="auth-verify-email-page">
                 <div data-component={`${VERIFY_EMAIL_BASE}_error`} className="flex flex-col items-center gap-4 text-center">
                     <div data-component={`${VERIFY_EMAIL_BASE}_error_icon`} className="rounded-full bg-destructive/10 p-3">
                         <AlertTriangle className="h-12 w-12 text-destructive" />
@@ -178,7 +178,7 @@ export default function VerifyEmailPage() {
 
     // No Token State
     return (
-        <AuthCard data-component={VERIFY_EMAIL_BASE}>
+        <AuthCard data-component={VERIFY_EMAIL_BASE} data-slot="auth-verify-email-page">
             <div data-component={`${VERIFY_EMAIL_BASE}_no-token`} className="flex flex-col items-center gap-4 text-center">
                 <div data-component={`${VERIFY_EMAIL_BASE}_no-token_icon`} className="rounded-full bg-warning/10 p-3">
                     <AlertTriangle className="h-12 w-12 text-warning" />
