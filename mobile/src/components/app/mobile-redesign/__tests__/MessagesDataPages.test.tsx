@@ -67,8 +67,7 @@ describe("mobile message data pages", () => {
     expect(rowInfo?.querySelector(".message-data-row-title")).toHaveTextContent("김고객");
     expect(rowInfo?.querySelector(".message-data-row-subtitle")).toHaveTextContent("서비스 안내");
     expect(scheduledItem).not.toHaveTextContent("01012345678");
-    expect(screen.getByRole("button", { name: "발송 예정" }))
-      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "발송 예정" })).toBeDisabled();
     expect(container.querySelector('[data-component$="_content_list-card_header"] .list-title-text'))
       .toHaveTextContent("발송 예정");
     expect(container.querySelector('[data-component="mobile_messages_scheduled_page_content_list-card"]'))

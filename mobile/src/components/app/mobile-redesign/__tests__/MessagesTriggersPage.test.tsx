@@ -30,8 +30,7 @@ describe("MessagesTriggersPage", () => {
     expect(content?.firstElementChild).toBe(navigation);
     expect(container.querySelector('[data-component="messages-shell"]')).not.toBeInTheDocument();
     expect(container.querySelector('[data-slot="messages-page"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "자동 전송" }))
-      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "자동 전송" })).toBeDisabled();
     expect(container.querySelector('[data-component="mobile_messages_triggers_detail-sheet_stack_list-page_shell_content_list-card_header"] .list-title-text'))
       .toHaveTextContent("자동 전송");
     expect(container.querySelector('[data-component="mobile_messages_triggers_detail-sheet_stack_list-page_shell_content_list-card"]'))

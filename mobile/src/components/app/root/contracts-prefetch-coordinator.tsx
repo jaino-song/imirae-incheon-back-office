@@ -8,7 +8,7 @@ import {
   infiniteContractsQueryOptions,
 } from "@/hooks/useInfiniteContracts";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
-import { dashboardQueryKeys } from "@/hooks/useDashboardAnalytics";
+import { dashboardQueryKeys, fetchDashboardAnalytics } from "@/hooks/useDashboardAnalytics";
 import { clientQueryKeys } from "@/hooks/useClients";
 import { api } from "@/lib/api/client";
 import { eformsignApi } from "@/services/api";
@@ -18,35 +18,47 @@ export function ContractsPrefetchCoordinator(): null {
   const { data: user } = useGetAuthUser();
   const branchId = user?.branchId;
   const attemptedBranchIdsRef = useRef(new Set<string>());
+  const contractsAttemptedBranchIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!branchId || attemptedBranchIdsRef.current.has(branchId)) return;
+    if (
+      !branchId
+      || (
+        attemptedBranchIdsRef.current.has(branchId)
+        && contractsAttemptedBranchIdsRef.current.has(branchId)
+      )
+    ) {
+      return;
+    }
 
     let cancelled = false;
 
     const prefetchShellData = async () => {
       try {
-        attemptedBranchIdsRef.current.add(branchId);
+        if (!attemptedBranchIdsRef.current.has(branchId)) {
+          attemptedBranchIdsRef.current.add(branchId);
 
-        // Prefetch Dashboard queries in background
-        void queryClient.prefetchQuery({
-          queryKey: dashboardQueryKeys.analytics(),
-          queryFn: async () => {
-            const response = await fetch("/api/clients/analytics", { cache: "no-store" });
-            return response.json();
-          },
-          staleTime: 60_000,
-        });
+          // Prefetch Dashboard queries in background
+          void queryClient.prefetchQuery({
+            queryKey: dashboardQueryKeys.analytics(),
+            queryFn: fetchDashboardAnalytics,
+            staleTime: 60_000,
+          });
 
-        void queryClient.prefetchQuery({
-          queryKey: clientQueryKeys.list(1, 50, undefined),
-          queryFn: async () => {
-            const { data } = await api.get("/clients", { params: { page: 1, limit: 50 } });
-            return data;
-          },
-          staleTime: 60_000,
-        });
+          void queryClient.prefetchQuery({
+            queryKey: clientQueryKeys.list(1, 50, undefined),
+            queryFn: async () => {
+              const { data } = await api.get("/clients", { params: { page: 1, limit: 50 } });
+              return data;
+            },
+            staleTime: 60_000,
+          });
+        }
 
+        if (contractsAttemptedBranchIdsRef.current.has(branchId)) return;
+
+        // 인증 확인을 통과한 뒤에만 "시도함"으로 기록한다 — 신선한 세션에서 eformsign
+        // 인증보다 먼저 마운트돼 조기 반환한 경우, 다음 마운트/지점 변경에서 재시도된다.
         const authStatus = await eformsignApi.getAuthStatus();
         if (
           cancelled
@@ -54,6 +66,8 @@ export function ContractsPrefetchCoordinator(): null {
         ) {
           return;
         }
+
+        contractsAttemptedBranchIdsRef.current.add(branchId);
 
         // 계약 페이지의 기본 뷰(산모 계약서 섹션)와 완전히 같은 쿼리 키로 프리페치해야
         // 캐시가 재사용된다: 섹션은 제공기록지 template id의 exclude 필터로 표현되므로
