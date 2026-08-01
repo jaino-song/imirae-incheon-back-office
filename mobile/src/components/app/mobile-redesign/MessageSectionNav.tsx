@@ -43,11 +43,18 @@ export const MESSAGE_NAVIGATION_ITEMS: MessageNavigationItem[] =
     icon: MESSAGE_NAVIGATION_PRESENTATION[section.id],
   }));
 
+const DISABLED_SECTION_IDS = new Set<MessageSectionId>([
+  "scheduled",
+  "history",
+  "templates",
+  "triggers",
+]);
+
 const MESSAGE_SECTION_NAV_ITEMS = MESSAGE_NAVIGATION_ITEMS.map((item) => ({
   id: item.id,
   label: item.title,
   icon: item.icon,
-  disabled: item.id === "templates",
+  disabled: DISABLED_SECTION_IDS.has(item.id),
 }));
 
 export function MessageSectionNav({

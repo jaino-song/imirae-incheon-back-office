@@ -99,10 +99,10 @@ export function useCreateClient() {
 
   return useMutation({
     mutationFn: (dto: CreateClientDto) => clientsApi.create(dto).then(r => r.data),
-    onSuccess: () => {
+    onSuccess: async () => {
       // Invalidate all client queries to refresh lists
-      void queryClient.invalidateQueries({ queryKey: clientKeys.all });
-      void queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+      await queryClient.invalidateQueries({ queryKey: clientKeys.all });
+      await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
     },
   });
 }
@@ -116,15 +116,15 @@ export function useUpdateClient() {
   return useMutation({
     mutationFn: ({ id, dto }: { id: number; dto: UpdateClientDto }) =>
       clientsApi.update(id, dto).then(r => r.data),
-    onSuccess: (updatedClient, { id }) => {
+    onSuccess: async (updatedClient, { id }) => {
       queryClient.setQueriesData(
         { queryKey: clientKeys.all },
         (currentData) => updateClientCacheData(currentData, updatedClient)
       );
       queryClient.setQueryData(clientKeys.detail(id), updatedClient);
 
-      void queryClient.invalidateQueries({ queryKey: clientKeys.all });
-      void queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+      await queryClient.invalidateQueries({ queryKey: clientKeys.all });
+      await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
     },
   });
 }
@@ -137,9 +137,9 @@ export function useDeleteClient() {
 
   return useMutation({
     mutationFn: (id: number) => clientsApi.delete(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: clientKeys.all });
-      void queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: clientKeys.all });
+      await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
     },
   });
 }
@@ -154,10 +154,10 @@ export function useTerminateService() {
   return useMutation({
     mutationFn: ({ id, dto }: { id: number; dto?: TerminateServiceDto }) =>
       clientsApi.terminateService(id, dto).then(r => r.data),
-    onSuccess: (_, { id }) => {
-      void queryClient.invalidateQueries({ queryKey: clientKeys.all });
-      void queryClient.invalidateQueries({ queryKey: clientKeys.detail(id) });
-      void queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+    onSuccess: async (_, { id }) => {
+      await queryClient.invalidateQueries({ queryKey: clientKeys.all });
+      await queryClient.invalidateQueries({ queryKey: clientKeys.detail(id) });
+      await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
     },
   });
 }
@@ -172,10 +172,10 @@ export function useRequestReplacement() {
   return useMutation({
     mutationFn: ({ id, dto }: { id: number; dto: RequestReplacementDto }) =>
       clientsApi.requestReplacement(id, dto).then(r => r.data),
-    onSuccess: (_, { id }) => {
-      void queryClient.invalidateQueries({ queryKey: clientKeys.all });
-      void queryClient.invalidateQueries({ queryKey: clientKeys.detail(id) });
-      void queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+    onSuccess: async (_, { id }) => {
+      await queryClient.invalidateQueries({ queryKey: clientKeys.all });
+      await queryClient.invalidateQueries({ queryKey: clientKeys.detail(id) });
+      await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
     },
   });
 }

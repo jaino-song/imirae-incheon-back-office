@@ -131,6 +131,7 @@ test.describe('EmployeeAutocomplete', () => {
     await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible();
 
     await autocompleteInput.fill('xyz-nonexistent');
+    await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_dropdown"]`)).toBeVisible();
     await expect(page.locator(`[data-component="${PRIMARY_AUTOCOMPLETE}_toggle"]`)).toBeVisible();
   });
 

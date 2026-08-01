@@ -2,7 +2,6 @@
 
 import { use } from 'react';
 import { FileText, Loader2, Monitor, Send, Workflow } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { InfoCard } from '@/components/app/mobile-redesign/detail-sheet';
 import { MobileDetailSlideUp } from '@/components/app/mobile-redesign/mobile-detail-slideup';
@@ -134,19 +133,18 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
           </p>
         </div>
 
-        <Link
-          href="/messages/automation"
+        <div
           data-component="mobile_messages_system-templates_template-key-detail_detail-panel_trigger-link"
-          className="info-card pop-up flex items-start gap-3 hover:bg-v3-dim-white"
+          className="info-card pop-up flex items-start gap-3"
         >
           <Workflow className="mt-0.5 h-5 w-5 shrink-0 text-v3-primary" />
           <div className="flex-1" data-component="mobile_messages_system-templates_template-key-detail_detail-panel_trigger-link_copy">
-            <p className="text-[0.85rem] font-semibold text-v3-dark">자동 발송 규칙 설정</p>
+            <p className="text-[0.85rem] font-semibold text-v3-dark">자동 발송 규칙 설정 (출시 예정)</p>
             <p className="text-[0.72rem] text-v3-text-muted">
               이 템플릿의 자동 발송 ON/OFF·발송 시점은 메시지 → 자동 전송에서 관리합니다.
             </p>
           </div>
-        </Link>
+        </div>
       </div>
     </MobileDetailSlideUp>
   );
