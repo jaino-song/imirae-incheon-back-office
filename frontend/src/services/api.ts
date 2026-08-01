@@ -57,6 +57,8 @@ export interface LocalEformsignDocRecord {
     documentKind: "contract" | "service_record_snapshot" | null;
     employeeScheduleId: number | null;
     templateId: string | null;
+    /** YYYY-MM-DD, attached for provider-review docs; splits 서명 완료 vs 검토 필요. */
+    contractEndDate?: string | null;
 }
 
 export function normalizeDocumentListResponse(

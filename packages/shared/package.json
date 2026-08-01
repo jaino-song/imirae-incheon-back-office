@@ -19,6 +19,7 @@
         "./types/system-template": "./src/types/system-template.ts",
         "./constants/service-record-form-layout": "./src/constants/service-record-form-layout.ts",
         "./constants/eformsign-status-codes": "./src/constants/eformsign-status-codes.ts",
+        "./constants/eformsign-doc-status": "./src/constants/eformsign-doc-status.ts",
         "./constants/employee-status": "./src/constants/employee-status.ts",
         "./utils": "./src/utils/index.ts",
         "./utils/date": "./src/utils/date.ts",

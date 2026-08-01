@@ -336,7 +336,7 @@ function contractPrimaryEmployeeName(doc: EformsignDocument | null | undefined):
 function documentStatusLabel(status: Client["documentStatus"]): string {
   switch (status) {
     case "completed":
-      return "완료";
+      return "계약 완료";
     case "opened":
     case "requested":
       return "검토 필요";

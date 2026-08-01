@@ -51,7 +51,7 @@ const transformDocument = (doc: EformsignDocument): EformsignDocumentView | null
     doc_id: doc.id,
     customer_name: customerName,
     created_date: doc.created_date,
-    status: mapDocStatusLabel(doc.current_status),
+    status: mapDocStatusLabel(doc.current_status, doc.contract_end_date),
   };
 };
 

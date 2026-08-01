@@ -44,6 +44,7 @@ import { EformsignDocument } from "@/lib/eformsign/types";
 import type { EformsignDocumentOption } from "@/lib/eformsign/types";
 import {
   getStatusCategory,
+  isContractReviewWindowOpen,
   isProviderReviewWorkflowStep,
   isDeletedStatusCode,
   mapDocStatusLabel,
@@ -129,9 +130,9 @@ const ContractPdfViewer = dynamic(
   }
 );
 
-type ContractCategory = "in-progress" | "drafting" | "completed" | "expired" | "unknown";
+type ContractCategory = "in-progress" | "signed" | "drafting" | "completed" | "expired" | "unknown";
 type ContractSectionId = "maternal-contracts" | "service-records";
-type FilterKey = "전체" | "대기" | "검토 필요" | "완료" | "기간 만료" | "상태 확인";
+type FilterKey = "전체" | "대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료" | "상태 확인";
 type DetailTabId = "basic" | "signers" | "messages";
 type NotificationStatus = "pending" | "sent" | "failed";
 type NotificationLogRecord = {
@@ -161,7 +162,7 @@ type ContractStageItem = {
 
 const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 const CONTRACT_ROUTE_BODY_CLASS = "mobile-contracts-route";
-const FILTER_LABELS: FilterKey[] = ["전체", "대기", "검토 필요", "완료", "기간 만료", "상태 확인"];
+const FILTER_LABELS: FilterKey[] = ["전체", "대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "상태 확인"];
 const CONTRACT_SECTIONS = [
   { id: "maternal-contracts", label: "산모 계약서", icon: FileSignature },
   { id: "service-records", label: "제공기록지", icon: ClipboardList },
@@ -236,23 +237,26 @@ function ContractListLoadingRows() {
 function categorize(doc: EformsignDocument): ContractCategory {
   const cat = getStatusCategory(doc.current_status?.status_type);
   if (cat === "completed" || cat === "expired" || cat === "unknown") return cat;
-  return isProviderReviewStep(doc) ? "in-progress" : "drafting";
+  if (!isProviderReviewStep(doc)) return "drafting";
+  return isContractReviewWindowOpen(doc.contract_end_date) ? "in-progress" : "signed";
 }
 
 /** 필터 pill → 서버 statusCategory 파라미터. "전체"는 상태 필터 없음(null). */
 const FILTER_TO_STATUS_CATEGORY: Record<FilterKey, EformsignStatusCategoryParam | null> = {
   전체: null,
   대기: "drafting",
+  "서명 완료": "in-progress",
   "검토 필요": "in-progress",
-  완료: "completed",
+  "계약 완료": "completed",
   "기간 만료": "expired",
   "상태 확인": "unknown",
 };
 
 const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
   drafting: "대기",
+  signed: "서명 완료",
   "in-progress": "검토 필요",
-  completed: "완료",
+  completed: "계약 완료",
   expired: "기간 만료",
   unknown: "상태 확인",
 };
@@ -261,7 +265,8 @@ const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
 function categorizeSignal(signal: EformsignStatusSignal): ContractCategory {
   const cat = getStatusCategory(signal.status_type ?? undefined);
   if (cat === "completed" || cat === "expired" || cat === "unknown") return cat;
-  return isProviderReviewWorkflowStep(signal) ? "in-progress" : "drafting";
+  if (!isProviderReviewWorkflowStep(signal)) return "drafting";
+  return isContractReviewWindowOpen(signal.contract_end_date) ? "in-progress" : "signed";
 }
 
 /** 서버 검색 요청을 타이핑당 1회로 묶기 위한 로컬 디바운스. */
@@ -303,7 +308,7 @@ function categoryTones(category: ContractCategory): {
   switch (category) {
     case "completed":
       return {
-        badge: "완료",
+        badge: "계약 완료",
         badgeTone: "green",
         badgeMini: "green",
         infoTone: "green",
@@ -329,12 +334,19 @@ function categoryTones(category: ContractCategory): {
         badgeMini: "orange",
         infoTone: "orange",
       };
-    default:
+    case "signed":
       return {
-        badge: "검토 필요",
+        badge: "서명 완료",
         badgeTone: "primary",
         badgeMini: "primary",
         infoTone: "primary",
+      };
+    default:
+      return {
+        badge: "검토 필요",
+        badgeTone: "orange",
+        badgeMini: "orange",
+        infoTone: "orange",
       };
   }
 }
@@ -509,7 +521,7 @@ function progressLabel(doc: EformsignDocument): string {
   if (category === "unknown") return "상태 확인 필요";
   if (hasDocumentSendFailure(doc)) return "이용자 문서 전송 실패";
   if (isReviewNeeded(doc)) return "5/6 - 제공기관 검토 필요";
-  if (hasCustomerSignatureDocument(doc)) return "4/6 - 이용자 서명 완료";
+  if (categorize(doc) === "signed" || hasCustomerSignatureDocument(doc)) return "4/6 - 이용자 서명 완료";
   if (hasOpenedDocument(doc)) return "4/6 - 이용자 서명 대기";
   return "3/6 - 이용자 문서 열람 대기";
 }
@@ -1053,7 +1065,8 @@ function contractStageItems(
   const sendFailed = hasDocumentSendFailure(doc);
   const hasOpened = hasOpenedDocument(doc);
   const reviewNeeded = isReviewNeeded(doc);
-  const hasCustomerSigned = category === "completed" || reviewNeeded || hasCustomerSignatureDocument(doc);
+  const hasCustomerSigned =
+    category === "completed" || category === "signed" || reviewNeeded || hasCustomerSignatureDocument(doc);
   const items: ContractStageItem[] = [
     {
       icon: FileText,
@@ -1120,13 +1133,15 @@ function contractStageItems(
   }
 
   items.push({
-    icon: reviewNeeded ? FileSignature : hasOpened ? FileSignature : Eye,
+    icon: reviewNeeded || category === "signed" ? FileSignature : hasOpened ? FileSignature : Eye,
     iconVariant: "warning",
     text: reviewNeeded
       ? "제공기관 검토 필요"
-      : hasOpened
-        ? "이용자 서명 대기중입니다"
-        : "이용자 문서 열람 대기중입니다",
+      : category === "signed"
+        ? "이용자 서명 완료 — 계약 종료 1영업일 전부터 검토할 수 있습니다"
+        : hasOpened
+          ? "이용자 서명 대기중입니다"
+          : "이용자 문서 열람 대기중입니다",
     time: "현재",
   });
 
@@ -2069,10 +2084,18 @@ export default function ContractsPage() {
 
   // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다. 클라이언트에는
   // 고객명 제외 목록(현재 비어 있음)만 안전망으로 남긴다.
-  const filteredDocuments = useMemo(
-    () => displayDocuments.filter((doc) => !EXCLUDED_CUSTOMER_NAMES.includes(customerName(doc))),
-    [displayDocuments],
-  );
+  const filteredDocuments = useMemo(() => {
+    const nameFiltered = displayDocuments.filter(
+      (doc) => !EXCLUDED_CUSTOMER_NAMES.includes(customerName(doc)),
+    );
+    // 서명 완료/검토 필요 pills share the server's provider-review scope
+    // ("in-progress"); the review-window split happens here on the client.
+    if (activeFilter === "서명 완료" || activeFilter === "검토 필요") {
+      const wantedCategory: ContractCategory = activeFilter === "서명 완료" ? "signed" : "in-progress";
+      return nameFiltered.filter((doc) => categorize(doc) === wantedCategory);
+    }
+    return nameFiltered;
+  }, [activeFilter, displayDocuments]);
 
   const filterItems = useMemo(() => {
     if (isContractsLoading) {
@@ -2083,8 +2106,9 @@ export default function ContractsPage() {
     const counts: Record<FilterKey, number> = {
       전체: statusCountsData?.documents.length ?? 0,
       대기: 0,
+      "서명 완료": 0,
       "검토 필요": 0,
-      완료: 0,
+      "계약 완료": 0,
       "기간 만료": 0,
       "상태 확인": 0,
     };
@@ -2117,9 +2141,10 @@ export default function ContractsPage() {
       return [section("all", "", filteredDocuments, "in-progress")];
     }
     const SECTION_META: Record<Exclude<FilterKey, "전체">, { key: string; title: string; category: ContractCategory }> = {
+      "서명 완료": { key: "signed", title: "서명 완료", category: "signed" },
       "검토 필요": { key: "in-progress", title: "검토 필요", category: "in-progress" },
       대기: { key: "drafting", title: "대기", category: "drafting" },
-      완료: { key: "completed", title: "완료 · 최근", category: "completed" },
+      "계약 완료": { key: "completed", title: "계약 완료 · 최근", category: "completed" },
       "기간 만료": { key: "expired", title: "기간 만료/반려", category: "expired" },
       "상태 확인": { key: "unknown", title: "상태 확인", category: "unknown" },
     };
@@ -2253,7 +2278,7 @@ export default function ContractsPage() {
                       ? serviceRecordCustomerName === "-" ? "이름 없음" : serviceRecordCustomerName
                       : contractDisplayName(doc);
                     const badgeLabel = isServiceRecordRow
-                      ? mapDocStatusLabel(doc.current_status)
+                      ? mapDocStatusLabel(doc.current_status, doc.contract_end_date)
                       : tones.badge;
 
                     return (

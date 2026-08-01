@@ -17,6 +17,11 @@ import {
   EXPIRED_STATUS_CODES as EXPIRED_CODES,
   isProviderReviewWorkflowStep,
 } from "@babyjamjam/shared/constants/eformsign-status-codes";
+import {
+  isContractReviewWindowOpen,
+  resolveContractDocStatusLabel,
+  type ContractDocStatusLabel,
+} from "@babyjamjam/shared/constants/eformsign-doc-status";
 
 // 대기/진행 중 (In-progress) codes - for reference
 export const IN_PROGRESS_CODES = [
@@ -33,7 +38,7 @@ export const IN_PROGRESS_CODES = [
 ] as const;
 
 // Korean status labels
-export type DocumentStatusLabel = "대기" | "검토 필요" | "완료" | "기간 만료";
+export type DocumentStatusLabel = ContractDocStatusLabel;
 
 type EformsignWorkflowStatus = {
   status_type?: string | null;
@@ -44,13 +49,39 @@ type EformsignWorkflowStatus = {
 
 /**
  * Step-aware variant: when a doc is in-progress AND the current workflow step
- * is explicitly the provider review/confirmation step, it has progressed past
- * the customer's signature and is surfaced as "검토 필요" instead of "대기".
+ * is explicitly the provider review/confirmation step, the customer has signed.
+ * That state reads 서명 완료 until the contract end date is within 1 business
+ * day, when it flips to 검토 필요 (shared rule — see eformsign-doc-status).
+ * Callers that cannot supply an end date get 검토 필요, the pre-date-rule
+ * behavior.
  */
-export function mapDocStatusLabel(currentStatus: EformsignWorkflowStatus | null | undefined): DocumentStatusLabel {
-  const base = mapStatusToLabel(currentStatus?.status_type);
-  if (base !== "대기") return base;
-  return isProviderReviewWorkflowStep(currentStatus) ? "검토 필요" : "대기";
+export function mapDocStatusLabel(
+  currentStatus: EformsignWorkflowStatus | null | undefined,
+  contractEndDate?: string | null,
+): DocumentStatusLabel {
+  return resolveContractDocStatusLabel({
+    category: getStatusCategory(currentStatus?.status_type),
+    currentStatus,
+    contractEndDate: contractEndDate ?? null,
+  });
+}
+
+/** Badge status token key for a contract document's display label. */
+export function contractStatusBadgeType(
+  label: DocumentStatusLabel,
+): "pending" | "signed" | "review" | "completed" | "expired" {
+  switch (label) {
+    case "계약 완료":
+      return "completed";
+    case "기간 만료":
+      return "expired";
+    case "검토 필요":
+      return "review";
+    case "서명 완료":
+      return "signed";
+    default:
+      return "pending";
+  }
 }
 
 // Filter types for API calls
@@ -123,7 +154,7 @@ export function mapStatusToLabel(statusCode: string | undefined | null): Documen
   
   switch (category) {
     case "completed":
-      return "완료";
+      return "계약 완료";
     case "expired":
       return "기간 만료";
     default:
@@ -142,6 +173,9 @@ export type BadgeVariant = "success" | "warning" | "destructive" | "info" | "sec
 export function getStatusColor(status: string): BadgeVariant {
   const lowerStatus = status.toLowerCase();
 
+  if (lowerStatus.includes("서명 완료")) {
+    return "info";
+  }
   if (lowerStatus.includes("완료") || lowerStatus.includes("complete") || lowerStatus.includes("signed")) {
     return "success";
   }
@@ -157,9 +191,10 @@ export function getStatusColor(status: string): BadgeVariant {
   return "info";
 }
 
-/** The four StatsBar counters on the contracts page. */
+/** The StatsBar counters on the contracts page. */
 export interface ContractStatsBuckets {
   reviewNeeded: number;
+  signed: number;
   sendRequired: number;
   drafting: number;
   expired: number;
@@ -172,10 +207,12 @@ export interface ContractStatsBuckets {
  *   - completed (003 등)           → counted nowhere
  *   - expired category, only 080   → expired (반려/취소 등은 제외)
  *   - draft (001)                  → drafting
- *   - 그 외 in-progress            → reviewNeeded(현재 단계가 제공기관 검토/확인)
- *                                     아니면 sendRequired
- * The reviewNeeded test mirrors `mapDocStatusLabel === "검토 필요"` using the
- * current workflow step fields returned by the status-counts endpoint.
+ *   - 그 외 in-progress            → 현재 단계가 제공기관 검토/확인이면
+ *                                     검토 창(종료일 영업일 1일 전~) 열림 여부에 따라
+ *                                     reviewNeeded 또는 signed, 아니면 sendRequired
+ * The reviewNeeded/signed test mirrors `mapDocStatusLabel` using the current
+ * workflow step fields and contract end date returned by the status-counts
+ * endpoint.
  */
 export function foldContractStats(
   docs: ReadonlyArray<{
@@ -183,9 +220,10 @@ export function foldContractStats(
     step_type?: string | null;
     step_name?: string | null;
     step_recipient_types?: ReadonlyArray<string | null>;
+    contract_end_date?: string | null;
   }>,
 ): ContractStatsBuckets {
-  const buckets: ContractStatsBuckets = { reviewNeeded: 0, sendRequired: 0, drafting: 0, expired: 0 };
+  const buckets: ContractStatsBuckets = { reviewNeeded: 0, signed: 0, sendRequired: 0, drafting: 0, expired: 0 };
   for (const doc of docs) {
     const normalized = normalizeStatusCode(doc.status_type);
     const category = getStatusCategory(doc.status_type);
@@ -200,8 +238,9 @@ export function foldContractStats(
       continue;
     }
 
-    if (isProviderReviewWorkflowStep(doc)) buckets.reviewNeeded++;
-    else buckets.sendRequired++;
+    if (!isProviderReviewWorkflowStep(doc)) buckets.sendRequired++;
+    else if (isContractReviewWindowOpen(doc.contract_end_date)) buckets.reviewNeeded++;
+    else buckets.signed++;
   }
   return buckets;
 }

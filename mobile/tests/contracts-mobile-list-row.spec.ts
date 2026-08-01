@@ -433,7 +433,7 @@ test.describe("Mobile contracts list rows", () => {
       serviceRecordRow.locator(
         '[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_body_row_right_status"]',
       ),
-    ).toHaveText("완료");
+    ).toHaveText("계약 완료");
   });
 
   test("renders contract rows with the shared list item structure", async ({ page }) => {
