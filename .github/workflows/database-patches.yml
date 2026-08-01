@@ -177,6 +177,10 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
 
+      - name: Apply client birth date patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
+
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -480,6 +484,10 @@ jobs:
         working-directory: backend
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
 
+      - name: Apply client birth date patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
+
   apply-production:
     name: apply production database patches
     needs: [apply-preview]
@@ -762,3 +770,7 @@ jobs:
       - name: Verify eformsign local source-of-truth patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
+
+      - name: Apply client birth date patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
