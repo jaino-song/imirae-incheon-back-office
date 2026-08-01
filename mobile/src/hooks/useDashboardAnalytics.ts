@@ -17,7 +17,7 @@ interface UseDashboardAnalyticsOptions {
   staleTime?: number;
 }
 
-async function fetchDashboardAnalytics(): Promise<DashboardAnalytics> {
+export async function fetchDashboardAnalytics(): Promise<DashboardAnalytics> {
   const response = await fetch("/api/clients/analytics", { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Failed to fetch dashboard analytics: ${response.status}`);

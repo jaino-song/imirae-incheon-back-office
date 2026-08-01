@@ -518,27 +518,6 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
   const [recipientNameInputValue, setRecipientNameInputValue] = useState("");
   const [recipients, setRecipients] = useState<RecipientChip[]>(() => initialRecipient ? [initialRecipient] : []);
 
-  useEffect(() => {
-    if (initialClient) {
-      const phone = normalizeKoreanPhoneDigits(initialClient.phone);
-      if (phone) {
-        const chip: RecipientChip = {
-          id: `client-${initialClient.id}`,
-          clientId: initialClient.id,
-          name: initialClient.name,
-          phone: formatRecipientPhone(phone),
-          initial: getRecipientInitial(initialClient.name),
-          tone: "primary",
-        };
-        queueMicrotask(() => {
-          setRecipients((prev) => {
-            if (prev.some((item) => item.clientId === initialClient.id)) return prev;
-            return [chip, ...prev];
-          });
-        });
-      }
-    }
-  }, [initialClient]);
   const [bodyOverride, setBodyOverride] = useState<string | null>(initialBody.trim() ? initialBody : null);
   const [templateVariableValues, setTemplateVariableValues] = useState<Record<string, string>>(() => {
     const values: Record<string, string> = {};
@@ -550,6 +529,39 @@ function NewMessageForm({ initialBody, initialTemplateId, initialClientId, initi
   const [errorMessage, setErrorMessage] = useState<string | null>(
     initialClient && !initialClientPhone ? CLIENT_WITHOUT_PHONE_MESSAGE : null,
   );
+
+  const seededClientIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (!initialClient) return;
+    if (seededClientIdsRef.current.has(initialClient.id)) return;
+    seededClientIdsRef.current.add(initialClient.id);
+
+    const phone = normalizeKoreanPhoneDigits(initialClient.phone);
+    if (phone) {
+      const chip: RecipientChip = {
+        id: `client-${initialClient.id}`,
+        clientId: initialClient.id,
+        name: initialClient.name,
+        phone: formatRecipientPhone(phone),
+        initial: getRecipientInitial(initialClient.name),
+        tone: "primary",
+      };
+      queueMicrotask(() => {
+        setRecipients((prev) => {
+          if (prev.some((item) => item.clientId === initialClient.id)) return prev;
+          return [chip, ...prev];
+        });
+      });
+    } else {
+      queueMicrotask(() => {
+        setErrorMessage((prev) => prev ?? CLIENT_WITHOUT_PHONE_MESSAGE);
+      });
+    }
+
+    queueMicrotask(() => {
+      setTemplateVariableValues((prev) => (prev.name ? prev : { ...prev, name: initialClient.name }));
+    });
+  }, [initialClient]);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId);
   const ignoreNextPriceInfoSelectChangeRef = useRef(false);

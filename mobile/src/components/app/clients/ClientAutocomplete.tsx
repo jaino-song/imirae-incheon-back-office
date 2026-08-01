@@ -45,7 +45,7 @@ export function ClientAutocomplete({
     error = false,
     helperText,
     excludeIds = [],
-    allowManualEntry = true,
+    allowManualEntry = false,
     manualEntryLabel,
     manualEntryDescription,
     onManualEntry,
