@@ -169,7 +169,7 @@ export function mapStatusToLabel(statusCode: string | undefined | null): Documen
     case "expired":
       return "기간 만료";
     case "in-progress":
-      return "대기";
+      return "서명 대기";
     default:
       return "알 수 없음";
   }

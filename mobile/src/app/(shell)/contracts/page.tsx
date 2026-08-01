@@ -133,7 +133,7 @@ const ContractPdfViewer = dynamic(
 
 type ContractCategory = "in-progress" | "signed" | "drafting" | "completed" | "expired" | "unknown";
 type ContractSectionId = "maternal-contracts" | "service-records";
-type FilterKey = "전체" | "대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료" | "상태 확인";
+type FilterKey = "전체" | "서명 대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료" | "상태 확인";
 type DetailTabId = "basic" | "signers" | "messages";
 type NotificationStatus = "pending" | "sent" | "failed";
 type NotificationLogRecord = {
@@ -163,7 +163,7 @@ type ContractStageItem = {
 
 const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 const CONTRACT_ROUTE_BODY_CLASS = "mobile-contracts-route";
-const FILTER_LABELS: FilterKey[] = ["전체", "대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "상태 확인"];
+const FILTER_LABELS: FilterKey[] = ["전체", "서명 대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "상태 확인"];
 const CONTRACT_SECTIONS = [
   { id: "maternal-contracts", label: "산모 계약서", icon: FileSignature },
   { id: "service-records", label: "제공기록지", icon: ClipboardList },
@@ -258,7 +258,7 @@ function categorize(doc: EformsignDocument): ContractCategory {
 /** 필터 pill → 서버 statusCategory 파라미터. "전체"는 상태 필터 없음(null). */
 const FILTER_TO_STATUS_CATEGORY: Record<FilterKey, EformsignStatusCategoryParam | null> = {
   전체: null,
-  대기: "drafting",
+  "서명 대기": "drafting",
   "서명 완료": "in-progress",
   "검토 필요": "in-progress",
   "계약 완료": "completed",
@@ -267,7 +267,7 @@ const FILTER_TO_STATUS_CATEGORY: Record<FilterKey, EformsignStatusCategoryParam 
 };
 
 const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
-  drafting: "대기",
+  drafting: "서명 대기",
   signed: "서명 완료",
   "in-progress": "검토 필요",
   completed: "계약 완료",
@@ -339,7 +339,7 @@ function categoryTones(category: ContractCategory): {
       };
     case "drafting":
       return {
-        badge: "대기",
+        badge: "서명 대기",
         badgeTone: "muted",
         badgeMini: "muted",
         infoTone: "muted",
@@ -2122,7 +2122,7 @@ export default function ContractsPage() {
     // 목록과 동일한 선(先)필터가 적용된 신호를 문서와 같은 규칙으로 접는다.
     const counts: Record<FilterKey, number> = {
       전체: statusCountsData?.documents.length ?? 0,
-      대기: 0,
+      "서명 대기": 0,
       "서명 완료": 0,
       "검토 필요": 0,
       "계약 완료": 0,
@@ -2160,7 +2160,7 @@ export default function ContractsPage() {
     const SECTION_META: Record<Exclude<FilterKey, "전체">, { key: string; title: string; category: ContractCategory }> = {
       "서명 완료": { key: "signed", title: "서명 완료", category: "signed" },
       "검토 필요": { key: "in-progress", title: "검토 필요", category: "in-progress" },
-      대기: { key: "drafting", title: "대기", category: "drafting" },
+      "서명 대기": { key: "drafting", title: "서명 대기", category: "drafting" },
       "계약 완료": { key: "completed", title: "계약 완료 · 최근", category: "completed" },
       "기간 만료": { key: "expired", title: "기간 만료/반려", category: "expired" },
       "상태 확인": { key: "unknown", title: "상태 확인", category: "unknown" },

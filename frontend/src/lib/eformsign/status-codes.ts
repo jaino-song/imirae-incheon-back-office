@@ -165,7 +165,7 @@ export function mapStatusToLabel(statusCode: string | undefined | null): Documen
     case "expired":
       return "기간 만료";
     default:
-      return "대기";
+      return "서명 대기";
   }
 }
 

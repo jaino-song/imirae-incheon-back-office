@@ -97,12 +97,12 @@ describe("resolveContractDocStatusLabel", () => {
         })).toBe("검토 필요");
     });
 
-    it("labels documents before the customer signature 대기", () => {
+    it("labels documents before the customer signature 서명 대기", () => {
         expect(resolveContractDocStatusLabel({
             category: "in-progress",
             currentStatus: CUSTOMER_STEP_STATUS,
             contractEndDate: "2026-08-07",
             now: kstNoon("2026-08-06"),
-        })).toBe("대기");
+        })).toBe("서명 대기");
     });
 });

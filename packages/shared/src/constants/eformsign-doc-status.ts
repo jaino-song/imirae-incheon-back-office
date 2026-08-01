@@ -9,7 +9,7 @@ import { isProviderReviewWorkflowStep } from "./eformsign-status-codes";
  * 1 business day before the contract end date, so until then the document is
  * surfaced as 서명 완료 and flips to 검토 필요 when the window opens.
  */
-export type ContractDocStatusLabel = "대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료";
+export type ContractDocStatusLabel = "서명 대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료";
 
 export type ContractDocStatusCategory = "completed" | "expired" | "in-progress";
 
@@ -30,7 +30,7 @@ export type ContractDocDisplayStatus =
     | "unknown";
 
 export const CONTRACT_DOC_DISPLAY_STATUS_LABELS = {
-    pending: "대기",
+    pending: "서명 대기",
     signed: "서명 완료",
     review: "검토 필요",
     completed: "계약 완료",
