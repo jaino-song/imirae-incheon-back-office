@@ -1139,6 +1139,49 @@ describe("ClientService", () => {
                 expect(result).toBe(existingClient);
             });
 
+            it("clears birthDate when the caller explicitly sends null (tri-state, mirrors areaId)", async () => {
+                // Arrange
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                // Act
+                await service.update(branchId, 1, { birthDate: null });
+
+                // Assert
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ birthDate: null }),
+                }));
+            });
+
+            it("sets birthDate to a parsed Date when a value is provided", async () => {
+                // Arrange
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                // Act
+                await service.update(branchId, 1, { birthDate: "1995-03-15" });
+
+                // Assert
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ birthDate: new Date("1995-03-15") }),
+                }));
+            });
+
+            it("omits birthDate from the write when the caller does not send the field", async () => {
+                // Arrange
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                // Act
+                await service.update(branchId, 1, { name: "New Name" });
+
+                // Assert
+                const { data } = prismaService.client.updateMany.mock.calls[0][0];
+                expect(data.birthDate).toBeUndefined();
+            });
+
             it("links matching contracts by the effective phone after client information is updated", async () => {
                 const existingClient = createClientEntity();
                 findClientByIdUsecase.execute.mockResolvedValue(existingClient);

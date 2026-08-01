@@ -23,6 +23,7 @@ export interface CreateClientFactoryParams {
     serviceStatus?: string | null;
     breastPump?: boolean;
     eDocId?: string | null;
+    birthDate?: Date | null;
 }
 
 export class ClientFactory {
@@ -49,6 +50,11 @@ export class ClientFactory {
             params.serviceStatus ?? "active",
             params.breastPump ?? false,
             params.eDocId ?? null,
+            null,
+            null,
+            null,
+            false,
+            params.birthDate ?? null,
         );
     }
 
