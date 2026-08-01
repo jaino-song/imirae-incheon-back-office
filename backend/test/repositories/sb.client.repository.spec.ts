@@ -1,6 +1,7 @@
 import { SbClientRepository } from "infrastructure/database/repositories/sb.client.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientEntity } from "domain/entities/client.entity";
+import { clearSchemaCapabilityCache } from "infrastructure/database/schema-capabilities";
 
 describe("SbClientRepository", () => {
     // ============================================
@@ -59,6 +60,7 @@ describe("SbClientRepository", () => {
         breastPump: false,
         eDocId: null,
         dueDate: null,
+        birthDate: null,
         ...overrides,
     });
 
@@ -69,6 +71,11 @@ describe("SbClientRepository", () => {
     let repository: SbClientRepository;
 
     beforeEach(() => {
+        // hasColumn() memoizes per (table, column) in a module-level cache, so it
+        // must be cleared between tests — otherwise a column-absent test run
+        // before a column-present test (or vice versa) would leak its cached
+        // answer and silently pass/fail for the wrong reason.
+        clearSchemaCapabilityCache();
         clientModel = createMockPrismaClient();
         prisma = {
             client: clientModel,
@@ -514,6 +521,7 @@ describe("SbClientRepository", () => {
                         suppressGreetingSms: false,
                         eDocId: null,
                         dueDate: null,
+                        birthDate: null,
                         areaId: null,
                     },
                 });
@@ -549,6 +557,70 @@ describe("SbClientRepository", () => {
                     }),
                 });
             });
+        });
+    });
+
+    // ============================================
+    // birth_date deploy-window gating (mirrors area_id/supportsAreaId)
+    // ============================================
+    describe("given the birth_date column does not exist yet (pre-migration deploy window)", () => {
+        const mockColumnExists = (missingColumns: string[]) => {
+            (prisma.$queryRawUnsafe as jest.Mock).mockImplementation(
+                (_sql: string, _table: string, column: string) =>
+                    Promise.resolve([{ exists: !missingColumns.includes(column) }]),
+            );
+        };
+
+        it("omits birthDate from the select so findById does not reference the missing column", async () => {
+            mockColumnExists(["birth_date"]);
+            clientModel.findFirst.mockResolvedValue(createClientRow({ id: 1 }));
+
+            await repository.findById(branchId, 1);
+
+            const { select } = clientModel.findFirst.mock.calls[0][0];
+            expect(select).not.toHaveProperty("birthDate");
+            expect(select).toMatchObject({ areaId: true });
+        });
+
+        it("strips birthDate from the create payload so client.create does not send the missing column", async () => {
+            mockColumnExists(["birth_date"]);
+            const entity = createClientEntity({ birthDate: new Date("1995-03-15T00:00:00.000Z") });
+            clientModel.create.mockResolvedValue(createClientRow({ id: 10 }));
+
+            await repository.create(branchId, entity);
+
+            const { data } = clientModel.create.mock.calls[0][0];
+            expect(data).not.toHaveProperty("birthDate");
+        });
+
+        it("strips birthDate from the update payload so client.updateMany does not send the missing column", async () => {
+            mockColumnExists(["birth_date"]);
+            const entity = new ClientEntity(
+                11, "Client", null, null, null, null, null, null, null,
+                null, null, false, false, null, null, true, null,
+                null, null, null, null, false,
+                new Date("1995-03-15T00:00:00.000Z"),
+            );
+            clientModel.updateMany.mockResolvedValue({ count: 1 });
+            clientModel.findFirst.mockResolvedValue(createClientRow({ id: 11 }));
+
+            await repository.update(branchId, entity);
+
+            const { data } = clientModel.updateMany.mock.calls[0][0];
+            expect(data).not.toHaveProperty("birthDate");
+        });
+    });
+
+    describe("given the birth_date column exists (post-migration)", () => {
+        it("includes birthDate in the select and create/update payloads", async () => {
+            const entity = createClientEntity({ birthDate: new Date("1995-03-15T00:00:00.000Z") });
+            clientModel.create.mockResolvedValue(createClientRow({ id: 12, birthDate: new Date("1995-03-15T00:00:00.000Z") }));
+
+            await repository.create(branchId, entity);
+
+            const { data, select } = clientModel.create.mock.calls[0][0];
+            expect(data).toHaveProperty("birthDate", new Date("1995-03-15T00:00:00.000Z"));
+            expect(select).toMatchObject({ birthDate: true });
         });
     });
 
