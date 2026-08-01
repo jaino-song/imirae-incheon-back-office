@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import * as webpush from "web-push";
 import { IWebPushPort } from "domain/ports/web-push.port";
 import { PushSubscriptionEntity } from "domain/entities/push-subscription.entity";
+import { isPwaNotificationsEnabled } from "application/constants/notification";
 
 /**
  * Web Push Adapter
@@ -21,10 +22,15 @@ export class WebPushAdapter implements IWebPushPort {
         this.vapidPublicKey = this.configService.get<string>('VAPID_PUBLIC_KEY') || '';
         this.vapidPrivateKey = this.configService.get<string>('VAPID_PRIVATE_KEY') || '';
 
-        this.isConfigured = Boolean(this.vapidPublicKey && this.vapidPrivateKey);
+        this.isConfigured = isPwaNotificationsEnabled()
+            && Boolean(this.vapidPublicKey && this.vapidPrivateKey);
 
         if (!this.isConfigured) {
-            this.logger.warn('VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY not configured. Web push will be disabled.');
+            this.logger.warn(
+                isPwaNotificationsEnabled()
+                    ? 'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY not configured. Web push will be disabled.'
+                    : 'PWA notifications are disabled. Set PWA_NOTIFICATIONS_ENABLED=true to enable them.',
+            );
             return;
         }
 
@@ -122,6 +128,6 @@ export class WebPushAdapter implements IWebPushPort {
     }
 
     getVapidPublicKey(): string {
-        return this.vapidPublicKey;
+        return this.isConfigured ? this.vapidPublicKey : '';
     }
 }

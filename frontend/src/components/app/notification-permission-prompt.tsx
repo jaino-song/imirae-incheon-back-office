@@ -2,6 +2,7 @@
 
 import { Bell, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
+import { PWA_NOTIFICATIONS_ENABLED } from "@/lib/notification-config";
 
 const NOTIFICATION_PROMPT_DISMISSED_AT_KEY =
     "babyjamjam-admin:notification-prompt-dismissed-at";
@@ -13,7 +14,7 @@ export function NotificationPermissionPrompt() {
     const descriptionId = useId();
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (!PWA_NOTIFICATIONS_ENABLED || typeof window === 'undefined') return;
         if (!('Notification' in window)) return;
         if (Notification.permission !== 'default') {
             try {
@@ -45,7 +46,7 @@ export function NotificationPermissionPrompt() {
         });
     }, []);
 
-    if (!showBanner) return null;
+    if (!PWA_NOTIFICATIONS_ENABLED || !showBanner) return null;
 
     const handleEnable = async () => {
         const permission = await Notification.requestPermission();
