@@ -33,6 +33,18 @@ async function mockOwnerUser(page: Page) {
   });
 }
 
+async function enableOwnerE2EUser(page: Page) {
+  await page.goto("/messages");
+  await page.context().addCookies([
+    {
+      name: "e2e_role",
+      value: "owner",
+      url: new URL(page.url()).origin,
+    },
+  ]);
+  await page.reload();
+}
+
 test.describe("mobile messages navigation", () => {
   test.beforeEach(async ({ page }) => {
     await mockMessagesApproval(page);
@@ -40,7 +52,7 @@ test.describe("mobile messages navigation", () => {
   });
 
   test("exposes the currently available message sections as mobile destinations", async ({ page }) => {
-    await page.goto("/messages");
+    await enableOwnerE2EUser(page);
 
     const expectedDestinations = [
       ["전송하기", "/messages/new"],
@@ -56,7 +68,9 @@ test.describe("mobile messages navigation", () => {
 
     for (const [label, href] of expectedDestinations) {
       await page.goto("/messages");
-      await page.getByRole("button", { name: label }).click();
+      const destinationButton = page.getByRole("button", { name: label });
+      await expect(destinationButton).toBeEnabled({ timeout: 15000 });
+      await destinationButton.click();
       await expect(page).toHaveURL(new RegExp(`${href}$`));
     }
   });

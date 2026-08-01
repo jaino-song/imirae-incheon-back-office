@@ -130,7 +130,10 @@ import {
 } from "@/components/app/messages/forms/TemplateSendForm";
 import type { TemplateMessageFormLayout } from "@/components/app/messages/forms/form-components/TemplateMessageFormLayout";
 import { MessageTenantApplicationSettings } from "@/components/app/messages/MessageTenantApplicationSettings";
-import { MessageApprovalGate } from "@/components/app/messages/MessageApprovalGate";
+import {
+  MessageApprovalGate,
+  useMessageSenderApproval,
+} from "@/components/app/messages/MessageApprovalGate";
 import { TriggerRulesManager } from "@/components/app/messages/TriggerRulesManager";
 import { Button } from "@/components/ui/button";
 import {
@@ -213,6 +216,7 @@ const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([
   "templates",
   "triggers",
 ]);
+const SENDER_APPROVAL_EXEMPT_SECTION_IDS = new Set<MessageSectionId>(["send", "settings"]);
 
 const TEMPLATE_SEND_FORM_ID = "messages-template-send-form-active";
 
@@ -1575,12 +1579,16 @@ export default function MessagesPage() {
     useState<TemplateSendFormSubmitState | null>(null);
   const user = useInitialUser();
   const isOwner = user?.role === ROLES.owner;
+  const { data: senderApproval } = useMessageSenderApproval();
+  const isSenderApprovalRequired = senderApproval?.isApproved === false;
   const messageSections = useMemo(
     () => MESSAGE_SECTIONS.map((section) => ({
       ...section,
-      disabled: UNRELEASED_SECTION_IDS.has(section.id) && !isOwner,
+      disabled:
+        (isSenderApprovalRequired && !SENDER_APPROVAL_EXEMPT_SECTION_IDS.has(section.id)) ||
+        (UNRELEASED_SECTION_IDS.has(section.id) && !isOwner),
     })),
-    [isOwner],
+    [isOwner, isSenderApprovalRequired],
   );
 
   const { data: userTemplatesData, isLoading: isLoadingUserTemplates } = useMessageTemplates(1, 100);
