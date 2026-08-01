@@ -124,8 +124,12 @@ test.describe("Contracts delete flow", () => {
 
     await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu-trigger"]').click();
     await page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page_content_header_menu_delete"]').click();
-    await expect(page.locator('[data-component="mobile_contracts_delete-confirmation_modal"]')).toBeVisible();
-    await expect(page.getByText("선택한 계약서를 삭제할까요?")).toBeVisible();
+    const deleteModal = page.locator('[data-component="mobile_contracts_delete-confirmation_modal"]');
+    await expect(deleteModal).toBeVisible();
+    await expect(deleteModal.getByRole("heading", { name: "계약서 삭제" })).toBeVisible();
+    await expect(
+      deleteModal.getByText("전자문서가 취소되어 수신자가 더 이상 서명할 수 없습니다. 복구할 수 없습니다."),
+    ).toBeVisible();
 
     await page.locator('[data-component="mobile_contracts_delete-confirmation_modal_actions"]').getByRole("button", { name: "취소" }).click();
     await expect(page.locator('[data-component="mobile_contracts_delete-confirmation_modal"]')).not.toBeVisible();

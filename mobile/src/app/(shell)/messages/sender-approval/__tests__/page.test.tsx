@@ -8,6 +8,14 @@ const mockReplace = jest.fn();
 const mockToast = jest.fn();
 
 beforeAll(() => {
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
   Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
     configurable: true,
     value: () => false,
@@ -93,6 +101,12 @@ describe("MessageSenderApprovalPage", () => {
   it("shows the settings section navigation without a back button", () => {
     const { container } = renderPage();
     const listCard = container.querySelector('[data-component="mobile_messages_sender-approval_page_screen_content_scroll_list-card"]');
+    const form = container.querySelector<HTMLFormElement>(
+      '[data-component="mobile_messages_sender-approval_page_screen_content_scroll_list-card_body_form"]',
+    );
+    const actions = container.querySelector<HTMLElement>(
+      '[data-component="mobile_messages_sender-approval_page_screen_content_scroll_list-card_body_form_actions"]',
+    );
 
     expect(screen.getByRole("button", { name: "설정" }))
       .toHaveAttribute("aria-pressed", "true");
@@ -100,6 +114,9 @@ describe("MessageSenderApprovalPage", () => {
     expect(listCard).toContainElement(
       container.querySelector('[data-component="mobile_messages_sender-approval_page_screen_content_scroll_list-card_body"]'),
     );
+    expect(form?.tagName).toBe("FORM");
+    expect(form).toContainElement(actions);
+    expect(within(form as HTMLElement).getByRole("button", { name: "신청하기" })).toHaveAttribute("type", "submit");
     expect(screen.queryByRole("button", { name: "메시지 목록으로 돌아가기" }))
       .not.toBeInTheDocument();
   });
@@ -125,7 +142,7 @@ describe("MessageSenderApprovalPage", () => {
     expect(mockReplace).toHaveBeenCalledWith("/all");
   });
 
-  it("blocks the sender approval form with a pending approval modal", async () => {
+  it("shows a disabled pending approval state in the sender approval form", async () => {
     mockGetMessageSenderApproval.mockResolvedValue({
       approvalStatus: "pending",
       isApproved: false,
@@ -136,14 +153,10 @@ describe("MessageSenderApprovalPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("메시지 발송 신청 승인 대기중 입니다.")).toBeInTheDocument();
+    const submitButton = await screen.findByRole("button", { name: "승인 대기중" });
 
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("button", { name: "확인" })).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: "신청하기" })).not.toBeInTheDocument();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "확인" }));
-
-    expect(mockReplace).toHaveBeenCalledWith("/all");
+    expect(submitButton).toBeDisabled();
+    expect(submitButton).toHaveTextContent("승인 대기중");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

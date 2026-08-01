@@ -8,7 +8,7 @@
  */
 
 // Cache version - increment to force update
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v6';
 const CACHE_NAME = `babyjamjam-admin-mobile-${CACHE_VERSION}`;
 
 // Assets to precache during install

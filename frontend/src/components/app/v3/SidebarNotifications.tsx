@@ -102,9 +102,13 @@ export function SidebarNotifications() {
   const [modalPosition, setModalPosition] = React.useState<{ top: number; left: number } | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
   const { isScrollActive, handleScroll } = useScrollActivity();
-  const { data: alerts = [] } = useClientAlerts(3);
-  const { data: savedNotifications = [] } = useNotifications(5, 0, true);
+  const { data: alerts = [], isLoading: isAlertsLoading } = useClientAlerts(3);
+  const {
+    data: savedNotifications = [],
+    isLoading: isSavedNotificationsLoading,
+  } = useNotifications(5, 0, true);
   const markAsRead = useMarkAsRead();
+  const isNotificationsLoading = isAlertsLoading || isSavedNotificationsLoading;
 
   const notifications = React.useMemo<SidebarNotificationItem[]>(() => {
     const actionItems: SidebarNotificationItem[] = alerts.map((alert) => {
@@ -247,10 +251,11 @@ export function SidebarNotifications() {
                 data-scroll-active={isScrollActive ? "true" : "false"}
                 onScroll={handleScroll}
               >
-                {notifications.length ? (
+                {isNotificationsLoading || notifications.length ? (
                   <AnimatedSlotList<SidebarNotificationItem>
                     items={notifications}
-                    isLoading={false}
+                    isLoading={isNotificationsLoading}
+                    loadingCount={6}
                     itemDataComponent="desktop_chrome_sidebar_notifications-modal_item"
                     getItemKey={(notification) => notification.id}
                     onSlotClick={(notification) => handleNotificationClick(notification)}

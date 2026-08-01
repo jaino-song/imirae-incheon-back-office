@@ -16,6 +16,7 @@ import {
   type MessageSectionId,
 } from "@babyjamjam/shared";
 
+import { useMessagesPermissionGuard } from "@/app/(shell)/messages/MessagesPermissionGuard";
 import { MobileSectionNav } from "@/components/app/mobile-redesign/primitives";
 import { useInitialUser } from "@/providers/UserProvider";
 
@@ -53,6 +54,7 @@ const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([
   "templates",
   "triggers",
 ]);
+const SENDER_APPROVAL_EXEMPT_SECTION_IDS = new Set<MessageSectionId>(["send", "settings"]);
 
 export function MessageSectionNav({
   "data-component": dataComponent,
@@ -64,6 +66,7 @@ export function MessageSectionNav({
   const router = useRouter();
   const user = useInitialUser();
   const isOwner = user?.role === "owner";
+  const { needsSenderApproval } = useMessagesPermissionGuard();
 
   const sectionNavItems = useMemo(
     () =>
@@ -71,9 +74,11 @@ export function MessageSectionNav({
         id: item.id,
         label: item.title,
         icon: item.icon,
-        disabled: UNRELEASED_SECTION_IDS.has(item.id) && !isOwner,
+        disabled:
+          (needsSenderApproval && !SENDER_APPROVAL_EXEMPT_SECTION_IDS.has(item.id)) ||
+          (UNRELEASED_SECTION_IDS.has(item.id) && !isOwner),
       })),
-    [isOwner],
+    [isOwner, needsSenderApproval],
   );
 
   const handleSectionSelect = (sectionId: MessageSectionId) => {

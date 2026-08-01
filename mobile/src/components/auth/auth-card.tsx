@@ -12,6 +12,7 @@ interface AuthCardProps {
   variant?: "default" | "v3";
   /** Canonical data-component value for the surface that renders this card. */
   "data-component": string;
+  "data-slot"?: string;
 }
 
 export function AuthCard({
@@ -23,11 +24,12 @@ export function AuthCard({
   disableAnimation = false,
   variant = "default",
   "data-component": dataComponent,
+  "data-slot": dataSlot,
 }: AuthCardProps) {
   const isV3 = variant === "v3";
 
   return (
-    <div data-component={dataComponent} className="flex min-h-screen items-center justify-center">
+    <div data-component={dataComponent} data-slot={dataSlot} className="flex min-h-screen items-center justify-center">
       <Card
         className={cn(
           isV3
