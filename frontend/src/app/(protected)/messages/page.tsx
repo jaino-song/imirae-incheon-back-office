@@ -22,6 +22,8 @@ import {
 } from "@babyjamjam/shared";
 import { t } from "@/lib/i18n/translations";
 import { useLocale } from "@/providers/LocaleProvider";
+import { useInitialUser } from "@/providers/UserProvider";
+import { ROLES } from "@/lib/constants/roles";
 import { useMessageTemplates } from "@/features/message-templates/hooks/use-message-templates";
 import { useSystemTemplate } from "@/features/system-templates/hooks";
 import type { SystemTemplateKey } from "@/features/system-templates/types";
@@ -193,15 +195,24 @@ const TEMPLATE_FILTERS: Array<{ value: TemplateFilter; label: string }> = [
 
 const MESSAGE_SECTIONS = [
   { ...MESSAGE_SECTION_DEFINITIONS[0], icon: Send },
-  { ...MESSAGE_SECTION_DEFINITIONS[1], icon: Clock3, disabled: true },
-  { ...MESSAGE_SECTION_DEFINITIONS[2], icon: History, disabled: true },
-  { ...MESSAGE_SECTION_DEFINITIONS[3], icon: FileText, disabled: true },
-  { ...MESSAGE_SECTION_DEFINITIONS[4], icon: Workflow, disabled: true },
+  { ...MESSAGE_SECTION_DEFINITIONS[1], icon: Clock3 },
+  { ...MESSAGE_SECTION_DEFINITIONS[2], icon: History },
+  { ...MESSAGE_SECTION_DEFINITIONS[3], icon: FileText },
+  { ...MESSAGE_SECTION_DEFINITIONS[4], icon: Workflow },
   { ...MESSAGE_SECTION_DEFINITIONS[5], icon: Settings2 },
 ] as const;
 
 type MessageSectionId = SharedMessageSectionId;
 type PlaceholderSectionId = Exclude<MessageSectionId, "send" | "templates" | "triggers" | "history">;
+
+// Sections that are still 출시 예정. The owner gets early access to them; everyone
+// else sees them disabled until the features ship.
+const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([
+  "scheduled",
+  "history",
+  "templates",
+  "triggers",
+]);
 
 const TEMPLATE_SEND_FORM_ID = "messages-template-send-form-active";
 
@@ -1562,6 +1573,15 @@ export default function MessagesPage() {
   const [templatePreviewOverride, setTemplatePreviewOverride] = useState<string | null>(null);
   const [templateSendSubmitState, setTemplateSendSubmitState] =
     useState<TemplateSendFormSubmitState | null>(null);
+  const user = useInitialUser();
+  const isOwner = user?.role === ROLES.owner;
+  const messageSections = useMemo(
+    () => MESSAGE_SECTIONS.map((section) => ({
+      ...section,
+      disabled: UNRELEASED_SECTION_IDS.has(section.id) && !isOwner,
+    })),
+    [isOwner],
+  );
 
   const { data: userTemplatesData, isLoading: isLoadingUserTemplates } = useMessageTemplates(1, 100);
   const userTemplates = useMemo(() => userTemplatesData ?? [], [userTemplatesData]);
@@ -1790,7 +1810,7 @@ export default function MessagesPage() {
         <SectionNav
           data-component="desktop_messages_sections_section-nav"
           ariaLabel="메시지 기능"
-          items={MESSAGE_SECTIONS}
+          items={messageSections}
           activeId={activeSection}
           onSelect={(id) => setActiveSection(id as MessageSectionId)}
         />
