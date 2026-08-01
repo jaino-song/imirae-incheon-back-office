@@ -2,8 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 import PricesPage from "./page";
 
+const mockUseGetAuthUser = jest.fn();
+
 jest.mock("@/hooks/useGetAuthUser", () => ({
-  useGetAuthUser: () => ({ data: { role: "owner" } }),
+  useGetAuthUser: () => mockUseGetAuthUser(),
 }));
 
 jest.mock("@/hooks/useVoucherData", () => ({
@@ -13,13 +15,15 @@ jest.mock("@/hooks/useVoucherData", () => ({
 }));
 
 jest.mock("@/components/app/mobile-redesign/primitives", () => ({
-  ListCard: ({ actionLabel, onActionClick, children }: {
+  ListCard: ({ actionLabel, actionLoading, onActionClick, children }: {
     actionLabel?: string;
+    actionLoading?: boolean;
     onActionClick?: () => void;
     children: React.ReactNode;
   }) => (
     <div data-component="test-prices-list-card">
-      {actionLabel ? <button onClick={onActionClick}>{actionLabel}</button> : null}
+      {actionLoading ? <div data-testid="test-prices-action-skeleton" /> : null}
+      {!actionLoading && actionLabel ? <button onClick={onActionClick}>{actionLabel}</button> : null}
       {children}
     </div>
   ),
@@ -41,6 +45,25 @@ jest.mock("@/components/app/settings/VoucherPriceUploadForm", () => ({
 }));
 
 describe("mobile prices page", () => {
+  beforeEach(() => {
+    mockUseGetAuthUser.mockReturnValue({ data: { role: "owner" }, isLoading: false });
+  });
+
+  it("shows the owner action skeleton while the user role is loading", () => {
+    mockUseGetAuthUser.mockReturnValue({ data: undefined, isLoading: true });
+
+    const view = render(<PricesPage />);
+
+    expect(screen.getByTestId("test-prices-action-skeleton")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "업데이트" })).not.toBeInTheDocument();
+
+    mockUseGetAuthUser.mockReturnValue({ data: { role: "owner" }, isLoading: false });
+    view.rerender(<PricesPage />);
+
+    expect(screen.queryByTestId("test-prices-action-skeleton")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "업데이트" })).toBeInTheDocument();
+  });
+
   it("opens the functional voucher upload form for owners", () => {
     render(<PricesPage />);
 
