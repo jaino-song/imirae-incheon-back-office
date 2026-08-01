@@ -120,10 +120,17 @@ function formatYymmddInput(value: string): string {
 }
 
 function formatIsoDateToYymmdd(value: string): string {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return formatYymmddInput(value);
 
   return `${match[1].slice(2)}${match[2]}${match[3]}`;
+}
+
+// API가 내려주는 날짜는 "2026-07-31T00:00:00.000Z" 같은 풀 ISO 타임스탬프일 수
+// 있으므로, 표시·전자문서 payload에 쓰기 전에 날짜 부분만 잘라낸다.
+function toIsoDateOnly(value: string): string {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
 }
 
 function parseYymmddInputToIso(value: string): string | null {
@@ -584,12 +591,14 @@ export const ContractCreationForm = ({
       if (client.actualPrice) {
         setActualPrice(client.actualPrice);
       }
-      if (client.startDate) {
-        setStartDate(client.startDate);
-        setPaymentDate(client.startDate);
+      const clientStartDate = toIsoDateOnly(client.startDate ?? "");
+      if (clientStartDate) {
+        setStartDate(clientStartDate);
+        setPaymentDate(clientStartDate);
       }
-      if (client.endDate) {
-        setEndDate(client.endDate);
+      const clientEndDate = toIsoDateOnly(client.endDate ?? "");
+      if (clientEndDate) {
+        setEndDate(clientEndDate);
       }
 
       if (client.primaryEmployee && employees) {
