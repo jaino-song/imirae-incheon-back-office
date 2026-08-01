@@ -80,7 +80,12 @@ export interface SyncEformsignDocumentResult {
     sourceUpdatedDate: Date;
     storedFileTypes: EformsignDocumentFileType[];
     missingFileTypes: EformsignDocumentFileType[];
-    /** A ready mirror reconciliation created or linked local document ownership. */
+    /**
+     * Local document ownership changed through ready reconciliation or a
+     * not-ready, existing-client-only link. Completion publication also requires
+     * `isDocumentReady` in `EformsignWebhookController`, so a not-ready link
+     * cannot publish a completion event.
+     */
     ownershipChanged?: true;
 }
 
@@ -428,16 +433,13 @@ export class EformsignDocumentMirrorService {
                 // successfully stored detail/PDF generation immediately.
                 await this.invalidateDocumentSnapshots([documentId]);
             }
-            let ownershipChanged = false;
-            if (!finishApplied) {
-                // A newer attempt owns the terminal state. Reconcile only if that
-                // winner is already fully ready; reconcileClient reloads and fences it.
-                ownershipChanged = await this.reconcileClient(documentId, options);
-            } else if (!partialMessage) {
+            // A newer attempt may own the terminal state. Reconciliation always
+            // reloads it and either fences a ready generation or links existing-only.
+            if (finishApplied && !partialMessage) {
                 strictCompletionReconciliationStarted =
                     options.strictCompletionReconciliation === true;
-                ownershipChanged = await this.reconcileClient(documentId, options);
             }
+            const ownershipChanged = await this.reconcileClient(documentId, options);
 
             return {
                 status: "synced",
@@ -528,15 +530,37 @@ export class EformsignDocumentMirrorService {
         options: SyncEformsignDocumentOptions,
     ): Promise<boolean> {
         const state = await this.mirrorRepository.findState(documentId);
-        if (!isCurrentVersionReady(state)) return false;
+        const linkOptions = options.suppressOutboundAutomation
+            ? { suppressOutboundAutomation: true }
+            : undefined;
+        if (!isCurrentVersionReady(state)) {
+            try {
+                const result = await this.linkDocumentByPhoneUsecase.execute(
+                    documentId,
+                    {
+                        ...linkOptions,
+                        linkExistingOnly: true,
+                    },
+                );
+                if (result === "linked") {
+                    await this.invalidateDocumentSnapshots([documentId]);
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                // A not-ready mirror can still claim an existing client, but it
+                // must never make the enclosing mirror sync fail.
+                this.logger.warn(
+                    `Failed to reconcile mirrored eformsign client for ${documentId}: ${sanitizeEformsignErrorMessage(error)}`,
+                );
+                return false;
+            }
+        }
 
         const expectedMirrorGeneration: ExpectedEformsignMirrorGeneration = {
             detailSourceUpdatedDate: state.detailSourceUpdatedDate,
             detailSyncedAt: state.detailSyncedAt,
         };
-        const linkOptions = options.suppressOutboundAutomation
-            ? { suppressOutboundAutomation: true }
-            : undefined;
         const reconciliation = EFORMSIGN_COMPLETED_STATUS_CODES.has(
             normalizeEformsignStatusCode(state.detailPayload.current_status?.status_type),
         )
