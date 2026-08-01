@@ -9,7 +9,6 @@ import { Building2, Send } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { MessageSenderApprovalModal } from "@/components/app/messages/MessageSenderApprovalModal";
 import { MessageSectionNav } from "@/components/app/mobile-redesign/MessageSectionNav";
 import { ListCard } from "@/components/app/mobile-redesign/primitives";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
@@ -91,7 +90,7 @@ function getApprovalErrorMessage(error: unknown): string {
 
 function approvalStatusLabel(approval?: MessageSenderApprovalResponse): string {
   if (approval?.approvalStatus === "approved") return "승인 완료";
-  if (approval?.approvalStatus === "pending") return "승인 대기";
+  if (approval?.approvalStatus === "pending") return "승인 대기중";
   return "승인 필요";
 }
 
@@ -110,12 +109,20 @@ function SenderApprovalForm({
   });
 
   const canRequest = approval?.canRequest ?? true;
+  const isApprovalPending = approval?.approvalStatus === "pending";
   const allAgreed = AGREEMENT_ITEMS.every((item) => agreements[item.id]);
-  const canSubmit = allAgreed && canRequest && !isLoading && !isSubmitting;
-  const submitLabel = approval?.approvalStatus === "pending" ? "다시 신청하기" : "신청하기";
+  const canSubmit = allAgreed && canRequest && !isApprovalPending && !isLoading && !isSubmitting;
+  const submitLabel = isApprovalPending ? "승인 대기중" : "신청하기";
 
   return (
-    <div data-component={SENDER_APPROVAL_FORM_BASE} className={styles.formSections}>
+    <form
+      data-component={SENDER_APPROVAL_FORM_BASE}
+      className={styles.formSections}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (canSubmit) onSubmit();
+      }}
+    >
       <section data-component={`${SENDER_APPROVAL_FORM_BASE}_branch`} className={styles.formCardSection}>
           <div data-component={`${SENDER_APPROVAL_FORM_BASE}_branch_row`} className={styles.formSection}>
             <div data-component={`${SENDER_APPROVAL_FORM_BASE}_branch_row_label`} className={styles.labelRow}>
@@ -156,7 +163,7 @@ function SenderApprovalForm({
                   <Checkbox
                     id={item.id}
                     checked={agreements[item.id]}
-                    disabled={isLoading || isSubmitting || !canRequest}
+                    disabled={isLoading || isSubmitting || !canRequest || isApprovalPending}
                     onCheckedChange={(checked) => {
                       setAgreements((current) => ({
                         ...current,
@@ -206,18 +213,17 @@ function SenderApprovalForm({
 
       <div data-component={`${SENDER_APPROVAL_FORM_BASE}_actions`} className={styles.msgActions}>
         <Button
-          type="button"
+          type="submit"
           data-component={`${SENDER_APPROVAL_FORM_BASE}_actions_submit`}
           variant="v3"
           disabled={!canSubmit}
           className={styles.submitButton}
-          onClick={() => onSubmit()}
         >
           <Send aria-hidden="true" size={16} strokeWidth={2.5} />
           {isSubmitting ? "신청 중" : submitLabel}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -229,7 +235,6 @@ export default function MessageSenderApprovalPage() {
   const initialUser = useInitialUser();
   const { data: user } = useGetAuthUser({ initialData: initialUser });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [hasSubmittedSuccessfully, setHasSubmittedSuccessfully] = useState(false);
 
   const branchName = user?.branchName ?? "현재 지점";
 
@@ -241,7 +246,6 @@ export default function MessageSenderApprovalPage() {
   const requestApprovalMutation = useMutation({
     mutationFn: settingsApi.requestMessageSenderApproval,
     onSuccess: (approval: MessageSenderApprovalResponse) => {
-      setHasSubmittedSuccessfully(true);
       queryClient.setQueryData(MESSAGE_SENDER_APPROVAL_QUERY_KEY, approval);
       setErrorMessage(null);
       toast({ description: "신청이 완료되었습니다." });
@@ -252,13 +256,6 @@ export default function MessageSenderApprovalPage() {
       setErrorMessage(getApprovalErrorMessage(error));
     },
   });
-
-  const handlePendingModalConfirm = () => {
-    router.replace("/all");
-  };
-
-  const isApprovalPending =
-    !hasSubmittedSuccessfully && approvalQuery.data?.approvalStatus === "pending";
 
   return (
     <section
@@ -299,16 +296,6 @@ export default function MessageSenderApprovalPage() {
           </div>
         </div>
       </div>
-      <MessageSenderApprovalModal
-        open={isApprovalPending}
-        isApprovalPending
-        needsRequestPermission={false}
-        onOpenChange={(open) => {
-          if (!open) handlePendingModalConfirm();
-        }}
-        onCancel={handlePendingModalConfirm}
-        onRequest={handlePendingModalConfirm}
-      />
     </section>
   );
 }

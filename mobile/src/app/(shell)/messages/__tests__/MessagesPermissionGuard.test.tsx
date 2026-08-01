@@ -43,7 +43,7 @@ describe("MessagesPermissionGuard", () => {
   beforeEach(() => {
     mockPush.mockClear();
     mockReplace.mockClear();
-    mockPathname = "/messages/new";
+    mockPathname = "/messages/templates";
     mockGetMessageSenderApproval.mockReset();
     mockGetMessageSenderApproval.mockResolvedValue({
       approvalStatus: "not_requested",
@@ -91,6 +91,18 @@ describe("MessagesPermissionGuard", () => {
 
     expect(await screen.findByText("메시지 전송 권한이 필요합니다.")).toBeInTheDocument();
     expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
+  });
+
+  it("allows /messages/new without approval and keeps the approval modal closed", async () => {
+    mockPathname = "/messages/new";
+
+    renderGuard();
+
+    expect(await screen.findByTestId("messages-route-child")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetMessageSenderApproval).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
   });
 
   it("routes to /all when the approval modal cancel button is clicked", async () => {

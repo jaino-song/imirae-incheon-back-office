@@ -62,7 +62,7 @@
 }
 
 .formCardSection {
-  padding: 0;
+  display: contents;
 }
 
 .formSection {
@@ -76,10 +76,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-
-.formSection + .formSection {
-  margin-top: 12px;
 }
 
 .formLabel {
@@ -171,16 +167,21 @@
 }
 
 .templateSelectTrigger {
+  box-sizing: border-box;
   width: 100%;
   height: 44px;
   min-height: 44px;
   justify-content: space-between;
-  border-color: hsl(var(--v3-border));
-  border-radius: 10px;
-  background: hsl(var(--v3-dim-white));
+  border: 1.5px solid hsl(var(--input));
+  border-radius: 12px;
+  background: white;
   color: hsl(var(--v3-dark));
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.templateSelectTrigger:disabled {
+  background: hsl(var(--v3-dim-white));
 }
 
 .templateSelectTrigger:focus-visible {
@@ -221,26 +222,25 @@
 }
 
 .priceInfoControls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.formSection + .priceInfoControls {
-  margin-top: 12px;
+  display: contents;
 }
 
 .variableSelectTrigger {
+  box-sizing: border-box;
   width: 100%;
-  height: 42px;
-  min-height: 42px;
+  height: 44px;
+  min-height: 44px;
   justify-content: space-between;
-  border-color: hsl(var(--v3-border));
-  border-radius: 10px;
-  background: hsl(var(--v3-dim-white));
+  border: 1.5px solid hsl(var(--input));
+  border-radius: 12px;
+  background: white;
   color: hsl(var(--v3-dark));
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.variableSelectTrigger:disabled {
+  background: hsl(var(--v3-dim-white));
 }
 
 .variableSelectTrigger:focus-visible {
