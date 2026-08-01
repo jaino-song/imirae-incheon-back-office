@@ -83,15 +83,15 @@ export function useSendServiceRecordLink() {
             );
             return data;
         },
-        onSuccess: (_, variables) => {
+        onSuccess: async (_, variables) => {
             if (Number.isInteger(variables.clientId) && variables.clientId !== undefined && variables.clientId > 0) {
-                queryClient.invalidateQueries({
+                await queryClient.invalidateQueries({
                     queryKey: serviceRecordQueryKeys.clientOverview(variables.clientId),
                 });
                 return;
             }
 
-            queryClient.invalidateQueries({ queryKey: serviceRecordQueryKeys.all });
+            await queryClient.invalidateQueries({ queryKey: serviceRecordQueryKeys.all });
         },
     });
 }

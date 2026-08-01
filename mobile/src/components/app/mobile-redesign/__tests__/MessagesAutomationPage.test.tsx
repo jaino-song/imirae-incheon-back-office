@@ -46,8 +46,13 @@ describe("MessagesAutomationPage", () => {
       .toHaveAttribute("aria-pressed", "true");
     expect(container.querySelector(".message-navigation-row")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "발송 예정" }));
+    const scheduledButton = screen.getByRole("button", { name: "발송 예정" });
+    expect(scheduledButton).toBeDisabled();
+    fireEvent.click(scheduledButton);
+    expect(mockPush).not.toHaveBeenCalled();
 
-    expect(mockPush).toHaveBeenCalledWith("/messages/scheduled");
+    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/messages/sender-approval");
   });
 });

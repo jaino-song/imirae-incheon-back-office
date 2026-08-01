@@ -352,8 +352,8 @@ export function MessageTenantApplicationSettings() {
 
   const requestApprovalMutation = useMutation({
     mutationFn: settingsApi.requestMessageSenderApproval,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["settings", "message-sender-approval"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["settings", "message-sender-approval"] });
       setRequestedAt(formatRequestedAt(new Date()));
       toast({ description: `${tenantName} 메시지 발송 신청이 접수되었습니다.` });
     },
@@ -408,8 +408,8 @@ export function MessageTenantApplicationSettings() {
       queryClient.setQueryData(["settings", "client-registration-policy"], savedPolicy);
       toast({ description: "고객 자동 등록 설정이 저장되었습니다." });
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] });
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] });
     },
   });
 

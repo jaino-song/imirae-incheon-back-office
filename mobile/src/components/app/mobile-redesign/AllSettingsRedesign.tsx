@@ -70,6 +70,7 @@ export function AllSettingsRedesign({ menuGroups = defaultMenuGroups }: AllSetti
       data-component={ALL_MENU_BASE}
       data-source-component={ALL_SETTINGS_SOURCE_COMPONENT}
       className="menu-content"
+      style={{ paddingBottom: 76 }}
     >
       <div className="profile-card pop-up" data-component={`${ALL_MENU_BASE}_profile-card`}>
         <div className="profile-avatar">{getAvatarInitial(profileName)}</div>

@@ -3,7 +3,7 @@
 import { type CSSProperties, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, User, FileText, Phone, Menu } from "lucide-react";
+import { Home, User, FileText, MessageSquareText, Menu } from "lucide-react";
 import { useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { isLayoutExcluded } from "@/lib/constants/v3-layout";
@@ -13,13 +13,14 @@ const NAV_ITEMS: Array<{
   label: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   kind?: "normal" | "chat";
+  slot?: string;
   disabled?: boolean;
 }> = [
-  { href: "/dashboard", label: "홈", icon: Home, kind: "normal" },
-  { href: "/clients", label: "고객", icon: User, kind: "normal" },
-  { href: "/calls", label: "통화요약", icon: Phone, kind: "chat", disabled: true },
-  { href: "/contracts", label: "계약", icon: FileText, kind: "normal" },
-  { href: "/all", label: "전체", icon: Menu, kind: "normal" },
+  { href: "/dashboard", label: "홈", icon: Home, kind: "normal", slot: "mobile-bottom-nav-dashboard" },
+  { href: "/clients", label: "고객", icon: User, kind: "normal", slot: "mobile-bottom-nav-clients" },
+  { href: "/messages/new", label: "메시지", icon: MessageSquareText, kind: "normal", slot: "mobile-bottom-nav-messages" },
+  { href: "/contracts", label: "계약", icon: FileText, kind: "normal", slot: "mobile-bottom-nav-contracts" },
+  { href: "/all", label: "전체", icon: Menu, kind: "normal", slot: "mobile-bottom-nav-all" },
 ];
 const ALL_NAV_INDEX = NAV_ITEMS.findIndex((item) => item.href === "/all");
 const NAV_BASE = "mobile_shell_bottom-nav";
@@ -30,7 +31,7 @@ interface PressedNavItem {
 
 function isNavItemActive(href: string, pathname: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
-  if (href === "/calls") return pathname.startsWith("/calls");
+  if (href === "/messages/new") return pathname.startsWith("/messages");
   if (href === "/all") return pathname === "/all";
   return pathname.startsWith(href);
 }
@@ -122,10 +123,9 @@ export function MobileBottomNav() {
         const isDisabled = item.disabled === true;
         const isIndicated = !isDisabled && indicatorVisible && index === indicatorIndex;
         const Icon = item.icon;
-        const itemName =
-          item.kind === "chat" ? "chat" : item.href.replace("/", "");
+        const itemName = item.href.replace(/^\//, "").replace(/\//g, "-");
         const dataComponent = `${NAV_BASE}_${itemName}`;
-        const dataSlot = `mobile-bottom-nav-${itemName}`;
+        const dataSlot = item.slot ?? `mobile-bottom-nav-${itemName}`;
         const itemClassName = cn(
           "relative z-10 flex h-10 flex-col items-center gap-[2px] rounded-[14px] px-1 py-[5px]",
           prefersReducedMotion ? null : "transition-colors duration-300 ease-out",
@@ -164,6 +164,7 @@ export function MobileBottomNav() {
           <Link
             key={item.href}
             href={item.href}
+            prefetch={true}
             aria-current={isActive ? "page" : undefined}
             data-visual-active={isIndicated ? "true" : undefined}
             onClick={() => {
