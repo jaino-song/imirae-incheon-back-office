@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock3,
@@ -16,6 +17,7 @@ import {
 } from "@babyjamjam/shared";
 
 import { MobileSectionNav } from "@/components/app/mobile-redesign/primitives";
+import { useInitialUser } from "@/providers/UserProvider";
 
 const SOURCE_COMPONENT = "MessageSectionNav";
 
@@ -43,19 +45,14 @@ export const MESSAGE_NAVIGATION_ITEMS: MessageNavigationItem[] =
     icon: MESSAGE_NAVIGATION_PRESENTATION[section.id],
   }));
 
-const DISABLED_SECTION_IDS = new Set<MessageSectionId>([
+// Sections that are still 출시 예정. The owner gets early access to them; everyone
+// else sees them disabled until the features ship.
+const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([
   "scheduled",
   "history",
   "templates",
   "triggers",
 ]);
-
-const MESSAGE_SECTION_NAV_ITEMS = MESSAGE_NAVIGATION_ITEMS.map((item) => ({
-  id: item.id,
-  label: item.title,
-  icon: item.icon,
-  disabled: DISABLED_SECTION_IDS.has(item.id),
-}));
 
 export function MessageSectionNav({
   "data-component": dataComponent,
@@ -65,6 +62,19 @@ export function MessageSectionNav({
   activeId: MessageSectionId;
 }) {
   const router = useRouter();
+  const user = useInitialUser();
+  const isOwner = user?.role === "owner";
+
+  const sectionNavItems = useMemo(
+    () =>
+      MESSAGE_NAVIGATION_ITEMS.map((item) => ({
+        id: item.id,
+        label: item.title,
+        icon: item.icon,
+        disabled: UNRELEASED_SECTION_IDS.has(item.id) && !isOwner,
+      })),
+    [isOwner],
+  );
 
   const handleSectionSelect = (sectionId: MessageSectionId) => {
     const selectedItem = MESSAGE_NAVIGATION_ITEMS.find((item) => item.id === sectionId);
@@ -76,7 +86,7 @@ export function MessageSectionNav({
       data-component={dataComponent}
       sourceComponent={SOURCE_COMPONENT}
       ariaLabel="메시지 기능"
-      items={MESSAGE_SECTION_NAV_ITEMS}
+      items={sectionNavItems}
       activeId={activeId}
       onSelect={handleSectionSelect}
     />

@@ -9,3 +9,19 @@ describe("MessagesPage template type labels", () => {
     expect(source).toContain("지점 템플릿 · 정보를 불러오지 못했습니다.");
   });
 });
+
+describe("MessagesPage unreleased section gating", () => {
+  it("keeps the unreleased sections disabled for everyone except the owner", () => {
+    const unreleasedIds = source
+      .split("const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([")[1]
+      ?.split("]);")[0];
+
+    expect(unreleasedIds).toBeDefined();
+    expect(unreleasedIds).toContain('"scheduled"');
+    expect(unreleasedIds).toContain('"history"');
+    expect(unreleasedIds).toContain('"templates"');
+    expect(unreleasedIds).toContain('"triggers"');
+    expect(source).toContain("const isOwner = user?.role === ROLES.owner");
+    expect(source).toContain("disabled: UNRELEASED_SECTION_IDS.has(section.id) && !isOwner");
+  });
+});

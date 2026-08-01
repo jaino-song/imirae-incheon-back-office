@@ -23,7 +23,8 @@ async function mockMessageReads(page: Page) {
         body: JSON.stringify({
           id: "e2e-user",
           name: "E2E Tester",
-          role: "admin",
+          // The 발송 예정 / 발송 기록 sections are 출시 예정 and owner-only.
+          role: "owner",
           branchName: "테스트 지점",
         }),
       });
