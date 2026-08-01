@@ -22,6 +22,20 @@ describe("MessagesPage unreleased section gating", () => {
     expect(unreleasedIds).toContain('"templates"');
     expect(unreleasedIds).toContain('"triggers"');
     expect(source).toContain("const isOwner = user?.role === ROLES.owner");
-    expect(source).toContain("disabled: UNRELEASED_SECTION_IDS.has(section.id) && !isOwner");
+    expect(source).toContain("UNRELEASED_SECTION_IDS.has(section.id) && !isOwner");
+  });
+});
+
+describe("MessagesPage sender approval gating", () => {
+  it("keeps only send and settings available while sender approval is pending", () => {
+    expect(source).toContain(
+      'const SENDER_APPROVAL_EXEMPT_SECTION_IDS = new Set<MessageSectionId>(["send", "settings"]);',
+    );
+    expect(source).toContain(
+      "const isSenderApprovalRequired = senderApproval?.isApproved === false",
+    );
+    expect(source).toContain(
+      "!SENDER_APPROVAL_EXEMPT_SECTION_IDS.has(section.id)",
+    );
   });
 });
