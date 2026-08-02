@@ -53,6 +53,6 @@ describe("MessagesAutomationPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "설정" }));
 
-    expect(mockPush).toHaveBeenCalledWith("/messages/sender-approval");
+    expect(mockPush).toHaveBeenCalledWith("/messages/settings");
   });
 });
