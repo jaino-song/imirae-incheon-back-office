@@ -45,7 +45,7 @@ import {
 } from "@/components/app/v3";
 import { formatKoreanPhoneNumber, normalizeKoreanPhoneLookupKey } from "@/lib/phone";
 import { matchesMessageHistoryClient } from "@/lib/message-history/client-match";
-import { mapStatusToLabel, type DocumentStatusLabel } from "@/lib/eformsign/status-codes";
+import { mapDocStatusLabel, type DocumentStatusLabel } from "@/lib/eformsign/status-codes";
 import { eformsignApi, type LocalEformsignDocRecord } from "@/services/api";
 import { Users } from "lucide-react";
 
@@ -90,9 +90,11 @@ const formatDateTime = (dateStr: string | null): string => {
 };
 
 const DOCUMENT_STATUS_BADGE_STATUS = {
-    "대기": "pending",
+    "서명 대기": "pending",
+    "알 수 없음": "pending",
+    "서명 완료": "signed",
     "검토 필요": "review",
-    "완료": "signed",
+    "계약 완료": "completed",
     "기간 만료": "expired",
 } satisfies Record<DocumentStatusLabel, Parameters<typeof StatusBadge>[0]["status"]>;
 
@@ -329,9 +331,18 @@ function ClientContractsList({
     return (
         <div data-component={`${dataComponentPrefix}-contracts-list`} className="space-y-3">
             {docs.map((doc) => {
-                const statusLabel = doc.statusDetail === "검토 필요"
-                    ? "검토 필요"
-                    : mapStatusToLabel(doc.statusType);
+                // The backend stamps displayStatus at serve time; the local derivation
+                // (including the legacy statusDetail-string nudge for stale step fields)
+                // only backstops payloads that predate the field.
+                const statusLabel = mapDocStatusLabel(
+                    {
+                        status_type: doc.statusType,
+                        step_type: doc.statusDetail === "검토 필요" ? "06" : doc.stepType,
+                        step_name: doc.stepName,
+                    },
+                    doc.contractEndDate ?? null,
+                    doc.displayStatus,
+                );
                 return (
                     <InfoCard
                         key={doc.documentId}

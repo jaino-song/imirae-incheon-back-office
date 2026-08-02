@@ -41,6 +41,10 @@ import {
     type TemplateMatch,
 } from "application/utils/eformsign-document-list";
 import {
+    resolveEformsignDocDisplayStatus,
+    type EformsignDocDisplayStatus,
+} from "application/utils/eformsign-doc-display-status";
+import {
     normalizeEformsignStatusCode,
     normalizeEformsignStepType,
 } from "domain/utils/eformsign-status-code";
@@ -139,17 +143,22 @@ type EformsignStatusSignal = {
     step_type: string | null;
     step_name: string | null;
     step_recipient_types: Array<string | null>;
+    /** YYYY-MM-DD when known; the 서명 완료/검토 필요 counters split on it. */
+    contract_end_date: string | null;
+    /** Authoritative display status, stamped at serve time. */
+    display_status: EformsignDocDisplayStatus;
 };
 
 function toStatusSignal(doc: unknown): EformsignStatusSignal {
-    const currentStatus = (doc as {
+    const { current_status: currentStatus, contract_end_date: contractEndDate } = doc as {
         current_status?: {
             status_type?: unknown;
             step_type?: unknown;
             step_name?: unknown;
             step_recipients?: Array<{ recipient_type?: unknown }>;
         };
-    }).current_status;
+        contract_end_date?: unknown;
+    };
     const stepRecipients = Array.isArray(currentStatus?.step_recipients) ? currentStatus.step_recipients : [];
     const statusType = stringFromUnknown(currentStatus?.status_type);
     const stepType = stringFromUnknown(currentStatus?.step_type);
@@ -165,6 +174,8 @@ function toStatusSignal(doc: unknown): EformsignStatusSignal {
             typeof recipient?.recipient_type === "string"
                 ? recipient.recipient_type
                 : null),
+        contract_end_date: stringFromUnknown(contractEndDate),
+        display_status: resolveEformsignDocDisplayStatus(doc as EformsignListDoc),
     };
 }
 
@@ -230,7 +241,12 @@ export class EformsignController {
         const page = documents.slice(params.skip, params.skip + params.limit);
 
         return {
-            documents: enrichMirrorPage(page),
+            // display_status is stamped at serve time, never into the cached snapshot —
+            // the 서명 완료→검토 필요 flip moves with the calendar, not with document writes.
+            documents: enrichMirrorPage(page).map((document) => ({
+                ...document,
+                display_status: resolveEformsignDocDisplayStatus(document),
+            })),
             total_rows: documents.length,
             limit: params.limit,
             skip: params.skip,

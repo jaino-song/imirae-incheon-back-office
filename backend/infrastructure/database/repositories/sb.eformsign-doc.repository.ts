@@ -30,6 +30,8 @@ import {
 } from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EformsignDocMapper } from "infrastructure/database/mapper/eformsign-doc.mapper";
+import { extractEformsignContractEndDate } from "application/utils/eformsign-contract-client-candidate";
+import type { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 
 const isUniqueConstraintError = (error: unknown): boolean =>
     typeof error === "object"
@@ -339,6 +341,25 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 customerName: trimmed && trimmed !== "수신자" ? trimmed : null,
             };
         });
+    }
+
+    async findContractEndDatesByDocumentIds(documentIds: string[]): Promise<Map<string, string>> {
+        if (documentIds.length === 0) return new Map();
+
+        const docs = await this.prismaService.eformsign_doc.findMany({
+            where: { documentId: { in: documentIds } },
+            select: { documentId: true, detailPayload: true },
+        });
+
+        const endDates = new Map<string, string>();
+        for (const doc of docs) {
+            if (!doc.detailPayload || typeof doc.detailPayload !== "object") continue;
+            const endDate = extractEformsignContractEndDate(
+                doc.detailPayload as unknown as EformsignApiDocumentResponse,
+            );
+            if (endDate) endDates.set(doc.documentId, endDate.toISOString().slice(0, 10));
+        }
+        return endDates;
     }
 
     async findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]> {

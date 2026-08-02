@@ -271,12 +271,15 @@ export interface ContractCreationFormProps {
   onClose?: () => void;
   onSuccess?: () => void;
   onSessionStateChange?: (hasSession: boolean) => void;
+  onProcessingFailureChange?: (failed: boolean) => void;
+  onSubmissionStateChange?: (submitting: boolean) => void;
   activeStep?: number;
   onActiveStepChange?: (step: number) => void;
   contentClassName?: string;
   stepContentClassName?: string;
   footerClassName?: string;
   renderLayout?: (parts: ContractCreationFormLayoutParts) => ReactNode;
+  initialClient?: Client;
 }
 
 const CONTRACT_CREATION_PROGRESS_STEPS: readonly HeadlessProgressStep[] = [
@@ -339,12 +342,15 @@ export const ContractCreationForm = ({
   onClose,
   onSuccess,
   onSessionStateChange,
+  onProcessingFailureChange,
+  onSubmissionStateChange,
   activeStep: controlledActiveStep,
   onActiveStepChange,
   contentClassName,
   stepContentClassName,
   footerClassName,
   renderLayout,
+  initialClient,
 }: ContractCreationFormProps = {}) => {
   const router = useRouter();
   const locale = useLocale();
@@ -386,6 +392,7 @@ export const ContractCreationForm = ({
   const [unverifiedDispatchNotice, setUnverifiedDispatchNotice] = useState<string | null>(null);
   const [creationProgress, setCreationProgress] = useState<HeadlessProgressState>(INITIAL_CREATION_PROGRESS);
   const [dueDateInput, setDueDateInput] = useState("");
+  const [birthDateInput, setBirthDateInput] = useState("");
   const [startDateInput, setStartDateInput] = useState("");
   const [endDateInput, setEndDateInput] = useState("");
   const [paymentDateInput, setPaymentDateInput] = useState("");
@@ -406,6 +413,7 @@ export const ContractCreationForm = ({
     birthday,
     address,
     dueDate,
+    birthDate,
     employeeId,
     employeeName,
     employeePhone,
@@ -429,6 +437,7 @@ export const ContractCreationForm = ({
     setBirthday,
     setAddress,
     setDueDate,
+    setBirthDate,
     setIsEmployeeManualEntry,
     setEmployeePhone,
     setEmployeeSelection,
@@ -453,6 +462,7 @@ export const ContractCreationForm = ({
 
   // Sync display inputs when external date state changes (e.g., client autofill).
   useEffect(() => { setDueDateInput(formatIsoDateToYymmdd(dueDate)); }, [dueDate]);
+  useEffect(() => { setBirthDateInput(formatIsoDateToYymmdd(birthDate)); }, [birthDate]);
   useEffect(() => { setStartDateInput(startDate); }, [startDate]);
   useEffect(() => { setEndDateInput(endDate); }, [endDate]);
   useEffect(() => { setPaymentDateInput(paymentDate); }, [paymentDate]);
@@ -473,6 +483,22 @@ export const ContractCreationForm = ({
     }
   }, [setDueDate]);
 
+  const handleBirthDateInputChange = useCallback((value: string) => {
+    const nextInput = formatYymmddInput(value);
+    const nextIsoDate = parseYymmddInputToIso(nextInput);
+
+    setBirthDateInput(nextInput);
+
+    if (nextInput.length === 0) {
+      setBirthDate("");
+      return;
+    }
+
+    if (nextIsoDate) {
+      setBirthDate(nextIsoDate);
+    }
+  }, [setBirthDate]);
+
   // 시작일과 서비스 기간이 모두 정해지면 평일(주말+한국 공휴일 제외) 기준으로 종료일 자동 계산.
   // 사용자가 종료일을 수동 편집해도 startDate/voucherDuration이 다시 바뀌어야만 덮어쓴다.
   useEffect(() => {
@@ -491,6 +517,10 @@ export const ContractCreationForm = ({
   useEffect(() => {
     onSessionStateChange?.(hasCreationSession);
   }, [hasCreationSession, onSessionStateChange]);
+
+  useEffect(() => {
+    onProcessingFailureChange?.(hasProcessingFailure);
+  }, [hasProcessingFailure, onProcessingFailureChange]);
 
   const { data: voucherPriceInfos = [], isLoading: isVoucherPriceInfosLoading } = useVoucherPriceInfos(
     voucherType,
@@ -575,6 +605,8 @@ export const ContractCreationForm = ({
       setAddress(client.address || "");
       setDueDate(client.dueDate || "");
       setDueDateInput(formatIsoDateToYymmdd(client.dueDate || ""));
+      setBirthDate(client.birthDate || "");
+      setBirthDateInput(formatIsoDateToYymmdd(client.birthDate || ""));
 
       if (client.type) {
         setVoucherType(client.type);
@@ -624,6 +656,8 @@ export const ContractCreationForm = ({
       setAddress("");
       setDueDate("");
       setDueDateInput("");
+      setBirthDate("");
+      setBirthDateInput("");
       setVoucherType("");
       setVoucherDuration("");
       setFullPrice("");
@@ -635,6 +669,59 @@ export const ContractCreationForm = ({
       resetEmployee2Fields();
     }
   };
+
+  const initialClientAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (!initialClient || initialClientAppliedRef.current) return;
+    initialClientAppliedRef.current = true;
+
+    resetAll();
+    setDueDateInput("");
+    setBirthDateInput("");
+    resetCreationSession();
+
+    handleClientSelect(initialClient.id, initialClient);
+    setArea(initialClient.areaId ?? "");
+    setPaymentDate("");
+    setPaymentDateInput("");
+  }, [initialClient]);
+
+  const initialClientEmployeePrefillAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (!initialClient || !employees || initialClientEmployeePrefillAppliedRef.current) return;
+    if (employeeId !== null || employeeName || employeePhone) return;
+    initialClientEmployeePrefillAppliedRef.current = true;
+
+    if (initialClient.primaryEmployee) {
+      const primaryEmp = employees.find((e) => e.id === initialClient.primaryEmployee?.id);
+      if (primaryEmp) {
+        setEmployeeSelection(primaryEmp.id, primaryEmp.name, primaryEmp.phone);
+        setIsEmployeeManualEntry(false);
+      }
+    }
+
+    if (initialClient.secondaryEmployee) {
+      const secondaryEmp = employees.find((e) => e.id === initialClient.secondaryEmployee?.id);
+      if (secondaryEmp) {
+        setShowEmployee2(true);
+        setEmployee2Selection(secondaryEmp.id, secondaryEmp.name, secondaryEmp.phone);
+        setIsEmployee2ManualEntry(false);
+      }
+    }
+  }, [
+    initialClient,
+    employees,
+    employeeId,
+    employeeName,
+    employeePhone,
+    setEmployeeSelection,
+    setIsEmployeeManualEntry,
+    setShowEmployee2,
+    setEmployee2Selection,
+    setIsEmployee2ManualEntry,
+  ]);
 
   const handleEmployeeSelect = (selectedEmployeeId: number | null, employee: Employee | null) => {
     if (employee) {
@@ -673,87 +760,51 @@ export const ContractCreationForm = ({
   };
 
   const handleContractCreation = async ({ mode = "auto" }: ContractCreationRunOptions = {}) => {
-    const shouldAttemptHeadless = mode !== "manual" && isFeatureEnabled("headlessDispatch");
-
-    if (employeeId === null || (showEmployee2 && employee2Id === null)) {
-      setSubmitError("등록된 제공인력을 목록에서 선택해 주세요.");
-      setActiveStep(1);
-      return;
-    }
-
-    if (!shouldAttemptHeadless && !isEformsignLoaded) {
-      setSubmitError("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
-      setActiveStep(CONTRACT_INFO_STEP_INDEX);
-      return;
-    }
-
-    setIsSubmitting(true);
-    setSubmitError(null);
-    // A manual run is usually the automatic iframe fallback re-entering after a
-    // failure, so it must not wipe the warning that failure just raised. Only a
-    // genuinely fresh attempt clears it.
-    if (mode !== "manual") setUnverifiedDispatchNotice(null);
-    setIsDialogOpen(false);
-    setCreationProgress(INITIAL_CREATION_PROGRESS);
-
-    let autoRegisteredClientId: number | null = null;
-    let keepSubmittingUntilDialogCloses = false;
+    onSubmissionStateChange?.(true);
     try {
-      let finalClientId = clientId;
-      const normalizedDueDate = parseYymmddInputToIso(dueDateInput) ?? "";
-      const assignment = {
-        primaryEmployeeId: employeeId,
-        secondaryEmployeeId: showEmployee2 ? employee2Id : null,
-      };
+      const shouldAttemptHeadless = mode !== "manual" && isFeatureEnabled("headlessDispatch");
 
-      if (!clientId) {
-        const autoRegistrationPayload = {
-          name,
-          phone,
-          birthday: birthday || undefined,
-          address: address || undefined,
-          dueDate: normalizedDueDate || undefined,
-          ...assignment,
-          type: voucherType || null,
-          duration: parseOptionalInteger(voucherDuration),
-          fullPrice: fullPrice || null,
-          grant: grant || null,
-          actualPrice: actualPrice || null,
-          startDate: startDate || null,
-          endDate: endDate || null,
-          careCenter: null,
-          voucherClient: hasPositivePrice(grant),
-          breastPump: false,
-          serviceStatus: isFutureDate(startDate) ? "waiting" as const : null,
-          areaId: area || null,
-          source: "contract_auto_registration" as const,
+      if (employeeId === null || (showEmployee2 && employee2Id === null)) {
+        setSubmitError("등록된 제공인력을 목록에서 선택해 주세요.");
+        setActiveStep(1);
+        return;
+      }
+
+      if (!shouldAttemptHeadless && !isEformsignLoaded) {
+        setSubmitError("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
+        setActiveStep(CONTRACT_INFO_STEP_INDEX);
+        return;
+      }
+
+      setIsSubmitting(true);
+      setSubmitError(null);
+      // A manual run is usually the automatic iframe fallback re-entering after a
+      // failure, so it must not wipe the warning that failure just raised. Only a
+      // genuinely fresh attempt clears it.
+      if (mode !== "manual") setUnverifiedDispatchNotice(null);
+      setIsDialogOpen(false);
+      setCreationProgress(INITIAL_CREATION_PROGRESS);
+
+      let autoRegisteredClientId: number | null = null;
+      let keepSubmittingUntilDialogCloses = false;
+      try {
+        let finalClientId = clientId;
+        const normalizedDueDate = parseYymmddInputToIso(dueDateInput) ?? "";
+        const normalizedBirthDate = parseYymmddInputToIso(birthDateInput) ?? "";
+        const assignment = {
+          primaryEmployeeId: employeeId,
+          secondaryEmployeeId: showEmployee2 ? employee2Id : null,
         };
-        let newClient;
-        let reusedExistingClient = false;
-        try {
-          newClient = await createClientMutation.mutateAsync(autoRegistrationPayload);
-        } catch (error) {
-          if (!isAxiosError<{ message?: string; error?: string; clientId?: number }>(error) || error.response?.status !== 409) throw error;
-          const conflict = error.response.data;
-          if (!conflict.clientId) throw new Error(getApiErrorMessage(error, "고객 자동 등록에 실패했습니다."));
-          const shouldReuse = await requestConfirmation("이미 같은 전화번호의 고객이 있습니다. 기존 고객으로 계약을 진행할까요?");
-          if (!shouldReuse) return;
-          reusedExistingClient = true;
-          newClient = await createClientMutation.mutateAsync({ ...autoRegistrationPayload, reuseExistingClient: true });
-        }
-        finalClientId = newClient.id;
-        if (!reusedExistingClient) autoRegisteredClientId = newClient.id;
-        setClientId(newClient.id);
-      } else {
-        await updateClientMutation.mutateAsync({
-          id: clientId,
-          dto: {
-            ...assignment,
+
+        if (!clientId) {
+          const autoRegistrationPayload = {
             name,
             phone,
             birthday: birthday || undefined,
-            address: address || null,
+            address: address || undefined,
             dueDate: normalizedDueDate || undefined,
+            birthDate: normalizedBirthDate || undefined,
+            ...assignment,
             type: voucherType || null,
             duration: parseOptionalInteger(voucherDuration),
             fullPrice: fullPrice || null,
@@ -761,300 +812,344 @@ export const ContractCreationForm = ({
             actualPrice: actualPrice || null,
             startDate: startDate || null,
             endDate: endDate || null,
+            careCenter: null,
             voucherClient: hasPositivePrice(grant),
+            breastPump: false,
+            serviceStatus: isFutureDate(startDate) ? "waiting" as const : null,
             areaId: area || null,
-          },
-        });
-      }
-      if (finalClientId === null) {
-        throw new Error("고객 정보를 먼저 선택하거나 등록해 주세요.");
-      }
-
-      const executionTime = Date.now();
-      const authResult = await eformsignApi.authenticate(executionTime);
-
-      if (!authResult.success) {
-        throw new Error("Failed to authenticate");
-      }
-
-      const start = dayjs(startDate);
-      const end = endDate ? dayjs(endDate) : null;
-      const payment = dayjs(paymentDate);
-      const today = dayjs();
-
-      const contractData: ContractDataDto = {
-        customerName: name,
-        customerContact: phone,
-        customerDOB: birthday,
-        customerAddress: address,
-        // inputOutsiderNumber (이용자 연락처) prefill 용 — 현재 로그인 계정의 phone 사용
-        issuerPhone: authUser?.phone ?? undefined,
-        caretaker1Name: employeeName,
-        caretaker1Contact: employeePhone,
-        type: voucherType,
-        days: voucherDuration,
-        area,
-        contractDuration: end
-          ? `${start.format("YYYY-MM-DD")} ~ ${end.format("YYYY-MM-DD")}`
-          : `${start.format("YYYY-MM-DD")} ~`,
-        startYear: start.format("YY"),
-        startMonth: start.format("MM"),
-        startDay: start.format("DD"),
-        startDate,
-        endYear: end ? end.format("YY") : "",
-        endMonth: end ? end.format("MM") : "",
-        endDay: end ? end.format("DD") : "",
-        endDate,
-        paymentYear: payment.format("YY"),
-        paymentMonth: payment.format("MM"),
-        paymentDay: payment.format("DD"),
-        receiptYear: today.format("YY"),
-        receiptMonth: today.format("MM"),
-        receiptDay: today.format("DD"),
-        fullPrice,
-        grant,
-        actualPrice,
-      };
-
-      // BJJ-90: when the flag is on, drive the iframe gate sequence on the
-      // backend via Playwright. Failures stay on the processing step so the
-      // user can retry the backend run or choose the manual iframe fallback.
-      if (shouldAttemptHeadless) {
-        const progressId = createHeadlessProgressId();
-        let progressSource: ReturnType<typeof createReconnectingEventSource> | null = null;
-
-        // Reopen the eformsign editor so staff are never stranded on a failed
-        // automatic run. Deferred a tick so this run's `finally` (which clears
-        // isSubmitting) lands before the manual run sets it again.
-        const openIframeFallback = () => {
-          setTimeout(() => {
-            void handleContractCreation({ mode: "manual" });
-          }, 0);
-        };
-
-        try {
-          setCreationProgress({ step: "client-started", completed: false, failed: false });
-          progressSource = createReconnectingEventSource({
-            eventName: "progress",
-            url: `/api/eformsign-docs/dispatch-headless/progress?progressId=${encodeURIComponent(progressId)}`,
-            onEvent: (event) => {
-              let data: HeadlessProgressEvent;
-              try {
-                data = JSON.parse(event.data) as HeadlessProgressEvent;
-              } catch {
-                return;
-              }
-              if (data.step === "failed") {
-                setSubmitError(getSafeHeadlessFailureMessage(data.reason));
-                setCreationProgress((current) => ({
-                  step: data.failedStep && isHeadlessProgressStepKey(data.failedStep)
-                    ? data.failedStep
-                    : current.step ?? "client-started",
-                  completed: false,
-                  failed: true,
-                }));
-                return;
-              }
-              if (!isHeadlessProgressStepKey(data.step)) return;
-              const nextStep = data.step;
-              setCreationProgress((current) =>
-                current.failed
-                  ? current
-                  : {
-                    step: nextStep,
-                    completed: nextStep === "sent",
-                    failed: false,
-                  },
-              );
+            source: "contract_auto_registration" as const,
+          };
+          let newClient;
+          let reusedExistingClient = false;
+          try {
+            newClient = await createClientMutation.mutateAsync(autoRegistrationPayload);
+          } catch (error) {
+            if (!isAxiosError<{ message?: string; error?: string; clientId?: number }>(error) || error.response?.status !== 409) throw error;
+            const conflict = error.response.data;
+            if (!conflict.clientId) throw new Error(getApiErrorMessage(error, "고객 자동 등록에 실패했습니다."));
+            const shouldReuse = await requestConfirmation("이미 같은 전화번호의 고객이 있습니다. 기존 고객으로 계약을 진행할까요?");
+            if (!shouldReuse) return;
+            reusedExistingClient = true;
+            newClient = await createClientMutation.mutateAsync({ ...autoRegistrationPayload, reuseExistingClient: true });
+          }
+          finalClientId = newClient.id;
+          if (!reusedExistingClient) autoRegisteredClientId = newClient.id;
+          setClientId(newClient.id);
+        } else {
+          await updateClientMutation.mutateAsync({
+            id: clientId,
+            dto: {
+              ...assignment,
+              name,
+              phone,
+              birthday: birthday || undefined,
+              address: address || null,
+              dueDate: normalizedDueDate || undefined,
+              birthDate: normalizedBirthDate || undefined,
+              type: voucherType || null,
+              duration: parseOptionalInteger(voucherDuration),
+              fullPrice: fullPrice || null,
+              grant: grant || null,
+              actualPrice: actualPrice || null,
+              startDate: startDate || null,
+              endDate: endDate || null,
+              voucherClient: hasPositivePrice(grant),
+              areaId: area || null,
             },
           });
+        }
+        if (finalClientId === null) {
+          throw new Error("고객 정보를 먼저 선택하거나 등록해 주세요.");
+        }
 
-          const headless = await eformsignApi.dispatchHeadless(
-            contractData,
-            finalClientId,
-            progressId,
-          );
+        const executionTime = Date.now();
+        const authResult = await eformsignApi.authenticate(executionTime);
 
-          if (headless.ok) {
-            setCreationProgress({ step: "sent", completed: true, failed: false });
-            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
-            setIsCreationSuccessOpen(true);
-            return;
-          }
+        if (!authResult.success) {
+          throw new Error("Failed to authenticate");
+        }
 
-          if (headless.reason === "local_persist_failed" && headless.remoteDocumentId) {
-            try {
-              const adopted = await eformsignApi.adoptDocument(
-                headless.remoteDocumentId,
-                finalClientId,
-              );
-              if (adopted.warnings?.includes("mirror_sync_failed")) {
-                queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
-                setSubmitError(
-                  "문서는 생성·전송되었지만 전자문서와 PDF 동기화가 완료되지 않았습니다. "
-                  + "새 계약서를 다시 만들지 말고 잠시 후 전자문서 목록에서 확인해 주세요.",
+        const start = dayjs(startDate);
+        const end = endDate ? dayjs(endDate) : null;
+        const payment = dayjs(paymentDate);
+        const today = dayjs();
+
+        const contractData: ContractDataDto = {
+          customerName: name,
+          customerContact: phone,
+          customerDOB: birthday,
+          customerAddress: address,
+          // inputOutsiderNumber (이용자 연락처) prefill 용 — 현재 로그인 계정의 phone 사용
+          issuerPhone: authUser?.phone ?? undefined,
+          caretaker1Name: employeeName,
+          caretaker1Contact: employeePhone,
+          type: voucherType,
+          days: voucherDuration,
+          area,
+          contractDuration: end
+            ? `${start.format("YYYY-MM-DD")} ~ ${end.format("YYYY-MM-DD")}`
+            : `${start.format("YYYY-MM-DD")} ~`,
+          startYear: start.format("YY"),
+          startMonth: start.format("MM"),
+          startDay: start.format("DD"),
+          startDate,
+          endYear: end ? end.format("YY") : "",
+          endMonth: end ? end.format("MM") : "",
+          endDay: end ? end.format("DD") : "",
+          endDate,
+          paymentYear: payment.format("YY"),
+          paymentMonth: payment.format("MM"),
+          paymentDay: payment.format("DD"),
+          receiptYear: today.format("YY"),
+          receiptMonth: today.format("MM"),
+          receiptDay: today.format("DD"),
+          fullPrice,
+          grant,
+          actualPrice,
+        };
+
+        // BJJ-90: when the flag is on, drive the iframe gate sequence on the
+        // backend via Playwright. Failures stay on the processing step so the
+        // user can retry the backend run or choose the manual iframe fallback.
+        if (shouldAttemptHeadless) {
+          const progressId = createHeadlessProgressId();
+          let progressSource: ReturnType<typeof createReconnectingEventSource> | null = null;
+
+          // Reopen the eformsign editor so staff are never stranded on a failed
+          // automatic run. Deferred a tick so this run's `finally` (which clears
+          // isSubmitting) lands before the manual run sets it again.
+          const openIframeFallback = () => {
+            setTimeout(() => {
+              void handleContractCreation({ mode: "manual" });
+            }, 0);
+          };
+
+          try {
+            setCreationProgress({ step: "client-started", completed: false, failed: false });
+            progressSource = createReconnectingEventSource({
+              eventName: "progress",
+              url: `/api/eformsign-docs/dispatch-headless/progress?progressId=${encodeURIComponent(progressId)}`,
+              onEvent: (event) => {
+                let data: HeadlessProgressEvent;
+                try {
+                  data = JSON.parse(event.data) as HeadlessProgressEvent;
+                } catch {
+                  return;
+                }
+                if (data.step === "failed") {
+                  setSubmitError(getSafeHeadlessFailureMessage(data.reason));
+                  setCreationProgress((current) => ({
+                    step: data.failedStep && isHeadlessProgressStepKey(data.failedStep)
+                      ? data.failedStep
+                      : current.step ?? "client-started",
+                    completed: false,
+                    failed: true,
+                  }));
+                  return;
+                }
+                if (!isHeadlessProgressStepKey(data.step)) return;
+                const nextStep = data.step;
+                setCreationProgress((current) =>
+                  current.failed
+                    ? current
+                    : {
+                      step: nextStep,
+                      completed: nextStep === "sent",
+                      failed: false,
+                    },
                 );
-                markCreationProgressFailed();
-                return;
-              }
+              },
+            });
+
+            const headless = await eformsignApi.dispatchHeadless(
+              contractData,
+              finalClientId,
+              progressId,
+            );
+
+            if (headless.ok) {
               setCreationProgress({ step: "sent", completed: true, failed: false });
               queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
               setIsCreationSuccessOpen(true);
-            } catch {
-              setSubmitError("문서는 생성되었으나 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-              markCreationProgressFailed();
+              return;
             }
-            return;
-          }
-          if (headless.reason === "remote_unconfirmed" || headless.fallbackHint === "adopt-or-manual" || headless.fallbackHint === "manual_check") {
-            setSubmitError("문서 생성 상태를 확인할 수 없습니다. 전자문서 목록에서 확인 후 다시 시도해 주세요.");
-            markCreationProgressFailed();
-            return;
-          }
-          if (headless.reason === "duplicate_pending_document") {
-            setSubmitError("최근 생성된 진행 중 문서가 있습니다.");
-            markCreationProgressFailed();
-            if (await requestConfirmation("최근 생성된 진행 중 문서가 있습니다. 그래도 새로 생성하시겠습니까?")) {
-              const forced = await eformsignApi.dispatchHeadless(contractData, finalClientId, progressId, true);
-              if (forced.ok) {
+
+            if (headless.reason === "local_persist_failed" && headless.remoteDocumentId) {
+              try {
+                const adopted = await eformsignApi.adoptDocument(
+                  headless.remoteDocumentId,
+                  finalClientId,
+                );
+                if (adopted.warnings?.includes("mirror_sync_failed")) {
+                  queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
+                  setSubmitError(
+                    "문서는 생성·전송되었지만 전자문서와 PDF 동기화가 완료되지 않았습니다. "
+                    + "새 계약서를 다시 만들지 말고 잠시 후 전자문서 목록에서 확인해 주세요.",
+                  );
+                  markCreationProgressFailed();
+                  return;
+                }
                 setCreationProgress({ step: "sent", completed: true, failed: false });
                 queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
                 setIsCreationSuccessOpen(true);
+              } catch {
+                setSubmitError("문서는 생성되었으나 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+                markCreationProgressFailed();
               }
+              return;
+            }
+            if (headless.reason === "remote_unconfirmed" || headless.fallbackHint === "adopt-or-manual" || headless.fallbackHint === "manual_check") {
+              setSubmitError("문서 생성 상태를 확인할 수 없습니다. 전자문서 목록에서 확인 후 다시 시도해 주세요.");
+              markCreationProgressFailed();
+              return;
+            }
+            if (headless.reason === "duplicate_pending_document") {
+              setSubmitError("최근 생성된 진행 중 문서가 있습니다.");
+              markCreationProgressFailed();
+              if (await requestConfirmation("최근 생성된 진행 중 문서가 있습니다. 그래도 새로 생성하시겠습니까?")) {
+                const forced = await eformsignApi.dispatchHeadless(contractData, finalClientId, progressId, true);
+                if (forced.ok) {
+                  setCreationProgress({ step: "sent", completed: true, failed: false });
+                  queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
+                  setIsCreationSuccessOpen(true);
+                }
+              }
+              return;
+            }
+
+            console.warn(
+              "[contract-creation] headless dispatch returned ok=false",
+              headless.reason,
+            );
+            const canFallBackToIframe = headless.fallbackHint === "iframe";
+            setAllowIframeFallback(canFallBackToIframe);
+            setSubmitError(getSafeHeadlessFailureMessage(headless.reason));
+            setCreationProgress((current) => ({
+              step: headless.failedStep && isHeadlessProgressStepKey(headless.failedStep)
+                ? headless.failedStep
+                : current.step ?? "client-started",
+              completed: false,
+              failed: true,
+            }));
+            if (canFallBackToIframe) {
+              // fallbackHint:"iframe" is the backend stating it got far enough to
+              // know nothing was sent, so reopening the editor cannot duplicate.
+              openIframeFallback();
             }
             return;
-          }
-
-          console.warn(
-            "[contract-creation] headless dispatch returned ok=false",
-            headless.reason,
-          );
-          const canFallBackToIframe = headless.fallbackHint === "iframe";
-          setAllowIframeFallback(canFallBackToIframe);
-          setSubmitError(getSafeHeadlessFailureMessage(headless.reason));
-          setCreationProgress((current) => ({
-            step: headless.failedStep && isHeadlessProgressStepKey(headless.failedStep)
-              ? headless.failedStep
-              : current.step ?? "client-started",
-            completed: false,
-            failed: true,
-          }));
-          if (canFallBackToIframe) {
-            // fallbackHint:"iframe" is the backend stating it got far enough to
-            // know nothing was sent, so reopening the editor cannot duplicate.
+          } catch (headlessError) {
+            console.warn(
+              "[contract-creation] headless dispatch threw",
+              headlessError,
+            );
+            // The backend's verdict never reached us, so whether the document was
+            // sent is genuinely unknown. The editor still opens so staff are never
+            // stranded, but the warning has to stay: finishing here on top of a run
+            // that actually succeeded is how a contract gets sent twice.
+            setAllowIframeFallback(true);
+            setUnverifiedDispatchNotice(
+              "자동 생성 결과를 확인하지 못했습니다. 전자문서 목록에서 생성 여부를 먼저 확인하시고, "
+              + "이미 생성되어 있다면 중복 생성하지 말고 이 창을 닫아 주세요.",
+            );
+            markCreationProgressFailed();
             openIframeFallback();
+            return;
+          } finally {
+            progressSource?.close();
           }
-          return;
-        } catch (headlessError) {
-          console.warn(
-            "[contract-creation] headless dispatch threw",
-            headlessError,
-          );
-          // The backend's verdict never reached us, so whether the document was
-          // sent is genuinely unknown. The editor still opens so staff are never
-          // stranded, but the warning has to stay: finishing here on top of a run
-          // that actually succeeded is how a contract gets sent twice.
-          setAllowIframeFallback(true);
-          setUnverifiedDispatchNotice(
-            "자동 생성 결과를 확인하지 못했습니다. 전자문서 목록에서 생성 여부를 먼저 확인하시고, "
-            + "이미 생성되어 있다면 중복 생성하지 말고 이 창을 닫아 주세요.",
-          );
-          markCreationProgressFailed();
-          openIframeFallback();
-          return;
-        } finally {
-          progressSource?.close();
         }
-      }
 
-      if (!isEformsignLoaded) {
-        setSubmitError("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
-        setActiveStep(CONTRACT_INFO_STEP_INDEX);
-        return;
-      }
+        if (!isEformsignLoaded) {
+          setSubmitError("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
+          setActiveStep(CONTRACT_INFO_STEP_INDEX);
+          return;
+        }
 
-      const documentOption: EformsignDocumentOption = await eformsignApi.generateDocument(
-        contractData,
-        finalClientId
-      );
+        const documentOption: EformsignDocumentOption = await eformsignApi.generateDocument(
+          contractData,
+          finalClientId
+        );
 
-      keepSubmittingUntilDialogCloses = true;
-      setIsDialogOpen(true);
-      setCreationProgress({ step: "client-started", completed: false, failed: false });
+        keepSubmittingUntilDialogCloses = true;
+        setIsDialogOpen(true);
+        setCreationProgress({ step: "client-started", completed: false, failed: false });
 
-      setTimeout(() => {
-        openDocument(documentOption, "eformsign_iframe", {
-          onSuccess: async (response) => {
-            setCreationProgress({ step: "creating", completed: false, failed: false });
-            if (finalClientId && response.document_id) {
-              try {
-                await eformsignApi.createDocRecord({
-                  documentId: response.document_id,
-                  clientId: finalClientId,
-                  statusType: "060",
-                  statusDetail: "대기",
-                  stepType: "01",
-                  stepIndex: "1",
-                  stepName: "서명 요청",
-                  stepRecipientType: "01",
-                  stepRecipientName: name,
-                  stepRecipientSms: phone,
-                  expiredDate: (end ?? start.add(60, "day")).add(30, "day").toISOString(),
-                  linkToClient: true,
-                  documentKind: "contract",
-                  templateId: documentOption.mode.template_id ?? null,
-                });
-              } catch (docError) {
-                console.error("Failed to create eformsign doc record:", docError);
+        setTimeout(() => {
+          openDocument(documentOption, "eformsign_iframe", {
+            onSuccess: async (response) => {
+              setCreationProgress({ step: "creating", completed: false, failed: false });
+              if (finalClientId && response.document_id) {
+                try {
+                  await eformsignApi.createDocRecord({
+                    documentId: response.document_id,
+                    clientId: finalClientId,
+                    statusType: "060",
+                    statusDetail: "대기",
+                    stepType: "01",
+                    stepIndex: "1",
+                    stepName: "서명 요청",
+                    stepRecipientType: "01",
+                    stepRecipientName: name,
+                    stepRecipientSms: phone,
+                    expiredDate: (end ?? start.add(60, "day")).add(30, "day").toISOString(),
+                    linkToClient: true,
+                    documentKind: "contract",
+                    templateId: documentOption.mode.template_id ?? null,
+                  });
+                } catch (docError) {
+                  console.error("Failed to create eformsign doc record:", docError);
+                }
+              }
+
+              setCreationProgress({ step: "sent", completed: true, failed: false });
+              queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
+              handleDialogClose();
+              setIsCreationSuccessOpen(true);
+            },
+            onError: (response) => {
+              console.error("Document creation failed:", response);
+              markCreationProgressFailed();
+              setSubmitError(`문서 생성 실패: ${response.message}`);
+              handleDialogClose();
+            },
+            onAction: () => {
+              setCreationProgress((current) =>
+                current.step === "client-started" && !current.completed && !current.failed
+                  ? { step: "info-inserted", completed: false, failed: false }
+                  : current,
+              );
+            },
+          });
+        }, 500);
+      } catch (error) {
+        if (autoRegisteredClientId) {
+          const baseMessage = error instanceof Error ? error.message : "계약서 생성 중 오류가 발생했습니다.";
+          setSubmitError(`${baseMessage} 방금 자동 등록된 고객이 남아 있습니다.`);
+          if (await requestConfirmation("방금 자동 등록된 고객이 남아 있습니다. 고객을 삭제할까요?")) {
+            try {
+              await deleteClientMutation.mutateAsync(autoRegisteredClientId);
+              setClientId(null);
+            } catch (deleteError) {
+              if (isAxiosError<{ message?: string }>(deleteError)) {
+                setSubmitError(deleteError.response?.data.message || "고객 삭제에 실패했습니다.");
               }
             }
-
-            setCreationProgress({ step: "sent", completed: true, failed: false });
-            queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
-            handleDialogClose();
-            setIsCreationSuccessOpen(true);
-          },
-          onError: (response) => {
-            console.error("Document creation failed:", response);
-            markCreationProgressFailed();
-            setSubmitError(`문서 생성 실패: ${response.message}`);
-            handleDialogClose();
-          },
-          onAction: () => {
-            setCreationProgress((current) =>
-              current.step === "client-started" && !current.completed && !current.failed
-                ? { step: "info-inserted", completed: false, failed: false }
-                : current,
-            );
-          },
-        });
-      }, 500);
-    } catch (error) {
-      if (autoRegisteredClientId) {
-        const baseMessage = error instanceof Error ? error.message : "계약서 생성 중 오류가 발생했습니다.";
-        setSubmitError(`${baseMessage} 방금 자동 등록된 고객이 남아 있습니다.`);
-        if (await requestConfirmation("방금 자동 등록된 고객이 남아 있습니다. 고객을 삭제할까요?")) {
-          try {
-            await deleteClientMutation.mutateAsync(autoRegisteredClientId);
-            setClientId(null);
-          } catch (deleteError) {
-            if (isAxiosError<{ message?: string }>(deleteError)) {
-              setSubmitError(deleteError.response?.data.message || "고객 삭제에 실패했습니다.");
-            }
           }
         }
-      }
-      console.error("Error creating contract:", error);
-      setIsDialogOpen(false);
-      setActiveStep(CONTRACT_INFO_STEP_INDEX);
-      markCreationProgressFailed();
-      if (!autoRegisteredClientId) {
-        setSubmitError(error instanceof Error ? error.message : "계약서 생성 중 오류가 발생했습니다.");
+        console.error("Error creating contract:", error);
+        setIsDialogOpen(false);
+        setActiveStep(CONTRACT_INFO_STEP_INDEX);
+        markCreationProgressFailed();
+        if (!autoRegisteredClientId) {
+          setSubmitError(error instanceof Error ? error.message : "계약서 생성 중 오류가 발생했습니다.");
+        }
+      } finally {
+        if (!keepSubmittingUntilDialogCloses) {
+          setIsSubmitting(false);
+        }
       }
     } finally {
-      if (!keepSubmittingUntilDialogCloses) {
-        setIsSubmitting(false);
-      }
+      onSubmissionStateChange?.(false);
     }
   };
 
@@ -1144,6 +1239,7 @@ export const ContractCreationForm = ({
             placeholder="새로 입력 또는 기존 고객 선택"
             manualValue={name}
             onManualValueChange={setName}
+            disabled={Boolean(initialClient)}
           />
 
           <ContactInput
@@ -1176,6 +1272,17 @@ export const ContractCreationForm = ({
             onValueChange={handleDueDateInputChange}
             placeholder="예: YYMMDD"
             dataComponent="desktop_contracts_creation_client-due-date-input"
+          />
+          <TitleTextInputMolecule
+            type="text"
+            inputMode="numeric"
+            pattern="\d{6}"
+            maxLength={6}
+            label="출산일"
+            value={birthDateInput}
+            onValueChange={handleBirthDateInputChange}
+            placeholder="예: YYMMDD"
+            dataComponent="desktop_contracts_creation_client-birth-date-input"
           />
 
           <div className="grid gap-[calc(7px*var(--glint-ui-scale,1))]" data-component="desktop_contracts_creation_doc-type-field">

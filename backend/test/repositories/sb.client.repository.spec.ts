@@ -377,12 +377,38 @@ describe("SbClientRepository", () => {
                         breastPump: false,
                         eDocId: null,
                         dueDate: null,
+                        birthDate: null,
                         branchId: branchId,
                     }),
                     select: expect.any(Object),
                 }));
                 expect(result).toBeInstanceOf(ClientEntity);
                 expect(result.id).toBe(5);
+            });
+        });
+
+        describe("given entity with a birthDate", () => {
+            it("should persist and return birthDate", async () => {
+                // Arrange
+                const birthDate = new Date("2026-08-05T00:00:00.000Z");
+                const entity = createClientEntity({ birthDate });
+                const createdRow = createClientRow({
+                    id: 8,
+                    birthDate,
+                });
+                clientModel.create.mockResolvedValue(createdRow);
+
+                // Act
+                const result = await repository.create(branchId, entity);
+
+                // Assert
+                expect(clientModel.create).toHaveBeenCalledWith(expect.objectContaining({
+                    data: expect.objectContaining({
+                        birthDate,
+                    }),
+                    select: expect.any(Object),
+                }));
+                expect(result.birthDate).toEqual(birthDate);
             });
         });
 
@@ -531,6 +557,57 @@ describe("SbClientRepository", () => {
                 }));
                 expect(result).toBeInstanceOf(ClientEntity);
                 expect(result.id).toBe(7);
+            });
+        });
+
+        describe("given an existing ClientEntity with a birthDate", () => {
+            it("should update client birthDate", async () => {
+                // Arrange
+                const birthDate = new Date("2026-08-05T00:00:00.000Z");
+                const entity = new ClientEntity(
+                    7,
+                    "Updated Name",
+                    "Updated Address",
+                    "010-3333-4444",
+                    "C",
+                    6,
+                    "60000",
+                    "30000",
+                    "30000",
+                    new Date("2024-03-01T00:00:00.000Z"),
+                    new Date("2024-09-01T00:00:00.000Z"),
+                    true,
+                    false,
+                    "880520",
+                    "in_progress",
+                    true,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    birthDate,
+                );
+                const updatedRow = createClientRow({
+                    id: 7,
+                    name: "Updated Name",
+                    birthDate,
+                });
+                clientModel.updateMany.mockResolvedValue({ count: 1 });
+                clientModel.findFirst.mockResolvedValue(updatedRow);
+
+                // Act
+                const result = await repository.update(branchId, entity);
+
+                // Assert
+                expect(clientModel.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 7, branchId: branchId },
+                    data: expect.objectContaining({
+                        birthDate,
+                    }),
+                }));
+                expect(result.birthDate).toEqual(birthDate);
             });
         });
 

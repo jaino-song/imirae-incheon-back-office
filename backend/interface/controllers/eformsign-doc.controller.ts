@@ -197,7 +197,7 @@ export class EformsignDocController {
         @CurrentTenant() tenant: { branchId?: string },
         @Query("clientId") clientId: string
     ) {
-        return this.eformsignDocService.findByClientId(
+        return this.eformsignDocService.findByClientIdWithContractEndDates(
             tenant.branchId ?? "",
             parseInteger(clientId, "clientId", { min: 1 }),
         );

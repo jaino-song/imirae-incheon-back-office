@@ -61,6 +61,7 @@ describe("EformsignMirrorListService", () => {
     let repository: {
         findAllVisibleInMirror: jest.Mock;
         findAllVisibleInMirrorForHeadquarters: jest.Mock;
+        findContractEndDatesByDocumentIds: jest.Mock;
     };
     let service: EformsignMirrorListService;
 
@@ -68,6 +69,7 @@ describe("EformsignMirrorListService", () => {
         repository = {
             findAllVisibleInMirror: jest.fn().mockResolvedValue([]),
             findAllVisibleInMirrorForHeadquarters: jest.fn().mockResolvedValue([]),
+            findContractEndDatesByDocumentIds: jest.fn().mockResolvedValue(new Map()),
         };
         service = new EformsignMirrorListService(repository as never);
     });
@@ -207,6 +209,55 @@ describe("EformsignMirrorListService", () => {
         );
 
         expect(documents).toHaveLength(0);
+    });
+
+    it("attaches the contract end date to in-progress provider-review documents", async () => {
+        repository.findAllVisibleInMirror.mockResolvedValue([
+            createMirrorDocument({
+                documentId: "doc-review",
+                statusType: "070",
+                stepType: "06",
+                stepName: "제공기관 확인",
+            }),
+            createMirrorDocument({ documentId: "doc-waiting" }),
+        ]);
+        repository.findContractEndDatesByDocumentIds.mockResolvedValue(
+            new Map([["doc-review", "2026-08-07"]]),
+        );
+
+        const { documents } = await service.buildList(createQuery());
+        const byId = new Map(documents.map((document) => [document.id, document] as const));
+
+        // Only the provider-review row is asked about, and only it carries the date.
+        expect(repository.findContractEndDatesByDocumentIds).toHaveBeenCalledWith(["doc-review"]);
+        expect(byId.get("doc-review")).toMatchObject({ contract_end_date: "2026-08-07" });
+        expect(byId.get("doc-waiting")).not.toHaveProperty("contract_end_date");
+    });
+
+    it("leaves provider-review documents bare when no end date is recoverable", async () => {
+        repository.findAllVisibleInMirror.mockResolvedValue([
+            createMirrorDocument({
+                documentId: "doc-review",
+                statusType: "070",
+                stepType: "06",
+                stepName: "제공기관 확인",
+            }),
+        ]);
+        repository.findContractEndDatesByDocumentIds.mockResolvedValue(new Map());
+
+        const { documents } = await service.buildList(createQuery());
+
+        expect(documents[0]).not.toHaveProperty("contract_end_date");
+    });
+
+    it("does not read detail payloads when nothing sits in the provider-review step", async () => {
+        repository.findAllVisibleInMirror.mockResolvedValue([
+            createMirrorDocument({ documentId: "doc-waiting" }),
+        ]);
+
+        await service.buildList(createQuery());
+
+        expect(repository.findContractEndDatesByDocumentIds).not.toHaveBeenCalled();
     });
 });
 

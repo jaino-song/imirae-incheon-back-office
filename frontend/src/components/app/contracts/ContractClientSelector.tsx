@@ -4,7 +4,7 @@ import { useState, type ComponentProps } from "react";
 
 import { ClientAutocomplete } from "@/components/app/clients/ClientAutocomplete";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
-import type { Client } from "@/lib/client/types";
+import type { Client, DocumentStatus } from "@/lib/client/types";
 
 type ContractClientSelectorProps = Omit<
   ComponentProps<typeof ClientAutocomplete>,
@@ -20,6 +20,15 @@ interface PendingClientSelection {
 
 export function hasExistingContractDocument(client: Client): boolean {
   return Boolean(client.eDocId || client.documentStatus);
+}
+
+const ACTIVE_DOCUMENT_STATUSES: readonly DocumentStatus[] = ["created", "requested", "opened", "completed"];
+
+// 반려/취소/삭제된 문서는 새 계약서 생성을 막지 않는다. documentStatus 없이
+// eDocId만 남은 레거시 문서는 살아 있을 수 있으므로 보수적으로 막는다.
+export function canCreateNewContractDocument(client: Client): boolean {
+  if (client.documentStatus) return !ACTIVE_DOCUMENT_STATUSES.includes(client.documentStatus);
+  return !client.eDocId;
 }
 
 export function ContractClientSelector({

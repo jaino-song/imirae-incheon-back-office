@@ -351,6 +351,29 @@ function dateFromParts(
     return validUtcDate(year, Number(monthDigits), Number(dayDigits));
 }
 
+/**
+ * The contract end date carried in the document's own fields — explicit end-date
+ * field, year/month/day parts, or the tail of a 계약 기간 range, in that order.
+ * Shared by the client-candidate extractor and the document-list enrichment so
+ * both read the same date from the same aliases.
+ */
+export function extractEformsignContractEndDate(
+    document: EformsignApiDocumentResponse,
+): Date | null {
+    return dateValue(eformsignDocumentFieldValue(document, [
+        "계약 종료일",
+        "계약종료일",
+        "서비스 종료일",
+        "서비스종료일",
+        "endDate",
+        "contractEndDate",
+    ])) ?? dateFromParts(document, {
+        year: ["계약 종료 년도", "계약종료년도", "서비스 종료 년도", "endYear"],
+        month: ["계약 종료 월", "계약종료월", "서비스 종료 월", "endMonth"],
+        day: ["계약 종료 일", "계약종료일", "서비스 종료 일", "endDay"],
+    }) ?? contractPeriodDates(document)[1];
+}
+
 function contractPeriodDates(
     document: EformsignApiDocumentResponse,
 ): [Date | null, Date | null] {
@@ -386,7 +409,7 @@ export function extractEformsignContractClientCandidate(
     const phone = eformsignCustomerPhone(document, name);
     if (!phone) return null;
 
-    const [periodStartDate, periodEndDate] = contractPeriodDates(document);
+    const [periodStartDate] = contractPeriodDates(document);
     const startDate = dateValue(eformsignDocumentFieldValue(document, [
         "계약 시작일",
         "계약시작일",
@@ -399,18 +422,7 @@ export function extractEformsignContractClientCandidate(
         month: ["계약 시작 월", "계약시작월", "서비스 시작 월", "startMonth"],
         day: ["계약 시작 일", "계약시작일", "서비스 시작 일", "startDay"],
     }) ?? periodStartDate;
-    const endDate = dateValue(eformsignDocumentFieldValue(document, [
-        "계약 종료일",
-        "계약종료일",
-        "서비스 종료일",
-        "서비스종료일",
-        "endDate",
-        "contractEndDate",
-    ])) ?? dateFromParts(document, {
-        year: ["계약 종료 년도", "계약종료년도", "서비스 종료 년도", "endYear"],
-        month: ["계약 종료 월", "계약종료월", "서비스 종료 월", "endMonth"],
-        day: ["계약 종료 일", "계약종료일", "서비스 종료 일", "endDay"],
-    }) ?? periodEndDate;
+    const endDate = extractEformsignContractEndDate(document);
     const type = eformsignDocumentFieldValue(document, [
         "바우처 유형",
         "바우처유형",

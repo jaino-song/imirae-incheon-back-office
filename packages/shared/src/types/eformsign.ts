@@ -163,6 +163,17 @@ export interface EformsignDocument {
   last_editor: EformsignCreator;
   updated_date: number;
   current_status: EformsignCurrentStatus;
+  /**
+   * YYYY-MM-DD, attached by the backend mirror list to in-progress documents in
+   * the provider-review step; the UIs split 서명 완료 vs 검토 필요 on it.
+   */
+  contract_end_date?: string | null;
+  /**
+   * Authoritative display status stamped by the backend at serve time
+   * (ContractDocDisplayStatus). Clients map it to a label/variant; the shared
+   * resolver is only the fallback for payloads that predate the field.
+   */
+  display_status?: string | null;
   fields: unknown[];
   next_status: unknown[];
   previous_status: unknown[];

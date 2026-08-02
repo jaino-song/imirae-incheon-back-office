@@ -529,6 +529,7 @@ describe("ClientController (Integration)", () => {
                         voucherClient: undefined,
                         birthday: undefined,
                         dueDate: undefined,
+                        birthDate: undefined,
                         serviceStatus: undefined,
                         breastPump: undefined,
                         eDocId: undefined,

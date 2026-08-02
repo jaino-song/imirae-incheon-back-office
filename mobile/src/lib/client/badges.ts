@@ -2,6 +2,7 @@ import {
   getClientBadgeStatusToken,
   getDefaultClientBadgeStatusToken,
 } from "@babyjamjam/shared/tokens/status-badge";
+import { legacyClientBadges } from "@babyjamjam/shared/client/badges";
 
 import type {
   Client,
@@ -47,66 +48,6 @@ const CLIENT_BADGE_TONE_BY_TONE = {
   warning: "orange",
   neutral: "muted",
 } as const satisfies Record<ClientBadgeTone, MobileClientBadgeTone>;
-
-function mapServiceStatusToBadgeStatus(status: Client["serviceStatus"]): ClientBadgeStatus {
-  switch (status) {
-    case "pre_booking":
-      return "preBooking";
-    case "active":
-      return "active";
-    case "waiting":
-      return "pending";
-    case "replacement_requested":
-    case "terminated":
-      return "terminated";
-    case "completed":
-      return "completed";
-    default:
-      return "pending";
-  }
-}
-
-function legacyClientBadges(client: Client): ClientBadge[] {
-  const badges: ClientBadge[] = [];
-
-  if (client.serviceStatus === "active" && client.documentStatus !== "completed") {
-    badges.push({
-      key: "contract_required",
-      status: "terminated",
-      priority: CLIENT_BADGE_ORDER.contract_required,
-    });
-  }
-
-  badges.push({
-    key: "service_status",
-    status: mapServiceStatusToBadgeStatus(client.serviceStatus),
-    label:
-      client.serviceStatus === "pre_booking"
-        ? "예약 전"
-        : client.serviceStatus === "replacement_requested"
-          ? "교체 요청"
-          : undefined,
-    priority: CLIENT_BADGE_ORDER.service_status,
-  });
-
-  if (client.breastPump) {
-    badges.push({
-      key: "breast_pump",
-      status: "breastPump",
-      priority: CLIENT_BADGE_ORDER.breast_pump,
-    });
-  }
-
-  if (client.careCenter) {
-    badges.push({
-      key: "care_center",
-      status: "careCenter",
-      priority: CLIENT_BADGE_ORDER.care_center,
-    });
-  }
-
-  return badges;
-}
 
 function applyScheduleChangeBadge(client: Client, badges: ClientBadge[]): ClientBadge[] {
   if (!client.pendingScheduleChange) return badges;
