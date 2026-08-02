@@ -51,6 +51,11 @@ export interface LinkMirroredEformsignDocOptions {
      * greeting or catch-up message jobs for records that predate the cutover.
      */
     suppressOutboundAutomation?: boolean;
+    /**
+     * The mirror generation is not ready yet. Only let an already registered
+     * client claim the document; never create a client from this attempt.
+     */
+    linkExistingOnly?: boolean;
 }
 
 /**
@@ -128,7 +133,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                 clientId: assignedClientId,
                 createdDate: document.createdDate,
             }, expectedMirrorGeneration);
-            if (result !== "mirror_not_ready") {
+            if (result !== "mirror_not_ready" && !options.linkExistingOnly) {
                 const postLinkApplied = await this.applyPostLinkEffects({
                     documentId,
                     clientId: assignedClientId,
@@ -161,9 +166,10 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             return "skipped";
         }
 
-        const creationBranchId =
-            AUTO_REGISTRATION_COMPLETED_STATUS_CODES.has(document.statusType)
-            && candidate?.phone === phone
+        const creationBranchId = options.linkExistingOnly
+            ? null
+            : AUTO_REGISTRATION_COMPLETED_STATUS_CODES.has(document.statusType)
+                && candidate?.phone === phone
                 ? await this.resolveAutoRegistrationBranch(
                     document.branchId,
                     detail,

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { isLayoutExcluded } from "@/lib/constants/v3-layout";
+import { PWA_NOTIFICATIONS_ENABLED } from "@/lib/notification-config";
 
 const NOTIFICATION_PROMPT_DISMISSED_AT_KEY =
     "babyjamjam-mobile:notification-prompt-dismissed-at";
@@ -16,7 +17,7 @@ export function NotificationPermissionPrompt() {
         !excluded && !pathname.startsWith("/clients/new");
 
     useEffect(() => {
-        if (typeof window === 'undefined' || excluded) return;
+        if (!PWA_NOTIFICATIONS_ENABLED || typeof window === 'undefined' || excluded) return;
         if (!('Notification' in window)) return;
         if (Notification.permission !== 'default') {
             try {
@@ -47,7 +48,7 @@ export function NotificationPermissionPrompt() {
         return () => window.clearTimeout(timer);
     }, [excluded]);
 
-    if (!showBanner || excluded) return null;
+    if (!PWA_NOTIFICATIONS_ENABLED || !showBanner || excluded) return null;
 
     const handleEnable = async () => {
         const permission = await Notification.requestPermission();

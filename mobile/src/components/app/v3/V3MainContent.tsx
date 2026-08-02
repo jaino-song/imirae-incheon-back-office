@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { isLayoutExcluded } from "@/lib/constants/v3-layout";
+import { isAuthPath } from "@/lib/auth/routes";
 import { cn } from "@/lib/utils";
 
 const SOURCE_COMPONENT = "V3MainContent";
@@ -22,6 +23,7 @@ export function V3MainContent({
   const isContractsNewRoute = pathname.startsWith("/contracts/new");
   const isForgotPasswordRoute = pathname === "/forgot-password";
   const isLoginRoute = pathname === "/login";
+  const isPublicAuthRoute = isAuthPath(pathname);
 
   return (
     <main
@@ -38,8 +40,15 @@ export function V3MainContent({
           ? "h-[100dvh] overflow-hidden p-4 pt-20 pb-4"
           : isForgotPasswordRoute
             ? "h-[100dvh] p-4"
+            : isPublicAuthRoute
+              ? "h-[100dvh] overflow-y-auto p-0"
             : "min-h-[100dvh] flex flex-col p-4 pb-24",
-        !isLoginRoute && !isContractsNewRoute && !isClientsNewRoute && !isForgotPasswordRoute && (excluded ? "pt-4" : "pt-20")
+        !isLoginRoute &&
+          !isContractsNewRoute &&
+          !isClientsNewRoute &&
+          !isForgotPasswordRoute &&
+          !isPublicAuthRoute &&
+          (excluded ? "pt-4" : "pt-20")
       )}
     >
       {children}

@@ -12,6 +12,10 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api/client";
 import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safe-storage";
 import { useInitialUser } from "@/providers/UserProvider";
+import {
+  NOTIFICATION_EMAIL_ENABLED,
+  PWA_NOTIFICATIONS_ENABLED,
+} from "@/lib/notification-config";
 import "@/components/app/mobile-redesign/redesign.css";
 
 /** Canonical data-component base for the /notification settings route. */
@@ -84,7 +88,7 @@ function NotificationSettingsRow({
 }
 
 export default function NotificationPage() {
-  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(NOTIFICATION_EMAIL_ENABLED);
   const [isAppNotificationUpdating, setIsAppNotificationUpdating] = useState(false);
 
   const { toast } = useToast();
@@ -105,16 +109,21 @@ export default function NotificationPage() {
   const appNotificationDisabled =
     isAppNotificationLoading
     || isAppNotificationUpdating
+    || !PWA_NOTIFICATIONS_ENABLED
     || !isAppNotificationSupported
     || appNotificationPermission === "denied";
-  const appNotificationDescription = !isAppNotificationSupported
+  const appNotificationDescription = !PWA_NOTIFICATIONS_ENABLED
+    ? "앱 알림은 현재 비활성화되어 있습니다."
+    : !isAppNotificationSupported
     ? "이 브라우저는 앱 알림을 지원하지 않습니다."
     : appNotificationPermission === "denied"
       ? "브라우저에서 알림 권한이 차단되어 있습니다."
       : isAppNotificationEnabled
         ? "앱에서 중요한 업무 알림을 받고 있습니다."
         : "앱에서 중요한 업무 알림을 받지 않습니다.";
-  const emailNotificationDescription = accountEmail
+  const emailNotificationDescription = !NOTIFICATION_EMAIL_ENABLED
+    ? "이메일 알림은 현재 비활성화되어 있습니다."
+    : accountEmail
     ? `${accountEmail}로 주요 알림을 받습니다.`
     : "현재 계정 이메일을 불러오는 중입니다.";
 
@@ -250,9 +259,9 @@ export default function NotificationPage() {
                   <label className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center" htmlFor="notif-email">
                     <Switch
                       id="notif-email"
-                      checked={emailNotifications && Boolean(accountEmail)}
+                      checked={NOTIFICATION_EMAIL_ENABLED && emailNotifications && Boolean(accountEmail)}
                       onCheckedChange={handleEmailNotificationChange}
-                      disabled={!accountEmail}
+                      disabled={!NOTIFICATION_EMAIL_ENABLED || !accountEmail}
                       aria-label="이메일 알림 설정"
                     />
                   </label>

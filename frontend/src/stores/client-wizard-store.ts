@@ -5,6 +5,7 @@ interface ClientWizardFormData {
   name: string;
   birthday: string;
   dueDate: string;
+  birthDate: string;
   address: string;
   phone: string;
   primaryEmployeeId: number | null;
@@ -39,6 +40,7 @@ const INITIAL_FORM: ClientWizardFormData = {
   name: "",
   birthday: "",
   dueDate: "",
+  birthDate: "",
   address: "",
   phone: "",
   primaryEmployeeId: null,

@@ -176,6 +176,45 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         });
     });
 
+    it("limits a completed-status mirror to an existing client without completion effects", async () => {
+        const document = mirroredDocument({ statusType: "072" });
+        const {
+            transaction,
+            settings,
+            messageTrigger,
+            serviceRecordLifecycle,
+            usecase,
+        } = setup(document);
+
+        await expect(usecase.execute("doc-1", {
+            linkExistingOnly: true,
+        })).resolves.toBe("linked");
+
+        expect(transaction.eformsign_doc.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: {
+                    branchId: "branch-1",
+                    clientId: 21,
+                    documentKind: "contract",
+                },
+            }),
+        );
+        expect(transaction.client.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 21,
+                branchId: "branch-1",
+                eDocId: null,
+            },
+            data: { eDocId: "doc-1" },
+        });
+        expect(transaction.client.create).not.toHaveBeenCalled();
+        expect(settings.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
+        expect(settings.getGreetingOnAutoRegistrationEnabled).not.toHaveBeenCalled();
+        expect(messageTrigger.ensureDefaultRulesForBranch).not.toHaveBeenCalled();
+        expect(messageTrigger.syncClientRulesForClient).not.toHaveBeenCalled();
+        expect(serviceRecordLifecycle.ensureForClient).not.toHaveBeenCalled();
+    });
+
     it("does not guess when the normalized phone matches multiple clients", async () => {
         const { transaction, usecase } = setup();
         transaction.client.findMany.mockResolvedValue([
@@ -322,6 +361,48 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             .toHaveBeenCalledWith("branch-1", 31, true, true);
         expect(serviceRecordLifecycle.ensureForClient)
             .toHaveBeenCalledWith(31);
+    });
+
+    it("does not create a client for a completed mirror in existing-only mode", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+        });
+        const {
+            transaction,
+            settings,
+            messageTrigger,
+            serviceRecordLifecycle,
+            usecase,
+        } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1", {
+            linkExistingOnly: true,
+        })).resolves.toBe("disabled");
+
+        expect(transaction.client.create).not.toHaveBeenCalled();
+        expect(transaction.eformsign_doc.updateMany).not.toHaveBeenCalled();
+        expect(settings.getClientAutoRegistrationEnabled).not.toHaveBeenCalled();
+        expect(settings.getGreetingOnAutoRegistrationEnabled).not.toHaveBeenCalled();
+        expect(messageTrigger.ensureDefaultRulesForBranch).not.toHaveBeenCalled();
+        expect(messageTrigger.syncClientRulesForClient).not.toHaveBeenCalled();
+        expect(serviceRecordLifecycle.ensureForClient).not.toHaveBeenCalled();
+    });
+
+    it("does not initialize lifecycle while repairing an assigned mirror in existing-only mode", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            clientId: 21,
+        });
+        const { serviceRecordLifecycle, usecase } = setup(document);
+
+        await expect(usecase.execute("doc-1", {
+            linkExistingOnly: true,
+        })).resolves.toBe("linked");
+
+        expect(serviceRecordLifecycle.ensureForClient).not.toHaveBeenCalled();
     });
 
     it("creates and initializes a historical client without outbound automation", async () => {

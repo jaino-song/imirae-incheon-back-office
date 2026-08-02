@@ -142,33 +142,57 @@ export default function AllMenuPage() {
             전체 메뉴
           </h2>
           <div data-component="desktop_all_menu_content_nav_list" className="flex flex-col gap-2">
-            {navItems.map((item, idx) => {
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  data-component="desktop_all_menu_content_nav_list_item"
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-1",
-                    "rounded-[18px]",
-                    "active:scale-[0.98] transition-all",
-                    "opacity-0 animate-v3-pop-up"
-                  )}
-                  style={{ animationDelay: `${0.35 + idx * 0.04}s`, animationFillMode: "both" }}
-                >
-                  <div data-component="desktop_all_menu_content_nav_list_item_icon" className="w-11 h-11 rounded-[14px] bg-v3-dim-white flex items-center justify-center shrink-0">
-                    <Icon className="w-5 h-5 text-v3-text-muted" strokeWidth={2.5} />
+            {isLoading ? (
+              <div
+                data-component="desktop_all_menu_content_nav_list_loading"
+                role="status"
+                aria-label="메뉴 권한 확인 중"
+                className="flex flex-col gap-2"
+              >
+                {Array.from({ length: 8 }, (_, index) => (
+                  <div
+                    key={`menu-skeleton-${index}`}
+                    data-component="desktop_all_menu_content_nav_list_loading_item"
+                    aria-hidden="true"
+                    className="flex items-center gap-3 px-3 py-1"
+                  >
+                    <Skeleton className="h-11 w-11 shrink-0" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
                   </div>
-                  <div data-component="desktop_all_menu_content_nav_list_item_content" className="min-w-0 flex-1 flex items-center justify-between">
-                    <p className="text-md font-extrabold text-v3-dark truncate">
-                      {item.label}
-                    </p>
-                    <p className="text-sm text-v3-text-muted truncate">{item.desc}</p>
-                  </div>
-                </Link>
-              );
-            })}
+                ))}
+              </div>
+            ) : (
+              navItems.map((item, idx) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    data-component="desktop_all_menu_content_nav_list_item"
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-1",
+                      "rounded-[18px]",
+                      "active:scale-[0.98] transition-all",
+                      "opacity-0 animate-v3-pop-up"
+                    )}
+                    style={{ animationDelay: `${0.35 + idx * 0.04}s`, animationFillMode: "both" }}
+                  >
+                    <div data-component="desktop_all_menu_content_nav_list_item_icon" className="w-11 h-11 rounded-[14px] bg-v3-dim-white flex items-center justify-center shrink-0">
+                      <Icon className="w-5 h-5 text-v3-text-muted" strokeWidth={2.5} />
+                    </div>
+                    <div data-component="desktop_all_menu_content_nav_list_item_content" className="min-w-0 flex-1 flex items-center justify-between">
+                      <p className="text-md font-extrabold text-v3-dark truncate">
+                        {item.label}
+                      </p>
+                      <p className="text-sm text-v3-text-muted truncate">{item.desc}</p>
+                    </div>
+                  </Link>
+                );
+              })
+            )}
           </div>
         </section>
       </div>

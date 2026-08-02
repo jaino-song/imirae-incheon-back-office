@@ -29,6 +29,7 @@ const client: Client = {
   createdAt: "2026-01-01",
   birthday: "960201",
   dueDate: "2026-06-10",
+  birthDate: null,
   address: "인천시 서구",
   phone: "010-6621-1878",
   primaryEmployee: null,

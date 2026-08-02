@@ -304,6 +304,7 @@ export function ClientNewForm() {
         name: store.name,
         birthday: store.birthday || null,
         dueDate: store.dueDate || null,
+        birthDate: store.birthDate || null,
         address: store.address || null,
         phone: store.phone || null,
         primaryEmployeeId: store.primaryEmployeeId,
@@ -382,6 +383,14 @@ export function ClientNewForm() {
                 type="date"
                 value={store.dueDate}
                 onChange={(event) => setField("dueDate", event.target.value)}
+              />
+            </FormField>
+            <FormField data-component="desktop_clients-new_basic_birth-date-field" label={t(locale, "clients.form.birth-date")}>
+              <FormTextInput
+                data-component="desktop_clients-new_basic_birth-date-input"
+                type="date"
+                value={store.birthDate}
+                onChange={(event) => setField("birthDate", event.target.value)}
               />
             </FormField>
             <FormField data-component="desktop_clients-new_basic_phone-field" label={t(locale, "clients.form.phone")} required>

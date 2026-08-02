@@ -5,6 +5,18 @@ import { useQuery } from "@tanstack/react-query";
 import { settingsApi } from "@/services/api";
 import { MessageApprovalRequiredNotice } from "@/components/app/messages/MessageApprovalRequiredNotice";
 
+export const MESSAGE_SENDER_APPROVAL_QUERY_KEY = [
+  "settings",
+  "message-sender-approval",
+] as const;
+
+export function useMessageSenderApproval() {
+  return useQuery({
+    queryKey: MESSAGE_SENDER_APPROVAL_QUERY_KEY,
+    queryFn: settingsApi.getMessageSenderApproval,
+  });
+}
+
 export function MessageApprovalGate({
   children,
   dataComponent,
@@ -12,10 +24,7 @@ export function MessageApprovalGate({
   children: ReactNode;
   dataComponent: string;
 }) {
-  const { data: senderApproval, isLoading } = useQuery({
-    queryKey: ["settings", "message-sender-approval"],
-    queryFn: settingsApi.getMessageSenderApproval,
-  });
+  const { data: senderApproval, isLoading } = useMessageSenderApproval();
 
   if (isLoading || senderApproval?.isApproved) {
     return <>{children}</>;

@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 import { jwtDecode } from "jwt-decode";
 import axios from "axios";
-import { E2E_AUTH_USER, isE2ETest } from "@/lib/e2e";
+import { E2E_ROLE_COOKIE, getE2EAuthUser, isE2ETest } from "@/lib/e2e";
 
 interface TokenPayload {
   sub: string;
@@ -30,7 +30,7 @@ export const getCurrentUser = cache(async () => {
     }
 
     if (isE2ETest()) {
-      return E2E_AUTH_USER;
+      return getE2EAuthUser(cookieStore.get(E2E_ROLE_COOKIE)?.value);
     }
 
     // Send token as Bearer token in Authorization header

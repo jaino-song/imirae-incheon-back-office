@@ -148,6 +148,7 @@ describe("ClientFormPanel voucher pricing", () => {
       createdAt: "2026-01-01",
       birthday: "900101",
       dueDate: "2026-08-01",
+      birthDate: null,
       address: "인천시 서구",
       phone: "010-1111-2222",
       primaryEmployee: null,
@@ -225,6 +226,7 @@ describe("ClientFormPanel voucher pricing", () => {
       createdAt: "2026-01-01",
       birthday: "900101",
       dueDate: "2026-08-01",
+      birthDate: null,
       address: "인천시 서구",
       phone: "010-1111-3333",
       primaryEmployee: null,
@@ -272,6 +274,7 @@ describe("ClientFormPanel voucher pricing", () => {
       createdAt: "2026-01-01",
       birthday: "900101",
       dueDate: "2026-09-01",
+      birthDate: null,
       address: "인천시 남동구",
       phone: "010-1111-4444",
       primaryEmployee: null,
@@ -296,7 +299,7 @@ describe("ClientFormPanel voucher pricing", () => {
       <ClientFormPanel open activeStep={0} client={client} onClose={jest.fn()} />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText("출산 예정일")).toHaveValue("260901"));
+    await waitFor(() => expect(screen.getByLabelText("출산 예정일")).toHaveValue("2026-09-01"));
 
     rerender(<ClientFormPanel open activeStep={3} client={client} onClose={jest.fn()} />);
 

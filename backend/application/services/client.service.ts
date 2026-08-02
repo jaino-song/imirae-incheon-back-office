@@ -107,6 +107,7 @@ export interface ClientWithEmployees {
     voucherClient: boolean;
     birthday: string | null;
     dueDate: Date | null;
+    birthDate: Date | null;
     serviceStatus: string | null;
     breastPump: boolean;
     eDocId: string | null;
@@ -819,6 +820,7 @@ export class ClientService {
         voucherClient: boolean;
         birthday?: string | null;
         dueDate?: string | null;
+        birthDate?: string | null;
         serviceStatus?: string | null;
         breastPump: boolean;
         eDocId?: string | null;
@@ -831,6 +833,7 @@ export class ClientService {
         const startDate = params.startDate ? new Date(params.startDate) : null;
         const endDate = params.endDate ? new Date(params.endDate) : null;
         const dueDate = params.dueDate ? new Date(params.dueDate) : null;
+        const birthDate = params.birthDate ? new Date(params.birthDate) : null;
         this.assertValidServicePeriod(startDate, endDate);
         this.assertAllowedServiceStatus(params.serviceStatus);
         await this.assertAllowedClientArea(branchid, params.areaId);
@@ -918,6 +921,7 @@ export class ClientService {
             voucherClient: params.voucherClient,
             birthday: params.birthday ?? null,
             dueDate,
+            birthDate,
             serviceStatus: params.serviceStatus ?? null,
             breastPump: params.breastPump,
             eDocId: params.eDocId ?? null,
@@ -1146,6 +1150,7 @@ export class ClientService {
                     voucherClient: client.voucherClient,
                     birthday: client.birthday,
                     dueDate: client.dueDate,
+                    birthDate: client.birthDate,
                     serviceStatus: computedStatus, // Return computed status, not stored one
                     breastPump: client.breastPump,
                     eDocId: client.eDocId,
@@ -1254,6 +1259,7 @@ export class ClientService {
         voucherClient?: boolean;
         birthday?: string | null;
         dueDate?: string | null;
+        birthDate?: string | null;
         serviceStatus?: string | null;
         breastPump?: boolean;
         eDocId?: string | null;
@@ -1387,6 +1393,9 @@ export class ClientService {
                     voucherClient: params.voucherClient,
                     birthday: params.birthday ?? undefined,
                     dueDate: params.dueDate ? new Date(params.dueDate) : undefined,
+                    birthDate: params.birthDate === undefined
+                        ? undefined
+                        : (params.birthDate ? new Date(params.birthDate) : null),
                     serviceStatus: params.serviceStatus ?? undefined,
                     breastPump: params.breastPump,
                     eDocId: params.eDocId ?? undefined,
