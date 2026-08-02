@@ -5,7 +5,7 @@ import { Calendar, CircleCheck, FileSignature } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedSlotListItemContent, StatusBadge, type StatusType } from "@/components/app/v3";
 import { cn } from "@/lib/utils";
-import { getStatusCategory, mapDocStatusLabel } from "@/lib/eformsign/status-codes";
+import { contractStatusBadgeType, getStatusCategory, mapDocStatusLabel } from "@/lib/eformsign/status-codes";
 import type { EformsignDocument } from "@/lib/eformsign/types";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
 
@@ -15,19 +15,6 @@ interface ContractsListItemProps {
   customerName: string | null;
   subtitle?: string;
   isLoading: boolean;
-}
-
-function mapCategoryToStatusType(
-  category: "completed" | "expired" | "in-progress"
-): StatusType {
-  switch (category) {
-    case "completed":
-      return "signed";
-    case "expired":
-      return "expired";
-    default:
-      return "pending";
-  }
 }
 
 function formatDate(timestamp: number): string {
@@ -64,9 +51,13 @@ function ContractsListItemComponent({
   }
 
   const category = getStatusCategory(document.current_status?.status_type);
-  const statusLabel = mapDocStatusLabel(document.current_status);
+  const statusLabel = mapDocStatusLabel(
+    document.current_status,
+    document.contract_end_date,
+    document.display_status,
+  );
   const isReviewNeeded = statusLabel === "검토 필요";
-  const statusType: StatusType = isReviewNeeded ? "review" : mapCategoryToStatusType(category);
+  const statusType: StatusType = contractStatusBadgeType(statusLabel);
   const sentDate = formatDate(document.created_date);
   const signedDate =
     category === "completed" ? formatDate(document.updated_date) : null;

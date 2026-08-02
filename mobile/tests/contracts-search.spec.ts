@@ -209,7 +209,7 @@ test.describe('Contracts Page Search Feature', () => {
 
     const completedFilter = page
       .locator('[data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_filters_pill"]')
-      .filter({ hasText: '완료' });
+      .filter({ hasText: '계약 완료' });
     await expect(completedFilter.locator('.count')).toHaveText('2');
     await completedFilter.click();
 

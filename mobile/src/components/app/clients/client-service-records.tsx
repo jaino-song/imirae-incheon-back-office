@@ -1,6 +1,10 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+    formatSignatureStatus,
+    getServiceRecordStatusMeta,
+} from "@babyjamjam/shared/constants/service-record-display";
 import { RefreshCw } from "lucide-react";
 
 import {
@@ -244,22 +248,7 @@ function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
 }
 
 function getRecordStatusLabel(status: string): string {
-    switch (status) {
-        case "WAITING_FOR_DETAILS": return "정보 대기";
-        case "WAITING_FOR_ASSIGNMENT": return "배정 대기";
-        case "SCHEDULED": return "시작 전";
-        case "IN_PROGRESS": return "작성 중";
-        case "WAITING_FOR_END": return "종료 대기";
-        case "AWAITING_COMPLETION": return "기록 미완료";
-        case "READY_TO_FINALIZE": return "문서 생성 대기";
-        case "FINALIZING": return "문서 생성 중";
-        case "DOCUMENTS_CREATED": return "기관 검토 중";
-        case "COMPLETED": return "완료";
-        case "FINALIZATION_FAILED": return "문서 생성 실패";
-        case "TERMINATED_REVIEW_REQUIRED": return "중단 확인 필요";
-        case "MIGRATION_REVIEW_REQUIRED": return "데이터 확인 필요";
-        default: return "상태 확인";
-    }
+    return getServiceRecordStatusMeta(status).label;
 }
 
 function LinkCard({
@@ -416,14 +405,6 @@ function SignatureDocumentCard({ signatureDoc }: { signatureDoc: SignatureDocSta
             </InfoCard>
         </div>
     );
-}
-
-function formatSignatureStatus(statusDetail: string): string {
-    const normalized = statusDetail.trim().toLowerCase();
-    if (!normalized) return "상태 확인";
-    if (normalized.includes("complete")) return "서명 완료";
-    if (normalized.includes("created")) return "발송됨";
-    return statusDetail.trim();
 }
 
 function ServiceHeaderCard({
