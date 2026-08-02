@@ -46,7 +46,7 @@ import {
     ClientFormPanel,
 } from "@/components/app/clients/ClientFormDialog";
 import { MaternityContractDialog } from "@/components/app/clients/MaternityContractDialog";
-import { hasExistingContractDocument } from "@/components/app/contracts/ContractClientSelector";
+import { canCreateNewContractDocument } from "@/components/app/contracts/ContractClientSelector";
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
 import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
@@ -847,7 +847,7 @@ export default function ClientsPage() {
                                             <Pencil className="w-4 h-4" />
                                             {t(locale, "common.edit")}
                                         </DropdownMenuItem>
-                                        {!hasExistingContractDocument(activeSelectedClient) && (
+                                        {canCreateNewContractDocument(activeSelectedClient) && (
                                             <DropdownMenuItem
                                                 data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_create-maternity-contract"
                                                 onClick={() => setMaternityContractClient(activeSelectedClient)}

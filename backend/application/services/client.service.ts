@@ -22,7 +22,6 @@ import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { addBusinessDaysKr, diffBusinessDaysKr, isoDateInKorea } from "domain/utils/business-days";
-import { isProviderReviewWorkflowStep } from "domain/utils/eformsign-status-code";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { computeServiceStatus, isServiceStatus, SERVICE_STATUS, SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { MessageTriggerService } from "./message-trigger.service";
@@ -31,11 +30,10 @@ import { ServiceRecordLifecycleService } from "./service-record-lifecycle.servic
 import { SystemSettingService } from "./system-setting.service";
 
 const FILTER_DAYS_THRESHOLD = 7;
-// Contract attention windows, in KR business days before service start.
-// Sending is warned about earlier than signing, so there is time to send first.
-// The badge and the action-required feeds all read these two numbers.
+// Contract attention window, in KR business days before service start, within
+// which a client with no active contract document is flagged as needing one sent.
+// The badge and the action-required feeds all read this number.
 const CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD = 6;
-const CONTRACT_SIGNATURE_BUSINESS_DAYS_THRESHOLD = 3;
 const COMPLETED_DOCUMENT_STATUS_TYPES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_DOCUMENT_STATUS_TYPES = new Set(["011", "021", "031", "061", "071", "080"]);
 const REVOKED_DOCUMENT_STATUS_TYPES = new Set(["040", "042", "045", "090"]);
@@ -57,6 +55,11 @@ const PHONE_LOOKUP_SUFFIX_LENGTH = 4;
 // - 090: revoked (철회됨)
 // - 099: deleted (삭제됨)
 export type DocumentStatusType = 'created' | 'opened' | 'completed' | 'requested' | 'rejected' | 'revoked' | 'deleted' | null;
+// A document in one of these states is still "alive" — the client already has
+// a contract in flight (or finished), so the "계약서 필요" signal must not fire
+// even if it is unsigned. Everything else (rejected/revoked/deleted/no document
+// at all) is a dead document and falls back to the "발송 필요" check.
+const ACTIVE_DOCUMENT_STATUSES = new Set<DocumentStatusType>(["created", "requested", "opened", "completed"]);
 export type ClientBadgeKey = "contract_required" | "breast_pump" | "service_status" | "care_center";
 export type ClientBadgeTone = "danger" | "success" | "primary" | "warning" | "neutral";
 export type ClientBadgeStatus =
@@ -135,11 +138,9 @@ export interface ClientActionRequired {
     priority: 1 | 2 | 3;
 }
 
-/** The latest contract signals the signature test reads. */
+/** The latest contract signal the document-status/active-document checks read. */
 interface LatestContractSignal {
     statusType: string;
-    stepType: string;
-    stepName: string;
 }
 
 export interface ClientActionRequiredAlert extends ClientActionRequired {
@@ -516,8 +517,6 @@ export class ClientService {
             select: {
                 clientId: true,
                 statusType: true,
-                stepType: true,
-                stepName: true,
                 documentKind: true,
                 serviceRecordCaseId: true,
                 templateId: true,
@@ -532,8 +531,6 @@ export class ClientService {
             if (!latestContractMap.has(doc.clientId)) {
                 latestContractMap.set(doc.clientId, {
                     statusType: doc.statusType,
-                    stepType: doc.stepType,
-                    stepName: doc.stepName,
                 });
             }
         }
@@ -541,7 +538,8 @@ export class ClientService {
         return latestContractMap;
     }
 
-    private async findCustomerSignedContractByClientId(
+    /** Whether a client's latest contract document is still active (see `ACTIVE_DOCUMENT_STATUSES`). */
+    private async findHasActiveContractDocumentByClientId(
         clientIds: number[],
     ): Promise<Map<number, boolean>> {
         const latestContractMap = await this.findLatestContractByClientId(clientIds);
@@ -549,31 +547,9 @@ export class ClientService {
         return new Map(
             [...latestContractMap].map(([clientId, contract]) => [
                 clientId,
-                this.hasCustomerSignedContract(
-                    this.mapStatusTypeToDocumentStatus(contract.statusType),
-                    contract,
-                ),
+                ACTIVE_DOCUMENT_STATUSES.has(this.mapStatusTypeToDocumentStatus(contract.statusType)),
             ]),
         );
-    }
-
-    /**
-     * The customer's signature — not full document completion — is what clears
-     * the "계약서 필요" badge. A contract sitting at the provider's review step
-     * has already been signed by the customer, so it must not be flagged.
-     * Mirrors the contracts page, which derives its "이용자 서명 완료" step the
-     * same way (frontend/src/app/(protected)/contracts/page.tsx).
-     */
-    private hasCustomerSignedContract(
-        documentStatus: DocumentStatusType,
-        step: { stepType: string; stepName: string } | undefined,
-    ): boolean {
-        if (documentStatus === "completed") return true;
-        // A terminated document's current step is stale — never read it as a signature.
-        if (documentStatus === "rejected" || documentStatus === "revoked" || documentStatus === "deleted") {
-            return false;
-        }
-        return isProviderReviewWorkflowStep(step);
     }
 
     /**
@@ -581,9 +557,13 @@ export class ClientService {
      * The `contract_required` badge, the dashboard list and the
      * `/clients/alerts` sidebar feed all read this, so every surface agrees.
      *
-     * Completion is judged by the customer's signature — a document awaiting
-     * only provider review needs no action. Windows are counted in KR business
-     * days, so a weekend or holiday does not silently eat the warning time.
+     * An active document (created/requested/opened/completed — see
+     * `ACTIVE_DOCUMENT_STATUSES`) already means a contract exists, so no action
+     * is required even if the customer has not signed yet. Only a client with
+     * no active document — none at all, or the latest one rejected/revoked/
+     * deleted — needs a contract sent, and only within the send window. Windows
+     * are counted in KR business days, so a weekend or holiday does not
+     * silently eat the warning time.
      *
      * Deliberately excludes 교체 요청: a replacement is unrelated to whether a
      * contract exists, so it must not suppress the contract badge.
@@ -591,8 +571,7 @@ export class ClientService {
     private computeContractActionRequired(params: {
         serviceStatus: string | null;
         startDate: Date | null;
-        eDocId: string | null;
-        customerSignedContract: boolean;
+        hasActiveContractDocument: boolean;
     }): ClientActionRequired | null {
         if (
             params.serviceStatus === SERVICE_STATUS.PRE_BOOKING ||
@@ -609,16 +588,10 @@ export class ClientService {
         );
         if (businessDaysUntilStart === null) return null;
 
-        if (!params.eDocId && businessDaysUntilStart <= CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD) {
-            return { reason: "발송 필요", priority: 3 };
-        }
+        if (params.hasActiveContractDocument) return null;
 
-        if (
-            params.eDocId &&
-            !params.customerSignedContract &&
-            businessDaysUntilStart <= CONTRACT_SIGNATURE_BUSINESS_DAYS_THRESHOLD
-        ) {
-            return { reason: "서명 필요", priority: 2 };
+        if (businessDaysUntilStart <= CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD) {
+            return { reason: "발송 필요", priority: 3 };
         }
 
         return null;
@@ -628,8 +601,7 @@ export class ClientService {
     private computeActionRequired(params: {
         serviceStatus: string | null;
         startDate: Date | null;
-        eDocId: string | null;
-        customerSignedContract: boolean;
+        hasActiveContractDocument: boolean;
     }): ClientActionRequired | null {
         if (params.serviceStatus === SERVICE_STATUS.REPLACEMENT_REQUESTED) {
             return { reason: "교체 요청", priority: 1 };
@@ -1117,12 +1089,11 @@ export class ClientService {
             }
             const latestContract = latestContractMap.get(client.id);
             const documentStatus = this.mapStatusTypeToDocumentStatus(latestContract?.statusType);
-            const customerSignedContract = this.hasCustomerSignedContract(documentStatus, latestContract);
+            const hasActiveContractDocument = ACTIVE_DOCUMENT_STATUSES.has(documentStatus);
             const contractSignals = {
                 serviceStatus: computedStatus,
                 startDate: client.startDate,
-                eDocId: client.eDocId,
-                customerSignedContract,
+                hasActiveContractDocument,
             };
             const badges = this.buildClientBadges({
                 contractActionRequired: this.computeContractActionRequired(contractSignals),
@@ -1689,9 +1660,10 @@ export class ClientService {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // The windows are business days, which span more calendar days than their
-        // count. Translate each into the exact calendar date it reaches so this
-        // pre-filter only narrows the scan — computeActionRequired still decides.
+        // The window is business days, which spans more calendar days than its
+        // count. Translate it into the exact calendar date it reaches so this
+        // pre-filter only narrows the scan — computeActionRequired still decides
+        // (it alone knows whether the latest document is active).
         const businessDayCutoff = (businessDays: number): Date => {
             const cutoff = new Date(
                 `${addBusinessDaysKr(isoDateInKorea(today), businessDays)}T00:00:00.000Z`,
@@ -1701,7 +1673,6 @@ export class ClientService {
         };
 
         const sendThresholdDate = businessDayCutoff(CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD);
-        const signatureThresholdDate = businessDayCutoff(CONTRACT_SIGNATURE_BUSINESS_DAYS_THRESHOLD);
 
         const clients = await this.prismaService.client.findMany({
             where: {
@@ -1709,20 +1680,11 @@ export class ClientService {
                 OR: [
                     { serviceStatus: SERVICE_STATUS.REPLACEMENT_REQUESTED },
                     {
-                        eDocId: null,
                         OR: [
                             { serviceStatus: null },
                             { serviceStatus: { notIn: [SERVICE_STATUS.PRE_BOOKING, SERVICE_STATUS.COMPLETED, SERVICE_STATUS.TERMINATED] } },
                         ],
                         startDate: { lte: sendThresholdDate },
-                    },
-                    {
-                        eDocId: { not: null },
-                        OR: [
-                            { serviceStatus: null },
-                            { serviceStatus: { notIn: [SERVICE_STATUS.PRE_BOOKING, SERVICE_STATUS.COMPLETED, SERVICE_STATUS.TERMINATED] } },
-                        ],
-                        startDate: { lte: signatureThresholdDate },
                     },
                 ],
             },
@@ -1733,15 +1695,14 @@ export class ClientService {
                 startDate: true,
                 endDate: true,
                 serviceStatus: true,
-                eDocId: true,
             },
             orderBy: { createdAt: "desc" },
             take: Math.max(limit * 4, 12),
         });
 
-        // The signature test reads the latest contract, matching the badge — not the
-        // document pinned by eDocId, which can lag behind a re-issued contract.
-        const signedByClientId = await this.findCustomerSignedContractByClientId(
+        // Reads the latest contract, matching the badge — not the document
+        // pinned by eDocId, which can lag behind a re-issued contract.
+        const hasActiveDocumentByClientId = await this.findHasActiveContractDocumentByClientId(
             clients.map((client) => client.id),
         );
 
@@ -1756,8 +1717,7 @@ export class ClientService {
                 const actionRequired = this.computeActionRequired({
                     serviceStatus,
                     startDate: client.startDate,
-                    eDocId: client.eDocId,
-                    customerSignedContract: signedByClientId.get(client.id) ?? false,
+                    hasActiveContractDocument: hasActiveDocumentByClientId.get(client.id) ?? false,
                 });
 
                 if (!actionRequired) {
