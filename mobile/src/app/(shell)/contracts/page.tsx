@@ -346,7 +346,7 @@ function categoryTones(category: ContractCategory): {
       };
     case "unknown":
       return {
-        badge: "상태 확인",
+        badge: "알 수 없음",
         badgeTone: "orange",
         badgeMini: "orange",
         infoTone: "orange",

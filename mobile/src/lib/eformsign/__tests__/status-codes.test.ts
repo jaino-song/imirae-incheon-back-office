@@ -33,7 +33,7 @@ describe("eformsign status code helpers", () => {
     expect(isDeletedStatusCode("099")).toBe(true);
     expect(getStatusCategory("049")).toBe("unknown");
     expect(getStatusCategory("099")).toBe("unknown");
-    expect(mapStatusToLabel("049")).toBe("상태 확인");
+    expect(mapStatusToLabel("049")).toBe("알 수 없음");
   });
 
   it("classifies unsupported, blank, and missing status codes as unknown", () => {
@@ -44,8 +44,8 @@ describe("eformsign status code helpers", () => {
   });
 
   it("maps unknown status values to a distinct label and neutral badge color", () => {
-    expect(mapStatusToLabel("999")).toBe("상태 확인");
-    expect(getStatusColor("상태 확인")).toBe("info");
+    expect(mapStatusToLabel("999")).toBe("알 수 없음");
+    expect(getStatusColor("알 수 없음")).toBe("info");
   });
 
   it("does not mark user participant steps as review needed when upstream marks the recipient internal", () => {

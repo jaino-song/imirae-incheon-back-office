@@ -35,7 +35,7 @@ export const CONTRACT_DOC_DISPLAY_STATUS_LABELS = {
     review: "검토 필요",
     completed: "계약 완료",
     expired: "기간 만료",
-    unknown: "상태 확인",
+    unknown: "알 수 없음",
 } as const satisfies Record<ContractDocDisplayStatus, string>;
 
 export function isContractDocDisplayStatus(value: unknown): value is ContractDocDisplayStatus {

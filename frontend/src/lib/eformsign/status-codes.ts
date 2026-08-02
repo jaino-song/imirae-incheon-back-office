@@ -40,7 +40,7 @@ export const IN_PROGRESS_CODES = [
 ] as const;
 
 // Korean status labels
-export type DocumentStatusLabel = ContractDocStatusLabel | "상태 확인";
+export type DocumentStatusLabel = ContractDocStatusLabel | "알 수 없음";
 
 type EformsignWorkflowStatus = {
   status_type?: string | null;
