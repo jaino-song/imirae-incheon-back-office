@@ -12,6 +12,10 @@ import {
     HeadlessDispatchResponse,
 } from "@babyjamjam/shared/types/eformsign";
 import type {
+    MessageAutomationPastTriggerConfig,
+    MessageAutomationPoliciesResponse,
+    MessageAutomationPolicy,
+    MessageAutomationPolicyRow,
     MessageSenderApprovalResponse,
     MessageSenderApprovalStatus,
 } from "@babyjamjam/shared/types/message";
@@ -490,6 +494,10 @@ export async function withEformsignReauth<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export type {
+    MessageAutomationPastTriggerConfig,
+    MessageAutomationPoliciesResponse,
+    MessageAutomationPolicy,
+    MessageAutomationPolicyRow,
     MessageSenderApprovalResponse,
     MessageSenderApprovalStatus,
 };
@@ -514,6 +522,16 @@ export const settingsApi = {
     },
     getMessageSenderApproval: async (): Promise<MessageSenderApprovalResponse> => {
         const { data } = await api.get("/settings/message-sender-approval");
+        return data;
+    },
+    getMessageAutomationPolicies: async (): Promise<MessageAutomationPoliciesResponse> => {
+        const { data } = await api.get("/settings/message-automation-policies");
+        return data;
+    },
+    updateMessageAutomationPastTriggerConfig: async (
+        config: MessageAutomationPastTriggerConfig,
+    ): Promise<MessageAutomationPastTriggerConfig> => {
+        const { data } = await api.put("/settings/message-automation-policies/past-trigger", config);
         return data;
     },
     requestMessageSenderApproval: async (): Promise<MessageSenderApprovalResponse> => {
