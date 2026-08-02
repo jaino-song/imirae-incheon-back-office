@@ -133,7 +133,7 @@ const ContractPdfViewer = dynamic(
 
 type ContractCategory = "in-progress" | "signed" | "drafting" | "completed" | "expired" | "unknown";
 type ContractSectionId = "maternal-contracts" | "service-records";
-type FilterKey = "전체" | "서명 대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료" | "상태 확인";
+type FilterKey = "전체" | "서명 대기" | "서명 완료" | "검토 필요" | "계약 완료" | "기간 만료" | "알 수 없음";
 type DetailTabId = "basic" | "signers" | "messages";
 type NotificationStatus = "pending" | "sent" | "failed";
 type NotificationLogRecord = {
@@ -163,7 +163,7 @@ type ContractStageItem = {
 
 const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 const CONTRACT_ROUTE_BODY_CLASS = "mobile-contracts-route";
-const FILTER_LABELS: FilterKey[] = ["전체", "서명 대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "상태 확인"];
+const FILTER_LABELS: FilterKey[] = ["전체", "서명 대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "알 수 없음"];
 const CONTRACT_SECTIONS = [
   { id: "maternal-contracts", label: "산모 계약서", icon: FileSignature },
   { id: "service-records", label: "제공기록지", icon: ClipboardList },
@@ -263,7 +263,7 @@ const FILTER_TO_STATUS_CATEGORY: Record<FilterKey, EformsignStatusCategoryParam 
   "검토 필요": "in-progress",
   "계약 완료": "completed",
   "기간 만료": "expired",
-  "상태 확인": "unknown",
+  "알 수 없음": "unknown",
 };
 
 const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
@@ -272,7 +272,7 @@ const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
   "in-progress": "검토 필요",
   completed: "계약 완료",
   expired: "기간 만료",
-  unknown: "상태 확인",
+  unknown: "알 수 없음",
 };
 
 /** status-counts 신호를 문서와 동일한 규칙으로 분류한다(categorize와 같은 로직). */
@@ -535,7 +535,7 @@ function progressLabel(doc: EformsignDocument): string {
   const category = categorize(doc);
   if (category === "completed") return "6/6 - 계약서 완료";
   if (category === "expired") return "기간 만료";
-  if (category === "unknown") return "상태 확인 필요";
+  if (category === "unknown") return "상태 알 수 없음";
   if (hasDocumentSendFailure(doc)) return "이용자 문서 전송 실패";
   if (isReviewNeeded(doc)) return "5/6 - 제공기관 검토 필요";
   if (categorize(doc) === "signed" || hasCustomerSignatureDocument(doc)) return "4/6 - 이용자 서명 완료";
@@ -2127,7 +2127,7 @@ export default function ContractsPage() {
       "검토 필요": 0,
       "계약 완료": 0,
       "기간 만료": 0,
-      "상태 확인": 0,
+      "알 수 없음": 0,
     };
     for (const signal of statusCountsData?.documents ?? []) {
       counts[FILTER_BY_CATEGORY[categorizeSignal(signal)]] += 1;
@@ -2163,7 +2163,7 @@ export default function ContractsPage() {
       "서명 대기": { key: "drafting", title: "서명 대기", category: "drafting" },
       "계약 완료": { key: "completed", title: "계약 완료 · 최근", category: "completed" },
       "기간 만료": { key: "expired", title: "기간 만료/반려", category: "expired" },
-      "상태 확인": { key: "unknown", title: "상태 확인", category: "unknown" },
+      "알 수 없음": { key: "unknown", title: "알 수 없음", category: "unknown" },
     };
     const meta = SECTION_META[activeFilter];
     return [section(meta.key, meta.title, filteredDocuments, meta.category)];
