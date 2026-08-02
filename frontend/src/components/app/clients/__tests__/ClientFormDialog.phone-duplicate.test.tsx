@@ -70,7 +70,7 @@ describe("ClientFormPanel phone duplicate check", () => {
     );
     fireEvent.change(nameInput, { target: { value: "홍길동" } });
     fireEvent.change(screen.getByLabelText(/생년월일/), { target: { value: "900101" } });
-    fireEvent.change(screen.getByLabelText(/출산 예정일/), { target: { value: "260101" } });
+    fireEvent.change(screen.getByLabelText(/출산 예정일/), { target: { value: "20260101" } });
     fireEvent.change(screen.getByLabelText(/주소/), { target: { value: "서울시 강남구" } });
 
     const phoneInput = screen.getByLabelText(/연락처/);

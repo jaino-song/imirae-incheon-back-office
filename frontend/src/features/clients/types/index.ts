@@ -54,7 +54,7 @@ export interface Client {
     createdAt?: string | null;
     birthday: string | null;           // YYMMDD format
     dueDate: string | null;
-    birthDate?: string | null;         // 출산일 (actual delivery date, ISO)
+    birthDate: string | null;
     address: string | null;
     phone: string | null;
     primaryEmployee: EmployeeSummary | null;  // Primary employee info from active schedule

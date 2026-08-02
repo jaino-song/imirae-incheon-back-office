@@ -47,11 +47,11 @@ export class ClientMapper {
             row.breastPump,
             row.eDocId,
             row.dueDate ?? null,
-            row.birthDate ?? null,
             row.createdAt ?? null,
             row.areaId ?? null,
             row.branchId ?? null,
             row.suppressGreetingSms ?? false,
+            row.birthDate ?? null,
         );
     }
 

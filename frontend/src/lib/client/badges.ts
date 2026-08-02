@@ -1,4 +1,5 @@
 import { getClientBadgeStatusToken } from "@babyjamjam/shared/tokens/status-badge";
+import { legacyClientBadges } from "@babyjamjam/shared/client/badges";
 
 import type { Client, ClientBadge, ClientBadgeTone } from "@/lib/client/types";
 
@@ -63,8 +64,17 @@ export const prioritizeClientBadges = (badges: ClientBadge[]): ClientBadge[] => 
     ];
 };
 
-export const getClientBadges = (client: Pick<Client, "badges" | "pendingScheduleChange"> | null | undefined): ClientBadge[] => {
-    return prioritizeClientBadges(applyScheduleChangeBadge(client, client?.badges ?? []));
+export const getClientBadges = (
+    client:
+        | (Pick<Client, "badges" | "pendingScheduleChange">
+            & Partial<Pick<Client, "serviceStatus" | "documentStatus" | "breastPump" | "careCenter">>)
+        | null
+        | undefined,
+): ClientBadge[] => {
+    // The backend's badges array is the authority; the shared legacy builder only
+    // backstops payloads without it, identically to mobile.
+    const badges = client?.badges?.length ? client.badges : client ? legacyClientBadges(client) : [];
+    return prioritizeClientBadges(applyScheduleChangeBadge(client, badges));
 };
 
 export const getPrimaryClientBadge = (badges: ClientBadge[]): ClientBadge | null => {

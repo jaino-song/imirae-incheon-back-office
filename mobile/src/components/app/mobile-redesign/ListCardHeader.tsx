@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 const SOURCE_COMPONENT = "ListCardHeader";
 export interface ListCardHeaderProps {
   "data-component": string;
@@ -10,6 +12,7 @@ export interface ListCardHeaderProps {
   actionLabel?: string;
   actionHref?: string;
   actionIcon?: ReactNode;
+  actionLoading?: boolean;
   actionType?: "button" | "submit";
   actionDisabled?: boolean;
   onActionClick?: () => void;
@@ -22,6 +25,7 @@ export function ListCardHeader({
   actionLabel,
   actionHref,
   actionIcon,
+  actionLoading = false,
   actionType = "button",
   actionDisabled = false,
   onActionClick,
@@ -31,7 +35,14 @@ export function ListCardHeader({
     : actionLabel?.startsWith("+")
       ? null
       : <Plus size={12} strokeWidth={3} />;
-  const action = actionLabel ? (
+  const action = actionLoading ? (
+    <Skeleton
+      role="status"
+      aria-label="권한 확인 중"
+      className="h-7 w-20 rounded-full"
+      data-component={`${dataComponent}_action-skeleton`}
+    />
+  ) : actionLabel ? (
     actionHref ? (
       <Link
         href={actionHref}

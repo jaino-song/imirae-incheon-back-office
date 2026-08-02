@@ -24,9 +24,11 @@ export const CLIENT_BADGE_STATUS_TOKENS = {
     service_status: {
         active: { variant: "primary", defaultLabel: "진행중" },
         preBooking: { variant: "neutral", defaultLabel: "예약 전" },
-        signed: { variant: "success", defaultLabel: "서명완료" },
-        pending: { variant: "warning", defaultLabel: "대기" },
-        review: { variant: "primary", defaultLabel: "검토 필요" },
+        // Contract progression reads neutral → primary → warning → success:
+        // 대기 → 서명 완료 → 검토 필요 (action due) → 계약 완료.
+        signed: { variant: "primary", defaultLabel: "서명 완료" },
+        pending: { variant: "neutral", defaultLabel: "대기" },
+        review: { variant: "warning", defaultLabel: "검토 필요" },
         scheduleChange: { variant: "danger", defaultLabel: "일정 변경" },
         terminated: { variant: "danger", defaultLabel: "중단" },
         expired: { variant: "danger", defaultLabel: "만료" },

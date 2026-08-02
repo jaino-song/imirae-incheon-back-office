@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { usePushNotification } from "@/hooks/usePushNotification";
+import { PWA_NOTIFICATIONS_ENABLED } from "@/lib/notification-config";
 
 /**
  * Notification Settings Component
@@ -43,6 +44,16 @@ export function NotificationSettings() {
     };
 
     // Not supported message
+    if (!PWA_NOTIFICATIONS_ENABLED) {
+        return (
+            <Alert variant="warning" className="mt-4">
+                <AlertDescription>
+                    푸시 알림은 현재 비활성화되어 있습니다.
+                </AlertDescription>
+            </Alert>
+        );
+    }
+
     if (!isSupported) {
         return (
             <Alert variant="warning" className="mt-4">

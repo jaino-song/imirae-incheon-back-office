@@ -42,8 +42,12 @@ describe("NotificationService", () => {
     const systemSettingService = { getUserEmailNotificationsEnabled: jest.fn() };
 
     let service: NotificationService;
+    let originalNotificationEmailEnabled: string | undefined;
 
     beforeEach(() => {
+        originalNotificationEmailEnabled = process.env["NOTIFICATION_EMAIL_ENABLED"];
+        process.env["NOTIFICATION_EMAIL_ENABLED"] = "true";
+
         service = new NotificationService(
             subscribePushUsecase as never,
             unsubscribePushUsecase as never,
@@ -69,6 +73,11 @@ describe("NotificationService", () => {
     });
 
     afterEach(() => {
+        if (originalNotificationEmailEnabled === undefined) {
+            delete process.env["NOTIFICATION_EMAIL_ENABLED"];
+        } else {
+            process.env["NOTIFICATION_EMAIL_ENABLED"] = originalNotificationEmailEnabled;
+        }
         jest.clearAllMocks();
     });
 
@@ -91,6 +100,20 @@ describe("NotificationService", () => {
             branchId,
             expect.objectContaining({ userId: "user-2" }),
         );
+    });
+
+    it("should preserve in-app notifications without sending email when globally disabled", async () => {
+        process.env["NOTIFICATION_EMAIL_ENABLED"] = "false";
+        const savedNotification = NotificationEntity.create("user-1", "title", "body");
+        sendNotificationUsecase.execute.mockResolvedValue(savedNotification);
+
+        await expect(
+            service.sendNotification(branchId, "user-1", "title", "body"),
+        ).resolves.toBe(savedNotification);
+
+        expect(emailPort.send).not.toHaveBeenCalled();
+        expect(emailPort.sendNotificationEmail).not.toHaveBeenCalled();
+        expect(systemSettingService.getUserEmailNotificationsEnabled).not.toHaveBeenCalled();
     });
 
     it("should skip deduped branch notifications for the same document", async () => {

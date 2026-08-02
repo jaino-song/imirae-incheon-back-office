@@ -18,6 +18,7 @@ export class SbClientRepository implements IClientRepository {
     private async getClientSelect() {
         const supportsCreatedAt = await hasColumn(this.prismaService, "client", "created_at");
         const supportsAreaId = await hasColumn(this.prismaService, "client", "area_id");
+        const supportsBirthDate = await hasColumn(this.prismaService, "client", "birth_date");
 
         return {
             id: true,
@@ -35,7 +36,6 @@ export class SbClientRepository implements IClientRepository {
             voucherClient: true,
             birthday: true,
             dueDate: true,
-            birthDate: true,
             serviceStatus: true,
             breastPump: true,
             eDocId: true,
@@ -45,29 +45,32 @@ export class SbClientRepository implements IClientRepository {
             branchId: true,
             ...(supportsCreatedAt ? { createdAt: true } : {}),
             ...(supportsAreaId ? { areaId: true } : {}),
+            ...(supportsBirthDate ? { birthDate: true } : {}),
         } as const;
     }
 
     private async getClientCreateData(client: ClientEntity) {
-        const data = ClientMapper.toPrismaCreate(client);
+        const { areaId, birthDate, ...rest } = ClientMapper.toPrismaCreate(client);
         const supportsAreaId = await hasColumn(this.prismaService, "client", "area_id");
-        if (!supportsAreaId) {
-            const { areaId: _areaId, ...withoutAreaId } = data;
-            return withoutAreaId;
-        }
+        const supportsBirthDate = await hasColumn(this.prismaService, "client", "birth_date");
 
-        return data;
+        return {
+            ...rest,
+            ...(supportsAreaId ? { areaId } : {}),
+            ...(supportsBirthDate ? { birthDate } : {}),
+        };
     }
 
     private async getClientUpdateData(client: ClientEntity) {
-        const data = ClientMapper.toPrismaUpdate(client);
+        const { areaId, birthDate, ...rest } = ClientMapper.toPrismaUpdate(client);
         const supportsAreaId = await hasColumn(this.prismaService, "client", "area_id");
-        if (!supportsAreaId) {
-            const { areaId: _areaId, ...withoutAreaId } = data;
-            return withoutAreaId;
-        }
+        const supportsBirthDate = await hasColumn(this.prismaService, "client", "birth_date");
 
-        return data;
+        return {
+            ...rest,
+            ...(supportsAreaId ? { areaId } : {}),
+            ...(supportsBirthDate ? { birthDate } : {}),
+        };
     }
 
     async findById(branchid: string, id: number): Promise<ClientEntity | null> {

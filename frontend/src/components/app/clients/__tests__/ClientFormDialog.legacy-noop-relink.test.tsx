@@ -66,6 +66,7 @@ const legacyClient: Client = {
   createdAt: "2026-01-01",
   birthday: "900101",
   dueDate: null,
+  birthDate: null,
   address: "인천시 남동구",
   phone: "010-1111-2222",
   primaryEmployee: null,

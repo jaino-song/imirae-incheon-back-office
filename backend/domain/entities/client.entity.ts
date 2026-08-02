@@ -37,7 +37,7 @@ interface CreateClientProps {
     voucherClient: boolean;
     birthday: string | null;
     dueDate: Date | null;
-    birthDate?: Date | null;
+    birthDate: Date | null;
     serviceStatus: string | null;
     breastPump: boolean;
     eDocId: string | null;
@@ -66,13 +66,13 @@ export class ClientEntity {
         public breastPump: boolean,
         public eDocId: string | null,
         public dueDate: Date | null = null,
-        public birthDate: Date | null = null,
         public createdAt: Date | null = null,
         public areaId: string | null = null,
         // Owning tenant; populated by ClientMapper on reads so downstream
         // consumers (e.g. message log rows) can scope records to the branch.
         public branchId: string | null = null,
         public suppressGreetingSms: boolean = false,
+        public birthDate: Date | null = null,
     ) {}
 
     isGoingToCareCenter(): boolean {
@@ -122,11 +122,11 @@ export class ClientEntity {
             props.breastPump,
             props.eDocId,
             props.dueDate,
-            props.birthDate ?? null,
             props.createdAt ?? new Date(),
             props.areaId ?? null,
             null,
             props.suppressGreetingSms ?? false,
+            props.birthDate,
         );
     }
 
@@ -145,7 +145,7 @@ export class ClientEntity {
         this.voucherClient = props.voucherClient ?? this.voucherClient;
         this.birthday = props.birthday ?? this.birthday;
         this.dueDate = props.dueDate ?? this.dueDate;
-        this.birthDate = props.birthDate ?? this.birthDate;
+        if ("birthDate" in props) this.birthDate = props.birthDate ?? null;
         this.serviceStatus = props.serviceStatus ?? this.serviceStatus;
         this.breastPump = props.breastPump ?? this.breastPump;
         this.eDocId = props.eDocId ?? this.eDocId;
@@ -200,11 +200,11 @@ export class ClientEntity {
             breastPump,
             eDocId,
             dueDate,
-            birthDate,
             createdAt,
             areaId,
             branchId,
             suppressGreetingSms,
+            birthDate,
         );
     }
 }

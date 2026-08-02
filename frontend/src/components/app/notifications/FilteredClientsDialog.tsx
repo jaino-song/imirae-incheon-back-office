@@ -5,6 +5,8 @@ import { X } from "lucide-react";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { getClientDocumentStatusMeta } from "@babyjamjam/shared/constants/client-document-status";
+import type { StatusBadgeVariant } from "@babyjamjam/shared/tokens/status-badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -45,18 +47,18 @@ interface FilteredClientsDialogProps {
     clientId?: number;
 }
 
+const DOCUMENT_STATUS_BADGE_VARIANTS = {
+    success: "success",
+    warning: "warning",
+    info: "info",
+    primary: "info",
+    danger: "destructive",
+    neutral: "outline",
+} as const satisfies Record<StatusBadgeVariant, string>;
+
 const getDocumentStatusBadge = (status: DocumentStatus) => {
-    switch (status) {
-        case "completed":
-            return <Badge variant="success">완료</Badge>;
-        case "opened":
-        case "requested":
-            return <Badge variant="warning">진행중</Badge>;
-        case "created":
-            return <Badge variant="info">생성됨</Badge>;
-        default:
-            return <Badge variant="outline">미발송</Badge>;
-    }
+    const meta = getClientDocumentStatusMeta(status);
+    return <Badge variant={DOCUMENT_STATUS_BADGE_VARIANTS[meta.variant]}>{meta.label}</Badge>;
 };
 
 const formatDate = (dateStr: string | null): string => {

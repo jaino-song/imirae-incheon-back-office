@@ -8,14 +8,20 @@
 import {
   COMPLETED_STATUS_CODES,
   EXPIRED_STATUS_CODES,
-  isProviderReviewWorkflowStep,
 } from "@babyjamjam/shared/constants/eformsign-status-codes";
+import {
+  CONTRACT_DOC_DISPLAY_STATUS_LABELS,
+  isContractDocDisplayStatus,
+  resolveContractDocStatusLabel,
+  type ContractDocStatusLabel,
+} from "@babyjamjam/shared/constants/eformsign-doc-status";
 
 export {
   COMPLETED_STATUS_CODES,
   EXPIRED_STATUS_CODES,
   isProviderReviewWorkflowStep,
 } from "@babyjamjam/shared/constants/eformsign-status-codes";
+export { isContractReviewWindowOpen } from "@babyjamjam/shared/constants/eformsign-doc-status";
 
 // 완료 (Completed) codes
 export const COMPLETED_CODES = COMPLETED_STATUS_CODES;
@@ -45,7 +51,7 @@ export const IN_PROGRESS_CODES = [
 ] as const;
 
 // Korean status labels
-export type DocumentStatusLabel = "대기" | "검토 필요" | "완료" | "기간 만료" | "알 수 없음";
+export type DocumentStatusLabel = ContractDocStatusLabel | "알 수 없음";
 export type DocumentStatusCategory = "completed" | "expired" | "in-progress" | "unknown";
 
 type EformsignWorkflowStatus = {
@@ -57,13 +63,28 @@ type EformsignWorkflowStatus = {
 
 /**
  * Step-aware variant: when a doc is in-progress AND the current workflow step
- * is explicitly the provider review/confirmation step, it has progressed past
- * the customer's signature and is surfaced as "검토 필요" instead of "대기".
+ * is explicitly the provider review/confirmation step, the customer has signed.
+ * That state reads 서명 완료 until the contract end date is within 1 business
+ * day, when it flips to 검토 필요 (shared rule — see eformsign-doc-status).
+ * Callers that cannot supply an end date get 검토 필요, the pre-date-rule
+ * behavior.
  */
-export function mapDocStatusLabel(currentStatus: EformsignWorkflowStatus | null | undefined): DocumentStatusLabel {
-  const base = mapStatusToLabel(currentStatus?.status_type);
-  if (base !== "대기") return base;
-  return isProviderReviewWorkflowStep(currentStatus) ? "검토 필요" : "대기";
+export function mapDocStatusLabel(
+  currentStatus: EformsignWorkflowStatus | null | undefined,
+  contractEndDate?: string | null,
+  displayStatus?: string | null,
+): DocumentStatusLabel {
+  // The backend's serve-time display_status is authoritative when present.
+  if (isContractDocDisplayStatus(displayStatus)) {
+    return CONTRACT_DOC_DISPLAY_STATUS_LABELS[displayStatus];
+  }
+  const category = getStatusCategory(currentStatus?.status_type);
+  if (category === "unknown") return CONTRACT_DOC_DISPLAY_STATUS_LABELS.unknown;
+  return resolveContractDocStatusLabel({
+    category,
+    currentStatus,
+    contractEndDate: contractEndDate ?? null,
+  });
 }
 
 // Filter types for API calls
@@ -144,11 +165,11 @@ export function mapStatusToLabel(statusCode: string | undefined | null): Documen
   
   switch (category) {
     case "completed":
-      return "완료";
+      return "계약 완료";
     case "expired":
       return "기간 만료";
     case "in-progress":
-      return "대기";
+      return "서명 대기";
     default:
       return "알 수 없음";
   }
@@ -165,6 +186,9 @@ export type BadgeVariant = "success" | "warning" | "destructive" | "info" | "sec
 export function getStatusColor(status: string): BadgeVariant {
   const lowerStatus = status.toLowerCase();
 
+  if (lowerStatus.includes("서명 완료")) {
+    return "info";
+  }
   if (lowerStatus.includes("완료") || lowerStatus.includes("complete") || lowerStatus.includes("signed")) {
     return "success";
   }

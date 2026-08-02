@@ -14,6 +14,7 @@ const mockUseSystemTemplate = jest.fn();
 const mockGetMessageSenderApproval = jest.fn();
 const mockUseBankAccountInfos = jest.fn();
 const mockUseVoucherPriceInfos = jest.fn();
+const mockUseMessagesPermissionGuard = jest.fn();
 const mockClipboardWriteText = jest.fn();
 let mockSearchParams = new URLSearchParams();
 
@@ -111,6 +112,10 @@ jest.mock("@/services/api", () => ({
   },
 }));
 
+jest.mock("@/app/(shell)/messages/MessagesPermissionGuard", () => ({
+  useMessagesPermissionGuard: () => mockUseMessagesPermissionGuard(),
+}));
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -148,6 +153,11 @@ describe("NewMessagePage", () => {
   beforeEach(() => {
     mockPush.mockClear();
     mockGetMessageSenderApproval.mockReset();
+    mockUseMessagesPermissionGuard.mockReset();
+    mockUseMessagesPermissionGuard.mockReturnValue({
+      isLoading: false,
+      needsSenderApproval: false,
+    });
     mockGetMessageSenderApproval.mockResolvedValue({
       approvalStatus: "approved",
       isApproved: true,
@@ -544,6 +554,18 @@ describe("NewMessagePage", () => {
   it("disables immediate send until a recipient is selected", () => {
     renderPage();
 
+    expect(screen.getByRole("button", { name: "즉시 발송" })).toBeDisabled();
+  });
+
+  it("keeps the send page accessible but disables immediate send without approval", () => {
+    mockUseMessagesPermissionGuard.mockReturnValue({
+      isLoading: false,
+      needsSenderApproval: true,
+    });
+
+    renderPage();
+
+    expect(screen.getByText("새 메시지")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "즉시 발송" })).toBeDisabled();
   });
 

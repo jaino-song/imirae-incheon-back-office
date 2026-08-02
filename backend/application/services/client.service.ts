@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, Inject, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
-import { eformsignCustomerPhone } from "application/utils/eformsign-contract-client-candidate";
+import { eformsignCustomerPhone, extractEformsignContractEndDate } from "application/utils/eformsign-contract-client-candidate";
+import { resolveEformsignDocDisplayStatus } from "application/utils/eformsign-doc-display-status";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import {
     configuredServiceRecordTemplateIds,
@@ -1363,7 +1364,9 @@ export class ClientService {
                     voucherClient: params.voucherClient,
                     birthday: params.birthday ?? undefined,
                     dueDate: params.dueDate ? new Date(params.dueDate) : undefined,
-                    birthDate: params.birthDate ? new Date(params.birthDate) : undefined,
+                    birthDate: params.birthDate === undefined
+                        ? undefined
+                        : (params.birthDate ? new Date(params.birthDate) : null),
                     serviceStatus: params.serviceStatus ?? undefined,
                     breastPump: params.breastPump,
                     eDocId: params.eDocId ?? undefined,
@@ -1603,7 +1606,7 @@ export class ClientService {
         const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
         const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59);
 
-        const [activeClients, contractsNotSent, contractsPendingSignature, upcomingThisMonth, upcomingNextMonth] = 
+        const [activeClients, contractsNotSent, pendingSignatureDocRows, upcomingThisMonth, upcomingNextMonth] =
             await Promise.all([
                 this.prismaService.client.count({
                     where: { serviceStatus: SERVICE_STATUS.ACTIVE, branchId: branchid },
@@ -1615,11 +1618,22 @@ export class ClientService {
                         branchId: branchid,
                     },
                 }),
-                this.prismaService.client.count({
+                this.prismaService.client.findMany({
                     where: {
                         eDocId: { not: null },
                         eformsignDocByEDocId: { statusType: { not: '050' } },
                         branchId: branchid,
+                    },
+                    select: {
+                        eformsignDocByEDocId: {
+                            select: {
+                                documentId: true,
+                                statusType: true,
+                                stepType: true,
+                                stepName: true,
+                                detailPayload: true,
+                            },
+                        },
                     },
                 }),
                 this.prismaService.client.count({
@@ -1637,6 +1651,25 @@ export class ClientService {
                     },
                 }),
             ]);
+
+        // 대시보드의 "검토 필요 문서"는 계약서 목록과 같은 규칙으로 센다: 제공기관
+        // 검토 단계에 있고 검토 창(계약 종료 영업일 1일 전~)이 열린 문서만.
+        const contractsPendingSignature = pendingSignatureDocRows.filter((row) => {
+            const doc = row.eformsignDocByEDocId;
+            if (!doc) return false;
+            const endDate = doc.detailPayload && typeof doc.detailPayload === "object"
+                ? extractEformsignContractEndDate(doc.detailPayload as unknown as EformsignApiDocumentResponse)
+                : null;
+            return resolveEformsignDocDisplayStatus({
+                id: doc.documentId,
+                current_status: {
+                    status_type: doc.statusType,
+                    step_type: doc.stepType,
+                    step_name: doc.stepName,
+                },
+                ...(endDate ? { contract_end_date: endDate.toISOString().slice(0, 10) } : {}),
+            }) === "review";
+        }).length;
 
         return { activeClients, contractsNotSent, contractsPendingSignature, upcomingThisMonth, upcomingNextMonth };
     }

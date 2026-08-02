@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { use } from 'react';
 import { FileText, Loader2, Monitor, Send, Workflow } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -133,7 +134,8 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
           </p>
         </div>
 
-        <div
+        <Link
+          href="/messages/automation"
           data-component="mobile_messages_system-templates_template-key-detail_detail-panel_trigger-link"
           className="info-card pop-up flex items-start gap-3"
         >
@@ -144,7 +146,7 @@ export default function EditSystemTemplatePage({ params }: { params: Promise<{ t
               이 템플릿의 자동 발송 ON/OFF·발송 시점은 메시지 → 자동 전송에서 관리합니다.
             </p>
           </div>
-        </div>
+        </Link>
       </div>
     </MobileDetailSlideUp>
   );

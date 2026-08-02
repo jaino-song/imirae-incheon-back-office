@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverAPIClient } from "@/lib/api/server";
-import { E2E_AUTH_USER, isE2ETest } from "@/lib/e2e";
+import { E2E_ROLE_COOKIE, getE2EAuthUser, isE2ETest } from "@/lib/e2e";
 import { getUpstreamErrorStatus, logUpstreamError, sanitizeUpstreamClientError } from "@/lib/api/route-utils";
 
 function getAuthToken(request: NextRequest): string | null {
@@ -10,7 +10,7 @@ function getAuthToken(request: NextRequest): string | null {
 export async function GET(request: NextRequest) {
     try {
         if (isE2ETest()) {
-            return NextResponse.json(E2E_AUTH_USER);
+            return NextResponse.json(getE2EAuthUser(request.cookies.get(E2E_ROLE_COOKIE)?.value));
         }
 
         const token = getAuthToken(request);

@@ -17,6 +17,7 @@ interface CardContainerProps {
    * rendered DOM keeps the full-parent-path contract.
    */
   "data-component": string;
+  "data-slot"?: string;
   dataComponents?: {
     container?: string;
     card?: string;
@@ -38,6 +39,7 @@ export function CardContainer({
   headerActionsLeft,
   headerActionsRight,
   "data-component": dataComponent,
+  "data-slot": dataSlot,
   dataComponents,
 }: CardContainerProps) {
   const hasHeader = Boolean(title || subtitle);
@@ -56,6 +58,7 @@ export function CardContainer({
   return (
     <div
       data-component={componentSlots.container}
+      data-slot={dataSlot}
       className="flex w-full flex-1 items-center justify-center"
     >
       <Card

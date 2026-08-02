@@ -36,6 +36,7 @@ import { useClientServiceRecords } from "@/features/service-records/hooks/use-se
 import type { EformsignDocument, EformsignDocumentOption } from "@/lib/eformsign/types";
 import {
   DocumentFilterType,
+  contractStatusBadgeType,
   mapDocStatusLabel,
   getStatusCategory,
   foldContractStats,
@@ -223,24 +224,13 @@ function formatDateTime(timestamp: number): string {
   });
 }
 
-function mapCategoryToStatusType(category: "completed" | "expired" | "in-progress"): StatusType {
-  switch (category) {
-    case "completed":
-      return "signed";
-    case "expired":
-      return "expired";
-    case "in-progress":
-      return "pending";
-  }
-}
-
 function getSignatureProgress(
   category: "completed" | "expired" | "in-progress",
   hasOpenedDocument: boolean,
-  isReviewNeeded: boolean
+  isCustomerSigned: boolean
 ) {
   const isCompleted = category === "completed";
-  const isSigned = isCompleted || isReviewNeeded;
+  const isSigned = isCompleted || isCustomerSigned;
   const steps = [
     { label: "문서 생성", done: true },
     { label: "발송 완료", done: true },
@@ -705,6 +695,7 @@ export default function ContractsPage() {
         isLoading={isStatsLoading}
         items={[
           { icon: CheckCircle2, value: stats.reviewNeeded, label: "검토 필요", counter: "건", colorIndex: 0 },
+          { icon: FileSignature, value: stats.signed, label: "서명 완료", counter: "건", colorIndex: 1 },
           { icon: Send, value: stats.sendRequired, label: "이용자 완료 필요", counter: "건", colorIndex: 1 },
           { icon: FileText, value: stats.drafting, label: "작성 대기중", counter: "건" },
           { icon: AlertTriangle, value: stats.expired, label: "기간 만료", counter: "건", colorIndex: 3 },
@@ -1112,9 +1103,18 @@ function ContractDetail({
     ?? serviceRecordQuery.data?.assignments.find((assignment) => assignment.header)?.header
     ?? null;
   const category = getStatusCategory(detailedDocument.current_status?.status_type);
-  const statusLabel = mapDocStatusLabel(detailedDocument.current_status);
-  const statusType: StatusType =
-    statusLabel === "검토 필요" ? "review" : mapCategoryToStatusType(category);
+  const contractEndDateIso = (() => {
+    const year = extractDocumentFieldValue(detailedDocument, ["계약 종료 년도", "계약종료년도", "endYear"]);
+    const month = extractDocumentFieldValue(detailedDocument, ["계약 종료 월", "계약종료월", "endMonth"]);
+    const day = extractDocumentFieldValue(detailedDocument, ["계약 종료 일", "계약종료일", "endDay"]);
+    if (!year || !month || !day) return "";
+    const yearNum = parseInt(year, 10);
+    if (Number.isNaN(yearNum)) return "";
+    const yearStr = (yearNum < 100 ? 2000 + yearNum : yearNum).toString().padStart(4, "0");
+    return `${yearStr}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  })();
+  const statusLabel = mapDocStatusLabel(detailedDocument.current_status, contractEndDateIso || null);
+  const statusType: StatusType = contractStatusBadgeType(statusLabel);
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");
   const [isReRequestDialogOpen, setIsReRequestDialogOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -1262,16 +1262,6 @@ function ContractDetail({
       day: ["계약 종료 일", "계약종료일", "endDay"],
       full: ["계약 종료일", "계약종료일", "서비스 종료일", "서비스종료일", "endDate"],
     }) ?? "–";
-  const contractEndDateIso = (() => {
-    const year = extractDocumentFieldValue(detailedDocument, ["계약 종료 년도", "계약종료년도", "endYear"]);
-    const month = extractDocumentFieldValue(detailedDocument, ["계약 종료 월", "계약종료월", "endMonth"]);
-    const day = extractDocumentFieldValue(detailedDocument, ["계약 종료 일", "계약종료일", "endDay"]);
-    if (!year || !month || !day) return "";
-    const yearNum = parseInt(year, 10);
-    if (Number.isNaN(yearNum)) return "";
-    const yearStr = (yearNum < 100 ? 2000 + yearNum : yearNum).toString().padStart(4, "0");
-    return `${yearStr}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  })();
   const paymentDate =
     extractFieldDate(detailedDocument, {
       year: ["본인부담금 수령 년도", "본인부담금수령년도", "결제 년도", "결제년도", "paymentYear"],
@@ -1291,8 +1281,9 @@ function ContractDetail({
   const reRequestEvents = extractReRequestEvents(detailedDocument);
   const openEvents = extractOpenEvents(detailedDocument);
   const hasOpenedDocument = openEvents.length > 0;
-  const isReviewNeeded = mapDocStatusLabel(detailedDocument.current_status) === "검토 필요";
-  const steps = getSignatureProgress(category, hasOpenedDocument, isReviewNeeded);
+  const isReviewNeeded = statusLabel === "검토 필요";
+  const isCustomerSigned = statusLabel === "서명 완료" || isReviewNeeded;
+  const steps = getSignatureProgress(category, hasOpenedDocument, isCustomerSigned);
   const customerSignedTimestamp = extractCustomerSignedTimestamp(detailedDocument);
   const customerSignedDate =
     customerSignedTimestamp != null ? formatDateTime(customerSignedTimestamp) : null;
@@ -1624,11 +1615,13 @@ function ContractDetail({
   } else {
     const pendingText = isReviewNeeded
       ? "제공기관 검토 필요"
-      : hasOpenedDocument
-        ? "이용자 서명 대기중입니다"
-        : "이용자 문서 열람 대기중입니다";
+      : isCustomerSigned
+        ? "이용자 서명 완료 — 계약 종료 1영업일 전부터 검토할 수 있습니다"
+        : hasOpenedDocument
+          ? "이용자 서명 대기중입니다"
+          : "이용자 문서 열람 대기중입니다";
     activityItems.push({
-      icon: isReviewNeeded ? FileSignature : Eye,
+      icon: isCustomerSigned ? FileSignature : Eye,
       iconVariant: "warning",
       text: pendingText,
       time: "현재",

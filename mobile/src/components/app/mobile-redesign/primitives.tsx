@@ -510,6 +510,7 @@ export function ListCard({
   title,
   count,
   actionLabel,
+  actionLoading,
   actionHref,
   actionIcon,
   actionType = "button",
@@ -529,6 +530,7 @@ export function ListCard({
   title: string;
   count?: ReactNode;
   actionLabel?: string;
+  actionLoading?: boolean;
   actionHref?: string;
   actionIcon?: ReactNode;
   actionType?: "button" | "submit";
@@ -560,6 +562,7 @@ export function ListCard({
         title={title}
         count={count}
         actionLabel={actionLabel}
+        actionLoading={actionLoading}
         actionHref={actionHref}
         actionIcon={actionIcon}
         actionType={actionType}

@@ -179,7 +179,7 @@ jobs:
 
       - name: Apply client birth date patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260802000000_add_client_birth_date/migration.sql
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
 
       - name: Verify client birth date patch
         working-directory: backend
@@ -490,7 +490,7 @@ jobs:
 
       - name: Apply client birth date patch
         working-directory: backend
-        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260802000000_add_client_birth_date/migration.sql
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
 
       - name: Verify client birth date patch
         working-directory: backend
@@ -781,7 +781,7 @@ jobs:
 
       - name: Apply client birth date patch
         working-directory: backend
-        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260802000000_add_client_birth_date/migration.sql
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
 
       - name: Verify client birth date patch
         working-directory: backend

@@ -171,6 +171,7 @@ export function ClientDetailModal({
                             <InfoRow label={t(locale, "clients.form.name")} value={client.name} />
                             <InfoRow label={t(locale, "clients.form.birthday")} value={formatBirthdayYYMMDD(client.birthday ?? "") || "-"} />
                             <InfoRow label={t(locale, "clients.form.due-date")} value={formatDate(client.dueDate)} />
+                            <InfoRow label={t(locale, "clients.form.birth-date")} value={formatDate(client.birthDate)} />
                             <InfoRow label={t(locale, "clients.form.phone")} value={client.phone} />
                             <InfoRow label={t(locale, "clients.form.address")} value={client.address} />
                         </div>
