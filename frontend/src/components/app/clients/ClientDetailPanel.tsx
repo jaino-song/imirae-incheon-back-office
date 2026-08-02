@@ -91,6 +91,7 @@ const formatDateTime = (dateStr: string | null): string => {
 
 const DOCUMENT_STATUS_BADGE_STATUS = {
     "서명 대기": "pending",
+    "상태 확인": "pending",
     "서명 완료": "signed",
     "검토 필요": "review",
     "계약 완료": "completed",

@@ -40,7 +40,7 @@ export const IN_PROGRESS_CODES = [
 ] as const;
 
 // Korean status labels
-export type DocumentStatusLabel = ContractDocStatusLabel;
+export type DocumentStatusLabel = ContractDocStatusLabel | "상태 확인";
 
 type EformsignWorkflowStatus = {
   status_type?: string | null;
@@ -63,7 +63,7 @@ export function mapDocStatusLabel(
   displayStatus?: string | null,
 ): DocumentStatusLabel {
   // The backend's serve-time display_status is authoritative when present.
-  if (isContractDocDisplayStatus(displayStatus) && displayStatus !== "unknown") {
+  if (isContractDocDisplayStatus(displayStatus)) {
     return CONTRACT_DOC_DISPLAY_STATUS_LABELS[displayStatus];
   }
   return resolveContractDocStatusLabel({

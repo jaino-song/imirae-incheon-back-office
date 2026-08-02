@@ -51,7 +51,7 @@ export const IN_PROGRESS_CODES = [
 ] as const;
 
 // Korean status labels
-export type DocumentStatusLabel = ContractDocStatusLabel | "알 수 없음";
+export type DocumentStatusLabel = ContractDocStatusLabel | "상태 확인";
 export type DocumentStatusCategory = "completed" | "expired" | "in-progress" | "unknown";
 
 type EformsignWorkflowStatus = {
@@ -79,7 +79,7 @@ export function mapDocStatusLabel(
     return CONTRACT_DOC_DISPLAY_STATUS_LABELS[displayStatus];
   }
   const category = getStatusCategory(currentStatus?.status_type);
-  if (category === "unknown") return "알 수 없음";
+  if (category === "unknown") return CONTRACT_DOC_DISPLAY_STATUS_LABELS.unknown;
   return resolveContractDocStatusLabel({
     category,
     currentStatus,
@@ -171,7 +171,7 @@ export function mapStatusToLabel(statusCode: string | undefined | null): Documen
     case "in-progress":
       return "서명 대기";
     default:
-      return "알 수 없음";
+      return "상태 확인";
   }
 }
 
