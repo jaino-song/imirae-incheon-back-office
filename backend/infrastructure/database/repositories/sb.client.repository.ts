@@ -35,6 +35,7 @@ export class SbClientRepository implements IClientRepository {
             voucherClient: true,
             birthday: true,
             dueDate: true,
+            birthDate: true,
             serviceStatus: true,
             breastPump: true,
             eDocId: true,

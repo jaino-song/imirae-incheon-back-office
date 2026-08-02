@@ -45,6 +45,8 @@ import {
     ClientFormDialog,
     ClientFormPanel,
 } from "@/components/app/clients/ClientFormDialog";
+import { MaternityContractDialog } from "@/components/app/clients/MaternityContractDialog";
+import { hasExistingContractDocument } from "@/components/app/contracts/ContractClientSelector";
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
 import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
@@ -284,6 +286,7 @@ export default function ClientsPage() {
     const [isCreatingClient, setIsCreatingClient] = useState(false);
     const [formDialogOpen, setFormDialogOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
+    const [maternityContractClient, setMaternityContractClient] = useState<Client | null>(null);
     const [deleteTargetClientId, setDeleteTargetClientId] = useState<number | null>(null);
     const [deleteErrorMessage, setDeleteErrorMessage] = useState<string | null>(null);
     const [resetLinkTargetClientId, setResetLinkTargetClientId] = useState<number | null>(null);
@@ -598,6 +601,10 @@ export default function ClientsPage() {
         ));
     };
 
+    const handleMaternityContractSuccess = async () => {
+        await queryClient.invalidateQueries({ queryKey: ["clients"] });
+    };
+
     const handleClientFormPanelClose = () => {
         setIsCreatingClient(false);
         setClientFormActiveStep(0);
@@ -840,6 +847,16 @@ export default function ClientsPage() {
                                             <Pencil className="w-4 h-4" />
                                             {t(locale, "common.edit")}
                                         </DropdownMenuItem>
+                                        {!hasExistingContractDocument(activeSelectedClient) && (
+                                            <DropdownMenuItem
+                                                data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_create-maternity-contract"
+                                                onClick={() => setMaternityContractClient(activeSelectedClient)}
+                                                className="gap-2"
+                                            >
+                                                <FileSignature className="w-4 h-4" />
+                                                산모 계약서 생성
+                                            </DropdownMenuItem>
+                                        )}
                                         <DropdownMenuItem
                                             data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_change-service-schedule"
                                             disabled={isPreparingScheduleChange}
@@ -900,6 +917,15 @@ export default function ClientsPage() {
                 client={editingClient ?? null}
                 onSuccess={handleClientFormDialogSuccess}
             />
+
+            {maternityContractClient ? (
+                <MaternityContractDialog
+                    open
+                    client={maternityContractClient}
+                    onClose={() => setMaternityContractClient(null)}
+                    onSuccess={() => void handleMaternityContractSuccess()}
+                />
+            ) : null}
 
             <TwoButtonModal
                 open={resetLinkTargetClientId !== null}

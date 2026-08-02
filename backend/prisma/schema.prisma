@@ -95,6 +95,7 @@ model client {
   serviceStatus          String?                   @map("service_status")
   eDocId                 String?                   @unique @map("e_doc_id")
   dueDate                DateTime?                 @map("due_date") @db.Date
+  birthDate              DateTime?                 @map("birth_date") @db.Date
   createdAt              DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
   branchId               String?                   @map("branch_id") @db.Uuid
   areaId                 String?                   @map("area_id")

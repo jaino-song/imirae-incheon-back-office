@@ -17,6 +17,7 @@ type UpdateClientParams = {
     voucherClient?: boolean;
     birthday?: string | null;
     dueDate?: Date | null;
+    birthDate?: Date | null;
     serviceStatus?: string | null;
     breastPump?: boolean;
     eDocId?: string | null;

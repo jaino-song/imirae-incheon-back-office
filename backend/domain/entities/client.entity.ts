@@ -15,6 +15,7 @@ interface UpdateClientProps {
     voucherClient?: boolean;
     birthday?: string | null;
     dueDate?: Date | null;
+    birthDate?: Date | null;
     serviceStatus?: string | null;
     breastPump?: boolean;
     eDocId?: string | null;
@@ -36,6 +37,7 @@ interface CreateClientProps {
     voucherClient: boolean;
     birthday: string | null;
     dueDate: Date | null;
+    birthDate?: Date | null;
     serviceStatus: string | null;
     breastPump: boolean;
     eDocId: string | null;
@@ -64,6 +66,7 @@ export class ClientEntity {
         public breastPump: boolean,
         public eDocId: string | null,
         public dueDate: Date | null = null,
+        public birthDate: Date | null = null,
         public createdAt: Date | null = null,
         public areaId: string | null = null,
         // Owning tenant; populated by ClientMapper on reads so downstream
@@ -119,6 +122,7 @@ export class ClientEntity {
             props.breastPump,
             props.eDocId,
             props.dueDate,
+            props.birthDate ?? null,
             props.createdAt ?? new Date(),
             props.areaId ?? null,
             null,
@@ -141,6 +145,7 @@ export class ClientEntity {
         this.voucherClient = props.voucherClient ?? this.voucherClient;
         this.birthday = props.birthday ?? this.birthday;
         this.dueDate = props.dueDate ?? this.dueDate;
+        this.birthDate = props.birthDate ?? this.birthDate;
         this.serviceStatus = props.serviceStatus ?? this.serviceStatus;
         this.breastPump = props.breastPump ?? this.breastPump;
         this.eDocId = props.eDocId ?? this.eDocId;
@@ -174,6 +179,7 @@ export class ClientEntity {
         areaId: string | null = null,
         branchId: string | null = null,
         suppressGreetingSms: boolean = false,
+        birthDate: Date | null = null,
     ): ClientEntity {
         return new ClientEntity(
             id,
@@ -194,6 +200,7 @@ export class ClientEntity {
             breastPump,
             eDocId,
             dueDate,
+            birthDate,
             createdAt,
             areaId,
             branchId,
