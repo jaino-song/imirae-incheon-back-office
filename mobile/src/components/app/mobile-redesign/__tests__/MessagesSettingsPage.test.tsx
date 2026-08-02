@@ -3,7 +3,7 @@ import type {
   MessageSenderApprovalResponse,
 } from "@babyjamjam/shared/types/message";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { settingsApi } from "@/services/api";
 
@@ -103,6 +103,10 @@ const POLICIES: MessageAutomationPoliciesResponse = {
     ruleOrder: [],
   },
 };
+const MESSAGE_SENDER_APPROVAL_QUERY_KEY = [
+  "settings",
+  "message-sender-approval",
+] as const;
 
 beforeAll(() => {
   Object.defineProperty(globalThis, "ResizeObserver", {
@@ -161,11 +165,13 @@ function renderPage() {
     },
   });
 
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <MessagesSettingsPage />
     </QueryClientProvider>,
   );
+
+  return { ...view, queryClient };
 }
 
 describe("MessagesSettingsPage", () => {
@@ -202,6 +208,31 @@ describe("MessagesSettingsPage", () => {
     expect(
       await screen.findByLabelText(/알리고 문자 서비스 이용약관/),
     ).toBeInTheDocument();
+  });
+
+  it("closes the detail when its selected item disappears", async () => {
+    mockedSettingsApi.getMessageSenderApproval.mockResolvedValue(UNAPPROVED);
+    const { container, queryClient } = renderPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /메시지 발송 기능 신청/ }),
+    );
+    expect(
+      await screen.findByLabelText(/알리고 문자 서비스 이용약관/),
+    ).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(MESSAGE_SENDER_APPROVAL_QUERY_KEY, APPROVED);
+    });
+
+    const listPane = container.querySelector('[data-slot="list-pane"]');
+    const detailPane = container.querySelector('[data-slot="detail-pane"]');
+    await waitFor(() => {
+      expect(listPane).toHaveAttribute("aria-hidden", "false");
+      expect(detailPane).toHaveAttribute("aria-hidden", "true");
+      expect(detailPane).toHaveAttribute("inert");
+    });
+    expect(screen.queryByText("메시지 발송 기능 신청")).not.toBeInTheDocument();
   });
 
   it("opens automation policy rows and returns to the list", async () => {

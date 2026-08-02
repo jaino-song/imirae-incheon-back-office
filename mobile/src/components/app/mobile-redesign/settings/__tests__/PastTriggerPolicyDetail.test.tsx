@@ -10,7 +10,10 @@ import type {
 import { useMessageTriggerRules } from "@/features/message-triggers/hooks/use-message-triggers";
 import { settingsApi } from "@/services/api";
 
-import { PastTriggerPolicyDetail } from "../PastTriggerPolicyDetail";
+import {
+  PastTriggerPolicyDetail,
+  mergeRuleOrder,
+} from "../PastTriggerPolicyDetail";
 
 jest.mock("@/features/message-triggers/hooks/use-message-triggers", () => ({
   useMessageTriggerRules: jest.fn(),
@@ -47,7 +50,7 @@ const POLICY: MessageAutomationPolicy = {
 };
 const PAST_TRIGGER_CONFIG: MessageAutomationPastTriggerConfig = {
   sendIntervalMinutes: 5,
-  ruleOrder: ["rule-one", "rule-two"],
+  ruleOrder: ["hidden-welcome-rule", "rule-one", "rule-two"],
 };
 
 const mockUseMessageTriggerRules = useMessageTriggerRules as jest.Mock;
@@ -87,13 +90,15 @@ const TRIGGER_RULES: MessageTriggerRule[] = [
     templateKey: "THANKS",
   }),
   createRule({
-    id: "rule-non-sms",
+    id: "hidden-welcome-rule",
     name: "SMS가 아닌 규칙",
     templateKey: "CLIENT_WELCOME",
   }),
 ];
 
-function renderDetail() {
+function renderDetail(
+  pastTriggerConfig: MessageAutomationPastTriggerConfig = PAST_TRIGGER_CONFIG,
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       mutations: { retry: false },
@@ -102,22 +107,53 @@ function renderDetail() {
   });
   const cachedPolicies: MessageAutomationPoliciesResponse = {
     policies: [POLICY],
-    pastTriggerConfig: PAST_TRIGGER_CONFIG,
+    pastTriggerConfig,
   };
   queryClient.setQueryData(MESSAGE_AUTOMATION_POLICIES_QUERY_KEY, cachedPolicies);
 
-  const view = render(
+  const renderComponent = (config: MessageAutomationPastTriggerConfig) => (
     <QueryClientProvider client={queryClient}>
       <PastTriggerPolicyDetail
         data-component={DATA_COMPONENT}
         policy={POLICY}
-        pastTriggerConfig={PAST_TRIGGER_CONFIG}
+        pastTriggerConfig={config}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(renderComponent(pastTriggerConfig));
 
-  return { ...view, queryClient };
+  return {
+    ...view,
+    queryClient,
+    rerenderConfig: (config: MessageAutomationPastTriggerConfig) => {
+      view.rerender(renderComponent(config));
+    },
+  };
 }
+
+describe("mergeRuleOrder", () => {
+  it("should preserve stale positions and append newly displayed ids", () => {
+    expect(
+      mergeRuleOrder(
+        ["stale-first", "rule-one", "stale-middle", "rule-two"],
+        ["rule-two", "rule-one", "rule-new"],
+      ),
+    ).toEqual([
+      "stale-first",
+      "rule-two",
+      "stale-middle",
+      "rule-one",
+      "rule-new",
+    ]);
+  });
+
+  it("should return the displayed order when the saved order is empty", () => {
+    expect(mergeRuleOrder([], ["rule-two", "rule-one"])).toEqual([
+      "rule-two",
+      "rule-one",
+    ]);
+  });
+});
 
 describe("PastTriggerPolicyDetail", () => {
   beforeEach(() => {
@@ -167,6 +203,12 @@ describe("PastTriggerPolicyDetail", () => {
     fireEvent.change(intervalInput, { target: { value: "12" } });
     expect(saveButton).toBeEnabled();
 
+    fireEvent.change(intervalInput, { target: { value: "1" } });
+    expect(saveButton).toBeEnabled();
+
+    fireEvent.change(intervalInput, { target: { value: "1440" } });
+    expect(saveButton).toBeEnabled();
+
     fireEvent.change(intervalInput, { target: { value: "0" } });
     expect(saveButton).toBeDisabled();
 
@@ -205,7 +247,7 @@ describe("PastTriggerPolicyDetail", () => {
       ).toHaveBeenCalledWith(
         {
           sendIntervalMinutes: 15,
-          ruleOrder: ["rule-two", "rule-one"],
+          ruleOrder: ["hidden-welcome-rule", "rule-two", "rule-one"],
         },
         expect.anything(),
       );
@@ -220,9 +262,40 @@ describe("PastTriggerPolicyDetail", () => {
       policies: [POLICY],
       pastTriggerConfig: {
         sendIntervalMinutes: 15,
-        ruleOrder: ["rule-two", "rule-one"],
+        ruleOrder: ["hidden-welcome-rule", "rule-two", "rule-one"],
       },
     });
+  });
+
+  it("should sync a refetched config while the editor is pristine", () => {
+    const { rerenderConfig } = renderDetail();
+    const intervalInput = screen.getByLabelText(
+      "늦은 등록 자동 전송 간격",
+    );
+
+    rerenderConfig({
+      sendIntervalMinutes: 9,
+      ruleOrder: ["hidden-welcome-rule", "rule-two", "rule-one"],
+    });
+
+    expect(intervalInput).toHaveValue("9");
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+  });
+
+  it("should preserve drafts when the config refetches while dirty", () => {
+    const { rerenderConfig } = renderDetail();
+    const intervalInput = screen.getByLabelText(
+      "늦은 등록 자동 전송 간격",
+    );
+    fireEvent.change(intervalInput, { target: { value: "12" } });
+
+    rerenderConfig({
+      sendIntervalMinutes: 9,
+      ruleOrder: ["hidden-welcome-rule", "rule-two", "rule-one"],
+    });
+
+    expect(intervalInput).toHaveValue("12");
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
   });
 
   it("should render only active SMS trigger rules", () => {

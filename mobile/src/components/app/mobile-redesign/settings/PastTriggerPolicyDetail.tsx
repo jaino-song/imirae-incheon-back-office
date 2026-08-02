@@ -1,6 +1,13 @@
 "use client";
 
-import { useId, useMemo, useState, type ReactElement } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import {
@@ -89,6 +96,34 @@ function haveSameOrder(first: string[], second: string[]): boolean {
   return first.length === second.length && first.every((id, index) => id === second[index]);
 }
 
+export function mergeRuleOrder(
+  savedOrder: readonly string[],
+  newDisplayedOrder: readonly string[],
+): string[] {
+  const savedIds = new Set(savedOrder);
+  const displayedIds = new Set(newDisplayedOrder);
+  const reorderedSavedIds = newDisplayedOrder.filter((id) => savedIds.has(id));
+  let reorderedIndex = 0;
+
+  const mergedOrder = savedOrder.map((id) => {
+    if (!displayedIds.has(id)) {
+      return id;
+    }
+
+    const reorderedId = reorderedSavedIds[reorderedIndex];
+    reorderedIndex += 1;
+    return reorderedId ?? id;
+  });
+
+  for (const id of newDisplayedOrder) {
+    if (!savedIds.has(id)) {
+      mergedOrder.push(id);
+    }
+  }
+
+  return mergedOrder;
+}
+
 export function PastTriggerPolicyDetail({
   "data-component": dataComponent,
   policy,
@@ -104,6 +139,7 @@ export function PastTriggerPolicyDetail({
     String(pastTriggerConfig.sendIntervalMinutes),
   );
   const [draftRuleOrder, setDraftRuleOrder] = useState<string[] | null>(null);
+  const lastSyncedConfigRef = useRef(pastTriggerConfig);
   const intervalInputId = useId();
   const intervalHelperId = `${intervalInputId}-helper`;
   const sub = (suffix: string) => `${dataComponent}_${suffix}`;
@@ -139,6 +175,19 @@ export function PastTriggerPolicyDetail({
   const isOrderDirty =
     draftRuleOrder !== null && !haveSameOrder(effectiveOrderIds, savedOrderIds);
   const isDirty = isIntervalDirty || isOrderDirty;
+
+  useEffect(() => {
+    if (lastSyncedConfigRef.current === pastTriggerConfig || isDirty) {
+      return;
+    }
+
+    lastSyncedConfigRef.current = pastTriggerConfig;
+    // A pristine editor intentionally adopts the latest server-owned baseline.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSavedConfig(pastTriggerConfig);
+    setDraftInterval(String(pastTriggerConfig.sendIntervalMinutes));
+    setDraftRuleOrder(null);
+  }, [isDirty, pastTriggerConfig]);
 
   const saveMutation = useMutation({
     mutationFn: settingsApi.updateMessageAutomationPastTriggerConfig,
@@ -186,7 +235,7 @@ export function PastTriggerPolicyDetail({
 
     saveMutation.mutate({
       sendIntervalMinutes: parsedInterval,
-      ruleOrder: effectiveOrderIds,
+      ruleOrder: mergeRuleOrder(savedConfig.ruleOrder, effectiveOrderIds),
     });
   };
 

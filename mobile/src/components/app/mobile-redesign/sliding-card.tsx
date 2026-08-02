@@ -40,6 +40,7 @@ export function SlidingCard({
   const detailBodyRef = useRef<HTMLDivElement>(null);
   const detailPaneRef = useRef<HTMLDivElement>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
+  const lastListFocusRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const previousOpenRef = useRef(false);
   const cachedDetailRef = useRef<CachedDetail | null>(null);
@@ -71,6 +72,10 @@ export function SlidingCard({
   }, [cachedDetail]);
 
   useEffect(() => {
+    if (detailKey === null) {
+      return;
+    }
+
     const detailBody = detailBodyRef.current;
     if (typeof detailBody?.scrollTo === "function") {
       detailBody.scrollTo(0, 0);
@@ -81,10 +86,7 @@ export function SlidingCard({
     const wasOpen = previousOpenRef.current;
 
     if (!wasOpen && open) {
-      restoreFocusRef.current =
-        document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null;
+      restoreFocusRef.current = lastListFocusRef.current;
       backButtonRef.current?.focus();
     } else if (wasOpen && !open) {
       const elementToRestore = restoreFocusRef.current;
@@ -154,6 +156,11 @@ export function SlidingCard({
           aria-hidden={open}
           inert={open || undefined}
           className={cn(styles.listPane, open && styles.listPaneOpen)}
+          onFocusCapture={(event) => {
+            if (event.target instanceof HTMLElement) {
+              lastListFocusRef.current = event.target;
+            }
+          }}
         >
           {list}
           <div

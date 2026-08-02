@@ -94,13 +94,29 @@ describe("SlidingCard", () => {
     const { rerender } = render(<SlidingCard {...props} open={false} />);
     const opener = screen.getByRole("button", { name: "Open detail" });
     opener.focus();
+    fireEvent.focusIn(opener);
+    expect(opener).toHaveFocus();
+
+    opener.blur();
+    expect(document.body).toHaveFocus();
 
     rerender(<SlidingCard {...props} open />);
-    expect(
-      screen.getByRole("button", { name: "설정 목록으로 돌아가기" }),
-    ).toHaveFocus();
+    const backButton = screen.getByRole("button", {
+      name: "설정 목록으로 돌아가기",
+    });
+    expect(backButton).toHaveFocus();
 
-    rerender(<SlidingCard {...props} open={false} detailKey={null} detail={null} />);
+    backButton.blur();
+    expect(document.body).toHaveFocus();
+
+    rerender(
+      <SlidingCard
+        {...props}
+        open={false}
+        detailKey={null}
+        detail={null}
+      />,
+    );
     expect(opener).toHaveFocus();
   });
 
@@ -185,7 +201,7 @@ describe("SlidingCard", () => {
     }
   });
 
-  it("scrolls the detail body to the top when detailKey changes", () => {
+  it("scrolls for a new detail but not when the detail closes", () => {
     const originalScrollTo = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
       "scrollTo",
@@ -223,6 +239,18 @@ describe("SlidingCard", () => {
 
       expect(scrollTo).toHaveBeenCalledTimes(1);
       expect(scrollTo).toHaveBeenCalledWith(0, 0);
+
+      scrollTo.mockClear();
+      rerender(
+        <SlidingCard
+          {...props}
+          open={false}
+          detailKey={null}
+          detail={null}
+        />,
+      );
+
+      expect(scrollTo).not.toHaveBeenCalled();
     } finally {
       if (originalScrollTo) {
         Object.defineProperty(

@@ -115,7 +115,9 @@ describe("SettingsList", () => {
     const onSelect = jest.fn();
     renderList({ onSelect });
 
-    fireEvent.click(screen.getByRole("button", { name: /승인 필요 정책/ }));
+    const row = screen.getByRole("button", { name: /승인 필요 정책/ });
+    expect(row).not.toHaveAttribute("aria-pressed");
+    fireEvent.click(row);
 
     expect(onSelect).toHaveBeenCalledWith("approval-policy");
   });

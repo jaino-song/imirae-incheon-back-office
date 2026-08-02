@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useState, type ReactElement, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { MessageSectionNav } from "@/components/app/mobile-redesign/MessageSectionNav";
@@ -113,6 +119,18 @@ export function MessagesSettingsPage(): ReactElement {
     () => items.find((item) => item.id === selectedItemId),
     [items, selectedItemId],
   );
+  const isLoading = approvalQuery.isLoading || policiesQuery.isLoading;
+
+  useEffect(() => {
+    if (isLoading || selectedItemId === null || selectedItem !== undefined) {
+      return;
+    }
+
+    // Server-driven item removal intentionally invalidates local detail state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedItemId(null);
+  }, [isLoading, selectedItem, selectedItemId]);
+
   const detail = useMemo<ReactNode>(() => {
     if (!selectedItem) return null;
 
@@ -196,7 +214,7 @@ export function MessagesSettingsPage(): ReactElement {
                 items={items}
                 selectedId={selectedItemId}
                 onSelect={setSelectedItemId}
-                isLoading={approvalQuery.isLoading || policiesQuery.isLoading}
+                isLoading={isLoading}
                 policiesError={policiesQuery.isError}
                 onRetryPolicies={() => policiesQuery.refetch()}
                 isApproved={approvalQuery.data?.isApproved ?? false}

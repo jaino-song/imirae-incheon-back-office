@@ -96,7 +96,6 @@ export function SettingsList({
                   <button
                     data-component={itemBase}
                     type="button"
-                    aria-pressed={isSelected}
                     className={cn(
                       "flex min-h-[calc(66px*var(--glint-ui-scale,1))] w-full cursor-pointer items-center gap-[calc(11px*var(--glint-ui-scale,1))] rounded-[calc(15px*var(--glint-ui-scale,1))] border-[calc(1px*var(--glint-ui-scale,1))] px-[calc(10px*var(--glint-ui-scale,1))] py-[calc(9px*var(--glint-ui-scale,1))] text-left outline-none transition-colors active:bg-v3-primary-light/65 focus-visible:border-v3-primary/45 focus-visible:ring-[calc(3px*var(--glint-ui-scale,1))] focus-visible:ring-v3-primary/10",
                       isSelected
