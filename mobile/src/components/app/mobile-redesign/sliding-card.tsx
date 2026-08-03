@@ -87,11 +87,13 @@ export function SlidingCard({
 
     if (!wasOpen && open) {
       restoreFocusRef.current = lastListFocusRef.current;
-      backButtonRef.current?.focus();
+      // preventScroll: 슬라이드 중인 pane 안 요소에 focus가 가면 브라우저가
+      // overflow:hidden stage를 강제 스크롤해 전환이 점프/튕김으로 보인다.
+      backButtonRef.current?.focus({ preventScroll: true });
     } else if (wasOpen && !open) {
       const elementToRestore = restoreFocusRef.current;
       if (elementToRestore?.isConnected) {
-        elementToRestore.focus();
+        elementToRestore.focus({ preventScroll: true });
       }
       restoreFocusRef.current = null;
     }
