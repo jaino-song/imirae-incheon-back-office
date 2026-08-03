@@ -304,6 +304,12 @@ describe("ClientFormPanel voucher pricing", () => {
     rerender(<ClientFormPanel open activeStep={3} client={client} onClose={jest.fn()} />);
 
     expect(screen.getByLabelText("시작일")).toHaveValue("260801");
-    expect(screen.getByLabelText("종료일")).toHaveValue("260805");
+    const endDate = screen.getByLabelText("종료일");
+    expect(endDate).toHaveValue("260805");
+    expect(endDate).not.toHaveAttribute("readonly");
+
+    fireEvent.change(endDate, { target: { value: "260812" } });
+
+    expect(endDate).toHaveValue("260812");
   });
 });
