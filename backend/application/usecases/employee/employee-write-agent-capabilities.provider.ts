@@ -12,6 +12,35 @@ import { readAgentActionEffect, recordAgentActionEffect } from "application/agen
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
+import { EMPLOYEE_GRADES, normalizeEmployeeGrade } from "domain/constants/employee-grade.constants";
+
+const EmployeeGradeSchema = z.preprocess(
+    (value) => typeof value === "string" ? normalizeEmployeeGrade(value) : value,
+    z.enum(EMPLOYEE_GRADES),
+);
+
+function isCalendarValidYymmdd(value: string): boolean {
+    if (!/^\d{6}$/.test(value)) return false;
+
+    const year = Number(value.slice(0, 2));
+    const month = Number(value.slice(2, 4));
+    const day = Number(value.slice(4, 6));
+    if (month < 1 || month > 12 || day < 1) return false;
+
+    const daysInMonth = [31, year % 4 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return day <= (daysInMonth[month - 1] ?? 0);
+}
+
+const EmployeeBirthdaySchema = z.string()
+    .regex(/^\d{6}$/, "Birthday must be six numeric YYMMDD digits")
+    .refine(isCalendarValidYymmdd, "Birthday must be a calendar-valid YYMMDD date")
+    .optional();
+
+type EmployeeFormField = AgentFormField & {
+    inputMode?: "numeric";
+    placeholder?: string;
+    maxLength?: number;
+};
 
 const CreateEmployeeSchema = z.object({
     name: z.string().trim().min(1).max(100),
@@ -20,9 +49,9 @@ const CreateEmployeeSchema = z.object({
         z.array(z.string().trim().min(1).max(80)).min(1).max(20),
     ),
     phone: z.string().trim().min(1).max(40),
-    grade: z.string().trim().min(1).max(40),
+    grade: EmployeeGradeSchema,
     openToNextWork: z.boolean().default(false),
-    birthday: z.string().max(20).optional(),
+    birthday: EmployeeBirthdaySchema,
 });
 const EMPLOYEE_MUTABLE_FIELD_KEYS = Object.keys(CreateEmployeeSchema.shape);
 const UpdateEmployeeSchema = z.object({
@@ -42,15 +71,15 @@ const UpdateEmployeeSchema = z.object({
 });
 const AvailabilitySchema = z.object({ id: z.number().int().positive(), openToNextWork: z.boolean() });
 const OutputSchema = z.object({ id: z.number().int().positive(), name: z.string(), status: z.string() });
-const EMPLOYEE_CREATE_FIELDS: AgentFormField[] = [
+const EMPLOYEE_CREATE_FIELDS: EmployeeFormField[] = [
     { name: "name", label: "직원 이름", type: "text", required: true },
     { name: "workArea", label: "활동 지역", type: "text", required: true },
     { name: "phone", label: "전화번호", type: "text", required: true },
     { name: "grade", label: "등급", type: "text", required: true },
     { name: "openToNextWork", label: "다음 업무 가능", type: "boolean" },
-    { name: "birthday", label: "생년월일", type: "date" },
+    { name: "birthday", label: "생년월일", type: "text", inputMode: "numeric", placeholder: "YYMMDD", maxLength: 6 },
 ];
-const EMPLOYEE_UPDATE_FIELDS: AgentFormField[] = [
+const EMPLOYEE_UPDATE_FIELDS: EmployeeFormField[] = [
     { name: "id", label: "직원 ID", type: "number", required: true },
     ...EMPLOYEE_CREATE_FIELDS.map((field) => ({ ...field, required: false })),
 ];
