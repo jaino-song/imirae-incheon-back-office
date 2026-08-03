@@ -122,3 +122,17 @@ export function diffBusinessDaysKr(targetISO: string, baseISO = isoDateInKorea()
     }
     return -count;
 }
+
+export function countBusinessDaysKr(startISO: string, endISO: string): number | null {
+    const start = parseIsoDate(startISO);
+    const end = parseIsoDate(endISO);
+    if (!start || !end || start.getTime() > end.getTime()) return null;
+
+    const cursor = new Date(start);
+    let count = 0;
+    while (cursor.getTime() <= end.getTime()) {
+        if (isBusinessDayKr(isoFromUtcDate(cursor))) count += 1;
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return count;
+}

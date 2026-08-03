@@ -212,6 +212,7 @@ function ClientServiceRecordsTabContent({
                         {assignments.length > 1 && <AssignmentHistoryCard assignments={assignments} />}
                         <ServiceSessionsCard
                             startDate={record.startDate}
+                            endDate={record.endDate}
                             totalSessions={record.totalSessions}
                             sessions={record.sessions}
                             isRefreshing={isRefreshing}
@@ -250,6 +251,7 @@ function ClientServiceRecordsTabContent({
                         />
                         <ServiceSessionsCard
                             startDate={assignment.startDate}
+                            endDate={assignment.endDate}
                             totalSessions={assignment.totalSessions}
                             sessions={assignment.sessions}
                             isRefreshing={isRefreshing}
@@ -385,7 +387,13 @@ function ServiceRecordInfoRow({ label, value }: { label: string; value: ReactNod
 function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
     const dataComponent = useClientServiceRecordsDataComponent("overview-grid", "status-card");
     const status = getRecordStatusMeta(record.status);
-    const submitted = record.sessions.filter((session) => session.locked).length;
+    const { activeSessions } = partitionSessionsByPeriod(
+        record.startDate,
+        record.endDate,
+        record.totalSessions,
+        record.sessions,
+    );
+    const submitted = activeSessions.filter((session) => session.locked).length;
 
     return (
         <InfoCard
@@ -508,64 +516,106 @@ function TokenVerificationValue({ assignment }: { assignment: ServiceRecordAssig
 
 function ServiceSessionsCard({
     startDate,
+    endDate,
     totalSessions: configuredSessions,
     sessions,
     isRefreshing,
     onRefresh,
 }: {
     startDate: string | null;
+    endDate: string | null;
     totalSessions: number;
     sessions: ServiceRecordSession[];
     isRefreshing: boolean;
     onRefresh?: () => void;
 }) {
     const dataComponent = useClientServiceRecordsDataComponent("sessions");
-    const slots = useMemo(
-        () => buildSessionSlots(startDate, configuredSessions, sessions),
-        [configuredSessions, sessions, startDate],
+    const { activeSessions, outsideSessions } = useMemo(
+        () => partitionSessionsByPeriod(
+            startDate,
+            endDate,
+            configuredSessions,
+            sessions,
+        ),
+        [configuredSessions, endDate, sessions, startDate],
     );
-    const lockedCount = sessions.filter((session) => session.locked).length;
-    const draftCount = sessions.filter((session) => !session.locked).length;
+    const slots = useMemo(
+        () => buildSessionSlots(startDate, configuredSessions, activeSessions),
+        [activeSessions, configuredSessions, startDate],
+    );
+    const lockedCount = activeSessions.filter((session) => session.locked).length;
+    const draftCount = activeSessions.filter((session) => !session.locked).length;
     const totalSessions = slots.length;
 
     return (
+        <>
+            <InfoCard
+                data-component={dataComponent}
+                title="회차별 제공기록"
+                titleTrailing={
+                    <div className="ml-auto flex shrink-0 items-center gap-[calc(4px*var(--glint-ui-scale,1))]">
+                        {onRefresh ? (
+                            <button
+                                type="button"
+                                data-component={`${dataComponent}_head_refresh`}
+                                className="inline-flex h-[calc(24px*var(--glint-ui-scale,1))] w-[calc(24px*var(--glint-ui-scale,1))] cursor-pointer items-center justify-center rounded-full text-v3-text-muted transition-colors hover:bg-white/70 hover:text-v3-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-v3-primary/30 disabled:cursor-wait disabled:opacity-70"
+                                aria-label={isRefreshing ? "제공기록 새로고침 중" : "제공기록 새로고침"}
+                                aria-busy={isRefreshing}
+                                disabled={isRefreshing}
+                                onClick={onRefresh}
+                            >
+                                <RefreshCw
+                                    aria-hidden="true"
+                                    className={cn(
+                                        "h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(14px*var(--glint-ui-scale,1))]",
+                                        isRefreshing && "service-record-refresh-icon--spinning",
+                                    )}
+                                />
+                            </button>
+                        ) : null}
+                        <span className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted">
+                            <b className="text-v3-primary">{lockedCount}</b>/{totalSessions} 제출완료
+                            {draftCount > 0 ? ` · 임시저장 ${draftCount}` : ""}
+                        </span>
+                    </div>
+                }
+            >
+                <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
+                    {slots.map((slot, index) => (
+                        <SessionRow
+                            key={slot.sessionIndex}
+                            slot={slot}
+                            defaultOpen={Boolean(slot.record && index === 0)}
+                        />
+                    ))}
+                </div>
+            </InfoCard>
+            {outsideSessions.length > 0 ? (
+                <OutOfPeriodSessionsCard sessions={outsideSessions} />
+            ) : null}
+        </>
+    );
+}
+
+function OutOfPeriodSessionsCard({ sessions }: { sessions: ServiceRecordSession[] }) {
+    const dataComponent = useClientServiceRecordsDataComponent("out-of-period-sessions");
+    return (
         <InfoCard
             data-component={dataComponent}
-            title="회차별 제공기록"
-            titleTrailing={
-                <div className="ml-auto flex shrink-0 items-center gap-[calc(4px*var(--glint-ui-scale,1))]">
-                    {onRefresh ? (
-                        <button
-                            type="button"
-                            data-component={`${dataComponent}_head_refresh`}
-                            className="inline-flex h-[calc(24px*var(--glint-ui-scale,1))] w-[calc(24px*var(--glint-ui-scale,1))] cursor-pointer items-center justify-center rounded-full text-v3-text-muted transition-colors hover:bg-white/70 hover:text-v3-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-v3-primary/30 disabled:cursor-wait disabled:opacity-70"
-                            aria-label={isRefreshing ? "제공기록 새로고침 중" : "제공기록 새로고침"}
-                            aria-busy={isRefreshing}
-                            disabled={isRefreshing}
-                            onClick={onRefresh}
-                        >
-                            <RefreshCw
-                                aria-hidden="true"
-                                className={cn(
-                                    "h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(14px*var(--glint-ui-scale,1))]",
-                                    isRefreshing && "service-record-refresh-icon--spinning",
-                                )}
-                            />
-                        </button>
-                    ) : null}
-                    <span className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted">
-                        <b className="text-v3-primary">{lockedCount}</b>/{totalSessions} 제출완료
-                        {draftCount > 0 ? ` · 임시저장 ${draftCount}` : ""}
-                    </span>
-                </div>
-            }
+            title="기간 외 기록"
+            description="변경된 서비스 기간 밖에 저장된 기록입니다. 삭제되지 않습니다."
         >
             <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
-                {slots.map((slot, index) => (
+                {sessions.map((record, index) => (
                     <SessionRow
-                        key={slot.sessionIndex}
-                        slot={slot}
-                        defaultOpen={Boolean(slot.record && index === 0)}
+                        key={`${record.sessionIndex}-${record.serviceDate}`}
+                        slot={{
+                            sessionIndex: record.sessionIndex,
+                            record,
+                            expectedDate: null,
+                        }}
+                        defaultOpen={index === 0}
+                        outsidePeriod
                     />
                 ))}
             </div>
@@ -573,8 +623,20 @@ function ServiceSessionsCard({
     );
 }
 
-function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boolean }) {
-    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row");
+function SessionRow({
+    slot,
+    defaultOpen,
+    outsidePeriod = false,
+}: {
+    slot: SessionSlot;
+    defaultOpen: boolean;
+    outsidePeriod?: boolean;
+}) {
+    const dataComponent = useClientServiceRecordsDataComponent(
+        outsidePeriod ? "out-of-period-sessions" : "sessions",
+        "list",
+        "row",
+    );
     const { record } = slot;
     if (!record) {
         return (
@@ -632,6 +694,14 @@ function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boo
                         </div>
                     </div>
                     <div className="ml-auto flex shrink-0 items-center gap-[calc(10px*var(--glint-ui-scale,1))] text-right">
+                        {outsidePeriod ? (
+                            <StatusPill
+                                data-component={`${dataComponent}_outside-period-status`}
+                                variant="danger"
+                            >
+                                기간 외 기록
+                            </StatusPill>
+                        ) : null}
                         <StatusPill variant={record.locked ? "success" : "warning"}>
                             {record.locked ? "제출완료" : "임시저장"}
                         </StatusPill>
@@ -640,7 +710,10 @@ function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boo
                 </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-                <SessionRecordDetail record={record} />
+                <SessionRecordDetail
+                    dataComponent={`${dataComponent}_detail`}
+                    record={record}
+                />
             </CollapsibleContent>
         </Collapsible>
     );
@@ -661,8 +734,13 @@ function SessionNumber({ index, state }: { index: number; state: "done" | "draft
     );
 }
 
-function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
-    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row", "detail");
+function SessionRecordDetail({
+    dataComponent,
+    record,
+}: {
+    dataComponent: string;
+    record: ServiceRecordSession;
+}) {
     const answers = getAnswerObject(record.answers);
     const unknownEntries = Object.entries(answers)
         .filter(([key, value]) => !SERVICE_RECORD_LAYOUT_ANSWER_KEYS.has(key) && hasDisplayValue(value));
@@ -687,7 +765,13 @@ function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
                     </div>
                     <div className="grid grid-cols-2 gap-x-[calc(28px*var(--glint-ui-scale,1))] max-sm:grid-cols-1">
                         {section.fields.map((field) => (
-                            <RecordFieldRow key={field.key} field={field} answers={answers} record={record} />
+                            <RecordFieldRow
+                                key={field.key}
+                                dataComponent={`${dataComponent}_field`}
+                                field={field}
+                                answers={answers}
+                                record={record}
+                            />
                         ))}
                     </div>
                 </div>
@@ -758,15 +842,16 @@ function EmptySessionRecordDetail() {
 }
 
 function RecordFieldRow({
+    dataComponent,
     field,
     answers,
     record,
 }: {
+    dataComponent: string;
     field: ServiceRecordFieldDescriptor;
     answers: Record<string, unknown>;
     record: ServiceRecordSession;
 }) {
-    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row", "detail", "field");
     const isWide = field.kind === "text";
     return (
         <div
@@ -892,10 +977,7 @@ function buildSessionSlots(
     configuredSessions: number,
     sessions: ServiceRecordSession[],
 ): SessionSlot[] {
-    const total = Math.max(
-        configuredSessions,
-        sessions.reduce((max, session) => Math.max(max, session.sessionIndex), 0),
-    );
+    const total = Math.max(0, configuredSessions);
     const sessionsByIndex = new Map(sessions.map((session) => [session.sessionIndex, session]));
     return Array.from({ length: total }, (_, index) => {
         const sessionIndex = index + 1;
@@ -905,6 +987,39 @@ function buildSessionSlots(
             expectedDate: getExpectedSessionDate(startDate, sessionIndex),
         };
     });
+}
+
+function partitionSessionsByPeriod(
+    startDate: string | null,
+    endDate: string | null,
+    configuredSessions: number,
+    sessions: ServiceRecordSession[],
+): { activeSessions: ServiceRecordSession[]; outsideSessions: ServiceRecordSession[] } {
+    const startDatePart = datePartOf(startDate);
+    const endDatePart = datePartOf(endDate);
+    if (!startDatePart || !endDatePart) {
+        return {
+            activeSessions: sessions.filter((session) => session.sessionIndex <= configuredSessions),
+            outsideSessions: sessions.filter((session) => session.sessionIndex > configuredSessions),
+        };
+    }
+
+    const activeSessions: ServiceRecordSession[] = [];
+    const outsideSessions: ServiceRecordSession[] = [];
+    for (const session of sessions) {
+        const serviceDate = datePartOf(session.serviceDate);
+        const isWithinDates = Boolean(
+            serviceDate
+            && serviceDate >= startDatePart
+            && serviceDate <= endDatePart,
+        );
+        if (isWithinDates && session.sessionIndex <= configuredSessions) {
+            activeSessions.push(session);
+        } else {
+            outsideSessions.push(session);
+        }
+    }
+    return { activeSessions, outsideSessions };
 }
 
 function getExpectedSessionDate(startDate: string | null, sessionIndex: number): string | null {

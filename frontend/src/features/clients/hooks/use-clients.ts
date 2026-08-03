@@ -1,9 +1,11 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { messageTriggerKeys } from '@/features/message-triggers/hooks/keys';
+import { serviceRecordKeys } from '@/features/service-records/hooks/keys';
+
 import { clientsApi } from '../api/clients.api';
 import { clientKeys } from './keys';
-import { messageTriggerKeys } from '@/features/message-triggers/hooks/keys';
 import type {
   Client,
   CreateClientDto,
@@ -125,6 +127,7 @@ export function useUpdateClient() {
 
       await queryClient.invalidateQueries({ queryKey: clientKeys.all });
       await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+      await queryClient.invalidateQueries({ queryKey: serviceRecordKeys.clientOverview(id) });
     },
   });
 }

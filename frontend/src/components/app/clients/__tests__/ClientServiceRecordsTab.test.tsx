@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { ClientServiceRecordsTab } from "../ClientServiceRecordsTab";
-import type { ServiceRecordAssignment, ServiceRecordOverview } from "@/features/service-records/types";
+import type {
+    ServiceRecordAssignment,
+    ServiceRecordOverview,
+    ServiceRecordSession,
+} from "@/features/service-records/types";
 
 const mutateAsync = jest.fn();
 const toast = jest.fn();
@@ -198,6 +202,104 @@ describe("ClientServiceRecordsTab", () => {
         expect(screen.getByText("예정일 2026.09.23")).toBeInTheDocument();
         expect(screen.getByText("예정일 2026.09.29")).toBeInTheDocument();
         expect(screen.queryByText("예정일 2026.09.24")).not.toBeInTheDocument();
+    });
+
+    it("shows actual-period slots separately from preserved outside-period records", () => {
+        const assignment = createAssignment(1, "none");
+        const outsideSession: ServiceRecordSession = {
+            sessionIndex: 7,
+            serviceDate: "2026-08-11T00:00:00.000Z",
+            locked: false,
+            submittedAt: null,
+            updatedAt: "2026-08-10T10:00:00.000Z",
+            answers: {},
+            etcService: null,
+            notes: null,
+            paymentConfirmed: false,
+            hasMomApproval: false,
+        };
+        const overview: ServiceRecordOverview = {
+            record: {
+                id: "case-1",
+                status: "IN_PROGRESS",
+                startDate: "2026-08-03T00:00:00.000Z",
+                endDate: "2026-08-10T00:00:00.000Z",
+                totalSessions: 6,
+                completedAt: null,
+                finalizationDueAt: "2026-08-10T20:00:00+09:00",
+                finalizedAt: null,
+                documentsCompletedAt: null,
+                lastError: null,
+                header: null,
+                sessions: [outsideSession],
+                signatureDocs: [],
+            },
+            assignments: [assignment],
+        };
+
+        const { container } = render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={overview}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(
+            container.querySelector(`[data-component="${TEST_COMPONENT}_sessions"]`),
+        ).toHaveTextContent("0/6 제출완료");
+        expect(screen.getAllByText("기간 외 기록")).toHaveLength(2);
+        expect(screen.getByText(/7회차 · 2026.08.11/)).toBeInTheDocument();
+        expect(screen.queryByText("예정일 2026.08.11")).not.toBeInTheDocument();
+        expect(
+            container.querySelector(`[data-component="${TEST_COMPONENT}_out-of-period-sessions"]`),
+        ).toBeInTheDocument();
+    });
+
+    it("keeps saved overflow records visible when legacy period dates are missing", () => {
+        const overflowSession: ServiceRecordSession = {
+            sessionIndex: 2,
+            serviceDate: "2026-08-04T00:00:00.000Z",
+            locked: false,
+            submittedAt: null,
+            updatedAt: "2026-08-04T10:00:00.000Z",
+            answers: {},
+            etcService: null,
+            notes: null,
+            paymentConfirmed: false,
+            hasMomApproval: false,
+        };
+        const overview: ServiceRecordOverview = {
+            record: {
+                id: "case-without-dates",
+                status: "IN_PROGRESS",
+                startDate: null,
+                endDate: null,
+                totalSessions: 1,
+                completedAt: null,
+                finalizationDueAt: null,
+                finalizedAt: null,
+                documentsCompletedAt: null,
+                lastError: null,
+                header: null,
+                sessions: [overflowSession],
+                signatureDocs: [],
+            },
+            assignments: [createAssignment(1, "none")],
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={overview}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.getAllByText("기간 외 기록")).toHaveLength(2);
+        expect(screen.getByText(/2회차 · 2026.08.04/)).toBeInTheDocument();
     });
 
     it("opens unsubmitted sessions with empty detail values", () => {

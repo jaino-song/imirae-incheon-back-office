@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { getServiceRecordTokenExpiresAt } from "domain/constants/service-record-link-message";
 import { EFORMSIGN_COMPLETED_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import { countBusinessDaysKr } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 export const SERVICE_RECORD_CASE_STATUS = {
@@ -53,6 +54,25 @@ function isoDate(date: Date | null | undefined): string | null {
 
 function todayKst(now: Date): string {
     return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function requiredSessionCount(params: {
+    startDate: Date | null;
+    endDate: Date | null;
+    fallback: number | null;
+}): number | null {
+    const startDate = isoDate(params.startDate);
+    const endDate = isoDate(params.endDate);
+    if (!startDate || !endDate) return params.fallback;
+    return countBusinessDaysKr(startDate, endDate) ?? params.fallback;
+}
+
+function isWithinServicePeriod(serviceDate: Date, startDate: Date | null, endDate: Date | null): boolean {
+    const serviceDateIso = isoDate(serviceDate);
+    const startDateIso = isoDate(startDate);
+    const endDateIso = isoDate(endDate);
+    if (!serviceDateIso || !startDateIso || !endDateIso) return true;
+    return serviceDateIso >= startDateIso && serviceDateIso <= endDateIso;
 }
 
 function hasCompleteHeader(record: {
@@ -140,12 +160,17 @@ export class ServiceRecordLifecycleService {
         const finalizationDueAt = client.endDate
             ? getServiceRecordTokenExpiresAt(client.endDate)
             : null;
+        const sessionCount = requiredSessionCount({
+            startDate: client.startDate,
+            endDate: client.endDate,
+            fallback: client.duration,
+        });
         const status = existing && IMMUTABLE_FINALIZATION_STATUSES.has(existing.status)
             ? existing.status
             : this.deriveBaseStatus({
                 startDate: client.startDate,
                 endDate: client.endDate,
-                duration: client.duration,
+                duration: sessionCount,
                 hasAssignment: client.employeeSchedules.some((schedule) => !schedule.replaced),
                 terminated: client.serviceStatus === "terminated",
             });
@@ -158,14 +183,14 @@ export class ServiceRecordLifecycleService {
                 status,
                 startDate: client.startDate,
                 endDate: client.endDate,
-                requiredSessionCount: client.duration,
+                requiredSessionCount: sessionCount,
                 finalizationDueAt,
             },
             update: {
                 branchId,
                 startDate: client.startDate,
                 endDate: client.endDate,
-                requiredSessionCount: client.duration,
+                requiredSessionCount: sessionCount,
                 finalizationDueAt,
                 ...(existing && IMMUTABLE_FINALIZATION_STATUSES.has(existing.status) ? {} : { status }),
                 version: { increment: 1 },
@@ -273,16 +298,6 @@ export class ServiceRecordLifecycleService {
         if (params.endDate === null && record.days.length > 0) {
             throw new ConflictException({ code: "SERVICE_RECORD_END_DATE_REQUIRED" });
         }
-        if (params.endDate) {
-            const latestRecordedDate = record.days
-                .map((day) => isoDate(day.serviceDate)!)
-                .sort()
-                .at(-1);
-            if (latestRecordedDate && isoDate(params.endDate)! < latestRecordedDate) {
-                throw new ConflictException({ code: "END_DATE_BEFORE_LAST_SUBMITTED_SESSION" });
-            }
-        }
-
         if (params.duration === null && record.days.length > 0) {
             throw new ConflictException({ code: "SERVICE_RECORD_DURATION_REQUIRED" });
         }
@@ -496,7 +511,14 @@ export class ServiceRecordLifecycleService {
             where: { id: serviceRecordCaseId },
             include: {
                 assignments: { include: { schedule: { select: { replaced: true } } } },
-                days: { select: { locked: true, momApproval: true } },
+                days: {
+                    select: {
+                        caseSessionIndex: true,
+                        serviceDate: true,
+                        locked: true,
+                        momApproval: true,
+                    },
+                },
             },
         });
         if (!record) throw new NotFoundException("Service record not found");
@@ -508,10 +530,18 @@ export class ServiceRecordLifecycleService {
             return record;
         }
 
-        const required = record.requiredSessionCount ?? 0;
-        const submitted = record.days.filter((day) => day.locked && day.momApproval === "approved").length;
+        const required = requiredSessionCount({
+            startDate: record.startDate,
+            endDate: record.endDate,
+            fallback: record.requiredSessionCount,
+        }) ?? 0;
+        const inPeriodDays = record.days.filter((day) => (
+            isWithinServicePeriod(day.serviceDate, record.startDate, record.endDate)
+            && (day.caseSessionIndex === null || day.caseSessionIndex <= required)
+        ));
+        const submitted = inPeriodDays.filter((day) => day.locked && day.momApproval === "approved").length;
         const complete = required > 0
-            && record.days.length === required
+            && inPeriodDays.length === required
             && submitted === required
             && hasCompleteHeader(record);
         const now = new Date();
@@ -537,6 +567,7 @@ export class ServiceRecordLifecycleService {
             data: {
                 status,
                 completedAt: complete ? (record.completedAt ?? now) : null,
+                requiredSessionCount: required,
                 version: { increment: 1 },
             },
         });
