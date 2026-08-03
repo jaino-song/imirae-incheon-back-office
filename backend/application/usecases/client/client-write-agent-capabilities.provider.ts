@@ -1,16 +1,24 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable } from "@nestjs/common";
 import { z } from "zod";
 
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import { CreateClientUsecase } from "./create-client.usecase";
 import { FindClientByIdUsecase } from "./find-client-by-id.usecase";
-import { ListClientsPaginatedUsecase } from "./list-clients-paginated.usecase";
 import { ClientTargetVersionMismatchError, UpdateClientUsecase } from "./update-client.usecase";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { clientAgentTargetSnapshot, clientAgentTargetVersion } from "./client-agent-target";
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
+import {
+    assertAllowedClientArea,
+    assertAllowedServiceStatus,
+    assertPhoneAvailable,
+    mergeAndValidateClientServicePeriod,
+    parseClientDate,
+} from "./client-write-validation";
+import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
+import { SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 const DateOnlyInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
@@ -38,7 +46,7 @@ const ClientWriteFields = z.object({
     birthday: z.string().max(20).nullable().optional(),
     dueDate: DateInput,
     birthDate: DateInput,
-    serviceStatus: z.string().max(40).nullable().optional(),
+    serviceStatus: z.enum([...SERVICE_STATUS_VALUES] as [ServiceStatusType, ...ServiceStatusType[]]).nullable().optional(),
     breastPump: z.boolean().optional(),
     areaId: z.string().max(100).nullable().optional(),
 });
@@ -70,19 +78,49 @@ const CLIENT_UPDATE_FORM_FIELDS: AgentFormField[] = [
     ...CLIENT_FORM_FIELDS.map((field) => ({ ...field, required: false })),
 ];
 
-function date(value: string | null | undefined): Date | null | undefined {
-    if (value === undefined || value === null) return value;
-    // Client date columns are calendar dates (`@db.Date`), not instants. Keep
-    // the submitted calendar components at UTC midnight even when a caller
-    // sends an offset datetime, otherwise a timezone conversion can shift the
-    // stored day backwards or forwards.
-    const calendarDate = value.slice(0, 10);
-    return new Date(`${calendarDate}T00:00:00.000Z`);
+function sameClientValue(actual: unknown, expected: unknown): boolean {
+    if (actual instanceof Date && typeof expected === "string") return actual.toISOString() === parseClientDate(expected)?.toISOString();
+    return JSON.stringify(actual) === JSON.stringify(expected);
 }
 
-function sameClientValue(actual: unknown, expected: unknown): boolean {
-    if (actual instanceof Date && typeof expected === "string") return actual.toISOString() === date(expected)?.toISOString();
-    return JSON.stringify(actual) === JSON.stringify(expected);
+function validationErrorMessage(error: BadRequestException | ConflictException): string {
+    const response = error.getResponse();
+    if (typeof response === "string") return response;
+    if (response && typeof response === "object" && "message" in response) {
+        const message = (response as { message?: unknown }).message;
+        if (Array.isArray(message)) return message.join(", ");
+        if (typeof message === "string") return message;
+    }
+    return error.message;
+}
+
+async function validateClientWrite(
+    prisma: PrismaService,
+    repository: Pick<IClientRepository, "findByPhone">,
+    branchId: string,
+    existing: { id: number; startDate: Date | null; endDate: Date | null } | null,
+    updates: {
+        areaId?: string | null;
+        phone?: string | null;
+        serviceStatus?: string | null;
+        startDate?: Date | null;
+        endDate?: Date | null;
+    },
+): Promise<void> {
+    try {
+        assertAllowedServiceStatus(updates.serviceStatus);
+        await assertAllowedClientArea(prisma, branchId, updates.areaId);
+        await assertPhoneAvailable(repository, branchId, updates.phone, existing?.id);
+        mergeAndValidateClientServicePeriod(existing, {
+            startDate: updates.startDate,
+            endDate: updates.endDate,
+        });
+    } catch (error) {
+        if (error instanceof BadRequestException || error instanceof ConflictException) {
+            throw new AgentActionCertainFailureError(validationErrorMessage(error));
+        }
+        throw error;
+    }
 }
 
 @Injectable()
@@ -92,7 +130,8 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
         private readonly createClient: CreateClientUsecase,
         private readonly updateClient: UpdateClientUsecase,
         private readonly findClient: FindClientByIdUsecase,
-        private readonly listClients: ListClientsPaginatedUsecase,
+        @Inject(CLIENT_REPOSITORY)
+        private readonly clientRepository: IClientRepository,
         private readonly prisma: PrismaService,
     ) {}
 
@@ -115,10 +154,16 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 formFields: CLIENT_FORM_FIELDS,
                 execute: async (context, rawInput) => {
                     const input = CreateClientSchema.parse(rawInput);
-                    const duplicate = input.phone ? await this.listClients.execute(context.principal.branchId, 1, 10, input.phone) : null;
-                    if (duplicate?.data.some((candidate) => candidate.phone === input.phone)) {
-                        throw new AgentActionCertainFailureError("A client with this phone already exists");
-                    }
+                    const dates = {
+                        startDate: parseClientDate(input.startDate) ?? null,
+                        endDate: parseClientDate(input.endDate) ?? null,
+                    };
+                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, null, {
+                        ...dates,
+                        areaId: input.areaId,
+                        phone: input.phone,
+                        serviceStatus: input.serviceStatus,
+                    });
                     return this.prisma.$transaction(async (transaction) => {
                         const client = await this.createClient.execute(context.principal.branchId, {
                             name: input.name,
@@ -129,13 +174,13 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                             fullPrice: input.fullPrice ?? null,
                             grant: input.grant ?? null,
                             actualPrice: input.actualPrice ?? null,
-                            startDate: date(input.startDate) ?? null,
-                            endDate: date(input.endDate) ?? null,
+                            startDate: dates.startDate,
+                            endDate: dates.endDate,
                             careCenter: input.careCenter ?? null,
                             voucherClient: input.voucherClient ?? false,
                             birthday: input.birthday ?? null,
-                            dueDate: date(input.dueDate) ?? null,
-                            birthDate: date(input.birthDate) ?? null,
+                            dueDate: parseClientDate(input.dueDate) ?? null,
+                            birthDate: parseClientDate(input.birthDate) ?? null,
                             serviceStatus: input.serviceStatus ?? null,
                             breastPump: input.breastPump ?? false,
                             areaId: input.areaId ?? null,
@@ -162,6 +207,12 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                     const input = UpdateClientSchema.parse(rawInput);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
+                    const updates = input;
+                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, {
+                        ...updates,
+                        startDate: parseClientDate(updates.startDate),
+                        endDate: parseClientDate(updates.endDate),
+                    });
                     return {
                         targetVersion: clientAgentTargetVersion(existing),
                         targetSnapshot: clientAgentTargetSnapshot(existing),
@@ -182,30 +233,40 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                     const input = UpdateClientSchema.parse(rawInput);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);
                     if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
-                    const { id, targetVersion: _targetVersion, ...updates } = input;
-                    const client = await this.updateClient.execute(context.principal.branchId, id, {
+                    const { id, targetVersion, ...updates } = input;
+                    void targetVersion;
+                    const parsedUpdates = {
                         ...updates,
-                        startDate: date(updates.startDate),
-                        endDate: date(updates.endDate),
-                        dueDate: date(updates.dueDate),
-                        birthDate: date(updates.birthDate),
+                        startDate: parseClientDate(updates.startDate),
+                        endDate: parseClientDate(updates.endDate),
+                        dueDate: parseClientDate(updates.dueDate),
+                        birthDate: parseClientDate(updates.birthDate),
+                    };
+                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
+                    const client = await this.updateClient.execute(context.principal.branchId, id, {
+                        ...parsedUpdates,
                     });
                     return { id: client.id, name: client.name, status: "updated" };
                 },
                 executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateClientSchema.parse(rawInput);
-                    const { id, targetVersion: _targetVersion, ...updates } = input;
+                    const existing = await this.findClient.execute(context.principal.branchId, input.id);
+                    if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
+                    const { id, targetVersion, ...updates } = input;
+                    void targetVersion;
+                    const parsedUpdates = {
+                        ...updates,
+                        startDate: parseClientDate(updates.startDate),
+                        endDate: parseClientDate(updates.endDate),
+                        dueDate: parseClientDate(updates.dueDate),
+                        birthDate: parseClientDate(updates.birthDate),
+                    };
+                    await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
                     try {
                         const client = await this.updateClient.executeApprovedTarget(
                             context.principal.branchId,
                             id,
-                            {
-                                ...updates,
-                                startDate: date(updates.startDate),
-                                endDate: date(updates.endDate),
-                                dueDate: date(updates.dueDate),
-                                birthDate: date(updates.birthDate),
-                            },
+                            parsedUpdates,
                             expectedTargetVersion,
                         );
                         return { id: client.id, name: client.name, status: "updated" };
