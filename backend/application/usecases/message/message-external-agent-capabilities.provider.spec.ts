@@ -62,6 +62,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         };
         let effectReceipt: unknown = null;
         const prisma = {
+            $transaction: jest.fn(),
             agent_action: {
                 updateMany: jest.fn().mockImplementation(async ({ data }) => {
                     effectReceipt = data.effectReceipt;
@@ -72,6 +73,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             message_trigger_rule: { upsert: jest.fn().mockResolvedValue(undefined) },
             message_trigger_job: { findFirst: jest.fn().mockResolvedValue(null) },
         };
+        prisma.$transaction.mockImplementation(async (operation: (tx: typeof prisma) => Promise<unknown>) => operation(prisma));
         const provider = new MessageExternalAgentCapabilitiesProvider(prisma as never, delivery as never, repository as never);
         const capabilities = provider.getCapabilities();
         return { repository, delivery, prisma, capabilities };
@@ -193,11 +195,54 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             result: { status: "created", id: "rule-a", isActive: true },
         });
 
-        expect(delivery.createRule).toHaveBeenCalledWith(principal.branchId, input);
+        expect(delivery.createRule).toHaveBeenCalledWith(principal.branchId, input, expect.objectContaining({ agent_action: expect.any(Object) }));
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({ id: context.actionId, capability: "automation.create" }),
         }));
         expect(delivery.listRules).not.toHaveBeenCalled();
+    });
+
+    it("does not report an automation rule when its action receipt cannot be persisted", async () => {
+        const { delivery, prisma, capabilities } = setup();
+        prisma.agent_action.updateMany.mockResolvedValue({ count: 0 });
+        const create = capabilities.find((entry) => entry.meta.name === "automation.create")!;
+        const input = {
+            name: "시작 알림",
+            isActive: true,
+            eventType: MessageTriggerEventType.SERVICE_START,
+            offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
+            offsetDays: 1,
+            recipientType: MessageTriggerRecipientType.CLIENT,
+            templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+        };
+
+        await expect(create.execute(context, input)).rejects.toThrow("receipt could not be persisted");
+        expect(delivery.createRule).toHaveBeenCalledWith(principal.branchId, input, expect.objectContaining({ agent_action: expect.any(Object) }));
+    });
+
+    it("rejects id-only automation updates before the canonical service is called", async () => {
+        const { delivery, capabilities } = setup();
+        const update = capabilities.find((entry) => entry.meta.name === "automation.update")!;
+
+        expect(update.inputSchema.safeParse({ id: "rule-a" }).success).toBe(false);
+        await expect(update.execute(context, { id: "rule-a" })).rejects.toThrow();
+        expect(delivery.updateRule).not.toHaveBeenCalled();
+    });
+
+    it("classifies a scheduled SMS that becomes too near as a certain pre-effect failure", async () => {
+        jest.useFakeTimers().setSystemTime(new Date("2026-08-03T00:00:00.000Z"));
+        try {
+            const { repository, capabilities } = setup();
+            const schedule = capabilities.find((entry) => entry.meta.name === "messages.scheduleSms")!;
+            const input = { receiver: "01012345678", message: "안내", scheduledDate: "2026-08-03", scheduledTime: "09:15" };
+            expect(schedule.inputSchema.safeParse(input).success).toBe(true);
+
+            jest.setSystemTime(new Date("2026-08-03T00:06:00.000Z"));
+            await expect(schedule.execute(context, input)).rejects.toMatchObject({ name: "AgentActionCertainFailureError" });
+            expect(repository.upsertPending).not.toHaveBeenCalled();
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     it("provides recoverable form fields for every automation mutation", () => {

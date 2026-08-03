@@ -14,6 +14,7 @@ const AgentActionEffectReceiptSchema = z.object({
 }).strict();
 
 export type AgentActionEffectReceipt = z.infer<typeof AgentActionEffectReceiptSchema>;
+type AgentActionEffectStore = Pick<PrismaService, "agent_action">;
 
 /**
  * Persist a durable, action-identity-bound effect stage before an external
@@ -21,7 +22,7 @@ export type AgentActionEffectReceipt = z.infer<typeof AgentActionEffectReceiptSc
  * the capability must not begin a newly staged external effect.
  */
 export async function recordAgentActionEffect(
-    prisma: PrismaService,
+    prisma: AgentActionEffectStore,
     context: AgentContext,
     capability: string,
     resourceType: string,
@@ -52,7 +53,7 @@ export async function recordAgentActionEffect(
 }
 
 export async function readAgentActionEffect(
-    prisma: PrismaService,
+    prisma: AgentActionEffectStore,
     context: AgentContext,
     capability: string,
 ): Promise<AgentActionEffectReceipt | null> {

@@ -1,4 +1,5 @@
 import { ClientEntity } from "domain/entities/client.entity";
+import type { Prisma } from "@prisma/client";
 
 export interface PaginatedResult<T> {
     data: T[];
@@ -30,7 +31,7 @@ export interface IClientRepository {
         limit: number,
         search?: string
     ): Promise<PaginatedResult<ClientEntity>>;
-    create(branchid: string, client: ClientEntity): Promise<ClientEntity>;
+    create(branchid: string, client: ClientEntity, transaction?: Prisma.TransactionClient): Promise<ClientEntity>;
     createWithInitialSchedule(
         branchid: string,
         client: ClientEntity,

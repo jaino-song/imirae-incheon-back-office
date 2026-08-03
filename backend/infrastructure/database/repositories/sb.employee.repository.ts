@@ -7,6 +7,7 @@ import {
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EmployeeMapper } from "infrastructure/database/mapper/employee.mapper";
 import { normalizePhone } from "application/utils/normalize-phone";
+import type { Prisma } from "@prisma/client";
 
 @Injectable()
 export class SbEmployeeRepository implements IEmployeeRepository {
@@ -31,9 +32,9 @@ export class SbEmployeeRepository implements IEmployeeRepository {
         return this.findById(branchid, matched.id);
     }
 
-    async create(branchid: string, employee: EmployeeEntity): Promise<EmployeeEntity> {
+    async create(branchid: string, employee: EmployeeEntity, transaction?: Prisma.TransactionClient): Promise<EmployeeEntity> {
         const data = EmployeeMapper.toPrismaCreate(employee);
-        const created = await this.prismaService.employee.create({
+        const created = await (transaction ?? this.prismaService).employee.create({
             data: { ...data, branchId: branchid },
         });
         return EmployeeMapper.toDomain(created);
@@ -41,14 +42,14 @@ export class SbEmployeeRepository implements IEmployeeRepository {
 
     async update(branchid: string, employee: EmployeeEntity): Promise<EmployeeEntity> {
         const result = await this.prismaService.employee.updateMany({
-            where: { id: employee.id, branchId: branchid },
+            where: { id: employee.id, branchId: branchid, deletedAt: null },
             data: EmployeeMapper.toPrismaUpdate(employee),
         });
         if (result.count === 0) {
             throw new Error("Employee not found for branch");
         }
         const updated = await this.prismaService.employee.findFirst({
-            where: { id: employee.id, branchId: branchid },
+            where: { id: employee.id, branchId: branchid, deletedAt: null },
         });
         if (!updated) {
             throw new Error("Employee not found after update");
@@ -233,7 +234,7 @@ export class SbEmployeeRepository implements IEmployeeRepository {
         openToNextWork: boolean
     ): Promise<void> {
         const result = await this.prismaService.employee.updateMany({
-            where: { id, branchId: branchid },
+            where: { id, branchId: branchid, deletedAt: null },
             data: { openToNextWork: openToNextWork },
         });
         if (result.count === 0) {

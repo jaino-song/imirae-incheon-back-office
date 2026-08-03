@@ -10,6 +10,7 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientMapper } from "infrastructure/database/mapper/client.mapper";
 import { hasColumn } from "infrastructure/database/schema-capabilities";
 import { normalizePhone } from "application/utils/normalize-phone";
+import type { Prisma } from "@prisma/client";
 
 @Injectable()
 export class SbClientRepository implements IClientRepository {
@@ -138,10 +139,10 @@ export class SbClientRepository implements IClientRepository {
         }
     }
 
-    async create(branchid: string, client: ClientEntity): Promise<ClientEntity> {
+    async create(branchid: string, client: ClientEntity, transaction?: Prisma.TransactionClient): Promise<ClientEntity> {
         const select = await this.getClientSelect();
         const data = await this.getClientCreateData(client);
-        const created = await this.prismaService.client.create({
+        const created = await (transaction ?? this.prismaService).client.create({
             data: {
                 ...data,
                 branchId: branchid,

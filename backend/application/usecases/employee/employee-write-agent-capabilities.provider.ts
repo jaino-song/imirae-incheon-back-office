@@ -11,6 +11,7 @@ import { FindEmployeeByIdUsecase } from "./find-employee-by-id.usecase";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 
 const CreateEmployeeSchema = z.object({
     name: z.string().trim().min(1).max(100),
@@ -23,7 +24,22 @@ const CreateEmployeeSchema = z.object({
     openToNextWork: z.boolean().default(false),
     birthday: z.string().max(20).optional(),
 });
-const UpdateEmployeeSchema = CreateEmployeeSchema.partial().extend({ id: z.number().int().positive() });
+const EMPLOYEE_MUTABLE_FIELD_KEYS = Object.keys(CreateEmployeeSchema.shape);
+const UpdateEmployeeSchema = z.object({
+    id: z.number().int().positive(),
+    name: CreateEmployeeSchema.shape.name.optional(),
+    workArea: CreateEmployeeSchema.shape.workArea.optional(),
+    phone: CreateEmployeeSchema.shape.phone.optional(),
+    grade: CreateEmployeeSchema.shape.grade.optional(),
+    // CreateEmployeeSchema defaults this field for new employees. An update
+    // must retain the distinction between an omitted field and false.
+    openToNextWork: z.boolean().optional(),
+    birthday: CreateEmployeeSchema.shape.birthday.optional(),
+}).superRefine((value, context) => {
+    if (!EMPLOYEE_MUTABLE_FIELD_KEYS.some((key) => value[key as keyof typeof value] !== undefined)) {
+        context.addIssue({ code: "custom", message: "At least one employee field must be updated" });
+    }
+});
 const AvailabilitySchema = z.object({ id: z.number().int().positive(), openToNextWork: z.boolean() });
 const OutputSchema = z.object({ id: z.number().int().positive(), name: z.string(), status: z.string() });
 const EMPLOYEE_CREATE_FIELDS: AgentFormField[] = [
@@ -52,6 +68,10 @@ function employeeVersion(employee: Awaited<ReturnType<FindEmployeeByIdUsecase["e
     })).digest("hex");
 }
 
+function isActiveEmployee(employee: Awaited<ReturnType<FindEmployeeByIdUsecase["execute"]>>): employee is NonNullable<typeof employee> {
+    return Boolean(employee && !employee.deletedAt);
+}
+
 @Injectable()
 @AgentCapabilityProvider()
 export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityProviderContract {
@@ -76,10 +96,12 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 formFields: EMPLOYEE_CREATE_FIELDS,
                 execute: async (context, rawInput) => {
                     const input = CreateEmployeeSchema.parse(rawInput);
-                    const employee = await this.createEmployee.execute(context.principal.branchId, input.name, input.workArea, input.phone, input.grade, input.openToNextWork, undefined, input.birthday);
-                    const result = { id: employee.id, name: employee.name, status: "created" };
-                    await recordAgentActionEffect(this.prisma, context, "employees.create", "employee", employee.id, result);
-                    return result;
+                    return this.prisma.$transaction(async (transaction) => {
+                        const employee = await this.createEmployee.execute(context.principal.branchId, input.name, input.workArea, input.phone, input.grade, input.openToNextWork, undefined, input.birthday, transaction);
+                        const result = { id: employee.id, name: employee.name, status: "created" };
+                        await recordAgentActionEffect(transaction, context, "employees.create", "employee", employee.id, result);
+                        return result;
+                    });
                 },
                 reconcile: async (context) => {
                     const receipt = await readAgentActionEffect(this.prisma, context, "employees.create");
@@ -97,6 +119,7 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateEmployee(context.principal.branchId, UpdateEmployeeSchema.parse(rawInput).id, expectedTargetVersion),
                 execute: async (context, rawInput) => {
                     const input = UpdateEmployeeSchema.parse(rawInput);
+                    await this.requireActiveEmployee(context.principal.branchId, input.id);
                     const { id, ...updates } = input;
                     const employee = await this.updateEmployee.execute(context.principal.branchId, id, updates);
                     return { id: employee.id, name: employee.name, status: "updated" };
@@ -111,13 +134,14 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateEmployee(context.principal.branchId, AvailabilitySchema.parse(rawInput).id, expectedTargetVersion),
                 execute: async (context, rawInput) => {
                     const input = AvailabilitySchema.parse(rawInput);
+                    await this.requireActiveEmployee(context.principal.branchId, input.id);
                     const employee = await this.changeAvailability.execute(context.principal.branchId, input.id, input.openToNextWork);
                     return { id: employee.id, name: employee.name, status: input.openToNextWork ? "available" : "unavailable" };
                 },
                 reconcile: async (context, rawInput) => {
                     const input = AvailabilitySchema.parse(rawInput);
                     const employee = await this.findEmployee.execute(context.principal.branchId, input.id);
-                    if (!employee) return { status: "failed", reason: "Employee no longer exists" };
+                    if (!isActiveEmployee(employee)) return { status: "failed", reason: "Employee no longer exists or was deleted" };
                     return employee.openToNextWork === input.openToNextWork
                         ? { status: "succeeded", result: { id: employee.id, name: employee.name, status: input.openToNextWork ? "available" : "unavailable" } }
                         : { status: "uncertain", reason: "Employee availability does not match the approved value" };
@@ -127,8 +151,7 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
     }
 
     private async inspectEmployee(branchId: string, id: number) {
-        const employee = await this.findEmployee.execute(branchId, id);
-        if (!employee) throw new Error("Employee no longer exists");
+        const employee = await this.requireActiveEmployee(branchId, id);
         return {
             targetVersion: employeeVersion(employee),
             targetSnapshot: { id: employee.id, name: employee.name, grade: employee.grade, openToNextWork: employee.openToNextWork },
@@ -138,16 +161,24 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
     private async revalidateEmployee(branchId: string, id: number, expectedTargetVersion: string) {
         const employee = await this.findEmployee.execute(branchId, id);
         const currentVersion = employeeVersion(employee);
-        return { valid: Boolean(employee) && currentVersion === expectedTargetVersion, currentVersion, reason: employee ? "Employee changed" : "Employee no longer exists" };
+        return { valid: isActiveEmployee(employee) && currentVersion === expectedTargetVersion, currentVersion, reason: isActiveEmployee(employee) ? "Employee changed" : "Employee no longer exists or was deleted" };
     }
 
     private async reconcileEmployeeUpdate(branchId: string, input: z.infer<typeof UpdateEmployeeSchema>, status: string) {
         const employee = await this.findEmployee.execute(branchId, input.id);
-        if (!employee) return { status: "failed" as const, reason: "Employee no longer exists" };
+        if (!isActiveEmployee(employee)) return { status: "failed" as const, reason: "Employee no longer exists or was deleted" };
         const desired = Object.entries(input).filter(([key, value]) => key !== "id" && value !== undefined);
         const matches = desired.every(([key, value]) => JSON.stringify(employee[key as keyof typeof employee]) === JSON.stringify(value));
         return matches
             ? { status: "succeeded" as const, result: { id: employee.id, name: employee.name, status } }
             : { status: "uncertain" as const, reason: "Employee does not match the approved update" };
+    }
+
+    private async requireActiveEmployee(branchId: string, id: number) {
+        const employee = await this.findEmployee.execute(branchId, id);
+        if (!isActiveEmployee(employee)) {
+            throw new AgentActionCertainFailureError("Employee no longer exists or was deleted");
+        }
+        return employee;
     }
 }

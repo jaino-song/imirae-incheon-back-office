@@ -86,6 +86,7 @@ describe("AgentPartRegistry", () => {
         } as unknown as UIMessage;
         render(<AgentPartRegistry message={message} onApproveAction={onApproveAction} />);
         const approve = screen.getByRole("button", { name: "승인하고 실행" });
+        expect(screen.getByLabelText("승인 대기 작업")).toHaveAttribute("data-source-component", "Card");
 
         expect(approve).toBeDisabled();
         fireEvent.click(screen.getByRole("checkbox"));

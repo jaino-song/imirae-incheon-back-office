@@ -116,29 +116,31 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                     if (duplicate?.data.some((candidate) => candidate.phone === input.phone)) {
                         throw new AgentActionCertainFailureError("A client with this phone already exists");
                     }
-                    const client = await this.createClient.execute(context.principal.branchId, {
-                        name: input.name,
-                        address: input.address ?? null,
-                        phone: input.phone,
-                        type: input.type ?? null,
-                        duration: input.duration ?? null,
-                        fullPrice: input.fullPrice ?? null,
-                        grant: input.grant ?? null,
-                        actualPrice: input.actualPrice ?? null,
-                        startDate: date(input.startDate) ?? null,
-                        endDate: date(input.endDate) ?? null,
-                        careCenter: input.careCenter ?? null,
-                        voucherClient: input.voucherClient ?? false,
-                        birthday: input.birthday ?? null,
-                        dueDate: date(input.dueDate) ?? null,
-                        birthDate: date(input.birthDate) ?? null,
-                        serviceStatus: input.serviceStatus ?? null,
-                        breastPump: input.breastPump ?? false,
-                        areaId: input.areaId ?? null,
+                    return this.prisma.$transaction(async (transaction) => {
+                        const client = await this.createClient.execute(context.principal.branchId, {
+                            name: input.name,
+                            address: input.address ?? null,
+                            phone: input.phone,
+                            type: input.type ?? null,
+                            duration: input.duration ?? null,
+                            fullPrice: input.fullPrice ?? null,
+                            grant: input.grant ?? null,
+                            actualPrice: input.actualPrice ?? null,
+                            startDate: date(input.startDate) ?? null,
+                            endDate: date(input.endDate) ?? null,
+                            careCenter: input.careCenter ?? null,
+                            voucherClient: input.voucherClient ?? false,
+                            birthday: input.birthday ?? null,
+                            dueDate: date(input.dueDate) ?? null,
+                            birthDate: date(input.birthDate) ?? null,
+                            serviceStatus: input.serviceStatus ?? null,
+                            breastPump: input.breastPump ?? false,
+                            areaId: input.areaId ?? null,
+                        }, transaction);
+                        const result = { id: client.id, name: client.name, status: "created" };
+                        await recordAgentActionEffect(transaction, context, "clients.create", "client", client.id, result);
+                        return result;
                     });
-                    const result = { id: client.id, name: client.name, status: "created" };
-                    await recordAgentActionEffect(this.prisma, context, "clients.create", "client", client.id, result);
-                    return result;
                 },
                 reconcile: async (context) => {
                     const receipt = await readAgentActionEffect(this.prisma, context, "clients.create");

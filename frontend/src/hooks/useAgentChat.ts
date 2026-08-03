@@ -7,6 +7,19 @@ import type { UIMessage } from "ai";
 
 const AGENT_SESSION_KEY = "agent_session_id";
 
+class SessionOperationEpoch {
+    #value = 0;
+
+    read(): number {
+        return this.#value;
+    }
+
+    next(): number {
+        this.#value += 1;
+        return this.#value;
+    }
+}
+
 export type AgentSessionSummary = {
     id: string;
     title: string | null;
@@ -34,6 +47,25 @@ function isTruthy(value: string | undefined): boolean {
     return value === "1" || value?.toLowerCase() === "true";
 }
 
+function readAgentSessionId(): string | null {
+    return typeof window === "undefined" ? null : window.sessionStorage.getItem(AGENT_SESSION_KEY);
+}
+
+function makeAgentTransport(transportFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
+    return new DefaultChatTransport({
+        api: "/api/ai/agent/chat",
+        credentials: "same-origin",
+        prepareSendMessagesRequest: ({ messages, body }) => ({
+            body: { ...body, messages: messages.slice(-1) },
+        }),
+        fetch: transportFetch,
+        body: () => ({
+            sessionId: typeof window === "undefined" ? undefined : window.sessionStorage.getItem(AGENT_SESSION_KEY) ?? undefined,
+            locale: "ko",
+        }),
+    });
+}
+
 export function useAgentShellEnabled(): boolean | null {
     const shellConfigured = isTruthy(process.env.NEXT_PUBLIC_AGENT_SHELL_ENABLED);
     const [enabled, setEnabled] = useState<boolean | null>(shellConfigured ? null : false);
@@ -53,33 +85,30 @@ export function useAgentChat() {
     const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
     const [actionError, setActionError] = useState<AgentClientError | null>(null);
     const restoredSession = useRef(false);
+    const activeSessionIdRef = useRef<string | null>(readAgentSessionId());
+    const sessionSelectionGenerationRef = useRef(new Map<string, number>());
+    const invalidatedSelectionGenerationRef = useRef(new Map<string, number>());
+    const sessionOperationEpoch = useMemo(() => new SessionOperationEpoch(), []);
 
     const refreshSessions = useCallback(async () => {
+        const requestEpoch = sessionOperationEpoch.read();
         const response = await fetch("/api/ai/agent/sessions", { credentials: "same-origin" });
         if (!response.ok) return;
         const next = await response.json() as AgentSessionSummary[];
+        if (requestEpoch !== sessionOperationEpoch.read()) return;
         setSessions(Array.isArray(next) ? next : []);
-    }, []);
+    }, [sessionOperationEpoch]);
 
-    const transport = useMemo(() => new DefaultChatTransport({
-        api: "/api/ai/agent/chat",
-        credentials: "same-origin",
-        prepareSendMessagesRequest: ({ messages, body }) => ({
-            body: { ...body, messages: messages.slice(-1) },
-        }),
-        fetch: async (input, init) => {
-            const response = await fetch(input, init);
-            const sessionId = response.headers.get("x-agent-session-id");
-            if (sessionId && typeof window !== "undefined") {
-                window.sessionStorage.setItem(AGENT_SESSION_KEY, sessionId);
-            }
-            return response;
-        },
-        body: () => ({
-            sessionId: typeof window === "undefined" ? undefined : window.sessionStorage.getItem(AGENT_SESSION_KEY) ?? undefined,
-            locale: "ko",
-        }),
-    }), []);
+    const transportFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const requestEpoch = sessionOperationEpoch.read();
+        const response = await fetch(input, init);
+        const sessionId = response.headers.get("x-agent-session-id");
+        if (requestEpoch === sessionOperationEpoch.read() && sessionId && typeof window !== "undefined") {
+            window.sessionStorage.setItem(AGENT_SESSION_KEY, sessionId);
+        }
+        return response;
+    }, [sessionOperationEpoch]);
+    const transport = useMemo(() => makeAgentTransport(transportFetch), [transportFetch]);
     const chat = useChat({
         transport,
         experimental_throttle: 50,
@@ -87,26 +116,38 @@ export function useAgentChat() {
     });
 
     const selectSession = useCallback(async (sessionId: string) => {
+        const selectionGeneration = (sessionSelectionGenerationRef.current.get(sessionId) ?? 0) + 1;
+        sessionSelectionGenerationRef.current.set(sessionId, selectionGeneration);
+        const operationEpoch = sessionOperationEpoch.next();
+        chat.stop();
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(sessionId)}`, { credentials: "same-origin" });
+        if (operationEpoch !== sessionOperationEpoch.read()) return;
+        if ((invalidatedSelectionGenerationRef.current.get(sessionId) ?? 0) >= selectionGeneration) return;
         if (!response.ok) {
+            if (activeSessionIdRef.current === sessionId) activeSessionIdRef.current = null;
             if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === sessionId) {
                 window.sessionStorage.removeItem(AGENT_SESSION_KEY);
             }
             return;
         }
         const session = await response.json() as AgentSessionSummary;
+        if (operationEpoch !== sessionOperationEpoch.read()) return;
+        if ((invalidatedSelectionGenerationRef.current.get(sessionId) ?? 0) >= selectionGeneration) return;
+        activeSessionIdRef.current = session.id;
         if (typeof window !== "undefined") window.sessionStorage.setItem(AGENT_SESSION_KEY, session.id);
         chat.setMessages(session.messages ?? []);
-    }, [chat]);
+    }, [chat, sessionOperationEpoch]);
 
     const refreshCurrentSession = useCallback(async () => {
-        const sessionId = typeof window === "undefined" ? null : window.sessionStorage.getItem(AGENT_SESSION_KEY);
+        const sessionId = readAgentSessionId();
         if (!sessionId) return;
+        const requestEpoch = sessionOperationEpoch.read();
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(sessionId)}`, { credentials: "same-origin" });
         if (!response.ok) return;
         const session = await response.json() as AgentSessionSummary;
+        if (requestEpoch !== sessionOperationEpoch.read()) return;
         chat.setMessages(session.messages ?? []);
-    }, [chat]);
+    }, [chat, sessionOperationEpoch]);
 
     useEffect(() => {
         if (restoredSession.current) return;
@@ -180,15 +221,35 @@ export function useAgentChat() {
         });
     }, []);
 
+    const invalidatePendingSelection = useCallback((sessionId: string) => {
+        const selectionGeneration = sessionSelectionGenerationRef.current.get(sessionId);
+        if (selectionGeneration === undefined) return;
+        const previousInvalidation = invalidatedSelectionGenerationRef.current.get(sessionId) ?? 0;
+        if (selectionGeneration > previousInvalidation) {
+            invalidatedSelectionGenerationRef.current.set(sessionId, selectionGeneration);
+        }
+    }, []);
+
     const deleteSession = useCallback(async (sessionId: string) => {
+        activeSessionIdRef.current = readAgentSessionId();
+        const deletingActiveSession = activeSessionIdRef.current === sessionId;
+        if (deletingActiveSession) {
+            sessionOperationEpoch.next();
+            chat.stop();
+        }
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE", credentials: "same-origin" });
         if (!response.ok) return;
-        if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === sessionId) {
+        invalidatePendingSelection(sessionId);
+        const activeSessionAtResponse = activeSessionIdRef.current === sessionId;
+        if (activeSessionAtResponse) {
+            sessionOperationEpoch.next();
+            chat.stop();
+            activeSessionIdRef.current = null;
             window.sessionStorage.removeItem(AGENT_SESSION_KEY);
             chat.setMessages([]);
         }
         await refreshSessions();
-    }, [chat, refreshSessions]);
+    }, [chat, invalidatePendingSelection, refreshSessions, sessionOperationEpoch]);
 
     const renameSession = useCallback(async (sessionId: string, title: string) => {
         const nextTitle = title.trim();
@@ -205,6 +266,12 @@ export function useAgentChat() {
     }, [refreshSessions]);
 
     const archiveSession = useCallback(async (sessionId: string) => {
+        activeSessionIdRef.current = readAgentSessionId();
+        const archivingActiveSession = activeSessionIdRef.current === sessionId;
+        if (archivingActiveSession) {
+            sessionOperationEpoch.next();
+            chat.stop();
+        }
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(sessionId)}`, {
             method: "PATCH",
             credentials: "same-origin",
@@ -212,14 +279,22 @@ export function useAgentChat() {
             body: JSON.stringify({ archived: true }),
         });
         if (!response.ok) return;
-        if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === sessionId) {
+        invalidatePendingSelection(sessionId);
+        const activeSessionAtResponse = activeSessionIdRef.current === sessionId;
+        if (activeSessionAtResponse) {
+            sessionOperationEpoch.next();
+            chat.stop();
+            activeSessionIdRef.current = null;
             window.sessionStorage.removeItem(AGENT_SESSION_KEY);
             chat.setMessages([]);
         }
         await refreshSessions();
-    }, [chat, refreshSessions]);
+    }, [chat, invalidatePendingSelection, refreshSessions, sessionOperationEpoch]);
 
     const resetBranch = () => {
+        sessionOperationEpoch.next();
+        chat.stop();
+        activeSessionIdRef.current = null;
         if (typeof window !== "undefined") window.sessionStorage.removeItem(AGENT_SESSION_KEY);
         chat.setMessages([]);
         setActionError(null);

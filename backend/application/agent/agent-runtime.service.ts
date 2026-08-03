@@ -124,6 +124,7 @@ export class AgentRuntimeService {
         signal?: AbortSignal;
     }): Promise<{ sessionId: string; stream: ReadableStream }> {
         const owner = { userId: input.principal.userId, branchId: input.principal.branchId };
+        const createdSession = !input.sessionId;
         const session = input.sessionId
             ? await this.sessions.get(input.sessionId, owner)
             : await this.sessions.create(owner, input.locale, this.models.modelId, AGENT_VERSION);
@@ -153,7 +154,10 @@ export class AgentRuntimeService {
                 : { domains: [], capabilities: [] }
             : await this.router.route(lastUserText, input.principal, 12);
         const offered = routed.capabilities;
-        if (offered.length === 0) throw new ForbiddenException("Agent is not enabled for this context");
+        if (offered.length === 0) {
+            if (createdSession) await this.sessions.remove(session.id, owner);
+            throw new ForbiddenException("Agent is not enabled for this context");
+        }
         const trace = await this.traces.start(session.id, input.principal, this.models.modelId, AGENT_VERSION, routed.domains);
         const traceId = trace.id;
         const stepMetadata = offered.map((capability) => ({ capability: capability.meta.name, version: capability.meta.version, risk: capability.meta.risk }));

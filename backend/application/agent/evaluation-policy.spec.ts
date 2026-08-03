@@ -1,5 +1,6 @@
-import { AGENT_EVAL_CASES } from "../../../evals/agent/cases";
+import { AGENT_EVAL_CASES, REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES } from "../../../evals/agent/cases";
 import {
+    evaluateExternalFixtureCoverage,
     evaluateApprovalEvidence,
     hasRequiredMutationExecutionEvidence,
     matchesEvaluationMutationPolicy,
@@ -41,13 +42,49 @@ describe("agent evaluation approval policy", () => {
         const requiredAssertions = requiredProviderLedgerAssertionCount(AGENT_EVAL_CASES);
         const generatedEvidence = {
             providerLedgerAssertions: requiredAssertions,
-            executedProposalCount: 2,
-            externalProposalCount: 1,
+            executedProposalCount: REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.length,
+            externalProposalCount: REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.length,
         };
 
-        expect(requiredAssertions).toBe(2);
+        expect(requiredAssertions).toBe(REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.length + 1);
+        expect(evaluateExternalFixtureCoverage(AGENT_EVAL_CASES)).toMatchObject({
+            complete: true,
+            missing: [],
+            unexpected: [],
+            duplicates: [],
+            observed: [...REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES].sort(),
+        });
         expect(matchesEvaluationMutationPolicy(generatedEvidence, AGENT_EVAL_CASES)).toBe(true);
-        expect(matchesEvaluationMutationPolicy({ ...generatedEvidence, providerLedgerAssertions: 12 }, AGENT_EVAL_CASES)).toBe(false);
+        expect(matchesEvaluationMutationPolicy({ ...generatedEvidence, providerLedgerAssertions: requiredAssertions - 1 }, AGENT_EVAL_CASES)).toBe(false);
+        expect(matchesEvaluationMutationPolicy({ ...generatedEvidence, externalProposalCount: REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.length - 1 }, AGENT_EVAL_CASES)).toBe(false);
         expect(matchesEvaluationMutationPolicy({ ...generatedEvidence, externalProposalCount: 0 }, AGENT_EVAL_CASES)).toBe(false);
+    });
+
+    it("fails closed when a required external fixture is missing, duplicated, or unexpected", () => {
+        const fixtures = AGENT_EVAL_CASES.filter((item) => item.externalFixtureCapability);
+        const withoutSms = fixtures.filter((item) => item.externalFixtureCapability !== "messages.sendSms");
+        const duplicateSms = [...fixtures, fixtures.find((item) => item.externalFixtureCapability === "messages.sendSms")!];
+        const unexpected = [...fixtures, {
+            ...fixtures[0],
+            externalFixtureCapability: "messages.unknown",
+            requiresProviderLedger: true,
+            allowClarification: false,
+        }];
+
+        expect(evaluateExternalFixtureCoverage(withoutSms)).toMatchObject({ complete: false, missing: ["messages.sendSms"] });
+        expect(evaluateExternalFixtureCoverage(duplicateSms)).toMatchObject({ complete: false, duplicates: ["messages.sendSms"] });
+        expect(evaluateExternalFixtureCoverage(unexpected)).toMatchObject({ complete: false, unexpected: ["messages.unknown"] });
+    });
+
+    it("requires every concrete external fixture to produce a proposal, approval, and terminal ledger assertion", () => {
+        const fixtures = AGENT_EVAL_CASES.filter((item) => item.externalFixtureCapability);
+
+        expect(fixtures).toHaveLength(REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.length);
+        expect(fixtures.every((item) => item.allowClarification === false)).toBe(true);
+        expect(fixtures.every((item) => item.expectedApproval === true)).toBe(true);
+        expect(fixtures.every((item) => item.requiresProviderLedger === true)).toBe(true);
+        expect(fixtures.every((item) => item.requiresTerminalExecution === true)).toBe(true);
+        expect(fixtures.every((item) => item.requiresProviderDisclosure === true)).toBe(true);
+        expect(new Set(fixtures.map((item) => item.externalFixtureCapability)).size).toBe(fixtures.length);
     });
 });

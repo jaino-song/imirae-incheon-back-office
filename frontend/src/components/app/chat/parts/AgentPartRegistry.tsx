@@ -2,7 +2,7 @@
 
 import type { UIMessage } from "ai";
 import { Button } from "@/components/ui/button";
-import { ActionApprovalPart } from "./ActionApprovalPart";
+import { AgentActionApprovalCard } from "@/components/app/ui/AgentActionApprovalCard";
 import { ActionResultPart } from "./ActionResultPart";
 import { FormRequestPart } from "./FormRequestPart";
 import { ErrorPart } from "./ErrorPart";
@@ -63,7 +63,7 @@ export function AgentPartRegistry({ message, onEntitySelect, onFeedback, onAppro
                 }
                 if (part.type === "data-action-proposal") {
                     const parsed = AgentActionProposalPartSchema.safeParse(data);
-                    return parsed.success ? <ActionApprovalPart key={index} {...parsed.data} terminal={terminalActionIds?.has(parsed.data.actionId)} onApprove={onApproveAction} onReject={onRejectAction} /> : <SafePartFallback key={index} />;
+                    return parsed.success ? <AgentActionApprovalCard key={index} {...parsed.data} terminal={terminalActionIds?.has(parsed.data.actionId)} onApprove={onApproveAction} onReject={onRejectAction} /> : <SafePartFallback key={index} />;
                 }
                 if (part.type === "data-action-result") {
                     const parsed = AgentActionResultPartSchema.safeParse(data);

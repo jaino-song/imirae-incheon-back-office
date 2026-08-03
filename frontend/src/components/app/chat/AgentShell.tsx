@@ -92,7 +92,7 @@ export function AgentShell() {
                     {filteredSessions.map((session) => (
                         <div key={session.id} data-component="desktop_chat_agent-shell_sidebar_sessions_session" className="flex items-center gap-1">
                             {renamingSessionId === session.id
-                                ? <Input autoFocus value={renameValue} aria-label="대화 제목" onChange={(event) => setRenameValue(event.target.value)} onBlur={() => setRenamingSessionId(null)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void renameSession(session.id, renameValue).then((saved) => { if (saved) setRenamingSessionId(null); }); } if (event.key === "Escape") setRenamingSessionId(null); }} />
+                                ? <Input autoFocus value={renameValue} aria-label="대화 제목" onChange={(event) => setRenameValue(event.target.value)} onBlur={() => setRenamingSessionId(null)} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter") { event.preventDefault(); void renameSession(session.id, renameValue).then((saved) => { if (saved) setRenamingSessionId(null); }); } if (event.key === "Escape") setRenamingSessionId(null); }} />
                                 : <Button type="button" variant="ghost" size="sm" className="min-w-0 flex-1 justify-start truncate" onClick={() => { void selectSession(session.id); closeSidebarOnMobile(); }}>{session.title || "새 대화"}</Button>}
                             <Button type="button" variant="ghost" size="icon" aria-label={`${session.title || "대화"} 이름 변경`} onMouseDown={(event) => event.preventDefault()} onClick={() => { setRenameValue(session.title || "새 대화"); setRenamingSessionId(session.id); }}><Pencil className="h-4 w-4" /></Button>
                             <Button type="button" variant="ghost" size="icon" aria-label={`${session.title || "대화"} 보관`} onClick={() => void archiveSession(session.id)}><Archive className="h-4 w-4" /></Button>
@@ -100,7 +100,7 @@ export function AgentShell() {
                         </div>
                     ))}
                 </div>
-                <div data-slot="sidebar-description" className="p-4 text-sm text-muted-foreground">읽기 전용 운영 코파일럿</div>
+                <div data-slot="sidebar-description" className="p-4 text-sm text-muted-foreground">권한에 따라 조회와 승인 작업을 지원합니다.</div>
             </aside>
             <section data-component="desktop_chat_agent-shell_thread" className="flex min-w-0 flex-col">
                 <header data-component="desktop_chat_agent-shell_thread_header" className="flex items-center gap-2 border-b bg-card px-4 py-3">
@@ -110,13 +110,13 @@ export function AgentShell() {
                     <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => { resetBranch(); router.push("/select-branch"); }}>지점 바꾸기</Button>
                 </header>
                 <ScrollArea className="min-h-0 flex-1"><div data-component="desktop_chat_agent-shell_thread_messages" className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 sm:p-8">
-                    {messages.length === 0 && <div className="py-24 text-center text-muted-foreground"><p className="text-lg font-semibold">무엇을 찾아드릴까요?</p><p className="mt-2 text-sm">고객·직원·일정·계약 상태를 읽기 전용으로 확인합니다.</p></div>}
+                    {messages.length === 0 && <div className="py-24 text-center text-muted-foreground"><p className="text-lg font-semibold">무엇을 도와드릴까요?</p><p className="mt-2 text-sm">고객·직원·일정·계약을 확인하고 권한이 있는 작업을 제안합니다.</p></div>}
                     {messages.map((message) => <article key={message.id} data-component="desktop_chat_agent-shell_thread_messages_message" data-source-component="AgentShell" className={message.role === "user" ? "ml-auto max-w-[85%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground" : "max-w-[90%] rounded-2xl border bg-card px-4 py-3"}><AgentPartRegistry message={message} terminalActionIds={terminalActionIds} onEntitySelect={(id, entityType) => void sendMessage({ text: `선택한 엔티티 유형: ${entityType}, 선택한 엔티티 ID: ${id}` })} onFeedback={(value) => void submitFeedback(message.id, value)} onApproveAction={(actionId, expectedRevision, acknowledgementToken) => void approveAction(actionId, expectedRevision, acknowledgementToken)} onRejectAction={(actionId) => void rejectAction(actionId)} onSubmitForm={submitStructuredForm} onRetry={() => void regenerate()} />{message.role === "assistant" && !message.parts.some((part) => part.type === "data-feedback") && <div data-slot="feedback" className="mt-3 flex gap-2"><Button type="button" size="sm" variant="ghost" onClick={() => void submitFeedback(message.id, "positive")}>좋아요</Button><Button type="button" size="sm" variant="ghost" onClick={() => void submitFeedback(message.id, "negative")}>아쉬워요</Button></div>}</article>)}
                     {error && <ErrorPart code="stream_failed" category="client" message="응답 스트림이 중단되었습니다." retryable effectState="nothing-happened" onRetry={() => void regenerate()} />}
                     {actionError && <ErrorPart code={actionError.code} category="client" message={actionError.message} retryable={false} effectState={actionError.effectState} />}
                 </div></ScrollArea>
                 <div data-component="desktop_chat_agent-shell_thread_composer" className="mx-auto flex w-full max-w-3xl items-end gap-2 p-4 sm:p-6">
-                    <Textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="질문을 입력하세요" aria-label="질문 입력" rows={2} />
+                    <Textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="질문을 입력하세요" aria-label="질문 입력" rows={2} />
                     <Button type="button" size="icon" aria-label={isStreaming ? "중지" : "전송"} onClick={isStreaming ? () => void stop() : submit}>{isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}</Button>
                 </div>
             </section>

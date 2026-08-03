@@ -343,6 +343,7 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
     ): Promise<unknown[]> {
         return this.model(table).findMany({
             where: { branchId, ...where },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             take,
             ...(options.select ? { select: options.select } : {}),
         });
@@ -419,9 +420,10 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     ...input,
                     ownerId: context.principal.userId,
                     isActive: true,
+                }, async (transaction, branchId) => {
+                    await recordAgentActionEffect(transaction, context, "admin.createBranch", "branch", branchId, { status: "created", id: branchId });
                 });
                 const result = { status: "created", id: branch.id };
-                await recordAgentActionEffect(this.prisma, context, "admin.createBranch", "branch", branch.id, result);
                 return result;
             },
             revalidate: async (_context, rawInput, expectedTargetVersion) => {

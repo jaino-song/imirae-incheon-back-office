@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { z } from "zod";
 
-import { AgentActionUncertainError } from "application/agent/action-coordinator.service";
+import { AgentActionCertainFailureError, AgentActionUncertainError } from "application/agent/action-coordinator.service";
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import type { AgentFormField } from "@babyjamjam/shared";
@@ -62,16 +62,25 @@ const HistoryOutputSchema = z.object({
     nextCursor: z.string().nullable(),
 });
 const RetrySmsSchema = z.object({ jobId: z.string().min(1).max(200) });
-const AutomationRuleBaseSchema = z.object({
+const AutomationRuleMutableSchema = z.object({
     name: z.string().trim().min(1).max(120),
-    isActive: z.boolean().default(true),
+    isActive: z.boolean(),
     eventType: z.enum(MessageTriggerEventType),
     offsetType: z.enum(MessageTriggerOffsetType),
-    offsetDays: z.number().int().nonnegative().max(365).default(0),
+    offsetDays: z.number().int().nonnegative().max(365),
     recipientType: z.enum(MessageTriggerRecipientType),
     templateKey: z.enum(MessageTriggerTemplateKey),
 });
-const AutomationRuleUpdateSchema = AutomationRuleBaseSchema.partial().extend({ id: z.string().min(1).max(200) });
+const AutomationRuleBaseSchema = AutomationRuleMutableSchema.extend({
+    isActive: z.boolean().default(true),
+    offsetDays: z.number().int().nonnegative().max(365).default(0),
+});
+const AUTOMATION_RULE_MUTABLE_KEYS = Object.keys(AutomationRuleMutableSchema.shape);
+const AutomationRuleUpdateSchema = AutomationRuleMutableSchema.partial().extend({ id: z.string().min(1).max(200) }).superRefine((value, context) => {
+    if (!AUTOMATION_RULE_MUTABLE_KEYS.some((key) => value[key as keyof typeof value] !== undefined)) {
+        context.addIssue({ code: "custom", message: "At least one automation rule field must be updated" });
+    }
+});
 const AutomationRuleIdSchema = z.object({ id: z.string().min(1).max(200) });
 const AutomationRuleActiveSchema = AutomationRuleIdSchema.extend({ isActive: z.boolean() });
 const AutomationRuleOutputSchema = z.object({ status: z.string(), id: z.string(), isActive: z.boolean().optional() });
@@ -201,9 +210,13 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                     };
                 },
                 execute: async (context, rawInput) => {
-                    const input = ScheduledSmsSchema.parse(rawInput);
+                    const parsed = ScheduledSmsSchema.safeParse(rawInput);
+                    if (!parsed.success) {
+                        throw new AgentActionCertainFailureError("Scheduled SMS is no longer at least ten minutes in the future");
+                    }
+                    const input = parsed.data;
                     const scheduledFor = parseScheduledSmsDate(input.scheduledDate, input.scheduledTime);
-                    if (!scheduledFor) throw new Error("Invalid scheduled SMS date or time");
+                    if (!scheduledFor) throw new AgentActionCertainFailureError("Scheduled SMS date or time is invalid");
                     const job = await this.enqueueSms(context, input, scheduledFor, "AI 예약 문자");
                     return { status: "scheduled", msgType: AGENT_SMS_DELIVERY_TYPE, messageId: undefined, jobId: job.id };
                 },
@@ -290,10 +303,12 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 return { title: "메시지 자동화 생성", summary: `${input.name} 규칙을 ${input.isActive ? "활성" : "비활성"} 상태로 생성합니다.`, provider: "Message automation scheduler", estimatedCost: "활성 규칙이 발송하는 각 문자에 SMS/LMS 요금이 발생할 수 있습니다." };
             },
             execute: async (context, rawInput) => {
-                const rule = await this.messageTriggerService.createRule(context.principal.branchId, AutomationRuleBaseSchema.parse(rawInput));
-                const result = { status: "created", id: rule.id, isActive: rule.isActive };
-                await recordAgentActionEffect(this.prisma, context, "automation.create", "automation-rule", rule.id, result);
-                return result;
+                return this.prisma.$transaction(async (transaction) => {
+                    const rule = await this.messageTriggerService.createRule(context.principal.branchId, AutomationRuleBaseSchema.parse(rawInput), transaction);
+                    const result = { status: "created", id: rule.id, isActive: rule.isActive };
+                    await recordAgentActionEffect(transaction, context, "automation.create", "automation-rule", rule.id, result);
+                    return result;
+                });
             },
             reconcile: async (context) => {
                 const receipt = await readAgentActionEffect(this.prisma, context, "automation.create");

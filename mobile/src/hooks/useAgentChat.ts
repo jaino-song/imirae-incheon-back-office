@@ -225,9 +225,16 @@ export function useAgentChat() {
     }, [refreshCurrentSession, refreshSessions, status]);
 
     const deleteSession = useCallback(async (id: string) => {
+        const deletingActiveSession = sessionId.current === id;
+        const operationEpoch = deletingActiveSession ? ++operationEpochRef.current : operationEpochRef.current;
+        if (deletingActiveSession) {
+            abortRef.current?.abort();
+            abortRef.current = null;
+            setStatus("ready");
+        }
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
         if (!response.ok) return;
-        if (sessionId.current === id) {
+        if (deletingActiveSession && operationEpoch === operationEpochRef.current && sessionId.current === id) {
             sessionId.current = undefined;
             if (typeof window !== "undefined") window.sessionStorage.removeItem(AGENT_SESSION_KEY);
             setMessages([]);

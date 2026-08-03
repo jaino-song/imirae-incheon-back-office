@@ -404,6 +404,7 @@ export class MessageTriggerService {
     async createRule(
         branchId: string,
         params: UpsertRuleParams,
+        transaction?: Prisma.TransactionClient,
     ): Promise<MessageTriggerRuleEntity> {
         await this.ensureTriggerSchemaReady();
         await this.messageSenderApprovalService.ensureApproved(branchId);
@@ -415,8 +416,9 @@ export class MessageTriggerService {
                 ...params,
                 offsetDays: this.normalizeOffsetDays(params.offsetType, params.offsetDays),
             }),
+            transaction,
         );
-        await this.ruleRepository.markJobsStale(rule.id);
+        await this.ruleRepository.markJobsStale(rule.id, transaction);
         return rule;
     }
 

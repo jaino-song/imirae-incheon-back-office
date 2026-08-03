@@ -66,6 +66,12 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
         expect(serviceSelect).not.toHaveProperty("momBirth");
         expect(serviceSelect).not.toHaveProperty("babyBirth");
         expect(serviceSelect).not.toHaveProperty("lastError");
+        for (const model of [models.consultation_inquiry, models.call_record, models.client_draft, models.document, models.service_record_case]) {
+            expect(model.findMany).toHaveBeenCalledWith(expect.objectContaining({
+                orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+                take: 20,
+            }));
+        }
     });
 
     it("returns aggregate analytics instead of raw client rows", async () => {
@@ -208,9 +214,12 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
 
         const output = await createBranch.execute(context, { name: "서초점", slug: "seocho", region: "서울" });
 
-        expect(systemAdmin.createBranch).toHaveBeenCalledWith({
-            name: "서초점", slug: "seocho", region: "서울", ownerId: context.principal.userId, isActive: true,
-        });
+        expect(systemAdmin.createBranch).toHaveBeenCalledWith(
+            {
+                name: "서초점", slug: "seocho", region: "서울", ownerId: context.principal.userId, isActive: true,
+            },
+            expect.any(Function),
+        );
         expect(output).toEqual({ status: "created", id: "branch-created" });
         expect(models.branch.create).not.toHaveBeenCalled();
     });

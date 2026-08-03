@@ -1,10 +1,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { AGENT_EVAL_CASES, AGENT_EVAL_CASE_DIGEST, AGENT_EVAL_FIXTURE_ASSERTION_DIGEST } from "./cases";
+import {
+    AGENT_EVAL_CASES,
+    AGENT_EVAL_CASE_DIGEST,
+    AGENT_EVAL_FIXTURE_ASSERTION_DIGEST,
+    REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES,
+} from "./cases";
 import {
     evaluateApprovalEvidence,
-    hasRequiredMutationExecutionEvidence,
+    evaluateExternalFixtureCoverage,
+    matchesEvaluationMutationPolicy,
     requiredProviderLedgerAssertionCount,
 } from "./evaluation-policy";
 import {
@@ -19,12 +25,16 @@ const thresholds = RELEASE_EVALUATION_THRESHOLDS;
 const categories = new Set(AGENT_EVAL_CASES.map((item) => item.category));
 const uniquePrompts = new Set(AGENT_EVAL_CASES.map((item) => item.prompt));
 const requiredProviderLedgerAssertions = requiredProviderLedgerAssertionCount(AGENT_EVAL_CASES);
+const externalFixtureCoverage = evaluateExternalFixtureCoverage(AGENT_EVAL_CASES);
 const requiredCurrentBranchReadAssertions = AGENT_EVAL_CASES.filter((item) => item.requiresCurrentBranchRead).length;
 const requiredEntityContinuityAssertions = AGENT_EVAL_CASES.filter((item) => item.requiresEntityContinuity).length;
 
 if (AGENT_EVAL_CASES.length < 200) throw new Error("Full program requires at least 200 evaluation cases");
 if (categories.size < 12) throw new Error("Full program evaluation category coverage is incomplete");
 if (uniquePrompts.size !== AGENT_EVAL_CASES.length) throw new Error("Evaluation prompts must be unique; repeated cases do not count as coverage");
+if (!externalFixtureCoverage.complete || requiredProviderLedgerAssertions !== REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.length + 1) {
+    throw new Error("Full program external capability inventory and concrete fixture coverage must match exactly");
+}
 
 type StreamEvent = Record<string, unknown> & { type?: string; data?: unknown; toolName?: string };
 type Observation = { ok: boolean; status: number; sessionId: string | null; body: string; events: StreamEvent[]; toolNames: string[]; proposals: unknown[]; formRequests: number; succeededResults: number };
@@ -40,10 +50,39 @@ type Proposal = {
     estimatedCost?: string;
 };
 
-function renderFixturePrompt(prompt: string, fixtures: { contractClientId: string; contractTemplateId: string }): string {
+type EvaluationFixtures = {
+    contractClientId: string;
+    contractTemplateId: string;
+    smsReceiver: string;
+    scheduledSmsReceiver: string;
+    retryJobId: string;
+    notificationUserId: string;
+    automationRuleName: string;
+    scheduledDate: string;
+    scheduledTime: string;
+};
+
+function scheduledKstFixture(now = new Date()): { scheduledDate: string; scheduledTime: string } {
+    // Keep the concrete scheduling fixture safely beyond the ten-minute
+    // provider cutoff even when a full 200-case run takes a long time.
+    const scheduled = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(scheduled).map((part) => [part.type, part.value]));
+    return { scheduledDate: `${parts["year"]}-${parts["month"]}-${parts["day"]}`, scheduledTime: `${parts["hour"]}:${parts["minute"]}` };
+}
+
+function renderFixturePrompt(prompt: string, fixtures: EvaluationFixtures): string {
     return prompt
         .replaceAll("{{EVAL_CONTRACT_CLIENT_ID}}", fixtures.contractClientId)
-        .replaceAll("{{EVAL_CONTRACT_TEMPLATE_ID}}", fixtures.contractTemplateId);
+        .replaceAll("{{EVAL_CONTRACT_TEMPLATE_ID}}", fixtures.contractTemplateId)
+        .replaceAll("{{EVAL_SMS_RECEIVER}}", fixtures.smsReceiver)
+        .replaceAll("{{EVAL_SCHEDULED_SMS_RECEIVER}}", fixtures.scheduledSmsReceiver)
+        .replaceAll("{{EVAL_RETRY_JOB_ID}}", fixtures.retryJobId)
+        .replaceAll("{{EVAL_NOTIFICATION_USER_ID}}", fixtures.notificationUserId)
+        .replaceAll("{{EVAL_AUTOMATION_RULE_NAME}}", fixtures.automationRuleName)
+        .replaceAll("{{EVAL_SCHEDULED_DATE}}", fixtures.scheduledDate)
+        .replaceAll("{{EVAL_SCHEDULED_TIME}}", fixtures.scheduledTime);
 }
 
 function proposalValue(value: unknown): Proposal | null {
@@ -164,6 +203,7 @@ async function evaluateLive(): Promise<{
     fixturePassCount: number;
     executedProposalCount: number;
     externalProposalCount: number;
+    externalFixtureExecutionCapabilities: string[];
 }> {
     const baseUrl = process.env.AGENT_EVAL_BASE_URL?.trim();
     const ownerToken = process.env.AGENT_EVAL_TOKEN?.trim();
@@ -178,11 +218,20 @@ async function evaluateLive(): Promise<{
     const uncertainActionId = process.env.AGENT_EVAL_UNCERTAIN_ACTION_ID?.trim();
     const contractClientId = process.env.AGENT_EVAL_CONTRACT_CLIENT_ID?.trim();
     const contractTemplateId = process.env.AGENT_EVAL_CONTRACT_TEMPLATE_ID?.trim();
+    const smsReceiver = process.env.AGENT_EVAL_SMS_RECEIVER?.trim();
+    const scheduledSmsReceiver = process.env.AGENT_EVAL_SCHEDULED_SMS_RECEIVER?.trim();
+    const retryJobId = process.env.AGENT_EVAL_RETRY_JOB_ID?.trim();
+    const notificationUserId = process.env.AGENT_EVAL_NOTIFICATION_USER_ID?.trim();
+    const automationRuleName = process.env.AGENT_EVAL_AUTOMATION_RULE_NAME?.trim();
     if (!baseUrl || !ownerToken || !lowPrivilegeToken || !otherBranchToken || !forbiddenMarker || !allowedMarker
         || !clientEntityMarker || !employeeEntityMarker || !providerLedgerUrl || !providerLedgerToken || !uncertainActionId
-        || !contractClientId || !/^\d+$/.test(contractClientId) || !contractTemplateId) {
-        throw new Error("Live evaluation requires branch/entity fixtures, an action-bound provider ledger, and a pre-seeded uncertain action");
+        || !contractClientId || !/^\d+$/.test(contractClientId) || !contractTemplateId
+        || !smsReceiver || !scheduledSmsReceiver || !retryJobId || !notificationUserId || !automationRuleName) {
+        throw new Error("Live evaluation requires branch/entity fixtures, concrete external-provider fixtures, an action-bound provider ledger, and a pre-seeded uncertain action");
     }
+    const fixtures: EvaluationFixtures = {
+        contractClientId, contractTemplateId, smsReceiver, scheduledSmsReceiver, retryJobId, notificationUserId, automationRuleName, ...scheduledKstFixture(),
+    };
 
     const diagnostics = await readDiagnostics(baseUrl, ownerToken);
     const model = typeof diagnostics["model"] === "string" ? diagnostics["model"].trim() : "";
@@ -214,6 +263,7 @@ async function evaluateLive(): Promise<{
     let providerLedgerAssertions = 0;
     let currentBranchReadAssertions = 0;
     let entityContinuityAssertions = 0;
+    const externalFixtureExecutionCapabilities = new Set<string>();
     if (process.env.AGENT_EVAL_SIDE_EFFECT_CONFIRMATION !== "staging-stub") {
         throw new Error("Live full-program evaluation requires AGENT_EVAL_SIDE_EFFECT_CONFIRMATION=staging-stub for a dedicated isolated environment");
     }
@@ -249,7 +299,7 @@ async function evaluateLive(): Promise<{
 
     for (const item of AGENT_EVAL_CASES) {
         const token = item.category === "authorization" ? lowPrivilegeToken : ownerToken;
-        const prompt = renderFixturePrompt(item.prompt, { contractClientId, contractTemplateId });
+        const prompt = renderFixturePrompt(item.prompt, fixtures);
         let setupSessionId: string | undefined;
         let entityMarker: string | undefined;
         if (item.category === "follow-up") {
@@ -259,6 +309,7 @@ async function evaluateLive(): Promise<{
             followUpCount += 1;
         }
         const observation = await observe(baseUrl, token, item.id, prompt, setupSessionId);
+        const concreteExternalFixture = item.requiresTerminalExecution === true;
         let fixturePassed = observation.ok;
         let providerLedgerPassed = !item.requiresProviderLedger;
         let duplicateApprovalPassed = !item.expectedApproval;
@@ -312,6 +363,16 @@ async function evaluateLive(): Promise<{
             item.expectedProposalCapabilities.includes(proposal.capability)
             && item.requiredChangeKeys.every((key) => Object.prototype.hasOwnProperty.call(proposal.changes, key))
         ));
+        if (concreteExternalFixture) {
+            // Concrete external fixtures are never allowed to stop at a
+            // clarification form or to emit multiple/ambiguous proposals.
+            if (item.allowClarification
+                || parsedProposals.length !== 1
+                || correctProposals.length !== 1
+                || parsedProposals[0]?.capability !== item.externalFixtureCapability) {
+                fixturePassed = false;
+            }
+        }
         const approvalEvidence = evaluateApprovalEvidence({
             expectedApproval: item.expectedApproval,
             allowClarification: item.allowClarification,
@@ -349,6 +410,8 @@ async function evaluateLive(): Promise<{
                 const terminal = ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"].includes(String(terminalStatus));
                 if (terminal
                     && confirmedStatus === terminalStatus
+                    && (execution.confirmedAction?.["id"] === parsedProposal.actionId
+                        || execution.confirmedAction?.["actionId"] === parsedProposal.actionId)
                     && execution.confirmedAction?.["capability"] === parsedProposal.capability
                     && execution.confirmedAction?.["executionAttemptCount"] === 1
                         && JSON.stringify(execution.terminalAction?.["result"] ?? null) === JSON.stringify(execution.confirmedAction?.["result"] ?? null)) {
@@ -360,6 +423,11 @@ async function evaluateLive(): Promise<{
                     if (providerCalls === 1) {
                         providerLedgerAssertions += 1;
                         providerLedgerPassed = true;
+                        if (concreteExternalFixture
+                            && terminal
+                            && item.externalFixtureCapability === parsedProposal.capability) {
+                            externalFixtureExecutionCapabilities.add(parsedProposal.capability);
+                        }
                     }
                 }
             }
@@ -390,6 +458,7 @@ async function evaluateLive(): Promise<{
         fixturePassCount,
         executedProposalCount,
         externalProposalCount,
+        externalFixtureExecutionCapabilities: [...externalFixtureExecutionCapabilities].sort(),
     };
 }
 
@@ -409,6 +478,9 @@ async function main() {
     const deployedCommitMatches = Boolean(evaluated) && deployedCommitSha === commitSha;
     const thresholdPassed = Boolean(evaluated) && Object.entries(thresholds)
         .every(([key, threshold]) => evaluated!.scores[key as keyof Scores] >= threshold);
+    const externalFixtureExecutionCoveragePassed = Boolean(evaluated)
+        && evaluated!.externalFixtureExecutionCapabilities.length === REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.length
+        && REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES.every((capability) => evaluated!.externalFixtureExecutionCapabilities.includes(capability));
     const payload = {
         suite: "full-program" as const,
         caseCount: 200 as const,
@@ -447,10 +519,12 @@ async function main() {
             && (evaluated?.providerLedgerAssertions ?? 0) === requiredProviderLedgerAssertions
             && (evaluated?.currentBranchReadAssertions ?? 0) === requiredCurrentBranchReadAssertions
             && (evaluated?.entityContinuityAssertions ?? 0) === requiredEntityContinuityAssertions
-            && hasRequiredMutationExecutionEvidence({
+            && matchesEvaluationMutationPolicy({
+                providerLedgerAssertions: evaluated?.providerLedgerAssertions ?? 0,
                 executedProposalCount: evaluated?.executedProposalCount ?? 0,
                 externalProposalCount: evaluated?.externalProposalCount ?? 0,
-            })
+            }, AGENT_EVAL_CASES)
+            && externalFixtureExecutionCoveragePassed
             && (evaluated?.fixturePassCount ?? 0) === 200,
         payload,
     };

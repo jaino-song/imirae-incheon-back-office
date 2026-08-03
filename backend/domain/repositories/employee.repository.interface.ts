@@ -1,4 +1,5 @@
 import { EmployeeEntity } from "domain/entities/employee.entity";
+import type { Prisma } from "@prisma/client";
 
 export interface ActiveClientByEmployee {
     clientId: number;
@@ -12,7 +13,7 @@ export interface ActiveClientByEmployee {
 export interface IEmployeeRepository {
     findById(branchid: string, id: number): Promise<EmployeeEntity | null>;
     findByPhone(branchid: string, normalizedPhone: string): Promise<EmployeeEntity | null>;
-    create(branchid: string, employee: EmployeeEntity): Promise<EmployeeEntity>;
+    create(branchid: string, employee: EmployeeEntity, transaction?: Prisma.TransactionClient): Promise<EmployeeEntity>;
     update(branchid: string, employee: EmployeeEntity): Promise<EmployeeEntity>;
     delete(branchid: string, id: number): Promise<void>;
     hasActiveAssignments?(branchid: string, id: number): Promise<boolean>;

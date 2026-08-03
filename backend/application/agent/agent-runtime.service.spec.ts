@@ -351,7 +351,7 @@ describe("AgentRuntimeService", () => {
         const runtime = new AgentRuntimeService(
             { list: () => [capability] } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
-            { create: jest.fn().mockResolvedValue({ id: "session-current", selectedEntities: {}, messages: [] }) } as never,
+            { create: jest.fn().mockResolvedValue({ id: "session-current", selectedEntities: {}, messages: [] }), remove: jest.fn().mockResolvedValue(undefined) } as never,
             { modelId: "deterministic-agent-v1", create: jest.fn() } as never,
             { route: jest.fn() } as never,
             { start: jest.fn() } as never,
@@ -370,6 +370,51 @@ describe("AgentRuntimeService", () => {
             }] as never,
         })).rejects.toThrow("Agent is not enabled for this context");
         expect(actions.propose).not.toHaveBeenCalled();
+    });
+
+    it("removes a just-created session when routing offers no capabilities", async () => {
+        const sessions = {
+            create: jest.fn().mockResolvedValue({ id: "session-empty", selectedEntities: {}, messages: [] }),
+            remove: jest.fn().mockResolvedValue(undefined),
+        };
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            {} as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1" } as never,
+            { route: jest.fn().mockResolvedValue({ domains: [], capabilities: [] }) } as never,
+            {} as never,
+        );
+
+        await expect(runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-empty", role: "user", parts: [{ type: "text", text: "사용할 수 없는 요청" }] }] as never,
+        })).rejects.toThrow("Agent is not enabled");
+        expect(sessions.remove).toHaveBeenCalledWith("session-empty", { userId: "user-a", branchId: "branch-a" });
+    });
+
+    it("does not remove an existing session when routing later offers no capabilities", async () => {
+        const sessions = {
+            get: jest.fn().mockResolvedValue({ id: "session-existing", selectedEntities: {}, messages: [] }),
+            remove: jest.fn(),
+        };
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            {} as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1" } as never,
+            { route: jest.fn().mockResolvedValue({ domains: [], capabilities: [] }) } as never,
+            {} as never,
+        );
+
+        await expect(runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-existing",
+            locale: "ko",
+            messages: [{ id: "message-empty", role: "user", parts: [{ type: "text", text: "사용할 수 없는 요청" }] }] as never,
+        })).rejects.toThrow("Agent is not enabled");
+        expect(sessions.remove).not.toHaveBeenCalled();
     });
 
     it("emits a typed entity-choice part for duplicate matches", async () => {

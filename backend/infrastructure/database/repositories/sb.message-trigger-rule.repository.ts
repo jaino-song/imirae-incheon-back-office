@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "infrastructure/database/prisma.service";
+import type { Prisma } from "@prisma/client";
 import { IMessageTriggerRuleRepository } from "domain/repositories/message-trigger-rule.repository.interface";
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import {
@@ -67,8 +68,9 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
     async create(
         branchId: string,
         rule: MessageTriggerRuleEntity,
+        transaction?: Prisma.TransactionClient,
     ): Promise<MessageTriggerRuleEntity> {
-        const row = await this.prisma.message_trigger_rule.create({
+        const row = await (transaction ?? this.prisma).message_trigger_rule.create({
             data: {
                 branchId,
                 name: rule.name,
@@ -107,8 +109,8 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
         return this.toDomain(row);
     }
 
-    async markJobsStale(ruleId: string): Promise<void> {
-        await this.prisma.message_trigger_rule.updateMany({
+    async markJobsStale(ruleId: string, transaction?: Prisma.TransactionClient): Promise<void> {
+        await (transaction ?? this.prisma).message_trigger_rule.updateMany({
             where: { id: ruleId },
             data: { jobsStale: true },
         });

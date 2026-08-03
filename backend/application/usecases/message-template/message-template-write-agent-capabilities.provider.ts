@@ -26,7 +26,12 @@ const CreateSchema = z.object({
         try { return JSON.parse(value); } catch { return value; }
     }, z.array(VariableSchema).max(50)),
 });
-const UpdateSchema = CreateSchema.partial().extend({ id: z.string().min(1).max(200) });
+const TEMPLATE_MUTABLE_FIELD_KEYS = Object.keys(CreateSchema.shape);
+const UpdateSchema = CreateSchema.partial().extend({ id: z.string().min(1).max(200) }).superRefine((value, context) => {
+    if (!TEMPLATE_MUTABLE_FIELD_KEYS.some((key) => value[key as keyof typeof value] !== undefined)) {
+        context.addIssue({ code: "custom", message: "At least one message template field must be updated" });
+    }
+});
 const OutputSchema = z.object({ id: z.string().min(1), name: z.string(), status: z.string() });
 const TEMPLATE_CREATE_FIELDS: AgentFormField[] = [
     { name: "name", label: "템플릿 이름", type: "text", required: true },
@@ -60,10 +65,12 @@ export class MessageTemplateWriteAgentCapabilitiesProvider implements AgentCapab
                 inputSchema: CreateSchema, outputSchema: OutputSchema,
                 formFields: TEMPLATE_CREATE_FIELDS,
                 execute: async (context, rawInput) => {
-                    const template = await this.createTemplate.execute(context.principal.branchId, CreateSchema.parse(rawInput));
-                    const result = { id: template.id, name: template.name, status: "created" };
-                    await recordAgentActionEffect(this.prisma, context, "messages.createTemplate", "message-template", template.id, result);
-                    return result;
+                    return this.prisma.$transaction(async (transaction) => {
+                        const template = await this.createTemplate.execute(context.principal.branchId, CreateSchema.parse(rawInput), transaction);
+                        const result = { id: template.id, name: template.name, status: "created" };
+                        await recordAgentActionEffect(transaction, context, "messages.createTemplate", "message-template", template.id, result);
+                        return result;
+                    });
                 },
                 reconcile: async (context) => {
                     const receipt = await readAgentActionEffect(this.prisma, context, "messages.createTemplate");

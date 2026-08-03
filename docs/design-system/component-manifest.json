@@ -501,6 +501,22 @@
         ]
       },
       {
+        "name": "AgentActionApprovalCard",
+        "layer": "organism",
+        "import": "@/components/app/ui/AgentActionApprovalCard",
+        "file": "frontend/src/components/app/ui/AgentActionApprovalCard.tsx",
+        "exports": [
+          "AgentActionApprovalCard",
+          "AgentActionApprovalCardProps"
+        ],
+        "replaces": [
+          "chat-local action approval card markup"
+        ],
+        "requiredFor": [
+          "agent action approval"
+        ]
+      },
+      {
         "name": "FormDialogShell",
         "layer": "organism",
         "import": "@/components/app/ui/FormDialogShell",

@@ -584,7 +584,7 @@ describe("MessageTriggerService", () => {
         });
 
         expect(result).toBe(createdRule);
-        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(createdRule.id);
+        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(createdRule.id, undefined);
         expect(internals.rebuildJobsForRule).not.toHaveBeenCalled();
         expect(jobRepository.cancelPendingByRuleId).not.toHaveBeenCalled();
     });
