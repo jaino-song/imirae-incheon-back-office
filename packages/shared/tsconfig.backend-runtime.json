@@ -5,12 +5,13 @@
         "module": "CommonJS",
         "moduleResolution": "Node",
         "rootDir": "src",
-        "outDir": "runtime",
+        "outDir": "../../backend/vendor/shared-agent",
         "noEmit": false,
-        "declaration": false,
+        "declaration": true,
         "isolatedModules": false
     },
     "include": [
+        "src/agent/index.ts",
         "src/agent/action-types.ts",
         "src/agent/capability-meta.ts",
         "src/agent/message-parts.ts"

@@ -10,7 +10,7 @@ import {
     type UIMessageStreamOptions,
 } from "ai";
 
-import { AgentFormSubmitPartSchema } from "@babyjamjam/shared/agent/message-parts";
+import { AgentFormSubmitPartSchema } from "@babyjamjam/shared";
 import type { BjjUIMessage } from "@babyjamjam/shared";
 import type { VerifiedTenantPrincipal } from "infrastructure/tenant/tenant.context";
 import { AgentModelFactory } from "infrastructure/agent/agent-model.factory";

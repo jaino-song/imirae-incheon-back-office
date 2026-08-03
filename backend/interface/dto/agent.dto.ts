@@ -2,7 +2,7 @@ import { Type } from "class-transformer";
 import { IsArray, IsBoolean, IsIn, IsObject, IsOptional, IsString, MaxLength, ValidateNested, ArrayMaxSize, ArrayMinSize } from "class-validator";
 import { z } from "zod";
 
-import { AgentFormSubmitPartSchema } from "@babyjamjam/shared/agent/message-parts";
+import { AgentFormSubmitPartSchema } from "@babyjamjam/shared";
 
 const AgentUserTextPartSchema = z.object({
     type: z.literal("text"),

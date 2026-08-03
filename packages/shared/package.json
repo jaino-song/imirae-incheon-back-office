@@ -6,32 +6,10 @@
     "type": "module",
     "main": "src/index.ts",
     "types": "src/index.ts",
-    "typesVersions": {
-        "*": {
-            "agent/action-types": ["src/agent/action-types.ts"],
-            "agent/capability-meta": ["src/agent/capability-meta.ts"],
-            "agent/message-parts": ["src/agent/message-parts.ts"]
-        }
-    },
     "exports": {
         ".": "./src/index.ts",
         "./api": "./src/api/index.ts",
         "./agent": "./src/agent/index.ts",
-        "./agent/action-types": {
-            "types": "./src/agent/action-types.ts",
-            "import": "./src/agent/action-types.ts",
-            "require": "./runtime/agent/action-types.js"
-        },
-        "./agent/capability-meta": {
-            "types": "./src/agent/capability-meta.ts",
-            "import": "./src/agent/capability-meta.ts",
-            "require": "./runtime/agent/capability-meta.js"
-        },
-        "./agent/message-parts": {
-            "types": "./src/agent/message-parts.ts",
-            "import": "./src/agent/message-parts.ts",
-            "require": "./runtime/agent/message-parts.js"
-        },
         "./tokens/skeleton.css": "./src/tokens/skeleton.css",
         "./tokens/status-badge": "./src/tokens/status-badge.ts",
         "./client/badges": "./src/client/badges.ts",
@@ -57,7 +35,7 @@
         "./eslint-plugin": "./eslint-plugin/index.mjs"
     },
     "scripts": {
-        "build:runtime": "tsc -p tsconfig.runtime.json",
+        "build:backend-runtime": "tsc -p tsconfig.backend-runtime.json",
         "type-check": "tsc --noEmit",
         "test": "jest && node --test eslint-plugin/__tests__/*.test.js"
     },

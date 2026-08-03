@@ -22,8 +22,8 @@ importers:
         specifier: ^3.0.23
         version: 3.0.43(zod@4.3.6)
       '@babyjamjam/shared':
-        specifier: workspace:*
-        version: link:../packages/shared
+        specifier: file:vendor/shared-agent
+        version: file:backend/vendor/shared-agent(ai@6.0.116(zod@4.3.6))
       '@nestjs/cli':
         specifier: ^11.0.24
         version: 11.0.24(@swc/core@1.15.18)(@types/node@20.19.37)
@@ -888,6 +888,11 @@ packages:
   '@babel/types@7.29.7':
     resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
     engines: {node: '>=6.9.0'}
+
+  '@babyjamjam/shared@file:backend/vendor/shared-agent':
+    resolution: {directory: backend/vendor/shared-agent, type: directory}
+    peerDependencies:
+      ai: 6.0.116
 
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
@@ -8377,6 +8382,11 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
+
+  '@babyjamjam/shared@file:backend/vendor/shared-agent(ai@6.0.116(zod@4.3.6))':
+    dependencies:
+      ai: 6.0.116(zod@4.3.6)
+      zod: 4.3.6
 
   '@bcoe/v8-coverage@0.2.3': {}
 

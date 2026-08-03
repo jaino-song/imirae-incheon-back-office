@@ -57,6 +57,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify vendored agent contracts
+        run: |
+          pnpm --filter @babyjamjam/shared run build:backend-runtime
+          git diff --exit-code -- backend/vendor/shared-agent/agent
+          untracked="$(git ls-files --others --exclude-standard backend/vendor/shared-agent/agent)"
+          if [ -n "$untracked" ]; then
+            echo "Generated agent contract files are not committed:"
+            echo "$untracked"
+            exit 1
+          fi
+
       # Fail fast on the cheapest, most deterministic gate first.
       - name: Type check
         run: pnpm --filter ./backend run type-check
