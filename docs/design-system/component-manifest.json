@@ -1278,6 +1278,21 @@
         ]
       },
       {
+        "name": "ChatPageLoading",
+        "layer": "organism",
+        "import": "@/components/app/chat/ChatPageLoading",
+        "file": "mobile/src/components/app/chat/ChatPageLoading.tsx",
+        "exports": [
+          "ChatPageLoading"
+        ],
+        "replaces": [
+          "chat page-local loading markup"
+        ],
+        "requiredFor": [
+          "chat route flag resolution"
+        ]
+      },
+      {
         "name": "ConfirmActionModal",
         "layer": "molecule",
         "import": "@/components/app/ui/ConfirmActionModal",
@@ -1646,6 +1661,21 @@
         "file": "mobile/src/components/app/v3/ListPanel.tsx",
         "exports": [
           "ListPanel"
+        ]
+      },
+      {
+        "name": "LegacyChatPage",
+        "layer": "organism",
+        "import": "@/components/app/chat/LegacyChatPage",
+        "file": "mobile/src/components/app/chat/LegacyChatPage.tsx",
+        "exports": [
+          "LegacyChatPage"
+        ],
+        "replaces": [
+          "chat page-local legacy implementation"
+        ],
+        "requiredFor": [
+          "chat route legacy flag state"
         ]
       },
       {

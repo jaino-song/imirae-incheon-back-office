@@ -170,10 +170,6 @@
     "mobile/src/app/(shell)/admin/feedback/page.tsx": {
       "ui-architecture/no-visual-tailwind-in-pages": 24
     },
-    "mobile/src/app/(shell)/chat/page.tsx": {
-      "ui-architecture/no-page-local-components": 5,
-      "ui-architecture/no-raw-ui-in-pages": 6
-    },
     "mobile/src/app/(shell)/clients/new/page.tsx": {
       "ui-architecture/no-page-local-components": 1,
       "ui-architecture/no-raw-ui-in-pages": 5,
