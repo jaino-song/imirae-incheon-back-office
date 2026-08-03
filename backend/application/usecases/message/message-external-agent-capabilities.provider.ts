@@ -19,7 +19,13 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { createHash } from "node:crypto";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
-const SmsSchema = z.object({ receiver: z.string().trim().min(1).max(200), message: z.string().trim().min(1).max(2000), title: z.string().max(200).optional() }).strict();
+const IMMEDIATE_SMS_TITLE = "AI 문자 발송";
+const SCHEDULED_SMS_TITLE = "AI 예약 문자";
+const SmsBaseSchema = z.object({
+    receiver: z.string().trim().min(1).max(200),
+    message: z.string().trim().min(1).max(2000),
+    title: z.string().max(200).optional(),
+}).strict();
 
 function parseScheduledSmsDate(date: string, time: string): Date | null {
     const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
@@ -47,7 +53,11 @@ function parseScheduledSmsDate(date: string, time: string): Date | null {
         : null;
 }
 
-const ScheduledSmsSchema = SmsSchema.extend({
+const SendSmsSchema = SmsBaseSchema.extend({
+    title: z.string().max(200).default(IMMEDIATE_SMS_TITLE),
+}).strict();
+const ScheduledSmsSchema = SmsBaseSchema.extend({
+    title: z.string().max(200).default(SCHEDULED_SMS_TITLE),
     scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     scheduledTime: z.string().regex(/^\d{2}:\d{2}$/),
 }).superRefine((value, context) => {
@@ -56,7 +66,7 @@ const ScheduledSmsSchema = SmsSchema.extend({
         context.addIssue({ code: "custom", path: ["scheduledDate"], message: "Scheduled SMS must be at least ten minutes in the future" });
     }
 });
-const PreviewSchema = SmsSchema.pick({ receiver: true, message: true, title: true });
+const PreviewSchema = SmsBaseSchema.pick({ receiver: true, message: true, title: true });
 const SmsOutputSchema = z.object({ status: z.string(), msgType: z.string().optional(), messageId: z.number().optional(), jobId: z.string().optional(), uncertain: z.boolean().optional() });
 const HistoryInputSchema = z.object({ limit: z.number().int().positive().max(100).default(30), cursor: z.string().min(1).max(200).optional() }).default({ limit: 30 });
 const HistoryOutputSchema = z.object({
@@ -177,7 +187,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             },
             {
                 meta: { ...common, name: "messages.sendSms", description: "Send an SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.sendSms" },
-                inputSchema: SmsSchema, outputSchema: SmsOutputSchema,
+                inputSchema: SendSmsSchema, outputSchema: SmsOutputSchema,
                 classifyOutcome: (rawOutput) => {
                     const status = SmsOutputSchema.parse(rawOutput).status;
                     if (status === "canceled") return { status: "cancelled" as const, reason: "SMS delivery was cancelled before provider acceptance" };
@@ -187,7 +197,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 formFields: SMS_FIELDS,
                 inspect: async (context, rawInput) => {
                     await this.messageSenderApprovalService.ensureApproved(context.principal.branchId);
-                    const input = SmsSchema.parse(rawInput);
+                    const input = SendSmsSchema.parse(rawInput);
                     return {
                         title: "문자 발송",
                         summary: `${maskedReceiver(input.receiver)} 번호로 ${input.message.length}자 메시지를 발송합니다.`,
@@ -196,8 +206,8 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                     };
                 },
                 execute: async (context, rawInput) => {
-                    const input = SmsSchema.parse(rawInput);
-                    const job = await this.enqueueSms(context, input, new Date(), "AI 문자 발송");
+                    const input = SendSmsSchema.parse(rawInput);
+                    const job = await this.enqueueSms(context, input, new Date(), IMMEDIATE_SMS_TITLE);
                     let delivered: MessageTriggerJobEntity;
                     try {
                         delivered = await this.messageTriggerService.dispatchPendingJobNow(job.id);
@@ -237,7 +247,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                     const input = parsed.data;
                     const scheduledFor = parseScheduledSmsDate(input.scheduledDate, input.scheduledTime);
                     if (!scheduledFor) throw new AgentActionCertainFailureError("Scheduled SMS date or time is invalid");
-                    const job = await this.enqueueSms(context, input, scheduledFor, "AI 예약 문자");
+                    const job = await this.enqueueSms(context, input, scheduledFor, SCHEDULED_SMS_TITLE);
                     return { status: "scheduled", msgType: AGENT_SMS_DELIVERY_TYPE, messageId: undefined, jobId: job.id };
                 },
                 reconcile: async (context) => {
@@ -473,7 +483,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
 
     private async enqueueSms(
         context: Parameters<CapabilityDefinition["execute"]>[0],
-        input: z.infer<typeof SmsSchema>,
+        input: { receiver: string; message: string; title: string },
         scheduledFor: Date,
         ruleName: string,
     ): Promise<MessageTriggerJobEntity> {
@@ -513,7 +523,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 messageBody: input.message,
                 templateVariables: {
                     triggerType: "agent_scheduled",
-                    title: input.title ?? ruleName,
+                    title: input.title,
                     msgType: AGENT_SMS_DELIVERY_TYPE,
                 },
             },

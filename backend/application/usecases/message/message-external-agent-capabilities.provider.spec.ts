@@ -84,6 +84,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                     effectReceipt = data.effectReceipt;
                     return { count: 1 };
                 }),
+                findUnique: jest.fn().mockResolvedValue(null),
                 findFirst: jest.fn().mockImplementation(async () => ({ effectReceipt })),
             },
             message_trigger_rule: { upsert: jest.fn().mockResolvedValue(undefined) },
@@ -152,6 +153,53 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         await expect(preview.execute(context, input)).resolves.toEqual({ status: "preview", msgType: "LMS" });
         await expect(send.inspect!(context, input)).resolves.toEqual(expect.objectContaining({ estimatedCost: "LMS 요금제 기준" }));
         await expect(send.execute(context, input)).resolves.toEqual(expect.objectContaining({ status: "sent", msgType: "LMS" }));
+    });
+
+    it.each([
+        ["messages.sendSms", { receiver: "01012345678", message: "즉시 안내" }, "AI 문자 발송"],
+        ["messages.sendSms", { receiver: "01012345678", message: "즉시 안내", title: "명시적 즉시 제목" }, "명시적 즉시 제목"],
+        ["messages.scheduleSms", { receiver: "01012345678", message: "예약 안내", scheduledDate: "2099-08-03", scheduledTime: "12:00" }, "AI 예약 문자"],
+        ["messages.scheduleSms", { receiver: "01012345678", message: "예약 안내", title: "명시적 예약 제목", scheduledDate: "2099-08-03", scheduledTime: "12:00" }, "명시적 예약 제목"],
+    ])("uses one canonical title from proposal input through staged job and provider request (%s)", async (capabilityName, rawInput, expectedTitle) => {
+        const { capabilities, prisma, repository, smsDelivery, aligoService } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === capabilityName)!;
+        const actionRepository = {
+            createInActiveSession: jest.fn().mockImplementation(async (proposal: { proposal: unknown }) => ({
+                status: "created",
+                action: { proposal: proposal.proposal },
+            })),
+        };
+        const coordinator = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(capability) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            {} as never,
+            { assertActive: jest.fn().mockResolvedValue(undefined) } as never,
+            actionRepository as never,
+        );
+
+        await coordinator.propose({
+            sessionId: context.sessionId,
+            principal: context.principal as never,
+            capability: capabilityName,
+            input: rawInput,
+            locale: context.locale,
+            traceId: context.traceId,
+        });
+        const persisted = actionRepository.createInActiveSession.mock.calls[0]?.[0] as {
+            proposal: { input: Record<string, unknown> };
+        };
+        expect(persisted.proposal.input["title"]).toBe(expectedTitle);
+
+        const stagedResult = await capability.execute(context, persisted.proposal.input);
+        expect(stagedResult).toEqual(expect.objectContaining({ status: capabilityName === "messages.sendSms" ? "sent" : "scheduled" }));
+        const stagedJob = repository.upsertPending.mock.calls[0]?.[0] as MessageTriggerJobEntity;
+        expect(stagedJob.payload.templateVariables["title"]).toBe(persisted.proposal.input["title"]);
+
+        await smsDelivery.sendJob(stagedJob);
+        expect(aligoService.sendSms).toHaveBeenLastCalledWith(expect.objectContaining({
+            title: persisted.proposal.input["title"],
+        }));
     });
 
     it("returns a certain failed result for an explicit provider rejection", async () => {
