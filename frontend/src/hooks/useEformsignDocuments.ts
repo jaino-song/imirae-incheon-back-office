@@ -27,6 +27,8 @@ export const eformsignQueryKeys = {
   documents: () => ["eformsign-documents"] as const,
   documentsByType: (type: string) => ["eformsign-documents", type] as const,
   allDocuments: () => ["eformsign-documents", "all"] as const,
+  clientCandidate: (documentId: string) =>
+    ["eformsign-client-candidate", documentId] as const,
 };
 
 // Fetch all documents using unified backend endpoint (single request instead of 3)
@@ -159,5 +161,17 @@ export function useDeleteEformsignDocument() {
     // before its vendor request or local cleanup reports an error. Do not
     // restore that pre-delete snapshot; the invalidated local list is the
     // source of truth for whether the document remains safely hidden.
+  });
+}
+
+/** 미연결 계약서의 고객 등록 프리필 후보. documentId가 null이면 조회하지 않는다. */
+export function useContractClientCandidate(documentId: string | null) {
+  return useQuery({
+    queryKey: eformsignQueryKeys.clientCandidate(documentId ?? ""),
+    queryFn: () => eformsignApi.getDocumentClientCandidate(documentId!),
+    enabled: documentId !== null,
+    staleTime: 1000 * 60,
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 }

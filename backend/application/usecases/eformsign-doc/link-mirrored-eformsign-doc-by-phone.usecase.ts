@@ -8,6 +8,7 @@ import { SystemSettingService } from "application/services/system-setting.servic
 import {
     extractEformsignContractClientCandidate,
     formatNormalizedKoreanPhone,
+    toEformsignDocumentDetail,
 } from "application/utils/eformsign-contract-client-candidate";
 import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 import {
@@ -144,7 +145,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             return result;
         }
 
-        const detail = toDocumentDetail(document.detailPayload);
+        const detail = toEformsignDocumentDetail(document.detailPayload);
         const candidate = detail
             ? extractEformsignContractClientCandidate(detail)
             : null;
@@ -310,7 +311,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (this.isServiceRecord(document)) return { status: "skipped" };
                         if (document.clientId !== null) return { status: "already_linked" };
 
-                        const detail = toDocumentDetail(document.detailPayload);
+                        const detail = toEformsignDocumentDetail(document.detailPayload);
                         const candidate = detail
                             ? extractEformsignContractClientCandidate(detail)
                             : null;
@@ -721,12 +722,6 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             );
         }
     }
-}
-
-function toDocumentDetail(value: Prisma.JsonValue | null): EformsignApiDocumentResponse | null {
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-        ? value as unknown as EformsignApiDocumentResponse
-        : null;
 }
 
 function singleLegacyPhone(value: string, hasDetail: boolean): string | null {

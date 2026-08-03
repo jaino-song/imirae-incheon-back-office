@@ -106,6 +106,8 @@ export interface CreateClientDto {
     reuseExistingClient?: boolean;
 }
 
+export type ClientFormData = Omit<CreateClientDto, "primaryEmployeeId"> & { primaryEmployeeId: number | null };
+
 // Update client DTO - Frontend sends employeeId, backend converts to scheduleId
 export interface UpdateClientDto {
     name?: string;

@@ -30,6 +30,7 @@ import {
 } from "application/services/eformsign-mirror-list.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { EformsignPermanentPurgeRequest } from "domain/repositories/eformsign-document-mirror.repository.interface";
+import { GetContractClientCandidateUsecase } from "application/usecases/eformsign-doc/get-contract-client-candidate.usecase";
 import {
     EformsignApiError,
     isEformsignDocumentAbsentError,
@@ -197,6 +198,7 @@ export class EformsignController {
         private readonly documentSnapshotService: EformsignDocumentSnapshotService,
         private readonly mirrorListService: EformsignMirrorListService,
         private readonly documentMirrorService: EformsignDocumentMirrorService,
+        private readonly getContractClientCandidateUsecase: GetContractClientCandidateUsecase,
     ) { }
 
     /**
@@ -828,6 +830,42 @@ export class EformsignController {
                 });
             }
             return document;
+        } catch (error) {
+            throwHttpOrInternalError(error);
+        }
+    }
+
+    /**
+     * Client-registration candidate extracted from a contract's stored detail.
+     * Mirrors the auto-registration extraction so manual and automatic
+     * registration always agree on the pre-filled values.
+     */
+    @Get("documents/:documentId/client-candidate")
+    async getDocumentClientCandidate(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Param("documentId") documentId: string,
+    ) {
+        try {
+            const allowedDocuments = await this.filterDocumentsByBranch(
+                tenant.branchId ?? "",
+                [{ id: documentId }],
+            );
+            if (allowedDocuments.length === 0) {
+                throw new HttpException(
+                    { error: "Document access forbidden" },
+                    HttpStatus.FORBIDDEN,
+                );
+            }
+
+            const candidate =
+                await this.getContractClientCandidateUsecase.execute(documentId);
+            if (!candidate) {
+                throw new HttpException(
+                    { error: "Document not found" },
+                    HttpStatus.NOT_FOUND,
+                );
+            }
+            return candidate;
         } catch (error) {
             throwHttpOrInternalError(error);
         }

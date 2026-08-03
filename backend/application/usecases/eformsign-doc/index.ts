@@ -5,6 +5,7 @@ export * from "./find-eformsign-docs-by-client-id.usecase";
 export * from "./list-eformsign-docs.usecase";
 export * from "./list-other-branch-document-ids.usecase";
 export * from "./list-eformsign-doc-display-fields.usecase";
+export * from "./get-contract-client-candidate.usecase";
 
 // Local DB use cases - Write
 export * from "./create-eformsign-doc.usecase";
