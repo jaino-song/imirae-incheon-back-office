@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { EmployeeEntity } from "domain/entities/employee.entity";
+import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { EmployeeWriteAgentCapabilitiesProvider } from "./employee-write-agent-capabilities.provider";
 
 const context = {
@@ -197,5 +199,55 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
         expect(transaction.agent_action.updateMany.mock.invocationCallOrder[0]).toBeGreaterThan(
             createEmployee.execute.mock.invocationCallOrder[0]!,
         );
+    });
+
+    it.each([
+        ["constraint name", "employee_branch_id_phone_key"],
+        ["branchId target fields", ["branchId", "phone"]],
+        ["branch_id target fields", ["branch_id", "phone"]],
+    ])("converts employee phone conflicts from %s into a certain failure without recording an effect", async (_label, target) => {
+        const { createEmployee, transaction, capabilities } = setup(null);
+        const conflict = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target },
+        });
+        createEmployee.execute.mockRejectedValue(conflict);
+        const create = capabilities.find((entry) => entry.meta.name === "employees.create")!;
+
+        const error = await create.execute(context, {
+            name: "홍길동",
+            workArea: ["서울"],
+            phone: "01012345678",
+            grade: "프리미엄",
+        }).catch((caught) => caught);
+
+        expect(error).toBeInstanceOf(AgentActionCertainFailureError);
+        expect(transaction.agent_action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["unrelated unique constraint", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target: ["email"] },
+        })],
+        ["different composite unique constraint", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target: ["branchId", "phone", "name"] },
+        })],
+        ["unrelated database error", new Error("database unavailable")],
+    ])("passes through %s unchanged", async (_label, error) => {
+        const { createEmployee, capabilities } = setup(null);
+        createEmployee.execute.mockRejectedValue(error);
+        const create = capabilities.find((entry) => entry.meta.name === "employees.create")!;
+
+        await expect(create.execute(context, {
+            name: "홍길동",
+            workArea: ["서울"],
+            phone: "01012345678",
+            grade: "프리미엄",
+        })).rejects.toBe(error);
     });
 });

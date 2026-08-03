@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
@@ -35,6 +36,19 @@ const EmployeeBirthdaySchema = z.string()
     .regex(/^\d{6}$/, "Birthday must be six numeric YYMMDD digits")
     .refine(isCalendarValidYymmdd, "Birthday must be a calendar-valid YYMMDD date")
     .optional();
+
+const EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT = "employee_branch_id_phone_key";
+
+function isEmployeeBranchPhoneUniqueViolation(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
+
+    const target = error.meta?.["target"];
+    if (target === EMPLOYEE_BRANCH_PHONE_UNIQUE_CONSTRAINT) return true;
+    if (!Array.isArray(target) || target.length !== 2) return false;
+
+    const fields = target.map(String);
+    return fields.includes("phone") && (fields.includes("branchId") || fields.includes("branch_id"));
+}
 
 const CreateEmployeeSchema = z.object({
     name: z.string().trim().min(1).max(100),
@@ -110,12 +124,19 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 formFields: EMPLOYEE_CREATE_FIELDS,
                 execute: async (context, rawInput) => {
                     const input = CreateEmployeeSchema.parse(rawInput);
-                    return this.prisma.$transaction(async (transaction) => {
-                        const employee = await this.createEmployee.execute(context.principal.branchId, input.name, input.workArea, input.phone, input.grade, input.openToNextWork, undefined, input.birthday, transaction);
-                        const result = { id: employee.id, name: employee.name, status: "created" };
-                        await recordAgentActionEffect(transaction, context, "employees.create", "employee", employee.id, result);
-                        return result;
-                    });
+                    try {
+                        return await this.prisma.$transaction(async (transaction) => {
+                            const employee = await this.createEmployee.execute(context.principal.branchId, input.name, input.workArea, input.phone, input.grade, input.openToNextWork, undefined, input.birthday, transaction);
+                            const result = { id: employee.id, name: employee.name, status: "created" };
+                            await recordAgentActionEffect(transaction, context, "employees.create", "employee", employee.id, result);
+                            return result;
+                        });
+                    } catch (error) {
+                        if (isEmployeeBranchPhoneUniqueViolation(error)) {
+                            throw new AgentActionCertainFailureError("An employee with this phone already exists in this branch");
+                        }
+                        throw error;
+                    }
                 },
                 reconcile: async (context) => {
                     const receipt = await readAgentActionEffect(this.prisma, context, "employees.create");
