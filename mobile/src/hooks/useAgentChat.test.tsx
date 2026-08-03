@@ -205,4 +205,133 @@ describe("mobile useAgentChat", () => {
             { id: "message-b", role: "assistant", parts: [{ type: "text", text: "최신 대화" }] },
         ]);
     });
+
+    it("ignores a pending selection after its target is deleted", async () => {
+        let releaseSessionB: (() => void) | undefined;
+        let markSessionBJsonStarted: (() => void) | undefined;
+        const sessionBJsonStarted = new Promise<void>((resolve) => { markSessionBJsonStarted = resolve; });
+        const sessionA = {
+            id: "session-a", title: "현재 대화", updatedAt: "2026-08-03",
+            messages: [{ id: "message-a", role: "assistant", parts: [{ type: "text", text: "현재 대화" }] }],
+        };
+        const sessionB = {
+            id: "session-b", title: "삭제할 대화", updatedAt: "2026-08-04",
+            messages: [{ id: "message-b", role: "assistant", parts: [{ type: "text", text: "삭제할 대화" }] }],
+        };
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+            const url = String(input);
+            if (url.endsWith("/sessions/session-a") && !init?.method) {
+                return { ok: true, json: async () => sessionA } as Response;
+            }
+            if (url.endsWith("/sessions/session-b") && init?.method === "DELETE") {
+                return { ok: true } as Response;
+            }
+            if (url.endsWith("/sessions/session-b") && !init?.method) {
+                return {
+                    ok: true,
+                    json: async () => {
+                        markSessionBJsonStarted?.();
+                        await new Promise<void>((resolve) => { releaseSessionB = resolve; });
+                        return sessionB;
+                    },
+                } as Response;
+            }
+            return { ok: true, json: async () => [] } as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        await act(async () => { await result.current.selectSession("session-a"); });
+        let selectionB: Promise<void> | undefined;
+        await act(async () => {
+            selectionB = result.current.selectSession("session-b");
+            await sessionBJsonStarted;
+        });
+
+        await act(async () => { await result.current.deleteSession("session-b"); });
+        releaseSessionB?.();
+        await act(async () => { await selectionB; });
+
+        expect(window.sessionStorage.getItem("agent_session_id")).toBe("session-a");
+        expect(result.current.messages).toEqual(sessionA.messages);
+    });
+
+    it("does not let a stale selection cleanup clear a newer pending selection", async () => {
+        let releaseSessionA: (() => void) | undefined;
+        let releaseSessionB: (() => void) | undefined;
+        let markSessionAJsonStarted: (() => void) | undefined;
+        let markSessionBJsonStarted: (() => void) | undefined;
+        const sessionAJsonStarted = new Promise<void>((resolve) => { markSessionAJsonStarted = resolve; });
+        const sessionBJsonStarted = new Promise<void>((resolve) => { markSessionBJsonStarted = resolve; });
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+            const url = String(input);
+            if (url.endsWith("/sessions/session-a") && !init?.method) {
+                return {
+                    ok: true,
+                    json: async () => {
+                        markSessionAJsonStarted?.();
+                        await new Promise<void>((resolve) => { releaseSessionA = resolve; });
+                        return { id: "session-a", title: "느린 대화", updatedAt: "2026-08-03", messages: [] };
+                    },
+                } as Response;
+            }
+            if (url.endsWith("/sessions/session-b") && init?.method === "DELETE") {
+                return { ok: true } as Response;
+            }
+            if (url.endsWith("/sessions/session-b") && !init?.method) {
+                return {
+                    ok: true,
+                    json: async () => {
+                        markSessionBJsonStarted?.();
+                        await new Promise<void>((resolve) => { releaseSessionB = resolve; });
+                        return {
+                            id: "session-b", title: "최신 대화", updatedAt: "2026-08-04",
+                            messages: [{ id: "message-b", role: "assistant", parts: [{ type: "text", text: "최신 대화" }] }],
+                        };
+                    },
+                } as Response;
+            }
+            return { ok: true, json: async () => [] } as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        let selectionA: Promise<void> | undefined;
+        await act(async () => {
+            selectionA = result.current.selectSession("session-a");
+            await sessionAJsonStarted;
+        });
+        let selectionB: Promise<void> | undefined;
+        await act(async () => {
+            selectionB = result.current.selectSession("session-b");
+            await sessionBJsonStarted;
+        });
+
+        releaseSessionA?.();
+        await act(async () => { await selectionA; });
+        await act(async () => { await result.current.deleteSession("session-b"); });
+        releaseSessionB?.();
+        await act(async () => { await selectionB; });
+
+        expect(window.sessionStorage.getItem("agent_session_id")).toBeNull();
+        expect(result.current.messages).toEqual([]);
+    });
+
+    it.each([
+        ["execution_failed", "failed", "nothing-happened", "승인 작업을 완료하지 못했습니다."],
+        ["provider_reported_failure", "failed", "partial", "일부 단계가 실행되었을 수 있습니다."],
+        ["provider_uncertain", "executing", "partial", "일부 단계가 실행되었을 수 있습니다."],
+    ] as const)("preserves action error code for %s and classifies %s conservatively", async (errorCode, status, effectState, message) => {
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url.endsWith("/approve")) return { ok: false } as Response;
+            if (url.endsWith("/actions/action-outcome")) {
+                return { ok: true, json: async () => ({ status, error: { code: errorCode } }) } as Response;
+            }
+            return { ok: true, json: async () => [] } as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        await act(async () => { await result.current.approveAction("action-outcome", "revision-a"); });
+
+        expect(result.current.errorState).toEqual({ code: errorCode, message, effectState });
+    });
 });

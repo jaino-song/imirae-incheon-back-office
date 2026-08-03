@@ -9,6 +9,25 @@ export type MobileAgentSessionSummary = { id: string; title: string | null; upda
 export type MobileAgentError = { code: string; message: string; effectState: "nothing-happened" | "succeeded-unconfirmed" | "partial" };
 const AGENT_SESSION_KEY = "agent_session_id";
 
+function readActionErrorCode(error: unknown): string | undefined {
+    if (!error || typeof error !== "object" || Array.isArray(error)) return undefined;
+    const code = (error as Record<string, unknown>).code;
+    return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+function actionErrorFromStatus(status: unknown, serverErrorCode: string | undefined, fallbackMessage: string): MobileAgentError {
+    if (status === "uncertain" || status === "succeeded") {
+        return { code: serverErrorCode ?? "action_unconfirmed", message: "최종 결과를 기록에서 확인해 주세요.", effectState: "succeeded-unconfirmed" };
+    }
+    if (status === "failed" && serverErrorCode === "execution_failed") {
+        return { code: serverErrorCode, message: fallbackMessage, effectState: "nothing-happened" };
+    }
+    if (status === "failed" || status === "executing") {
+        return { code: serverErrorCode ?? "action_partial", message: "일부 단계가 실행되었을 수 있습니다.", effectState: "partial" };
+    }
+    return { code: serverErrorCode ?? "action_failed", message: fallbackMessage, effectState: "nothing-happened" };
+}
+
 function makeId(): string { return `mobile-agent-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 
 function isTruthy(value: string | undefined): boolean {
@@ -37,6 +56,7 @@ export function useAgentChat() {
     const [sessions, setSessions] = useState<MobileAgentSessionSummary[]>([]);
     const [errorState, setErrorState] = useState<MobileAgentError | null>(null);
     const sessionId = useRef<string | undefined>(undefined);
+    const pendingSessionId = useRef<string | undefined>(undefined);
     const abortRef = useRef<AbortController | null>(null);
     const operationEpochRef = useRef(0);
 
@@ -57,6 +77,7 @@ export function useAgentChat() {
         setMessages(nextMessages);
         setErrorState(null);
         setStatus("streaming");
+        pendingSessionId.current = undefined;
         const controller = new AbortController();
         const operationEpoch = ++operationEpochRef.current;
         abortRef.current = controller;
@@ -118,25 +139,32 @@ export function useAgentChat() {
     const stop = useCallback(() => abortRef.current?.abort(), []);
     const selectSession = useCallback(async (id: string) => {
         const operationEpoch = ++operationEpochRef.current;
+        pendingSessionId.current = id;
         abortRef.current?.abort();
         abortRef.current = null;
         setStatus("ready");
-        const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(id)}`, { credentials: "same-origin" });
-        if (operationEpoch !== operationEpochRef.current) return;
-        if (!response.ok) {
-            if (sessionId.current === id) sessionId.current = undefined;
-            if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === id) {
-                window.sessionStorage.removeItem(AGENT_SESSION_KEY);
+        try {
+            const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(id)}`, { credentials: "same-origin" });
+            if (operationEpoch !== operationEpochRef.current) return;
+            if (!response.ok) {
+                if (sessionId.current === id) sessionId.current = undefined;
+                if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === id) {
+                    window.sessionStorage.removeItem(AGENT_SESSION_KEY);
+                }
+                setStatus("ready");
+                return;
             }
+            const session = await response.json() as MobileAgentSessionSummary;
+            if (operationEpoch !== operationEpochRef.current) return;
+            sessionId.current = session.id;
+            if (typeof window !== "undefined") window.sessionStorage.setItem(AGENT_SESSION_KEY, session.id);
+            setMessages(session.messages ?? []);
             setStatus("ready");
-            return;
+        } finally {
+            if (pendingSessionId.current === id && operationEpoch === operationEpochRef.current) {
+                pendingSessionId.current = undefined;
+            }
         }
-        const session = await response.json() as MobileAgentSessionSummary;
-        if (operationEpoch !== operationEpochRef.current) return;
-        sessionId.current = session.id;
-        if (typeof window !== "undefined") window.sessionStorage.setItem(AGENT_SESSION_KEY, session.id);
-        setMessages(session.messages ?? []);
-        setStatus("ready");
     }, []);
 
     useEffect(() => {
@@ -160,10 +188,8 @@ export function useAgentChat() {
         try {
             const response = await fetch(`/api/ai/agent/actions/${encodeURIComponent(actionId)}`, { credentials: "same-origin" });
             if (!response.ok) return { code: "action_unconfirmed", message: "작업 기록을 확인하지 못했습니다.", effectState: "succeeded-unconfirmed" };
-            const action = await response.json() as { status?: unknown };
-            if (action.status === "failed" || action.status === "executing") return { code: "action_partial", message: "일부 단계가 실행되었을 수 있습니다.", effectState: "partial" };
-            if (action.status === "succeeded" || action.status === "uncertain") return { code: "action_unconfirmed", message: "최종 결과를 기록에서 확인해 주세요.", effectState: "succeeded-unconfirmed" };
-            return { code: "action_failed", message: fallbackMessage, effectState: "nothing-happened" };
+            const action = await response.json() as { status?: unknown; error?: unknown };
+            return actionErrorFromStatus(action.status, readActionErrorCode(action.error), fallbackMessage);
         } catch {
             return { code: "action_unconfirmed", message: "작업 기록을 확인하지 못했습니다.", effectState: "succeeded-unconfirmed" };
         }
@@ -200,6 +226,7 @@ export function useAgentChat() {
         const userMessage = { id: makeId(), role: "user" as const, parts: [{ type: "data-form-submit", data: { formId, values } }] } as MobileAgentMessage;
         setMessages((current) => [...current, userMessage]);
         setStatus("streaming");
+        pendingSessionId.current = undefined;
         const controller = new AbortController();
         const operationEpoch = ++operationEpochRef.current;
         abortRef.current = controller;
@@ -226,20 +253,28 @@ export function useAgentChat() {
 
     const deleteSession = useCallback(async (id: string) => {
         const deletingActiveSession = sessionId.current === id;
-        const operationEpoch = deletingActiveSession ? ++operationEpochRef.current : operationEpochRef.current;
-        if (deletingActiveSession) {
+        const deletingPendingSession = pendingSessionId.current === id;
+        const invalidatesSessionOperation = deletingActiveSession || deletingPendingSession;
+        const operationEpoch = invalidatesSessionOperation ? ++operationEpochRef.current : operationEpochRef.current;
+        if (invalidatesSessionOperation) {
             abortRef.current?.abort();
             abortRef.current = null;
             setStatus("ready");
         }
-        const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
-        if (!response.ok) return;
-        if (deletingActiveSession && operationEpoch === operationEpochRef.current && sessionId.current === id) {
-            sessionId.current = undefined;
-            if (typeof window !== "undefined") window.sessionStorage.removeItem(AGENT_SESSION_KEY);
-            setMessages([]);
+        try {
+            const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" });
+            if (!response.ok) return;
+            if (deletingActiveSession && operationEpoch === operationEpochRef.current && sessionId.current === id) {
+                sessionId.current = undefined;
+                if (typeof window !== "undefined") window.sessionStorage.removeItem(AGENT_SESSION_KEY);
+                setMessages([]);
+            }
+            await refreshSessions();
+        } finally {
+            if (pendingSessionId.current === id && operationEpoch === operationEpochRef.current) {
+                pendingSessionId.current = undefined;
+            }
         }
-        await refreshSessions();
     }, [refreshSessions]);
 
     const submitFeedback = useCallback(async (messageId: string, type: "positive" | "negative", comment?: string) => {
@@ -253,6 +288,7 @@ export function useAgentChat() {
     const resetBranch = useCallback(() => {
         operationEpochRef.current += 1;
         stop();
+        pendingSessionId.current = undefined;
         sessionId.current = undefined;
         if (typeof window !== "undefined") window.sessionStorage.removeItem(AGENT_SESSION_KEY);
         setMessages([]);
