@@ -8,7 +8,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   return proxyLocalGetRequest(
     request,
-    `/api/documents/${documentId}/client-candidate`,
+    `/api/documents/${encodeURIComponent(documentId)}/client-candidate`,
     "fetch eformsign contract client candidate"
   );
 }

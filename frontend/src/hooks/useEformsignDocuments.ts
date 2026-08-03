@@ -28,7 +28,7 @@ export const eformsignQueryKeys = {
   documentsByType: (type: string) => ["eformsign-documents", type] as const,
   allDocuments: () => ["eformsign-documents", "all"] as const,
   clientCandidate: (documentId: string) =>
-    ["eformsign-documents", "client-candidate", documentId] as const,
+    ["eformsign-client-candidate", documentId] as const,
 };
 
 // Fetch all documents using unified backend endpoint (single request instead of 3)
@@ -170,7 +170,8 @@ export function useContractClientCandidate(documentId: string | null) {
     queryKey: eformsignQueryKeys.clientCandidate(documentId ?? ""),
     queryFn: () => eformsignApi.getDocumentClientCandidate(documentId!),
     enabled: documentId !== null,
-    staleTime: 0,
-    retry: 1,
+    staleTime: 1000 * 60,
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 }

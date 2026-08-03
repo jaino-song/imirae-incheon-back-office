@@ -182,7 +182,7 @@ export const eformsignApi = {
     },
     getDocumentClientCandidate: async (documentId: string) => {
         const { data } = await api.get(
-            `/eformsign/documents/${documentId}/client-candidate`
+            `/eformsign/documents/${encodeURIComponent(documentId)}/client-candidate`
         );
         return data as EformsignContractClientCandidateResponse;
     },
