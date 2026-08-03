@@ -79,6 +79,30 @@ describe("AgentFlagsService", () => {
         })).resolves.toBe(false);
     });
 
+    it.each([
+        ["AGENT_WRITE_ENABLED", "reversible-write"],
+        ["AGENT_WRITE_ENABLED", "irreversible-write"],
+        ["AGENT_EXTERNAL_ENABLED", "external-side-effect"],
+        ["AGENT_EXTERNAL_ENABLED", "paid-action"],
+        ["AGENT_PRIVILEGED_ENABLED", "privileged-administration"],
+    ] as const)("keeps %s authoritative over a persisted true %s risk", async (environmentFlag, risk) => {
+        const config = new ConfigService({ NODE_ENV: "development", [environmentFlag]: "false" });
+        jest.spyOn(getSetting, "execute").mockResolvedValue(JSON.stringify({
+            enabled: true,
+            rolloutStage: "development",
+            risks: { [risk]: true },
+        }));
+        const service = new AgentFlagsService(config, getSetting, updateSetting);
+
+        const first = await service.getConfig();
+        const second = await service.getConfig();
+
+        expect(first.risks[risk]).toBe(false);
+        expect(second.risks[risk]).toBe(false);
+        expect(getSetting.execute).toHaveBeenCalledWith("agent.flags");
+        expect(getSetting.execute).toHaveBeenCalledTimes(1);
+    });
+
     it("fails closed in production when enabled flags have no explicit rollout allowlist", async () => {
         const config = new ConfigService({ NODE_ENV: "production", AGENT_ENABLED: "true", AGENT_READ_ENABLED: "true" });
         jest.spyOn(getSetting, "execute").mockResolvedValue(JSON.stringify({

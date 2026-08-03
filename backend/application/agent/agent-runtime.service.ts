@@ -21,7 +21,7 @@ import { CapabilityRegistryService } from "./capability-registry.service";
 import { CapabilityRouterService } from "./capability-router.service";
 import { AgentTraceService } from "./agent-trace.service";
 import { ActionCoordinatorService } from "./action-coordinator.service";
-import { AgentIntelligenceService, AgentSessionSummarySchema } from "./agent-intelligence.service";
+import { AgentIntelligenceService, AgentSessionSummarySchema, LegacyAgentSessionSummarySchema } from "./agent-intelligence.service";
 import { redactFreeText, redactModelValue } from "./agent-model-redaction";
 
 export { redactFreeText, redactModelValue } from "./agent-model-redaction";
@@ -69,8 +69,11 @@ function findFormSubmission(messages: BjjUIMessage[]): FormSubmission | undefine
 function parseSessionSummary(value: string | null) {
     if (!value) return null;
     try {
-        const parsed = AgentSessionSummarySchema.safeParse(JSON.parse(value));
-        return parsed.success ? parsed.data : null;
+        const raw = JSON.parse(value);
+        const parsed = AgentSessionSummarySchema.safeParse(raw);
+        if (parsed.success) return parsed.data;
+        const legacy = LegacyAgentSessionSummarySchema.safeParse(raw);
+        return legacy.success ? legacy.data : null;
     } catch {
         return null;
     }

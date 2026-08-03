@@ -982,4 +982,52 @@ describe("ActionCoordinatorService", () => {
             expect.objectContaining({ id: `agent-action-result:${uncertain.id}` }),
         );
     });
+
+    it("advances every attempted uncertain action so repeated sweeps remain fair beyond the page size", async () => {
+        const initialUpdatedAt = new Date("2026-08-03T00:00:00.000Z");
+        const records = Array.from({ length: 120 }, (_, index) => actionRecord({
+            id: `uncertain-${String(index).padStart(3, "0")}`,
+            status: "uncertain",
+            updatedAt: initialUpdatedAt,
+        }));
+        const attempted = new Set<string>();
+        const prisma = {
+            agent_action: {
+                findMany: jest.fn().mockImplementation(async ({ take }: { take: number }) => records
+                    .filter((record) => record.status === "uncertain")
+                    .sort((left, right) => left.updatedAt.getTime() - right.updatedAt.getTime() || left.id.localeCompare(right.id))
+                    .slice(0, take)),
+                updateMany: jest.fn().mockImplementation(async ({ where, data }: { where: { id: string; status: string }; data: { updatedAt: Date } }) => {
+                    const record = records.find((candidate) => candidate.id === where.id && candidate.status === where.status);
+                    if (!record) return { count: 0 };
+                    attempted.add(record.id);
+                    record.updatedAt = data.updatedAt;
+                    return { count: 1 };
+                }),
+            },
+        };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(capability()) } as never,
+            { isCapabilityEnabled: jest.fn() } as never,
+            {
+                isAvailable: jest.fn().mockReturnValue(true),
+                runExclusive: jest.fn(async (callback: (lease: { isHeld(): boolean }) => Promise<number>) => callback({ isHeld: () => true })),
+            } as never,
+            sessionPersistence() as never,
+            actionPersistence() as never,
+        );
+
+        await service.reconcileUncertainActions();
+        await service.reconcileUncertainActions();
+        await service.reconcileUncertainActions();
+
+        expect(attempted).toHaveProperty("size", 120);
+        expect(prisma.agent_action.findMany).toHaveBeenCalledTimes(3);
+        expect(prisma.agent_action.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+            take: 50,
+        }));
+        expect(prisma.agent_action.updateMany.mock.calls.length).toBeGreaterThanOrEqual(120);
+    });
 });

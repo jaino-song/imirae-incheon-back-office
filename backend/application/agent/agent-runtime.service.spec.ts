@@ -200,6 +200,57 @@ describe("AgentRuntimeService", () => {
         expect(messages.map((message) => message.id)).toEqual(["newer", "current"]);
     });
 
+    it("dual-reads a legacy summary while preserving its covered message count", async () => {
+        const capability = buildEntityCapability("clients.search", "clients", jest.fn().mockResolvedValue({
+            kind: "entity",
+            entity: { id: 1, name: "홍길동" },
+        }));
+        const legacySummary = JSON.stringify({
+            version: "summary-v2",
+            sourceMessageCount: 1,
+            sourceMessageIds: ["persisted"],
+            unresolvedActions: [],
+            selectedEntities: {},
+            goals: ["기존 목표"],
+            policyCatalogVersion: "legacy",
+        });
+        const sessions = {
+            get: jest.fn().mockResolvedValue({
+                id: "session-legacy",
+                summary: legacySummary,
+                selectedEntities: {},
+                messages: [{ id: "persisted", role: "user", parts: [{ type: "text", text: "이전 질문" }] }],
+            }),
+            update: jest.fn().mockResolvedValue(undefined),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const model = new DeterministicAgentLanguageModel([{ type: "text", text: "확인했습니다." }]);
+        const modelStream = jest.spyOn(model, "doStream");
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => model } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-legacy", startedAt: Date.now() }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-legacy",
+            locale: "ko",
+            messages: [{ id: "current", role: "user", parts: [{ type: "text", text: "후속 질문" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the UI message stream so completion persistence runs.
+        }
+
+        const systemPrompt = (modelStream.mock.calls[0]?.[0] as { prompt?: Array<{ role: string; content: string }> }).prompt?.[0]?.content;
+        expect(systemPrompt).toContain('"sourceMessageCount":1');
+        expect(sessions.appendMessages).toHaveBeenCalled();
+    });
+
     it("keeps canonical write-tool field guidance while allowing missing fields", () => {
         const schema = buildWriteToolInputSchema(z.object({
             receiver: z.string().describe("Recipient phone"),

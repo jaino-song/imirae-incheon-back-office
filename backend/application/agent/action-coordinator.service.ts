@@ -614,14 +614,17 @@ export class ActionCoordinatorService {
             if (!lease.isHeld()) return 0;
             const records = await this.prisma.agent_action.findMany({
                 where: { status: "uncertain" },
-                orderBy: { updatedAt: "asc" },
+                orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
                 take: 50,
             });
             let reconciled = 0;
             for (const record of records) {
                 try {
                     const capability = this.registry.get(record.capability);
-                    if (!capability.reconcile) continue;
+                    if (!capability.reconcile) {
+                        await this.advanceUncertainAction(record.id, record.updatedAt);
+                        continue;
+                    }
                     const authorization = jsonObject(record.authorizationContext);
                     const principal: VerifiedTenantPrincipal = {
                         userId: record.userId,
@@ -631,13 +634,34 @@ export class ActionCoordinatorService {
                     };
                     const outcome = await this.reconcile(record.id, principal);
                     if (outcome.status !== "uncertain") reconciled += 1;
+                    else await this.advanceUncertainAction(record.id, record.updatedAt);
                 } catch {
                     // A status lookup failure leaves the action uncertain. It must
                     // never be converted to failed or retried as a side effect.
+                    await this.advanceUncertainAction(record.id, record.updatedAt);
                 }
             }
             return reconciled;
         });
+    }
+
+    /**
+     * Move an attempted unresolved record behind the current sweep cursor. A
+     * missing reconciler, provider lookup error, or still-uncertain result must
+     * not permanently occupy the first page of a bounded sweep.
+     */
+    private async advanceUncertainAction(id: string, previousUpdatedAt?: Date): Promise<void> {
+        try {
+            const now = Date.now();
+            const previous = previousUpdatedAt?.getTime() ?? 0;
+            await this.prisma.agent_action.updateMany({
+                where: { id, status: "uncertain" },
+                data: { updatedAt: new Date(Math.max(now, previous + 1)) },
+            });
+        } catch {
+            // Preserve the original uncertain outcome if the cursor update is
+            // unavailable; the next sweep can retry the bookkeeping.
+        }
     }
 
     async diagnostics(): Promise<{ pending: number; uncertain: number; succeeded: number; failed: number }> {

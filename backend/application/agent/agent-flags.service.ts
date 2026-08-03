@@ -9,6 +9,11 @@ import type { VerifiedTenantPrincipal } from "infrastructure/tenant/tenant.conte
 const AGENT_FLAGS_SETTING_KEY = "agent.flags";
 const AGENT_EMERGENCY_DISABLED_SETTING_KEY = "agent.flags.emergency-disabled";
 const CACHE_TTL_MS = 30_000;
+const ENVIRONMENT_RISK_KILL_SWITCHES = [
+    { env: "AGENT_WRITE_ENABLED", risks: ["reversible-write", "irreversible-write"] },
+    { env: "AGENT_EXTERNAL_ENABLED", risks: ["external-side-effect", "paid-action"] },
+    { env: "AGENT_PRIVILEGED_ENABLED", risks: ["privileged-administration"] },
+] as const;
 
 const AgentFlagsConfigSchema = z.object({
     enabled: z.boolean(),
@@ -56,15 +61,10 @@ export class AgentFlagsService {
 
         // Environment kill switches are authoritative so an emergency rollback
         // cannot be undone by a cached or owner-persisted setting.
-        if (this.configService.get<string>("AGENT_ENABLED")?.trim().toLowerCase() === "false") {
-            value.enabled = false;
-        }
-        if (this.configService.get<string>("AGENT_READ_ENABLED")?.trim().toLowerCase() === "false") {
-            value.risks["read"] = false;
-        }
+        const effective = this.applyEnvironmentKillSwitches(value);
 
-        this.cache = { value, expiresAt: now + CACHE_TTL_MS };
-        return value;
+        this.cache = { value: effective, expiresAt: now + CACHE_TTL_MS };
+        return effective;
     }
 
     async updateConfig(input: unknown): Promise<AgentFlagsConfig> {
@@ -85,7 +85,7 @@ export class AgentFlagsService {
             await this.updateSettingUsecase.execute(AGENT_EMERGENCY_DISABLED_SETTING_KEY, "false");
         }
         this.cache = null;
-        return value;
+        return this.applyEnvironmentKillSwitches(value);
     }
 
     async isCapabilityEnabled(
@@ -130,6 +130,28 @@ export class AgentFlagsService {
     private async isEmergencyDisabled(): Promise<boolean> {
         const value = await this.getSettingUsecase.execute(AGENT_EMERGENCY_DISABLED_SETTING_KEY);
         return value?.trim().toLowerCase() === "true";
+    }
+
+    private applyEnvironmentKillSwitches(value: AgentFlagsConfig): AgentFlagsConfig {
+        const effective: AgentFlagsConfig = {
+            ...value,
+            domains: { ...value.domains },
+            capabilities: { ...value.capabilities },
+            risks: { ...value.risks },
+            branchAllowlist: [...value.branchAllowlist],
+            userAllowlist: [...value.userAllowlist],
+        };
+        if (this.isExplicitlyDisabled("AGENT_ENABLED")) effective.enabled = false;
+        if (this.isExplicitlyDisabled("AGENT_READ_ENABLED")) effective.risks["read"] = false;
+        for (const killSwitch of ENVIRONMENT_RISK_KILL_SWITCHES) {
+            if (!this.isExplicitlyDisabled(killSwitch.env)) continue;
+            for (const risk of killSwitch.risks) effective.risks[risk] = false;
+        }
+        return effective;
+    }
+
+    private isExplicitlyDisabled(name: string): boolean {
+        return this.configService.get<string>(name)?.trim().toLowerCase() === "false";
     }
 
     private isRolloutStageAllowed(
