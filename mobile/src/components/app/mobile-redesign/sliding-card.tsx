@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactElement, ReactNode, TransitionEvent } from "react";
+import type {
+  PointerEvent as ReactPointerEvent,
+  ReactElement,
+  ReactNode,
+  TransitionEvent,
+} from "react";
 import { ChevronLeft } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -10,6 +15,23 @@ import styles from "./sliding-card.module.css";
 
 const SLIDING_CARD_SOURCE_COMPONENT = "SlidingCard";
 const DETAIL_CACHE_CLEAR_FALLBACK_MS = 450;
+const SWIPE_EDGE_WIDTH_PX = 28;
+const SWIPE_CLAIM_DISTANCE_PX = 8;
+const SWIPE_COMMIT_DISTANCE_RATIO = 0.35;
+const SWIPE_COMMIT_VELOCITY_PX_PER_MS = 0.5;
+
+interface GestureState {
+  pointerId: number | null;
+  startX: number;
+  startY: number;
+  claimed: boolean;
+  lastX: number;
+  lastT: number;
+  prevX: number;
+  prevT: number;
+  width: number;
+  candidate: boolean;
+}
 
 interface CachedDetail {
   detailKey: string;
@@ -39,7 +61,22 @@ export function SlidingCard({
 }: SlidingCardProps): ReactElement {
   const detailBodyRef = useRef<HTMLDivElement>(null);
   const detailPaneRef = useRef<HTMLDivElement>(null);
+  const listPaneRef = useRef<HTMLDivElement>(null);
+  const listDimRef = useRef<HTMLDivElement>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
+  const gestureRef = useRef<GestureState>({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    claimed: false,
+    lastX: 0,
+    lastT: 0,
+    prevX: 0,
+    prevT: 0,
+    width: 0,
+    candidate: false,
+  });
+  const suppressClickRef = useRef(false);
   const lastListFocusRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const previousOpenRef = useRef(false);
@@ -47,6 +84,7 @@ export function SlidingCard({
   const cacheClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const [isDragging, setIsDragging] = useState(false);
   const [cachedDetail, setCachedDetail] = useState<CachedDetail | null>(() =>
     open && detailKey !== null && detail !== null
       ? { detailKey, detail }
@@ -129,6 +167,133 @@ export function SlidingCard({
     clearCachedDetail();
   };
 
+  const clearGestureStyles = () => {
+    detailPaneRef.current?.style.removeProperty("transform");
+    listPaneRef.current?.style.removeProperty("transform");
+    listDimRef.current?.style.removeProperty("opacity");
+  };
+
+  const handleDetailPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!open || !event.isPrimary) {
+      return;
+    }
+
+    const pane = detailPaneRef.current;
+    if (pane === null) {
+      return;
+    }
+
+    const rect = pane.getBoundingClientRect();
+    const scale =
+      parseFloat(
+        getComputedStyle(pane).getPropertyValue("--glint-ui-scale"),
+      ) || 1;
+    const edge = SWIPE_EDGE_WIDTH_PX * scale;
+
+    gestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      claimed: false,
+      lastX: event.clientX,
+      lastT: event.timeStamp,
+      prevX: event.clientX,
+      prevT: event.timeStamp,
+      width: rect.width,
+      candidate: event.clientX - rect.left <= edge,
+    };
+  };
+
+  const handleDetailPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const gesture = gestureRef.current;
+    if (!gesture.candidate || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const rawDx = event.clientX - gesture.startX;
+    const dy = event.clientY - gesture.startY;
+
+    if (
+      !gesture.claimed &&
+      rawDx > SWIPE_CLAIM_DISTANCE_PX &&
+      Math.abs(rawDx) > Math.abs(dy)
+    ) {
+      gesture.claimed = true;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      setIsDragging(true);
+    }
+
+    if (!gesture.claimed || gesture.width <= 0) {
+      return;
+    }
+
+    const dx = Math.min(Math.max(rawDx, 0), gesture.width);
+    const progress = dx / gesture.width;
+
+    if (detailPaneRef.current !== null) {
+      detailPaneRef.current.style.transform = `translateX(${dx}px)`;
+    }
+    if (listPaneRef.current !== null) {
+      listPaneRef.current.style.transform = `translateX(${-30 + progress * 30}%)`;
+    }
+    if (listDimRef.current !== null) {
+      listDimRef.current.style.opacity = String(1 - progress);
+    }
+
+    gesture.prevX = gesture.lastX;
+    gesture.prevT = gesture.lastT;
+    gesture.lastX = event.clientX;
+    gesture.lastT = event.timeStamp;
+  };
+
+  const finishDetailGesture = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    cancelled: boolean,
+  ) => {
+    const gesture = gestureRef.current;
+    if (gesture.pointerId !== event.pointerId) {
+      return;
+    }
+
+    gestureRef.current = {
+      ...gesture,
+      pointerId: null,
+      claimed: false,
+      candidate: false,
+    };
+
+    if (!gesture.claimed) {
+      return;
+    }
+
+    const dx = Math.min(
+      Math.max(event.clientX - gesture.startX, 0),
+      gesture.width,
+    );
+    const velocitySampleDuration = gesture.lastT - gesture.prevT;
+    const velocity =
+      velocitySampleDuration > 0
+        ? (gesture.lastX - gesture.prevX) / velocitySampleDuration
+        : 0;
+    const shouldCommit =
+      !cancelled &&
+      (dx > SWIPE_COMMIT_DISTANCE_RATIO * gesture.width ||
+        velocity > SWIPE_COMMIT_VELOCITY_PX_PER_MS);
+
+    clearGestureStyles();
+    setIsDragging(false);
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+
+    if (shouldCommit) {
+      suppressClickRef.current = true;
+      onBack();
+    }
+  };
+
   if (
     open &&
     detailKey !== null &&
@@ -153,11 +318,16 @@ export function SlidingCard({
         className={styles.stage}
       >
         <div
+          ref={listPaneRef}
           data-component={`${dataComponent}_stage_list-pane`}
           data-slot="list-pane"
           aria-hidden={open}
           inert={open || undefined}
-          className={cn(styles.listPane, open && styles.listPaneOpen)}
+          className={cn(
+            styles.listPane,
+            open && styles.listPaneOpen,
+            isDragging && styles.dragging,
+          )}
           onFocusCapture={(event) => {
             if (event.target instanceof HTMLElement) {
               lastListFocusRef.current = event.target;
@@ -166,9 +336,14 @@ export function SlidingCard({
         >
           {list}
           <div
+            ref={listDimRef}
             data-slot="list-dim"
             aria-hidden="true"
-            className={cn(styles.listDim, open && styles.listDimOpen)}
+            className={cn(
+              styles.listDim,
+              open && styles.listDimOpen,
+              isDragging && styles.dragging,
+            )}
           />
         </div>
 
@@ -178,7 +353,24 @@ export function SlidingCard({
           data-slot="detail-pane"
           aria-hidden={!open}
           inert={!open || undefined}
-          className={cn(styles.detailPane, open && styles.detailPaneOpen)}
+          className={cn(
+            styles.detailPane,
+            open && styles.detailPaneOpen,
+            isDragging && styles.dragging,
+          )}
+          onClickCapture={(event) => {
+            if (!suppressClickRef.current) {
+              return;
+            }
+
+            suppressClickRef.current = false;
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onPointerCancel={(event) => finishDetailGesture(event, true)}
+          onPointerDown={handleDetailPointerDown}
+          onPointerMove={handleDetailPointerMove}
+          onPointerUp={(event) => finishDetailGesture(event, false)}
           onTransitionEnd={handleDetailTransitionEnd}
         >
           <div

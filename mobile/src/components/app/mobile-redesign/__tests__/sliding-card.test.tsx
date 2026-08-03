@@ -3,6 +3,124 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { SlidingCard } from "../sliding-card";
 
 const DATA_COMPONENT = "mobile_tests_settings_sliding-card";
+const DETAIL_PANE_SELECTOR =
+  `[data-component="${DATA_COMPONENT}_stage_detail-pane"]`;
+
+const originalPointerEvent = Object.getOwnPropertyDescriptor(
+  globalThis,
+  "PointerEvent",
+);
+const originalHasPointerCapture = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "hasPointerCapture",
+);
+const originalSetPointerCapture = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "setPointerCapture",
+);
+const originalReleasePointerCapture = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "releasePointerCapture",
+);
+
+beforeAll(() => {
+  Object.defineProperty(globalThis, "PointerEvent", {
+    configurable: true,
+    value: class PointerEventMock extends MouseEvent {
+      readonly isPrimary: boolean;
+      readonly pointerId: number;
+
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init);
+        this.isPrimary = init.isPrimary ?? false;
+        this.pointerId = init.pointerId ?? 0;
+      }
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
+    configurable: true,
+    value: () => false,
+  });
+  Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+    configurable: true,
+    value: () => undefined,
+  });
+  Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
+    configurable: true,
+    value: () => undefined,
+  });
+});
+
+afterAll(() => {
+  if (originalPointerEvent) {
+    Object.defineProperty(globalThis, "PointerEvent", originalPointerEvent);
+  } else {
+    Reflect.deleteProperty(globalThis, "PointerEvent");
+  }
+
+  if (originalHasPointerCapture) {
+    Object.defineProperty(
+      HTMLElement.prototype,
+      "hasPointerCapture",
+      originalHasPointerCapture,
+    );
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, "hasPointerCapture");
+  }
+
+  if (originalSetPointerCapture) {
+    Object.defineProperty(
+      HTMLElement.prototype,
+      "setPointerCapture",
+      originalSetPointerCapture,
+    );
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, "setPointerCapture");
+  }
+
+  if (originalReleasePointerCapture) {
+    Object.defineProperty(
+      HTMLElement.prototype,
+      "releasePointerCapture",
+      originalReleasePointerCapture,
+    );
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, "releasePointerCapture");
+  }
+});
+
+function renderOpenSlidingCard() {
+  const onBack = jest.fn();
+  const view = render(
+    <SlidingCard
+      data-component={DATA_COMPONENT}
+      open
+      onBack={onBack}
+      backLabel="설정"
+      detailKey="detail-a"
+      list={<div>List content</div>}
+      detail={<div>Detail content</div>}
+    />,
+  );
+  const detailPane = view.container.querySelector<HTMLElement>(
+    DETAIL_PANE_SELECTOR,
+  );
+
+  expect(detailPane).not.toBeNull();
+  jest.spyOn(detailPane as HTMLElement, "getBoundingClientRect").mockReturnValue({
+    bottom: 600,
+    height: 600,
+    left: 0,
+    right: 400,
+    top: 0,
+    width: 400,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
+
+  return { ...view, detailPane: detailPane as HTMLElement, onBack };
+}
 
 describe("SlidingCard", () => {
   it("keeps the list pane available and the detail pane hidden when closed", () => {
@@ -81,6 +199,168 @@ describe("SlidingCard", () => {
 
     expect(onBack).toHaveBeenCalledTimes(1);
   });
+
+  it("commits an edge drag and suppresses the following ghost click", () => {
+    const { detailPane, onBack } = renderOpenSlidingCard();
+    const backButton = screen.getByRole("button", {
+      name: "설정 목록으로 돌아가기",
+    });
+
+    fireEvent.pointerDown(detailPane, {
+      clientX: 10,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(detailPane, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(detailPane, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(backButton);
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not claim a drag that starts away from the left edge", () => {
+    const { detailPane, onBack } = renderOpenSlidingCard();
+
+    fireEvent.pointerDown(detailPane, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(detailPane, {
+      clientX: 360,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(detailPane, {
+      clientX: 360,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    expect(detailPane).not.toHaveClass("dragging");
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it("shows direct drag styles and snaps back below the distance threshold", () => {
+    const { container, detailPane, onBack } = renderOpenSlidingCard();
+    const listPane = container.querySelector<HTMLElement>(
+      `[data-component="${DATA_COMPONENT}_stage_list-pane"]`,
+    );
+    const listDim = container.querySelector<HTMLElement>(
+      `[data-slot="list-dim"]`,
+    );
+
+    fireEvent.pointerDown(detailPane, {
+      clientX: 10,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(detailPane, {
+      clientX: 60,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(detailPane, {
+      clientX: 60,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    expect(detailPane).toHaveClass("dragging");
+    expect(detailPane).toHaveStyle({ transform: "translateX(50px)" });
+
+    fireEvent.pointerUp(detailPane, {
+      clientX: 60,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    expect(detailPane).not.toHaveClass("dragging");
+    expect(detailPane.style.transform).toBe("");
+    expect(listPane?.style.transform).toBe("");
+    expect(listDim?.style.opacity).toBe("");
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it("does not claim a vertical-dominant movement from the edge", () => {
+    const { detailPane, onBack } = renderOpenSlidingCard();
+
+    fireEvent.pointerDown(detailPane, {
+      clientX: 10,
+      clientY: 10,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(detailPane, {
+      clientX: 20,
+      clientY: 50,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    expect(detailPane).not.toHaveClass("dragging");
+    expect(detailPane.style.transform).toBe("");
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it("snaps back without navigation when an edge drag is cancelled", () => {
+    const { container, detailPane, onBack } = renderOpenSlidingCard();
+    const listPane = container.querySelector<HTMLElement>(
+      `[data-component="${DATA_COMPONENT}_stage_list-pane"]`,
+    );
+    const listDim = container.querySelector<HTMLElement>(
+      `[data-slot="list-dim"]`,
+    );
+
+    fireEvent.pointerDown(detailPane, {
+      clientX: 10,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(detailPane, {
+      clientX: 160,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerCancel(detailPane, {
+      clientX: 160,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    expect(detailPane).not.toHaveClass("dragging");
+    expect(detailPane.style.transform).toBe("");
+    expect(listPane?.style.transform).toBe("");
+    expect(listDim?.style.opacity).toBe("");
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  // Velocity-based commit is verified manually on-device because jsdom event
+  // timeStamps are not reliable enough for a deterministic assertion.
 
   it("restores focus to the previously active element when closed", () => {
     const props = {
