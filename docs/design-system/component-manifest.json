@@ -517,6 +517,36 @@
         ]
       },
       {
+        "name": "AgentShell",
+        "layer": "organism",
+        "import": "@/components/app/chat/AgentShell",
+        "file": "frontend/src/components/app/chat/AgentShell.tsx",
+        "exports": [
+          "AgentShell"
+        ],
+        "replaces": [
+          "chat page-local agent shell markup"
+        ],
+        "requiredFor": [
+          "chat route agent flag state"
+        ]
+      },
+      {
+        "name": "AgentShellLoading",
+        "layer": "organism",
+        "import": "@/components/app/chat/AgentShell",
+        "file": "frontend/src/components/app/chat/AgentShell.tsx",
+        "exports": [
+          "AgentShellLoading"
+        ],
+        "replaces": [
+          "chat page-local loading markup"
+        ],
+        "requiredFor": [
+          "chat route flag resolution"
+        ]
+      },
+      {
         "name": "FormDialogShell",
         "layer": "organism",
         "import": "@/components/app/ui/FormDialogShell",
@@ -961,6 +991,21 @@
         ],
         "requiredFor": [
           "list side of split pages"
+        ]
+      },
+      {
+        "name": "LegacyChatPage",
+        "layer": "organism",
+        "import": "@/components/app/chat/LegacyChatPage",
+        "file": "frontend/src/components/app/chat/LegacyChatPage.tsx",
+        "exports": [
+          "LegacyChatPage"
+        ],
+        "replaces": [
+          "chat page-local legacy implementation"
+        ],
+        "requiredFor": [
+          "chat route legacy flag state"
         ]
       },
       {

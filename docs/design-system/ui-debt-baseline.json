@@ -23,10 +23,6 @@
     "frontend/src/app/(protected)/all/page.tsx": {
       "ui-architecture/no-visual-tailwind-in-pages": 36
     },
-    "frontend/src/app/(protected)/chat/page.tsx": {
-      "ui-architecture/no-page-local-components": 3,
-      "ui-architecture/no-visual-tailwind-in-pages": 22
-    },
     "frontend/src/app/(protected)/clients/filtered/page.tsx": {
       "ui-architecture/no-page-local-components": 1,
       "ui-architecture/no-visual-tailwind-in-pages": 11
