@@ -73,6 +73,7 @@ describe("ClientService", () => {
                 ),
             },
             client: {
+                count: jest.fn().mockResolvedValue(0),
                 update: jest.fn(),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
                 findUnique: jest.fn().mockResolvedValue(null),
@@ -1901,8 +1902,6 @@ describe("ClientService", () => {
                 expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledWith({
                     where: {
                         clientId: { in: [1] },
-                        permanentPurgeRequestedAt: null,
-                        statusType: { notIn: ["047", "049", "099"] },
                         serviceRecordCaseId: null,
                         OR: [
                             { documentKind: "contract" },
@@ -1915,7 +1914,12 @@ describe("ClientService", () => {
                     ],
                     select: {
                         clientId: true,
+                        documentId: true,
                         statusType: true,
+                        stepType: true,
+                        stepName: true,
+                        detailPayload: true,
+                        permanentPurgeRequestedAt: true,
                         documentKind: true,
                         serviceRecordCaseId: true,
                         templateId: true,
@@ -1938,6 +1942,20 @@ describe("ClientService", () => {
                 // "060"/requested is itself an active document, so no badge either way.
                 expect(result?.documentStatus).toBe("requested");
                 expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
+            });
+
+            it("should not fall back to an older completed contract when the newest contract is deleted", async () => {
+                const client = createWaitingClient("2026-07-16", "deleted-document");
+                listClientsUsecase.execute.mockResolvedValue([client]);
+                prismaService.eformsign_doc.findMany.mockResolvedValue([
+                    { clientId: 1, statusType: "049", permanentPurgeRequestedAt: null },
+                    { clientId: 1, statusType: "003", permanentPurgeRequestedAt: null },
+                ]);
+
+                const [result] = await service.findAll(branchId);
+
+                expect(result?.documentStatus).toBe("deleted");
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
             });
 
             it("should ignore legacy service-record rows when choosing the latest contract", async () => {
@@ -1996,8 +2014,6 @@ describe("ClientService", () => {
                 expect(prismaService.eformsign_doc.findMany).toHaveBeenCalledWith({
                     where: {
                         clientId: { in: [1] },
-                        permanentPurgeRequestedAt: null,
-                        statusType: { notIn: ["047", "049", "099"] },
                         serviceRecordCaseId: null,
                         OR: [
                             { documentKind: "contract" },
@@ -2010,7 +2026,12 @@ describe("ClientService", () => {
                     ],
                     select: {
                         clientId: true,
+                        documentId: true,
                         statusType: true,
+                        stepType: true,
+                        stepName: true,
+                        detailPayload: true,
+                        permanentPurgeRequestedAt: true,
                         documentKind: true,
                         serviceRecordCaseId: true,
                         templateId: true,
@@ -2766,6 +2787,31 @@ describe("ClientService", () => {
             // Assert
             expect(result.data).toHaveLength(0);
             expect(result.total).toBe(0);
+        });
+    });
+
+    describe("getStats", () => {
+        it("counts review-needed state from each client's latest contract instead of the pinned eDocId", async () => {
+            prismaService.client.count.mockResolvedValue(0);
+            prismaService.client.findMany.mockResolvedValue([{ id: 1 }]);
+            prismaService.eformsign_doc.findMany.mockResolvedValue([
+                {
+                    clientId: 1,
+                    documentId: "latest-contract",
+                    statusType: "070",
+                    stepType: "06",
+                    stepName: "제공기관 확인",
+                    detailPayload: null,
+                    permanentPurgeRequestedAt: null,
+                    documentKind: "contract",
+                    serviceRecordCaseId: null,
+                    templateId: null,
+                },
+            ]);
+
+            const result = await service.getStats(branchId);
+
+            expect(result.contractsPendingSignature).toBe(1);
         });
     });
 

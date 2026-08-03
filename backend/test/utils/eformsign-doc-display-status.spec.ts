@@ -57,6 +57,8 @@ describe("isContractReviewWindowOpen (backend copy)", () => {
         expect(isContractReviewWindowOpen(undefined, kstNoon("2026-08-01"))).toBe(true);
         expect(isContractReviewWindowOpen("", kstNoon("2026-08-01"))).toBe(true);
         expect(isContractReviewWindowOpen("nonsense", kstNoon("2026-08-01"))).toBe(true);
+        expect(isContractReviewWindowOpen("2026-02-31", kstNoon("2026-02-01"))).toBe(true);
+        expect(isContractReviewWindowOpen("2026-13-01", kstNoon("2026-02-01"))).toBe(true);
     });
 });
 

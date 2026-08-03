@@ -15,6 +15,10 @@ import {
     type TemplateMatch,
 } from "application/utils/eformsign-document-list";
 import {
+    resolveEformsignDocDisplayStatus,
+    type EformsignDocDisplayStatus,
+} from "application/utils/eformsign-doc-display-status";
+import {
     eformsignListDocFromMirror,
     MIRROR_CUSTOMER_NAME_KEY,
     MIRROR_RECIPIENT_NAME_KEY,
@@ -36,6 +40,7 @@ export interface MirrorListQuery {
     statusCategory?: DocumentStatusCategory;
     search?: string;
     excludeDeleted?: boolean;
+    displayStatus?: EformsignDocDisplayStatus;
 }
 
 export interface MirrorListResult {
@@ -151,7 +156,11 @@ export class EformsignMirrorListService {
             scopeFiltered,
             query.statusCategory,
         );
-        const searchFiltered = filterBySearch(statusFiltered, query.search);
+        const displayStatusFiltered = query.displayStatus === undefined
+            ? statusFiltered
+            : statusFiltered.filter((document) =>
+                resolveEformsignDocDisplayStatus(document) === query.displayStatus);
+        const searchFiltered = filterBySearch(displayStatusFiltered, query.search);
 
         return { documents: sortDocumentsByCreatedDate(searchFiltered) };
     }

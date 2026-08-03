@@ -143,6 +143,11 @@ export interface ClientActionRequired {
 /** The latest contract signal the document-status/active-document checks read. */
 interface LatestContractSignal {
     statusType: string;
+    permanentPurgeRequestedAt: Date | null;
+    documentId: string;
+    stepType: string | null;
+    stepName: string | null;
+    detailPayload: unknown;
 }
 
 export interface ClientActionRequiredAlert extends ClientActionRequired {
@@ -587,8 +592,6 @@ export class ClientService {
         const contractDocs = await this.prismaService.eformsign_doc.findMany({
             where: {
                 clientId: { in: clientIds },
-                permanentPurgeRequestedAt: null,
-                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
                 serviceRecordCaseId: null,
                 // Contract lifecycle status is an indexed projection that commits before
                 // detail/PDF artifacts finish. Do not filter it by artifact syncStatus:
@@ -604,7 +607,12 @@ export class ClientService {
             ],
             select: {
                 clientId: true,
+                documentId: true,
                 statusType: true,
+                stepType: true,
+                stepName: true,
+                detailPayload: true,
+                permanentPurgeRequestedAt: true,
                 documentKind: true,
                 serviceRecordCaseId: true,
                 templateId: true,
@@ -619,6 +627,11 @@ export class ClientService {
             if (!latestContractMap.has(doc.clientId)) {
                 latestContractMap.set(doc.clientId, {
                     statusType: doc.statusType,
+                    permanentPurgeRequestedAt: doc.permanentPurgeRequestedAt,
+                    documentId: doc.documentId,
+                    stepType: doc.stepType,
+                    stepName: doc.stepName,
+                    detailPayload: doc.detailPayload,
                 });
             }
         }
@@ -635,7 +648,9 @@ export class ClientService {
         return new Map(
             [...latestContractMap].map(([clientId, contract]) => [
                 clientId,
-                ACTIVE_DOCUMENT_STATUSES.has(this.mapStatusTypeToDocumentStatus(contract.statusType)),
+                contract.permanentPurgeRequestedAt == null
+                && !DELETED_DOCUMENT_STATUS_TYPES.has(contract.statusType.trim().padStart(3, "0"))
+                && ACTIVE_DOCUMENT_STATUSES.has(this.mapStatusTypeToDocumentStatus(contract.statusType)),
             ]),
         );
     }
@@ -1176,7 +1191,9 @@ export class ClientService {
                 clientsNeedingUpdate.push({ id: client.id, newStatus: computedStatus });
             }
             const latestContract = latestContractMap.get(client.id);
-            const documentStatus = this.mapStatusTypeToDocumentStatus(latestContract?.statusType);
+            const documentStatus = latestContract?.permanentPurgeRequestedAt != null
+                ? "deleted"
+                : this.mapStatusTypeToDocumentStatus(latestContract?.statusType);
             const hasActiveContractDocument = ACTIVE_DOCUMENT_STATUSES.has(documentStatus);
             const contractSignals = {
                 serviceStatus: computedStatus,
@@ -1693,7 +1710,7 @@ export class ClientService {
         const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
         const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59);
 
-        const [activeClients, contractsNotSent, pendingSignatureDocRows, upcomingThisMonth, upcomingNextMonth] =
+        const [activeClients, contractsNotSent, branchClients, upcomingThisMonth, upcomingNextMonth] =
             await Promise.all([
                 this.prismaService.client.count({
                     where: { serviceStatus: SERVICE_STATUS.ACTIVE, branchId: branchid },
@@ -1706,22 +1723,8 @@ export class ClientService {
                     },
                 }),
                 this.prismaService.client.findMany({
-                    where: {
-                        eDocId: { not: null },
-                        eformsignDocByEDocId: { statusType: { not: '050' } },
-                        branchId: branchid,
-                    },
-                    select: {
-                        eformsignDocByEDocId: {
-                            select: {
-                                documentId: true,
-                                statusType: true,
-                                stepType: true,
-                                stepName: true,
-                                detailPayload: true,
-                            },
-                        },
-                    },
+                    where: { branchId: branchid },
+                    select: { id: true },
                 }),
                 this.prismaService.client.count({
                     where: {
@@ -1741,9 +1744,16 @@ export class ClientService {
 
         // 대시보드의 "검토 필요 문서"는 계약서 목록과 같은 규칙으로 센다: 제공기관
         // 검토 단계에 있고 검토 창(계약 종료 영업일 1일 전~)이 열린 문서만.
-        const contractsPendingSignature = pendingSignatureDocRows.filter((row) => {
-            const doc = row.eformsignDocByEDocId;
-            if (!doc) return false;
+        const latestContracts = await this.findLatestContractByClientId(
+            branchClients.map((client) => client.id),
+        );
+        const contractsPendingSignature = [...latestContracts.values()].filter((doc) => {
+            if (
+                doc.permanentPurgeRequestedAt != null
+                || DELETED_DOCUMENT_STATUS_TYPES.has(doc.statusType.trim().padStart(3, "0"))
+            ) {
+                return false;
+            }
             const endDate = doc.detailPayload && typeof doc.detailPayload === "object"
                 ? extractEformsignContractEndDate(doc.detailPayload as unknown as EformsignApiDocumentResponse)
                 : null;

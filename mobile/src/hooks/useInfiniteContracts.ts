@@ -4,7 +4,11 @@ import { useEffect, useMemo, useRef } from "react";
 import { infiniteQueryOptions, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
 import { eformsignApi } from "@/services/api";
-import type { EformsignStatusCategoryParam, EformsignTemplateMatchParam } from "@/services/api";
+import type {
+  EformsignDisplayStatusParam,
+  EformsignStatusCategoryParam,
+  EformsignTemplateMatchParam,
+} from "@/services/api";
 import type { EformsignDocument, EformsignDocumentsResponse } from "@/lib/eformsign/types";
 import type { DocumentFilterType } from "@/lib/eformsign/status-codes";
 import { useGetAuthUser } from "./useGetAuthUser";
@@ -29,6 +33,8 @@ export interface InfiniteContractsQueryInput {
   branchId?: string | null;
   /** Server-side status bucket, or null/undefined for "all". */
   statusCategory?: EformsignStatusCategoryParam | null;
+  /** Server-side 서명 완료/검토 필요 split. */
+  displayStatus?: EformsignDisplayStatusParam | null;
   /** Server-side search term (chosung-aware on the backend). */
   search?: string | null;
   /**
@@ -43,12 +49,13 @@ export interface InfiniteContractsQueryInput {
 export const infiniteContractsQueryKeys = {
   /** Prefix for every paginated contracts query (useful for invalidate/remove). */
   all: () => ["eformsign-documents", "paginated"] as const,
-  list: ({ branchId, statusCategory, search, templateId, templateMatch }: InfiniteContractsQueryInput) =>
+  list: ({ branchId, statusCategory, displayStatus, search, templateId, templateMatch }: InfiniteContractsQueryInput) =>
     [
       "eformsign-documents",
       "paginated",
       branchId ?? "unknown",
       statusCategory ?? "all",
+      displayStatus ?? "all-display-statuses",
       search ?? "",
       templateId ?? "any-template",
       templateMatch ?? "include",
@@ -100,12 +107,14 @@ function getNextPageParam(
 export function infiniteContractsQueryOptions({
   branchId,
   statusCategory,
+  displayStatus,
   search,
   templateId,
   templateMatch,
 }: InfiniteContractsQueryInput) {
   const normalizedSearch = search?.trim() ?? "";
   const normalizedStatusCategory = statusCategory ?? null;
+  const normalizedDisplayStatus = displayStatus ?? null;
   const normalizedTemplateId = templateId ?? null;
   const normalizedTemplateMatch = templateMatch ?? null;
 
@@ -113,6 +122,7 @@ export function infiniteContractsQueryOptions({
     queryKey: infiniteContractsQueryKeys.list({
       branchId,
       statusCategory: normalizedStatusCategory,
+      displayStatus: normalizedDisplayStatus,
       search: normalizedSearch,
       templateId: normalizedTemplateId,
       templateMatch: normalizedTemplateMatch,
@@ -122,6 +132,7 @@ export function infiniteContractsQueryOptions({
         limit: pageParam.limit,
         skip: pageParam.skip,
         statusCategory: normalizedStatusCategory ?? undefined,
+        displayStatus: normalizedDisplayStatus ?? undefined,
         search: normalizedSearch || undefined,
         templateId: normalizedTemplateId ?? undefined,
         templateMatch: normalizedTemplateMatch ?? undefined,
@@ -149,6 +160,7 @@ export interface UseInfiniteContractsOptions extends Omit<InfiniteContractsQuery
  */
 export function useInfiniteContracts({
   statusCategory = null,
+  displayStatus = null,
   search = "",
   templateId = null,
   templateMatch = null,
@@ -159,8 +171,8 @@ export function useInfiniteContracts({
   const branchId = authUser?.branchId ?? null;
 
   const options = useMemo(
-    () => infiniteContractsQueryOptions({ branchId, statusCategory, search, templateId, templateMatch }),
-    [branchId, statusCategory, search, templateId, templateMatch],
+    () => infiniteContractsQueryOptions({ branchId, statusCategory, displayStatus, search, templateId, templateMatch }),
+    [branchId, displayStatus, statusCategory, search, templateId, templateMatch],
   );
 
   const query = useInfiniteQuery({

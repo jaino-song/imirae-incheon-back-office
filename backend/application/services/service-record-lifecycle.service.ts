@@ -298,6 +298,14 @@ export class ServiceRecordLifecycleService {
         if (params.endDate === null && record.days.length > 0) {
             throw new ConflictException({ code: "SERVICE_RECORD_END_DATE_REQUIRED" });
         }
+        if (
+            params.endDate !== undefined
+            && params.endDate !== null
+            && record.days.some((day) =>
+                day.locked && isoDate(day.serviceDate)! > isoDate(params.endDate)!)
+        ) {
+            throw new ConflictException({ code: "SERVICE_RECORD_END_DATE_BEFORE_LOCKED_SESSION" });
+        }
         if (params.duration === null && record.days.length > 0) {
             throw new ConflictException({ code: "SERVICE_RECORD_DURATION_REQUIRED" });
         }

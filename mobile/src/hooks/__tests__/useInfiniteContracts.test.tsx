@@ -190,6 +190,22 @@ describe("useInfiniteContracts", () => {
     expect(mockedGetAllDocuments).toHaveBeenCalledTimes(1);
   });
 
+  it("includes display status in both the server request and cache key", async () => {
+    mockedGetAllDocuments.mockResolvedValue(
+      createPage({ ids: ["review-doc"], totalRows: 1, limit: 9, skip: 0, hasMore: false }),
+    );
+
+    const { result } = renderHook(
+      () => useInfiniteContracts({ statusCategory: "in-progress", displayStatus: "review" }),
+      { wrapper: createWrapper(queryClient) },
+    );
+
+    await waitFor(() => expect(mockedGetAllDocuments).toHaveBeenCalledWith(
+      expect.objectContaining({ displayStatus: "review" }),
+    ));
+    expect(result.current.queryKey).toContain("review");
+  });
+
   it("falls back to offset math when has_more is absent and stops at the total boundary", async () => {
     mockedGetAllDocuments
       .mockResolvedValueOnce(
@@ -275,6 +291,7 @@ describe("useInfiniteContracts", () => {
       "paginated",
       "branch-1",
       "drafting",
+      "all-display-statuses",
       "alpha",
       "any-template",
       "include",
@@ -284,6 +301,7 @@ describe("useInfiniteContracts", () => {
       "paginated",
       "branch-1",
       "completed",
+      "all-display-statuses",
       "alpha",
       "any-template",
       "include",
@@ -293,6 +311,7 @@ describe("useInfiniteContracts", () => {
       "paginated",
       "branch-1",
       "completed",
+      "all-display-statuses",
       "beta",
       "any-template",
       "include",
@@ -302,6 +321,7 @@ describe("useInfiniteContracts", () => {
       "paginated",
       "branch-2",
       "completed",
+      "all-display-statuses",
       "beta",
       "any-template",
       "include",

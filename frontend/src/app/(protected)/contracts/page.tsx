@@ -1103,16 +1103,14 @@ function ContractDetail({
     ?? serviceRecordQuery.data?.assignments.find((assignment) => assignment.header)?.header
     ?? null;
   const category = getStatusCategory(detailedDocument.current_status?.status_type);
-  const contractEndDateIso = (() => {
-    const year = extractDocumentFieldValue(detailedDocument, ["계약 종료 년도", "계약종료년도", "endYear"]);
-    const month = extractDocumentFieldValue(detailedDocument, ["계약 종료 월", "계약종료월", "endMonth"]);
-    const day = extractDocumentFieldValue(detailedDocument, ["계약 종료 일", "계약종료일", "endDay"]);
-    if (!year || !month || !day) return "";
-    const yearNum = parseInt(year, 10);
-    if (Number.isNaN(yearNum)) return "";
-    const yearStr = (yearNum < 100 ? 2000 + yearNum : yearNum).toString().padStart(4, "0");
-    return `${yearStr}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  })();
+  const contractEndDateIso = formatIsoDateInput(
+    extractFieldDate(detailedDocument, {
+      year: ["계약 종료 년도", "계약종료년도", "endYear"],
+      month: ["계약 종료 월", "계약종료월", "endMonth"],
+      day: ["계약 종료 일", "계약종료일", "endDay"],
+      full: ["계약 종료일", "계약종료일", "endDate", "contractEndDate"],
+    }) ?? "",
+  );
   const statusLabel = mapDocStatusLabel(detailedDocument.current_status, contractEndDateIso || null);
   const statusType: StatusType = contractStatusBadgeType(statusLabel);
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");

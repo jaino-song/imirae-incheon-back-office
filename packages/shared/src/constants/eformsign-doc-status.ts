@@ -96,8 +96,19 @@ const YMD_PATTERN = /^(\d{4})-(\d{2})-(\d{2})/;
 function parseYmdToUtc(ymd: string): Date | null {
     const match = YMD_PATTERN.exec(ymd);
     if (!match) return null;
-    const parsed = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (
+        Number.isNaN(parsed.getTime())
+        || parsed.getUTCFullYear() !== year
+        || parsed.getUTCMonth() !== month - 1
+        || parsed.getUTCDate() !== day
+    ) {
+        return null;
+    }
+    return parsed;
 }
 
 function isBusinessDayKr(ymd: string, date: Date): boolean {
