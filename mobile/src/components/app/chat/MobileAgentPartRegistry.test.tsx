@@ -144,6 +144,69 @@ describe("MobileAgentPartRegistry", () => {
         expect(onSubmitForm).toHaveBeenCalledWith("profile-form", { enabled: false, name: "Dana", count: 3 });
     });
 
+    it("keeps a cleared optional number empty and omits it from the submitted payload", () => {
+        const onSubmitForm = jest.fn();
+        render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_form-number"
+            part={{
+                type: "data-form",
+                data: {
+                    formId: "profile-form",
+                    title: "프로필",
+                    schemaVersion: "1",
+                    fields: [{ name: "count", label: "횟수", type: "number" }],
+                },
+            }}
+            onEntitySelect={jest.fn()}
+            onApproveAction={jest.fn()}
+            onRejectAction={jest.fn()}
+            onSubmitForm={onSubmitForm}
+        />);
+
+        const count = screen.getByRole("spinbutton", { name: "횟수" });
+        const form = screen.getByText("프로필").closest("form");
+        fireEvent.change(count, { target: { value: "3" } });
+        expect(count).toHaveValue(3);
+        fireEvent.submit(form!);
+        expect(onSubmitForm).toHaveBeenNthCalledWith(1, "profile-form", { count: 3 });
+
+        fireEvent.change(count, { target: { value: "" } });
+        expect((count as HTMLInputElement).value).toBe("");
+        fireEvent.submit(form!);
+        expect(onSubmitForm).toHaveBeenNthCalledWith(2, "profile-form", {});
+    });
+
+    it("keeps a required number invalid after clearing instead of submitting zero", () => {
+        const onSubmitForm = jest.fn();
+        render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_form-required-number"
+            part={{
+                type: "data-form",
+                data: {
+                    formId: "profile-form",
+                    title: "프로필",
+                    schemaVersion: "1",
+                    fields: [{ name: "count", label: "횟수", type: "number", required: true }],
+                },
+            }}
+            onEntitySelect={jest.fn()}
+            onApproveAction={jest.fn()}
+            onRejectAction={jest.fn()}
+            onSubmitForm={onSubmitForm}
+        />);
+
+        const count = screen.getByRole("spinbutton", { name: "횟수" });
+        const form = screen.getByText("프로필").closest("form");
+        fireEvent.change(count, { target: { value: "3" } });
+        fireEvent.submit(form!);
+        expect(onSubmitForm).toHaveBeenCalledWith("profile-form", { count: 3 });
+
+        fireEvent.change(count, { target: { value: "" } });
+        expect(count).toBeInvalid();
+        fireEvent.submit(form!);
+        expect(onSubmitForm).toHaveBeenCalledTimes(1);
+    });
+
     it("keeps touched boolean values true and then false", () => {
         const onSubmitForm = jest.fn();
         render(<MobileAgentPartRegistry

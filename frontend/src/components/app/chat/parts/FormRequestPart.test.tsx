@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { FormRequestPart } from "./FormRequestPart";
 
@@ -49,5 +49,54 @@ describe("FormRequestPart", () => {
         expect(input).toHaveAttribute("placeholder", "이름");
         expect(input).not.toHaveAttribute("inputmode");
         expect(input).not.toHaveAttribute("maxlength");
+    });
+
+    it("keeps a cleared optional number empty and omits it from the submitted payload", () => {
+        const onSubmit = jest.fn();
+        render(
+            <FormRequestPart
+                data-component={dataComponent}
+                formId="profile"
+                title="프로필"
+                fields={[{ name: "count", label: "횟수", type: "number" }]}
+                onSubmit={onSubmit}
+            />,
+        );
+
+        const count = screen.getByRole("spinbutton", { name: "횟수" });
+        const form = screen.getByRole("heading", { name: "프로필" }).closest("form");
+        fireEvent.change(count, { target: { value: "3" } });
+        expect(count).toHaveValue(3);
+        fireEvent.submit(form!);
+        expect(onSubmit).toHaveBeenNthCalledWith(1, "profile", { count: 3 });
+
+        fireEvent.change(count, { target: { value: "" } });
+        expect((count as HTMLInputElement).value).toBe("");
+        fireEvent.submit(form!);
+        expect(onSubmit).toHaveBeenNthCalledWith(2, "profile", {});
+    });
+
+    it("keeps a required number invalid after clearing instead of submitting zero", () => {
+        const onSubmit = jest.fn();
+        render(
+            <FormRequestPart
+                data-component={dataComponent}
+                formId="profile"
+                title="프로필"
+                fields={[{ name: "count", label: "횟수", type: "number", required: true }]}
+                onSubmit={onSubmit}
+            />,
+        );
+
+        const count = screen.getByRole("spinbutton", { name: "횟수" });
+        const form = screen.getByRole("heading", { name: "프로필" }).closest("form");
+        fireEvent.change(count, { target: { value: "3" } });
+        fireEvent.submit(form!);
+        expect(onSubmit).toHaveBeenCalledWith("profile", { count: 3 });
+
+        fireEvent.change(count, { target: { value: "" } });
+        expect(count).toBeInvalid();
+        fireEvent.submit(form!);
+        expect(onSubmit).toHaveBeenCalledTimes(1);
     });
 });

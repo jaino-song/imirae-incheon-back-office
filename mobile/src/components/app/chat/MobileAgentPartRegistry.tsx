@@ -25,10 +25,28 @@ import { Textarea } from "@/components/ui/textarea";
 type MobilePart = { type: string; text?: string; data?: unknown; state?: string; output?: unknown; errorText?: string; toolName?: string };
 
 function normalizeFormValues(fields: AgentFormField[], values: Record<string, unknown>) {
-    return {
+    const normalized: Record<string, unknown> = {
         ...Object.fromEntries(fields.filter((field) => field.type === "boolean").map((field) => [field.name, false])),
-        ...values,
     };
+
+    for (const field of fields) {
+        if (!Object.prototype.hasOwnProperty.call(values, field.name)) continue;
+        const value = values[field.name];
+
+        if (field.type === "number") {
+            const numericValue = typeof value === "number"
+                ? value
+                : typeof value === "string" && value.trim() !== ""
+                    ? Number(value)
+                    : undefined;
+            if (numericValue !== undefined && Number.isFinite(numericValue)) normalized[field.name] = numericValue;
+            continue;
+        }
+
+        normalized[field.name] = value;
+    }
+
+    return normalized;
 }
 
 type Props = {
@@ -104,7 +122,7 @@ export function MobileAgentPartRegistry({ "data-component": dataComponent, part,
 function MobileAgentForm({ "data-component": dataComponent, formId, title, fields, onSubmit }: { "data-component": string; formId: string; title: string; fields: AgentFormField[]; onSubmit: (formId: string, values: Record<string, unknown>) => void }) {
     const [values, setValues] = useState<Record<string, unknown>>({});
     const sub = (suffix: string) => `${dataComponent}_${suffix}`;
-    return <form data-component={dataComponent} data-slot="form" data-source-component="MobileAgentForm" className="flex flex-col gap-3 rounded-xl border p-3" onSubmit={(event) => { event.preventDefault(); onSubmit(formId, normalizeFormValues(fields, values)); }}><p data-component={sub("title")} data-slot="title" className="font-semibold">{title}</p>{fields.map((field) => <div key={field.name} data-component={sub("field")} className="flex flex-col gap-1"><Label data-component={sub("field_label")} htmlFor={`${formId}-${field.name}`}>{field.label}</Label>{field.type === "textarea" ? <Textarea data-component={sub("field_control")} id={`${formId}-${field.name}`} required={field.required} inputMode={field.inputMode} maxLength={field.maxLength} placeholder={field.placeholder ?? field.label} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} /> : field.type === "boolean" ? <Checkbox data-component={sub("field_control")} id={`${formId}-${field.name}`} checked={values[field.name] === true} onCheckedChange={(checked) => setValues((current) => ({ ...current, [field.name]: checked === true }))} /> : <Input data-component={sub("field_control")} id={`${formId}-${field.name}`} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} inputMode={field.inputMode} maxLength={field.maxLength} required={field.required} placeholder={field.placeholder ?? field.label} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: field.type === "number" ? Number(event.target.value) : event.target.value }))} />}</div>)}<Button data-component={sub("submit")} type="submit">제출</Button></form>;
+    return <form data-component={dataComponent} data-slot="form" data-source-component="MobileAgentForm" className="flex flex-col gap-3 rounded-xl border p-3" onSubmit={(event) => { event.preventDefault(); if (!event.currentTarget.checkValidity()) return; onSubmit(formId, normalizeFormValues(fields, values)); }}><p data-component={sub("title")} data-slot="title" className="font-semibold">{title}</p>{fields.map((field) => <div key={field.name} data-component={sub("field")} className="flex flex-col gap-1"><Label data-component={sub("field_label")} htmlFor={`${formId}-${field.name}`}>{field.label}</Label>{field.type === "textarea" ? <Textarea data-component={sub("field_control")} id={`${formId}-${field.name}`} required={field.required} inputMode={field.inputMode} maxLength={field.maxLength} placeholder={field.placeholder ?? field.label} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} /> : field.type === "boolean" ? <Checkbox data-component={sub("field_control")} id={`${formId}-${field.name}`} checked={values[field.name] === true} onCheckedChange={(checked) => setValues((current) => ({ ...current, [field.name]: checked === true }))} /> : <Input data-component={sub("field_control")} id={`${formId}-${field.name}`} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} inputMode={field.inputMode} maxLength={field.maxLength} required={field.required} placeholder={field.placeholder ?? field.label} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />}</div>)}<Button data-component={sub("submit")} type="submit">제출</Button></form>;
 }
 
 function Fallback() {
