@@ -112,4 +112,44 @@ describe("DocumentService", () => {
         expect(documentRepository.delete).toHaveBeenCalledWith("branch-1", document.id);
         expect(storage.delete.mock.invocationCallOrder[0]).toBeLessThan(documentRepository.delete.mock.invocationCallOrder[0]!);
     });
+
+    it("finishes staged metadata cleanup without replaying storage deletion", async () => {
+        const document = createDocumentEntity("branch-1");
+        const storage = { delete: jest.fn().mockResolvedValue(undefined) };
+        documentRepository.findById.mockResolvedValueOnce(document).mockResolvedValueOnce(document);
+        documentRepository.delete.mockResolvedValue(undefined);
+        service = new DocumentService(documentRepository, storage as never);
+
+        await service.deleteStorageForDocument("branch-1", document.id);
+        await service.deleteMetadataAfterStorageDeletion("branch-1", document.id);
+
+        expect(storage.delete).toHaveBeenCalledTimes(1);
+        expect(documentRepository.delete).toHaveBeenCalledWith("branch-1", document.id);
+    });
+
+    it("repeats a staged delete safely and becomes a no-op after metadata is gone", async () => {
+        const document = createDocumentEntity("branch-1");
+        const storage = { delete: jest.fn().mockResolvedValue(undefined) };
+        documentRepository.findById.mockResolvedValueOnce(document).mockResolvedValueOnce(null);
+        documentRepository.delete.mockResolvedValue(undefined);
+        service = new DocumentService(documentRepository, storage as never);
+
+        await service.recoverStagedDeletion("branch-1", document.id);
+        await service.recoverStagedDeletion("branch-1", document.id);
+
+        expect(storage.delete).toHaveBeenCalledTimes(1);
+        expect(documentRepository.delete).toHaveBeenCalledTimes(1);
+        expect(documentRepository.delete).toHaveBeenCalledWith("branch-1", document.id);
+    });
+
+    it("treats already-missing metadata as a completed staged deletion", async () => {
+        const storage = { delete: jest.fn() };
+        documentRepository.findById.mockResolvedValue(null);
+        service = new DocumentService(documentRepository, storage as never);
+
+        await expect(service.recoverStagedDeletion("branch-1", "doc-1")).resolves.toBeUndefined();
+
+        expect(storage.delete).not.toHaveBeenCalled();
+        expect(documentRepository.delete).not.toHaveBeenCalled();
+    });
 });

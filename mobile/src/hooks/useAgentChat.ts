@@ -38,6 +38,7 @@ export function useAgentChat() {
     const [errorState, setErrorState] = useState<MobileAgentError | null>(null);
     const sessionId = useRef<string | undefined>(undefined);
     const abortRef = useRef<AbortController | null>(null);
+    const operationEpochRef = useRef(0);
 
     const refreshSessions = useCallback(async () => {
         const response = await fetch("/api/ai/agent/sessions", { credentials: "same-origin" });
@@ -57,10 +58,12 @@ export function useAgentChat() {
         setErrorState(null);
         setStatus("streaming");
         const controller = new AbortController();
+        const operationEpoch = ++operationEpochRef.current;
         abortRef.current = controller;
         try {
             const response = await fetch("/api/ai/agent/chat", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId: sessionId.current, locale: "ko", messages: [userMessage] }), signal: controller.signal });
             if (!response.ok || !response.body) throw new Error("Agent request failed");
+            if (controller.signal.aborted || operationEpoch !== operationEpochRef.current) return;
             sessionId.current = response.headers.get("x-agent-session-id") ?? sessionId.current;
             if (sessionId.current && typeof window !== "undefined") window.sessionStorage.setItem(AGENT_SESSION_KEY, sessionId.current);
             const reader = response.body.getReader();
@@ -96,34 +99,44 @@ export function useAgentChat() {
                 if (next.done) break;
             }
             if (buffer) consume(buffer);
+            if (controller.signal.aborted || operationEpoch !== operationEpochRef.current) return;
             setMessages((current) => [...current, { id: assistantMessageId ?? makeId(), role: "assistant", parts: parts.length > 0 ? parts : [{ type: "text", text: "응답을 받지 못했습니다." }] } as MobileAgentMessage]);
             setStatus("ready");
             await refreshSessions();
         } catch (error) {
+            if (operationEpoch !== operationEpochRef.current) return;
             if ((error as Error).name !== "AbortError") {
                 setStatus("error");
                 setErrorState({ code: "stream_failed", message: "응답 스트림이 중단되었습니다.", effectState: "nothing-happened" });
             }
             else setStatus("ready");
         } finally {
-            abortRef.current = null;
+            if (abortRef.current === controller) abortRef.current = null;
         }
     }, [messages, refreshSessions, status]);
 
     const stop = useCallback(() => abortRef.current?.abort(), []);
     const selectSession = useCallback(async (id: string) => {
+        const operationEpoch = ++operationEpochRef.current;
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setStatus("ready");
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(id)}`, { credentials: "same-origin" });
+        if (operationEpoch !== operationEpochRef.current) return;
         if (!response.ok) {
             if (sessionId.current === id) sessionId.current = undefined;
             if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === id) {
                 window.sessionStorage.removeItem(AGENT_SESSION_KEY);
             }
+            setStatus("ready");
             return;
         }
         const session = await response.json() as MobileAgentSessionSummary;
+        if (operationEpoch !== operationEpochRef.current) return;
         sessionId.current = session.id;
         if (typeof window !== "undefined") window.sessionStorage.setItem(AGENT_SESSION_KEY, session.id);
         setMessages(session.messages ?? []);
+        setStatus("ready");
     }, []);
 
     useEffect(() => {
@@ -188,6 +201,7 @@ export function useAgentChat() {
         setMessages((current) => [...current, userMessage]);
         setStatus("streaming");
         const controller = new AbortController();
+        const operationEpoch = ++operationEpochRef.current;
         abortRef.current = controller;
         try {
             const response = await fetch("/api/ai/agent/chat", {
@@ -195,15 +209,18 @@ export function useAgentChat() {
                 body: JSON.stringify({ sessionId: sessionId.current, locale: "ko", messages: [userMessage] }), signal: controller.signal,
             });
             if (!response.ok) throw new Error("Agent form submission failed");
+            if (controller.signal.aborted || operationEpoch !== operationEpochRef.current) return;
             sessionId.current = response.headers.get("x-agent-session-id") ?? sessionId.current;
             await response.text();
+            if (controller.signal.aborted || operationEpoch !== operationEpochRef.current) return;
             await refreshCurrentSession();
             await refreshSessions();
             setStatus("ready");
         } catch (error) {
+            if (operationEpoch !== operationEpochRef.current) return;
             setStatus((error as Error).name === "AbortError" ? "ready" : "error");
         } finally {
-            abortRef.current = null;
+            if (abortRef.current === controller) abortRef.current = null;
         }
     }, [refreshCurrentSession, refreshSessions, status]);
 
@@ -227,6 +244,7 @@ export function useAgentChat() {
     }, []);
 
     const resetBranch = useCallback(() => {
+        operationEpochRef.current += 1;
         stop();
         sessionId.current = undefined;
         if (typeof window !== "undefined") window.sessionStorage.removeItem(AGENT_SESSION_KEY);

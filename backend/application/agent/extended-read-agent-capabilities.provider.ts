@@ -69,8 +69,18 @@ const DraftUpdateSchema = z.object({
 });
 const DraftConfirmSchema = z.object({
     id: z.string().min(1),
-    fields: z.preprocess(parseJsonInput, z.record(z.string(), z.unknown()).optional()),
-    changes: z.preprocess(parseJsonInput, z.record(z.string(), z.unknown()).optional()),
+    fields: z.preprocess(parseJsonInput, z.record(z.string(), z.unknown()).refine(
+        (value) => typeof value["name"] === "string" && value["name"].trim().length > 0,
+        "New-client fields require a non-empty name",
+    ).optional()),
+    changes: z.preprocess(parseJsonInput, z.record(z.string(), z.unknown()).refine(
+        (value) => Object.keys(value).some((key) => (PROPOSAL_FIELDS as readonly string[]).includes(key)),
+        "Client-update changes require at least one allowed field",
+    ).optional()),
+}).superRefine((value, context) => {
+    if (value.fields === undefined && value.changes === undefined) {
+        context.addIssue({ code: "custom", path: ["fields"], message: "Draft confirmation payload is required" });
+    }
 });
 const DRAFT_UPDATE_FORM_FIELDS: AgentFormField[] = [
     { name: "id", label: "초안 ID", type: "text", required: true },
@@ -199,7 +209,12 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     return { status: "updated", id };
                 }
                 if (name.endsWith("delete")) {
-                    await this.documents.deleteWithStorage(context.principal.branchId, String(id));
+                    await recordAgentActionEffect(this.prisma, context, name, "document", String(id), {
+                        status: "storage-delete-authorized",
+                        id,
+                    });
+                    await this.documents.deleteStorageForDocument(context.principal.branchId, String(id));
+                    await this.documents.deleteMetadataAfterStorageDeletion(context.principal.branchId, String(id));
                     return { status: "deleted", id };
                 }
                 if (name === "drafts.confirm") {
@@ -219,7 +234,7 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                 const record = await this.findBranchRecord(table, context.principal.branchId, input.id);
                 if (name.endsWith("delete")) {
                     return record
-                        ? { status: "uncertain" as const, reason: "File still exists" }
+                        ? { status: "uncertain" as const, reason: "File metadata still exists" }
                         : { status: "succeeded" as const, result: { status: "deleted", id: input.id } };
                 }
                 if (name.endsWith("markRead") && record && (record["readAt"] || record["isRead"] === true)) {
@@ -227,6 +242,16 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                 }
                 return { status: "uncertain" as const, reason: "Canonical write outcome cannot be proven" };
             },
+            ...(name.endsWith("delete") ? {
+                recover: async (context, rawInput) => {
+                    const input = IdSchema.parse(rawInput);
+                    const receipt = await readAgentActionEffect(this.prisma, context, name);
+                    if (receipt?.resourceType !== "document"
+                        || String(receipt.resourceId) !== String(input.id)
+                        || receipt.result["status"] !== "storage-delete-authorized") return;
+                    await this.documents.recoverStagedDeletion(context.principal.branchId, String(input.id));
+                },
+            } : {}),
         };
     }
 
@@ -283,7 +308,7 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
             inputSchema: DraftConfirmSchema,
             outputSchema: ActionResultSchema,
             formFields: DRAFT_CONFIRM_FORM_FIELDS,
-            inspect: async (context, rawInput) => this.inspectDraft(context.principal.branchId, DraftConfirmSchema.parse(rawInput).id, "고객 초안 확정"),
+            inspect: async (context, rawInput) => this.inspectDraftConfirmation(context.principal.branchId, DraftConfirmSchema.parse(rawInput)),
             execute: async (context, rawInput) => {
                 const input = DraftConfirmSchema.parse(rawInput);
                 const result = await this.callInbox.confirm(context.principal.branchId, context.principal.userId, input.id, {
@@ -565,6 +590,30 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
             targetSnapshot: this.targetSnapshot(record),
             title,
             summary: `${id} 초안을 변경합니다.`,
+        };
+    }
+
+    private async inspectDraftConfirmation(branchId: string, input: z.infer<typeof DraftConfirmSchema>) {
+        const record = await this.findBranchRecord("client_draft", branchId, input.id);
+        if (!record) throw new Error("Draft was not found in the current branch");
+        if (record["type"] === "NEW_CLIENT") {
+            z.object({
+                fields: z.record(z.string(), z.unknown()),
+                changes: z.undefined().optional(),
+            }).parse(input);
+        } else if (record["type"] === "CLIENT_UPDATE") {
+            z.object({
+                fields: z.undefined().optional(),
+                changes: z.record(z.string(), z.unknown()),
+            }).parse(input);
+        } else {
+            throw new Error("Draft type is not supported");
+        }
+        return {
+            targetVersion: this.targetVersion(record),
+            targetSnapshot: this.targetSnapshot(record),
+            title: "고객 초안 확정",
+            summary: `${input.id} 초안을 확정합니다.`,
         };
     }
 

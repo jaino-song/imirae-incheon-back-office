@@ -117,14 +117,38 @@ export class DocumentService {
 
     /** Canonical deletion path used by HTTP and agent actions. */
     async deleteWithStorage(branchId: string, id: string): Promise<void> {
-        if (!this.fileStorage) throw new Error("File storage is unavailable");
+        await this.deleteStorageForDocument(branchId, id);
+        await this.deleteMetadataAfterStorageDeletion(branchId, id);
+    }
+
+    /** Delete only the external object so an agent action can durably stage completion. */
+    async deleteStorageForDocument(branchId: string, id: string): Promise<void> {
         const document = await this.findById(branchId, id);
+        await this.deleteStorageObject(document);
+    }
+
+    /** Idempotently complete an action-bound deletion staged before the external call. */
+    async recoverStagedDeletion(branchId: string, id: string): Promise<void> {
+        const document = await this.documentRepository.findById(branchId, id);
+        if (!document) return;
+        await this.deleteStorageObject(document);
+        await this.documentRepository.delete(branchId, id);
+    }
+
+    private async deleteStorageObject(document: DocumentEntity): Promise<void> {
+        if (!this.fileStorage) throw new Error("File storage is unavailable");
         try {
             await this.fileStorage.delete(document.storagePath);
         } catch (error) {
             if (!(error instanceof FileStorageObjectNotFoundError)
                 && !(error instanceof Error && error.message.toLowerCase().includes("object not found"))) throw error;
         }
+    }
+
+    /** Finish only branch-scoped metadata cleanup after storage deletion is proven. */
+    async deleteMetadataAfterStorageDeletion(branchId: string, id: string): Promise<void> {
+        const document = await this.documentRepository.findById(branchId, id);
+        if (!document) return;
         await this.documentRepository.delete(branchId, id);
     }
 }

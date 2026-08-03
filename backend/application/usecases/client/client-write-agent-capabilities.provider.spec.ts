@@ -29,4 +29,17 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         }));
         expect(capability.inputSchema.safeParse({ ...input, dueDate: "2026-02-31" }).success).toBe(false);
     });
+
+    it("offers every client update field without requiring unrelated values", () => {
+        const { capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const fields = capability.formFields ?? [];
+
+        expect(fields.find((field) => field.name === "id")?.required).toBe(true);
+        expect(fields.find((field) => field.name === "phone")).toEqual(expect.objectContaining({ required: false }));
+        expect(fields.find((field) => field.name === "name")).toEqual(expect.objectContaining({ required: false }));
+        expect(capability.inputSchema.safeParse({ id: 1 }).success).toBe(false);
+        expect(capability.inputSchema.safeParse({ id: 1, targetVersion: "v1" }).success).toBe(false);
+        expect(capability.inputSchema.safeParse({ id: 1, phone: "01012345678" }).success).toBe(true);
+    });
 });

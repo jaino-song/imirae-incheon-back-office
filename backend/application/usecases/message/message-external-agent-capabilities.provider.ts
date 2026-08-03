@@ -14,7 +14,7 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { createHash } from "node:crypto";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
-const SmsSchema = z.object({ receiver: z.string().trim().min(1).max(200), message: z.string().trim().min(1).max(2000), senderPhone: z.string().trim().max(40).optional(), title: z.string().max(200).optional(), scheduledDate: z.string().optional(), scheduledTime: z.string().optional() });
+const SmsSchema = z.object({ receiver: z.string().trim().min(1).max(200), message: z.string().trim().min(1).max(2000), title: z.string().max(200).optional() }).strict();
 
 function parseScheduledSmsDate(date: string, time: string): Date | null {
     const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
@@ -82,7 +82,6 @@ const AutomationRulesOutputSchema = z.object({ rules: z.array(z.object({
 const SMS_FIELDS: AgentFormField[] = [
     { name: "receiver", label: "수신번호", type: "text", required: true },
     { name: "message", label: "메시지", type: "textarea", required: true },
-    { name: "senderPhone", label: "발신번호", type: "text" },
     { name: "title", label: "제목", type: "text" },
 ];
 const SCHEDULED_SMS_FIELDS: AgentFormField[] = [
@@ -383,8 +382,10 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                     ? (rule.isActive ? "enabled" : "disabled")
                     : "updated";
                 return { status: "succeeded", result: { status, id: rule.id, isActive: rule.isActive } };
-            } catch {
-                return { status: "failed", reason: "Automation rule no longer exists" };
+            } catch (error) {
+                return error instanceof NotFoundException
+                    ? { status: "failed", reason: "Automation rule no longer exists" }
+                    : { status: "uncertain", reason: "Automation rule lookup failed" };
             }
         };
         return capability;

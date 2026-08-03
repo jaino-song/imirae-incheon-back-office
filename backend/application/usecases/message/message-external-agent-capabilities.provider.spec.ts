@@ -118,6 +118,18 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         await expect(send.execute(context, input)).resolves.toEqual(expect.objectContaining({ status: "sent", msgType: "LMS" }));
     });
 
+    it("rejects unsupported SMS sender overrides and omits them from recovery forms", () => {
+        const { capabilities } = setup();
+        for (const name of ["messages.sendSms", "messages.scheduleSms"]) {
+            const capability = capabilities.find((entry) => entry.meta.name === name)!;
+            const input = name === "messages.scheduleSms"
+                ? { receiver: "01012345678", message: "안내", senderPhone: "0212345678", scheduledDate: "2030-08-03", scheduledTime: "12:00" }
+                : { receiver: "01012345678", message: "안내", senderPhone: "0212345678" };
+            expect(capability.inputSchema.safeParse(input).success).toBe(false);
+            expect(capability.formFields?.some((field) => field.name === "senderPhone")).toBe(false);
+        }
+    });
+
     it("creates one action-keyed retry only for an explicitly provider-rejected job", async () => {
         const { repository, delivery, capabilities } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms");
@@ -211,6 +223,24 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         await expect(capability.reconcile!(context, { id: "rule-a" }, null)).resolves.toEqual({
             status: "succeeded",
             result: { status: "deleted", id: "rule-a" },
+        });
+    });
+
+    it("keeps automation update reconciliation uncertain on lookup failures", async () => {
+        const { delivery, capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "automation.update")!;
+        const input = { id: "rule-a", name: "변경된 규칙" };
+        delivery.getRule.mockRejectedValueOnce(new Error("database unavailable"));
+
+        await expect(capability.reconcile!(context, input, null)).resolves.toEqual({
+            status: "uncertain",
+            reason: "Automation rule lookup failed",
+        });
+
+        delivery.getRule.mockRejectedValueOnce(new NotFoundException("missing"));
+        await expect(capability.reconcile!(context, input, null)).resolves.toEqual({
+            status: "failed",
+            reason: "Automation rule no longer exists",
         });
     });
 

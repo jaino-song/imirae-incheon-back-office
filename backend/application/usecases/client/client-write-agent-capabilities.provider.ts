@@ -46,9 +46,14 @@ const ClientWriteFields = z.object({
 const CreateClientSchema = ClientWriteFields.extend({
     phone: z.string().trim().min(1).max(40),
 });
+const CLIENT_MUTABLE_FIELD_KEYS = Object.keys(ClientWriteFields.shape);
 const UpdateClientSchema = ClientWriteFields.partial().extend({
     id: z.number().int().positive(),
     targetVersion: z.string().min(1).optional(),
+}).superRefine((value, context) => {
+    if (!CLIENT_MUTABLE_FIELD_KEYS.some((key) => value[key as keyof typeof value] !== undefined)) {
+        context.addIssue({ code: "custom", message: "At least one client field must be updated" });
+    }
 });
 const ClientWriteOutputSchema = z.object({ id: z.number().int().positive(), name: z.string(), status: z.string() });
 const CLIENT_FORM_FIELDS: AgentFormField[] = [
@@ -62,7 +67,7 @@ const CLIENT_FORM_FIELDS: AgentFormField[] = [
 ];
 const CLIENT_UPDATE_FORM_FIELDS: AgentFormField[] = [
     { name: "id", label: "고객 ID", type: "number", required: true },
-    ...CLIENT_FORM_FIELDS.filter((field) => field.name !== "phone" || !field.required),
+    ...CLIENT_FORM_FIELDS.map((field) => ({ ...field, required: false })),
 ];
 
 function date(value: string | null | undefined): Date | null | undefined {

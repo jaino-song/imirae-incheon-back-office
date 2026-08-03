@@ -5,6 +5,7 @@ import type { VerifiedTenantPrincipal } from "infrastructure/tenant/tenant.conte
 import { AgentModelFactory } from "infrastructure/agent/agent-model.factory";
 import { AgentFlagsService } from "./agent-flags.service";
 import { CapabilityRegistryService } from "./capability-registry.service";
+import { redactFreeText } from "./agent-model-redaction";
 
 const DOMAIN_TERMS: Record<string, RegExp> = {
     clients: /(산모|고객|client|mother)/i,
@@ -28,6 +29,10 @@ const DOMAIN_TERMS: Record<string, RegExp> = {
     notifications: /(알림|notification|push)/i,
     admin: /(관리자|지점 생성|admin|branch creation)/i,
 };
+
+export function minimizeClassifierText(text: string): string {
+    return redactFreeText(text).slice(0, 240);
+}
 
 @Injectable()
 export class CapabilityRouterService {
@@ -62,9 +67,7 @@ export class CapabilityRouterService {
 
     private async classifyAmbiguous(text: string, enabledDomains: string[]): Promise<string[]> {
         if (!this.models || enabledDomains.length === 0 || process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"] === "false") return [];
-        const prompt = text
-            .replace(/(?:\+?\d[\d\s().-]{7,}\d)/g, "[redacted-number]")
-            .slice(0, 240);
+        const prompt = minimizeClassifierText(text);
         try {
             const result = await generateText({
                 model: this.models.create(),

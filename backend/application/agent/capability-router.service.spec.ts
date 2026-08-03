@@ -1,6 +1,13 @@
-import { CapabilityRouterService } from "./capability-router.service";
+import { generateText } from "ai";
+import { CapabilityRouterService, minimizeClassifierText } from "./capability-router.service";
+
+jest.mock("ai", () => ({ generateText: jest.fn() }));
+
+const mockedGenerateText = generateText as jest.MockedFunction<typeof generateText>;
 
 describe("CapabilityRouterService", () => {
+    beforeEach(() => mockedGenerateText.mockReset());
+
     function enabledFlags() {
         return {
             getSnapshot: jest.fn().mockResolvedValue({ config: {}, emergencyDisabled: false }),
@@ -63,5 +70,34 @@ describe("CapabilityRouterService", () => {
             if (previousClassifierFlag === undefined) delete process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"];
             else process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"] = previousClassifierFlag;
         }
+    });
+
+    it("minimizes phone, email, URL, and long identifiers before classifier dispatch", () => {
+        expect(minimizeClassifierText("010-1234-5678 client@example.com https://private.example/a 123e4567-e89b-12d3-a456-426614174000 abcdefghijklmnopqrstuvwxyz 고객 123456789"))
+            .toBe("[redacted] [redacted] [redacted] [redacted] [redacted] 고객 [redacted]");
+    });
+
+    it("passes only minimized current-turn text to the ambiguous classifier", async () => {
+        mockedGenerateText.mockResolvedValueOnce({ text: '{"domains":["clients"]}' } as never);
+        const router = new CapabilityRouterService(
+            { list: () => [{ meta: { name: "clients.search", domain: "clients" } }] } as never,
+            enabledFlags() as never,
+            { create: jest.fn().mockReturnValue({}) } as never,
+        );
+        const previousClassifierFlag = process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"];
+        process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"] = "true";
+
+        try {
+            await router.route("person@example.com https://private.example/a 123e4567-e89b-12d3-a456-426614174000", {
+                userId: "u", branchId: "b", globalRole: "admin", branchRole: "admin",
+            });
+        } finally {
+            if (previousClassifierFlag === undefined) delete process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"];
+            else process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"] = previousClassifierFlag;
+        }
+
+        expect(mockedGenerateText).toHaveBeenCalledWith(expect.objectContaining({
+            prompt: "[redacted] [redacted] [redacted]",
+        }));
     });
 });

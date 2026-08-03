@@ -16,9 +16,9 @@ const AgentActionEffectReceiptSchema = z.object({
 export type AgentActionEffectReceipt = z.infer<typeof AgentActionEffectReceiptSchema>;
 
 /**
- * Persist a durable, action-identity-bound effect receipt before returning from
- * a mutation capability. If this write cannot be confirmed the coordinator
- * leaves the action uncertain; reconciliation never guesses from business data.
+ * Persist a durable, action-identity-bound effect stage before an external
+ * mutation or before returning its result. If this write cannot be confirmed,
+ * the capability must not begin a newly staged external effect.
  */
 export async function recordAgentActionEffect(
     prisma: PrismaService,

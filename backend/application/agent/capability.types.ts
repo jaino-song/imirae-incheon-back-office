@@ -42,6 +42,12 @@ export interface CapabilityDefinition<TInput = unknown, TOutput = unknown> {
     revalidate?(context: AgentContext, input: TInput, expectedTargetVersion: string): Promise<AgentTargetRevalidation>;
     /** Read-only provider-status lookup; implementations must never replay a side effect. */
     reconcile?(context: AgentContext, input: TInput, uncertainty: Record<string, unknown> | null): Promise<AgentReconciliationOutcome>;
+    /**
+     * Idempotently finish an exact, durably staged, already-authorized effect.
+     * A provider call is allowed only when the staged operation is itself
+     * idempotent; recovery must never create a new or broader side effect.
+     */
+    recover?(context: AgentContext, input: TInput, uncertainty: Record<string, unknown> | null): Promise<void>;
 }
 
 export interface AgentCapabilityProviderContract {

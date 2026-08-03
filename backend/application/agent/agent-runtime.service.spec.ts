@@ -272,6 +272,106 @@ describe("AgentRuntimeService", () => {
         expect(chunks).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "data-form" })]));
     });
 
+    it("binds structured form values server-side without exposing them to model tool input", async () => {
+        const expiresAt = new Date("2026-08-03T01:00:00.000Z");
+        const capability = {
+            meta: {
+                name: "clients.create", domain: "clients", version: "1.0.0", description: "Create client",
+                risk: "reversible-write" as const, requiredRoles: ["admin"], renderer: "action-proposal" as const,
+                flagKey: "agent.capability.clients.create", sideEffect: true,
+                approvalPolicy: "structured" as const, idempotencyPolicy: "action-id" as const,
+            },
+            inputSchema: z.object({ name: z.string().min(1), phone: z.string().min(1) }),
+            outputSchema: z.object({ status: z.string() }),
+            formFields: [
+                { name: "name", label: "이름", type: "text" as const, required: true },
+                { name: "phone", label: "전화번호", type: "text" as const, required: true },
+            ],
+            execute: jest.fn(),
+        };
+        const actions = {
+            propose: jest.fn().mockImplementation(async (proposal) => ({
+                id: "action-form-bound", capability: "clients.create",
+                proposal: { title: "Create client", summary: "Create client", input: proposal.input },
+                targetSnapshot: null, expiresAt, proposalRevision: "revision-form-bound",
+                risk: "reversible-write", branchId: "branch-a", status: "proposed",
+            })),
+        };
+        const sessions = {
+            create: jest.fn().mockResolvedValue({ id: "session-form-bound", selectedEntities: {}, messages: [] }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const model = new DeterministicAgentLanguageModel([{ type: "tool-call", toolName: "clients_create", input: {} }]);
+        const modelStream = jest.spyOn(model, "doStream");
+        const runtime = new AgentRuntimeService(
+            { list: () => [capability] } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => model } as never,
+            { route: jest.fn() } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-form-bound", startedAt: Date.now() }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+            actions as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{
+                id: "message-form-bound", role: "user",
+                parts: [{
+                    type: "data-form-submit",
+                    data: { formId: "clients.create-session-form-bound", values: { name: "홍길동", phone: "01012345678" } },
+                }],
+            }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain so the server-bound proposal is produced and persisted.
+        }
+
+        expect(actions.propose).toHaveBeenCalledWith(expect.objectContaining({
+            input: { name: "홍길동", phone: "01012345678" },
+        }));
+        expect(JSON.stringify(modelStream.mock.calls)).not.toContain("01012345678");
+    });
+
+    it("rejects a structured form replayed against another session", async () => {
+        const capability = {
+            meta: {
+                name: "clients.create", domain: "clients", version: "1.0.0", description: "Create client",
+                risk: "reversible-write" as const, requiredRoles: ["admin"], renderer: "action-proposal" as const,
+                flagKey: "agent.capability.clients.create", sideEffect: true,
+                approvalPolicy: "structured" as const, idempotencyPolicy: "action-id" as const,
+            },
+            inputSchema: z.object({ name: z.string(), phone: z.string() }),
+            outputSchema: z.object({ status: z.string() }),
+            execute: jest.fn(),
+        };
+        const actions = { propose: jest.fn() };
+        const runtime = new AgentRuntimeService(
+            { list: () => [capability] } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { create: jest.fn().mockResolvedValue({ id: "session-current", selectedEntities: {}, messages: [] }) } as never,
+            { modelId: "deterministic-agent-v1", create: jest.fn() } as never,
+            { route: jest.fn() } as never,
+            { start: jest.fn() } as never,
+            actions as never,
+        );
+
+        await expect(runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{
+                id: "message-forged", role: "user",
+                parts: [{ type: "data-form-submit", data: {
+                    formId: "clients.create-session-other",
+                    values: { name: "홍길동", phone: "01012345678" },
+                } }],
+            }] as never,
+        })).rejects.toThrow("Agent is not enabled for this context");
+        expect(actions.propose).not.toHaveBeenCalled();
+    });
+
     it("emits a typed entity-choice part for duplicate matches", async () => {
         const capability = {
             meta: {

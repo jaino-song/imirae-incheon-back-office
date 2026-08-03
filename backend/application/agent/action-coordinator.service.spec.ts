@@ -119,6 +119,64 @@ describe("ActionCoordinatorService", () => {
         expect(prisma.agent_action.create).toHaveBeenCalledTimes(2);
     });
 
+    it.each(["executing", "uncertain"] as const)("retains an expired dedupe reservation while the action is %s", async (status) => {
+        const definition = capability();
+        const existing = actionRecord({
+            status,
+            dedupeExpiresAt: new Date(Date.now() - 60_000),
+        });
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockResolvedValue(existing),
+            updateMany: jest.fn(),
+            create: jest.fn(),
+        } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+        );
+
+        const duplicate = await service.propose({
+            sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko",
+        });
+
+        expect(duplicate.id).toBe(existing.id);
+        expect(prisma.agent_action.updateMany).not.toHaveBeenCalled();
+        expect(prisma.agent_action.create).not.toHaveBeenCalled();
+    });
+
+    it.each(["proposed", "approved", "succeeded", "failed", "rejected", "expired", "cancelled"] as const)(
+        "releases an expired dedupe reservation when the prior action is %s",
+        async (status) => {
+            const definition = capability();
+            const existing = actionRecord({ status, dedupeExpiresAt: new Date(Date.now() - 60_000) });
+            const prisma = { agent_action: {
+                findUnique: jest.fn().mockResolvedValue(existing),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                create: jest.fn().mockImplementation(async ({ data }) => actionRecord({
+                    ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null,
+                })),
+            } };
+            const service = new ActionCoordinatorService(
+                prisma as never,
+                { get: jest.fn().mockReturnValue(definition) } as never,
+                { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+                { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            );
+
+            const replacement = await service.propose({
+                sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko",
+            });
+
+            expect(replacement.id).not.toBe(existing.id);
+            expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: expect.objectContaining({ id: existing.id, status }),
+            }));
+            expect(prisma.agent_action.create).toHaveBeenCalledTimes(1);
+        },
+    );
+
     it("does not accept a capability version as approval proof", async () => {
         const definition = capability();
         const action = actionRecord();
@@ -134,8 +192,10 @@ describe("ActionCoordinatorService", () => {
     });
 
     it("accepts reconciliation outcomes only from the capability provider", async () => {
+        const recover = jest.fn().mockResolvedValue(undefined);
         const definition = {
             ...capability(),
+            recover,
             reconcile: jest.fn().mockResolvedValue({ status: "succeeded", result: { status: "updated" } }),
         };
         const uncertain = actionRecord({ status: "uncertain", error: { details: { providerRequestId: "provider-1" } } });
@@ -154,6 +214,8 @@ describe("ActionCoordinatorService", () => {
         const result = await service.reconcile(uncertain.id, principal);
 
         expect(definition.reconcile).toHaveBeenCalledWith(expect.objectContaining({ actionId: uncertain.id }), { id: 3 }, { providerRequestId: "provider-1" });
+        expect(recover).toHaveBeenCalledWith(expect.objectContaining({ actionId: uncertain.id }), { id: 3 }, { providerRequestId: "provider-1" });
+        expect(recover.mock.invocationCallOrder[0]).toBeLessThan(definition.reconcile.mock.invocationCallOrder[0]!);
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({ id: uncertain.id, status: "uncertain" }),
             data: expect.objectContaining({ status: "succeeded", result: { status: "updated" } }),

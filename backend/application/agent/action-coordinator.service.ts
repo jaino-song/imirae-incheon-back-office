@@ -23,6 +23,7 @@ import type { AgentReconciliationOutcome } from "./capability.types";
 
 const APPROVAL_PENDING_STATUSES: AgentActionStatus[] = ["proposed", "approved"];
 const TERMINAL_STATUSES: AgentActionStatus[] = ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"];
+const DEDUPE_RESERVED_STATUSES: AgentActionStatus[] = ["executing", "uncertain"];
 const DEFAULT_ACTION_TTL_MS = 15 * 60 * 1000;
 const REQUEST_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
 const EXECUTION_STALE_AFTER_MS = 30 * 60 * 1000;
@@ -151,10 +152,13 @@ export class ActionCoordinatorService {
         const existing = await this.prisma.agent_action.findUnique({ where: { requestDedupeKey } });
         if (existing?.dedupeExpiresAt && existing.dedupeExpiresAt.getTime() > now.getTime()) return toEntity(existing);
         if (existing) {
+            if (DEDUPE_RESERVED_STATUSES.includes(existing.status as AgentActionStatus)) {
+                return toEntity(existing);
+            }
             // Free the stable fingerprint only after its window expires. The
             // compare-and-swap plus unique index closes concurrent boundary races.
             await this.prisma.agent_action.updateMany({
-                where: { id: existing.id, requestDedupeKey, dedupeExpiresAt: { lte: now } },
+                where: { id: existing.id, status: existing.status, requestDedupeKey, dedupeExpiresAt: { lte: now } },
                 data: {
                     requestDedupeKey: createHash("sha256")
                         .update(`expired:${requestDedupeKey}:${existing.id}:${randomUUID()}`)
@@ -470,7 +474,7 @@ export class ActionCoordinatorService {
         const capability = this.registry.get(action.capability);
         if (!capability.reconcile) throw new ConflictException("Provider reconciliation is unavailable");
         const proposal = jsonObject(action.proposal);
-        const outcome = await capability.reconcile({
+        const actionContext = {
             principal,
             sessionId: action.sessionId,
             actionId: action.id,
@@ -478,7 +482,10 @@ export class ActionCoordinatorService {
                 ? action.authorizationContext["traceId"]
                 : randomUUID(),
             locale: typeof proposal["locale"] === "string" ? proposal["locale"] : "ko",
-        }, proposal["input"], action.error ? jsonObject(action.error["details"]) : null);
+        };
+        const uncertainty = action.error ? jsonObject(action.error["details"]) : null;
+        await capability.recover?.(actionContext, proposal["input"], uncertainty);
+        const outcome = await capability.reconcile(actionContext, proposal["input"], uncertainty);
         if (outcome.status === "uncertain") return action;
         return this.applyReconciliationOutcome(action, capability, outcome);
     }
