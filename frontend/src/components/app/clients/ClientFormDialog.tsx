@@ -1308,8 +1308,7 @@ function ClientFormContent({
                             maxLength={6}
                             placeholder="YYMMDD"
                             value={formData.endDate || ""}
-                            readOnly
-                            aria-readonly="true"
+                            onChange={(e) => handleChange("endDate", parseCompactDateInput(e.target.value))}
                         />
                     </FormField>
                 </FormGrid>
@@ -1663,9 +1662,8 @@ function ClientFormContent({
                     placeholder="YYMMDD"
                     inputMode="numeric"
                     value={formData.endDate || ""}
+                    onChange={(event) => handleChange("endDate", parseCompactDateInput(event.target.value))}
                     maxLength={6}
-                    readOnly
-                    aria-readonly="true"
                 />
             </FormField>
 
