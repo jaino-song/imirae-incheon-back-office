@@ -17,6 +17,7 @@ import {
     ListClientsPaginatedUsecase,
     UpdateClientUsecase,
 } from "application/usecases/client";
+import { LinkMirroredEformsignDocByPhoneUsecase } from "application/usecases/eformsign-doc";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
@@ -181,6 +182,7 @@ export class ClientService {
         @Optional() private readonly serviceRecordLinkService?: ServiceRecordLinkService,
         @Optional() private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
         @Optional() private readonly configService?: ConfigService,
+        @Optional() private readonly linkMirroredDocumentByPhoneUsecase?: LinkMirroredEformsignDocByPhoneUsecase,
     ) {}
 
     private async revokeServiceRecordLinkAfterCommit(clientId: number, scheduleId: number): Promise<void> {
@@ -301,6 +303,12 @@ export class ClientService {
                 && client.eDocId !== latestContract.documentId;
 
             if (documentIdsToReassign.length === 0 && !shouldUpdateClientDocument) {
+                await this.linkNotReadyContractDocumentsByPhone(
+                    branchid,
+                    client,
+                    normalizedPhone,
+                    phoneLookupSuffix,
+                );
                 return;
             }
 
@@ -437,12 +445,91 @@ export class ClientService {
                     matchingDocs.some((doc) => doc.branchId === null),
                 );
             }
+            await this.linkNotReadyContractDocumentsByPhone(
+                branchid,
+                client,
+                normalizedPhone,
+                phoneLookupSuffix,
+            );
         } catch (error) {
             const errorType = error instanceof Error ? error.name : "UnknownError";
             this.logger.error(
                 `[CLIENT_CONTRACT_PHONE_LINK_FAILED] 고객 ${client.id} 계약서 자동 연결 실패 (${errorType})`,
             );
         }
+    }
+
+    private async linkNotReadyContractDocumentsByPhone(
+        branchId: string,
+        client: ClientEntity,
+        normalizedPhone: string,
+        phoneLookupSuffix: string,
+    ): Promise<void> {
+        if (!this.linkMirroredDocumentByPhoneUsecase) return;
+
+        const candidates = await this.prismaService.eformsign_doc.findMany({
+            where: {
+                serviceRecordCaseId: null,
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
+                syncStatus: { not: "ready" },
+                OR: [
+                    { customerPhone: normalizedPhone },
+                    {
+                        customerPhone: null,
+                        stepRecipientSms: { contains: phoneLookupSuffix },
+                    },
+                ],
+                AND: [
+                    {
+                        OR: [
+                            { branchId },
+                            { branchId: null, clientId: null },
+                        ],
+                    },
+                    {
+                        OR: [
+                            { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
+                            { documentKind: null },
+                        ],
+                    },
+                ],
+            },
+            orderBy: [
+                { createdDate: "desc" },
+                { id: "desc" },
+            ],
+            select: {
+                documentId: true,
+                branchId: true,
+            },
+        });
+
+        let ownershipChanged = false;
+        let includesUnassignedDocument = false;
+        for (const candidate of candidates) {
+            const result = await this.linkMirroredDocumentByPhoneUsecase.execute(
+                candidate.documentId,
+                { linkExistingOnly: true },
+            );
+            if (result === "linked") {
+                ownershipChanged = true;
+                includesUnassignedDocument ||= candidate.branchId === null;
+            }
+        }
+        if (!ownershipChanged) return;
+
+        const persistedClient = await this.prismaService.client.findUnique({
+            where: { id: client.id },
+            select: { eDocId: true },
+        });
+        if (persistedClient) {
+            client.update({ eDocId: persistedClient.eDocId });
+        }
+        await this.invalidateContractDocumentSnapshots(
+            branchId,
+            includesUnassignedDocument,
+        );
     }
 
     private async invalidateContractDocumentSnapshots(
