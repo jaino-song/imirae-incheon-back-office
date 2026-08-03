@@ -23,6 +23,7 @@ import {
     MirrorUnassignedEformsignDocUsecase,
     BackfillEformsignDocsUsecase,
     LinkMirroredEformsignDocByPhoneUsecase,
+    GetContractClientCandidateUsecase,
 } from "application/usecases/eformsign-doc";
 import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_CLIENT_REPOSITORY } from "domain/repositories/eformsign.client.interface";
@@ -92,6 +93,7 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         AdoptEformsignDocUsecase,
         MirrorUnassignedEformsignDocUsecase,
         LinkMirroredEformsignDocByPhoneUsecase,
+        GetContractClientCandidateUsecase,
         ReconcileCompletedMirroredEformsignDocUsecase,
         BackfillEformsignDocsUsecase,
         // Services
@@ -147,6 +149,7 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         EformsignMirrorReadinessService,
         ReconcileCompletedMirroredEformsignDocUsecase,
         LinkMirroredEformsignDocByPhoneUsecase,
+        GetContractClientCandidateUsecase,
     ],
 })
 export class EformsignDocModule {}

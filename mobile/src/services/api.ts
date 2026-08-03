@@ -147,6 +147,7 @@ export type EformsignStatusCategoryParam =
     | "unknown";
 
 export type EformsignTemplateMatchParam = "include" | "exclude";
+export type EformsignDisplayStatusParam = "signed" | "review";
 
 export interface GetAllDocumentsParams {
     limit?: number;
@@ -155,6 +156,8 @@ export interface GetAllDocumentsParams {
     templateMatch?: EformsignTemplateMatchParam;
     /** Server-side status bucket filter, applied before the limit/skip slice. */
     statusCategory?: EformsignStatusCategoryParam;
+    /** Provider-review display split, applied before the limit/skip slice. */
+    displayStatus?: EformsignDisplayStatusParam;
     /** Server-side (chosung-aware) name/title search, applied before the slice. */
     search?: string;
     /** Drops deleted (047/049) documents before the slice. Sent as "true" only when enabled. */
@@ -193,6 +196,7 @@ function buildDocumentListParams(
     if (params.templateId) query.templateId = params.templateId;
     if (params.templateMatch) query.templateMatch = params.templateMatch;
     if (params.statusCategory) query.statusCategory = params.statusCategory;
+    if (params.displayStatus) query.displayStatus = params.displayStatus;
 
     const search = params.search?.trim();
     if (search) query.search = search;

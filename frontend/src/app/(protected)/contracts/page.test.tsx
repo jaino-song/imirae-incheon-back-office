@@ -11,4 +11,9 @@ describe("ContractsPage provider summaries", () => {
     expect(source).toContain(".filter((provider) => provider.name || provider.contact)");
     expect(source).toContain('providers.length === 1 ? "제공인력"');
   });
+
+  it("derives the contract end date through split and full-field aliases", () => {
+    expect(source).toContain("formatIsoDateInput(\n    extractFieldDate(detailedDocument");
+    expect(source).toContain('full: ["계약 종료일", "계약종료일", "endDate", "contractEndDate"]');
+  });
 });

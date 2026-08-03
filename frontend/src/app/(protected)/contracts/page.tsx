@@ -25,6 +25,7 @@ import {
   Bell,
 } from "lucide-react";
 import {
+  useContractClientCandidate,
   useDeleteEformsignDocument,
 } from "@/hooks/useEformsignDocuments";
 import { useEformsignAuth } from "@/hooks/useEformsignAuth";
@@ -65,6 +66,7 @@ import {
 } from "@/components/app/v3";
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
+import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -99,10 +101,12 @@ import {
 import {
   UNKNOWN_CUSTOMER_NAME,
   customerName as getEformsignCustomerName,
+  resolveDocumentCustomerName,
 } from "@/lib/eformsign/display-name";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
+import { contractCandidateToClientPrefill } from "@/lib/client/contract-client-prefill";
 import { ContractsListItem } from "@/components/app/contracts/ContractsListItem";
 import {
   ContractReviewActionButton,
@@ -464,6 +468,7 @@ export default function ContractsPage() {
   const [hasContractCreationSession, setHasContractCreationSession] = useState(false);
   const [contractCreationActiveStep, setContractCreationActiveStep] = useState(0);
   const [deleteTargetDocumentId, setDeleteTargetDocumentId] = useState<string | null>(null);
+  const [registerClientDocumentId, setRegisterClientDocumentId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceRecordActiveTab, setServiceRecordActiveTab] = useState("all");
   const [serviceRecordSearchQuery, setServiceRecordSearchQuery] = useState("");
@@ -475,14 +480,37 @@ export default function ContractsPage() {
   });
   useEformsignDocsLiveStream(isAuthenticated);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const deleteDocument = useDeleteEformsignDocument();
+  const registerCandidateQuery = useContractClientCandidate(registerClientDocumentId);
+  const registerClientPrefill = useMemo(
+    () => (registerCandidateQuery.data
+      ? contractCandidateToClientPrefill(registerCandidateQuery.data)
+      : undefined),
+    [registerCandidateQuery.data],
+  );
+  const registerClientOpen =
+    registerClientDocumentId !== null
+    && (registerCandidateQuery.isSuccess || registerCandidateQuery.isError);
+  useEffect(() => {
+    if (registerClientDocumentId !== null && registerCandidateQuery.isError) {
+      toast({
+        variant: "destructive",
+        title: "계약 정보 불러오기 실패",
+        description: "고객 정보를 직접 입력해 주세요.",
+      });
+    }
+  }, [registerCandidateQuery.isError, registerClientDocumentId, toast]);
   const { data: serviceRecordTemplateConfig, isLoading: isServiceRecordTemplateLoading } = useQuery({
     queryKey: ["eformsign-docs", "service-record-template-id"],
     queryFn: () => eformsignApi.getServiceRecordTemplateId(),
     enabled: isAuthenticated,
     staleTime: 1000 * 60 * 60,
   });
-  const { data: documentClientSummaries = [] } = useQuery({
+  const {
+    data: documentClientSummaries = [],
+    isPending: isClientSummariesPending,
+  } = useQuery({
     queryKey: ["eformsign-client-names"],
     queryFn: () => eformsignApi.getDocumentClientNames(),
     enabled: isAuthenticated,
@@ -496,7 +524,7 @@ export default function ContractsPage() {
     (doc: EformsignDocument | null): string | null => {
       if (!doc) return null;
       const mappedName = documentClientSummaryById.get(doc.id)?.clientName.trim();
-      return mappedName || displayCustomerName(doc);
+      return resolveDocumentCustomerName(doc, mappedName);
     },
     [documentClientSummaryById],
   );
@@ -657,6 +685,7 @@ export default function ContractsPage() {
         setSelectedServiceRecordDocId(null);
       }
 
+      setRegisterClientDocumentId(null);
       setDeleteTargetDocumentId(null);
       toast({
         title: "문서 삭제 완료",
@@ -711,7 +740,10 @@ export default function ContractsPage() {
           data-component="desktop_contracts_sections_section-nav"
           items={NAV_SECTIONS}
           activeId={activeSection}
-          onSelect={(id) => setActiveSection(id as SectionId)}
+          onSelect={(id) => {
+            setRegisterClientDocumentId(null);
+            setActiveSection(id as SectionId);
+          }}
         />
 
         <div
@@ -775,7 +807,11 @@ export default function ContractsPage() {
                     isInteractive: !isLoading && Boolean(item),
                   };
                 }}
-                onSlotClick={(doc) => { setIsCreating(false); setSelectedDocId(doc.id); }}
+                onSlotClick={(doc) => {
+                  setIsCreating(false);
+                  setRegisterClientDocumentId(null);
+                  setSelectedDocId(doc.id);
+                }}
                 // Load more props
                 hasMore={hasNextPage}
                 onLoadMore={() => fetchNextPage()}
@@ -852,6 +888,7 @@ export default function ContractsPage() {
               document={selectedDocument}
               documentClientSummary={documentClientSummaryById.get(selectedDocument.id) ?? null}
               onDeleteRequest={handleDeleteRequest}
+              onRegisterClient={isClientSummariesPending ? undefined : setRegisterClientDocumentId}
             />
           ) : !isCreating && !hasContractCreationSession ? (
             <EmptyState icon={FileText} message="계약을 선택하면 상세 정보가 표시됩니다" />
@@ -1064,6 +1101,23 @@ export default function ContractsPage() {
         isPending={deleteDocument.isPending}
         onApprove={() => void handleDeleteConfirm()}
       />
+
+      {registerClientDocumentId !== null && (
+        <ClientFormDialog
+          data-component="desktop_contracts_modals_register-client"
+          open={registerClientOpen}
+          onClose={() => setRegisterClientDocumentId(null)}
+          prefill={registerClientPrefill}
+          notice={registerCandidateQuery.isError
+            ? "계약서에서 정보를 불러오지 못했습니다. 계약서의 전화번호와 동일하게 입력해야 자동 연결됩니다."
+            : "전화번호를 변경하면 이 계약서와 자동 연결되지 않을 수 있습니다."}
+          onSuccess={() => {
+            setRegisterClientDocumentId(null);
+            void queryClient.invalidateQueries({ queryKey: ["eformsign-client-names"] });
+            void queryClient.invalidateQueries({ queryKey: ["eformsign-documents"] });
+          }}
+        />
+      )}
     </PageSection>
   );
 }
@@ -1073,12 +1127,14 @@ function ContractDetail({
   document: doc,
   documentClientSummary,
   onDeleteRequest,
+  onRegisterClient,
   reviewAction = "finalize",
 }: {
   "data-component": string;
   document: EformsignDocument;
   documentClientSummary?: EformsignDocClientSummary | null;
   onDeleteRequest?: (documentId: string) => void;
+  onRegisterClient?: (documentId: string) => void;
   reviewAction?: ContractReviewAction;
 }) {
   const isMobile = useIsMobile();
@@ -1094,7 +1150,7 @@ function ContractDetail({
   const detailedDocument = detailQuery.data ?? doc;
   const isBaseDetailLoading = detailQuery.isFetching || detailQuery.isPlaceholderData;
   const mappedCustomerName = documentClientSummary?.clientName.trim();
-  const customerName = mappedCustomerName || displayCustomerName(detailedDocument) || "–";
+  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || "–";
   const isServiceRecordDocument = reviewAction === "preview";
   const serviceRecordQuery = useClientServiceRecords(documentClientSummary?.clientId ?? null, {
     enabled: isServiceRecordDocument,
@@ -1103,16 +1159,14 @@ function ContractDetail({
     ?? serviceRecordQuery.data?.assignments.find((assignment) => assignment.header)?.header
     ?? null;
   const category = getStatusCategory(detailedDocument.current_status?.status_type);
-  const contractEndDateIso = (() => {
-    const year = extractDocumentFieldValue(detailedDocument, ["계약 종료 년도", "계약종료년도", "endYear"]);
-    const month = extractDocumentFieldValue(detailedDocument, ["계약 종료 월", "계약종료월", "endMonth"]);
-    const day = extractDocumentFieldValue(detailedDocument, ["계약 종료 일", "계약종료일", "endDay"]);
-    if (!year || !month || !day) return "";
-    const yearNum = parseInt(year, 10);
-    if (Number.isNaN(yearNum)) return "";
-    const yearStr = (yearNum < 100 ? 2000 + yearNum : yearNum).toString().padStart(4, "0");
-    return `${yearStr}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  })();
+  const contractEndDateIso = formatIsoDateInput(
+    extractFieldDate(detailedDocument, {
+      year: ["계약 종료 년도", "계약종료년도", "endYear"],
+      month: ["계약 종료 월", "계약종료월", "endMonth"],
+      day: ["계약 종료 일", "계약종료일", "endDay"],
+      full: ["계약 종료일", "계약종료일", "endDate", "contractEndDate"],
+    }) ?? "",
+  );
   const statusLabel = mapDocStatusLabel(detailedDocument.current_status, contractEndDateIso || null);
   const statusType: StatusType = contractStatusBadgeType(statusLabel);
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");
@@ -1783,6 +1837,8 @@ function ContractDetail({
     />,
   ];
 
+  const canRegisterClient = Boolean(onRegisterClient && !documentClientSummary?.clientId);
+
   const stepperActions = (
     <div
       data-component={`${dataComponent}_header_stepper-actions`}
@@ -1802,7 +1858,7 @@ function ContractDetail({
           collapseOnHeaderOverflow
         />
       </button>
-      {(canReRequest || onDeleteRequest) && (
+      {(canReRequest || onDeleteRequest || canRegisterClient) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1821,6 +1877,15 @@ function ContractDetail({
             sideOffset={8}
             className="min-w-[8rem]"
           >
+            {canRegisterClient && (
+              <DropdownMenuItem
+                data-component={`${dataComponent}_header_stepper-actions_more-menu_content_register-client`}
+                onSelect={() => onRegisterClient?.(doc.id)}
+              >
+                고객 등록
+              </DropdownMenuItem>
+            )}
+            {canRegisterClient && (canReRequest || onDeleteRequest) && <DropdownMenuSeparator />}
             {canReRequest && (
               <DropdownMenuItem
                 data-component={`${dataComponent}_header_stepper-actions_more-menu_content_rerequest`}

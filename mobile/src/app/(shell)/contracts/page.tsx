@@ -266,6 +266,11 @@ const FILTER_TO_STATUS_CATEGORY: Record<FilterKey, EformsignStatusCategoryParam 
   "알 수 없음": "unknown",
 };
 
+const FILTER_TO_DISPLAY_STATUS = {
+  "서명 완료": "signed",
+  "검토 필요": "review",
+} as const;
+
 const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
   drafting: "서명 대기",
   signed: "서명 완료",
@@ -1938,6 +1943,9 @@ export default function ContractsPage() {
     && (activeSection === "maternal-contracts" || serviceRecordTemplateIds.length > 0);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
+  const displayStatusParam = activeFilter in FILTER_TO_DISPLAY_STATUS
+    ? FILTER_TO_DISPLAY_STATUS[activeFilter as keyof typeof FILTER_TO_DISPLAY_STATUS]
+    : null;
 
   const {
     documents: paginatedDocuments,
@@ -1952,6 +1960,7 @@ export default function ContractsPage() {
     isLoadMoreError,
   } = useInfiniteContracts({
     statusCategory: statusCategoryParam,
+    displayStatus: displayStatusParam,
     search: debouncedSearchQuery,
     templateId: serviceRecordTemplateId,
     templateMatch: sectionTemplateMatch,

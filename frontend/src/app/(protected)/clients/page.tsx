@@ -51,7 +51,6 @@ import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
 import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { NotificationOneButtonModal } from "@/components/app/ui/NotificationOneButtonModal";
-import { StatusPill } from "@/components/app/ui/status-badge";
 import { ClientDetailModal } from "@/components/app/clients/ClientDetailModal";
 import { ServiceRecordLinkResetResultModal } from "@/components/app/clients/ServiceRecordLinkResetResultModal";
 import { ServiceScheduleChangeModal } from "@/components/app/clients/ServiceScheduleChangeModal";
@@ -773,13 +772,12 @@ export default function ClientsPage() {
                                                                 }
                                                             />
                                                             {remainingClientBadges.length > 0 ? (
-                                                                <StatusPill
+                                                                <span
                                                                     data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_status-more"
-                                                                    variant="neutral"
-                                                                    size="sm"
+                                                                    className="shrink-0 text-[calc(10.4px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted"
                                                                 >
                                                                     +{remainingClientBadges.length}
-                                                                </StatusPill>
+                                                                </span>
                                                             ) : null}
                                                         </div>
                                                     ) : undefined}

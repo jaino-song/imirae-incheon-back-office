@@ -555,6 +555,7 @@ function ClientDetailPanelBody({
                 return {
                     ...document,
                     ...fallbackDocument,
+                    ...(fallbackDocument ? { displayStatus: null } : {}),
                 };
             });
         },

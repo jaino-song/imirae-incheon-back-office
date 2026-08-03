@@ -3,6 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { AreaTemplateService } from "application/services/area-template.service";
 import { EformsignDocService } from "application/services/eformsign-doc.service";
 import { EformsignService } from "application/services/eformsign.service";
+import { GetContractClientCandidateUsecase } from "application/usecases/eformsign-doc/get-contract-client-candidate.usecase";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant";
@@ -54,6 +55,10 @@ describe("EformsignController (Integration)", () => {
         | "findDisplayFieldsByDocumentIds"
     >>;
     let assignmentGuard: jest.Mocked<Pick<ContractClientAssignmentGuardService, "assertAssignedProvider">>;
+    let getContractClientCandidateUsecase: jest.Mocked<Pick<
+        GetContractClientCandidateUsecase,
+        "execute"
+    >>;
     let branchFindUnique: jest.Mock;
 
     const authGuard = {
@@ -158,6 +163,10 @@ describe("EformsignController (Integration)", () => {
                         assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }),
                     },
                 },
+                {
+                    provide: GetContractClientCandidateUsecase,
+                    useValue: { execute: jest.fn() },
+                },
                 // 실제 구현을 그대로 쓴다. VALKEY_URL이 없는 테스트 환경에서는 프로세스
                 // 로컬 in-memory 스토어로 동작하고, 인스턴스는 테스트마다 새로 만들어진다.
                 EformsignDocumentSnapshotService,
@@ -196,6 +205,7 @@ describe("EformsignController (Integration)", () => {
         areaTemplateService = moduleFixture.get(AreaTemplateService);
         eformsignDocService = moduleFixture.get(EformsignDocService);
         assignmentGuard = moduleFixture.get(ContractClientAssignmentGuardService);
+        getContractClientCandidateUsecase = moduleFixture.get(GetContractClientCandidateUsecase);
         branchFindUnique = (moduleFixture.get(PrismaService) as unknown as { branch: { findUnique: jest.Mock } }).branch.findUnique;
         // default: a non-incheon branch, so per-branch filtering applies
         branchFindUnique.mockResolvedValue({ slug: "gimpo" });
@@ -792,17 +802,65 @@ describe("EformsignController (Integration)", () => {
         expect(eformsignService.getDocumentById).not.toHaveBeenCalled();
     });
 
+    it("forbids a foreign-branch document client candidate without calling the usecase", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as any);
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents/other-branch-doc/client-candidate");
+
+        expect(response.status).toBe(403);
+        expect(getContractClientCandidateUsecase.execute).not.toHaveBeenCalled();
+    });
+
+    it("returns the client candidate for an allowed document", async () => {
+        const candidate = {
+            documentId: "branch-1-doc",
+            extracted: true,
+            name: "홍길동",
+            phone: "010-1234-5678",
+            address: "서울시 강남구",
+            birthday: "900101",
+            dueDate: "2026-07-20",
+            startDate: "2026-08-10",
+            endDate: "2026-08-24",
+            type: "A-가형",
+            duration: 10,
+            fullPrice: "1234000",
+            grant: "900000",
+            actualPrice: "334000",
+            careCenter: true,
+            voucherClient: true,
+            breastPump: false,
+        };
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as any);
+        getContractClientCandidateUsecase.execute.mockResolvedValue(candidate);
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents/branch-1-doc/client-candidate");
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual(candidate);
+        expect(getContractClientCandidateUsecase.execute).toHaveBeenCalledWith("branch-1-doc");
+    });
+
     describe("local source-of-truth document reads", () => {
         let mirrorApp: INestApplication;
         const mirrorRepository = {
             findAllVisibleInMirror: jest.fn().mockResolvedValue([]),
             findAllVisibleInMirrorForHeadquarters: jest.fn().mockResolvedValue([]),
+            findContractEndDatesByDocumentIds: jest.fn().mockResolvedValue(new Map()),
         };
 
         const createMirrorRow = (overrides: {
             documentId: string;
             createdDate?: string;
             statusType?: string;
+            stepType?: string;
+            stepName?: string;
             customerName?: string | null;
         }) => {
             const createdDate = new Date(overrides.createdDate ?? "2026-07-01T00:00:00.000Z");
@@ -822,9 +880,9 @@ describe("EformsignController (Integration)", () => {
                 updatedDate: createdDate,
                 statusType: overrides.statusType ?? "060",
                 statusDetail: "서명 요청됨",
-                stepType: "01",
+                stepType: overrides.stepType ?? "01",
                 stepIndex: "1",
-                stepName: "이용자 서명",
+                stepName: overrides.stepName ?? "이용자 서명",
                 stepRecipientType: "05",
                 stepRecipientName: "송진호",
                 stepRecipientSms: "01012345678",
@@ -853,6 +911,10 @@ describe("EformsignController (Integration)", () => {
                     {
                         provide: ContractClientAssignmentGuardService,
                         useValue: { assertAssignedProvider: jest.fn() },
+                    },
+                    {
+                        provide: GetContractClientCandidateUsecase,
+                        useValue: { execute: jest.fn() },
                     },
                     EformsignDocumentSnapshotService,
                     {
@@ -969,6 +1031,41 @@ describe("EformsignController (Integration)", () => {
             expect(eformsignService.getInProgressDocuments).not.toHaveBeenCalled();
             expect(eformsignService.getCompletedDocuments).not.toHaveBeenCalled();
             expect(eformsignService.getRejectedDocuments).not.toHaveBeenCalled();
+        });
+
+        it("filters display status before slicing the page", async () => {
+            mirrorRepository.findAllVisibleInMirror.mockResolvedValue([
+                createMirrorRow({
+                    documentId: "newer-pending",
+                    createdDate: "2026-07-03T00:00:00.000Z",
+                    statusType: "060",
+                }),
+                createMirrorRow({
+                    documentId: "older-review",
+                    createdDate: "2026-07-02T00:00:00.000Z",
+                    statusType: "070",
+                    stepType: "06",
+                    stepName: "제공기관 확인",
+                }),
+            ]);
+
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?displayStatus=review&limit=1&skip=0");
+
+            expect(response.status).toBe(200);
+            expect(response.body.documents.map((doc: { id: string }) => doc.id)).toEqual([
+                "older-review",
+            ]);
+            expect(response.body.total_rows).toBe(1);
+            expect(response.body.has_more).toBe(false);
+        });
+
+        it("rejects unsupported display-status filters", async () => {
+            const response = await request(mirrorApp.getHttpServer())
+                .get("/api/documents?displayStatus=unexpected");
+
+            expect(response.status).toBe(400);
+            expect(response.body.message).toBe("displayStatus must be signed or review");
         });
 
         it("keeps a stale tombstone in unfiltered all reads but fences it from deletion-aware filters", async () => {

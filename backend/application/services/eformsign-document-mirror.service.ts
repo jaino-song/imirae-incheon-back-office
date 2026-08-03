@@ -12,7 +12,10 @@ import {
     LinkMirroredEformsignDocByPhoneUsecase,
 } from "application/usecases/eformsign-doc/link-mirrored-eformsign-doc-by-phone.usecase";
 import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/usecases/eformsign-doc/reconcile-completed-mirrored-eformsign-doc.usecase";
-import { EFORMSIGN_COMPLETED_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
+import {
+    EFORMSIGN_COMPLETED_STATUS_CODES,
+    isUnassignedReviewStageStatus,
+} from "domain/constants/eformsign-doc-status.constants";
 import {
     EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY,
     EformsignDocumentFileType,
@@ -215,10 +218,14 @@ export class EformsignDocumentMirrorService {
             && candidate.sourceUpdatedDate.getTime()
                 === state.detailSourceUpdatedDate.getTime(),
         );
+        const canReadReviewStageDocument = fileType === "document"
+            && isUnassignedReviewStageStatus(
+                state?.detailPayload?.current_status?.status_type,
+            );
         if (
             !state?.detailPayload
             || !state.detailSourceUpdatedDate
-            || state.syncStatus !== "ready"
+            || (state.syncStatus !== "ready" && !canReadReviewStageDocument)
             || Boolean(state.permanentPurgeRequestedAt)
             || !file
         ) {

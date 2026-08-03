@@ -16,12 +16,17 @@ describe("ClientsPage deletion conflicts", () => {
 });
 
 describe("ClientsPage visual conventions", () => {
-  it("uses the standard neutral pill for overflow client statuses", () => {
-    expect(source).toContain('variant="neutral"');
+  it("renders overflow client statuses as plain text instead of a badge", () => {
     expect(source).toContain(
       'data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_status-more"',
     );
     expect(source).toContain("+{remainingClientBadges.length}");
+    const overflowStatus = source.slice(
+      source.indexOf('data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_status-more"') - 80,
+      source.indexOf("+{remainingClientBadges.length}") + 40,
+    );
+    expect(overflowStatus).toContain("<span");
+    expect(overflowStatus).not.toContain("StatusPill");
   });
 
   it("uses the people icon for the empty client list", () => {
