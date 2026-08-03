@@ -1,3 +1,5 @@
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
+
 export const EFORMSIGN_COMPLETED_STATUS_CODES: ReadonlySet<string> = new Set([
     "003",
     "012",
@@ -64,6 +66,14 @@ export const TERMINAL_STATUS_CODES = new Set<string>([
  * re-mirrors a document that already has a local row.
  */
 export const UNASSIGNED_REVIEW_STAGE_STATUS_CODES = new Set<string>(["062", "071"]);
+
+export function isUnassignedReviewStageStatus(
+    statusType: string | number | null | undefined,
+): boolean {
+    return UNASSIGNED_REVIEW_STAGE_STATUS_CODES.has(
+        normalizeEformsignStatusCode(statusType),
+    );
+}
 
 /**
  * Canonical review-stage codes plus raw values written by older vendor-ingestion paths.

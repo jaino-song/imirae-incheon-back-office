@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import {
     EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
+    isUnassignedReviewStageStatus,
 } from "domain/constants/eformsign-doc-status.constants";
 import {
     EformsignDocumentFileType,
@@ -98,9 +99,14 @@ implements IEformsignDocumentMirrorRepository {
             },
         });
         const row = document?.files[0];
+        const canReadReviewStageDocument = fileType === "document"
+            && isUnassignedReviewStageStatus(
+                (document?.detailPayload as EformsignApiDocumentResponse | null)
+                    ?.current_status?.status_type,
+            );
         if (!document?.detailPayload
             || !document.detailSourceUpdatedDate
-            || document.syncStatus !== "ready"
+            || (document.syncStatus !== "ready" && !canReadReviewStageDocument)
             || Boolean(document.permanentPurgeRequestedAt)
             || !row
             || row.sourceUpdatedDate.getTime() !== document.detailSourceUpdatedDate.getTime()) {
