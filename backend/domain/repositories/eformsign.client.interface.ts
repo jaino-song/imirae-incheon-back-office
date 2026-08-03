@@ -86,6 +86,8 @@ export interface EformsignReviewerMember {
 
 export interface CreateDocumentPayload {
     templateId: string;
+    /** Stable action identity used by the provider to deduplicate a retried dispatch. */
+    idempotencyKey?: string;
     /**
      * Omit for templates whose `title_change` is false — they generate the title from their
      * own pattern and reject an explicit name with 4000010. The generated title comes back

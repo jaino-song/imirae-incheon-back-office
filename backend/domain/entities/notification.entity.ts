@@ -74,6 +74,18 @@ export class NotificationEntity {
         return this.readAt !== null;
     }
 
+    withData(data: Record<string, unknown>): NotificationEntity {
+        return NotificationEntity.reconstitute(
+            this.id,
+            this.userId,
+            this.title,
+            this.body,
+            data,
+            this.sentAt,
+            this.readAt,
+        );
+    }
+
     /**
      * Convert to web push payload format
      */

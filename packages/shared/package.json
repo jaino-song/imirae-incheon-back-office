@@ -9,6 +9,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./api": "./src/api/index.ts",
+        "./agent": "./src/agent/index.ts",
         "./tokens/status-badge": "./src/tokens/status-badge.ts",
         "./client/badges": "./src/client/badges.ts",
         "./eformsign/display-name": "./src/eformsign/display-name.ts",
@@ -44,6 +45,7 @@
         "next": "^16"
     },
     "devDependencies": {
+        "ai": "6.0.116",
         "@types/jest": "^29.5.12",
         "eslint": "^9",
         "jest": "^30.2.0",

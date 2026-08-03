@@ -15,6 +15,11 @@ export interface IMessageTriggerJobRepository {
         branchId: string,
         limit?: number,
     ): Promise<MessageTriggerJobEntity[]>;
+    findHistoryByBranch(
+        branchId: string,
+        limit?: number,
+        beforeId?: string,
+    ): Promise<MessageTriggerJobEntity[]>;
     findPendingByRuleId(ruleId: string): Promise<MessageTriggerJobEntity[]>;
     findPendingByRuleIdsAndClientId(ruleIds: string[], clientId: number): Promise<MessageTriggerJobEntity[]>;
     findPendingByRuleIdsAndEmployeeScheduleId(

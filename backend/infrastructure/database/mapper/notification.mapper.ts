@@ -36,6 +36,7 @@ export class NotificationMapper {
     static toPrismaUpdate(entity: NotificationEntity) {
         return {
             readAt: entity.readAt,
+            data: entity.data as Prisma.InputJsonValue | undefined,
         };
     }
 }

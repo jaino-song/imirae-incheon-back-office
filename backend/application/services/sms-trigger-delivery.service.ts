@@ -172,7 +172,7 @@ export class SmsTriggerDeliveryService {
             }
         }
 
-        const message = config.usePayloadMessage
+        const message = config.usePayloadMessage || payload.templateVariables["triggerType"] === "agent_scheduled"
             ? this.resolvePayloadSmsMessage(job)
             : await this.resolveSmsMessage(config.systemTemplateKey, baseVariables);
         const receiver = payload.recipientPhone;
@@ -186,6 +186,7 @@ export class SmsTriggerDeliveryService {
                 msgType: "AUTO",
             });
             const isAccepted = this.isAcceptedSmsResult(result);
+            job.payload.templateVariables["retrySafety"] = isAccepted ? "delivered" : "provider-rejected";
             await this.recordSmsLog({
                 job,
                 config,
@@ -199,6 +200,7 @@ export class SmsTriggerDeliveryService {
             });
             return isAccepted;
         } catch (error) {
+            job.payload.templateVariables["retrySafety"] = "uncertain";
             const errorMessage = this.formatErrorMessage(error);
             await this.recordSmsLog({
                 job,

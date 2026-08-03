@@ -1,12 +1,15 @@
-import { Injectable, Inject, NotFoundException, ForbiddenException } from "@nestjs/common";
+import { Injectable, Inject, NotFoundException, ForbiddenException, Optional } from "@nestjs/common";
 import { DocumentEntity } from "domain/entities/document.entity";
 import { IDocumentRepository, DOCUMENT_REPOSITORY } from "domain/repositories/document.repository.interface";
+import { FILE_STORAGE_PORT, FileStorageObjectNotFoundError, type FileStoragePort } from "domain/ports/file-storage.port";
 
 @Injectable()
 export class DocumentService {
     constructor(
         @Inject(DOCUMENT_REPOSITORY)
         private readonly documentRepository: IDocumentRepository,
+        @Optional() @Inject(FILE_STORAGE_PORT)
+        private readonly fileStorage?: FileStoragePort,
     ) {}
 
     async create(branchId: string, params: {
@@ -109,6 +112,19 @@ export class DocumentService {
      */
     async delete(branchId: string, id: string): Promise<void> {
         await this.findById(branchId, id); // Ensure it exists
+        await this.documentRepository.delete(branchId, id);
+    }
+
+    /** Canonical deletion path used by HTTP and agent actions. */
+    async deleteWithStorage(branchId: string, id: string): Promise<void> {
+        if (!this.fileStorage) throw new Error("File storage is unavailable");
+        const document = await this.findById(branchId, id);
+        try {
+            await this.fileStorage.delete(document.storagePath);
+        } catch (error) {
+            if (!(error instanceof FileStorageObjectNotFoundError)
+                && !(error instanceof Error && error.message.toLowerCase().includes("object not found"))) throw error;
+        }
         await this.documentRepository.delete(branchId, id);
     }
 }

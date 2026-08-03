@@ -5,11 +5,13 @@ import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CreateEformsignDocUsecase } from "./create-eformsign-doc.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 export interface CreateAndSendContractParams {
     clientId: number;
     templateId: string;
     templateName?: string;
+    idempotencyKey?: string;
 }
 
 export interface CreateAndSendContractResult {
@@ -17,6 +19,7 @@ export interface CreateAndSendContractResult {
     documentId?: string;
     error?: string;
     remoteDocumentId?: string;
+    uncertain?: boolean;
 }
 
 @Injectable()
@@ -37,7 +40,7 @@ export class CreateAndSendContractUsecase {
         branchid: string,
         params: CreateAndSendContractParams
     ): Promise<CreateAndSendContractResult> {
-        const { clientId, templateId, templateName } = params;
+        const { clientId, templateId, templateName, idempotencyKey } = params;
 
         const client = await this.clientRepository.findById(branchid, clientId);
         if (!client) {
@@ -49,6 +52,7 @@ export class CreateAndSendContractUsecase {
         }
 
         let remoteDocumentId: string | undefined;
+        let providerAttempted = false;
         try {
             await this.assignmentGuard.assertAssignedClient(branchid, clientId);
             const executionTime = Date.now();
@@ -101,8 +105,10 @@ export class CreateAndSendContractUsecase {
             // record whatever eformsign named it, falling back to our own label if the response
             // omits it, so the mirror row never carries a title the vendor disagrees with.
             const fallbackDocumentName = `${templateName || "계약서"} - ${client.name}`;
+            providerAttempted = true;
             const result = await this.eformsignClient.createDocument(accessToken, {
                 templateId,
+                idempotencyKey,
                 prefillFields,
                 recipient: {
                     name: client.name,
@@ -140,10 +146,15 @@ export class CreateAndSendContractUsecase {
             };
         } catch (error) {
             this.logger.error(`Failed to create contract: ${error}`);
+            const certainProviderRejection = error instanceof EformsignApiError
+                && error.status >= 400
+                && error.status < 500
+                && error.status !== 408;
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "계약서 생성에 실패했습니다",
-                remoteDocumentId,
+                ...(remoteDocumentId ? { remoteDocumentId } : {}),
+                ...(providerAttempted ? { uncertain: !certainProviderRejection } : {}),
             };
         }
     }

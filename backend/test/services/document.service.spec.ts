@@ -98,4 +98,18 @@ describe("DocumentService", () => {
             }),
         );
     });
+
+    it("deletes the storage object before removing branch-owned metadata", async () => {
+        const document = createDocumentEntity("branch-1");
+        const storage = { delete: jest.fn().mockResolvedValue(undefined) };
+        documentRepository.findById.mockResolvedValue(document);
+        documentRepository.delete.mockResolvedValue(undefined);
+        service = new DocumentService(documentRepository, storage as never);
+
+        await service.deleteWithStorage("branch-1", document.id);
+
+        expect(storage.delete).toHaveBeenCalledWith(document.storagePath);
+        expect(documentRepository.delete).toHaveBeenCalledWith("branch-1", document.id);
+        expect(storage.delete.mock.invocationCallOrder[0]).toBeLessThan(documentRepository.delete.mock.invocationCallOrder[0]!);
+    });
 });

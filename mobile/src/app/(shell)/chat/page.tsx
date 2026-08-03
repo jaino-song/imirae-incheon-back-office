@@ -17,6 +17,9 @@ import ContractStatusWizard, {
 } from "@/components/app/chat/ContractStatusWizard";
 import { useChatStream, type ChatMessage } from "@/hooks/useChatStream";
 import { useInitialUser } from "@/providers/UserProvider";
+import { AgentMobileShell } from "@/components/app/chat/AgentMobileShell";
+import { LegacyTypingIndicator } from "@/components/app/chat/LegacyTypingIndicator";
+import { useAgentShellEnabled } from "@/hooks/useAgentChat";
 
 import styles from "./chat.module.css";
 
@@ -37,16 +40,6 @@ function formatMessageTime(message: ChatDisplayMessage) {
     minute: "2-digit",
     hour12: true,
   }).format(date);
-}
-
-function TypingIndicator() {
-  return (
-    <span className={styles.msgTyping} aria-label="응답 작성 중">
-      <span />
-      <span />
-      <span />
-    </span>
-  );
 }
 
 function UserMessage({ message }: { message: ChatDisplayMessage }) {
@@ -123,7 +116,7 @@ function AssistantMessage({ message }: { message: ChatDisplayMessage }) {
       <div className={`${styles.msgAvatar} ${styles.aiAvatar}`} data-component="mobile_chat_page_content_messages_message-assistant_avatar">AI</div>
       <div data-component="mobile_chat_page_content_messages_message-assistant_body">
         {showTyping ? (
-          <TypingIndicator />
+          <LegacyTypingIndicator className={styles.msgTyping} />
         ) : (
           <div className={styles.msgBubble} data-component="mobile_chat_page_content_messages_message-assistant_body_bubble">
             {wizardContent ? (
@@ -264,7 +257,7 @@ function ChatComposer({
   );
 }
 
-export default function ChatPage() {
+function LegacyChatPage() {
   const user = useInitialUser();
   const {
     messages,
@@ -402,4 +395,10 @@ export default function ChatPage() {
       <ChatComposer onSubmit={sendMessage} disabled={isInputDisabled} />
     </section>
   );
+}
+
+export default function ChatPage() {
+  const agentShellEnabled = useAgentShellEnabled();
+  if (agentShellEnabled === null) return <section className={styles.chatShell} data-component="mobile_chat_agent-shell_loading" role="status" aria-live="polite"><Spinner size="sm" /></section>;
+  return agentShellEnabled ? <AgentMobileShell /> : <LegacyChatPage />;
 }

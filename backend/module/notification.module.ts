@@ -28,6 +28,7 @@ import { BRANCH_REPOSITORY } from "domain/repositories/branch.repository.interfa
 import { SbBranchRepository } from "infrastructure/database/repositories/sb.branch.repository";
 import { WEB_PUSH_PORT } from "domain/ports/web-push.port";
 import { SystemSettingModule } from "./system-setting.module";
+import { NotificationAgentCapabilitiesProvider } from "application/usecases/notification/notification-agent-capabilities.provider";
 
 @Module({
     imports: [DatabaseModule, ConfigModule, AuthModule, SystemSettingModule],
@@ -45,6 +46,7 @@ import { SystemSettingModule } from "./system-setting.module";
         NotificationService,
         PwaNotificationSchedulerService,
         NotificationCleanupSchedulerService,
+        NotificationAgentCapabilitiesProvider,
         // Repository bindings (Port -> Adapter)
         {
             provide: PUSH_SUBSCRIPTION_REPOSITORY,

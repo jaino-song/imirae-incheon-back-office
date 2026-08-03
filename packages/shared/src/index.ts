@@ -6,3 +6,4 @@ export * from "./message/presentation";
 export * from "./client/out-of-pocket-pricing";
 export * from "./template/utils";
 export * from "./template/data-sources";
+export * from "./agent";

@@ -43,6 +43,7 @@ describe("SendNotificationUsecase", () => {
         notificationRepository = createMockNotificationRepository();
         webPushPort = createMockWebPushPort();
         webPushPort.isEnabled.mockReturnValue(false);
+        notificationRepository.update.mockImplementation(async (_branchId, notification) => notification);
         usecase = new SendNotificationUsecase(
             pushSubscriptionRepository,
             notificationRepository,
@@ -64,11 +65,17 @@ describe("SendNotificationUsecase", () => {
                 title: "title",
                 body: "body",
             }),
-        ).resolves.toBe(savedNotification);
+        ).resolves.toEqual(expect.objectContaining({
+            userId: "user-1",
+            data: expect.objectContaining({
+                providerOutcome: { status: "disabled", subscriptions: 0, delivered: 0, failed: 0 },
+            }),
+        }));
 
         expect(pushSubscriptionRepository.findByUserId).not.toHaveBeenCalled();
         expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
         expect(webPushPort.sendNotificationToMany).not.toHaveBeenCalled();
+        expect(notificationRepository.update).toHaveBeenCalledTimes(1);
     });
 
     it("does not enumerate or delete subscriptions for broadcasts when push is disabled", async () => {

@@ -147,6 +147,20 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         return rows.map((row) => this.toDomain(row));
     }
 
+    async findHistoryByBranch(
+        branchId: string,
+        limit = 50,
+        beforeId?: string,
+    ): Promise<MessageTriggerJobEntity[]> {
+        const rows = await this.prisma.message_trigger_job.findMany({
+            where: { branchId },
+            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            take: limit,
+            ...(beforeId ? { cursor: { id: beforeId }, skip: 1 } : {}),
+        });
+        return rows.map((row) => this.toDomain(row));
+    }
+
     async findPendingByRuleId(ruleId: string): Promise<MessageTriggerJobEntity[]> {
         const rows = await this.prisma.message_trigger_job.findMany({
             where: { ruleId, status: "pending" },

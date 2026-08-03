@@ -19,6 +19,9 @@ import { SystemSettingModule } from "./system-setting.module";
 import { SystemTemplateModule } from "./system-template.module";
 import { ServiceRecordEntryModule } from "./service-record-entry.module";
 import { EformsignDocModule } from "./eformsign-doc.module";
+import { ClientAgentCapabilitiesProvider } from "application/usecases/client/client-agent-capabilities.provider";
+import { DashboardAgentCapabilitiesProvider } from "application/usecases/client/dashboard-agent-capabilities.provider";
+import { ClientWriteAgentCapabilitiesProvider } from "application/usecases/client/client-write-agent-capabilities.provider";
 
 @Module({
     imports: [
@@ -40,6 +43,9 @@ import { EformsignDocModule } from "./eformsign-doc.module";
         UpdateClientUsecase,
         ClientService,
         ClientDueDateSchedulerService,
+        ClientAgentCapabilitiesProvider,
+        DashboardAgentCapabilitiesProvider,
+        ClientWriteAgentCapabilitiesProvider,
         {
             provide: CLIENT_REPOSITORY,
             useClass: SbClientRepository,

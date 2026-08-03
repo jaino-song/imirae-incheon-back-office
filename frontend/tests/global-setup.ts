@@ -6,6 +6,49 @@ export default async function globalSetup(config: FullConfig) {
   const baseURL = process.env.BASE_URL
     ?? config.projects[0]?.use.baseURL
     ?? "http://localhost:3000";
+  if (process.env.RUN_AGENT_E2E === "1" && process.env.RUN_AGENT_REAL_E2E !== "1") {
+    const url = new URL(baseURL);
+    fs.writeFileSync(
+      path.resolve(process.cwd(), "auth.json"),
+      JSON.stringify({
+        cookies: [
+          {
+            name: "auth_token",
+            value: "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJlMmUtdXNlciIsInJvbGUiOiJhZG1pbiIsImJyYW5jaElkIjoiMjAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiYnJhbmNoUm9sZSI6ImFkbWluIiwidHlwZSI6ImFjY2VzcyIsInNpZCI6ImFnZW50LWUyZSIsImV4cCI6NDEwMjQ0NDgwMH0.",
+            domain: url.hostname,
+            path: "/",
+            expires: -1,
+            httpOnly: true,
+            secure: url.protocol === "https:",
+            sameSite: "Lax",
+          },
+          {
+            name: "selected_branch_id",
+            value: "20000000-0000-4000-8000-000000000001",
+            domain: url.hostname,
+            path: "/",
+            expires: -1,
+            httpOnly: false,
+            secure: url.protocol === "https:",
+            sameSite: "Lax",
+          },
+          {
+            name: "e2e_auth",
+            value: "1",
+            domain: url.hostname,
+            path: "/",
+            expires: -1,
+            httpOnly: true,
+            secure: url.protocol === "https:",
+            sameSite: "Lax",
+          },
+        ],
+        origins: [],
+      }),
+    );
+    return;
+  }
+
   const browser = await chromium.launch();
   const context = await browser.newContext({ baseURL });
   const response = await context.request.post("/api/auth/login", {
