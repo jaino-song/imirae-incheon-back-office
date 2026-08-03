@@ -1266,6 +1266,18 @@
         ]
       },
       {
+        "name": "AgentMobileShell",
+        "layer": "organism",
+        "import": "@/components/app/chat/AgentMobileShell",
+        "file": "mobile/src/components/app/chat/AgentMobileShell.tsx",
+        "exports": [
+          "AgentMobileShell"
+        ],
+        "requiredFor": [
+          "chat route agent flag state"
+        ]
+      },
+      {
         "name": "Autocomplete",
         "layer": "molecule",
         "import": "@/components/app/ui/Autocomplete",
