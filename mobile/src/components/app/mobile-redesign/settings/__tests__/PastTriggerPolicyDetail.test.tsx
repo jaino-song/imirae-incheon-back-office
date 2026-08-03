@@ -10,10 +10,7 @@ import type {
 import { useMessageTriggerRules } from "@/features/message-triggers/hooks/use-message-triggers";
 import { settingsApi } from "@/services/api";
 
-import {
-  PastTriggerPolicyDetail,
-  mergeRuleOrder,
-} from "../PastTriggerPolicyDetail";
+import { PastTriggerPolicyDetail } from "../PastTriggerPolicyDetail";
 
 jest.mock("@/features/message-triggers/hooks/use-message-triggers", () => ({
   useMessageTriggerRules: jest.fn(),
@@ -130,30 +127,6 @@ function renderDetail(
     },
   };
 }
-
-describe("mergeRuleOrder", () => {
-  it("should preserve stale positions and append newly displayed ids", () => {
-    expect(
-      mergeRuleOrder(
-        ["stale-first", "rule-one", "stale-middle", "rule-two"],
-        ["rule-two", "rule-one", "rule-new"],
-      ),
-    ).toEqual([
-      "stale-first",
-      "rule-two",
-      "stale-middle",
-      "rule-one",
-      "rule-new",
-    ]);
-  });
-
-  it("should return the displayed order when the saved order is empty", () => {
-    expect(mergeRuleOrder([], ["rule-two", "rule-one"])).toEqual([
-      "rule-two",
-      "rule-one",
-    ]);
-  });
-});
 
 describe("PastTriggerPolicyDetail", () => {
   beforeEach(() => {

@@ -15,6 +15,7 @@ import {
   MESSAGE_RECIPIENT_LABELS,
   isSmsTriggerTemplate,
 } from "@babyjamjam/shared";
+import { mergeRuleOrder } from "@babyjamjam/shared/utils/rule-order";
 import type {
   MessageAutomationPastTriggerConfig,
   MessageAutomationPoliciesResponse,
@@ -94,34 +95,6 @@ function getTriggerRuleSummary(rule: MessageTriggerRule): string {
 
 function haveSameOrder(first: string[], second: string[]): boolean {
   return first.length === second.length && first.every((id, index) => id === second[index]);
-}
-
-export function mergeRuleOrder(
-  savedOrder: readonly string[],
-  newDisplayedOrder: readonly string[],
-): string[] {
-  const savedIds = new Set(savedOrder);
-  const displayedIds = new Set(newDisplayedOrder);
-  const reorderedSavedIds = newDisplayedOrder.filter((id) => savedIds.has(id));
-  let reorderedIndex = 0;
-
-  const mergedOrder = savedOrder.map((id) => {
-    if (!displayedIds.has(id)) {
-      return id;
-    }
-
-    const reorderedId = reorderedSavedIds[reorderedIndex];
-    reorderedIndex += 1;
-    return reorderedId ?? id;
-  });
-
-  for (const id of newDisplayedOrder) {
-    if (!savedIds.has(id)) {
-      mergedOrder.push(id);
-    }
-  }
-
-  return mergedOrder;
 }
 
 export function PastTriggerPolicyDetail({
