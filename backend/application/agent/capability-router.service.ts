@@ -52,10 +52,11 @@ export class CapabilityRouterService {
             .filter(([, pattern]) => pattern.test(text))
             .map(([domain]) => domain)
             .filter((domain) => enabledDomains.has(domain));
-        const domains = matched.length === 1
+        const classifierDomains = matched.length === 1
             ? matched
             : await this.classifyAmbiguous(text, [...enabledDomains]);
-        const selectedDomains = domains.length > 0 ? domains : (enabledDomains.has("clients") ? ["clients"] : []);
+        const routedDomains = classifierDomains.length > 0 ? classifierDomains : matched;
+        const selectedDomains = routedDomains.length > 0 ? routedDomains : (enabledDomains.has("clients") ? ["clients"] : []);
         const offered = [];
         for (const capability of enabledCapabilities) {
             if (!selectedDomains.includes(capability.meta.domain)) continue;
@@ -78,9 +79,9 @@ export class CapabilityRouterService {
             const json = result.text.match(/\{[\s\S]*\}/)?.[0];
             if (!json) return [];
             const parsed = JSON.parse(json) as { domains?: unknown };
-            return Array.isArray(parsed.domains)
-                ? [...new Set(parsed.domains.filter((domain): domain is string => typeof domain === "string" && enabledDomains.includes(domain)))].slice(0, 2)
-                : [];
+            if (!Array.isArray(parsed.domains) || parsed.domains.length === 0 || parsed.domains.length > 2) return [];
+            if (!parsed.domains.every((domain): domain is string => typeof domain === "string" && enabledDomains.includes(domain))) return [];
+            return [...new Set(parsed.domains)];
         } catch {
             return [];
         }
