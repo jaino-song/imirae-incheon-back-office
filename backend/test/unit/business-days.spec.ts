@@ -1,5 +1,6 @@
 import {
     addBusinessDaysKr,
+    countBusinessDaysKr,
     diffBusinessDaysKr,
     isBusinessDayKr,
     nextBusinessDayKr,
@@ -46,6 +47,21 @@ describe("Korean business day utilities", () => {
 
         it("should return zero for the same date", () => {
             expect(diffBusinessDaysKr("2026-07-13", "2026-07-13")).toBe(0);
+        });
+    });
+
+    describe("countBusinessDaysKr", () => {
+        it("should count the inclusive Korean business-day service period", () => {
+            expect(countBusinessDaysKr("2026-08-03", "2026-08-10")).toBe(6);
+        });
+
+        it("should skip weekends and Korean holidays inside the period", () => {
+            expect(countBusinessDaysKr("2026-08-14", "2026-08-18")).toBe(2);
+        });
+
+        it("should return null for invalid or reversed periods", () => {
+            expect(countBusinessDaysKr("", "2026-08-10")).toBeNull();
+            expect(countBusinessDaysKr("2026-08-11", "2026-08-10")).toBeNull();
         });
     });
 
