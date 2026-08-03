@@ -125,10 +125,11 @@ test.describe("Release A flag coexistence", () => {
 
         await page.setViewportSize({ width: 390, height: 844 });
         await expect(page.getByLabel("질문 입력")).toBeVisible();
-        await expect(page.getByText("읽기 전용 운영 코파일럿")).not.toBeInViewport();
+        const sidebar = page.locator('[data-component="desktop_chat_agent-shell_sidebar"]');
+        await expect(sidebar).toHaveAttribute("aria-hidden", "true");
         await expect(page.getByRole("button", { name: "전송" })).toHaveAccessibleName("전송");
         await page.getByRole("button", { name: "사이드바 열기" }).click();
-        await expect(page.getByText("읽기 전용 운영 코파일럿")).toBeInViewport();
+        await expect(sidebar).toHaveAttribute("aria-hidden", "false");
         await page.getByRole("button", { name: "사이드바 닫기" }).click();
     });
 
