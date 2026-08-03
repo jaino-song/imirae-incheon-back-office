@@ -111,12 +111,11 @@ export function useAgentChat() {
     useEffect(() => {
         if (restoredSession.current) return;
         restoredSession.current = true;
-        const timer = window.setTimeout(() => {
+        queueMicrotask(() => {
             void refreshSessions();
             const sessionId = window.sessionStorage.getItem(AGENT_SESSION_KEY);
             if (sessionId) void selectSession(sessionId).catch(() => window.sessionStorage.removeItem(AGENT_SESSION_KEY));
-        }, 0);
-        return () => window.clearTimeout(timer);
+        });
     }, [refreshSessions, selectSession]);
 
     const resolveActionError = useCallback(async (actionId: string, fallbackCode: string, fallbackMessage: string) => {

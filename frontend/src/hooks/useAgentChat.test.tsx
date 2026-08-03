@@ -1,3 +1,4 @@
+import { StrictMode, type ReactNode } from "react";
 import { renderHook, waitFor } from "@testing-library/react";
 import { useChat } from "@ai-sdk/react";
 
@@ -28,7 +29,9 @@ describe("useAgentChat", () => {
             return { ok: true, json: async () => payload } as Response;
         });
 
-        renderHook(() => useAgentChat());
+        renderHook(() => useAgentChat(), {
+            wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>,
+        });
 
         await waitFor(() => expect(setMessages).toHaveBeenCalledWith(restoredMessages));
     });
