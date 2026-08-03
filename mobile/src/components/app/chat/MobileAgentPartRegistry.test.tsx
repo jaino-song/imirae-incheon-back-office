@@ -134,8 +134,9 @@ describe("MobileAgentPartRegistry", () => {
         />);
 
         const form = screen.getByText("프로필").closest("form");
-        expect(form).toHaveAttribute("data-component", "mobile_chat_agent-form");
+        expect(form).toHaveAttribute("data-component", "mobile_chat_tests_agent-part-registry_form_form");
         expect(form).toHaveAttribute("data-slot", "form");
+        expect(form).toHaveAttribute("data-source-component", "MobileAgentForm");
         fireEvent.change(screen.getByLabelText("이름"), { target: { value: "Dana" } });
         fireEvent.change(screen.getByLabelText("횟수"), { target: { value: "3" } });
         fireEvent.submit(form!);
@@ -171,5 +172,53 @@ describe("MobileAgentPartRegistry", () => {
         fireEvent.click(checkbox);
         fireEvent.submit(form!);
         expect(onSubmitForm).toHaveBeenNthCalledWith(2, "settings-form", { enabled: false });
+    });
+
+    it("preserves distinct caller namespaces for forms and their descendants", () => {
+        const firstBase = "mobile_chat_tests_agent-part-registry_message-a_part-0";
+        const secondBase = "mobile_chat_tests_agent-part-registry_message-b_part-0";
+        const part = {
+            type: "data-form",
+            data: {
+                formId: "profile-form",
+                title: "프로필",
+                schemaVersion: "1",
+                fields: [{ name: "enabled", label: "사용", type: "boolean" as const }],
+            },
+        };
+
+        render(
+            <>
+                <MobileAgentPartRegistry
+                    data-component={firstBase}
+                    part={part}
+                    onEntitySelect={jest.fn()}
+                    onApproveAction={jest.fn()}
+                    onRejectAction={jest.fn()}
+                    onSubmitForm={jest.fn()}
+                />
+                <MobileAgentPartRegistry
+                    data-component={secondBase}
+                    part={part}
+                    onEntitySelect={jest.fn()}
+                    onApproveAction={jest.fn()}
+                    onRejectAction={jest.fn()}
+                    onSubmitForm={jest.fn()}
+                />
+            </>,
+        );
+
+        for (const base of [firstBase, secondBase]) {
+            const form = screen.getByText("프로필", { selector: `[data-component="${base}_form_title"]` }).closest("form");
+            expect(form).toHaveAttribute("data-component", `${base}_form`);
+            expect(form).toHaveAttribute("data-slot", "form");
+            expect(form).toHaveAttribute("data-source-component", "MobileAgentForm");
+            expect(form?.querySelector(`[data-component="${base}_form_title"]`)).toBeInTheDocument();
+            expect(form?.querySelector(`[data-component="${base}_form_field"]`)).toBeInTheDocument();
+            expect(form?.querySelector(`[data-component="${base}_form_field_label"]`)).toBeInTheDocument();
+            expect(form?.querySelector(`[data-component="${base}_form_field_control"]`)).toBeInTheDocument();
+            expect(form?.querySelector(`[data-component="${base}_form_submit"]`)).toBeInTheDocument();
+            expect(form?.querySelector('[data-component="mobile_chat_agent-form"]')).not.toBeInTheDocument();
+        }
     });
 });

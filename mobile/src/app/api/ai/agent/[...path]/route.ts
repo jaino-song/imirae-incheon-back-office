@@ -40,12 +40,14 @@ async function forward(request: NextRequest, params: { path: string[] }, body: s
             body,
             signal: request.signal,
         });
+        const accelBuffering = upstream.headers.get("x-accel-buffering");
         return new Response(upstream.body, {
             status: upstream.status,
             headers: {
                 "Content-Type": upstream.headers.get("content-type") ?? (path.endsWith("chat") ? "text/event-stream" : "application/json"),
                 ...(upstream.headers.get("x-agent-session-id") ? { "x-agent-session-id": upstream.headers.get("x-agent-session-id")! } : {}),
                 ...(upstream.headers.get("x-vercel-ai-ui-message-stream") ? { "x-vercel-ai-ui-message-stream": upstream.headers.get("x-vercel-ai-ui-message-stream")! } : {}),
+                ...(accelBuffering === null ? {} : { "x-accel-buffering": accelBuffering }),
                 "Cache-Control": path.endsWith("chat") ? "no-cache" : "no-store",
             },
         });
