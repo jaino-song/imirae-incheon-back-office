@@ -9,7 +9,7 @@ overrides:
   brace-expansion@2: 2.1.4
   brace-expansion@5: 5.0.9
   postcss@<8.5.23: 8.5.23
-  ip-address@>=10.0.0 <10.2.1: 10.2.1
+  ip-address@>=10.0.0 <10.3.1: 10.3.1
   fast-uri@>=3.0.0 <3.1.5: 3.1.5
   undici@>=6.0.0 <6.28.0: 6.28.0
   passport-oauth2@<1.6.1: 1.6.1
@@ -5475,8 +5475,8 @@ packages:
     resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
     engines: {node: '>=12.22.0'}
 
-  ip-address@10.2.1:
-    resolution: {integrity: sha512-O81l1g31PlH55F7AChkGM3sdWZX+1KDLnhesJ/V9Ziug5nIOnEPaVb2jLWAo1TbCOSeZPeNbxX4v/ywTuKSn9A==}
+  ip-address@10.3.1:
+    resolution: {integrity: sha512-1e9d3kb97NHJTIJDZW9rKqW2h6+dFa50Dy0fpPSMQp2ADje5gvKsXmdiK6dwY5t76TaTt5+P5N1Y/LoToIxP6g==}
     engines: {node: '>= 12'}
 
   ipaddr.js@1.9.1:
@@ -12841,7 +12841,7 @@ snapshots:
   express-rate-limit@8.3.1(express@5.2.1):
     dependencies:
       express: 5.2.1
-      ip-address: 10.2.1
+      ip-address: 10.3.1
     optional: true
 
   express@5.2.1:
@@ -13356,7 +13356,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  ip-address@10.2.1:
+  ip-address@10.3.1:
     optional: true
 
   ipaddr.js@1.9.1: {}
