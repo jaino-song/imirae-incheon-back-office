@@ -28,6 +28,7 @@
         "./constants/employee-status": "./src/constants/employee-status.ts",
         "./utils": "./src/utils/index.ts",
         "./utils/date": "./src/utils/date.ts",
+        "./utils/rule-order": "./src/utils/rule-order.ts",
         "./utils/business-days": "./src/utils/business-days.ts",
         "./utils/birthday": "./src/utils/birthday.ts",
         "./eslint-plugin": "./eslint-plugin/index.mjs"

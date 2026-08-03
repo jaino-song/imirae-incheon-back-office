@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -10,11 +11,13 @@ import {
 } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp } from "lucide-react";
+import { useDebouncedCallback } from "use-debounce";
 import {
   MESSAGE_EVENT_LABELS,
   MESSAGE_RECIPIENT_LABELS,
   isSmsTriggerTemplate,
 } from "@babyjamjam/shared";
+import { mergeRuleOrder } from "@babyjamjam/shared/utils/rule-order";
 import type {
   MessageAutomationPastTriggerConfig,
   MessageAutomationPoliciesResponse,
@@ -78,6 +81,10 @@ export interface PastTriggerPolicyDetailProps {
   pastTriggerConfig: MessageAutomationPastTriggerConfig;
 }
 
+interface PastTriggerMutationContext {
+  previous: MessageAutomationPoliciesResponse | undefined;
+}
+
 function formatTriggerOffset(rule: MessageTriggerRule): string {
   const offsetLabel = TRIGGER_OFFSET_LABELS[rule.eventType][rule.offsetType];
 
@@ -92,36 +99,19 @@ function getTriggerRuleSummary(rule: MessageTriggerRule): string {
   return `${MESSAGE_EVENT_LABELS[rule.eventType]} · ${formatTriggerOffset(rule)} · ${MESSAGE_RECIPIENT_LABELS[rule.recipientType]}`;
 }
 
-function haveSameOrder(first: string[], second: string[]): boolean {
-  return first.length === second.length && first.every((id, index) => id === second[index]);
-}
+function parseSendInterval(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
 
-export function mergeRuleOrder(
-  savedOrder: readonly string[],
-  newDisplayedOrder: readonly string[],
-): string[] {
-  const savedIds = new Set(savedOrder);
-  const displayedIds = new Set(newDisplayedOrder);
-  const reorderedSavedIds = newDisplayedOrder.filter((id) => savedIds.has(id));
-  let reorderedIndex = 0;
-
-  const mergedOrder = savedOrder.map((id) => {
-    if (!displayedIds.has(id)) {
-      return id;
-    }
-
-    const reorderedId = reorderedSavedIds[reorderedIndex];
-    reorderedIndex += 1;
-    return reorderedId ?? id;
-  });
-
-  for (const id of newDisplayedOrder) {
-    if (!savedIds.has(id)) {
-      mergedOrder.push(id);
-    }
+  const parsed = Number(value);
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < MIN_SEND_INTERVAL_MINUTES ||
+    parsed > MAX_SEND_INTERVAL_MINUTES
+  ) {
+    return null;
   }
 
-  return mergedOrder;
+  return parsed;
 }
 
 export function PastTriggerPolicyDetail({
@@ -133,13 +123,18 @@ export function PastTriggerPolicyDetail({
   const { toast } = useToast();
   const { data: triggerRules = [], isLoading: isTriggerRulesLoading } =
     useMessageTriggerRules();
-  const [savedConfig, setSavedConfig] =
-    useState<MessageAutomationPastTriggerConfig>(pastTriggerConfig);
   const [draftInterval, setDraftInterval] = useState(() =>
     String(pastTriggerConfig.sendIntervalMinutes),
   );
   const [draftRuleOrder, setDraftRuleOrder] = useState<string[] | null>(null);
+  const draftIntervalRef = useRef(draftInterval);
+  const draftRuleOrderRef = useRef<string[] | null>(null);
+  const effectiveOrderIdsRef = useRef<string[]>([]);
+  const configRef = useRef(pastTriggerConfig);
   const lastSyncedConfigRef = useRef(pastTriggerConfig);
+  const queuedRef = useRef(false);
+  const isPersistingRef = useRef(false);
+  const persistRef = useRef<() => void>(() => undefined);
   const intervalInputId = useId();
   const intervalHelperId = `${intervalInputId}-helper`;
   const sub = (suffix: string) => `${dataComponent}_${suffix}`;
@@ -151,64 +146,175 @@ export function PastTriggerPolicyDetail({
       ),
     [triggerRules],
   );
-  const savedOrderedRules = useMemo(
-    () => getOrderedTriggerRules(activeSmsRules, savedConfig.ruleOrder),
-    [activeSmsRules, savedConfig.ruleOrder],
-  );
   const orderedRules = useMemo(
     () =>
       getOrderedTriggerRules(
         activeSmsRules,
-        draftRuleOrder ?? savedConfig.ruleOrder,
+        draftRuleOrder ?? pastTriggerConfig.ruleOrder,
       ),
-    [activeSmsRules, draftRuleOrder, savedConfig.ruleOrder],
+    [activeSmsRules, draftRuleOrder, pastTriggerConfig.ruleOrder],
   );
-  const savedOrderIds = savedOrderedRules.map((rule) => rule.id);
   const effectiveOrderIds = orderedRules.map((rule) => rule.id);
-  const parsedInterval = Number(draftInterval);
-  const isIntervalValid =
-    /^\d+$/.test(draftInterval) &&
-    Number.isInteger(parsedInterval) &&
-    parsedInterval >= MIN_SEND_INTERVAL_MINUTES &&
-    parsedInterval <= MAX_SEND_INTERVAL_MINUTES;
-  const isIntervalDirty = parsedInterval !== savedConfig.sendIntervalMinutes;
-  const isOrderDirty =
-    draftRuleOrder !== null && !haveSameOrder(effectiveOrderIds, savedOrderIds);
-  const isDirty = isIntervalDirty || isOrderDirty;
+  const isIntervalValid = parseSendInterval(draftInterval) !== null;
 
   useEffect(() => {
-    if (lastSyncedConfigRef.current === pastTriggerConfig || isDirty) {
-      return;
-    }
+    configRef.current = pastTriggerConfig;
+  }, [pastTriggerConfig]);
 
-    lastSyncedConfigRef.current = pastTriggerConfig;
-    // A pristine editor intentionally adopts the latest server-owned baseline.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSavedConfig(pastTriggerConfig);
-    setDraftInterval(String(pastTriggerConfig.sendIntervalMinutes));
-    setDraftRuleOrder(null);
-  }, [isDirty, pastTriggerConfig]);
+  useEffect(() => {
+    effectiveOrderIdsRef.current = effectiveOrderIds;
+  }, [effectiveOrderIds]);
 
-  const saveMutation = useMutation({
+  const saveMutation = useMutation<
+    MessageAutomationPastTriggerConfig,
+    Error,
+    MessageAutomationPastTriggerConfig,
+    PastTriggerMutationContext
+  >({
     mutationFn: settingsApi.updateMessageAutomationPastTriggerConfig,
-    onSuccess: (nextConfig) => {
+    onMutate: async (nextConfig) => {
+      isPersistingRef.current = true;
+      await queryClient.cancelQueries({
+        queryKey: MESSAGE_AUTOMATION_POLICIES_QUERY_KEY,
+      });
+      const previous =
+        queryClient.getQueryData<MessageAutomationPoliciesResponse>(
+          MESSAGE_AUTOMATION_POLICIES_QUERY_KEY,
+        );
       queryClient.setQueryData<MessageAutomationPoliciesResponse>(
         MESSAGE_AUTOMATION_POLICIES_QUERY_KEY,
         (current) =>
           current ? { ...current, pastTriggerConfig: nextConfig } : current,
       );
-      setSavedConfig(nextConfig);
-      setDraftInterval(String(nextConfig.sendIntervalMinutes));
-      setDraftRuleOrder(null);
-      toast({ description: "지난 자동 전송 설정이 저장되었습니다." });
+      return { previous };
     },
-    onError: () => {
+    onError: (_error, _nextConfig, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          MESSAGE_AUTOMATION_POLICIES_QUERY_KEY,
+          context.previous,
+        );
+        const revertedConfig = context.previous.pastTriggerConfig;
+        configRef.current = revertedConfig;
+        lastSyncedConfigRef.current = revertedConfig;
+        draftIntervalRef.current = String(revertedConfig.sendIntervalMinutes);
+        // Rollback also resets drafts so the editor matches the restored cache baseline.
+        setDraftInterval(String(revertedConfig.sendIntervalMinutes));
+        draftRuleOrderRef.current = null;
+        setDraftRuleOrder(null);
+      }
+      queuedRef.current = false;
       toast({
         variant: "destructive",
         description: "지난 자동 전송 설정 저장 중 오류가 발생했습니다.",
       });
     },
+    onSuccess: (nextConfig) => {
+      configRef.current = nextConfig;
+      queryClient.setQueryData<MessageAutomationPoliciesResponse>(
+        MESSAGE_AUTOMATION_POLICIES_QUERY_KEY,
+        (current) =>
+          current ? { ...current, pastTriggerConfig: nextConfig } : current,
+      );
+    },
+    onSettled: () => {
+      isPersistingRef.current = false;
+      void queryClient.invalidateQueries({
+        queryKey: MESSAGE_AUTOMATION_POLICIES_QUERY_KEY,
+      });
+
+      if (queuedRef.current) {
+        queuedRef.current = false;
+        persistRef.current();
+      }
+    },
   });
+
+  const persist = useCallback(() => {
+    const parsedInterval = parseSendInterval(draftIntervalRef.current);
+    if (isPersistingRef.current) {
+      queuedRef.current = true;
+      return;
+    }
+
+    const config = configRef.current;
+    const latestOrderIds =
+      draftRuleOrderRef.current ?? effectiveOrderIdsRef.current;
+    const nextRuleOrder = mergeRuleOrder(config.ruleOrder, latestOrderIds);
+    const nextInterval =
+      parsedInterval ?? config.sendIntervalMinutes;
+    const hasIntervalChange =
+      parsedInterval !== null && parsedInterval !== config.sendIntervalMinutes;
+    const hasOrderChange =
+      nextRuleOrder.length !== config.ruleOrder.length ||
+      nextRuleOrder.some((ruleId, index) => ruleId !== config.ruleOrder[index]);
+
+    if (!hasIntervalChange && !hasOrderChange) {
+      return;
+    }
+
+    isPersistingRef.current = true;
+    saveMutation.mutate({
+      sendIntervalMinutes: nextInterval,
+      ruleOrder: nextRuleOrder,
+    });
+  }, [saveMutation]);
+
+  useEffect(() => {
+    persistRef.current = persist;
+  }, [persist]);
+
+  const debouncedOrderPersist = useDebouncedCallback(
+    () => persistRef.current(),
+    300,
+  );
+  const debouncedIntervalPersist = useDebouncedCallback(
+    () => persistRef.current(),
+    600,
+  );
+
+  useEffect(() => {
+    return () => {
+      // Flush pending autosaves; mutation settlement already supports post-unmount replay.
+      debouncedOrderPersist.flush();
+      debouncedIntervalPersist.flush();
+    };
+  }, [debouncedIntervalPersist, debouncedOrderPersist]);
+
+  useEffect(() => {
+    const hasPendingIntervalEdit =
+      draftInterval === "" || !isIntervalValid;
+    const hasPendingWork =
+      debouncedOrderPersist.isPending() ||
+      debouncedIntervalPersist.isPending() ||
+      saveMutation.isPending ||
+      queuedRef.current ||
+      hasPendingIntervalEdit;
+
+    if (
+      lastSyncedConfigRef.current === pastTriggerConfig ||
+      hasPendingWork
+    ) {
+      return;
+    }
+
+    lastSyncedConfigRef.current = pastTriggerConfig;
+    const nextInterval = String(pastTriggerConfig.sendIntervalMinutes);
+    draftIntervalRef.current = nextInterval;
+    draftRuleOrderRef.current = null;
+    // A fully idle editor adopts the latest server-owned baseline.
+    /* eslint-disable react-hooks/set-state-in-effect -- Server-owned props intentionally reset the idle editor. */
+    setDraftInterval(nextInterval);
+    setDraftRuleOrder(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [
+    debouncedIntervalPersist,
+    debouncedOrderPersist,
+    draftInterval,
+    isIntervalValid,
+    pastTriggerConfig,
+    saveMutation.isPending,
+  ]);
 
   const moveRule = (ruleId: string, direction: -1 | 1) => {
     const currentIndex = effectiveOrderIds.indexOf(ruleId);
@@ -227,16 +333,10 @@ export function PastTriggerPolicyDetail({
       nextOrderIds[nextIndex],
       nextOrderIds[currentIndex],
     ];
+    effectiveOrderIdsRef.current = nextOrderIds;
+    draftRuleOrderRef.current = nextOrderIds;
     setDraftRuleOrder(nextOrderIds);
-  };
-
-  const save = () => {
-    if (!isIntervalValid) return;
-
-    saveMutation.mutate({
-      sendIntervalMinutes: parsedInterval,
-      ruleOrder: mergeRuleOrder(savedConfig.ruleOrder, effectiveOrderIds),
-    });
+    debouncedOrderPersist();
   };
 
   return (
@@ -279,7 +379,15 @@ export function PastTriggerPolicyDetail({
             error={draftInterval !== "" && !isIntervalValid}
             className="!h-[calc(44px*var(--glint-ui-scale,1))] !w-[calc(104px*var(--glint-ui-scale,1))] !rounded-[calc(12px*var(--glint-ui-scale,1))] !px-[calc(12px*var(--glint-ui-scale,1))] !text-center !text-[calc(0.9rem*var(--glint-ui-scale,1))]"
             onChange={(event) => {
-              setDraftInterval(event.target.value.replace(/\D/g, ""));
+              const nextInterval = event.target.value.replace(/\D/g, "");
+              draftIntervalRef.current = nextInterval;
+              setDraftInterval(nextInterval);
+
+              if (parseSendInterval(nextInterval) !== null) {
+                debouncedIntervalPersist();
+              } else {
+                debouncedIntervalPersist.cancel();
+              }
             }}
           />
           <span
@@ -406,23 +514,6 @@ export function PastTriggerPolicyDetail({
         )}
       </section>
 
-      <div
-        data-component={sub("actions")}
-        data-slot="settings-actions"
-        className="flex w-full"
-      >
-        <Button
-          type="button"
-          data-component={sub("actions_save")}
-          variant="v3"
-          width="lg"
-          disabled={!isDirty || !isIntervalValid || saveMutation.isPending}
-          className="!h-[calc(44px*var(--glint-ui-scale,1))] !px-[calc(20px*var(--glint-ui-scale,1))] !text-[calc(0.78rem*var(--glint-ui-scale,1))]"
-          onClick={save}
-        >
-          {saveMutation.isPending ? "저장 중..." : "저장"}
-        </Button>
-      </div>
     </div>
   );
 }

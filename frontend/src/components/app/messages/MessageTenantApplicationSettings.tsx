@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   UserPlus,
 } from "lucide-react";
+import { mergeRuleOrder } from "@babyjamjam/shared/utils/rule-order";
 import {
   AnimatedSlotList,
   AnimatedSlotListItemContent,
@@ -430,7 +431,10 @@ export function MessageTenantApplicationSettings() {
 
     savePastTriggerConfigMutation.mutate({
       sendIntervalMinutes,
-      ruleOrder: retroactiveTriggerOrderItems.map((item) => item.id),
+      ruleOrder: mergeRuleOrder(
+        savedPastTriggerConfig.ruleOrder,
+        retroactiveTriggerOrderItems.map((item) => item.id),
+      ),
     });
   };
   const emptyListMessage = isMessageSenderApprovalLoading

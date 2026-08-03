@@ -11,7 +11,9 @@ import { MessagesSettingsPage } from "../MessagesSettingsPage";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
 const mockToast = jest.fn();
+let mockSearchParams = new URLSearchParams();
 
 const APPROVED: MessageSenderApprovalResponse = {
   approvalStatus: "approved",
@@ -132,7 +134,12 @@ beforeAll(() => {
 });
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useRouter: () => ({
+    push: mockPush,
+    replace: mockReplace,
+    back: mockBack,
+  }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 jest.mock("@/hooks/useGetAuthUser", () => ({
@@ -171,13 +178,24 @@ function renderPage() {
     </QueryClientProvider>,
   );
 
-  return { ...view, queryClient };
+  return {
+    ...view,
+    queryClient,
+    rerenderPage: () =>
+      view.rerender(
+        <QueryClientProvider client={queryClient}>
+          <MessagesSettingsPage />
+        </QueryClientProvider>,
+      ),
+  };
 }
 
 describe("MessagesSettingsPage", () => {
   beforeEach(() => {
+    mockSearchParams = new URLSearchParams();
     mockPush.mockReset();
     mockReplace.mockReset();
+    mockBack.mockReset();
     mockToast.mockReset();
     mockedSettingsApi.getMessageSenderApproval.mockReset();
     mockedSettingsApi.getMessageAutomationPolicies.mockReset();
@@ -197,26 +215,21 @@ describe("MessagesSettingsPage", () => {
     expect(screen.getByText("중복 전송 확인")).toBeInTheDocument();
   });
 
-  it("opens the sender approval form from the unapproved-only item", async () => {
+  it("shows the sender approval form for the unapproved-only deep link", async () => {
     mockedSettingsApi.getMessageSenderApproval.mockResolvedValue(UNAPPROVED);
+    mockSearchParams = new URLSearchParams({ item: "current-tenant" });
     renderPage();
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: /메시지 발송 기능 신청/ }),
-    );
 
     expect(
       await screen.findByLabelText(/알리고 문자 서비스 이용약관/),
     ).toBeInTheDocument();
   });
 
-  it("closes the detail when its selected item disappears", async () => {
+  it("replaces a disappeared item URL and shows the list after navigation", async () => {
     mockedSettingsApi.getMessageSenderApproval.mockResolvedValue(UNAPPROVED);
-    const { container, queryClient } = renderPage();
+    mockSearchParams = new URLSearchParams({ item: "current-tenant" });
+    const { container, queryClient, rerenderPage } = renderPage();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: /메시지 발송 기능 신청/ }),
-    );
     expect(
       await screen.findByLabelText(/알리고 문자 서비스 이용약관/),
     ).toBeInTheDocument();
@@ -225,43 +238,147 @@ describe("MessagesSettingsPage", () => {
       queryClient.setQueryData(MESSAGE_SENDER_APPROVAL_QUERY_KEY, APPROVED);
     });
 
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/messages/settings", {
+        scroll: false,
+      });
+    });
+
+    mockSearchParams = new URLSearchParams();
+    rerenderPage();
+
     const listPane = container.querySelector('[data-slot="list-pane"]');
     const detailPane = container.querySelector('[data-slot="detail-pane"]');
-    await waitFor(() => {
-      expect(listPane).toHaveAttribute("aria-hidden", "false");
-      expect(detailPane).toHaveAttribute("aria-hidden", "true");
-      expect(detailPane).toHaveAttribute("inert");
-    });
+    expect(listPane).toHaveAttribute("aria-hidden", "false");
+    expect(detailPane).toHaveAttribute("aria-hidden", "true");
+    expect(detailPane).toHaveAttribute("inert");
     expect(screen.queryByText("메시지 발송 기능 신청")).not.toBeInTheDocument();
   });
 
-  it("opens automation policy rows and returns to the list", async () => {
-    const { container } = renderPage();
+  it("pushes the selected item URL and opens detail after navigation", async () => {
+    const { container, rerenderPage } = renderPage();
 
     fireEvent.click(
       await screen.findByRole("button", { name: /자동 전송 실행/ }),
     );
 
+    expect(mockPush).toHaveBeenCalledWith("?item=trigger-dispatch", {
+      scroll: false,
+    });
+
+    mockSearchParams = new URLSearchParams({ item: "trigger-dispatch" });
+    rerenderPage();
+
     const listPane = container.querySelector('[data-slot="list-pane"]');
     expect(listPane).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByText("전송 대상")).toBeInTheDocument();
     expect(screen.getByText("승인된 자동 전송 규칙")).toBeInTheDocument();
+  });
+
+  it("does not push the already selected item again", async () => {
+    const { rerenderPage } = renderPage();
+    const itemButton = await screen.findByRole("button", {
+      name: /자동 전송 실행/,
+    });
+
+    fireEvent.click(itemButton);
+    mockSearchParams = new URLSearchParams({ item: "trigger-dispatch" });
+    rerenderPage();
+    fireEvent.click(itemButton);
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a deep-linked detail closed while settings are loading", async () => {
+    let resolveApproval: (value: MessageSenderApprovalResponse) => void =
+      () => undefined;
+    let resolvePolicies: (value: MessageAutomationPoliciesResponse) => void =
+      () => undefined;
+    mockedSettingsApi.getMessageSenderApproval.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveApproval = resolve;
+        }),
+    );
+    mockedSettingsApi.getMessageAutomationPolicies.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePolicies = resolve;
+        }),
+    );
+    mockSearchParams = new URLSearchParams({ item: "trigger-dispatch" });
+    const { container } = renderPage();
+
+    expect(
+      container.querySelector('[data-source-component="ListRowsSkeleton"]'),
+    ).toBeInTheDocument();
+    const detailPane = container.querySelector('[data-slot="detail-pane"]');
+    expect(detailPane).toHaveAttribute("aria-hidden", "true");
+    expect(detailPane).toHaveAttribute("inert");
+
+    await act(async () => {
+      resolveApproval(APPROVED);
+      resolvePolicies(POLICIES);
+    });
+
+    await waitFor(() => {
+      expect(detailPane).toHaveAttribute("aria-hidden", "false");
+    });
+    expect(await screen.findByText("전송 대상")).toBeInTheDocument();
+  });
+
+  it("uses browser history back after pushing a detail URL", async () => {
+    const { rerenderPage } = renderPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /자동 전송 실행/ }),
+    );
+    mockSearchParams = new URLSearchParams({ item: "trigger-dispatch" });
+    rerenderPage();
 
     fireEvent.click(
       screen.getByRole("button", { name: "설정 목록으로 돌아가기" }),
     );
 
-    expect(listPane).toHaveAttribute("aria-hidden", "false");
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("replaces a deep-link detail URL when returning to the list", async () => {
+    mockSearchParams = new URLSearchParams({ item: "trigger-dispatch" });
+    renderPage();
+
+    expect(await screen.findByText("전송 대상")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "설정 목록으로 돌아가기" }),
+    );
+
+    expect(mockReplace).toHaveBeenCalledWith("/messages/settings", {
+      scroll: false,
+    });
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
+  it("replaces an unknown item URL", async () => {
+    mockSearchParams = new URLSearchParams({ item: "nonexistent" });
+    renderPage();
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/messages/settings", {
+        scroll: false,
+      });
+    });
   });
 
   it("shows all three duplicate-send policy rows", async () => {
+    mockSearchParams = new URLSearchParams({
+      item: "duplicate-send-confirmation",
+    });
     renderPage();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: /중복 전송 확인/ }),
-    );
-
-    expect(screen.getByText("같은 번호 · 같은 메시지")).toBeInTheDocument();
+    expect(
+      await screen.findByText("같은 번호 · 같은 메시지"),
+    ).toBeInTheDocument();
     expect(screen.getByText("최근 72시간")).toBeInTheDocument();
     expect(screen.getByText("전송 전 확인 모달")).toBeInTheDocument();
   });
