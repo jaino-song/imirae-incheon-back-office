@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { DiscoveryService } from "@nestjs/core";
 
-import { AgentCapabilityMetaSchema } from "@babyjamjam/shared";
+import { AgentCapabilityMetaSchema } from "@babyjamjam/shared/agent/capability-meta";
 
 import { AgentCapabilityProvider } from "./capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "./capability.types";

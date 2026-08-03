@@ -1,0 +1,18 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "target": "ES2021",
+        "module": "CommonJS",
+        "moduleResolution": "Node",
+        "rootDir": "src",
+        "outDir": "runtime",
+        "noEmit": false,
+        "declaration": false,
+        "isolatedModules": false
+    },
+    "include": [
+        "src/agent/action-types.ts",
+        "src/agent/capability-meta.ts",
+        "src/agent/message-parts.ts"
+    ]
+}

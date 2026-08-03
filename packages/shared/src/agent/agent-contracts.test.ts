@@ -59,6 +59,43 @@ describe("agent contracts", () => {
         expect(AgentActionStatusSchema.options).toContain("uncertain");
     });
 
+    it("should keep capability risk and renderer validation aligned with the shared contracts", () => {
+        for (const risk of AgentActionRiskSchema.options) {
+            const isRead = risk === "read";
+            const result = AgentCapabilityMetaSchema.safeParse({
+                name: "clients.example",
+                domain: "clients",
+                version: "1.0.0",
+                description: "Validate the capability contract",
+                risk,
+                requiredRoles: ["branch_admin"],
+                renderer: "text",
+                flagKey: "agent.capability.clients.example",
+                sideEffect: !isRead,
+                approvalPolicy: isRead ? undefined : "structured",
+                idempotencyPolicy: isRead ? undefined : "action-id",
+            });
+
+            expect(result.success).toBe(true);
+        }
+
+        for (const renderer of AgentRendererNameSchema.options) {
+            const result = AgentCapabilityMetaSchema.safeParse({
+                name: "clients.example",
+                domain: "clients",
+                version: "1.0.0",
+                description: "Validate the renderer contract",
+                risk: "read",
+                requiredRoles: ["branch_admin"],
+                renderer,
+                flagKey: "agent.capability.clients.example",
+                sideEffect: false,
+            });
+
+            expect(result.success).toBe(true);
+        }
+    });
+
     it("should remain compatible with the AI SDK UIMessage shape", () => {
         const message = {
             id: "message-1",
