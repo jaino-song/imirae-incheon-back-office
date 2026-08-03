@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import { MobileDetailActions, MobileDetailSheet } from "../detail-sheet";
+import {
+  MobileDetailActions,
+  MobileDetailSheet,
+  MobileDetailStack,
+} from "../detail-sheet";
 
 const DETAIL_PAGE_SELECTOR = '[data-slot="mobile-detail-stack-detail-page"]';
 const SHEET_HANDLE_SELECTOR = '[data-slot="sheet-handle"]';
@@ -18,6 +22,7 @@ const originalReleasePointerCapture = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   "releasePointerCapture",
 );
+const mockSetPointerCapture = jest.fn();
 
 beforeAll(() => {
   Object.defineProperty(globalThis, "PointerEvent", {
@@ -35,10 +40,12 @@ beforeAll(() => {
   });
   Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
     configurable: true,
-    value: () => undefined,
+    writable: true,
+    value: mockSetPointerCapture,
   });
   Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
     configurable: true,
+    writable: true,
     value: () => undefined,
   });
 });
@@ -141,6 +148,7 @@ describe("MobileDetailSheet", () => {
 
   it("closes after dragging the handle beyond the distance threshold", () => {
     const { detailPage, handle, onClose } = renderOpenDetailSheet();
+    mockSetPointerCapture.mockClear();
 
     fireEvent.pointerDown(handle, {
       clientX: 20,
@@ -148,6 +156,9 @@ describe("MobileDetailSheet", () => {
       isPrimary: true,
       pointerId: 1,
     });
+
+    expect(mockSetPointerCapture).toHaveBeenCalledWith(1);
+
     fireEvent.pointerMove(handle, {
       clientX: 20,
       clientY: 200,
@@ -163,6 +174,63 @@ describe("MobileDetailSheet", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(detailPage.style.transform).toBe("");
+  });
+
+  it("does not close from a drag when closing is disabled", () => {
+    const onClose = jest.fn();
+    const { container } = render(
+      <MobileDetailStack
+        data-component="mobile_tests_detail-stack"
+        name="clients"
+        isOpen
+        onClose={onClose}
+        closeDisabled
+        list={<div>목록</div>}
+      >
+        <div>상세</div>
+      </MobileDetailStack>,
+    );
+    const detailPage = container.querySelector<HTMLElement>(
+      DETAIL_PAGE_SELECTOR,
+    );
+    const handle = container.querySelector<HTMLElement>(SHEET_HANDLE_SELECTOR);
+
+    expect(detailPage).not.toBeNull();
+    expect(handle).not.toBeNull();
+    jest.spyOn(detailPage as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      bottom: 600,
+      height: 600,
+      left: 0,
+      right: 400,
+      top: 0,
+      width: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerDown(handle as HTMLElement, {
+      clientX: 20,
+      clientY: 0,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(handle as HTMLElement, {
+      clientX: 20,
+      clientY: 200,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(handle as HTMLElement, {
+      clientX: 20,
+      clientY: 200,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    expect(detailPage).not.toHaveClass("sheet-dragging");
+    expect(detailPage?.style.transform).toBe("");
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("snaps back after a sub-threshold handle drag", () => {
@@ -334,10 +402,57 @@ describe("MobileDetailSheet", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("keeps the sheet open when the header itself is clicked", () => {
+  it("keeps the sheet open for a zero-move header tap outside the close target", () => {
     const { header, onClose } = renderOpenDetailSheet();
+    const closeButton = screen
+      .getAllByRole("button", { name: "상세 닫기" })
+      .find((button) => button.classList.contains("sheet-close"));
 
-    fireEvent.click(header);
+    expect(closeButton).toBeDefined();
+    jest.spyOn(header, "getBoundingClientRect").mockReturnValue({
+      bottom: 64,
+      height: 64,
+      left: 0,
+      right: 400,
+      top: 0,
+      width: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    jest
+      .spyOn(closeButton as HTMLButtonElement, "getBoundingClientRect")
+      .mockReturnValue({
+        bottom: 54,
+        height: 44,
+        left: 346,
+        right: 390,
+        top: 10,
+        width: 44,
+        x: 346,
+        y: 10,
+        toJSON: () => ({}),
+      });
+
+    fireEvent.pointerDown(header, {
+      clientX: 200,
+      clientY: 32,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(header, {
+      clientX: 200,
+      clientY: 32,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(header, {
+      clientX: 200,
+      clientY: 32,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.click(header, { clientX: 200, clientY: 32 });
 
     expect(onClose).not.toHaveBeenCalled();
   });

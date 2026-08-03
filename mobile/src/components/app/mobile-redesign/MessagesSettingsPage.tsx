@@ -122,7 +122,8 @@ export function MessagesSettingsPage(): ReactElement {
     () => items.find((item) => item.id === selectedItemId),
     [items, selectedItemId],
   );
-  const isLoading = approvalQuery.isLoading || policiesQuery.isLoading;
+  const isInitialLoading =
+    approvalQuery.isLoading || policiesQuery.isLoading;
 
   useEffect(() => {
     if (selectedItemId === null) {
@@ -131,14 +132,22 @@ export function MessagesSettingsPage(): ReactElement {
   }, [selectedItemId]);
 
   useEffect(() => {
-    if (isLoading || selectedItemId === null || selectedItem !== undefined) {
+    if (
+      isInitialLoading ||
+      selectedItemId === null ||
+      selectedItem !== undefined
+    ) {
       return;
     }
 
     router.replace("/messages/settings", { scroll: false });
-  }, [isLoading, router, selectedItem, selectedItemId]);
+  }, [isInitialLoading, router, selectedItem, selectedItemId]);
 
   const handleSelect = (id: string) => {
+    if (id === selectedItemId) {
+      return;
+    }
+
     router.push(`?item=${encodeURIComponent(id)}`, { scroll: false });
     didPushDetailRef.current = true;
   };
@@ -225,7 +234,10 @@ export function MessagesSettingsPage(): ReactElement {
 
           <SlidingCard
             data-component={SLIDING_CARD_BASE}
-            open={selectedItemId !== null}
+            open={
+              selectedItemId !== null &&
+              (selectedItem !== undefined || !isInitialLoading)
+            }
             onBack={handleBack}
             backLabel="설정"
             detailKey={selectedItemId}
@@ -235,7 +247,7 @@ export function MessagesSettingsPage(): ReactElement {
                 items={items}
                 selectedId={selectedItemId}
                 onSelect={handleSelect}
-                isLoading={isLoading}
+                isLoading={isInitialLoading}
                 policiesError={policiesQuery.isError}
                 onRetryPolicies={() => policiesQuery.refetch()}
                 isApproved={approvalQuery.data?.isApproved ?? false}

@@ -275,6 +275,58 @@ describe("MessagesSettingsPage", () => {
     expect(screen.getByText("승인된 자동 전송 규칙")).toBeInTheDocument();
   });
 
+  it("does not push the already selected item again", async () => {
+    const { rerenderPage } = renderPage();
+    const itemButton = await screen.findByRole("button", {
+      name: /자동 전송 실행/,
+    });
+
+    fireEvent.click(itemButton);
+    mockSearchParams = new URLSearchParams({ item: "trigger-dispatch" });
+    rerenderPage();
+    fireEvent.click(itemButton);
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a deep-linked detail closed while settings are loading", async () => {
+    let resolveApproval: (value: MessageSenderApprovalResponse) => void =
+      () => undefined;
+    let resolvePolicies: (value: MessageAutomationPoliciesResponse) => void =
+      () => undefined;
+    mockedSettingsApi.getMessageSenderApproval.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveApproval = resolve;
+        }),
+    );
+    mockedSettingsApi.getMessageAutomationPolicies.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePolicies = resolve;
+        }),
+    );
+    mockSearchParams = new URLSearchParams({ item: "trigger-dispatch" });
+    const { container } = renderPage();
+
+    expect(
+      container.querySelector('[data-source-component="ListRowsSkeleton"]'),
+    ).toBeInTheDocument();
+    const detailPane = container.querySelector('[data-slot="detail-pane"]');
+    expect(detailPane).toHaveAttribute("aria-hidden", "true");
+    expect(detailPane).toHaveAttribute("inert");
+
+    await act(async () => {
+      resolveApproval(APPROVED);
+      resolvePolicies(POLICIES);
+    });
+
+    await waitFor(() => {
+      expect(detailPane).toHaveAttribute("aria-hidden", "false");
+    });
+    expect(await screen.findByText("전송 대상")).toBeInTheDocument();
+  });
+
   it("uses browser history back after pushing a detail URL", async () => {
     const { rerenderPage } = renderPage();
 

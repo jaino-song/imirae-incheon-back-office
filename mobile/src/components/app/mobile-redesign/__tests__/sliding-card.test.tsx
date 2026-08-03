@@ -29,11 +29,13 @@ beforeAll(() => {
     value: class PointerEventMock extends MouseEvent {
       readonly isPrimary: boolean;
       readonly pointerId: number;
+      readonly pointerType: string;
 
       constructor(type: string, init: PointerEventInit = {}) {
         super(type, init);
         this.isPrimary = init.isPrimary ?? false;
         this.pointerId = init.pointerId ?? 0;
+        this.pointerType = init.pointerType ?? "";
       }
     },
   });
@@ -230,6 +232,184 @@ describe("SlidingCard", () => {
     fireEvent.click(backButton);
 
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a legitimate detail button tap after a committed swipe emitted no click", () => {
+    const onBack = jest.fn();
+    const onDetailClick = jest.fn();
+    const { container } = render(
+      <SlidingCard
+        data-component={DATA_COMPONENT}
+        open
+        onBack={onBack}
+        backLabel="설정"
+        detailKey="detail-a"
+        list={<div>List content</div>}
+        detail={(
+          <button type="button" onClick={onDetailClick}>
+            Detail action
+          </button>
+        )}
+      />,
+    );
+    const detailPane = container.querySelector<HTMLElement>(
+      DETAIL_PANE_SELECTOR,
+    );
+
+    expect(detailPane).not.toBeNull();
+    jest.spyOn(detailPane as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      bottom: 600,
+      height: 600,
+      left: 0,
+      right: 400,
+      top: 0,
+      width: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerDown(detailPane as HTMLElement, {
+      clientX: 10,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "touch",
+    });
+    fireEvent.pointerMove(detailPane as HTMLElement, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "touch",
+    });
+    fireEvent.pointerUp(detailPane as HTMLElement, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "touch",
+    });
+
+    const detailAction = screen.getByRole("button", { name: "Detail action" });
+    fireEvent.pointerDown(detailAction, {
+      clientX: 200,
+      clientY: 100,
+      isPrimary: true,
+      pointerId: 2,
+      pointerType: "touch",
+    });
+    fireEvent.pointerUp(detailAction, {
+      clientX: 200,
+      clientY: 100,
+      isPrimary: true,
+      pointerId: 2,
+      pointerType: "touch",
+    });
+    fireEvent.click(detailAction);
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(onDetailClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains committed drag styles until the card closes", () => {
+    const props = {
+      "data-component": DATA_COMPONENT,
+      onBack: jest.fn(),
+      backLabel: "설정",
+      list: <div>List content</div>,
+    };
+    const { container, rerender } = render(
+      <SlidingCard
+        {...props}
+        open
+        detailKey="detail-a"
+        detail={<div>Detail content</div>}
+      />,
+    );
+    const detailPane = container.querySelector<HTMLElement>(
+      DETAIL_PANE_SELECTOR,
+    );
+
+    expect(detailPane).not.toBeNull();
+    jest.spyOn(detailPane as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      bottom: 600,
+      height: 600,
+      left: 0,
+      right: 400,
+      top: 0,
+      width: 400,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerDown(detailPane as HTMLElement, {
+      clientX: 10,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "touch",
+    });
+    fireEvent.pointerMove(detailPane as HTMLElement, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "touch",
+    });
+    fireEvent.pointerUp(detailPane as HTMLElement, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "touch",
+    });
+
+    expect(detailPane).toHaveClass("dragging");
+    expect(detailPane).toHaveStyle({ transform: "translateX(190px)" });
+
+    rerender(
+      <SlidingCard
+        {...props}
+        open={false}
+        detailKey={null}
+        detail={null}
+      />,
+    );
+
+    expect(detailPane).not.toHaveClass("dragging");
+    expect(detailPane?.style.transform).toBe("");
+  });
+
+  it("ignores mouse drags that start at the left edge", () => {
+    const { detailPane, onBack } = renderOpenSlidingCard();
+
+    fireEvent.pointerDown(detailPane, {
+      clientX: 10,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerMove(detailPane, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerUp(detailPane, {
+      clientX: 200,
+      clientY: 20,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "mouse",
+    });
+
+    expect(detailPane).not.toHaveClass("dragging");
+    expect(detailPane.style.transform).toBe("");
+    expect(onBack).not.toHaveBeenCalled();
   });
 
   it("does not claim a drag that starts away from the left edge", () => {

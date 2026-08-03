@@ -19,6 +19,9 @@ const SWIPE_EDGE_WIDTH_PX = 28;
 const SWIPE_CLAIM_DISTANCE_PX = 8;
 const SWIPE_COMMIT_DISTANCE_RATIO = 0.35;
 const SWIPE_COMMIT_VELOCITY_PX_PER_MS = 0.5;
+const SWIPE_VELOCITY_RECENCY_MS = 100;
+const SWIPE_CLICK_SUPPRESSION_MS = 500;
+const SWIPE_COMMIT_STYLE_FALLBACK_MS = 600;
 
 interface GestureState {
   pointerId: number | null;
@@ -76,12 +79,15 @@ export function SlidingCard({
     width: 0,
     candidate: false,
   });
-  const suppressClickRef = useRef(false);
+  const suppressClickRef = useRef<number | null>(null);
   const lastListFocusRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const previousOpenRef = useRef(false);
   const cachedDetailRef = useRef<CachedDetail | null>(null);
   const cacheClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const gestureResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const [isDragging, setIsDragging] = useState(false);
@@ -103,6 +109,21 @@ export function SlidingCard({
   const clearCachedDetail = useCallback(() => {
     cachedDetailRef.current = null;
     setCachedDetail(null);
+  }, []);
+
+  const clearGestureStyles = useCallback(() => {
+    detailPaneRef.current?.style.removeProperty("transform");
+    listPaneRef.current?.style.removeProperty("transform");
+    listDimRef.current?.style.removeProperty("opacity");
+  }, []);
+
+  const clearGestureResetTimeout = useCallback(() => {
+    if (gestureResetTimeoutRef.current === null) {
+      return;
+    }
+
+    clearTimeout(gestureResetTimeoutRef.current);
+    gestureResetTimeoutRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -152,6 +173,17 @@ export function SlidingCard({
     return clearCacheTimeout;
   }, [cachedDetail, clearCachedDetail, clearCacheTimeout, open]);
 
+  useEffect(() => {
+    if (!open) {
+      clearGestureResetTimeout();
+      clearGestureStyles();
+      /* eslint-disable-next-line react-hooks/set-state-in-effect -- Closing navigation owns committed gesture cleanup. */
+      setIsDragging(false);
+    }
+
+    return clearGestureResetTimeout;
+  }, [clearGestureResetTimeout, clearGestureStyles, open]);
+
   const handleDetailTransitionEnd = (
     event: TransitionEvent<HTMLDivElement>,
   ) => {
@@ -167,16 +199,18 @@ export function SlidingCard({
     clearCachedDetail();
   };
 
-  const clearGestureStyles = () => {
-    detailPaneRef.current?.style.removeProperty("transform");
-    listPaneRef.current?.style.removeProperty("transform");
-    listDimRef.current?.style.removeProperty("opacity");
-  };
-
   const handleDetailPointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
   ) => {
-    if (!open || !event.isPrimary) {
+    suppressClickRef.current = null;
+
+    if (gestureResetTimeoutRef.current !== null) {
+      clearGestureResetTimeout();
+      clearGestureStyles();
+      setIsDragging(false);
+    }
+
+    if (!open || !event.isPrimary || event.pointerType === "mouse") {
       return;
     }
 
@@ -279,19 +313,29 @@ export function SlidingCard({
       velocitySampleDuration > 0
         ? (gesture.lastX - gesture.prevX) / velocitySampleDuration
         : 0;
+    const hasRecentVelocitySample =
+      event.timeStamp - gesture.lastT < SWIPE_VELOCITY_RECENCY_MS;
     const shouldCommit =
       !cancelled &&
       (dx > SWIPE_COMMIT_DISTANCE_RATIO * gesture.width ||
-        velocity > SWIPE_COMMIT_VELOCITY_PX_PER_MS);
+        (hasRecentVelocitySample &&
+          velocity > SWIPE_COMMIT_VELOCITY_PX_PER_MS));
 
-    clearGestureStyles();
-    setIsDragging(false);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
 
     if (shouldCommit) {
-      suppressClickRef.current = true;
+      suppressClickRef.current = Date.now();
       onBack();
+      gestureResetTimeoutRef.current = setTimeout(() => {
+        gestureResetTimeoutRef.current = null;
+        clearGestureStyles();
+        setIsDragging(false);
+      }, SWIPE_COMMIT_STYLE_FALLBACK_MS);
+      return;
     }
+
+    clearGestureStyles();
+    setIsDragging(false);
   };
 
   if (
@@ -359,11 +403,16 @@ export function SlidingCard({
             isDragging && styles.dragging,
           )}
           onClickCapture={(event) => {
-            if (!suppressClickRef.current) {
+            const committedAt = suppressClickRef.current;
+            suppressClickRef.current = null;
+            if (committedAt === null) {
               return;
             }
 
-            suppressClickRef.current = false;
+            if (Date.now() - committedAt >= SWIPE_CLICK_SUPPRESSION_MS) {
+              return;
+            }
+
             event.preventDefault();
             event.stopPropagation();
           }}

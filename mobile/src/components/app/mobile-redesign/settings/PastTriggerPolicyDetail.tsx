@@ -134,7 +134,6 @@ export function PastTriggerPolicyDetail({
   const lastSyncedConfigRef = useRef(pastTriggerConfig);
   const queuedRef = useRef(false);
   const isPersistingRef = useRef(false);
-  const settledReplayRef = useRef(false);
   const persistRef = useRef<() => void>(() => undefined);
   const intervalInputId = useId();
   const intervalHelperId = `${intervalInputId}-helper`;
@@ -226,22 +225,14 @@ export function PastTriggerPolicyDetail({
 
       if (queuedRef.current) {
         queuedRef.current = false;
-        settledReplayRef.current = true;
         persistRef.current();
       }
     },
   });
 
   const persist = useCallback(() => {
-    const isSettledReplay = settledReplayRef.current;
-    settledReplayRef.current = false;
     const parsedInterval = parseSendInterval(draftIntervalRef.current);
-    if (parsedInterval === null) return;
-
-    if (
-      isPersistingRef.current ||
-      (saveMutation.isPending && !isSettledReplay)
-    ) {
+    if (isPersistingRef.current) {
       queuedRef.current = true;
       return;
     }
@@ -249,10 +240,23 @@ export function PastTriggerPolicyDetail({
     const config = configRef.current;
     const latestOrderIds =
       draftRuleOrderRef.current ?? effectiveOrderIdsRef.current;
+    const nextRuleOrder = mergeRuleOrder(config.ruleOrder, latestOrderIds);
+    const nextInterval =
+      parsedInterval ?? config.sendIntervalMinutes;
+    const hasIntervalChange =
+      parsedInterval !== null && parsedInterval !== config.sendIntervalMinutes;
+    const hasOrderChange =
+      nextRuleOrder.length !== config.ruleOrder.length ||
+      nextRuleOrder.some((ruleId, index) => ruleId !== config.ruleOrder[index]);
+
+    if (!hasIntervalChange && !hasOrderChange) {
+      return;
+    }
+
     isPersistingRef.current = true;
     saveMutation.mutate({
-      sendIntervalMinutes: parsedInterval,
-      ruleOrder: mergeRuleOrder(config.ruleOrder, latestOrderIds),
+      sendIntervalMinutes: nextInterval,
+      ruleOrder: nextRuleOrder,
     });
   }, [saveMutation]);
 
@@ -271,21 +275,21 @@ export function PastTriggerPolicyDetail({
 
   useEffect(() => {
     return () => {
-      // Pending autosaves are intentionally dropped instead of firing mutations during teardown.
-      debouncedOrderPersist.cancel();
-      debouncedIntervalPersist.cancel();
+      // Flush pending autosaves; mutation settlement already supports post-unmount replay.
+      debouncedOrderPersist.flush();
+      debouncedIntervalPersist.flush();
     };
   }, [debouncedIntervalPersist, debouncedOrderPersist]);
 
   useEffect(() => {
-    const isInvalidNonemptyEdit =
-      draftInterval !== "" && !isIntervalValid;
+    const hasPendingIntervalEdit =
+      draftInterval === "" || !isIntervalValid;
     const hasPendingWork =
       debouncedOrderPersist.isPending() ||
       debouncedIntervalPersist.isPending() ||
       saveMutation.isPending ||
       queuedRef.current ||
-      isInvalidNonemptyEdit;
+      hasPendingIntervalEdit;
 
     if (
       lastSyncedConfigRef.current === pastTriggerConfig ||

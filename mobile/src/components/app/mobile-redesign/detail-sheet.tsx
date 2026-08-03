@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useLayoutEffect, useRef } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type {
   CSSProperties,
   MouseEvent,
@@ -46,6 +53,7 @@ const INFO_ROW_SOURCE_COMPONENT = "InfoRow";
 const SHEET_DRAG_CLAIM_DISTANCE_PX = 8;
 const SHEET_DRAG_COMMIT_DISTANCE_RATIO = 0.28;
 const SHEET_DRAG_COMMIT_VELOCITY_PX_PER_MS = 0.5;
+const SHEET_DRAG_VELOCITY_RECENCY_MS = 100;
 const SHEET_DRAG_INTERACTIVE_SELECTOR =
   'button,a,input,select,textarea,[role="button"]';
 
@@ -124,6 +132,7 @@ export function MobileDetailStack({
   closeDisabled?: boolean;
 }) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const [isSheetDragging, setIsSheetDragging] = useState(false);
   const dragRef = useRef<SheetDragState>({
     pointerId: null,
     startX: 0,
@@ -140,7 +149,7 @@ export function MobileDetailStack({
   const handleSheetPointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
   ) => {
-    if (!isOpen || !event.isPrimary) {
+    if (!isOpen || closeDisabled || !event.isPrimary) {
       return;
     }
 
@@ -157,6 +166,7 @@ export function MobileDetailStack({
       return;
     }
 
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -188,8 +198,7 @@ export function MobileDetailStack({
         Math.abs(rawDy) > Math.abs(dx)
       ) {
         drag.claimed = true;
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-        sheetRef.current?.classList.add("sheet-dragging");
+        setIsSheetDragging(true);
       } else if (
         Math.abs(rawDy) > SHEET_DRAG_CLAIM_DISTANCE_PX ||
         Math.abs(dx) > SHEET_DRAG_CLAIM_DISTANCE_PX
@@ -229,6 +238,7 @@ export function MobileDetailStack({
       claimed: false,
       candidate: false,
     };
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
 
     if (!drag.claimed) {
       return;
@@ -243,16 +253,18 @@ export function MobileDetailStack({
       velocitySampleDuration > 0
         ? (drag.lastY - drag.prevY) / velocitySampleDuration
         : 0;
+    const hasRecentVelocitySample =
+      event.timeStamp - drag.lastT < SHEET_DRAG_VELOCITY_RECENCY_MS;
     const shouldClose =
       !cancelled &&
       (dy > SHEET_DRAG_COMMIT_DISTANCE_RATIO * drag.height ||
-        velocity > SHEET_DRAG_COMMIT_VELOCITY_PX_PER_MS);
+        (hasRecentVelocitySample &&
+          velocity > SHEET_DRAG_COMMIT_VELOCITY_PX_PER_MS));
 
     sheetRef.current?.style.removeProperty("transform");
-    sheetRef.current?.classList.remove("sheet-dragging");
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    setIsSheetDragging(false);
 
-    if (shouldClose) {
+    if (shouldClose && !closeDisabled) {
       onClose();
     }
   };
@@ -290,7 +302,11 @@ export function MobileDetailStack({
         />
         <div
           ref={sheetRef}
-          className={cn("nav-page detail", detailClassName)}
+          className={cn(
+            "nav-page detail",
+            isSheetDragging && "sheet-dragging",
+            detailClassName,
+          )}
           data-component={detailDataComponent ?? `${dataComponent}_stack_detail-page`}
           data-slot="mobile-detail-stack-detail-page"
           role={detailRole}

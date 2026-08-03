@@ -220,12 +220,32 @@ describe("PastTriggerPolicyDetail", () => {
 
     await advanceDebounce(300);
 
+    expect(
+      mockedSettingsApi.updateMessageAutomationPastTriggerConfig,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("should persist reordered rules with the saved interval when the draft is empty", async () => {
+    renderDetail();
+
+    fireEvent.change(screen.getByLabelText("늦은 등록 자동 전송 간격"), {
+      target: { value: "" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "첫 번째 규칙 아래로 이동" }),
+    );
+
+    await advanceDebounce(300);
+
     await waitFor(() => {
       expect(
         mockedSettingsApi.updateMessageAutomationPastTriggerConfig,
       ).toHaveBeenCalledTimes(1);
     });
-    expectLastPut(PAST_TRIGGER_CONFIG);
+    expectLastPut({
+      sendIntervalMinutes: 5,
+      ruleOrder: ["hidden-welcome-rule", "rule-two", "rule-one"],
+    });
   });
 
   it("should persist a valid interval after 600ms", async () => {
@@ -418,5 +438,20 @@ describe("PastTriggerPolicyDetail", () => {
     });
 
     expect(intervalInput).toHaveValue("12");
+  });
+
+  it("should preserve an empty interval draft across a config refetch", () => {
+    const { rerenderConfig } = renderDetail();
+    const intervalInput = screen.getByLabelText(
+      "늦은 등록 자동 전송 간격",
+    );
+    fireEvent.change(intervalInput, { target: { value: "" } });
+
+    rerenderConfig({
+      sendIntervalMinutes: 9,
+      ruleOrder: ["hidden-welcome-rule", "rule-two", "rule-one"],
+    });
+
+    expect(intervalInput).toHaveValue("");
   });
 });

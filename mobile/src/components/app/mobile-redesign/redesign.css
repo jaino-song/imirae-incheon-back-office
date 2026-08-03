@@ -1691,6 +1691,8 @@ body.mobile-all-route .menu-row {
   flex-shrink: 0;
   position: relative;
   z-index: 3;
+  touch-action: none;
+  user-select: none;
   /* Opaque so scrolled content cannot bleed through, but it has to be the
      sheet's own colour — hardcoding white left a seam against the sheet. */
   background: hsl(var(--v3-dim-white));
