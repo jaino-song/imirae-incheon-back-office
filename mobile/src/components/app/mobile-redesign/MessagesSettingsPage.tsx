@@ -3,11 +3,12 @@
 import {
   useEffect,
   useMemo,
-  useState,
+  useRef,
   type ReactElement,
   type ReactNode,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { MessageSectionNav } from "@/components/app/mobile-redesign/MessageSectionNav";
 import { SlidingCard } from "@/components/app/mobile-redesign/sliding-card";
@@ -98,7 +99,9 @@ function DetailContent({
 }
 
 export function MessagesSettingsPage(): ReactElement {
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const router = useRouter();
+  const selectedItemId = useSearchParams().get("item");
+  const didPushDetailRef = useRef(false);
   const approvalQuery = useQuery({
     queryKey: MESSAGE_SENDER_APPROVAL_QUERY_KEY,
     queryFn: settingsApi.getMessageSenderApproval,
@@ -119,17 +122,44 @@ export function MessagesSettingsPage(): ReactElement {
     () => items.find((item) => item.id === selectedItemId),
     [items, selectedItemId],
   );
-  const isLoading = approvalQuery.isLoading || policiesQuery.isLoading;
+  const isInitialLoading =
+    approvalQuery.isLoading || policiesQuery.isLoading;
 
   useEffect(() => {
-    if (isLoading || selectedItemId === null || selectedItem !== undefined) {
+    if (selectedItemId === null) {
+      didPushDetailRef.current = false;
+    }
+  }, [selectedItemId]);
+
+  useEffect(() => {
+    if (
+      isInitialLoading ||
+      selectedItemId === null ||
+      selectedItem !== undefined
+    ) {
       return;
     }
 
-    // Server-driven item removal intentionally invalidates local detail state.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSelectedItemId(null);
-  }, [isLoading, selectedItem, selectedItemId]);
+    router.replace("/messages/settings", { scroll: false });
+  }, [isInitialLoading, router, selectedItem, selectedItemId]);
+
+  const handleSelect = (id: string) => {
+    if (id === selectedItemId) {
+      return;
+    }
+
+    router.push(`?item=${encodeURIComponent(id)}`, { scroll: false });
+    didPushDetailRef.current = true;
+  };
+
+  const handleBack = () => {
+    if (didPushDetailRef.current) {
+      router.back();
+      return;
+    }
+
+    router.replace("/messages/settings", { scroll: false });
+  };
 
   const detail = useMemo<ReactNode>(() => {
     if (!selectedItem) return null;
@@ -204,8 +234,11 @@ export function MessagesSettingsPage(): ReactElement {
 
           <SlidingCard
             data-component={SLIDING_CARD_BASE}
-            open={selectedItemId !== null}
-            onBack={() => setSelectedItemId(null)}
+            open={
+              selectedItemId !== null &&
+              (selectedItem !== undefined || !isInitialLoading)
+            }
+            onBack={handleBack}
             backLabel="설정"
             detailKey={selectedItemId}
             list={(
@@ -213,8 +246,8 @@ export function MessagesSettingsPage(): ReactElement {
                 data-component={SETTINGS_LIST_BASE}
                 items={items}
                 selectedId={selectedItemId}
-                onSelect={setSelectedItemId}
-                isLoading={isLoading}
+                onSelect={handleSelect}
+                isLoading={isInitialLoading}
                 policiesError={policiesQuery.isError}
                 onRetryPolicies={() => policiesQuery.refetch()}
                 isApproved={approvalQuery.data?.isApproved ?? false}

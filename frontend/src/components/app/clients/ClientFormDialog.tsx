@@ -1314,8 +1314,7 @@ function ClientFormContent({
                             maxLength={6}
                             placeholder="YYMMDD"
                             value={formData.endDate || ""}
-                            readOnly
-                            aria-readonly="true"
+                            onChange={(e) => handleChange("endDate", parseCompactDateInput(e.target.value))}
                         />
                     </FormField>
                 </FormGrid>

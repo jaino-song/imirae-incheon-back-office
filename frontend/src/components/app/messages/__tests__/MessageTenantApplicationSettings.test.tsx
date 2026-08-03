@@ -406,7 +406,7 @@ describe("MessageTenantApplicationSettings", () => {
     expect(screen.queryByText("최대 2회")).not.toBeInTheDocument();
   });
 
-  it("excludes inactive trigger rules from the retroactive order settings and save payload", async () => {
+  it("hides inactive rules from the list but preserves their saved positions in the payload", async () => {
     const inactiveReminder = {
       ...DEFAULT_TRIGGER_RULES[2],
       isActive: false,
@@ -444,7 +444,48 @@ describe("MessageTenantApplicationSettings", () => {
         ruleOrder: [
           DEFAULT_TRIGGER_RULES[0].id,
           DEFAULT_TRIGGER_RULES[1].id,
+          inactiveReminder.id,
           DEFAULT_TRIGGER_RULES[3].id,
+        ],
+      });
+    });
+  });
+
+  it("preserves an inactive rule position when displayed rules are reordered", async () => {
+    const inactiveReminder = {
+      ...DEFAULT_TRIGGER_RULES[2],
+      isActive: false,
+    };
+    const triggerRules = [
+      DEFAULT_TRIGGER_RULES[0],
+      DEFAULT_TRIGGER_RULES[1],
+      inactiveReminder,
+      DEFAULT_TRIGGER_RULES[3],
+    ];
+    mockSettingsQueries(true, {
+      ...DEFAULT_AUTOMATION_POLICIES,
+      pastTriggerConfig: {
+        sendIntervalMinutes: 1,
+        ruleOrder: triggerRules.map((rule) => rule.id),
+      },
+    }, triggerRules);
+
+    render(<MessageTenantApplicationSettings />);
+
+    fireEvent.click(screen.getByText("지난 자동 전송 처리 규칙"));
+    fireEvent.click(screen.getByRole("button", {
+      name: `${DEFAULT_TRIGGER_RULES[1].name} 아래로 이동`,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.updateMessageAutomationPastTriggerConfig).toHaveBeenCalledWith({
+        sendIntervalMinutes: 1,
+        ruleOrder: [
+          DEFAULT_TRIGGER_RULES[0].id,
+          DEFAULT_TRIGGER_RULES[3].id,
+          inactiveReminder.id,
+          DEFAULT_TRIGGER_RULES[1].id,
         ],
       });
     });
