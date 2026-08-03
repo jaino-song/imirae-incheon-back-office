@@ -113,6 +113,18 @@ export declare const AgentFormFieldSchema: z.ZodObject<{
         textarea: "textarea";
     }>;
     required: z.ZodOptional<z.ZodBoolean>;
+    inputMode: z.ZodOptional<z.ZodEnum<{
+        text: "text";
+        none: "none";
+        tel: "tel";
+        url: "url";
+        email: "email";
+        numeric: "numeric";
+        decimal: "decimal";
+        search: "search";
+    }>>;
+    placeholder: z.ZodOptional<z.ZodString>;
+    maxLength: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 export type AgentFormField = z.infer<typeof AgentFormFieldSchema>;
 export declare const AgentFormPartSchema: z.ZodObject<{
@@ -130,6 +142,18 @@ export declare const AgentFormPartSchema: z.ZodObject<{
             textarea: "textarea";
         }>;
         required: z.ZodOptional<z.ZodBoolean>;
+        inputMode: z.ZodOptional<z.ZodEnum<{
+            text: "text";
+            none: "none";
+            tel: "tel";
+            url: "url";
+            email: "email";
+            numeric: "numeric";
+            decimal: "decimal";
+            search: "search";
+        }>>;
+        placeholder: z.ZodOptional<z.ZodString>;
+        maxLength: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>>;
 }, z.core.$strip>;
 export declare const AgentFormSubmitPartSchema: z.ZodObject<{

@@ -174,6 +174,40 @@ describe("MobileAgentPartRegistry", () => {
         expect(onSubmitForm).toHaveBeenNthCalledWith(2, "settings-form", { enabled: false });
     });
 
+    it("passes numeric YYMMDD metadata to mobile inputs and keeps default behavior", () => {
+        render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_birthday-form"
+            part={{
+                type: "data-form",
+                data: {
+                    formId: "employee-create",
+                    title: "직원 등록",
+                    schemaVersion: "1",
+                    fields: [
+                        { name: "birthday", label: "생년월일", type: "text", inputMode: "numeric", placeholder: "YYMMDD", maxLength: 6 },
+                        { name: "name", label: "이름", type: "text" },
+                    ],
+                },
+            }}
+            onEntitySelect={jest.fn()}
+            onApproveAction={jest.fn()}
+            onRejectAction={jest.fn()}
+            onSubmitForm={jest.fn()}
+        />);
+
+        const birthday = screen.getByRole("textbox", { name: "생년월일" });
+        expect(birthday).toHaveAttribute("type", "text");
+        expect(birthday).toHaveAttribute("inputmode", "numeric");
+        expect(birthday).toHaveAttribute("placeholder", "YYMMDD");
+        expect(birthday).toHaveAttribute("maxlength", "6");
+        expect(birthday).toHaveAttribute("data-component", "mobile_chat_tests_agent-part-registry_birthday-form_form_field_control");
+
+        const name = screen.getByRole("textbox", { name: "이름" });
+        expect(name).toHaveAttribute("placeholder", "이름");
+        expect(name).not.toHaveAttribute("inputmode");
+        expect(name).not.toHaveAttribute("maxlength");
+    });
+
     it("preserves distinct caller namespaces for forms and their descendants", () => {
         const firstBase = "mobile_chat_tests_agent-part-registry_message-a_part-0";
         const secondBase = "mobile_chat_tests_agent-part-registry_message-b_part-0";

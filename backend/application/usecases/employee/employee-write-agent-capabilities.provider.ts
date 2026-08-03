@@ -36,12 +36,6 @@ const EmployeeBirthdaySchema = z.string()
     .refine(isCalendarValidYymmdd, "Birthday must be a calendar-valid YYMMDD date")
     .optional();
 
-type EmployeeFormField = AgentFormField & {
-    inputMode?: "numeric";
-    placeholder?: string;
-    maxLength?: number;
-};
-
 const CreateEmployeeSchema = z.object({
     name: z.string().trim().min(1).max(100),
     workArea: z.preprocess(
@@ -71,7 +65,7 @@ const UpdateEmployeeSchema = z.object({
 });
 const AvailabilitySchema = z.object({ id: z.number().int().positive(), openToNextWork: z.boolean() });
 const OutputSchema = z.object({ id: z.number().int().positive(), name: z.string(), status: z.string() });
-const EMPLOYEE_CREATE_FIELDS: EmployeeFormField[] = [
+const EMPLOYEE_CREATE_FIELDS: AgentFormField[] = [
     { name: "name", label: "직원 이름", type: "text", required: true },
     { name: "workArea", label: "활동 지역", type: "text", required: true },
     { name: "phone", label: "전화번호", type: "text", required: true },
@@ -79,7 +73,7 @@ const EMPLOYEE_CREATE_FIELDS: EmployeeFormField[] = [
     { name: "openToNextWork", label: "다음 업무 가능", type: "boolean" },
     { name: "birthday", label: "생년월일", type: "text", inputMode: "numeric", placeholder: "YYMMDD", maxLength: 6 },
 ];
-const EMPLOYEE_UPDATE_FIELDS: EmployeeFormField[] = [
+const EMPLOYEE_UPDATE_FIELDS: AgentFormField[] = [
     { name: "id", label: "직원 ID", type: "number", required: true },
     ...EMPLOYEE_CREATE_FIELDS.map((field) => ({ ...field, required: false })),
 ];

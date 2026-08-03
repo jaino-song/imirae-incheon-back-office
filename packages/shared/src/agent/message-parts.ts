@@ -102,6 +102,9 @@ export const AgentFormFieldSchema = z.object({
     label: z.string().min(1),
     type: z.enum(["text", "number", "date", "textarea", "boolean"]),
     required: z.boolean().optional(),
+    inputMode: z.enum(["none", "text", "tel", "url", "email", "numeric", "decimal", "search"]).optional(),
+    placeholder: z.string().max(200).optional(),
+    maxLength: z.number().int().positive().max(1000).optional(),
 });
 
 export type AgentFormField = z.infer<typeof AgentFormFieldSchema>;

@@ -90,6 +90,9 @@ exports.AgentFormFieldSchema = zod_1.z.object({
     label: zod_1.z.string().min(1),
     type: zod_1.z.enum(["text", "number", "date", "textarea", "boolean"]),
     required: zod_1.z.boolean().optional(),
+    inputMode: zod_1.z.enum(["none", "text", "tel", "url", "email", "numeric", "decimal", "search"]).optional(),
+    placeholder: zod_1.z.string().max(200).optional(),
+    maxLength: zod_1.z.number().int().positive().max(1000).optional(),
 });
 exports.AgentFormPartSchema = zod_1.z.object({
     formId: zod_1.z.string().min(1),
