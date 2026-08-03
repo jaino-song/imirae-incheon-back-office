@@ -11,16 +11,20 @@ import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.use
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { EFORMSIGN_COMPLETED_STATUS_CODES, TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
+import { AreaTemplateService } from "application/services/area-template.service";
 import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
+import type { AreaTemplateEntity } from "domain/entities/area-template.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
 const ContractInputSchema = z.object({ clientId: z.number().int().positive(), templateId: z.string().min(1).max(200), templateName: z.string().max(200).optional() });
 const ContractOutputSchema = z.object({ success: z.boolean(), documentId: z.string().optional(), status: z.string(), uncertain: z.boolean().optional() });
+const CONTRACT_TEMPLATE_UNAVAILABLE_ERROR = "Contract template is unavailable";
 const ContractApprovalSnapshotSchema = z.object({
     clientId: z.number().int().positive(),
     phoneLast4: z.string().min(1).max(20),
+    areaId: z.string().min(1).max(200),
     templateId: z.string().min(1).max(200),
     templateName: z.string().max(200).nullable(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
@@ -33,6 +37,7 @@ const ContractApprovalSnapshotSchema = z.object({
     includesSensitiveFields: z.literal(true),
 }).strict();
 type ContractApprovalSnapshot = z.infer<typeof ContractApprovalSnapshotSchema>;
+type ContractTemplate = Pick<AreaTemplateEntity, "areaId" | "templateId" | "templateName">;
 const CONTRACT_FORM_FIELDS: AgentFormField[] = [
     { name: "clientId", label: "고객 ID", type: "number", required: true },
     { name: "templateId", label: "템플릿 ID", type: "text", required: true },
@@ -47,6 +52,7 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
         private readonly getAccessToken: GetEformsignAccessTokenUsecase,
         private readonly fetchDocument: FetchEformsignDocFromApiUsecase,
         private readonly findClientById: FindClientByIdUsecase,
+        private readonly areaTemplateService: AreaTemplateService,
         @Inject(CLIENT_REPOSITORY)
         private readonly clientRepository: IClientRepository,
         private readonly prisma: PrismaService,
@@ -69,20 +75,23 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                     const input = ContractInputSchema.parse(rawInput);
                     const client = await this.findClientById.execute(context.principal.branchId, input.clientId);
                     if (!client) throw new Error("Contract client was not found in the current branch");
+                    const template = await this.resolveContractTemplate(context.principal.branchId, input.templateId);
                     const effectiveDate = new Date();
                     return {
                         targetVersion: clientAgentTargetVersion(client),
-                        targetSnapshot: this.toContractApprovalSnapshot(client, input, effectiveDate),
+                        targetSnapshot: this.toContractApprovalSnapshot(client, template, effectiveDate),
                         title: "계약서 생성 및 발송",
-                        summary: `${client.name} 고객에게 ${input.templateName ?? input.templateId} 계약서를 발송합니다. 수신번호 ${maskPhone(client.phone)}로 민감 필드를 포함해 전송합니다.`,
+                        summary: `${client.name} 고객에게 ${template.templateName ?? template.templateId} 계약서를 발송합니다. 수신번호 ${maskPhone(client.phone)}로 민감 필드를 포함해 전송합니다.`,
                         provider: "eformsign",
                         estimatedCost: "eformsign 계약 요금제 기준",
                     };
                 },
                 execute: async (context, rawInput) => {
                     try {
+                        const input = ContractInputSchema.parse(rawInput);
+                        const template = await this.resolveContractTemplate(context.principal.branchId, input.templateId);
                         const result = await this.createAndSend.execute(context.principal.branchId, {
-                            ...ContractInputSchema.parse(rawInput),
+                            ...this.bindTemplateInput(input, template),
                             idempotencyKey: context.actionId,
                         });
                         if (!result.success && (result.uncertain || result.remoteDocumentId)) {
@@ -91,7 +100,7 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                         if (!result.success) return { success: false, status: "failed" };
                         return { success: true, documentId: result.documentId, status: "sent" };
                     } catch (error) {
-                        if (error instanceof AgentActionUncertainError) throw error;
+                        if (error instanceof AgentActionCertainFailureError || error instanceof AgentActionUncertainError) throw error;
                         throw new AgentActionUncertainError("Contract provider result is uncertain");
                     }
                 },
@@ -100,7 +109,7 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                     const staged = await this.stageDispatchTarget(context, input, expectedTargetVersion);
                     try {
                         const result = await this.createAndSend.execute(context.principal.branchId, {
-                            ...input,
+                            ...this.bindTemplateInput(input, staged.template),
                             idempotencyKey: context.actionId,
                             clientSnapshot: staged.clientSnapshot,
                             clientTargetVersion: staged.targetVersion,
@@ -147,10 +156,28 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
         const input = ContractInputSchema.parse(rawInput);
         const client = await this.findClientById.execute(context.principal.branchId, input.clientId);
         const currentVersion = clientAgentTargetVersion(client);
+        let template: ContractTemplate;
+        try {
+            template = await this.resolveContractTemplate(context.principal.branchId, input.templateId);
+        } catch {
+            return {
+                valid: false,
+                currentVersion,
+                reason: CONTRACT_TEMPLATE_UNAVAILABLE_ERROR,
+            };
+        }
+        const approvedSnapshot = ContractApprovalSnapshotSchema.safeParse(context.approvedTargetSnapshot);
+        const templateMatchesApproval = !context.approvedTargetSnapshot
+            || (approvedSnapshot.success
+                && approvedSnapshot.data.areaId === template.areaId
+                && approvedSnapshot.data.templateId === template.templateId
+                && approvedSnapshot.data.templateName === template.templateName);
         return {
-            valid: Boolean(client) && currentVersion === expectedTargetVersion,
+            valid: Boolean(client) && currentVersion === expectedTargetVersion && templateMatchesApproval,
             currentVersion,
-            reason: client ? "Client changed after proposal" : "Client is no longer available in this branch",
+            reason: !templateMatchesApproval
+                ? CONTRACT_TEMPLATE_UNAVAILABLE_ERROR
+                : client ? "Client changed after proposal" : "Client is no longer available in this branch",
         };
     }
 
@@ -158,8 +185,9 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
         context: AgentContext,
         input: z.infer<typeof ContractInputSchema>,
         expectedTargetVersion: string,
-    ): Promise<{ clientSnapshot: ContractClientSnapshot; targetVersion: string }> {
+    ): Promise<{ clientSnapshot: ContractClientSnapshot; targetVersion: string; template: ContractTemplate }> {
         return this.prisma.$transaction(async (transaction) => {
+            const template = await this.resolveContractTemplate(context.principal.branchId, input.templateId);
             const client = await this.clientRepository.findByIdForUpdate(
                 context.principal.branchId,
                 input.clientId,
@@ -172,23 +200,58 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
             if (!approvedSnapshot.success || approvedSnapshot.data.clientId !== input.clientId) {
                 throw new AgentActionCertainFailureError("Contract approval details are missing or invalid; review a new proposal");
             }
+            if (approvedSnapshot.data.areaId !== template.areaId
+                || approvedSnapshot.data.templateId !== template.templateId
+                || approvedSnapshot.data.templateName !== template.templateName) {
+                throw new AgentActionCertainFailureError(CONTRACT_TEMPLATE_UNAVAILABLE_ERROR);
+            }
             const canonicalSnapshot = this.toContractApprovalSnapshot(
                 client,
-                input,
+                template,
                 new Date(approvedSnapshot.data.effectiveDate),
             );
             if (JSON.stringify(canonicalSnapshot) !== JSON.stringify(approvedSnapshot.data)) {
                 throw new AgentActionCertainFailureError("Contract approval details changed; review a new proposal");
             }
             const clientSnapshot = this.toContractClientSnapshot(client, approvedSnapshot.data.effectiveDate);
+            const canonicalInput = this.bindTemplateInput(input, template);
             await recordAgentActionEffect(transaction, context, "contracts.dispatch", "contract-dispatch", input.clientId, {
-                input,
+                input: canonicalInput,
                 targetVersion: expectedTargetVersion,
                 approvalSnapshot: approvedSnapshot.data,
                 clientSnapshot,
             });
-            return { clientSnapshot, targetVersion: expectedTargetVersion };
+            return { clientSnapshot, targetVersion: expectedTargetVersion, template };
         });
+    }
+
+    private async resolveContractTemplate(branchId: string, templateId: string): Promise<ContractTemplate> {
+        try {
+            const templates = await this.areaTemplateService.findAll(branchId);
+            const matches = templates.filter((template) => template.templateId === templateId);
+            if (matches.length !== 1) throw new AgentActionCertainFailureError(CONTRACT_TEMPLATE_UNAVAILABLE_ERROR);
+            const [template] = matches;
+            if (!template) throw new AgentActionCertainFailureError(CONTRACT_TEMPLATE_UNAVAILABLE_ERROR);
+            return {
+                areaId: template.areaId,
+                templateId: template.templateId,
+                templateName: template.templateName?.trim() || null,
+            };
+        } catch (error) {
+            if (error instanceof AgentActionCertainFailureError) throw error;
+            throw new AgentActionCertainFailureError(CONTRACT_TEMPLATE_UNAVAILABLE_ERROR);
+        }
+    }
+
+    private bindTemplateInput(
+        input: z.infer<typeof ContractInputSchema>,
+        template: ContractTemplate,
+    ): z.infer<typeof ContractInputSchema> {
+        return {
+            ...input,
+            templateId: template.templateId,
+            templateName: template.templateName ?? undefined,
+        };
     }
 
     private toContractClientSnapshot(client: {
@@ -232,14 +295,15 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
             grant: string | null;
             actualPrice: string | null;
         },
-        input: z.infer<typeof ContractInputSchema>,
+        template: ContractTemplate,
         effectiveDate: Date,
     ): ContractApprovalSnapshot {
         return ContractApprovalSnapshotSchema.parse({
             clientId: client.id,
             phoneLast4: maskPhone(client.phone),
-            templateId: input.templateId,
-            templateName: input.templateName ?? null,
+            areaId: template.areaId,
+            templateId: template.templateId,
+            templateName: template.templateName,
             startDate: client.startDate?.toISOString().slice(0, 10) ?? null,
             endDate: client.endDate?.toISOString().slice(0, 10) ?? null,
             duration: client.duration,

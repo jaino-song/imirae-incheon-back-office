@@ -3,6 +3,8 @@ import { clientAgentTargetVersion } from "application/usecases/client/client-age
 import { ContractExternalAgentCapabilitiesProvider } from "./contract-external-agent-capabilities.provider";
 
 describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", () => {
+    const TEMPLATE_UNAVAILABLE_ERROR = "Contract template is unavailable";
+
     const context = {
         principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
         sessionId: "session-a",
@@ -26,32 +28,105 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
         ...overrides,
     });
 
-    function setup(currentClient = client()) {
+    const template = (overrides: Record<string, unknown> = {}) => ({
+        id: "area-template-1",
+        areaId: "area-1",
+        templateId: "template-1",
+        templateName: "표준계약서",
+        ...overrides,
+    });
+
+    function setup(currentClient = client(), currentTemplates = [template()]) {
         const createAndSend = { execute: jest.fn().mockResolvedValue({ success: true, documentId: "remote-1" }) };
         const transaction = { agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
         const prisma = {
             $transaction: jest.fn(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)),
         };
+        const areaTemplateService = { findAll: jest.fn().mockResolvedValue(currentTemplates) };
         const provider = new ContractExternalAgentCapabilitiesProvider(
             createAndSend as never,
             { execute: jest.fn() } as never,
             { execute: jest.fn() } as never,
             { execute: jest.fn().mockResolvedValue(currentClient) } as never,
+            areaTemplateService as never,
             { findByIdForUpdate: jest.fn().mockResolvedValue(currentClient) } as never,
             prisma as never,
         );
-        return { provider, createAndSend, transaction, prisma };
+        return { provider, createAndSend, transaction, prisma, areaTemplateService };
     }
 
-    async function inspectDispatch(provider: ContractExternalAgentCapabilitiesProvider) {
+    async function inspectDispatch(
+        provider: ContractExternalAgentCapabilitiesProvider,
+        templateName = "표준계약서",
+    ) {
         const capability = provider.getCapabilities().find((entry) => entry.meta.name === "contracts.dispatch")!;
         const inspection = await capability.inspect!(context, {
             clientId: 7,
             templateId: "template-1",
-            templateName: "표준계약서",
+            templateName,
         });
         return { capability, inspection };
     }
+
+    it("rejects inspection for missing and foreign branch templates without enumeration", async () => {
+        for (const currentTemplates of [[], [template({ templateId: "template-foreign", templateName: "다른 지점 계약서" })]]) {
+            const { provider, createAndSend, areaTemplateService } = setup(client(), currentTemplates);
+            const capability = provider.getCapabilities()[0]!;
+
+            await expect(capability.inspect!(context, {
+                clientId: 7,
+                templateId: "template-1",
+                templateName: "caller-controlled name",
+            })).rejects.toThrow(TEMPLATE_UNAVAILABLE_ERROR);
+
+            expect(areaTemplateService.findAll).toHaveBeenCalledWith("branch-a");
+            expect(createAndSend.execute).not.toHaveBeenCalled();
+        }
+    });
+
+    it("binds the canonical branch template metadata instead of caller-supplied names", async () => {
+        const { provider } = setup(client(), [template({ templateName: "지점 표준 계약서" })]);
+        const { inspection } = await inspectDispatch(provider, "caller-controlled name");
+
+        expect(inspection.targetSnapshot).toEqual(expect.objectContaining({
+            areaId: "area-1",
+            templateId: "template-1",
+            templateName: "지점 표준 계약서",
+        }));
+        expect(inspection.summary).toContain("지점 표준 계약서");
+        expect(inspection.summary).not.toContain("caller-controlled name");
+    });
+
+    it("resolves canonical templates for direct execution before calling the provider", async () => {
+        const { provider, createAndSend, areaTemplateService } = setup(client(), [template({ templateName: "지점 표준 계약서" })]);
+        const capability = provider.getCapabilities()[0]!;
+
+        await expect(capability.execute(context, {
+            clientId: 7,
+            templateId: "template-1",
+            templateName: "caller-controlled name",
+        })).resolves.toEqual({ success: true, documentId: "remote-1", status: "sent" });
+
+        expect(areaTemplateService.findAll).toHaveBeenCalledWith("branch-a");
+        expect(createAndSend.execute).toHaveBeenCalledWith("branch-a", expect.objectContaining({
+            templateId: "template-1",
+            templateName: "지점 표준 계약서",
+            idempotencyKey: "action-a",
+        }));
+    });
+
+    it("rejects direct execution for a removed template before any provider call", async () => {
+        const { provider, createAndSend } = setup(client(), []);
+        const capability = provider.getCapabilities()[0]!;
+
+        await expect(capability.execute(context, {
+            clientId: 7,
+            templateId: "template-1",
+            templateName: "caller-controlled name",
+        })).rejects.toThrow(TEMPLATE_UNAVAILABLE_ERROR);
+
+        expect(createAndSend.execute).not.toHaveBeenCalled();
+    });
 
     it("exposes only dispatch and keeps a complete masked approval snapshot", async () => {
         const { provider } = setup();
@@ -83,7 +158,7 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
     it("refuses dispatch when the locked target changed after preliminary revalidation", async () => {
         const original = client();
         const changed = client({ name: "다른 고객" });
-        const { provider, createAndSend } = setup(changed);
+        const { provider, createAndSend } = setup(changed, [template()]);
         const { inspection } = await inspectDispatch(provider);
 
         await expect(provider.getCapabilities()[0]!.executeApprovedTarget!({
@@ -99,7 +174,7 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
 
     it("stages the exact client projection before sending and never re-reads it in the usecase", async () => {
         const current = client();
-        const { provider, createAndSend, transaction } = setup(current);
+        const { provider, createAndSend, transaction } = setup(current, [template({ templateName: "지점 표준 계약서" })]);
         const { capability, inspection } = await inspectDispatch(provider);
 
         await expect(capability.executeApprovedTarget!({
@@ -128,8 +203,39 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
                 startDate: "2026-08-03T00:00:00.000Z",
                 fallbackDate: (inspection.targetSnapshot as Record<string, unknown>)["effectiveDate"],
             }),
+            templateId: "template-1",
+            templateName: "지점 표준 계약서",
             idempotencyKey: "action-a",
         }));
+    });
+
+    it("rejects approved execution when a template is removed or changed after inspection", async () => {
+        for (const currentTemplates of [[], [template({ templateName: "변경된 계약서" })]]) {
+            const { provider, createAndSend, areaTemplateService } = setup(client(), [template({ templateName: "지점 표준 계약서" })]);
+            const { inspection } = await inspectDispatch(provider, "caller-controlled name");
+            areaTemplateService.findAll.mockResolvedValue(currentTemplates);
+            const capability = provider.getCapabilities()[0]!;
+            const input = {
+                clientId: 7,
+                templateId: "template-1",
+                templateName: "caller-controlled name",
+            };
+
+            await expect(capability.revalidate!({
+                ...context,
+                approvedTargetSnapshot: inspection.targetSnapshot,
+            }, input, clientAgentTargetVersion(client() as never))).resolves.toEqual(expect.objectContaining({
+                valid: false,
+                reason: TEMPLATE_UNAVAILABLE_ERROR,
+            }));
+
+            await expect(capability.executeApprovedTarget!({
+                ...context,
+                approvedTargetSnapshot: inspection.targetSnapshot,
+            }, input, clientAgentTargetVersion(client() as never))).rejects.toThrow(TEMPLATE_UNAVAILABLE_ERROR);
+
+            expect(createAndSend.execute).not.toHaveBeenCalled();
+        }
     });
 
     it("rejects execution when the approved snapshot is missing or unsafe", async () => {
