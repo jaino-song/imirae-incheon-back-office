@@ -25,7 +25,7 @@ test.describe.configure({ mode: 'serial' });
 test.describe('Critical flows (real backend)', () => {
   test.skip(!process.env.CI, 'mutates backend state — CI throwaway database only');
 
-  test('sender approval lifecycle: approved gate open → request → re-approve', async ({
+  test('sender approval lifecycle: approved settings open → request → re-approve', async ({
     page,
     context,
   }) => {
@@ -69,7 +69,9 @@ test.describe('Critical flows (real backend)', () => {
     expect(initialApproveRes.ok()).toBeTruthy();
 
     await page.goto('/messages/sender-approval');
-    await expect(page.getByText('승인 완료').first()).toBeVisible({ timeout: 15000 });
+    await expect(page).toHaveURL(/\/messages\/settings$/);
+    await expect(page.getByText('고객 자동 등록').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('메시지 발송 기능 신청')).toHaveCount(0);
 
     // 2. Drive the backend transitions directly (the admin approve UI lives
     //    in the staff frontend app, not this mobile app): request → pending,
@@ -100,7 +102,8 @@ test.describe('Critical flows (real backend)', () => {
     expect(await approvedRes.json()).toMatchObject({ approvalStatus: 'approved', isApproved: true });
 
     // 3. The UI gate reflects the restored approval.
-    await page.goto('/messages/sender-approval');
-    await expect(page.getByText('승인 완료').first()).toBeVisible({ timeout: 15000 });
+    await page.goto('/messages/settings');
+    await expect(page.getByText('고객 자동 등록').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('메시지 발송 기능 신청')).toHaveCount(0);
   });
 });

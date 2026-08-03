@@ -146,6 +146,12 @@ export interface IEformsignDocRepository {
         documentIds: string[],
     ): Promise<EformsignDocDisplayFields[]>;
     findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]>;
+    /**
+     * Contract end dates (YYYY-MM-DD) parsed from the mirrored detail payloads of the
+     * given documents. Documents without a stored detail or a recoverable end date are
+     * simply absent from the map.
+     */
+    findContractEndDatesByDocumentIds(documentIds: string[]): Promise<Map<string, string>>;
     create(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     update(
         branchid: string,

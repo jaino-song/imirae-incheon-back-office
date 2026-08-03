@@ -50,6 +50,7 @@ interface ClientAutocompleteProps {
     onManualValueChange?: (value: string) => void;
     displayValueMode?: "name" | "phone";
     searchMode?: "all" | "phone";
+    disabled?: boolean;
 }
 
 export function ClientAutocomplete({
@@ -69,6 +70,7 @@ export function ClientAutocomplete({
     onManualValueChange,
     displayValueMode = "name",
     searchMode = "all",
+    disabled = false,
 }: ClientAutocompleteProps) {
     const locale = useLocale();
     const { data: clients, isLoading } = useAllClients();
@@ -237,7 +239,13 @@ export function ClientAutocomplete({
                 {label}
                 {required && <span className="text-destructive ml-1">*</span>}
             </Label>
-            <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <Popover
+                open={disabled ? false : isOpen}
+                onOpenChange={(open) => {
+                    if (disabled) return;
+                    setIsOpen(open);
+                }}
+            >
                 <div className="relative">
                     <PopoverTrigger asChild>
                         <Button
@@ -245,7 +253,8 @@ export function ClientAutocomplete({
                             variant="outline"
                             role="combobox"
                             aria-label={label}
-                            aria-expanded={isOpen}
+                            aria-expanded={disabled ? false : isOpen}
+                            disabled={disabled}
                             data-component={`${dataComponent}_input`}
                             className={cn(
                                 V3_INPUT_CONTROL_CLASS_NAME,
@@ -263,7 +272,7 @@ export function ClientAutocomplete({
                                 {isLoading && (
                                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                                 )}
-                                {hasDisplayValue && !isLoading && (
+                                {hasDisplayValue && !isLoading && !disabled && (
                                     <span
                                         role="button"
                                         tabIndex={0}

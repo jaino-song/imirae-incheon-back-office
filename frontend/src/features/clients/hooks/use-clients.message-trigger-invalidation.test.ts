@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { messageTriggerKeys } from "@/features/message-triggers/hooks/keys";
+import { serviceRecordKeys } from "@/features/service-records/hooks/keys";
 import { useCreateClient, useDeleteClient, useUpdateClient } from "./use-clients";
 
 jest.mock("@tanstack/react-query", () => ({
@@ -42,6 +43,9 @@ describe("client mutation message job invalidation", () => {
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: messageTriggerKeys.upcoming(),
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: serviceRecordKeys.clientOverview(42),
     });
   });
 
