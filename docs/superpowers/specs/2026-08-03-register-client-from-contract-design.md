@@ -59,9 +59,11 @@
     `extractEformsignContractClientCandidate()`
     (`backend/application/utils/eformsign-contract-client-candidate.ts:404`)를
     실행해 후보를 반환한다. 날짜(Date)는 ISO 문자열로 직렬화.
-  - **폴백**: 추출 실패(payload 없음/파싱 불가) 시 문서 컬럼
-    `customerName`/`customerPhone`만 담은 최소 후보를 반환한다 — 폼은 항상
-    열린다.
+  - **폴백**: 추출 실패(payload 없음/파싱 불가) 시 문서 컬럼의
+    `customerPhone`만 담은 최소 후보를 반환한다(`extracted: false`) — 폼은 항상
+    열린다. 이름은 폴백하지 않는다: `customerName` 컬럼은 목록 표시용 일반
+    성명 필드라 관리사/직원 이름일 수 있음 (리뷰 반영, 자동 등록 추출기의
+    동일 경고 주석 근거).
   - 지점 스코프 가드·404 처리는 기존 문서 상세 엔드포인트와 동일한 권한 규칙.
 - **연결 로직 변경 없음**: 고객 생성 경로의 기존 phone-link가 연결을 담당한다.
   별도 연결 API를 만들지 않는다. `eDocId`를 생성 DTO로 직접 밀어넣지 않는다
