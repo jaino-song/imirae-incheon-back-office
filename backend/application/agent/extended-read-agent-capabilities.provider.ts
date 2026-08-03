@@ -66,6 +66,10 @@ const DraftUpdateSchema = z.object({
     id: z.string().min(1),
     proposals: z.preprocess(parseJsonInput, z.array(ProposalInputSchema).optional()),
     clientId: z.coerce.number().int().positive().nullable().optional(),
+}).superRefine((value, context) => {
+    if (value.proposals === undefined && value.clientId === undefined) {
+        context.addIssue({ code: "custom", path: ["proposals"], message: "Draft update payload is required" });
+    }
 });
 const DraftConfirmSchema = z.object({
     id: z.string().min(1),

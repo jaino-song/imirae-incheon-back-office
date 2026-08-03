@@ -9,7 +9,7 @@ import { EventEmitter } from "node:events";
 
 describe("Release A agent security boundaries", () => {
     const repository = {
-        create: jest.fn(), list: jest.fn(), findOwned: jest.fn(), updateOwned: jest.fn(), deleteOwned: jest.fn(), appendMessages: jest.fn(), deleteExpired: jest.fn(),
+        create: jest.fn(), list: jest.fn(), findOwned: jest.fn(), updateOwned: jest.fn(), deleteOwned: jest.fn(), appendMessages: jest.fn(), upsertActionResultMessage: jest.fn(), deleteExpired: jest.fn(),
     } as jest.Mocked<IAgentSessionRepository>;
 
     beforeEach(() => jest.resetAllMocks());

@@ -3,6 +3,28 @@ import { z } from "zod";
 import { DeterministicAgentLanguageModel } from "infrastructure/agent/deterministic-agent-language-model";
 import { AgentRuntimeService, buildAuthoritativeModelMessages, buildWriteToolInputSchema, redactModelValue } from "./agent-runtime.service";
 
+function buildEntityCapability(name: string, domain: string, execute: jest.Mock) {
+    return {
+        meta: {
+            name,
+            domain,
+            version: "1.0.0",
+            description: `Search ${domain}`,
+            risk: "read" as const,
+            requiredRoles: ["admin"],
+            renderer: "activity" as const,
+            flagKey: `agent.capability.${name}`,
+            sideEffect: false,
+        },
+        inputSchema: z.object({}),
+        outputSchema: z.object({
+            kind: z.literal("entity"),
+            entity: z.object({ id: z.number(), name: z.string() }),
+        }),
+        execute,
+    };
+}
+
 describe("AgentRuntimeService", () => {
     it("builds model history only from server-persisted text and the current user turn", () => {
         const messages = buildAuthoritativeModelMessages([
@@ -140,6 +162,191 @@ describe("AgentRuntimeService", () => {
         expect(sessions.update).toHaveBeenCalledWith("session-a", { userId: "user-a", branchId: "branch-a" }, { selectedEntities: { clients: { id: 1, name: "홍길동" } } });
         expect(sessions.appendMessages).toHaveBeenCalledWith("session-a", { userId: "user-a", branchId: "branch-a" }, expect.any(Array), "trace-a");
         expect(traces.finish).toHaveBeenCalledWith(expect.objectContaining({ id: "trace-a" }), "succeeded", expect.anything(), undefined, expect.arrayContaining([{ capability: "clients.search", version: "1.0.0", risk: "read" }]));
+    });
+
+    it("preserves existing and prior-domain entity memory across sequential tool steps", async () => {
+        const clientsExecute = jest.fn().mockResolvedValue({ kind: "entity", entity: { id: 1, name: "Client" } });
+        const staffExecute = jest.fn().mockResolvedValue({ kind: "entity", entity: { id: 2, name: "Staff" } });
+        const clients = buildEntityCapability("clients.search", "clients", clientsExecute);
+        const staff = buildEntityCapability("staff.search", "staff", staffExecute);
+        const sessions = {
+            create: jest.fn().mockResolvedValue({
+                id: "session-sequential",
+                selectedEntities: { orders: { id: 99, name: "Existing" } },
+                messages: [],
+            }),
+            update: jest.fn().mockResolvedValue({ id: "session-sequential" }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const model = new DeterministicAgentLanguageModel([
+            { type: "tool-call", toolName: "clients_search", input: {} },
+            { type: "tool-call", toolName: "staff_search", input: {} },
+            { type: "text", text: "조회 결과입니다." },
+        ]);
+        const modelStream = jest.spyOn(model, "doStream");
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => model } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients", "staff"], capabilities: [clients, staff] }) } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-sequential", startedAt: Date.now() }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-sequential", role: "user", parts: [{ type: "text", text: "고객과 직원을 찾아줘" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the UI message stream so every tool step completes.
+        }
+
+        const owner = { userId: "user-a", branchId: "branch-a" };
+        expect(sessions.update).toHaveBeenNthCalledWith(1, "session-sequential", owner, {
+            selectedEntities: { orders: { id: 99, name: "Existing" }, clients: { id: 1, name: "Client" } },
+        });
+        expect(sessions.update).toHaveBeenNthCalledWith(2, "session-sequential", owner, {
+            selectedEntities: {
+                orders: { id: 99, name: "Existing" },
+                clients: { id: 1, name: "Client" },
+                staff: { id: 2, name: "Staff" },
+            },
+        });
+        const systemForCall = (callIndex: number) => ((modelStream.mock.calls[callIndex]?.[0] as { prompt?: Array<{ role: string; content: string }> }).prompt?.[0]?.content);
+        expect(systemForCall(1)).toContain('"clients":{"id":1,"name":"Client"}');
+        expect(systemForCall(2)).toContain('"staff":{"id":2,"name":"Staff"}');
+    });
+
+    it("replaces only the same domain when a later entity result arrives", async () => {
+        const execute = jest.fn()
+            .mockResolvedValueOnce({ kind: "entity", entity: { id: 1, name: "First" } })
+            .mockResolvedValueOnce({ kind: "entity", entity: { id: 2, name: "Second" } });
+        const capability = buildEntityCapability("clients.search", "clients", execute);
+        const sessions = {
+            create: jest.fn().mockResolvedValue({
+                id: "session-same-domain",
+                selectedEntities: { orders: { id: 99, name: "Existing" } },
+                messages: [],
+            }),
+            update: jest.fn().mockResolvedValue({ id: "session-same-domain" }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const model = new DeterministicAgentLanguageModel([
+            { type: "tool-call", toolName: "clients_search", input: {} },
+            { type: "tool-call", toolName: "clients_search", input: {} },
+            { type: "text", text: "최신 결과입니다." },
+        ]);
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => model } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-same-domain", startedAt: Date.now() }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-same-domain", role: "user", parts: [{ type: "text", text: "고객을 다시 찾아줘" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the UI message stream so both entity results are persisted.
+        }
+
+        const owner = { userId: "user-a", branchId: "branch-a" };
+        expect(sessions.update).toHaveBeenNthCalledWith(1, "session-same-domain", owner, {
+            selectedEntities: { orders: { id: 99, name: "Existing" }, clients: { id: 1, name: "First" } },
+        });
+        expect(sessions.update).toHaveBeenNthCalledWith(2, "session-same-domain", owner, {
+            selectedEntities: { orders: { id: 99, name: "Existing" }, clients: { id: 2, name: "Second" } },
+        });
+    });
+
+    it("serializes parallel entity updates without losing either domain", async () => {
+        const clientsExecute = jest.fn(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 15));
+            return { kind: "entity", entity: { id: 1, name: "Client" } };
+        });
+        const staffExecute = jest.fn().mockResolvedValue({ kind: "entity", entity: { id: 2, name: "Staff" } });
+        const clients = buildEntityCapability("clients.search", "clients", clientsExecute);
+        const staff = buildEntityCapability("staff.search", "staff", staffExecute);
+        let activeUpdates = 0;
+        let maxConcurrentUpdates = 0;
+        const sessions = {
+            create: jest.fn().mockResolvedValue({
+                id: "session-parallel",
+                selectedEntities: { orders: { id: 99, name: "Existing" } },
+                messages: [],
+            }),
+            update: jest.fn().mockImplementation(async () => {
+                activeUpdates += 1;
+                maxConcurrentUpdates = Math.max(maxConcurrentUpdates, activeUpdates);
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                activeUpdates -= 1;
+                return { id: "session-parallel" };
+            }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const model = new DeterministicAgentLanguageModel([]);
+        let modelStep = 0;
+        const modelStream = jest.spyOn(model, "doStream");
+        modelStream.mockImplementation(async () => {
+            const step = modelStep++;
+            const parts: Array<Record<string, unknown>> = step === 0
+                ? [
+                    { type: "stream-start", warnings: [] },
+                    { type: "tool-call", toolCallId: "parallel-clients", toolName: "clients_search", input: "{}" },
+                    { type: "tool-call", toolCallId: "parallel-staff", toolName: "staff_search", input: "{}" },
+                    { type: "finish", usage: { inputTokens: { total: 0 }, outputTokens: { total: 0 } }, finishReason: { unified: "tool-calls", raw: "tool-calls" } },
+                ]
+                : [
+                    { type: "stream-start", warnings: [] },
+                    { type: "text-start", id: `parallel-text-${step}` },
+                    { type: "text-delta", id: `parallel-text-${step}`, delta: "완료했습니다." },
+                    { type: "text-end", id: `parallel-text-${step}` },
+                    { type: "finish", usage: { inputTokens: { total: 0 }, outputTokens: { total: 0 } }, finishReason: { unified: "stop", raw: "stop" } },
+                ];
+            return {
+                stream: new ReadableStream({
+                    start(controller) {
+                        for (const part of parts) controller.enqueue(part);
+                        controller.close();
+                    },
+                }),
+            } as never;
+        });
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => model } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients", "staff"], capabilities: [clients, staff] }) } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-parallel", startedAt: Date.now() }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-parallel", role: "user", parts: [{ type: "text", text: "고객과 직원을 찾아줘" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the UI message stream so parallel tool calls finish.
+        }
+
+        expect(sessions.update).toHaveBeenCalledTimes(2);
+        expect(maxConcurrentUpdates).toBe(1);
+        expect(sessions.update).toHaveBeenLastCalledWith("session-parallel", { userId: "user-a", branchId: "branch-a" }, {
+            selectedEntities: {
+                orders: { id: 99, name: "Existing" },
+                clients: { id: 1, name: "Client" },
+                staff: { id: 2, name: "Staff" },
+            },
+        });
     });
 
     it("emits a recovery form when a write tool omits canonical required input", async () => {

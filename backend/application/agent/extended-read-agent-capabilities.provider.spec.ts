@@ -42,7 +42,7 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
         const intelligence = { retrievePolicy: jest.fn().mockReturnValue({ catalogVersion: "v2", query: "승인", locale: "ko", retrievedAt: new Date().toISOString(), matches: [] }) };
         const systemAdmin = { createBranch: jest.fn().mockResolvedValue({ id: "branch-created" }) };
         const provider = new ExtendedReadAgentCapabilitiesProvider(models as never, callInbox as never, settings as never, consultations as never, documents as never, intelligence as never, systemAdmin as never);
-        return { models, consultations, documents, intelligence, systemAdmin, capabilities: provider.getCapabilities() };
+        return { models, callInbox, consultations, documents, intelligence, systemAdmin, capabilities: provider.getCapabilities() };
     }
 
     it("minimizes consultation, call, draft, file, and service-record outputs", async () => {
@@ -205,6 +205,37 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
         await expect(confirm.inspect!(context, { id: "draft-b", changes: { phone: "01012345678" } })).resolves.toEqual(
             expect.objectContaining({ title: "고객 초안 확정" }),
         );
+    });
+
+    it("rejects draft updates without a mutation and never calls the patch service", async () => {
+        const { models, callInbox, capabilities } = setup();
+        const update = capabilities.find((entry) => entry.meta.name === "drafts.update")!;
+        models.client_draft.findFirst.mockResolvedValue({ id: "draft-a", status: "PENDING", updatedAt: new Date() });
+
+        expect(update.inputSchema.safeParse({ id: "draft-a" }).success).toBe(false);
+        await expect(update.inspect!(context, { id: "draft-a" })).rejects.toThrow();
+        await expect(update.execute(context, { id: "draft-a" })).rejects.toThrow();
+        expect(callInbox.patchDraft).not.toHaveBeenCalled();
+    });
+
+    it("accepts explicit empty proposal and client unlink mutations", async () => {
+        const { models, callInbox, capabilities } = setup();
+        const update = capabilities.find((entry) => entry.meta.name === "drafts.update")!;
+        models.client_draft.findFirst.mockResolvedValue({ id: "draft-a", status: "PENDING", updatedAt: new Date() });
+
+        expect(update.inputSchema.safeParse({ id: "draft-a", proposals: [] }).success).toBe(true);
+        expect(update.inputSchema.safeParse({ id: "draft-a", clientId: null }).success).toBe(true);
+        await expect(update.inspect!(context, { id: "draft-a", proposals: [] })).resolves.toEqual(
+            expect.objectContaining({ title: "고객 초안 수정" }),
+        );
+        await expect(update.inspect!(context, { id: "draft-a", clientId: null })).resolves.toEqual(
+            expect.objectContaining({ title: "고객 초안 수정" }),
+        );
+
+        await expect(update.execute(context, { id: "draft-a", proposals: [] })).resolves.toEqual({ status: "updated", id: "draft-a" });
+        await expect(update.execute(context, { id: "draft-a", clientId: null })).resolves.toEqual({ status: "updated", id: "draft-a" });
+        expect(callInbox.patchDraft).toHaveBeenNthCalledWith(1, "branch-a", "draft-a", { proposals: [] });
+        expect(callInbox.patchDraft).toHaveBeenNthCalledWith(2, "branch-a", "draft-a", { clientId: null });
     });
 
     it("routes branch creation through the canonical system-admin service", async () => {

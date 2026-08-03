@@ -15,6 +15,7 @@ import {
     type AgentFormField,
 } from "@babyjamjam/shared";
 
+import { AgentActionApprovalCard } from "@/components/app/ui/AgentActionApprovalCard";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 type MobilePart = { type: string; text?: string; data?: unknown; state?: string; output?: unknown; errorText?: string; toolName?: string };
 
 type Props = {
+    "data-component": string;
     part: MobilePart;
     onEntitySelect: (id: string, entityType: string) => void;
     onApproveAction: (actionId: string, expectedRevision: string, acknowledgementToken?: string) => void;
@@ -32,8 +34,7 @@ type Props = {
     terminalActionIds?: ReadonlySet<string>;
 };
 
-export function MobileAgentPartRegistry({ part, onEntitySelect, onApproveAction, onRejectAction, onSubmitForm, terminalActionIds }: Props) {
-    const [strongAcknowledged, setStrongAcknowledged] = useState(false);
+export function MobileAgentPartRegistry({ "data-component": dataComponent, part, onEntitySelect, onApproveAction, onRejectAction, onSubmitForm, terminalActionIds }: Props) {
     if (part.type === "text") return <p data-slot="text" className="whitespace-pre-wrap break-words">{part.text ?? ""}</p>;
     if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
         if (part.state === "output-error") return <p data-slot="tool-error" className="text-sm text-muted-foreground">{part.errorText ?? "도구 결과를 표시할 수 없습니다."}</p>;
@@ -64,11 +65,13 @@ export function MobileAgentPartRegistry({ part, onEntitySelect, onApproveAction,
     if (part.type === "data-action-proposal") {
         const parsed = AgentActionProposalPartSchema.safeParse(part.data);
         if (!parsed.success) return <Fallback />;
-        const proposal = parsed.data;
-        const strong = Boolean(proposal.acknowledgementToken)
-            || ["irreversible-write", "external-side-effect", "paid-action", "privileged-administration"].includes(proposal.risk ?? "");
-        const terminal = terminalActionIds?.has(proposal.actionId) ?? false;
-        return <section data-slot="action-proposal" aria-label="승인 대기 작업" className="flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950"><p className="font-semibold">{proposal.title}</p><p className="text-sm">{proposal.summary}</p><dl className="grid grid-cols-2 gap-1 text-xs"><dt>위험도</dt><dd>{proposal.risk ?? "write"}</dd>{proposal.provider && <><dt>외부 제공자</dt><dd>{proposal.provider}</dd></>}{proposal.estimatedCost && <><dt>예상 비용</dt><dd>{proposal.estimatedCost}</dd></>}<dt className="col-span-2">실제 변경값</dt><dd className="col-span-2 whitespace-pre-wrap break-words">{JSON.stringify(proposal.changes, null, 2)}</dd></dl>{strong && <div className="flex min-h-11 items-start gap-2"><Checkbox id={`mobile-agent-action-ack-${proposal.actionId}`} checked={strongAcknowledged} onCheckedChange={(value) => setStrongAcknowledged(value === true)} /><Label htmlFor={`mobile-agent-action-ack-${proposal.actionId}`} className="text-xs leading-5">실제 부작용, 수신자, 제공자 및 비용을 확인했습니다.</Label></div>}<div className="flex gap-2"><Button type="button" size="sm" className="min-h-11" disabled={terminal || (strong && (!strongAcknowledged || !proposal.acknowledgementToken))} onClick={() => onApproveAction(proposal.actionId, proposal.expectedRevision, proposal.acknowledgementToken)}>승인하고 실행</Button><Button type="button" size="sm" variant="outline" className="min-h-11" disabled={terminal} onClick={() => onRejectAction(proposal.actionId)}>거절</Button></div></section>;
+        return <AgentActionApprovalCard
+            data-component={dataComponent}
+            {...parsed.data}
+            terminal={terminalActionIds?.has(parsed.data.actionId) ?? false}
+            onApprove={onApproveAction}
+            onReject={onRejectAction}
+        />;
     }
     if (part.type === "data-action-result") {
         const parsed = AgentActionResultPartSchema.safeParse(part.data);

@@ -6,6 +6,7 @@ describe("MobileAgentPartRegistry", () => {
     it("preserves the entity domain when selecting a choice", () => {
         const onEntitySelect = jest.fn();
         render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_entity-choice"
             part={{
                 type: "data-entity-choice",
                 data: {
@@ -26,6 +27,7 @@ describe("MobileAgentPartRegistry", () => {
 
     it("renders sanitized terminal failure details for operator recovery", () => {
         render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_action-result"
             part={{
                 type: "data-action-result",
                 data: {
@@ -50,6 +52,7 @@ describe("MobileAgentPartRegistry", () => {
     it("requires acknowledgement when a reversible proposal carries a server token", () => {
         const onApproveAction = jest.fn();
         render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_action-proposal"
             part={{
                 type: "data-action-proposal",
                 data: {
@@ -72,9 +75,27 @@ describe("MobileAgentPartRegistry", () => {
         const approve = screen.getByRole("button", { name: "승인하고 실행" });
 
         expect(approve).toBeDisabled();
+        expect(screen.getByLabelText("승인 대기 작업")).toHaveAttribute(
+            "data-component",
+            "mobile_chat_tests_agent-part-registry_action-proposal",
+        );
         fireEvent.click(screen.getByRole("checkbox"));
         expect(approve).toBeEnabled();
         fireEvent.click(approve);
         expect(onApproveAction).toHaveBeenCalledWith("action-reversible", "revision-1", "ack-token");
+    });
+
+    it("falls back safely for an unknown part", () => {
+        render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_unknown"
+            part={{ type: "data-new-renderer", data: { html: "<script>bad()</script>" } }}
+            onEntitySelect={jest.fn()}
+            onApproveAction={jest.fn()}
+            onRejectAction={jest.fn()}
+            onSubmitForm={jest.fn()}
+        />);
+
+        expect(screen.getByText(/새 형식/)).toBeInTheDocument();
+        expect(screen.queryByText("bad()")).not.toBeInTheDocument();
     });
 });

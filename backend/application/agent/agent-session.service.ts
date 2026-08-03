@@ -61,6 +61,18 @@ export class AgentSessionService {
         }
     }
 
+    async upsertActionResultMessage(
+        id: string,
+        owner: AgentSessionOwner,
+        message: BjjUIMessage,
+        traceId?: string,
+    ): Promise<boolean> {
+        if (!await this.repository.upsertActionResultMessage(id, owner, message, traceId)) {
+            throw new NotFoundException("Agent session not found");
+        }
+        return true;
+    }
+
     clearEntityMemory(id: string, owner: AgentSessionOwner) {
         return this.update(id, owner, { selectedEntities: {} });
     }

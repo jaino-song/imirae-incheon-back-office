@@ -17,7 +17,24 @@ import type {
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 type AgentSessionRecord = Prisma.agent_sessionGetPayload<{ include: { messages: true } }>;
-const NONTERMINAL_ACTION_STATUSES = ["proposed", "approved", "executing", "uncertain"];
+const ALWAYS_BLOCKING_ACTION_STATUSES = ["executing", "uncertain"];
+const EXPIRABLE_ACTION_STATUSES = ["proposed", "approved"];
+
+function blockingActionWhere(now: Date, owner?: AgentSessionOwner) {
+    const ownerScope = owner ? { userId: owner.userId, branchId: owner.branchId } : {};
+    return {
+        OR: [
+            { ...ownerScope, status: { in: ALWAYS_BLOCKING_ACTION_STATUSES } },
+            { ...ownerScope, status: { in: EXPIRABLE_ACTION_STATUSES }, expiresAt: { gt: now } },
+        ],
+    };
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) return error.code === "P2002";
+    if (!error || typeof error !== "object" || !("code" in error)) return false;
+    return error.code === "P2002";
+}
 
 function toEntity(record: AgentSessionRecord): AgentSessionEntity {
     return {
@@ -97,11 +114,12 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
     }
 
     async deleteOwned(id: string, owner: AgentSessionOwner): Promise<AgentSessionDeleteResult> {
+        const now = new Date();
         const result = await this.prisma.agent_session.deleteMany({
             where: {
                 id,
                 ...owner,
-                actions: { none: { status: { in: NONTERMINAL_ACTION_STATUSES } } },
+                actions: { none: blockingActionWhere(now, owner) },
             },
         });
         if (result.count === 1) return "deleted";
@@ -147,6 +165,59 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
         return true;
     }
 
+    async upsertActionResultMessage(
+        id: string,
+        owner: AgentSessionOwner,
+        message: BjjUIMessage,
+        traceId?: string,
+    ): Promise<boolean> {
+        const session = await this.prisma.agent_session.findFirst({
+            select: { id: true },
+            where: { id, ...owner },
+        });
+        if (!session) return false;
+
+        const messageId = message.id || randomUUID();
+        const messageData = {
+            id: messageId,
+            sessionId: id,
+            role: message.role,
+            parts: message.parts as unknown as Prisma.InputJsonValue,
+            ...(traceId === undefined ? {} : { traceId }),
+        };
+        const existing = await this.prisma.agent_message.findFirst({
+            where: { id: messageId, sessionId: id },
+            select: { id: true },
+        });
+        if (existing) {
+            const updated = await this.prisma.agent_message.updateMany({
+                where: { id: messageId, sessionId: id },
+                data: {
+                    role: messageData.role,
+                    parts: messageData.parts,
+                    ...(traceId === undefined ? {} : { traceId }),
+                },
+            });
+            return updated.count === 1;
+        }
+
+        try {
+            await this.prisma.agent_message.create({ data: messageData });
+            return true;
+        } catch (error) {
+            if (!isUniqueConstraintError(error)) throw error;
+            const updated = await this.prisma.agent_message.updateMany({
+                where: { id: messageId, sessionId: id },
+                data: {
+                    role: messageData.role,
+                    parts: messageData.parts,
+                    ...(traceId === undefined ? {} : { traceId }),
+                },
+            });
+            return updated.count === 1;
+        }
+    }
+
     private titleFromMessages(messages: BjjUIMessage[]): string | undefined {
         const text = messages.find((message) => message.role === "user")?.parts
             .filter((part): part is { type: "text"; text: string } => part.type === "text")
@@ -161,7 +232,7 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
         return (await this.prisma.agent_session.deleteMany({
             where: {
                 expiresAt: { lte: now },
-                actions: { none: { status: { in: NONTERMINAL_ACTION_STATUSES } } },
+                actions: { none: blockingActionWhere(now) },
             },
         })).count;
     }

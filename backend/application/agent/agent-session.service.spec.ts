@@ -1,4 +1,4 @@
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import type { IAgentSessionRepository } from "domain/repositories/agent-session.repository.interface";
@@ -8,7 +8,7 @@ describe("AgentSessionService", () => {
     const owner = { userId: "user-a", branchId: "branch-a" };
     const repository = {
         create: jest.fn(), list: jest.fn(), findOwned: jest.fn(), updateOwned: jest.fn(),
-        deleteOwned: jest.fn(), appendMessages: jest.fn(), deleteExpired: jest.fn(),
+        deleteOwned: jest.fn(), appendMessages: jest.fn(), upsertActionResultMessage: jest.fn(), deleteExpired: jest.fn(),
     } as jest.Mocked<IAgentSessionRepository>;
 
     beforeEach(() => jest.resetAllMocks());
@@ -43,5 +43,22 @@ describe("AgentSessionService", () => {
         const service = new AgentSessionService(repository, new ConfigService());
 
         await expect(service.remove("session-a", owner)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it("keeps action-result upserts scoped to the session owner", async () => {
+        const message = { id: "agent-action-result:action-a", role: "assistant", parts: [] } as never;
+        (repository.upsertActionResultMessage as jest.Mock).mockResolvedValue(true);
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.upsertActionResultMessage("session-a", owner, message)).resolves.toBe(true);
+        expect(repository.upsertActionResultMessage as jest.Mock).toHaveBeenCalledWith("session-a", owner, message, undefined);
+    });
+
+    it("leaves a failed action-result upsert repairable instead of acknowledging it", async () => {
+        const message = { id: "agent-action-result:action-a", role: "assistant", parts: [] } as never;
+        (repository.upsertActionResultMessage as jest.Mock).mockResolvedValue(false);
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.upsertActionResultMessage("session-a", owner, message)).rejects.toBeInstanceOf(NotFoundException);
     });
 });

@@ -4,7 +4,6 @@ import {
     ForbiddenException,
     Injectable,
     NotFoundException,
-    Optional,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
@@ -131,7 +130,7 @@ export class ActionCoordinatorService {
         private readonly registry: CapabilityRegistryService,
         private readonly flags: AgentFlagsService,
         private readonly sweepLock: AgentActionSweepLockService,
-        @Optional() private readonly sessions?: AgentSessionService,
+        private readonly sessions: AgentSessionService,
     ) {}
 
     async propose(input: AgentActionProposalInput): Promise<AgentActionEntity> {
@@ -261,7 +260,7 @@ export class ActionCoordinatorService {
         const owner = { userId: principal.userId, branchId: principal.branchId };
         const action = await this.get(id, owner);
         if (TERMINAL_STATUSES.includes(action.status)) {
-            await this.safePersistResultPart(action.id, action, action.status as Parameters<ActionCoordinatorService["persistResultPart"]>[2]);
+            await this.persistResultPart(action.id, action, action.status as Parameters<ActionCoordinatorService["persistResultPart"]>[2]);
             return { action, result: action.result };
         }
         if (!["proposed", "approved"].includes(action.status)) throw new ConflictException("Action is no longer pending approval");
@@ -292,6 +291,8 @@ export class ActionCoordinatorService {
                 ? action.authorizationContext["traceId"]
                 : randomUUID(),
             locale: typeof proposal["locale"] === "string" ? proposal["locale"] : "ko",
+            ...(action.targetVersion ? { approvedTargetVersion: action.targetVersion } : {}),
+            ...(action.targetSnapshot ? { approvedTargetSnapshot: action.targetSnapshot } : {}),
         };
         if (action.targetVersion) {
             if (!capability.revalidate) {
@@ -344,7 +345,7 @@ export class ActionCoordinatorService {
                 const latest = await this.get(id, owner);
                 return { action: latest, result: latest.result };
             }
-            await this.safePersistResultPart(updated.id, updated, uncertain ? "uncertain" : "failed");
+            await this.persistResultPart(updated.id, updated, uncertain ? "uncertain" : "failed");
             if (uncertain) return { action: updated, result: undefined };
             throw new ConflictException("Action execution failed");
         }
@@ -363,7 +364,7 @@ export class ActionCoordinatorService {
                 const latest = await this.get(id, owner);
                 return { action: latest, result: latest.result };
             }
-            await this.safePersistResultPart(updated.id, updated, "uncertain");
+            await this.persistResultPart(updated.id, updated, "uncertain");
             return { action: updated, result: undefined };
         }
 
@@ -383,7 +384,7 @@ export class ActionCoordinatorService {
                 const latest = await this.get(id, owner);
                 return { action: latest, result: latest.result };
             }
-            await this.safePersistResultPart(updated.id, updated, "uncertain");
+            await this.persistResultPart(updated.id, updated, "uncertain");
             return { action: updated, result: undefined };
         }
         const terminalStatus = outcome.status;
@@ -425,7 +426,7 @@ export class ActionCoordinatorService {
             const latest = await this.get(id, owner);
             return { action: latest, result: latest.result };
         }
-        await this.safePersistResultPart(entity.id, entity, terminalStatus);
+        await this.persistResultPart(entity.id, entity, terminalStatus);
         if (terminalStatus === "failed") throw new ConflictException("Action execution failed");
         return { action: entity, result: parsed.data };
     }
@@ -459,7 +460,7 @@ export class ActionCoordinatorService {
             throw new ConflictException("Action is no longer pending approval");
         }
         const rejected = await this.get(id, owner);
-        await this.safePersistResultPart(rejected.id, rejected, "rejected");
+        await this.persistResultPart(rejected.id, rejected, "rejected");
         return rejected;
     }
 
@@ -512,11 +513,22 @@ export class ActionCoordinatorService {
                     ? { error: { code: "provider_reconciled_failed", message: outcome.reason ?? "Provider reported failure" } as Prisma.InputJsonValue }
                     : { error: Prisma.JsonNull }),
                 executedAt: new Date(),
+                resultPartPersistedAt: null,
             },
         });
-        if (updated.count !== 1) return this.get(action.id, owner);
+        if (updated.count !== 1) {
+            const latest = await this.get(action.id, owner);
+            if (TERMINAL_STATUSES.includes(latest.status)) {
+                await this.persistResultPart(
+                    latest.id,
+                    latest,
+                    latest.status as Parameters<ActionCoordinatorService["persistResultPart"]>[2],
+                );
+            }
+            return latest;
+        }
         const reconciled = await this.get(action.id, owner);
-        await this.safePersistResultPart(reconciled.id, reconciled, outcome.status);
+        await this.persistResultPart(reconciled.id, reconciled, outcome.status);
         return reconciled;
     }
 
@@ -527,7 +539,7 @@ export class ActionCoordinatorService {
         });
         if (updated.count !== 1) return false;
         const expired = await this.get(id, owner);
-        await this.safePersistResultPart(expired.id, expired, "expired");
+        await this.persistResultPart(expired.id, expired, "expired");
         return true;
     }
 
@@ -546,7 +558,7 @@ export class ActionCoordinatorService {
             });
             if (updated.count !== 1) continue;
             const expired = await this.get(candidate.id, owner);
-            await this.safePersistResultPart(expired.id, expired, "expired");
+            await this.persistResultPart(expired.id, expired, "expired");
             expiredCount += 1;
         }
         const executionCutoff = new Date(now.getTime() - EXECUTION_STALE_AFTER_MS);
@@ -566,7 +578,7 @@ export class ActionCoordinatorService {
             });
             if (updated.count !== 1) continue;
             const uncertain = await this.get(candidate.id, owner);
-            await this.safePersistResultPart(uncertain.id, uncertain, "uncertain");
+            await this.persistResultPart(uncertain.id, uncertain, "uncertain");
             expiredCount += 1;
         }
         return expiredCount;
@@ -656,7 +668,7 @@ export class ActionCoordinatorService {
         action: AgentActionEntity,
         status: "succeeded" | "failed" | "uncertain" | "rejected" | "expired" | "cancelled",
     ): Promise<void> {
-        if (!this.sessions) return;
+        if (action.resultPartPersistedAt) return;
         const summary = status === "succeeded"
             ? "승인된 작업이 완료되었습니다."
             : status === "uncertain"
@@ -684,29 +696,17 @@ export class ActionCoordinatorService {
                 },
             }],
         } as unknown as BjjUIMessage;
-        await this.sessions.appendMessages(action.sessionId, { userId: action.userId, branchId: action.branchId }, [message]);
+        const owner = { userId: action.userId, branchId: action.branchId };
+        const persisted = await this.sessions.upsertActionResultMessage(action.sessionId, owner, message);
+        if (persisted === false) throw new Error("Agent action result message was not persisted");
         await this.prisma.agent_action.updateMany({
-            where: { id: actionId, userId: action.userId, branchId: action.branchId, resultPartPersistedAt: null },
+            where: { id: actionId, ...owner, resultPartPersistedAt: null },
             data: { resultPartPersistedAt: new Date() },
         });
     }
 
-    private async safePersistResultPart(
-        actionId: string,
-        action: AgentActionEntity,
-        status: "succeeded" | "failed" | "uncertain" | "rejected" | "expired" | "cancelled",
-    ): Promise<boolean> {
-        try {
-            await this.persistResultPart(actionId, action, status);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
     @Cron("*/5 * * * *")
     async repairTerminalResultParts(): Promise<number> {
-        if (!this.sessions) return 0;
         const records = await this.prisma.agent_action.findMany({
             where: { status: { in: TERMINAL_STATUSES }, resultPartPersistedAt: null },
             orderBy: { updatedAt: "asc" },
@@ -715,11 +715,12 @@ export class ActionCoordinatorService {
         let repaired = 0;
         for (const record of records) {
             const action = toEntity(record);
-            if (await this.safePersistResultPart(
+            await this.persistResultPart(
                 action.id,
                 action,
                 action.status as Parameters<ActionCoordinatorService["persistResultPart"]>[2],
-            )) repaired += 1;
+            );
+            repaired += 1;
         }
         return repaired;
     }

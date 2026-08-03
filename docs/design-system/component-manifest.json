@@ -1250,6 +1250,22 @@
     ],
     "mobile": [
       {
+        "name": "AgentActionApprovalCard",
+        "layer": "organism",
+        "import": "@/components/app/ui/AgentActionApprovalCard",
+        "file": "mobile/src/components/app/ui/AgentActionApprovalCard.tsx",
+        "exports": [
+          "AgentActionApprovalCard",
+          "AgentActionApprovalCardProps"
+        ],
+        "replaces": [
+          "chat-local action approval card markup"
+        ],
+        "requiredFor": [
+          "agent action approval"
+        ]
+      },
+      {
         "name": "Autocomplete",
         "layer": "molecule",
         "import": "@/components/app/ui/Autocomplete",

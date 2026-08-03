@@ -1,5 +1,11 @@
 import { NotFoundException } from "@nestjs/common";
 
+import { AligoService } from "application/services/aligo.service";
+import { SendAligoSmsUsecase } from "application/usecases/aligo/send-sms.usecase";
+import { MessageTriggerDeliveryService } from "application/services/message-trigger-delivery.service";
+import { MessageTriggerService } from "application/services/message-trigger.service";
+import { SmsTriggerDeliveryService } from "application/services/sms-trigger-delivery.service";
+import { ActionCoordinatorService } from "application/agent/action-coordinator.service";
 import { MessageTriggerEventType, MessageTriggerOffsetType, MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
@@ -30,8 +36,13 @@ function terminalJob(overrides: Partial<MessageTriggerJobEntity> = {}): MessageT
             memberId: "client-1",
             recipientName: "수신자",
             recipientPhone: "01012345678",
-            messageBody: "안내",
-            templateVariables: { retrySafety: "provider-rejected", msgType: "SMS" },
+            messageBody: "실패한 안내 본문",
+            templateVariables: {
+                retrySafety: "provider-rejected",
+                msgType: "SMS",
+                title: "실패한 안내 제목",
+                triggerType: "agent_scheduled",
+            },
         },
         now,
         now,
@@ -74,9 +85,25 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             message_trigger_job: { findFirst: jest.fn().mockResolvedValue(null) },
         };
         prisma.$transaction.mockImplementation(async (operation: (tx: typeof prisma) => Promise<unknown>) => operation(prisma));
-        const provider = new MessageExternalAgentCapabilitiesProvider(prisma as never, delivery as never, repository as never);
+        const aligoService = {
+            sendSms: jest.fn().mockResolvedValue({
+                request: { receiver: "01012345678", msgType: "LMS", testModeYn: "N" },
+                response: { result_code: 1, message: "성공", msg_id: 88, success_cnt: 1, error_cnt: 0 },
+            }),
+        };
+        const smsDelivery = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            { getByKey: jest.fn() } as never,
+            { save: jest.fn() } as never,
+        );
+        const provider = new MessageExternalAgentCapabilitiesProvider(
+            prisma as never,
+            delivery as never,
+            repository as never,
+            smsDelivery,
+        );
         const capabilities = provider.getCapabilities();
-        return { repository, delivery, prisma, capabilities };
+        return { repository, delivery, prisma, smsDelivery, aligoService, capabilities };
     }
 
     it("lists only terminal jobs through the branch-scoped repository boundary", async () => {
@@ -137,7 +164,12 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms");
 
         const inspection = await capability!.inspect!(context, { jobId: "job-a" });
-        const result = await capability!.execute(context, { jobId: "job-a" }) as { status: string; jobId: string };
+        const approvedContext = {
+            ...context,
+            approvedTargetVersion: inspection.targetVersion,
+            approvedTargetSnapshot: inspection.targetSnapshot,
+        };
+        const result = await capability!.execute(approvedContext, { jobId: "job-a" }) as { status: string; jobId: string };
 
         expect(inspection.targetVersion).toHaveLength(64);
         expect(repository.upsertPending).toHaveBeenCalledWith(expect.objectContaining({
@@ -147,6 +179,192 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         }));
         expect(delivery.dispatchPendingJobNow).toHaveBeenCalledWith("retry-job");
         expect(result).toEqual({ status: "sent", jobId: "retry-job" });
+    });
+
+    it("fails closed when the provider-bound retry target drifts after revalidation", async () => {
+        const source = terminalJob();
+        const { repository, delivery, capabilities } = setup(source);
+        const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms")!;
+        const inspection = await capability.inspect!(context, { jobId: source.id });
+        await expect(capability.revalidate!(context, { jobId: source.id }, inspection.targetVersion!))
+            .resolves.toEqual(expect.objectContaining({ valid: true }));
+        source.payload.messageBody = "변경된 승인 이후 본문";
+
+        await expect(capability.execute({
+            ...context,
+            approvedTargetVersion: inspection.targetVersion,
+            approvedTargetSnapshot: inspection.targetSnapshot,
+        }, { jobId: source.id })).rejects.toThrow("changed after approval");
+        expect(repository.upsertPending).not.toHaveBeenCalled();
+        expect(delivery.dispatchPendingJobNow).not.toHaveBeenCalled();
+    });
+
+    it("binds ActionCoordinator approval through staged retry dispatch to the real Aligo use case", async () => {
+        const source = terminalJob();
+        let stagedRetry: MessageTriggerJobEntity | undefined;
+        const repository = {
+            findById: jest.fn().mockImplementation(async (id: string) => id === "job-a" ? source : stagedRetry),
+            findHistoryByBranch: jest.fn().mockResolvedValue([]),
+            upsertPending: jest.fn().mockImplementation(async (candidate: MessageTriggerJobEntity) => {
+                stagedRetry = Object.assign(candidate, { id: "retry-job" });
+                return stagedRetry;
+            }),
+            claimPending: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
+            update: jest.fn().mockResolvedValue(undefined),
+            findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()),
+        };
+        const providerApi = {
+            sendSms: jest.fn().mockResolvedValue({
+                result_code: 1,
+                message: "성공",
+                msg_id: 99,
+                success_cnt: 1,
+                error_cnt: 0,
+            }),
+        };
+        const aligoService = new AligoService(new SendAligoSmsUsecase(providerApi as never));
+        const smsDelivery = new SmsTriggerDeliveryService(
+            aligoService,
+            { getByKey: jest.fn() } as never,
+            { save: jest.fn().mockImplementation(async (log: unknown) => log) } as never,
+        );
+        const triggerDelivery = new MessageTriggerDeliveryService(smsDelivery);
+        const senderApproval = { getApprovedBranchIds: jest.fn().mockResolvedValue(new Set([principal.branchId])) };
+        const triggerService = new MessageTriggerService(
+            {} as never,
+            triggerDelivery,
+            senderApproval as never,
+            {} as never,
+            repository as never,
+            { findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()), save: jest.fn() } as never,
+        );
+        const provider = new MessageExternalAgentCapabilitiesProvider(
+            {} as never,
+            triggerService,
+            repository as never,
+            smsDelivery,
+        );
+        const retry = provider.getCapabilities().find((entry) => entry.meta.name === "messages.retrySms")!;
+        const actionRecords: { current?: Record<string, any> } = {};
+        const actionPrisma = {
+            agent_action: {
+                findUnique: jest.fn().mockResolvedValue(null),
+                create: jest.fn().mockImplementation(async ({ data }: { data: Record<string, any> }) => {
+                    actionRecords.current = {
+                        ...data,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                        approvedBy: null,
+                        approvedAt: null,
+                        rejectedBy: null,
+                        rejectedAt: null,
+                        result: null,
+                        error: null,
+                        executedAt: null,
+                        executionAttemptCount: 0,
+                        resultPartPersistedAt: null,
+                    };
+                    return actionRecords.current;
+                }),
+                findFirst: jest.fn().mockImplementation(async () => actionRecords.current),
+                updateMany: jest.fn().mockImplementation(async ({ data }: { data: Record<string, any> }) => {
+                    if (!actionRecords.current) return { count: 0 };
+                    actionRecords.current = { ...actionRecords.current, ...data, updatedAt: new Date() };
+                    return { count: 1 };
+                }),
+            },
+        };
+        const coordinator = new ActionCoordinatorService(
+            actionPrisma as never,
+            { get: jest.fn().mockReturnValue(retry) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            { upsertActionResultMessage: jest.fn().mockResolvedValue(true) } as never,
+        );
+
+        const action = await coordinator.propose({
+            sessionId: "session-a",
+            principal,
+            capability: "messages.retrySms",
+            input: { jobId: source.id },
+            locale: "ko",
+        });
+        const acknowledgement = coordinator.strongAcknowledgementToken(action);
+        await expect(coordinator.approve(action.id, principal, action.proposalRevision, acknowledgement))
+            .resolves.toEqual(expect.objectContaining({ action: expect.objectContaining({ status: "succeeded" }) }));
+
+        expect(stagedRetry).toBeDefined();
+        expect(stagedRetry?.payload.templateVariables["__smsDeliverySnapshot"]).toBeDefined();
+        expect(providerApi.sendSms).toHaveBeenCalledWith(expect.objectContaining({
+            receiver: "01012345678",
+            message: source.payload.messageBody,
+            title: source.payload.templateVariables["title"],
+            msgType: "LMS",
+            testModeYn: "N",
+        }));
+    });
+
+    it("binds retry approval details to a masked recipient and exact message snapshot", async () => {
+        const { capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms")!;
+
+        const inspection = await capability.inspect!(context, { jobId: "job-a" });
+        const serialized = JSON.stringify(inspection);
+
+        expect(serialized).not.toContain("01012345678");
+        expect(serialized).toContain("••••5678");
+        expect(inspection.targetSnapshot).toEqual(expect.objectContaining({
+            receiver: "••••5678",
+            templateKey: MessageTriggerTemplateKey.INFO,
+            messageBody: "실패한 안내 본문",
+            title: "실패한 안내 제목",
+            deliveryType: "LMS",
+        }));
+        expect(inspection.summary).toContain("실패한 안내 본문");
+        expect(inspection.summary).toContain("실패한 안내 제목");
+        expect(inspection.summary).toContain(MessageTriggerTemplateKey.INFO);
+        expect(inspection.summary).toContain("LMS");
+    });
+
+    it("keeps inspected retry values equivalent to the real SMS delivery request", async () => {
+        const { aligoService, capabilities, repository, smsDelivery } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms")!;
+
+        const inspection = await capability.inspect!(context, { jobId: "job-a" });
+        const source = await repository.findById("job-a");
+        await smsDelivery.sendJob(source!);
+
+        const request = aligoService.sendSms.mock.calls[0]?.[0] as {
+            receiver: string;
+            message: string;
+            title: string;
+            msgType: string;
+        };
+        const target = inspection.targetSnapshot!;
+        expect(target["receiver"]).toBe("••••5678");
+        expect(request.receiver).toBe("01012345678");
+        expect(request.message).toBe(target["messageBody"]);
+        expect(request.title).toBe(target["title"]);
+        expect(aligoService.sendSms).toHaveBeenCalledWith(expect.objectContaining({ msgType: "AUTO" }));
+        expect(target["deliveryType"]).toBe("LMS");
+    });
+
+    it.each([
+        ["recipient", (job: MessageTriggerJobEntity) => { job.recipientPhone = "01099998888"; }],
+        ["template key", (job: MessageTriggerJobEntity) => { job.templateKey = MessageTriggerTemplateKey.SERVICE_INFO; }],
+        ["message body", (job: MessageTriggerJobEntity) => { job.payload.messageBody = "변경된 본문"; }],
+        ["message title", (job: MessageTriggerJobEntity) => { job.payload.templateVariables["title"] = "변경된 제목"; }],
+        ["delivery type", (job: MessageTriggerJobEntity) => { job.payload.templateVariables["msgType"] = "LMS"; }],
+    ])("invalidates an approved retry when the %s changes", async (_field, mutate) => {
+        const source = terminalJob();
+        const { repository, capabilities } = setup(source);
+        const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms")!;
+        const inspection = await capability.inspect!(context, { jobId: source.id });
+
+        mutate(source);
+
+        await expect(capability.revalidate!(context, { jobId: source.id }, inspection.targetVersion!)).resolves.toEqual(expect.objectContaining({ valid: false }));
+        expect(repository.findById).toHaveBeenCalledWith(source.id);
     });
 
     it("refuses retry when provider rejection or current-branch ownership cannot be proven", async () => {

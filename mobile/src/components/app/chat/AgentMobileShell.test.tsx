@@ -4,10 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { AgentMobileShell } from "./AgentMobileShell";
 
 const mockSendMessage = jest.fn();
+const mockMessages: unknown[] = [];
 
 jest.mock("@/hooks/useAgentChat", () => ({
     useAgentChat: () => ({
-        messages: [],
+        messages: mockMessages,
         status: "ready",
         errorState: null,
         sendMessage: mockSendMessage,
@@ -24,7 +25,10 @@ jest.mock("@/hooks/useAgentChat", () => ({
 }));
 
 describe("AgentMobileShell drawer accessibility", () => {
-    beforeEach(() => mockSendMessage.mockClear());
+    beforeEach(() => {
+        mockMessages.length = 0;
+        mockSendMessage.mockClear();
+    });
 
     it("moves focus into the modal drawer, inerts the app, and restores focus on Escape", async () => {
         const user = userEvent.setup();
@@ -54,5 +58,31 @@ describe("AgentMobileShell drawer accessibility", () => {
 
         fireEvent.keyDown(composer, { key: "Enter", isComposing: false });
         expect(mockSendMessage).toHaveBeenCalledWith("한글");
+    });
+
+    it("passes the full message ancestry to action approval parts", () => {
+        mockMessages.push({
+            id: "assistant-approval",
+            role: "assistant",
+            parts: [{
+                type: "data-action-proposal",
+                data: {
+                    actionId: "action-1",
+                    capability: "messages.send",
+                    title: "메시지 발송",
+                    summary: "발송 전에 확인해 주세요.",
+                    expiresAt: "2099-08-03T00:00:00.000Z",
+                    expectedRevision: "revision-1",
+                    changes: { body: "안내" },
+                },
+            }],
+        });
+
+        render(<AgentMobileShell />);
+
+        expect(screen.getByLabelText("승인 대기 작업")).toHaveAttribute(
+            "data-component",
+            "mobile_chat_agent-shell_thread_message-assistant_part-0_action-approval",
+        );
     });
 });

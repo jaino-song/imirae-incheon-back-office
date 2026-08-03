@@ -2,7 +2,6 @@ import { Prisma } from "@prisma/client";
 import { AligoService } from "application/services/aligo.service";
 import {
     SmsTriggerDeliveryService,
-    SMS_TEMPLATE_DELIVERY,
 } from "application/services/sms-trigger-delivery.service";
 import { SystemTemplateService } from "application/services/system-template.service";
 import { SystemTemplateKey } from "domain/constants/system-template-registry";
@@ -123,6 +122,140 @@ describe("SmsTriggerDeliveryService", () => {
             name: "김지니",
             recipientName: "김지니",
         }));
+    });
+
+    it("freezes one provider-bound snapshot and uses its rendered values for Aligo", async () => {
+        const aligoService = {
+            sendSms: jest.fn().mockResolvedValue({
+                request: { receiver: "01012345678", msgType: "LMS", testModeYn: "N" },
+                response: { result_code: 1, message: "성공", msg_id: 322, success_cnt: 1, error_cnt: 0 },
+            }),
+        };
+        const systemTemplateService = {
+            getByKey: jest.fn().mockResolvedValue({
+                id: "template-service-info",
+                updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+                content: "{{name}} 산모님, 고정된 승인 본문",
+            }),
+        };
+        const logRepository = { save: jest.fn().mockImplementation(async (log: MessageLogEntity) => log) };
+        const service = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            systemTemplateService as unknown as SystemTemplateService,
+            logRepository as unknown as IMessageLogRepository,
+        );
+
+        const job = createServiceInfoJob();
+        const snapshot = await service.resolveDeliverySnapshot(job);
+
+        expect(Object.isFrozen(snapshot)).toBe(true);
+        expect(snapshot.message).toBe("김지니 산모님, 고정된 승인 본문");
+        expect(snapshot.title).toBe("서비스 안내");
+        expect(snapshot.deliveryType).toBe("LMS");
+        expect(snapshot.estimatedCost).toBe("LMS 요금제 기준");
+        expect(snapshot.templateVersion).toContain("2026-08-04T00:00:00.000Z");
+        expect(snapshot.templateHash).toHaveLength(64);
+        expect(snapshot.configHash).toHaveLength(64);
+
+        await expect(service.sendJob(job)).resolves.toBe(true);
+        expect(aligoService.sendSms).toHaveBeenCalledWith({
+            receiver: "010-1234-5678",
+            message: snapshot.message,
+            recipientName: "김지니",
+            title: snapshot.title,
+            msgType: "AUTO",
+        });
+    });
+
+    it("rejects a staged retry when the canonical template changes", async () => {
+        const aligoService = { sendSms: jest.fn() };
+        const systemTemplateService = {
+            getByKey: jest.fn().mockResolvedValue({
+                id: "template-service-info",
+                updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+                content: "승인 시점 본문 {{name}}",
+            }),
+        };
+        const logRepository = { save: jest.fn().mockImplementation(async (log: MessageLogEntity) => log) };
+        const service = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            systemTemplateService as unknown as SystemTemplateService,
+            logRepository as unknown as IMessageLogRepository,
+        );
+        const job = createServiceInfoJob();
+        const snapshot = await service.resolveDeliverySnapshot(job);
+        job.payload.templateVariables["retrySafety"] = "pending-agent-retry";
+        job.payload.templateVariables["__smsDeliverySnapshot"] = service.serializeSnapshot(snapshot);
+        systemTemplateService.getByKey.mockResolvedValue({
+            id: "template-service-info",
+            updatedAt: new Date("2026-08-05T00:00:00.000Z"),
+            content: "변경된 본문 {{name}}",
+        });
+
+        await expect(service.sendJob(job)).rejects.toThrow("template or provider configuration changed");
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["message", "변조된 본문"],
+        ["title", "변조된 제목"],
+        ["deliveryType", "SMS"],
+        ["estimatedCost", "SMS 요금제 기준"],
+        ["templateVersion", "tampered-template-version"],
+        ["templateHash", "tampered-template-hash"],
+        ["configVersion", "tampered-config-version"],
+        ["configHash", "tampered-config-hash"],
+        ["maskedReceiver", "••••9999"],
+    ])("rejects staged SMS tampering in %s before any provider call", async (field, value) => {
+        const aligoService = { sendSms: jest.fn() };
+        const systemTemplateService = {
+            getByKey: jest.fn().mockResolvedValue({
+                id: "template-service-info",
+                updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+                content: "승인 시점 본문 {{name}}",
+            }),
+        };
+        const logRepository = { save: jest.fn().mockImplementation(async (log: MessageLogEntity) => log) };
+        const service = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            systemTemplateService as unknown as SystemTemplateService,
+            logRepository as unknown as IMessageLogRepository,
+        );
+        const job = createServiceInfoJob();
+        const snapshot = await service.resolveDeliverySnapshot(job);
+        const staged = JSON.parse(service.serializeSnapshot(snapshot)) as Record<string, unknown>;
+        staged[field] = value;
+        job.payload.templateVariables["retrySafety"] = "pending-agent-retry";
+        job.payload.templateVariables["__smsDeliverySnapshot"] = JSON.stringify(staged);
+
+        await expect(service.sendJob(job)).rejects.toThrow(/snapshot|changed/i);
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+    });
+
+    it("rejects a staged snapshot when the current job receiver changes", async () => {
+        const aligoService = { sendSms: jest.fn() };
+        const systemTemplateService = {
+            getByKey: jest.fn().mockResolvedValue({
+                id: "template-service-info",
+                updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+                content: "승인 시점 본문 {{name}}",
+            }),
+        };
+        const logRepository = { save: jest.fn().mockImplementation(async (log: MessageLogEntity) => log) };
+        const service = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            systemTemplateService as unknown as SystemTemplateService,
+            logRepository as unknown as IMessageLogRepository,
+        );
+        const job = createServiceInfoJob();
+        const snapshot = await service.resolveDeliverySnapshot(job);
+        job.payload.templateVariables["retrySafety"] = "pending-agent-retry";
+        job.payload.templateVariables["__smsDeliverySnapshot"] = service.serializeSnapshot(snapshot);
+        job.recipientPhone = "010-9999-8888";
+        job.payload.recipientPhone = "010-9999-8888";
+
+        await expect(service.sendJob(job)).rejects.toThrow(/snapshot|changed/i);
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
     });
 
     it("sends a CLIENT_WELCOME job through Aligo and records the SMS contract", async () => {
@@ -282,6 +415,7 @@ describe("SmsTriggerDeliveryService", () => {
             title: "인사 메시지",
             recipientName: "김산모",
         }));
+        expect(savedLog.variables["phone"]).toBeUndefined();
     });
 
     it("throws a plain error when branchId is missing", async () => {

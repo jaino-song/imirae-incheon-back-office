@@ -24,6 +24,12 @@ export interface IAgentSessionRepository {
     updateOwned(id: string, owner: AgentSessionOwner, patch: AgentSessionPatch): Promise<AgentSessionEntity | null>;
     deleteOwned(id: string, owner: AgentSessionOwner): Promise<AgentSessionDeleteResult>;
     appendMessages(id: string, owner: AgentSessionOwner, messages: BjjUIMessage[], traceId?: string): Promise<boolean>;
+    upsertActionResultMessage(
+        id: string,
+        owner: AgentSessionOwner,
+        message: BjjUIMessage,
+        traceId?: string,
+    ): Promise<boolean>;
     deleteExpired(now: Date): Promise<number>;
 }
 

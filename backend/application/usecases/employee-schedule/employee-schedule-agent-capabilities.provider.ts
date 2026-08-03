@@ -23,9 +23,16 @@ export class EmployeeScheduleAgentCapabilitiesProvider implements AgentCapabilit
                 const schedules = await this.listSchedules.execute(context.principal.branchId);
                 const dayStart = date ? new Date(`${date}T00:00:00.000Z`) : null;
                 const dayEnd = date ? new Date(`${date}T23:59:59.999Z`) : null;
-                return { schedules: schedules.filter((schedule) => (
+                const filteredSchedules = schedules.filter((schedule) => (
                     !dayStart || !dayEnd || (schedule.startDate <= dayEnd && schedule.endDate >= dayStart)
-                )).slice(0, 50).map((schedule) => ({ id: schedule.id, clientId: schedule.clientId, primaryEmployeeId: schedule.primaryEmployeeId, secondaryEmployeeId: schedule.secondaryEmployeeId, startDate: schedule.startDate.toISOString(), endDate: schedule.endDate.toISOString(), replaced: schedule.replaced })) };
+                ));
+                filteredSchedules.sort((left, right) => {
+                    const startDateOrder = left.startDate.getTime() - right.startDate.getTime();
+                    if (startDateOrder !== 0) return startDateOrder;
+                    const endDateOrder = left.endDate.getTime() - right.endDate.getTime();
+                    return endDateOrder !== 0 ? endDateOrder : left.id - right.id;
+                });
+                return { schedules: filteredSchedules.slice(0, 50).map((schedule) => ({ id: schedule.id, clientId: schedule.clientId, primaryEmployeeId: schedule.primaryEmployeeId, secondaryEmployeeId: schedule.secondaryEmployeeId, startDate: schedule.startDate.toISOString(), endDate: schedule.endDate.toISOString(), replaced: schedule.replaced })) };
             },
         }];
     }

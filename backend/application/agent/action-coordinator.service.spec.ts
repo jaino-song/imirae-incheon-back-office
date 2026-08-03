@@ -1,6 +1,12 @@
-import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
 import { z } from "zod";
 
+import { AgentFlagsService } from "./agent-flags.service";
+import { AgentActionSweepLockService } from "infrastructure/locking/agent-action-sweep-lock.service";
+import { CapabilityRegistryService } from "./capability-registry.service";
+import { AgentSessionService } from "./agent-session.service";
+import { PrismaService } from "infrastructure/database/prisma.service";
 import { ActionCoordinatorService, AgentActionCertainFailureError } from "./action-coordinator.service";
 
 const principal = { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" };
@@ -23,6 +29,10 @@ function capability(risk: "read" | "reversible-write" = "reversible-write") {
         outputSchema: z.object({ status: z.string() }),
         execute: jest.fn().mockResolvedValue({ status: "updated" }),
     };
+}
+
+function sessionPersistence() {
+    return { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
 }
 
 describe("ActionCoordinatorService", () => {
@@ -55,6 +65,19 @@ describe("ActionCoordinatorService", () => {
         } };
     }
 
+    it("requires result persistence during Nest dependency construction", async () => {
+        const expectedMissingDependency = AgentSessionService.name;
+        await expect(Test.createTestingModule({
+            providers: [
+                ActionCoordinatorService,
+                { provide: PrismaService, useValue: {} },
+                { provide: CapabilityRegistryService, useValue: {} },
+                { provide: AgentFlagsService, useValue: {} },
+                { provide: AgentActionSweepLockService, useValue: {} },
+            ],
+        }).compile()).rejects.toThrow(new RegExp(expectedMissingDependency));
+    });
+
     it("creates a random action identity with a bounded request dedupe key", async () => {
         const definition = capability();
         const prisma = { agent_action: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(async ({ data }) => ({ ...data, createdAt: new Date(), updatedAt: new Date(), approvedBy: null, approvedAt: null, rejectedBy: null, rejectedAt: null, result: null, error: null, executedAt: null, resultPartPersistedAt: null, targetSnapshot: null })) } };
@@ -63,6 +86,7 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
         const action = await service.propose({ sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
         expect(action.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -85,7 +109,7 @@ describe("ActionCoordinatorService", () => {
                     return created;
                 }),
             } };
-            const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+            const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
             const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
 
             const first = await service.propose(input);
@@ -110,7 +134,7 @@ describe("ActionCoordinatorService", () => {
                 return created;
             }),
         } };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
 
         const first = await service.propose({ sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
         const second = await service.propose({ sessionId: "session-b", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
@@ -135,6 +159,7 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
 
         const duplicate = await service.propose({
@@ -163,6 +188,7 @@ describe("ActionCoordinatorService", () => {
                 { get: jest.fn().mockReturnValue(definition) } as never,
                 { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
                 { isAvailable: jest.fn().mockReturnValue(false) } as never,
+                sessionPersistence() as never,
             );
 
             const replacement = await service.propose({
@@ -186,6 +212,7 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
 
         await expect(service.approve(action.id, principal, action.capabilityVersion)).rejects.toBeInstanceOf(ConflictException);
@@ -209,6 +236,7 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
 
         const result = await service.reconcile(uncertain.id, principal);
@@ -223,6 +251,128 @@ describe("ActionCoordinatorService", () => {
         expect(result.status).toBe("succeeded");
     });
 
+    it("replaces a prior uncertain result part in place and resets the persistence CAS", async () => {
+        const definition = {
+            ...capability(),
+            reconcile: jest.fn().mockResolvedValue({ status: "succeeded", result: { status: "updated" } }),
+        };
+        const uncertain = actionRecord({
+            status: "uncertain",
+            result: undefined,
+            resultPartPersistedAt: new Date("2026-08-04T00:00:00.000Z"),
+            error: { code: "provider_uncertain" },
+        });
+        const succeeded = actionRecord({
+            status: "succeeded",
+            result: { status: "updated" },
+            resultPartPersistedAt: null,
+            createdAt: uncertain.createdAt,
+        });
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
+        const prisma = {
+            agent_action: {
+                findFirst: jest.fn().mockResolvedValueOnce(uncertain).mockResolvedValueOnce(succeeded),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessions as never,
+        );
+
+        await expect(service.reconcile(uncertain.id, principal)).resolves.toEqual(expect.objectContaining({ status: "succeeded" }));
+
+        expect(prisma.agent_action.updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+            where: expect.objectContaining({ id: uncertain.id, userId: principal.userId, branchId: principal.branchId, status: "uncertain" }),
+            data: expect.objectContaining({ status: "succeeded", resultPartPersistedAt: null }),
+        }));
+        expect(sessions.upsertActionResultMessage).toHaveBeenCalledWith(
+            uncertain.sessionId,
+            { userId: uncertain.userId, branchId: uncertain.branchId },
+            expect.objectContaining({
+                id: `agent-action-result:${uncertain.id}`,
+                parts: [expect.objectContaining({ data: expect.objectContaining({ status: "succeeded", result: { status: "updated" } }) })],
+            }),
+        );
+        expect(prisma.agent_action.updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+            where: expect.objectContaining({ id: uncertain.id, resultPartPersistedAt: null }),
+            data: { resultPartPersistedAt: expect.any(Date) },
+        }));
+    });
+
+    it("leaves reconciliation repairable when the authoritative result upsert fails", async () => {
+        const definition = {
+            ...capability(),
+            reconcile: jest.fn().mockResolvedValue({ status: "failed", result: { status: "provider-rejected" } }),
+        };
+        const uncertain = actionRecord({ status: "uncertain", resultPartPersistedAt: new Date() });
+        const failed = actionRecord({ status: "failed", result: { status: "provider-rejected" }, resultPartPersistedAt: null });
+        const sessions = { upsertActionResultMessage: jest.fn().mockRejectedValue(new Error("database unavailable")) };
+        const prisma = {
+            agent_action: {
+                findFirst: jest.fn().mockResolvedValueOnce(uncertain).mockResolvedValueOnce(failed),
+                findMany: jest.fn(),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessions as never,
+        );
+
+        await expect(service.reconcile(uncertain.id, principal)).rejects.toThrow("database unavailable");
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledTimes(1);
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            data: expect.objectContaining({ resultPartPersistedAt: null }),
+        }));
+
+        sessions.upsertActionResultMessage.mockResolvedValue(true);
+        prisma.agent_action.findMany = jest.fn().mockResolvedValue([failed]);
+        await expect(service.repairTerminalResultParts()).resolves.toBe(1);
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledTimes(2);
+        expect(prisma.agent_action.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ id: failed.id, resultPartPersistedAt: null }),
+            data: { resultPartPersistedAt: expect.any(Date) },
+        }));
+    });
+
+    it("retries the same deterministic result upsert when a concurrent reconciliation loses the CAS", async () => {
+        const definition = {
+            ...capability(),
+            reconcile: jest.fn().mockResolvedValue({ status: "succeeded", result: { status: "updated" } }),
+        };
+        const uncertain = actionRecord({ status: "uncertain" });
+        const succeeded = actionRecord({ status: "succeeded", result: { status: "updated" }, resultPartPersistedAt: null });
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
+        let compareAndSwapCount = 0;
+        const prisma = {
+            agent_action: {
+                findFirst: jest.fn().mockResolvedValueOnce(uncertain).mockResolvedValueOnce(succeeded).mockResolvedValueOnce(uncertain).mockResolvedValueOnce(succeeded),
+                updateMany: jest.fn().mockImplementation(async () => ({ count: compareAndSwapCount++ === 0 ? 1 : 0 })),
+            },
+        };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessions as never,
+        );
+
+        await expect(service.reconcile(uncertain.id, principal)).resolves.toEqual(expect.objectContaining({ status: "succeeded" }));
+        await expect(service.reconcile(uncertain.id, principal)).resolves.toEqual(expect.objectContaining({ status: "succeeded" }));
+
+        expect(sessions.upsertActionResultMessage).toHaveBeenCalledTimes(2);
+        expect(sessions.upsertActionResultMessage.mock.calls[0]?.[2]).toEqual(expect.objectContaining({ id: `agent-action-result:${uncertain.id}` }));
+        expect(sessions.upsertActionResultMessage.mock.calls[1]?.[2]).toEqual(expect.objectContaining({ id: `agent-action-result:${uncertain.id}` }));
+    });
+
     it("preserves a schema-valid provider failure result in storage and the terminal UI part", async () => {
         const definition = {
             ...capability(),
@@ -234,7 +384,7 @@ describe("ActionCoordinatorService", () => {
         };
         const uncertain = actionRecord({ status: "uncertain" });
         const failed = actionRecord({ status: "failed", result: { status: "provider-rejected" } });
-        const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
         const prisma = { agent_action: {
             findFirst: jest.fn().mockResolvedValueOnce(uncertain).mockResolvedValueOnce(failed),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -256,12 +406,12 @@ describe("ActionCoordinatorService", () => {
                 error: expect.objectContaining({ message: "Provider rejected the request" }),
             }),
         }));
-        expect(sessions.appendMessages).toHaveBeenCalledWith(
+        expect(sessions.upsertActionResultMessage).toHaveBeenCalledWith(
             uncertain.sessionId,
             { userId: principal.userId, branchId: principal.branchId },
-            [expect.objectContaining({ parts: [expect.objectContaining({
+            expect.objectContaining({ parts: [expect.objectContaining({
                 data: expect.objectContaining({ status: "failed", result: { status: "provider-rejected" } }),
-            })] })],
+            })] }),
         );
     });
 
@@ -269,10 +419,11 @@ describe("ActionCoordinatorService", () => {
         const definition = capability();
         const succeeded = actionRecord({ status: "succeeded", result: { status: "updated" }, executedAt: new Date() });
         const service = new ActionCoordinatorService(
-            { agent_action: { findFirst: jest.fn().mockResolvedValue(succeeded) } } as never,
+            { agent_action: { findFirst: jest.fn().mockResolvedValue(succeeded), updateMany: jest.fn().mockResolvedValue({ count: 1 }) } } as never,
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
 
         const result = await service.approve(succeeded.id, principal, succeeded.proposalRevision);
@@ -281,12 +432,30 @@ describe("ActionCoordinatorService", () => {
         expect(definition.execute).not.toHaveBeenCalled();
     });
 
+    it("does not reconcile an action owned by another user or branch", async () => {
+        const definition = {
+            ...capability(),
+            reconcile: jest.fn(),
+        };
+        const prisma = { agent_action: { findFirst: jest.fn().mockResolvedValue(null) } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn() } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+        );
+
+        await expect(service.reconcile("action-a", { userId: "other-user", branchId: "other-branch", globalRole: "admin", branchRole: "admin" })).rejects.toBeInstanceOf(NotFoundException);
+        expect(definition.reconcile).not.toHaveBeenCalled();
+    });
+
     it("marks a schema-invalid post-execution result uncertain", async () => {
         const definition = capability();
         definition.execute.mockResolvedValueOnce({ unexpected: true });
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never);
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
@@ -303,7 +472,7 @@ describe("ActionCoordinatorService", () => {
         definition.execute.mockRejectedValueOnce(new Error("connection dropped"));
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
@@ -316,23 +485,21 @@ describe("ActionCoordinatorService", () => {
         definition.execute.mockRejectedValueOnce(new AgentActionCertainFailureError("duplicate"));
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
 
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "executing" }), data: expect.objectContaining({ status: "failed" }) }));
     });
 
-    it("does not rewrite a succeeded action when result-part delivery fails", async () => {
+    it("fails the approval when result-part delivery fails after execution", async () => {
         const definition = capability();
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const sessions = { appendMessages: jest.fn().mockRejectedValue(new Error("session unavailable")) };
+        const sessions = { upsertActionResultMessage: jest.fn().mockRejectedValue(new Error("session unavailable")) };
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never);
 
-        const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
-
-        expect(result.action.status).toBe("succeeded");
+        await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toThrow("session unavailable");
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "executing" }), data: expect.objectContaining({ status: "succeeded" }) }));
     });
 
@@ -350,7 +517,7 @@ describe("ActionCoordinatorService", () => {
                 return { count: 1 };
             }),
         } };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
 
         const result = await service.approve(current.id, principal, current.proposalRevision);
 
@@ -362,7 +529,7 @@ describe("ActionCoordinatorService", () => {
         const definition = { ...capability(), classifyOutcome: jest.fn().mockReturnValue({ status: "cancelled", reason: "provider cancelled" }) };
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
@@ -374,7 +541,7 @@ describe("ActionCoordinatorService", () => {
         const definition = { ...capability(), classifyOutcome: jest.fn().mockReturnValue({ status: "failed", reason: "provider rejected" }) };
         const proposed = actionRecord();
         const prisma = mutableActionPrisma(proposed);
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
 
@@ -386,7 +553,7 @@ describe("ActionCoordinatorService", () => {
 
     it("repairs missing terminal result parts idempotently", async () => {
         const succeeded = actionRecord({ status: "succeeded", result: { status: "updated" }, resultPartPersistedAt: null });
-        const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
         const prisma = { agent_action: {
             findMany: jest.fn().mockResolvedValue([succeeded]),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -395,10 +562,10 @@ describe("ActionCoordinatorService", () => {
 
         await expect(service.repairTerminalResultParts()).resolves.toBe(1);
 
-        expect(sessions.appendMessages).toHaveBeenCalledWith(
+        expect(sessions.upsertActionResultMessage).toHaveBeenCalledWith(
             succeeded.sessionId,
             { userId: succeeded.userId, branchId: succeeded.branchId },
-            [expect.objectContaining({ id: `agent-action-result:${succeeded.id}` })],
+            expect.objectContaining({ id: `agent-action-result:${succeeded.id}` }),
         );
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({ id: succeeded.id, resultPartPersistedAt: null }),
@@ -409,7 +576,7 @@ describe("ActionCoordinatorService", () => {
     it("fails closed for read capabilities and rejects stale approvals", async () => {
         const read = capability("read");
         const prisma = { agent_action: { findUnique: jest.fn(), create: jest.fn(), findFirst: jest.fn() } };
-        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(read) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(read) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessionPersistence() as never);
         await expect(service.propose({ sessionId: "session-a", principal, capability: "clients.get", input: { id: 3 }, locale: "ko" })).rejects.toBeInstanceOf(BadRequestException);
         await expect(service.approve("missing", principal, "stale")).rejects.toBeInstanceOf(Error);
     });
@@ -423,6 +590,7 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
         expect(definition.execute).not.toHaveBeenCalled();
@@ -436,6 +604,7 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(false) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ForbiddenException);
         expect(definition.execute).not.toHaveBeenCalled();
@@ -452,9 +621,36 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
         expect(definition.execute).not.toHaveBeenCalled();
+    });
+
+    it("passes the durable approved target into capability execution", async () => {
+        const definition = {
+            ...capability(),
+            revalidate: jest.fn().mockResolvedValue({ valid: true, currentVersion: "target-v1" }),
+        };
+        const targetSnapshot = { snapshotHash: "snapshot-v1", receiver: "••••5678" };
+        const proposed = actionRecord({ targetVersion: "target-v1", targetSnapshot });
+        const service = new ActionCoordinatorService(
+            mutableActionPrisma(proposed) as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+        );
+
+        await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).resolves.toEqual(expect.objectContaining({ action: expect.objectContaining({ status: "succeeded" }) }));
+        expect(definition.execute).toHaveBeenCalledWith(
+            expect.objectContaining({
+                actionId: proposed.id,
+                approvedTargetVersion: "target-v1",
+                approvedTargetSnapshot: targetSnapshot,
+            }),
+            proposed.proposal.input,
+        );
     });
 
     it("requires an acknowledgement bound to strong action identity and revision", async () => {
@@ -466,6 +662,7 @@ describe("ActionCoordinatorService", () => {
             { get: jest.fn().mockReturnValue(definition) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
         );
 
         await expect(service.approve(action.id, principal, action.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
@@ -476,7 +673,7 @@ describe("ActionCoordinatorService", () => {
     it("persists a terminal result part when the owner rejects a proposal", async () => {
         const proposed = actionRecord();
         const rejected = actionRecord({ status: "rejected", rejectedBy: principal.userId, rejectedAt: new Date() });
-        const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
         const service = new ActionCoordinatorService(
             { agent_action: {
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -491,23 +688,23 @@ describe("ActionCoordinatorService", () => {
         const result = await service.reject(proposed.id, principal, "operator declined");
 
         expect(result.status).toBe("rejected");
-        expect(sessions.appendMessages).toHaveBeenCalledWith(
+        expect(sessions.upsertActionResultMessage).toHaveBeenCalledWith(
             proposed.sessionId,
             { userId: principal.userId, branchId: principal.branchId },
-            [expect.objectContaining({
+            expect.objectContaining({
                 role: "assistant",
                 parts: [expect.objectContaining({
                     type: "data-action-result",
                     data: expect.objectContaining({ actionId: proposed.id, status: "rejected" }),
                 })],
-            })],
+            }),
         );
     });
 
     it("expires a bounded batch and persists terminal result parts", async () => {
         const proposed = actionRecord({ expiresAt: new Date(Date.now() - 1_000) });
         const expired = actionRecord({ status: "expired", expiresAt: proposed.expiresAt });
-        const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
         const prisma = { agent_action: {
             findMany: jest.fn().mockResolvedValueOnce([proposed]).mockResolvedValueOnce([]),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -524,15 +721,15 @@ describe("ActionCoordinatorService", () => {
         await expect(service.expirePending()).resolves.toBe(1);
 
         expect(prisma.agent_action.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 100 }));
-        expect(sessions.appendMessages).toHaveBeenCalledWith(
+        expect(sessions.upsertActionResultMessage).toHaveBeenCalledWith(
             proposed.sessionId,
             { userId: principal.userId, branchId: principal.branchId },
-            [expect.objectContaining({
+            expect.objectContaining({
                 parts: [expect.objectContaining({
                     type: "data-action-result",
                     data: expect.objectContaining({ actionId: proposed.id, status: "expired" }),
                 })],
-            })],
+            }),
         );
     });
 
@@ -540,7 +737,7 @@ describe("ActionCoordinatorService", () => {
         const updatedAt = new Date(Date.now() - 31 * 60 * 1000);
         const executing = actionRecord({ status: "executing", expiresAt: new Date(Date.now() - 1_000), updatedAt });
         const uncertain = actionRecord({ status: "uncertain", expiresAt: executing.expiresAt, error: { code: "execution_interrupted" } });
-        const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
+        const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };
         const prisma = { agent_action: {
             findMany: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([executing]),
             updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -560,10 +757,10 @@ describe("ActionCoordinatorService", () => {
             where: expect.objectContaining({ id: executing.id, status: "executing", updatedAt: expect.any(Object) }),
             data: expect.objectContaining({ status: "uncertain" }),
         }));
-        expect(sessions.appendMessages).toHaveBeenCalledWith(
+        expect(sessions.upsertActionResultMessage).toHaveBeenCalledWith(
             executing.sessionId,
             { userId: principal.userId, branchId: principal.branchId },
-            [expect.objectContaining({ parts: [expect.objectContaining({ data: expect.objectContaining({ status: "uncertain" }) })] })],
+            expect.objectContaining({ parts: [expect.objectContaining({ data: expect.objectContaining({ status: "uncertain" }) })] }),
         );
     });
 });

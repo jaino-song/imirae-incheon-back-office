@@ -6,6 +6,10 @@ import { AgentCapabilityProvider } from "application/agent/capability.decorator"
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import {
+    SMS_DELIVERY_SNAPSHOT_VARIABLE,
+    SmsTriggerDeliveryService,
+} from "application/services/sms-trigger-delivery.service";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { MessageTriggerEventType, MessageTriggerOffsetType, MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import type { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
@@ -122,6 +126,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         private readonly prisma: PrismaService,
         private readonly messageTriggerService: MessageTriggerService,
         @Inject(MESSAGE_TRIGGER_JOB_REPOSITORY) private readonly jobRepository: IMessageTriggerJobRepository,
+        private readonly smsTriggerDeliveryService: SmsTriggerDeliveryService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -241,19 +246,43 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 inspect: async (context, rawInput) => {
                     const input = RetrySmsSchema.parse(rawInput);
                     const job = await this.findRetryableJob(context.principal.branchId, input.jobId);
+                    const snapshot = await this.smsTriggerDeliveryService.resolveDeliverySnapshot(job);
                     return {
-                        targetVersion: this.jobTargetVersion(job),
-                        targetSnapshot: { id: job.id, status: job.status, scheduledFor: job.scheduledFor.toISOString() },
+                        targetVersion: this.jobTargetVersion(job, snapshot),
+                        targetSnapshot: {
+                            id: job.id,
+                            status: job.status,
+                            scheduledFor: job.scheduledFor.toISOString(),
+                            ...this.smsTriggerDeliveryService.snapshotForApproval(snapshot),
+                        },
                         title: "문자 재시도",
-                        summary: `${job.id} 작업은 제공자가 명시적으로 거절한 건으로, 새 발송을 1회 시도합니다.`,
+                        summary: `${job.id} 작업은 ${snapshot.maskedReceiver} 번호로 ${snapshot.templateKey} 템플릿을 ${snapshot.deliveryType}(${snapshot.estimatedCost}) 유형으로 재시도합니다. 제목: ${snapshot.title || "(없음)"}. 본문: ${snapshot.message || "(없음)"}. 제공자가 명시적으로 거절한 건에 대해 새 발송을 1회 시도합니다.`,
                         provider: "Aligo",
-                        estimatedCost: `${job.payload.templateVariables["msgType"] ?? "SMS/LMS"} 요금제 기준`,
+                        estimatedCost: snapshot.estimatedCost,
                     };
                 },
                 execute: async (context, rawInput) => {
                     const input = RetrySmsSchema.parse(rawInput);
                     if (!context.actionId) throw new AgentActionUncertainError("SMS retry action identity is missing");
+                    if (!context.approvedTargetVersion || !context.approvedTargetSnapshot) {
+                        throw new AgentActionCertainFailureError("SMS retry approval snapshot is missing");
+                    }
                     const source = await this.findRetryableJob(context.principal.branchId, input.jobId);
+                    const canonical = await this.smsTriggerDeliveryService.resolveCanonicalDeliverySnapshot(source);
+                    const currentTargetVersion = this.jobTargetVersion(source, canonical);
+                    if (currentTargetVersion !== context.approvedTargetVersion) {
+                        throw new AgentActionCertainFailureError("SMS job or provider snapshot changed after approval");
+                    }
+                    let snapshot;
+                    try {
+                        snapshot = this.smsTriggerDeliveryService.approvedSnapshotForExecution(
+                            source,
+                            context.approvedTargetSnapshot,
+                            canonical,
+                        );
+                    } catch {
+                        throw new AgentActionCertainFailureError("SMS approval snapshot no longer matches the provider-bound target");
+                    }
                     const retry = await this.jobRepository.upsertPending(MessageTriggerJobEntity.create({
                         branchId: context.principal.branchId,
                         ruleId: source.ruleId,
@@ -267,7 +296,11 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                         payload: {
                             ...source.payload,
                             memberId: `agent-action:${context.actionId}`,
-                            templateVariables: { ...source.payload.templateVariables, retrySafety: "pending-agent-retry" },
+                            templateVariables: {
+                                ...source.payload.templateVariables,
+                                retrySafety: "pending-agent-retry",
+                                [SMS_DELIVERY_SNAPSHOT_VARIABLE]: this.smsTriggerDeliveryService.serializeSnapshot(snapshot),
+                            },
                         },
                     }));
                     const delivered = await this.messageTriggerService.dispatchPendingJobNow(retry.id);
@@ -278,7 +311,8 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 revalidate: async (context, rawInput, expectedTargetVersion) => {
                     try {
                         const job = await this.findRetryableJob(context.principal.branchId, RetrySmsSchema.parse(rawInput).jobId);
-                        const currentVersion = this.jobTargetVersion(job);
+                        const snapshot = await this.smsTriggerDeliveryService.resolveDeliverySnapshot(job);
+                        const currentVersion = this.jobTargetVersion(job, snapshot);
                         return { valid: currentVersion === expectedTargetVersion, currentVersion, reason: "SMS job changed after proposal" };
                     } catch {
                         return { valid: false, currentVersion: "missing-or-not-retryable", reason: "SMS job is no longer safely retryable" };
@@ -492,7 +526,27 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         return job;
     }
 
-    private jobTargetVersion(job: MessageTriggerJobEntity): string {
-        return createHash("sha256").update(JSON.stringify({ id: job.id, branchId: job.branchId, status: job.status, updatedAt: job.updatedAt.toISOString(), retrySafety: job.payload.templateVariables["retrySafety"] })).digest("hex");
+    private jobTargetVersion(job: MessageTriggerJobEntity, snapshot: { snapshotHash: string }): string {
+        return createHash("sha256").update(JSON.stringify({
+            id: job.id,
+            branchId: job.branchId,
+            ruleId: job.ruleId,
+            status: job.status,
+            scheduledFor: job.scheduledFor.toISOString(),
+            sentAt: job.sentAt?.toISOString() ?? null,
+            canceledAt: job.canceledAt?.toISOString() ?? null,
+            cancelReason: job.cancelReason,
+            clientId: job.clientId,
+            employeeScheduleId: job.employeeScheduleId,
+            recipientType: job.recipientType,
+            recipientPhone: job.recipientPhone,
+            templateKey: job.templateKey,
+            payload: job.payload,
+            attempts: job.attempts,
+            nextAttemptAt: job.nextAttemptAt?.toISOString() ?? null,
+            createdAt: job.createdAt.toISOString(),
+            updatedAt: job.updatedAt.toISOString(),
+            deliverySnapshotHash: snapshot.snapshotHash,
+        })).digest("hex");
     }
 }
