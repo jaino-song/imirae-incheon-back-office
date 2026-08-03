@@ -101,6 +101,7 @@ import {
 import {
   UNKNOWN_CUSTOMER_NAME,
   customerName as getEformsignCustomerName,
+  resolveDocumentCustomerName,
 } from "@/lib/eformsign/display-name";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
@@ -523,7 +524,7 @@ export default function ContractsPage() {
     (doc: EformsignDocument | null): string | null => {
       if (!doc) return null;
       const mappedName = documentClientSummaryById.get(doc.id)?.clientName.trim();
-      return mappedName || displayCustomerName(doc);
+      return resolveDocumentCustomerName(doc, mappedName);
     },
     [documentClientSummaryById],
   );
@@ -1149,7 +1150,7 @@ function ContractDetail({
   const detailedDocument = detailQuery.data ?? doc;
   const isBaseDetailLoading = detailQuery.isFetching || detailQuery.isPlaceholderData;
   const mappedCustomerName = documentClientSummary?.clientName.trim();
-  const customerName = mappedCustomerName || displayCustomerName(detailedDocument) || "–";
+  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || "–";
   const isServiceRecordDocument = reviewAction === "preview";
   const serviceRecordQuery = useClientServiceRecords(documentClientSummary?.clientId ?? null, {
     enabled: isServiceRecordDocument,
