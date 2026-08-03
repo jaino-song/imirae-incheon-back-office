@@ -67,10 +67,48 @@ describe("AdminServiceRecordService", () => {
             id: 100,
             name: "김산모",
             duration: 5,
+            startDate: new Date("2026-07-01T00:00:00.000Z"),
+            endDate: new Date("2026-07-07T00:00:00.000Z"),
         },
         serviceRecord: null,
         serviceRecordDays: [],
         serviceRecordTokens: [],
+    });
+
+    it("maps the current total from actual service dates even when the stored count is stale", async () => {
+        const prisma = createPrisma();
+        prisma.service_record_case.findFirst.mockResolvedValue({
+            id: "case-1",
+            status: "IN_PROGRESS",
+            startDate: new Date("2026-08-03T00:00:00.000Z"),
+            endDate: new Date("2026-08-10T00:00:00.000Z"),
+            requiredSessionCount: 15,
+            completedAt: null,
+            finalizationDueAt: new Date("2026-08-10T11:00:00.000Z"),
+            finalizedAt: null,
+            documentsCompletedAt: null,
+            lastError: null,
+            momName: null,
+            momBirth: null,
+            babyName: null,
+            babyBirth: null,
+            deliveryType: null,
+            babyWeight: null,
+            createdAt: new Date("2026-08-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-08-03T00:00:00.000Z"),
+            days: [],
+        } as never);
+        prisma.employee_schedule.findMany.mockResolvedValue([]);
+
+        const service = new AdminServiceRecordService(
+            prisma as unknown as PrismaService,
+            createLinkService() as unknown as ServiceRecordLinkService,
+            createTriggerService() as unknown as MessageTriggerService,
+        );
+
+        const overview = await service.getClientOverview("branch-1", 100);
+
+        expect(overview.record?.totalSessions).toBe(6);
     });
 
     it("derives link status for none, scheduled, sent, and failed assignments", async () => {

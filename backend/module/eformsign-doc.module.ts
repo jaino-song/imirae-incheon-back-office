@@ -146,6 +146,7 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         EformsignDocumentMirrorService,
         EformsignMirrorReadinessService,
         ReconcileCompletedMirroredEformsignDocUsecase,
+        LinkMirroredEformsignDocByPhoneUsecase,
     ],
 })
 export class EformsignDocModule {}

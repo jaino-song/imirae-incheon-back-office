@@ -60,7 +60,7 @@ test.describe("mobile messages navigation", () => {
       ["발송 기록", "/messages/history"],
       ["템플릿", "/messages/templates"],
       ["자동 전송", "/messages/automation"],
-      ["설정", "/messages/sender-approval"],
+      ["설정", "/messages/settings"],
     ] as const;
 
     const sectionNavigation = page.getByRole("navigation", { name: "메시지 기능" });

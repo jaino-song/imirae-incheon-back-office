@@ -11,6 +11,7 @@ import {
     ListClientsUsecase,
     UpdateClientUsecase,
 } from "../../application/usecases/client";
+import { LinkMirroredEformsignDocByPhoneUsecase } from "../../application/usecases/eformsign-doc";
 import { MessageTriggerService } from "../../application/services/message-trigger.service";
 import { EformsignDocumentSnapshotService } from "../../application/services/eformsign-document-snapshot.service";
 import { ServiceRecordLinkService } from "../../application/services/service-record-link.service";
@@ -74,6 +75,7 @@ describe("ClientService", () => {
             client: {
                 update: jest.fn(),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                findUnique: jest.fn().mockResolvedValue(null),
                 findMany: jest.fn().mockResolvedValue([]),
             },
             eformsign_doc: {
@@ -128,6 +130,10 @@ describe("ClientService", () => {
     const createMockDocumentSnapshotService = () => ({
         bumpVersion: jest.fn().mockResolvedValue(undefined),
         bumpCompanyEpoch: jest.fn().mockResolvedValue(undefined),
+    });
+
+    const createMockLinkMirroredDocumentByPhoneUsecase = () => ({
+        execute: jest.fn().mockResolvedValue("no_match"),
     });
 
     const createMockClientRepository = (): jest.Mocked<IClientRepository> => ({
@@ -185,6 +191,7 @@ describe("ClientService", () => {
     let systemSettingService: ReturnType<typeof createMockSystemSettingService>;
     let configService: ReturnType<typeof createMockConfigService>;
     let documentSnapshotService: ReturnType<typeof createMockDocumentSnapshotService>;
+    let linkMirroredDocumentByPhoneUsecase: ReturnType<typeof createMockLinkMirroredDocumentByPhoneUsecase>;
 
     beforeEach(() => {
         createClientUsecase = createMockCreateClientUsecase();
@@ -201,6 +208,7 @@ describe("ClientService", () => {
         systemSettingService = createMockSystemSettingService();
         configService = createMockConfigService();
         documentSnapshotService = createMockDocumentSnapshotService();
+        linkMirroredDocumentByPhoneUsecase = createMockLinkMirroredDocumentByPhoneUsecase();
 
         service = new ClientService(
             createClientUsecase as unknown as CreateClientUsecase,
@@ -217,6 +225,7 @@ describe("ClientService", () => {
             serviceRecordLinkService as unknown as ServiceRecordLinkService,
             serviceRecordLifecycleService as unknown as ServiceRecordLifecycleService,
             configService as unknown as ConfigService,
+            linkMirroredDocumentByPhoneUsecase as unknown as LinkMirroredEformsignDocByPhoneUsecase,
         );
     });
 
@@ -512,6 +521,105 @@ describe("ClientService", () => {
             expect(lockQuery.text).toMatch(/\$\d+::uuid/);
             expect(documentSnapshotService.bumpVersion).toHaveBeenCalledWith(branchId);
             expect(documentSnapshotService.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
+        });
+
+        it("links a matching partial contract to a client created after mirror ingestion", async () => {
+            const branchId = "11111111-1111-1111-1111-111111111111";
+            const mockClient = createClientEntity();
+            createClientUsecase.execute.mockResolvedValue(mockClient);
+            prismaService.eformsign_doc.findMany
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{
+                    documentId: "DOC-PARTIAL",
+                    branchId: null,
+                }]);
+            linkMirroredDocumentByPhoneUsecase.execute.mockResolvedValue("linked");
+            prismaService.client.findUnique.mockResolvedValue({
+                eDocId: "DOC-PARTIAL",
+            });
+
+            await service.create(branchId, {
+                name: "New Client",
+                phone: "010-1234-5678",
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+            });
+
+            expect(linkMirroredDocumentByPhoneUsecase.execute).toHaveBeenCalledWith(
+                "DOC-PARTIAL",
+                { linkExistingOnly: true },
+            );
+            expect(prismaService.eformsign_doc.findMany).toHaveBeenNthCalledWith(2, {
+                where: {
+                    serviceRecordCaseId: null,
+                    permanentPurgeRequestedAt: null,
+                    statusType: { notIn: ["047", "049", "099"] },
+                    syncStatus: { not: "ready" },
+                    OR: [
+                        { customerPhone: "01012345678" },
+                        {
+                            customerPhone: null,
+                            stepRecipientSms: { contains: "5678" },
+                        },
+                    ],
+                    AND: [
+                        {
+                            OR: [
+                                { branchId },
+                                { branchId: null, clientId: null },
+                            ],
+                        },
+                        {
+                            OR: [
+                                { documentKind: "contract" },
+                                { documentKind: null },
+                            ],
+                        },
+                    ],
+                },
+                orderBy: [
+                    { createdDate: "desc" },
+                    { id: "desc" },
+                ],
+                select: {
+                    documentId: true,
+                    branchId: true,
+                },
+            });
+            expect(prismaService.eformsign_doc.updateMany).not.toHaveBeenCalled();
+            expect(prismaService.client.findUnique).toHaveBeenCalledWith({
+                where: { id: mockClient.id },
+                select: { eDocId: true },
+            });
+            expect(mockClient.eDocId).toBe("DOC-PARTIAL");
+            expect(documentSnapshotService.bumpVersion).toHaveBeenCalledWith(branchId);
+            expect(documentSnapshotService.bumpCompanyEpoch).toHaveBeenCalledTimes(1);
+        });
+
+        it("does not refresh the client pointer when a partial contract is ambiguous", async () => {
+            const mockClient = createClientEntity();
+            createClientUsecase.execute.mockResolvedValue(mockClient);
+            prismaService.eformsign_doc.findMany
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([{
+                    documentId: "DOC-PARTIAL",
+                    branchId: null,
+                }]);
+            linkMirroredDocumentByPhoneUsecase.execute.mockResolvedValue("ambiguous");
+
+            await service.create(branchId, {
+                name: "New Client",
+                phone: "010-1234-5678",
+                careCenter: false,
+                voucherClient: true,
+                breastPump: false,
+            });
+
+            expect(prismaService.client.findUnique).not.toHaveBeenCalled();
+            expect(mockClient.eDocId).toBeNull();
+            expect(documentSnapshotService.bumpVersion).not.toHaveBeenCalled();
+            expect(documentSnapshotService.bumpCompanyEpoch).not.toHaveBeenCalled();
         });
 
         it("does not reassign a contract when its mirror generation is no longer ready", async () => {
@@ -1699,7 +1807,7 @@ describe("ClientService", () => {
                 expect(client?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
             });
 
-            it("should narrow to three business days once the contract has been sent", async () => {
+            it("should hide contract required once an active document exists, even unsigned", async () => {
                 const client = createWaitingClient("2026-07-22", "sent-document");
                 listClientsUsecase.execute.mockResolvedValue([client]);
                 prismaService.eformsign_doc.findMany.mockResolvedValue([
@@ -1708,7 +1816,7 @@ describe("ClientService", () => {
 
                 const [result] = await service.findAll(branchId);
 
-                // 6 business days out: past the send window, not yet in the signature window.
+                // "060" (requested) is an active document — no signal even though unsigned.
                 expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
             });
 
@@ -1737,7 +1845,7 @@ describe("ClientService", () => {
                 expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
             });
 
-            it("should show contract required while the customer signature step is still current", async () => {
+            it("should not show contract required while an unsigned document is still active", async () => {
                 const client = createWaitingClient("2026-07-16", "awaiting-signature-document");
                 listClientsUsecase.execute.mockResolvedValue([client]);
                 prismaService.eformsign_doc.findMany.mockResolvedValue([
@@ -1746,7 +1854,8 @@ describe("ClientService", () => {
 
                 const [result] = await service.findAll(branchId);
 
-                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
+                // A sent-but-unsigned contract no longer gets flagged.
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
             });
 
             it("should show contract required when a document rejected at the review step is the latest", async () => {
@@ -1759,6 +1868,22 @@ describe("ClientService", () => {
                 const [result] = await service.findAll(branchId);
 
                 expect(result?.documentStatus).toBe("rejected");
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
+            });
+
+            it("should show contract required when the only document was revoked, even though eDocId is still set", async () => {
+                const client = createWaitingClient("2026-07-16", "revoked-document");
+                listClientsUsecase.execute.mockResolvedValue([client]);
+                prismaService.eformsign_doc.findMany.mockResolvedValue([
+                    { clientId: 1, statusType: "042" },
+                ]);
+
+                const [result] = await service.findAll(branchId);
+
+                // The client's own eDocId still points at the cancelled document, but a
+                // revoked document is a dead document — it must not suppress the badge.
+                expect(result?.eDocId).toBe("revoked-document");
+                expect(result?.documentStatus).toBe("revoked");
                 expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
             });
 
@@ -1791,8 +1916,6 @@ describe("ClientService", () => {
                     select: {
                         clientId: true,
                         statusType: true,
-                        stepType: true,
-                        stepName: true,
                         documentKind: true,
                         serviceRecordCaseId: true,
                         templateId: true,
@@ -1810,8 +1933,11 @@ describe("ClientService", () => {
 
                 const [result] = await service.findAll(branchId);
 
+                // Proves no fallback to the older completed doc: had it fallen back,
+                // documentStatus would read "completed" instead of "requested".
+                // "060"/requested is itself an active document, so no badge either way.
                 expect(result?.documentStatus).toBe("requested");
-                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
             });
 
             it("should ignore legacy service-record rows when choosing the latest contract", async () => {
@@ -1847,8 +1973,11 @@ describe("ClientService", () => {
 
                 const [result] = await service.findAll(branchId);
 
+                // The correctly-identified contract row ("060"/requested) is itself an
+                // active document, so no badge — but the assertion proves the two
+                // service-record rows were skipped, not that a badge should show.
                 expect(result?.documentStatus).toBe("requested");
-                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(true);
+                expect(result?.badges.some((badge) => badge.key === "contract_required")).toBe(false);
             });
 
             it("should use the latest contract instead of the pinned eDocId for the badge", async () => {
@@ -1882,8 +2011,6 @@ describe("ClientService", () => {
                     select: {
                         clientId: true,
                         statusType: true,
-                        stepType: true,
-                        stepName: true,
                         documentKind: true,
                         serviceRecordCaseId: true,
                         templateId: true,
@@ -2000,33 +2127,27 @@ describe("ClientService", () => {
                 expect(await actionRequiredFor(client)).toEqual({ reason: "발송 필요", priority: 3 });
             });
 
-            it("returns signature required when document is sent and start date is within 2 days", async () => {
+            it("returns no action when an active document is sent but still unsigned", async () => {
                 const client = createClient("2026-03-19", "doc-1");
                 prismaService.eformsign_doc.findMany.mockResolvedValue([
                     { clientId: 1, statusType: "010", stepType: "02", stepName: "이용자 서명" },
                 ]);
 
-                expect(await actionRequiredFor(client)).toEqual({ reason: "서명 필요", priority: 2 });
+                // "010" (created) is an active document — no signal even close to start.
+                expect(await actionRequiredFor(client)).toBeNull();
             });
 
-            it("does not return signature required beyond the 3-business-day threshold", async () => {
-                // 2026-03-23 is 4 business days from 2026-03-17 (weekend in between).
-                const client = createClient("2026-03-23", "doc-1");
-                prismaService.eformsign_doc.findMany.mockResolvedValue([
-                    { clientId: 1, statusType: "010", stepType: "02", stepName: "이용자 서명" },
-                ]);
+            it("does not return send required beyond the 6-business-day threshold", async () => {
+                const client = createClient("2026-04-30", null);
 
                 expect(await actionRequiredFor(client)).toBeNull();
             });
 
             it("counts the window in business days, not calendar days", async () => {
                 // 2026-03-22 is 5 calendar days out but only 3 business days.
-                const client = createClient("2026-03-22", "doc-1");
-                prismaService.eformsign_doc.findMany.mockResolvedValue([
-                    { clientId: 1, statusType: "010", stepType: "02", stepName: "이용자 서명" },
-                ]);
+                const client = createClient("2026-03-22", null);
 
-                expect(await actionRequiredFor(client)).toEqual({ reason: "서명 필요", priority: 2 });
+                expect(await actionRequiredFor(client)).toEqual({ reason: "발송 필요", priority: 3 });
             });
 
             it("does not return action required for completed documents", async () => {
@@ -2133,17 +2254,15 @@ describe("ClientService", () => {
             jest.useRealTimers();
         });
 
-        it("reports 서명 필요 while the customer signature step is still current", async () => {
+        it("drops the alert while an active document is unsigned", async () => {
             prismaService.client.findMany.mockResolvedValue([alertClient()]);
             prismaService.eformsign_doc.findMany.mockResolvedValue([
                 { clientId: 1, statusType: "060", stepType: "02", stepName: "이용자 서명" },
             ]);
 
-            const alerts = await service.getActionRequiredAlerts(branchId);
-
-            expect(alerts).toEqual([
-                expect.objectContaining({ id: 1, reason: "서명 필요", priority: 2 }),
-            ]);
+            // "060" (requested) is an active document — a sent-but-unsigned
+            // contract no longer raises an alert.
+            expect(await service.getActionRequiredAlerts(branchId)).toEqual([]);
         });
 
         it("drops the alert once the customer signed and only provider review remains", async () => {
@@ -2157,16 +2276,17 @@ describe("ClientService", () => {
 
         it("reads the latest contract rather than the document pinned by eDocId", async () => {
             prismaService.client.findMany.mockResolvedValue([alertClient()]);
-            // Newest first: a re-issued contract still awaiting the customer.
+            // Newest first: the latest document was revoked even though an older
+            // one had completed — the client needs a new contract sent.
             prismaService.eformsign_doc.findMany.mockResolvedValue([
-                { clientId: 1, statusType: "060", stepType: "02", stepName: "이용자 서명" },
-                { clientId: 1, statusType: "003", stepType: "06", stepName: "제공기관 확인" },
+                { clientId: 1, statusType: "042" },
+                { clientId: 1, statusType: "003" },
             ]);
 
             const alerts = await service.getActionRequiredAlerts(branchId);
 
             expect(alerts).toEqual([
-                expect.objectContaining({ reason: "서명 필요", priority: 2 }),
+                expect.objectContaining({ reason: "발송 필요", priority: 3 }),
             ]);
         });
 

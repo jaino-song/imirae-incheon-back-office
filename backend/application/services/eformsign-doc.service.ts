@@ -111,6 +111,11 @@ export class EformsignDocService {
         return this.findEformsignDocsByClientIdUsecase.execute(branchid, clientId);
     }
 
+    /** Same rows serialized with the contract end date the client panel's status rule needs. */
+    findByClientIdWithContractEndDates(branchid: string, clientId: number) {
+        return this.findEformsignDocsByClientIdUsecase.executeWithContractEndDates(branchid, clientId);
+    }
+
     /**
      * List all stored eformsign docs
      */

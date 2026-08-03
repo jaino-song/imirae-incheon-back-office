@@ -64,7 +64,7 @@ describe("MessagesPermissionGuard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "신청하기" }));
 
-    expect(mockPush).toHaveBeenCalledWith("/messages/sender-approval");
+    expect(mockPush).toHaveBeenCalledWith("/messages/settings");
   });
 
   it("hides the protected message page while checking sender approval", async () => {
@@ -170,18 +170,23 @@ describe("MessagesPermissionGuard", () => {
     expect(mockReplace).toHaveBeenCalledWith("/all");
   });
 
-  it("does not block the sender approval route", async () => {
-    mockPathname = "/messages/sender-approval";
+  it.each(["/messages/settings", "/messages/sender-approval"])(
+    "does not block the settings route %s",
+    async (pathname) => {
+      mockPathname = pathname;
 
-    renderGuard();
+      renderGuard();
 
-    expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
+      expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(mockGetMessageSenderApproval).not.toHaveBeenCalled();
-    });
-    expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
-  });
+      await waitFor(() => {
+        expect(mockGetMessageSenderApproval).not.toHaveBeenCalled();
+      });
+      expect(
+        screen.queryByText("메시지 전송 권한이 필요합니다."),
+      ).not.toBeInTheDocument();
+    },
+  );
 
   it.each(["/messages/scheduled", "/messages/history"])(
     "allows the read-only route %s before sender approval",
