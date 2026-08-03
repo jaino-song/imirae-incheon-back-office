@@ -210,6 +210,19 @@ const isValidIsoDateInput = (value: string): boolean => {
     );
 };
 
+const formatCompactDateForIsoInput = (value: string | null | undefined): string => {
+    if (!value) return "";
+    if (/^\d{6}$/.test(value)) return normalizeCompactDateForSubmit(value);
+    return value;
+};
+
+const parseIsoDateInputToCompactState = (value: string): string => {
+    const formattedValue = formatIsoDateInput(value);
+    return formattedValue.length === 10 && isValidIsoDateInput(formattedValue)
+        ? normalizeDateForCompactState(formattedValue)
+        : formattedValue;
+};
+
 export function ClientFormPanel({
     "data-component": dataComponent,
     open = true,
@@ -701,15 +714,9 @@ function ClientFormContent({
             setErrorAndScroll(t(locale, "clients.form.error-birthday-required"));
             return;
         }
-        if (!isLegacyNoopEdit) {
-            if (!formData.dueDate?.trim()) {
-                setErrorAndScroll(t(locale, "clients.form.error-due-date-required"));
-                return;
-            }
-            if (!isValidIsoDateInput(formData.dueDate)) {
-                setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
-                return;
-            }
+        if (formData.dueDate?.trim() && !isValidIsoDateInput(formData.dueDate)) {
+            setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
+            return;
         }
         if (formData.birthDate?.trim() && !isValidIsoDateInput(formData.birthDate)) {
             setErrorAndScroll(t(locale, "clients.form.error-birth-date-invalid"));
@@ -778,7 +785,7 @@ function ClientFormContent({
                 const createDto: CreateClientDto = {
                     name: formData.name,
                     birthday: formData.birthday || null,
-                    dueDate: normalizedDueDate,
+                    dueDate: normalizedDueDate || null,
                     birthDate: normalizedBirthDate || null,
                     address: formData.address || null,
                     phone: formData.phone || null,
@@ -812,7 +819,7 @@ function ClientFormContent({
     const isBasicStepValid = isLegacyNoopEdit || Boolean(
         formData.name.trim()
         && formData.birthday?.trim()
-        && isValidIsoDateInput(formData.dueDate ?? "")
+        && (!formData.dueDate?.trim() || isValidIsoDateInput(formData.dueDate))
         && formData.address?.trim()
         && isPhoneCheckReady
     );
@@ -827,11 +834,10 @@ function ClientFormContent({
     ] as const;
     const isCurrentStepValid = stepValidation[activeStep] ?? true;
     const isFormComplete = isBasicStepValid;
-    const requiredFieldProgressText = `필수 항목 5개 중 ${
+    const requiredFieldProgressText = `필수 항목 4개 중 ${
         [
             Boolean(formData.name.trim()),
             isValidCompactDateInput(formData.birthday ?? ""),
-            isValidIsoDateInput(formData.dueDate ?? ""),
             Boolean(formData.address?.trim()),
             Boolean(formData.phone?.trim()),
         ].filter(Boolean).length
@@ -1645,11 +1651,11 @@ function ClientFormContent({
             >
                 <FormTextInput
                     id="startDate"
-                    placeholder="YYMMDD"
+                    placeholder="YYYY-MM-DD"
                     inputMode="numeric"
-                    value={formData.startDate || ""}
-                    onChange={(event) => handleChange("startDate", parseCompactDateInput(event.target.value))}
-                    maxLength={6}
+                    value={formatCompactDateForIsoInput(formData.startDate)}
+                    onChange={(event) => handleChange("startDate", parseIsoDateInputToCompactState(event.target.value))}
+                    maxLength={10}
                 />
             </FormField>
 
@@ -1660,12 +1666,11 @@ function ClientFormContent({
             >
                 <FormTextInput
                     id="endDate"
-                    placeholder="YYMMDD"
+                    placeholder="YYYY-MM-DD"
                     inputMode="numeric"
-                    value={formData.endDate || ""}
-                    maxLength={6}
-                    readOnly
-                    aria-readonly="true"
+                    value={formatCompactDateForIsoInput(formData.endDate)}
+                    onChange={(event) => handleChange("endDate", parseIsoDateInputToCompactState(event.target.value))}
+                    maxLength={10}
                 />
             </FormField>
 
