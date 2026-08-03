@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 
 type ErrorPartProps = {
+    "data-component": string;
     code: string;
     category: string;
     message: string;
@@ -17,16 +18,16 @@ const EFFECT_STATE_LABELS = {
     partial: "일부 단계만 완료되었을 수 있습니다. 상태를 확인하기 전에는 다시 실행하지 마세요.",
 } as const;
 
-export function ErrorPart({ code, category, message, retryable, effectState = "nothing-happened", onRetry }: ErrorPartProps) {
+export function ErrorPart({ "data-component": dataComponent, code, category, message, retryable, effectState = "nothing-happened", onRetry }: ErrorPartProps) {
     const canRetry = retryable && effectState === "nothing-happened";
     return (
-        <section data-component="desktop_chat_agent-error" data-source-component="ErrorPart" className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3" role="alert">
-            <div data-slot="message" className="min-w-0 flex-1">
-                <p className="text-sm text-destructive">{message}</p>
-                <p data-slot="effect-state" className="mt-1 text-xs text-muted-foreground">{EFFECT_STATE_LABELS[effectState]}</p>
-                <p data-slot="category" className="mt-1 text-xs text-muted-foreground">{category} · {code}</p>
+        <section data-component={dataComponent} data-source-component="ErrorPart" className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3" role="alert">
+            <div data-component={`${dataComponent}_message`} data-slot="message" className="min-w-0 flex-1">
+                <p data-component={`${dataComponent}_message_content`} className="text-sm text-destructive">{message}</p>
+                <p data-component={`${dataComponent}_message_effect-state`} data-slot="effect-state" className="mt-1 text-xs text-muted-foreground">{EFFECT_STATE_LABELS[effectState]}</p>
+                <p data-component={`${dataComponent}_message_category`} data-slot="category" className="mt-1 text-xs text-muted-foreground">{category} · {code}</p>
             </div>
-            {canRetry && <Button type="button" size="sm" variant="outline" onClick={onRetry}>다시 시도</Button>}
+            {canRetry && <Button data-component={`${dataComponent}_retry`} type="button" size="sm" variant="outline" onClick={onRetry}>다시 시도</Button>}
         </section>
     );
 }

@@ -4,6 +4,10 @@ import { AgentShell } from "./AgentShell";
 
 const mockSendMessage = jest.fn();
 const mockRenameSession = jest.fn().mockResolvedValue(true);
+const mockAgentChatState: {
+    error: Error | null;
+    actionError: { code: string; message: string; effectState: "nothing-happened" | "succeeded-unconfirmed" | "partial" } | null;
+} = { error: null, actionError: null };
 
 jest.mock("next/navigation", () => ({
     useRouter: () => ({ push: jest.fn() }),
@@ -14,8 +18,8 @@ jest.mock("@/hooks/useAgentChat", () => ({
         messages: [],
         sendMessage: mockSendMessage,
         status: "ready",
-        error: null,
-        actionError: null,
+        error: mockAgentChatState.error,
+        actionError: mockAgentChatState.actionError,
         stop: jest.fn(),
         regenerate: jest.fn(),
         resetBranch: jest.fn(),
@@ -35,6 +39,8 @@ describe("AgentShell input composition", () => {
     beforeEach(() => {
         mockSendMessage.mockClear();
         mockRenameSession.mockClear();
+        mockAgentChatState.error = null;
+        mockAgentChatState.actionError = null;
         const media = {
             matches: false,
             addEventListener: jest.fn(),
@@ -69,5 +75,17 @@ describe("AgentShell input composition", () => {
 
         fireEvent.keyDown(renameInput, { key: "Enter", isComposing: false });
         await waitFor(() => expect(mockRenameSession).toHaveBeenCalledWith("session-a", "새 제목"));
+    });
+
+    it("keeps stream and action errors in separate completed namespaces", () => {
+        mockAgentChatState.error = new Error("stream failed");
+        mockAgentChatState.actionError = { code: "action_failed", message: "작업 결과를 확인하세요.", effectState: "partial" };
+
+        render(<AgentShell />);
+
+        const alerts = screen.getAllByRole("alert");
+        expect(alerts).toHaveLength(2);
+        expect(alerts[0]).toHaveAttribute("data-component", "desktop_chat_agent-shell_thread_messages_stream-error");
+        expect(alerts[1]).toHaveAttribute("data-component", "desktop_chat_agent-shell_thread_messages_action-error");
     });
 });

@@ -15,6 +15,8 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 }
 
 describe("AgentPartRegistry", () => {
+    const dataComponent = "desktop_chat_tests_agent-part-registry";
+
     it("renders structured entity choices through safe design-system buttons", () => {
         const onEntitySelect = jest.fn();
         const message = {
@@ -25,9 +27,9 @@ describe("AgentPartRegistry", () => {
                 data: { entityType: "employees", prompt: "선택", choices: [{ id: "1", label: "홍길동" }, { id: "2", label: "김영희" }] },
             }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} onEntitySelect={onEntitySelect} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} onEntitySelect={onEntitySelect} />);
         expect(screen.getByRole("button", { name: "홍길동" })).toBeInTheDocument();
-        expect(screen.getByRole("group", { name: "선택" })).toBeInTheDocument();
+        expect(screen.getByRole("group", { name: "선택" })).toHaveAttribute("data-component", `${dataComponent}_entity-choice`);
         fireEvent.click(screen.getByRole("button", { name: "홍길동" }));
         expect(onEntitySelect).toHaveBeenCalledWith("1", "employees");
     });
@@ -38,9 +40,10 @@ describe("AgentPartRegistry", () => {
             role: "assistant",
             parts: [{ type: "data-new-renderer", data: { html: "<script>bad()</script>" } }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} />);
         expect(screen.getByText(/새 형식/)).toBeInTheDocument();
         expect(screen.queryByText("bad()")).not.toBeInTheDocument();
+        expect(screen.getByText(/새 형식/)).toHaveAttribute("data-component", `${dataComponent}_fallback`);
     });
 
     it("keeps navigation parts on internal routes", () => {
@@ -49,7 +52,7 @@ describe("AgentPartRegistry", () => {
             role: "assistant",
             parts: [{ type: "data-navigation", data: { href: "https://untrusted.example", label: "열기" } }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} />);
         expect(screen.queryByRole("link", { name: "열기" })).not.toBeInTheDocument();
         expect(screen.getByText(/새 형식/)).toBeInTheDocument();
     });
@@ -60,9 +63,36 @@ describe("AgentPartRegistry", () => {
             role: "assistant",
             parts: [{ type: "tool-clients_search", state: "output-available", output: { kind: "entity", entity: { id: 1, name: "홍길동" } } }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} />);
         expect(screen.getByText("clients.search 결과")).toBeInTheDocument();
         expect(screen.getByText(/홍길동/)).toBeInTheDocument();
+    });
+
+    it("derives namespaces for every structured renderer and its fallback", () => {
+        const message = {
+            id: "assistant-structured",
+            role: "assistant",
+            parts: [
+                { type: "text", text: "본문" },
+                { type: "data-activity", data: { label: "조회 중", status: "running" } },
+                { type: "data-navigation", data: { href: "/clients", label: "고객 보기" } },
+                { type: "data-error", data: { code: "validation_failed", category: "validation", message: "입력을 확인하세요.", retryable: false } },
+                { type: "data-action-result", data: { actionId: "action-1", status: "succeeded", summary: "완료" } },
+                { type: "data-form-submit", data: { formId: "form-1", values: {} } },
+                { type: "data-attachment", data: { id: "file-1", name: "보고서.pdf", mediaType: "application/pdf", size: 12 } },
+                { type: "data-feedback", data: { messageId: "assistant-structured", prompt: "도움이 되었나요?" } },
+                { type: "data-unknown", data: { html: "<b>unsafe</b>" } },
+            ],
+        } as unknown as UIMessage;
+
+        render(<AgentPartRegistry data-component={dataComponent} message={message} />);
+
+        for (const suffix of ["text", "activity", "navigation", "error", "action-result", "form-submit", "attachment-part", "feedback", "fallback"]) {
+            expect(document.querySelector(`[data-component="${dataComponent}_${suffix}"]`)).toBeInTheDocument();
+        }
+        expect(document.querySelector(`[data-component="${dataComponent}_error_message"]`)).toBeInTheDocument();
+        expect(document.querySelector(`[data-component="${dataComponent}_action-result_summary"]`)).toBeInTheDocument();
+        expect(document.querySelector(`[data-component="${dataComponent}_attachment-part_metadata"]`)).toBeInTheDocument();
     });
 
     it("does not turn action-result URLs into external or javascript links", () => {
@@ -71,7 +101,7 @@ describe("AgentPartRegistry", () => {
             role: "assistant",
             parts: [{ type: "data-action-result", data: { actionId: "a-1", status: "succeeded", summary: "완료", href: "javascript:alert(1)" } }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} />);
         expect(screen.queryByRole("link", { name: "결과 열기" })).not.toBeInTheDocument();
     });
 
@@ -95,8 +125,9 @@ describe("AgentPartRegistry", () => {
                 },
             }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} onApproveAction={onApproveAction} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} onApproveAction={onApproveAction} />);
         const approve = screen.getByRole("button", { name: "승인하고 실행" });
+        expect(screen.getByLabelText("승인 대기 작업")).toHaveAttribute("data-component", `${dataComponent}_action-approval`);
         expect(screen.getByLabelText("승인 대기 작업")).toHaveAttribute("data-source-component", "Card");
 
         expect(approve).toBeDisabled();
@@ -125,11 +156,12 @@ describe("AgentPartRegistry", () => {
                 },
             }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} onSubmitForm={onSubmitForm} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} onSubmitForm={onSubmitForm} />);
 
         const form = screen.getByRole("heading", { name: "프로필" }).closest("form");
-        expect(form).toHaveAttribute("data-component", "desktop_chat_agent-form-request");
+        expect(form).toHaveAttribute("data-component", `${dataComponent}_form-request`);
         expect(form).toHaveAttribute("data-source-component", "FormRequestPart");
+        expect(screen.getByRole("heading", { name: "프로필" })).toHaveAttribute("data-component", `${dataComponent}_form-request_title`);
         expect(screen.getByRole("heading", { name: "프로필" })).toHaveAttribute("data-slot", "title");
         fireEvent.change(screen.getByRole("textbox", { name: "이름" }), { target: { value: "Dana" } });
         fireEvent.change(screen.getByRole("spinbutton", { name: "횟수" }), { target: { value: "3" } });
@@ -153,7 +185,7 @@ describe("AgentPartRegistry", () => {
                 },
             }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} onSubmitForm={onSubmitForm} />);
+        render(<AgentPartRegistry data-component={dataComponent} message={message} onSubmitForm={onSubmitForm} />);
 
         const form = screen.getByRole("heading", { name: "설정" }).closest("form");
         const checkbox = screen.getByRole("checkbox", { name: "사용" });
