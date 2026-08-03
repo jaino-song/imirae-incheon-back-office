@@ -411,7 +411,7 @@ export function FilterPills({
           <button
             key={`skeleton-${item.label}-${index}`}
             type="button"
-            className="filter-pill filter-pill-skeleton"
+            className="filter-pill filter-pill-skeleton skeleton-base"
             data-component={`${dataComponent}_pill`}
             data-loading="true"
             aria-hidden="true"
@@ -819,7 +819,7 @@ export function MenuGroups({
               <div className="menu-right">
                 {row.badgeLoading ? (
                   <span
-                    className="menu-badge menu-badge-skeleton"
+                    className="menu-badge menu-badge-skeleton skeleton-base"
                     data-component={`${rowBase}_badge-skeleton`}
                     style={badgeSkeletonStyle}
                     aria-hidden="true"
@@ -829,7 +829,7 @@ export function MenuGroups({
                 ) : null}
                 {row.valueLoading ? (
                   <span
-                    className="menu-value menu-value-skeleton"
+                    className="menu-value menu-value-skeleton skeleton-base"
                     data-component={`${rowBase}_value-skeleton`}
                     style={valueSkeletonStyle}
                     aria-hidden="true"

@@ -707,11 +707,11 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
 }
 .filter-pill.filter-pill-skeleton {
   border-color: hsl(var(--v3-border));
-  background: hsl(var(--v3-dim-white));
+  background: var(--skeleton-bg);
   color: transparent;
   cursor: default;
   pointer-events: none;
-  animation: pulse 0.8s ease-in-out infinite;
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 .filter-pill.filter-pill-skeleton:disabled {
   opacity: 1;
@@ -1159,10 +1159,10 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   flex: 0 0 auto;
   padding: 0;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
+  background: var(--skeleton-bg);
   color: transparent;
   box-shadow: none;
-  animation: mobile-menu-skeleton-pulse 1.1s ease-in-out infinite;
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 .menu-badge-skeleton {
   width: var(--menu-badge-skeleton-width, 18px);
@@ -1180,16 +1180,6 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   padding: 4px 8px;
   line-height: 1;
   white-space: nowrap;
-}
-
-@keyframes mobile-menu-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 
 .branch-switch-btn {
@@ -2414,26 +2404,10 @@ body.mobile-clients-route .detail-tabs {
 }
 
 [data-slot="skeleton"].service-record-skeleton-loader {
-  background:
-    linear-gradient(
-      90deg,
-      hsl(var(--v3-text-muted) / 0.42) 0%,
-      hsl(var(--v3-text-muted) / 0.2) 42%,
-      hsl(var(--v3-text-muted) / 0.42) 78%
-    );
-  background-size: 220% 100%;
+  background: var(--skeleton-bg);
+  background-image: none;
   opacity: 1;
-  animation: service-record-skeleton-shimmer 1.05s ease-in-out infinite;
-}
-
-@keyframes service-record-skeleton-shimmer {
-  0% {
-    background-position: 120% 0;
-  }
-
-  100% {
-    background-position: -120% 0;
-  }
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
 body.mobile-clients-route [data-slot="mobile-bottom-nav"] {
@@ -4355,6 +4329,13 @@ body.mobile-contracts-route .search-bar input {
   padding-top: 8px;
   box-shadow: 0 1px 0 hsl(var(--v3-border));
 }
+.message-count-skeleton {
+  display: inline-block;
+  width: 2.5rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
 
 /* 카드 하단에 핀되는 load-more 컨트롤. isInitialLoad === true 인 동안만 mount.
    .list-card-scroll 의 flex sibling 이라 scroll 영역의 clientHeight 가 자동으로 load-more 영역을
@@ -4772,11 +4753,6 @@ body.mobile-contracts-route nextjs-portal {
 [data-slot="dashboard-page"] .list-card,
 [data-slot="dashboard-page"] .list-card-scroll {
   min-height: 0 !important;
-}
-
-/* Faster skeleton pulse for bg-v3-dim-white */
-[data-slot="skeleton"].bg-v3-dim-white {
-  animation-duration: 0.7s;
 }
 
 /* ===== Dashboard viewport-fit chain (mirrors clients/prices/contracts pattern) ===== */
@@ -5510,8 +5486,8 @@ body.mobile-dashboard-route [data-slot="dashboard-content"] {
   width: 4ch;
   height: 0.85em;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
-  animation: pulse 1.6s ease-in-out infinite;
+  background: var(--skeleton-bg);
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
 .contracts-loading-row {
@@ -5530,8 +5506,8 @@ body.mobile-dashboard-route [data-slot="dashboard-content"] {
 .contracts-loading-badge {
   flex: 0 0 auto;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
-  animation: pulse 1.6s ease-in-out infinite;
+  background: var(--skeleton-bg);
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
 .contracts-loading-avatar {
@@ -5567,8 +5543,8 @@ body.mobile-dashboard-route [data-slot="dashboard-content"] {
   width: 88px;
   height: 36px;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
-  animation: pulse 1.6s ease-in-out infinite;
+  background: var(--skeleton-bg);
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
 /* The shared sliding indicator owns the active background. Route-specific

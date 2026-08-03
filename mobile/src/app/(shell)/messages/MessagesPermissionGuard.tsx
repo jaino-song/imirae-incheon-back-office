@@ -66,7 +66,7 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
     return (
       <div
         data-component="mobile_messages_permission-guard_loading"
-        className="flex min-h-screen items-center justify-center"
+        className="flex min-h-0 flex-1 items-center justify-center"
         role="status"
         aria-live="polite"
       >

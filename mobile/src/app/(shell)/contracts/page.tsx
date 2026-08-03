@@ -223,12 +223,12 @@ function ContractListLoadingRows() {
           aria-hidden="true"
           key={`contracts-loading-row-${index}`}
         >
-          <span className="contracts-loading-avatar" />
+          <span className="contracts-loading-avatar skeleton-base" />
           <span className="contracts-loading-text">
-            <span className="contracts-loading-name" />
-            <span className="contracts-loading-meta" />
+            <span className="contracts-loading-name skeleton-base" />
+            <span className="contracts-loading-meta skeleton-base" />
           </span>
-          <span className="contracts-loading-badge" />
+          <span className="contracts-loading-badge skeleton-base" />
         </div>
       ))}
     </>
@@ -2200,7 +2200,7 @@ export default function ContractsPage() {
   const totalDocs = totalRows;
   const activeSectionLabel = activeSection === "maternal-contracts" ? "산모 계약서" : "제공기록지";
   const listCount = isContractsLoading ? (
-    <span className="contracts-count-placeholder" aria-label="계약서 불러오는 중" />
+    <span className="contracts-count-placeholder skeleton-base" aria-label="계약서 불러오는 중" />
   ) : (
     `${totalDocs}건`
   );
@@ -2240,7 +2240,7 @@ export default function ContractsPage() {
             loadMore={
               isContractsLoading ? (
                 <div
-                  className="contracts-load-more-placeholder"
+                  className="contracts-load-more-placeholder skeleton-base"
                   data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"
                   aria-hidden="true"
                 />

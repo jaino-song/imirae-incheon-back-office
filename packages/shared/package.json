@@ -9,6 +9,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./api": "./src/api/index.ts",
+        "./tokens/skeleton.css": "./src/tokens/skeleton.css",
         "./tokens/status-badge": "./src/tokens/status-badge.ts",
         "./client/badges": "./src/client/badges.ts",
         "./eformsign/display-name": "./src/eformsign/display-name.ts",
