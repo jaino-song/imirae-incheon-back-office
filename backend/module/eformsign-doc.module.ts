@@ -152,6 +152,7 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         EformsignDocumentMirrorService,
         EformsignMirrorReadinessService,
         ReconcileCompletedMirroredEformsignDocUsecase,
+        LinkMirroredEformsignDocByPhoneUsecase,
     ],
 })
 export class EformsignDocModule {}

@@ -11,6 +11,7 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 
 import { useFormStore } from "@/stores/form-store";
 import { ContractCreationForm } from "../ContractCreationForm";
@@ -102,13 +103,23 @@ function seedValidContractForm(): void {
     });
 }
 
-function renderForm() {
+function renderForm(props: { onProcessingFailureChange?: (failed: boolean) => void } = {}) {
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    function Harness() {
+        const [activeStep, setActiveStep] = useState(CONTRACT_INFO_STEP_INDEX);
+        return (
+            <ContractCreationForm
+                activeStep={activeStep}
+                onActiveStepChange={setActiveStep}
+                onProcessingFailureChange={props.onProcessingFailureChange}
+            />
+        );
+    }
     return render(
         <QueryClientProvider client={queryClient}>
-            <ContractCreationForm activeStep={CONTRACT_INFO_STEP_INDEX} onActiveStepChange={jest.fn()} />
+            <Harness />
         </QueryClientProvider>,
     );
 }
@@ -163,5 +174,22 @@ describe("ContractCreationForm — eformsign iframe fallback on headless failure
         // Outcome is unknown on this path, so staff must still be warned about
         // duplicating a contract that may already have been sent.
         expect(screen.getByText(/전자문서 목록에서 생성 여부를 먼저 확인/)).toBeInTheDocument();
+    });
+
+    it("marks an unfinished run failed when the embedded editor is closed", async () => {
+        mockDispatchHeadless.mockResolvedValue({
+            ok: false,
+            fallbackHint: "iframe",
+            failedStep: "client-started",
+        });
+        const onProcessingFailureChange = jest.fn();
+
+        renderForm({ onProcessingFailureChange });
+        await submitAndExpectIframeOpens();
+        fireEvent.click(screen.getByRole("button", { name: "계약서 작성 닫기" }));
+
+        await waitFor(() => {
+            expect(onProcessingFailureChange).toHaveBeenLastCalledWith(true);
+        });
     });
 });

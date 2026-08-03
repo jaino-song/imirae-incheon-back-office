@@ -26,10 +26,13 @@ export function useMessagesPermissionGuard() {
 export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const isSenderApprovalRoute = pathname?.startsWith("/messages/sender-approval") ?? false;
+  const isSettingsRoute = pathname?.startsWith("/messages/settings") ?? false;
+  const isLegacySenderApprovalRoute =
+    pathname?.startsWith("/messages/sender-approval") ?? false;
   const isReadOnlyRoute = pathname === "/messages/scheduled" || pathname === "/messages/history";
   const isNewMessageRoute = pathname === "/messages/new";
-  const isPermissionExemptRoute = isSenderApprovalRoute || isReadOnlyRoute;
+  const isPermissionExemptRoute =
+    isSettingsRoute || isLegacySenderApprovalRoute || isReadOnlyRoute;
 
   const { data: senderApproval, isLoading } = useQuery({
     queryKey: MESSAGE_SENDER_APPROVAL_QUERY_KEY,
@@ -56,14 +59,14 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
       return;
     }
 
-    router.push("/messages/sender-approval");
+    router.push("/messages/settings");
   };
 
   if (isPermissionCheckLoading) {
     return (
       <div
         data-component="mobile_messages_permission-guard_loading"
-        className="flex min-h-screen items-center justify-center"
+        className="flex min-h-0 flex-1 items-center justify-center"
         role="status"
         aria-live="polite"
       >

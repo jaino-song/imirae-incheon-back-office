@@ -156,7 +156,6 @@ model agent_action {
   @@index([branchId, userId, status], map: "idx_agent_action_owner_status")
   @@index([status, expiresAt], map: "idx_agent_action_status_expires")
   @@index([dedupeExpiresAt], map: "idx_agent_action_dedupe_expires")
-  @@index([effectRecordedAt], map: "idx_agent_action_effect_recorded")
 }
 
 model agent_trace {

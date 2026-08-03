@@ -32,13 +32,13 @@ export default function FeedbackDetailPage() {
       <div data-component="desktop_admin-feedback_detail_loading" className="min-h-screen bg-muted/50 p-8">
         <div data-component="desktop_admin-feedback_detail_loading_content" className="max-w-4xl mx-auto">
           <div data-component="desktop_admin-feedback_detail_loading_content_skeleton" className="animate-pulse">
-            <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_heading" className="h-8 bg-muted rounded w-32 mb-8"></div>
+            <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_heading" className="skeleton-base h-8 rounded w-32 mb-8"></div>
             <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card" className="bg-card rounded-lg shadow p-6 mb-6">
-              <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_title" className="h-6 bg-muted rounded w-48 mb-4"></div>
+              <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_title" className="skeleton-base h-6 rounded w-48 mb-4"></div>
               <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_lines" className="space-y-3">
-                <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_lines_line" className="h-4 bg-muted rounded w-full"></div>
-                <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_lines_line" className="h-4 bg-muted rounded w-3/4"></div>
-                <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_lines_line" className="h-4 bg-muted rounded w-5/6"></div>
+                <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_lines_line" className="skeleton-base h-4 rounded w-full"></div>
+                <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_lines_line" className="skeleton-base h-4 rounded w-3/4"></div>
+                <div data-component="desktop_admin-feedback_detail_loading_content_skeleton_card_lines_line" className="skeleton-base h-4 rounded w-5/6"></div>
               </div>
             </div>
           </div>

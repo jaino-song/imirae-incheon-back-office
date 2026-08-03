@@ -1,0 +1,35 @@
+/* BabyJamJam Admin shared skeleton token and motion contract. */
+:root {
+  --skeleton-bg: hsl(214 18% 88%);
+  --skeleton-pulse-duration: 2s;
+}
+
+.dark {
+  --skeleton-bg: hsl(214 20% 28%);
+}
+
+@keyframes bjj-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.65;
+  }
+}
+
+[data-slot="skeleton"],
+.skeleton-base {
+  background-color: var(--skeleton-bg) !important;
+  background-image: none !important;
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="skeleton"],
+  .skeleton-base {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}

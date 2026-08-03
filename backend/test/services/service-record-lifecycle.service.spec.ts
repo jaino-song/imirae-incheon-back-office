@@ -91,6 +91,36 @@ describe("ServiceRecordLifecycleService", () => {
         expect(prisma.service_record_day.deleteMany).not.toHaveBeenCalled();
     });
 
+    it("derives required sessions from the actual service period instead of voucher duration", async () => {
+        const record = { id: "case-1" };
+        const prisma = {
+            client: {
+                findUnique: jest.fn().mockResolvedValue({
+                    id: 1,
+                    branchId: "branch-1",
+                    startDate: date("2026-08-03"),
+                    endDate: date("2026-08-10"),
+                    duration: 15,
+                    serviceStatus: "in_progress",
+                    employeeSchedules: [],
+                }),
+            },
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue(null),
+                upsert: jest.fn().mockResolvedValue(record),
+            },
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+        jest.spyOn(service, "recompute").mockResolvedValue(record as never);
+
+        await service.ensureForClient(1);
+
+        expect(prisma.service_record_case.upsert).toHaveBeenCalledWith(expect.objectContaining({
+            create: expect.objectContaining({ requiredSessionCount: 6 }),
+            update: expect.objectContaining({ requiredSessionCount: 6 }),
+        }));
+    });
+
     it("persists a contract end date and aggregate refresh in one transaction", async () => {
         const transactionClient = {
             service_record_case: {
@@ -454,7 +484,7 @@ describe("ServiceRecordLifecycleService", () => {
         ]));
     });
 
-    it("rejects an end date before any recorded row, including a draft", async () => {
+    it("allows shortening the period while preserving saved rows outside it", async () => {
         const prisma = {
             service_record_case: {
                 findUnique: jest.fn().mockResolvedValue({
@@ -468,10 +498,30 @@ describe("ServiceRecordLifecycleService", () => {
         };
         const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
 
-        await expectConflict(service.validatePeriodChange({
+        await expect(service.validatePeriodChange({
             clientId: 1,
             endDate: date("2026-07-11"),
-        }), "END_DATE_BEFORE_LAST_SUBMITTED_SESSION");
+        })).resolves.toBeUndefined();
+    });
+
+    it("rejects shortening the period before a locked service day", async () => {
+        const prisma = {
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue({
+                    status: SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
+                    startDate: date("2026-07-01"),
+                    endDate: date("2026-07-20"),
+                    requiredSessionCount: 10,
+                    days: [{ serviceDate: date("2026-07-12"), locked: true }],
+                }),
+            },
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expectConflict(
+            service.validatePeriodChange({ clientId: 1, endDate: date("2026-07-11") }),
+            "SERVICE_RECORD_END_DATE_BEFORE_LOCKED_SESSION",
+        );
     });
 
     it("does not allow clearing or reducing the contracted session count after recording starts", async () => {
@@ -498,15 +548,15 @@ describe("ServiceRecordLifecycleService", () => {
         );
     });
 
-    it("moves a complete record to READY_TO_FINALIZE before its due time", async () => {
-        jest.useFakeTimers({ now: new Date("2026-07-02T00:00:00.000Z") });
+    it("moves a complete in-period record to READY_TO_FINALIZE while preserving outside rows", async () => {
+        jest.useFakeTimers({ now: new Date("2026-08-10T00:00:00.000Z") });
         const record = {
             id: "case-1",
             status: SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
-            startDate: date("2026-07-01"),
-            endDate: date("2026-07-12"),
-            requiredSessionCount: 2,
-            finalizationDueAt: new Date("2026-07-12T11:00:00.000Z"),
+            startDate: date("2026-08-03"),
+            endDate: date("2026-08-10"),
+            requiredSessionCount: 15,
+            finalizationDueAt: new Date("2026-08-10T11:00:00.000Z"),
             completedAt: null,
             momName: "산모",
             momBirth: "900101",
@@ -516,8 +566,19 @@ describe("ServiceRecordLifecycleService", () => {
             babyWeight: "3.2",
             assignments: [{ schedule: { replaced: false } }],
             days: [
-                { locked: true, momApproval: "approved" },
-                { locked: true, momApproval: "approved" },
+                ...["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-10"]
+                    .map((serviceDate, index) => ({
+                        caseSessionIndex: index + 1,
+                        serviceDate: date(serviceDate),
+                        locked: true,
+                        momApproval: "approved",
+                    })),
+                {
+                    caseSessionIndex: 7,
+                    serviceDate: date("2026-08-11"),
+                    locked: true,
+                    momApproval: "approved",
+                },
             ],
         };
         const prisma = {
@@ -534,6 +595,7 @@ describe("ServiceRecordLifecycleService", () => {
             data: expect.objectContaining({
                 status: SERVICE_RECORD_CASE_STATUS.READY_TO_FINALIZE,
                 completedAt: expect.any(Date),
+                requiredSessionCount: 6,
             }),
         }));
     });

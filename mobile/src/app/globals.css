@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@babyjamjam/shared/tokens/skeleton.css";
 
 /* ========================================
    Design System Color Variables (HSL)
@@ -1284,7 +1285,7 @@ body {
 
   .animate-pulse {
     animation: none !important;
-    opacity: 0.6;
+    opacity: 1;
   }
 }
 

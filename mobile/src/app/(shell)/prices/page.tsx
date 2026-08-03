@@ -244,7 +244,7 @@ export default function PricesPage() {
                         <button
                           key={`year-skeleton-${index}`}
                           type="button"
-                          className="filter-pill filter-pill-skeleton"
+                          className="filter-pill filter-pill-skeleton skeleton-base"
                           data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter_pill"
                           data-loading="true"
                           aria-hidden="true"

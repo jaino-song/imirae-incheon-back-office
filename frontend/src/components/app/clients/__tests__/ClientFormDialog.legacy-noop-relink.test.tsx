@@ -126,7 +126,7 @@ describe("ClientForm legacy no-op relink", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps due-date validation when any legacy client field changes", async () => {
+  it("allows a changed legacy client without a due date", async () => {
     const { rerender } = render(
       <ClientFormPanel
         open
@@ -156,9 +156,15 @@ describe("ClientForm legacy no-op relink", () => {
     );
 
     const saveButton = screen.getByRole("button", { name: "저장" });
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
-    expect(mockUpdateClient).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(mockUpdateClient).toHaveBeenCalledWith(expect.objectContaining({
+        id: legacyClient.id,
+        dto: expect.objectContaining({ dueDate: null }),
+      }));
+    });
   });
 
   it("does not reuse another legacy client's no-op snapshot during a client switch", async () => {
@@ -248,7 +254,7 @@ describe("ClientForm legacy no-op relink", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("requires normal validation after a user edits an automatically hydrated price", async () => {
+  it("submits after a user edits an automatically hydrated price without optional dates", async () => {
     mockOutOfPocketPriceInfos = [
       { id: 1, duration: 5, fullPrice: "815000" },
     ];
@@ -282,9 +288,15 @@ describe("ClientForm legacy no-op relink", () => {
     );
 
     const saveButton = screen.getByRole("button", { name: "저장" });
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
-    expect(mockUpdateClient).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(mockUpdateClient).toHaveBeenCalledWith(expect.objectContaining({
+        id: clientWithAutoPrice.id,
+        dto: expect.objectContaining({ dueDate: null, birthDate: null }),
+      }));
+    });
   });
 
   it("allows an unchanged international-format phone to reach the backend relink", async () => {
@@ -318,13 +330,20 @@ describe("ClientForm legacy no-op relink", () => {
     });
   });
 
-  it("does not treat clearing an existing due date as a no-op", async () => {
-    render(
+  it("allows clearing the optional due and birth dates", async () => {
+    const panelDataComponent = "desktop_clients_sections_section-content_list-section_split-layout_detail-panel_form-panel";
+    const clientWithOptionalDates = {
+      ...legacyClient,
+      dueDate: "2026-08-01",
+      birthDate: "2026-08-02",
+    };
+    const { rerender } = render(
       <ClientFormPanel
         open
         activeStep={0}
-        client={{ ...legacyClient, dueDate: "2026-08-01" }}
+        client={clientWithOptionalDates}
         onClose={jest.fn()}
+        data-component={panelDataComponent}
       />,
     );
 
@@ -332,11 +351,40 @@ describe("ClientForm legacy no-op relink", () => {
       await Promise.resolve();
     });
 
-    fireEvent.change(screen.getByLabelText(/출산 예정일/), {
+    const dueDateInput = screen.getByLabelText(/출산 예정일/);
+    const birthDateInput = screen.getByLabelText(/출산일/);
+    expect(dueDateInput).not.toBeRequired();
+    expect(birthDateInput).not.toBeRequired();
+    expect(document.querySelector(`[data-component="${panelDataComponent}_due-date-input"]`)).toBeInTheDocument();
+    expect(document.querySelector(`[data-component="${panelDataComponent}_birth-date-input"]`)).toBeInTheDocument();
+
+    fireEvent.change(dueDateInput, {
+      target: { value: "" },
+    });
+    fireEvent.change(birthDateInput, {
       target: { value: "" },
     });
 
-    expect(screen.getByRole("button", { name: "다음" })).toBeDisabled();
-    expect(mockUpdateClient).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "다음" })).toBeEnabled();
+
+    rerender(
+      <ClientFormPanel
+        open
+        activeStep={3}
+        client={clientWithOptionalDates}
+        onClose={jest.fn()}
+        data-component={panelDataComponent}
+      />,
+    );
+
+    const saveButton = screen.getByRole("button", { name: "저장" });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockUpdateClient).toHaveBeenCalledWith(expect.objectContaining({
+        id: legacyClient.id,
+        dto: expect.objectContaining({ dueDate: null, birthDate: null }),
+      }));
+    });
   });
 });

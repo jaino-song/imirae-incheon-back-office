@@ -562,6 +562,11 @@ export const ContractCreationForm = ({
   };
 
   const handleDialogClose = () => {
+    setCreationProgress((current) =>
+      current.step !== null && !current.completed && !current.failed
+        ? { ...current, failed: true }
+        : current,
+    );
     setIsDialogOpen(false);
     setIsSubmitting(false);
   };
@@ -845,7 +850,7 @@ export const ContractCreationForm = ({
               birthday: birthday || undefined,
               address: address || null,
               dueDate: normalizedDueDate || undefined,
-              birthDate: normalizedBirthDate || undefined,
+              birthDate: normalizedBirthDate || null,
               type: voucherType || null,
               duration: parseOptionalInteger(voucherDuration),
               fullPrice: fullPrice || null,
@@ -1790,7 +1795,14 @@ export const ContractCreationForm = ({
             <DialogDescription className="sr-only">
               전자문서 작성 화면과 생성 진행 상태를 표시합니다.
             </DialogDescription>
-            <Button type="button" variant="ghost" size="icon" onClick={handleDialogClose} className="h-8 w-8">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="계약서 작성 닫기"
+              onClick={handleDialogClose}
+              className="h-8 w-8"
+            >
               <X className="h-4 w-4" />
             </Button>
           </DialogHeader>

@@ -128,6 +128,12 @@ function parseTemplateMatch(value: string | undefined): TemplateMatch {
     throw new BadRequestException("templateMatch must be include or exclude");
 }
 
+function parseDisplayStatus(value: string | undefined): EformsignDocDisplayStatus | undefined {
+    if (value === undefined || value === "") return undefined;
+    if (value === "signed" || value === "review") return value;
+    throw new BadRequestException("displayStatus must be signed or review");
+}
+
 function shouldExcludeSnapshotTombstones(
     scope: string,
     excludeDeleted: boolean | undefined,
@@ -211,6 +217,7 @@ export class EformsignController {
         statusCategory?: DocumentStatusCategory;
         search?: string;
         excludeDeleted?: boolean;
+        displayStatus?: EformsignDocDisplayStatus;
     }) {
         // Through the same snapshot the API path uses. Not for the vendor calls it saves —
         // there are none here — but because pagination has to walk one generation: a
@@ -468,6 +475,7 @@ export class EformsignController {
         @Query("statusCategory") statusCategoryValue?: string,
         @Query("search") search?: string,
         @Query("excludeDeleted") excludeDeletedValue?: string,
+        @Query("displayStatus") displayStatusValue?: string,
     ) {
         try {
             const parsedLimit = parseInteger(limit, "limit", { defaultValue: 100, min: 1, max: 100 });
@@ -475,6 +483,7 @@ export class EformsignController {
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
             const excludeDeleted = excludeDeletedValue === "true";
+            const displayStatus = parseDisplayStatus(displayStatusValue);
             const branchId = tenant.branchId ?? "";
 
             const isHeadquarters = await this.isHeadquartersBranch(branchId);
@@ -489,6 +498,7 @@ export class EformsignController {
                 statusCategory,
                 search,
                 excludeDeleted,
+                displayStatus,
             });
         } catch (error) {
             throwHttpOrInternalError(error);

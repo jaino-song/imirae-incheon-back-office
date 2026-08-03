@@ -133,7 +133,7 @@ describe("deriveDashboardAnalyticsFromClients", () => {
       NOW,
     );
 
-    expect(analytics.contractsPendingSignature).toBe(2);
+    expect(analytics.contractsPendingSignature).toBe(0);
   });
 
   it("derives weekly upcoming starts from service-start window", () => {

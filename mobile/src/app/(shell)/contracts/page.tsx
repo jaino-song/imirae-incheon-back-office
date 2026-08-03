@@ -223,12 +223,12 @@ function ContractListLoadingRows() {
           aria-hidden="true"
           key={`contracts-loading-row-${index}`}
         >
-          <span className="contracts-loading-avatar" />
+          <span className="contracts-loading-avatar skeleton-base" />
           <span className="contracts-loading-text">
-            <span className="contracts-loading-name" />
-            <span className="contracts-loading-meta" />
+            <span className="contracts-loading-name skeleton-base" />
+            <span className="contracts-loading-meta skeleton-base" />
           </span>
-          <span className="contracts-loading-badge" />
+          <span className="contracts-loading-badge skeleton-base" />
         </div>
       ))}
     </>
@@ -265,6 +265,11 @@ const FILTER_TO_STATUS_CATEGORY: Record<FilterKey, EformsignStatusCategoryParam 
   "기간 만료": "expired",
   "알 수 없음": "unknown",
 };
+
+const FILTER_TO_DISPLAY_STATUS = {
+  "서명 완료": "signed",
+  "검토 필요": "review",
+} as const;
 
 const FILTER_BY_CATEGORY: Record<ContractCategory, FilterKey> = {
   drafting: "서명 대기",
@@ -1938,6 +1943,9 @@ export default function ContractsPage() {
     && (activeSection === "maternal-contracts" || serviceRecordTemplateIds.length > 0);
   const debouncedSearchQuery = useDebouncedValue(searchQuery.trim(), 300);
   const statusCategoryParam = FILTER_TO_STATUS_CATEGORY[activeFilter];
+  const displayStatusParam = activeFilter in FILTER_TO_DISPLAY_STATUS
+    ? FILTER_TO_DISPLAY_STATUS[activeFilter as keyof typeof FILTER_TO_DISPLAY_STATUS]
+    : null;
 
   const {
     documents: paginatedDocuments,
@@ -1952,6 +1960,7 @@ export default function ContractsPage() {
     isLoadMoreError,
   } = useInfiniteContracts({
     statusCategory: statusCategoryParam,
+    displayStatus: displayStatusParam,
     search: debouncedSearchQuery,
     templateId: serviceRecordTemplateId,
     templateMatch: sectionTemplateMatch,
@@ -2200,7 +2209,7 @@ export default function ContractsPage() {
   const totalDocs = totalRows;
   const activeSectionLabel = activeSection === "maternal-contracts" ? "산모 계약서" : "제공기록지";
   const listCount = isContractsLoading ? (
-    <span className="contracts-count-placeholder" aria-label="계약서 불러오는 중" />
+    <span className="contracts-count-placeholder skeleton-base" aria-label="계약서 불러오는 중" />
   ) : (
     `${totalDocs}건`
   );
@@ -2240,7 +2249,7 @@ export default function ContractsPage() {
             loadMore={
               isContractsLoading ? (
                 <div
-                  className="contracts-load-more-placeholder"
+                  className="contracts-load-more-placeholder skeleton-base"
                   data-component="mobile_contracts_detail-sheet_stack_list-page_content_list-card_load-more_placeholder"
                   aria-hidden="true"
                 />

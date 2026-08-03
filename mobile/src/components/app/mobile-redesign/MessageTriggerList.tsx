@@ -207,7 +207,7 @@ export function MessageTriggerList({
                 <div className="trigger-meta" data-component={sub("meta")}>
                   <span className={`send-stat ${isLogsError || (row.failedCount ?? 0) > 0 ? "fail" : ""}`}>
                     {isLogsLoading ? (
-                      <span className="message-count-skeleton" aria-label="발송 건수 집계 중" />
+                      <span data-slot="skeleton" className="message-count-skeleton" aria-label="발송 건수 집계 중" />
                     ) : isLogsError ? (
                       "집계 실패"
                     ) : (
