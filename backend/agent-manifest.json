@@ -347,26 +347,7 @@
       "approvalPolicy": "strong",
       "idempotencyPolicy": "provider-key",
       "sourceFile": "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider.ts",
-      "sourceDigest": "0e41e6939e317ffc743c9380ff06c5b4492affd0ed1943a021ce9b3fe7a265f4"
-    },
-    {
-      "name": "contracts.prepareDispatch",
-      "domain": "contracts",
-      "version": "1.0.0",
-      "description": "Prepare a contract dispatch for approval",
-      "risk": "reversible-write",
-      "requiredRoles": [
-        "owner",
-        "admin",
-        "manager"
-      ],
-      "renderer": "action-proposal",
-      "flagKey": "agent.capability.contracts.prepareDispatch",
-      "sideEffect": true,
-      "approvalPolicy": "strong",
-      "idempotencyPolicy": "action-id",
-      "sourceFile": "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider.ts",
-      "sourceDigest": "0e41e6939e317ffc743c9380ff06c5b4492affd0ed1943a021ce9b3fe7a265f4"
+      "sourceDigest": "4a7803584917f96c6c32771b232f3f9f53dabb603b27dcbd3d1e59de57fd2f85"
     },
     {
       "name": "contracts.status",
@@ -754,7 +735,7 @@
       "approvalPolicy": "strong",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/notification/notification-agent-capabilities.provider.ts",
-      "sourceDigest": "b0fd725dc4b90ae06d58140e35f0d8892a6533c8b92062d1bb13dd1d95bc8b41"
+      "sourceDigest": "6b3b91d0e452694e3e47f18ae8ace5864b630da01db6f25b64ab3330cfb2a5f1"
     },
     {
       "name": "policy.retrieve",
