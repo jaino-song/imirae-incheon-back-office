@@ -227,6 +227,32 @@ export interface EformsignDocClientSummary {
   providerName: string | null;
 }
 
+/**
+ * 계약서 detail payload에서 추출한 고객 등록 후보.
+ * extracted=false 폴백은 이름을 채우지 않는다 (문서 컬럼 이름은 관리사/직원명일 수
+ * 있어 신뢰 불가); phone만 폴백된다.
+ * 날짜는 모두 YYYY-MM-DD, phone은 대시 포함 표기(예: 010-1234-5678).
+ */
+export interface EformsignContractClientCandidateResponse {
+  documentId: string;
+  extracted: boolean;
+  name: string | null;
+  phone: string | null;
+  address: string | null;
+  birthday: string | null;
+  dueDate: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  type: string | null;
+  duration: number | null;
+  fullPrice: string | null;
+  grant: string | null;
+  actualPrice: string | null;
+  careCenter: boolean | null;
+  voucherClient: boolean;
+  breastPump: boolean;
+}
+
 export type EformsignDocumentKind = "contract" | "service_record_snapshot";
 
 export interface CreateEformsignDocRecordRequest {

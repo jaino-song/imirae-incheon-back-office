@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 import {
     documentCustomerNameValue,
     isRecord,
@@ -23,6 +25,14 @@ export interface EformsignContractClientCandidate {
     careCenter: boolean | null;
     voucherClient: boolean;
     breastPump: boolean;
+}
+
+export function toEformsignDocumentDetail(
+    value: Prisma.JsonValue | null,
+): EformsignApiDocumentResponse | null {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? (value as unknown as EformsignApiDocumentResponse)
+        : null;
 }
 
 const FIELD_ID_KEYS = [
