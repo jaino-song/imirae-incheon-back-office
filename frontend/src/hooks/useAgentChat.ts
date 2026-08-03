@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DefaultChatTransport } from "ai";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
@@ -52,6 +52,7 @@ export function useAgentShellEnabled(): boolean | null {
 export function useAgentChat() {
     const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
     const [actionError, setActionError] = useState<AgentClientError | null>(null);
+    const restoredSession = useRef(false);
 
     const refreshSessions = useCallback(async () => {
         const response = await fetch("/api/ai/agent/sessions", { credentials: "same-origin" });
@@ -85,14 +86,14 @@ export function useAgentChat() {
         onFinish: () => { void refreshSessions(); },
     });
 
-    useEffect(() => {
-        const timer = window.setTimeout(() => { void refreshSessions(); }, 0);
-        return () => window.clearTimeout(timer);
-    }, [refreshSessions]);
-
     const selectSession = useCallback(async (sessionId: string) => {
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(sessionId)}`, { credentials: "same-origin" });
-        if (!response.ok) return;
+        if (!response.ok) {
+            if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === sessionId) {
+                window.sessionStorage.removeItem(AGENT_SESSION_KEY);
+            }
+            return;
+        }
         const session = await response.json() as AgentSessionSummary;
         if (typeof window !== "undefined") window.sessionStorage.setItem(AGENT_SESSION_KEY, session.id);
         chat.setMessages(session.messages ?? []);
@@ -106,6 +107,17 @@ export function useAgentChat() {
         const session = await response.json() as AgentSessionSummary;
         chat.setMessages(session.messages ?? []);
     }, [chat]);
+
+    useEffect(() => {
+        if (restoredSession.current) return;
+        restoredSession.current = true;
+        const timer = window.setTimeout(() => {
+            void refreshSessions();
+            const sessionId = window.sessionStorage.getItem(AGENT_SESSION_KEY);
+            if (sessionId) void selectSession(sessionId).catch(() => window.sessionStorage.removeItem(AGENT_SESSION_KEY));
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [refreshSessions, selectSession]);
 
     const resolveActionError = useCallback(async (actionId: string, fallbackCode: string, fallbackMessage: string) => {
         await refreshCurrentSession().catch(() => undefined);

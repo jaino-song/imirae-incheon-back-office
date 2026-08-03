@@ -13,7 +13,15 @@ import { AgentActionCertainFailureError } from "application/agent/action-coordin
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
-const DateInput = z.string().datetime({ offset: true }).nullable().optional();
+const DateOnlyInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}, "Invalid calendar date");
+const DateInputValue = z.union([
+    DateOnlyInput,
+    z.string().datetime({ offset: true }),
+]);
+const DateInput = DateInputValue.nullable().optional();
 const ClientWriteFields = z.object({
     name: z.string().trim().min(1).max(120),
     address: z.string().trim().max(300).nullable().optional(),
@@ -58,11 +66,14 @@ const CLIENT_UPDATE_FORM_FIELDS: AgentFormField[] = [
 ];
 
 function date(value: string | null | undefined): Date | null | undefined {
-    return value === undefined ? undefined : value === null ? null : new Date(value);
+    if (value === undefined || value === null) return value;
+    return /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T00:00:00+09:00`)
+        : new Date(value);
 }
 
 function sameClientValue(actual: unknown, expected: unknown): boolean {
-    if (actual instanceof Date && typeof expected === "string") return actual.toISOString() === new Date(expected).toISOString();
+    if (actual instanceof Date && typeof expected === "string") return actual.toISOString() === date(expected)?.toISOString();
     return JSON.stringify(actual) === JSON.stringify(expected);
 }
 

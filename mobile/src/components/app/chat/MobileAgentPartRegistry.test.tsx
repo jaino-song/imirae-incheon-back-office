@@ -1,8 +1,29 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { MobileAgentPartRegistry } from "./MobileAgentPartRegistry";
 
 describe("MobileAgentPartRegistry", () => {
+    it("preserves the entity domain when selecting a choice", () => {
+        const onEntitySelect = jest.fn();
+        render(<MobileAgentPartRegistry
+            part={{
+                type: "data-entity-choice",
+                data: {
+                    entityType: "employees",
+                    prompt: "직원 선택",
+                    choices: [{ id: "employee-1", label: "김직원" }, { id: "employee-2", label: "이직원" }],
+                },
+            }}
+            onEntitySelect={onEntitySelect}
+            onApproveAction={jest.fn()}
+            onRejectAction={jest.fn()}
+            onSubmitForm={jest.fn()}
+        />);
+
+        fireEvent.click(screen.getByRole("button", { name: "김직원" }));
+        expect(onEntitySelect).toHaveBeenCalledWith("employee-1", "employees");
+    });
+
     it("renders sanitized terminal failure details for operator recovery", () => {
         render(<MobileAgentPartRegistry
             part={{

@@ -1,21 +1,24 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { UIMessage } from "ai";
 
 import { AgentPartRegistry } from "./AgentPartRegistry";
 
 describe("AgentPartRegistry", () => {
     it("renders structured entity choices through safe design-system buttons", () => {
+        const onEntitySelect = jest.fn();
         const message = {
             id: "assistant-1",
             role: "assistant",
             parts: [{
                 type: "data-entity-choice",
-                data: { entityType: "client", prompt: "선택", choices: [{ id: "1", label: "홍길동" }, { id: "2", label: "김영희" }] },
+                data: { entityType: "employees", prompt: "선택", choices: [{ id: "1", label: "홍길동" }, { id: "2", label: "김영희" }] },
             }],
         } as unknown as UIMessage;
-        render(<AgentPartRegistry message={message} />);
+        render(<AgentPartRegistry message={message} onEntitySelect={onEntitySelect} />);
         expect(screen.getByRole("button", { name: "홍길동" })).toBeInTheDocument();
         expect(screen.getByRole("group", { name: "선택" })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "홍길동" }));
+        expect(onEntitySelect).toHaveBeenCalledWith("1", "employees");
     });
 
     it("falls back safely for unknown parts instead of interpreting HTML", () => {

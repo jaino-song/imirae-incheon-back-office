@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { z } from "zod";
 
 import { AgentActionUncertainError } from "application/agent/action-coordinator.service";
@@ -64,6 +64,16 @@ const SCHEDULED_SMS_FIELDS: AgentFormField[] = [
     { name: "scheduledDate", label: "예약 날짜", type: "date", required: true },
     { name: "scheduledTime", label: "예약 시간", type: "text", required: true },
 ];
+const AUTOMATION_RULE_FIELDS: AgentFormField[] = [
+    { name: "name", label: "규칙 이름", type: "text", required: true },
+    { name: "isActive", label: "활성 상태", type: "boolean" },
+    { name: "eventType", label: "이벤트 유형", type: "text", required: true },
+    { name: "offsetType", label: "실행 시점 유형", type: "text", required: true },
+    { name: "offsetDays", label: "기준일 차이", type: "number" },
+    { name: "recipientType", label: "수신자 유형", type: "text", required: true },
+    { name: "templateKey", label: "템플릿 키", type: "text", required: true },
+];
+const AUTOMATION_ID_FIELD: AgentFormField = { name: "id", label: "자동화 규칙 ID", type: "text", required: true };
 
 function maskedReceiver(value: string): string {
     const digits = value.replace(/\D/g, "");
@@ -244,6 +254,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         return {
             meta: { ...common, domain: "automation", name: "automation.create", description: "Create a message automation rule after strong approval", risk: "external-side-effect", renderer: "action-proposal", flagKey: "agent.capability.automation.create" } as CapabilityDefinition["meta"],
             inputSchema: AutomationRuleBaseSchema, outputSchema: AutomationRuleOutputSchema,
+            formFields: AUTOMATION_RULE_FIELDS,
             inspect: async (_context, rawInput) => {
                 const input = AutomationRuleBaseSchema.parse(rawInput);
                 return { title: "메시지 자동화 생성", summary: `${input.name} 규칙을 ${input.isActive ? "활성" : "비활성"} 상태로 생성합니다.`, provider: "Message automation scheduler", estimatedCost: "활성 규칙이 발송하는 각 문자에 SMS/LMS 요금이 발생할 수 있습니다." };
@@ -290,8 +301,10 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             try {
                 await this.messageTriggerService.getRule(context.principal.branchId, input.id);
                 return { status: "uncertain" as const, reason: "Automation rule still exists" };
-            } catch {
-                return { status: "succeeded" as const, result: { status: "deleted", id: input.id } };
+            } catch (error) {
+                return error instanceof NotFoundException
+                    ? { status: "succeeded" as const, result: { status: "deleted", id: input.id } }
+                    : { status: "uncertain" as const, reason: "Automation rule lookup failed" };
             }
         };
         return capability;
@@ -307,6 +320,11 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         const capability: CapabilityDefinition = {
             meta: { ...common, domain: "automation", name, description, risk: "external-side-effect", renderer: "action-proposal", flagKey: `agent.capability.${name}` } as CapabilityDefinition["meta"],
             inputSchema, outputSchema: AutomationRuleOutputSchema,
+            formFields: name === "automation.update"
+                ? [AUTOMATION_ID_FIELD, ...AUTOMATION_RULE_FIELDS.map((field) => ({ ...field, required: false }))]
+                : name === "automation.setActive"
+                    ? [AUTOMATION_ID_FIELD, { name: "isActive", label: "활성 상태", type: "boolean", required: true }]
+                    : [AUTOMATION_ID_FIELD],
             inspect: async (context, rawInput) => {
                 const input = inputSchema.parse(rawInput);
                 const rule = await this.messageTriggerService.getRule(context.principal.branchId, input.id);
@@ -363,7 +381,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 id: ruleId,
                 branchId: context.principal.branchId,
                 name: ruleName,
-                isActive: true,
+                isActive: false,
                 eventType: "CLIENT_CREATED",
                 offsetType: "IMMEDIATE",
                 offsetDays: 0,
@@ -372,7 +390,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 isDefault: false,
                 jobsStale: false,
             },
-            update: { isActive: true },
+            update: { isActive: false },
         });
         return this.jobRepository.upsertPending(MessageTriggerJobEntity.create({
             branchId: context.principal.branchId,

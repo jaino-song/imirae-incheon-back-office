@@ -10,12 +10,14 @@ import type {
     CreateAgentSessionInput,
 } from "domain/entities/agent-session.entity";
 import type {
+    AgentSessionDeleteResult,
     AgentSessionPatch,
     IAgentSessionRepository,
 } from "domain/repositories/agent-session.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 type AgentSessionRecord = Prisma.agent_sessionGetPayload<{ include: { messages: true } }>;
+const NONTERMINAL_ACTION_STATUSES = ["proposed", "approved", "executing", "uncertain"];
 
 function toEntity(record: AgentSessionRecord): AgentSessionEntity {
     return {
@@ -25,7 +27,7 @@ function toEntity(record: AgentSessionRecord): AgentSessionEntity {
         archivedAt: record.archivedAt ?? null,
         selectedEntities: record.selectedEntities as Record<string, unknown>,
         messages: record.messages
-            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
             .map((message) => ({
                 id: message.id,
                 role: message.role as BjjUIMessage["role"],
@@ -94,9 +96,17 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
         return record ? toEntity(record) : null;
     }
 
-    async deleteOwned(id: string, owner: AgentSessionOwner): Promise<boolean> {
-        const result = await this.prisma.agent_session.deleteMany({ where: { id, ...owner } });
-        return result.count === 1;
+    async deleteOwned(id: string, owner: AgentSessionOwner): Promise<AgentSessionDeleteResult> {
+        const result = await this.prisma.agent_session.deleteMany({
+            where: {
+                id,
+                ...owner,
+                actions: { none: { status: { in: NONTERMINAL_ACTION_STATUSES } } },
+            },
+        });
+        if (result.count === 1) return "deleted";
+        const session = await this.prisma.agent_session.findFirst({ where: { id, ...owner }, select: { id: true } });
+        return session ? "blocked" : "not_found";
     }
 
     async appendMessages(
@@ -105,29 +115,35 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
         messages: BjjUIMessage[],
         traceId?: string,
     ): Promise<boolean> {
-        const session = await this.prisma.agent_session.findFirst({ select: { id: true }, where: { id, ...owner } });
+        const session = await this.prisma.agent_session.findFirst({ select: { id: true, title: true }, where: { id, ...owner } });
         if (!session) return false;
         const title = this.titleFromMessages(messages);
-
-        await this.prisma.$transaction([
+        const timestamp = Date.now();
+        const operations: Prisma.PrismaPromise<unknown>[] = [
             this.prisma.agent_message.createMany({
-                data: messages.map((message) => ({
+                data: messages.map((message, index) => ({
                     id: message.id || randomUUID(),
                     sessionId: id,
                     role: message.role,
                     parts: message.parts as unknown as Prisma.InputJsonValue,
                     traceId,
+                    createdAt: new Date(timestamp + index),
                 })),
                 skipDuplicates: true,
             }),
             this.prisma.agent_session.update({
                 where: { id },
-                data: {
-                    updatedAt: new Date(),
-                    ...(title ? { title } : {}),
-                },
+                data: { updatedAt: new Date() },
             }),
-        ]);
+        ];
+        if (title && !session.title) {
+            operations.push(this.prisma.agent_session.updateMany({
+                where: { id, title: null },
+                data: { title },
+            }));
+        }
+
+        await this.prisma.$transaction(operations);
         return true;
     }
 
@@ -142,6 +158,11 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
     }
 
     async deleteExpired(now: Date): Promise<number> {
-        return (await this.prisma.agent_session.deleteMany({ where: { expiresAt: { lte: now } } })).count;
+        return (await this.prisma.agent_session.deleteMany({
+            where: {
+                expiresAt: { lte: now },
+                actions: { none: { status: { in: NONTERMINAL_ACTION_STATUSES } } },
+            },
+        })).count;
     }
 }

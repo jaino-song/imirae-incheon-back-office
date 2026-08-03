@@ -84,6 +84,26 @@ describe("ActionCoordinatorService", () => {
         }
     });
 
+    it("does not reuse a proposal from another session", async () => {
+        const definition = capability();
+        const records = new Map<string, ReturnType<typeof actionRecord>>();
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockImplementation(async ({ where }) => records.get(where.requestDedupeKey) ?? null),
+            create: jest.fn().mockImplementation(async ({ data }) => {
+                const created = actionRecord({ ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null });
+                records.set(data.requestDedupeKey, created);
+                return created;
+            }),
+        } };
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+
+        const first = await service.propose({ sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
+        const second = await service.propose({ sessionId: "session-b", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" });
+
+        expect(second.id).not.toBe(first.id);
+        expect(prisma.agent_action.create).toHaveBeenCalledTimes(2);
+    });
+
     it("does not accept a capability version as approval proof", async () => {
         const definition = capability();
         const action = actionRecord();

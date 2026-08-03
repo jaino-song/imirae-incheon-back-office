@@ -3,5 +3,5 @@ import { proxyAgentRequest } from "../../../agent/_proxy";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
     const id = encodeURIComponent((await context.params).id);
-    return proxyAgentRequest(request, `/ai/actions/${id}/reconcile`, "POST", await request.json());
+    return proxyAgentRequest(request, `/ai/actions/${id}/reconcile`, "POST");
 }

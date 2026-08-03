@@ -39,10 +39,6 @@ export function useAgentChat() {
     const sessionId = useRef<string | undefined>(undefined);
     const abortRef = useRef<AbortController | null>(null);
 
-    useEffect(() => {
-        if (typeof window !== "undefined") sessionId.current = window.sessionStorage.getItem(AGENT_SESSION_KEY) ?? undefined;
-    }, []);
-
     const refreshSessions = useCallback(async () => {
         const response = await fetch("/api/ai/agent/sessions", { credentials: "same-origin" });
         if (!response.ok) return;
@@ -114,12 +110,29 @@ export function useAgentChat() {
     const stop = useCallback(() => abortRef.current?.abort(), []);
     const selectSession = useCallback(async (id: string) => {
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(id)}`, { credentials: "same-origin" });
-        if (!response.ok) return;
+        if (!response.ok) {
+            if (sessionId.current === id) sessionId.current = undefined;
+            if (typeof window !== "undefined" && window.sessionStorage.getItem(AGENT_SESSION_KEY) === id) {
+                window.sessionStorage.removeItem(AGENT_SESSION_KEY);
+            }
+            return;
+        }
         const session = await response.json() as MobileAgentSessionSummary;
         sessionId.current = session.id;
         if (typeof window !== "undefined") window.sessionStorage.setItem(AGENT_SESSION_KEY, session.id);
         setMessages(session.messages ?? []);
     }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const storedSessionId = window.sessionStorage.getItem(AGENT_SESSION_KEY);
+        if (!storedSessionId) return;
+        sessionId.current = storedSessionId;
+        void selectSession(storedSessionId).catch(() => {
+            sessionId.current = undefined;
+            window.sessionStorage.removeItem(AGENT_SESSION_KEY);
+        });
+    }, [selectSession]);
 
     const refreshCurrentSession = useCallback(async () => {
         if (!sessionId.current) return;

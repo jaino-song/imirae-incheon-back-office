@@ -3,6 +3,15 @@ import { HttpException, HttpStatus, Injectable, OnModuleDestroy } from "@nestjs/
 import { ConfigService } from "@nestjs/config";
 import Redis from "ioredis";
 
+const ATOMIC_RATE_LIMIT_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+local ttl = redis.call('TTL', KEYS[1])
+if count == 1 or ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
+`;
+
 @Injectable()
 export class AgentRateLimitService implements OnModuleDestroy {
     private readonly windows = new Map<string, number[]>();
@@ -22,8 +31,8 @@ export class AgentRateLimitService implements OnModuleDestroy {
         if (this.redis) {
             try {
                 if (this.redis.status === "wait") await this.redis.connect();
-                const count = await this.redis.incr(`agent:rate-limit:${key}`);
-                if (count === 1) await this.redis.expire(`agent:rate-limit:${key}`, 60);
+                const count = Number(await this.redis.eval(ATOMIC_RATE_LIMIT_SCRIPT, 1, `agent:rate-limit:${key}`, 60));
+                if (!Number.isFinite(count)) throw new Error("Invalid Valkey rate-limit response");
                 if (count > limit) throw new HttpException("Agent rate limit exceeded", HttpStatus.TOO_MANY_REQUESTS);
                 return;
             } catch (error) {

@@ -1,3 +1,4 @@
+import { ConflictException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import type { IAgentSessionRepository } from "domain/repositories/agent-session.repository.interface";
@@ -35,5 +36,12 @@ describe("AgentSessionService", () => {
 
         await service.clearEntityMemory("session-a", owner);
         expect(repository.updateOwned).toHaveBeenCalledWith("session-a", owner, { selectedEntities: {} });
+    });
+
+    it("rejects deletion while the session has a nonterminal action", async () => {
+        repository.deleteOwned.mockResolvedValue("blocked");
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.remove("session-a", owner)).rejects.toBeInstanceOf(ConflictException);
     });
 });

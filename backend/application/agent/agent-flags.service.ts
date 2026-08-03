@@ -7,6 +7,7 @@ import { GetSettingUsecase, UpdateSettingUsecase } from "application/usecases/sy
 import type { VerifiedTenantPrincipal } from "infrastructure/tenant/tenant.context";
 
 const AGENT_FLAGS_SETTING_KEY = "agent.flags";
+const AGENT_EMERGENCY_DISABLED_SETTING_KEY = "agent.flags.emergency-disabled";
 const CACHE_TTL_MS = 30_000;
 
 const AgentFlagsConfigSchema = z.object({
@@ -72,7 +73,13 @@ export class AgentFlagsService {
             capabilities: { ...current.capabilities, ...patch.capabilities },
             risks: { ...current.risks, ...patch.risks },
         });
+        if (patch.enabled === false) {
+            await this.updateSettingUsecase.execute(AGENT_EMERGENCY_DISABLED_SETTING_KEY, "true");
+        }
         await this.updateSettingUsecase.execute(AGENT_FLAGS_SETTING_KEY, JSON.stringify(value));
+        if (patch.enabled === true) {
+            await this.updateSettingUsecase.execute(AGENT_EMERGENCY_DISABLED_SETTING_KEY, "false");
+        }
         this.cache = null;
         return value;
     }
@@ -81,6 +88,7 @@ export class AgentFlagsService {
         capability: AgentCapabilityMeta,
         principal: VerifiedTenantPrincipal,
     ): Promise<boolean> {
+        if (await this.isEmergencyDisabled()) return false;
         const flags = await this.getConfig();
         if (!flags.enabled) return false;
         if (!this.isRolloutStageAllowed(flags, capability, principal)) return false;
@@ -94,8 +102,14 @@ export class AgentFlagsService {
         if (flags.branchAllowlist.length > 0 && !flags.branchAllowlist.includes(principal.branchId)) return false;
         if (flags.userAllowlist.length > 0 && !flags.userAllowlist.includes(principal.userId)) return false;
 
-        return capability.requiredRoles.includes(principal.globalRole)
-            || capability.requiredRoles.includes(principal.branchRole);
+        return principal.globalRole === "owner"
+            ? capability.requiredRoles.includes("owner")
+            : capability.requiredRoles.includes(principal.branchRole);
+    }
+
+    private async isEmergencyDisabled(): Promise<boolean> {
+        const value = await this.getSettingUsecase.execute(AGENT_EMERGENCY_DISABLED_SETTING_KEY);
+        return value?.trim().toLowerCase() === "true";
     }
 
     private isRolloutStageAllowed(

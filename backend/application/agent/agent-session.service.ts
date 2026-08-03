@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Cron, CronExpression } from "@nestjs/schedule";
 
@@ -46,7 +46,11 @@ export class AgentSessionService {
     }
 
     async remove(id: string, owner: AgentSessionOwner) {
-        if (!await this.repository.deleteOwned(id, owner)) {
+        const result = await this.repository.deleteOwned(id, owner);
+        if (result === "blocked") {
+            throw new ConflictException("Agent session has a nonterminal action");
+        }
+        if (result === "not_found") {
             throw new NotFoundException("Agent session not found");
         }
     }

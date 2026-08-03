@@ -15,12 +15,14 @@ export interface AgentSessionPatch {
     expiresAt?: Date;
 }
 
+export type AgentSessionDeleteResult = "deleted" | "blocked" | "not_found";
+
 export interface IAgentSessionRepository {
     create(input: CreateAgentSessionInput): Promise<AgentSessionEntity>;
     list(owner: AgentSessionOwner): Promise<AgentSessionSummary[]>;
     findOwned(id: string, owner: AgentSessionOwner): Promise<AgentSessionEntity | null>;
     updateOwned(id: string, owner: AgentSessionOwner, patch: AgentSessionPatch): Promise<AgentSessionEntity | null>;
-    deleteOwned(id: string, owner: AgentSessionOwner): Promise<boolean>;
+    deleteOwned(id: string, owner: AgentSessionOwner): Promise<AgentSessionDeleteResult>;
     appendMessages(id: string, owner: AgentSessionOwner, messages: BjjUIMessage[], traceId?: string): Promise<boolean>;
     deleteExpired(now: Date): Promise<number>;
 }

@@ -146,4 +146,40 @@ describe("AgentFlagsService", () => {
             userId: "user-1", branchId: "branch-1", globalRole: "admin", branchRole: "admin",
         })).resolves.toBe(true);
     });
+
+    it("uses only the selected branch role unless the principal is a global owner", async () => {
+        const config = new ConfigService({ NODE_ENV: "development" });
+        jest.spyOn(getSetting, "execute").mockResolvedValue(null);
+        const service = new AgentFlagsService(config, getSetting, updateSetting);
+        const restricted = { ...capability, requiredRoles: ["owner", "admin"] };
+
+        await expect(service.isCapabilityEnabled(restricted, {
+            userId: "user-1", branchId: "branch-1", globalRole: "admin", branchRole: "user",
+        })).resolves.toBe(false);
+        await expect(service.isCapabilityEnabled(restricted, {
+            userId: "owner-1", branchId: "branch-1", globalRole: "owner", branchRole: "user",
+        })).resolves.toBe(true);
+    });
+
+    it("observes the uncached emergency disable across service instances", async () => {
+        const config = new ConfigService({ NODE_ENV: "development" });
+        const values = new Map<string, string>();
+        jest.spyOn(getSetting, "execute").mockImplementation(async (key: string) => values.get(key) ?? null);
+        jest.spyOn(updateSetting, "execute").mockImplementation(async (key: string, value: string) => {
+            values.set(key, value);
+            return undefined as never;
+        });
+        const firstReplica = new AgentFlagsService(config, getSetting, updateSetting);
+        const secondReplica = new AgentFlagsService(config, getSetting, updateSetting);
+
+        await expect(secondReplica.isCapabilityEnabled(capability, {
+            userId: "user-1", branchId: "branch-1", globalRole: "admin", branchRole: "admin",
+        })).resolves.toBe(true);
+
+        await firstReplica.updateConfig({ enabled: false });
+
+        await expect(secondReplica.isCapabilityEnabled(capability, {
+            userId: "user-1", branchId: "branch-1", globalRole: "admin", branchRole: "admin",
+        })).resolves.toBe(false);
+    });
 });

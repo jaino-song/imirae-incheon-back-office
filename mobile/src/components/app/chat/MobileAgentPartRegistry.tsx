@@ -25,7 +25,7 @@ type MobilePart = { type: string; text?: string; data?: unknown; state?: string;
 
 type Props = {
     part: MobilePart;
-    onEntitySelect: (id: string) => void;
+    onEntitySelect: (id: string, entityType: string) => void;
     onApproveAction: (actionId: string, expectedRevision: string, acknowledgementToken?: string) => void;
     onRejectAction: (actionId: string) => void;
     onSubmitForm: (formId: string, values: Record<string, unknown>) => void;
@@ -46,7 +46,7 @@ export function MobileAgentPartRegistry({ part, onEntitySelect, onApproveAction,
     }
     if (part.type === "data-entity-choice") {
         const parsed = AgentEntityChoicePartSchema.safeParse(part.data);
-        return parsed.success ? <div data-slot="entity-choice" className="flex flex-col gap-2" role="group" aria-label={parsed.data.prompt}><p className="text-sm font-medium">{parsed.data.prompt}</p>{parsed.data.choices.map((choice) => <Button key={choice.id} type="button" variant="outline" className="h-auto min-h-11 justify-start whitespace-normal py-2" onClick={() => onEntitySelect(choice.id)}>{choice.label}{choice.description ? ` · ${choice.description}` : ""}</Button>)}</div> : <Fallback />;
+        return parsed.success ? <div data-slot="entity-choice" className="flex flex-col gap-2" role="group" aria-label={parsed.data.prompt}><p className="text-sm font-medium">{parsed.data.prompt}</p>{parsed.data.choices.map((choice) => <Button key={choice.id} type="button" variant="outline" className="h-auto min-h-11 justify-start whitespace-normal py-2" onClick={() => onEntitySelect(choice.id, parsed.data.entityType)}>{choice.label}{choice.description ? ` · ${choice.description}` : ""}</Button>)}</div> : <Fallback />;
     }
     if (part.type === "data-navigation") {
         const parsed = AgentNavigationPartSchema.safeParse(part.data);

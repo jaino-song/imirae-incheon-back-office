@@ -36,7 +36,11 @@ const reads: CapabilityCatalogEntry[] = ([
     description,
     version,
     risk: "read" as const,
-    requiredRoles: name === "bank.accounts" ? ["owner", "admin"] : name === "messages.deliveryHistory" ? ["owner", "admin", "manager"] : ["owner", "admin", "manager", "user"],
+    requiredRoles: name === "bank.accounts"
+        ? ["owner", "admin"]
+        : ["messages.deliveryHistory", "vouchers.prices"].includes(name)
+            ? ["owner", "admin", "manager"]
+            : ["owner", "admin", "manager", "user"],
     flagKey: `agent.capability.${name}`,
     sideEffect: false,
 }));

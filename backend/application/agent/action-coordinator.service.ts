@@ -145,7 +145,7 @@ export class ActionCoordinatorService {
         const now = new Date();
         const expiresAt = input.expiresAt ?? new Date(now.getTime() + DEFAULT_ACTION_TTL_MS);
         const requestDedupeKey = createHash("sha256")
-            .update(`${input.principal.userId}:${input.principal.branchId}:${input.capability}:${inputHash}`)
+            .update(`${input.sessionId}:${input.principal.userId}:${input.principal.branchId}:${input.capability}:${inputHash}`)
             .digest("hex");
         const existing = await this.prisma.agent_action.findUnique({ where: { requestDedupeKey } });
         if (existing?.dedupeExpiresAt && existing.dedupeExpiresAt.getTime() > now.getTime()) return toEntity(existing);

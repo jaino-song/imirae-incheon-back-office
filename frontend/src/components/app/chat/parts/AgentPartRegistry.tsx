@@ -22,7 +22,7 @@ import {
 
 type AgentPartRegistryProps = {
     message: UIMessage;
-    onEntitySelect?: (id: string) => void;
+    onEntitySelect?: (id: string, entityType: string) => void;
     onFeedback?: (value: "positive" | "negative") => void;
     onApproveAction?: (actionId: string, expectedRevision: string, acknowledgementToken?: string) => void;
     onRejectAction?: (actionId: string) => void;
@@ -82,7 +82,7 @@ export function AgentPartRegistry({ message, onEntitySelect, onFeedback, onAppro
                 }
                 if (part.type === "data-entity-choice") {
                     const parsed = AgentEntityChoicePartSchema.safeParse(data);
-                    return parsed.success ? <div key={index} data-slot="entity-choice" className="flex flex-wrap gap-2" role="group" aria-label={parsed.data.prompt}>{parsed.data.choices.map((choice) => <Button key={choice.id} type="button" variant="outline" size="sm" onClick={() => onEntitySelect?.(choice.id)}>{choice.label}</Button>)}</div> : <SafePartFallback key={index} />;
+                    return parsed.success ? <div key={index} data-slot="entity-choice" className="flex flex-wrap gap-2" role="group" aria-label={parsed.data.prompt}>{parsed.data.choices.map((choice) => <Button key={choice.id} type="button" variant="outline" size="sm" onClick={() => onEntitySelect?.(choice.id, parsed.data.entityType)}>{choice.label}</Button>)}</div> : <SafePartFallback key={index} />;
                 }
                 if (part.type === "data-feedback") {
                     const parsed = AgentFeedbackPartSchema.safeParse(data);

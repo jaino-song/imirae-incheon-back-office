@@ -1,3 +1,5 @@
+import { NotFoundException } from "@nestjs/common";
+
 import { MessageTriggerEventType, MessageTriggerOffsetType, MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
@@ -59,13 +61,17 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             deleteRule: jest.fn().mockResolvedValue(undefined),
         };
         let effectReceipt: unknown = null;
-        const prisma = { agent_action: {
-            updateMany: jest.fn().mockImplementation(async ({ data }) => {
-                effectReceipt = data.effectReceipt;
-                return { count: 1 };
-            }),
-            findFirst: jest.fn().mockImplementation(async () => ({ effectReceipt })),
-        } };
+        const prisma = {
+            agent_action: {
+                updateMany: jest.fn().mockImplementation(async ({ data }) => {
+                    effectReceipt = data.effectReceipt;
+                    return { count: 1 };
+                }),
+                findFirst: jest.fn().mockImplementation(async () => ({ effectReceipt })),
+            },
+            message_trigger_rule: { upsert: jest.fn().mockResolvedValue(undefined) },
+            message_trigger_job: { findFirst: jest.fn().mockResolvedValue(null) },
+        };
         const provider = new MessageExternalAgentCapabilitiesProvider(prisma as never, delivery as never, repository as never);
         const capabilities = provider.getCapabilities();
         return { repository, delivery, prisma, capabilities };
@@ -160,5 +166,43 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             where: expect.objectContaining({ id: context.actionId, capability: "automation.create" }),
         }));
         expect(delivery.listRules).not.toHaveBeenCalled();
+    });
+
+    it("provides recoverable form fields for every automation mutation", () => {
+        const { capabilities } = setup();
+
+        for (const name of ["automation.create", "automation.update", "automation.setActive", "automation.delete"]) {
+            const capability = capabilities.find((entry) => entry.meta.name === name);
+            expect(capability?.formFields?.length).toBeGreaterThan(0);
+        }
+    });
+
+    it("keeps automation deletion uncertain on operational lookup failures", async () => {
+        const { delivery, capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "automation.delete")!;
+        delivery.getRule.mockRejectedValueOnce(new Error("database unavailable"));
+
+        await expect(capability.reconcile!(context, { id: "rule-a" }, null)).resolves.toEqual({
+            status: "uncertain",
+            reason: "Automation rule lookup failed",
+        });
+
+        delivery.getRule.mockRejectedValueOnce(new NotFoundException("missing"));
+        await expect(capability.reconcile!(context, { id: "rule-a" }, null)).resolves.toEqual({
+            status: "succeeded",
+            result: { status: "deleted", id: "rule-a" },
+        });
+    });
+
+    it("keeps synthetic ad-hoc SMS rules inactive", async () => {
+        const { prisma, capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await capability.execute(context, { receiver: "01012345678", message: "안내" });
+
+        expect(prisma.message_trigger_rule.upsert).toHaveBeenCalledWith(expect.objectContaining({
+            create: expect.objectContaining({ isActive: false }),
+            update: { isActive: false },
+        }));
     });
 });
