@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, Optional } from "@nestjs/common";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import {
     convertToModelMessages,
     createUIMessageStream,
@@ -41,9 +42,21 @@ function redactFreeText(text: string): string {
     return FREE_TEXT_REDACTIONS.reduce((value, pattern) => value.replace(pattern, "[redacted]"), text);
 }
 
+export function buildWriteToolInputSchema(schema: z.ZodType): z.ZodObject {
+    if (!(schema instanceof z.ZodObject)) {
+        throw new Error("Write capability input schemas must be Zod objects");
+    }
+    // Keep canonical names, types, descriptions, and enum hints in the model's
+    // tool schema while allowing missing fields to reach the form-recovery path.
+    // Rebuild from the shape so top-level superRefine checks remain exclusively
+    // in the canonical schema; Zod cannot call partial() on a refined object.
+    return z.object(schema.shape).partial().passthrough();
+}
+
 export function redactModelValue(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(redactModelValue);
     if (typeof value === "string") return redactFreeText(value);
+    if (value instanceof Date) return value.toISOString();
     if (typeof value !== "object" || value === null) return value;
     return Object.fromEntries(Object.entries(value)
         .filter(([key]) => !MODEL_EXCLUDED_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, "")))
@@ -105,7 +118,13 @@ export function buildAuthoritativeModelMessages(
         }))
         .filter((message) => message.parts.length > 0)
         .slice(-19) as BjjUIMessage[];
-    return [...history, currentMessage];
+    const redactedCurrentMessage = {
+        ...currentMessage,
+        parts: currentMessage.parts.map((part) => part.type === "text"
+            ? { ...part, text: redactFreeText(part.text) }
+            : part),
+    } as BjjUIMessage;
+    return [...history, redactedCurrentMessage];
 }
 
 @Injectable()
@@ -175,14 +194,18 @@ export class AgentRuntimeService {
             .map((capability) => capability.meta.name.replaceAll(".", "_")));
         const tools = Object.fromEntries(offered.map((capability) => {
             const toolName = capability.meta.name.replaceAll(".", "_");
+            const requiresApproval = capability.meta.risk !== "read" || capability.meta.sideEffect;
             return [toolName, tool({
                 description: capability.meta.description,
-                inputSchema: capability.inputSchema,
+                // AI SDK validates tool input before execute. Write tools therefore
+                // accept an object envelope here and apply their canonical schema in
+                // ActionCoordinatorService, where invalid input can emit a typed form.
+                inputSchema: requiresApproval ? buildWriteToolInputSchema(capability.inputSchema) : capability.inputSchema,
                 execute: async (rawInput) => {
                     if (!await this.flags.isCapabilityEnabled(capability.meta, input.principal)) {
                         throw new ForbiddenException("Capability disabled");
                     }
-                    if (capability.meta.risk !== "read" || capability.meta.sideEffect) {
+                    if (requiresApproval) {
                         if (!this.actions) throw new ForbiddenException("Action coordinator unavailable");
                         let action;
                         try {

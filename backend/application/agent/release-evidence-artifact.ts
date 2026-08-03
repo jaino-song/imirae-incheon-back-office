@@ -84,6 +84,8 @@ export const RealRuntimeEvaluationPayloadSchema = z.object({
     currentBranchReadAssertions: z.number().int().nonnegative(),
     entityContinuityAssertions: z.number().int().nonnegative(),
     fixturePassCount: z.number().int().min(0).max(200),
+    executedProposalCount: z.number().int().nonnegative(),
+    externalProposalCount: z.number().int().nonnegative(),
 }).strict();
 
 const DesktopPayloadSchema = z.object({

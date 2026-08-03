@@ -40,6 +40,21 @@ describe("ActionCoordinatorService", () => {
         };
     }
 
+    function mutableActionPrisma(initial = actionRecord()) {
+        let current = initial;
+        return { agent_action: {
+            findFirst: jest.fn().mockImplementation(async () => current),
+            updateMany: jest.fn().mockImplementation(async ({ data }) => {
+                current = actionRecord({
+                    ...current,
+                    ...data,
+                    executionAttemptCount: data.executionAttemptCount ? current.executionAttemptCount + 1 : current.executionAttemptCount,
+                });
+                return { count: 1 };
+            }),
+        } };
+    }
+
     it("creates a random action identity with a bounded request dedupe key", async () => {
         const definition = capability();
         const prisma = { agent_action: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(async ({ data }) => ({ ...data, createdAt: new Date(), updatedAt: new Date(), approvedBy: null, approvedAt: null, rejectedBy: null, rejectedAt: null, result: null, error: null, executedAt: null, resultPartPersistedAt: null, targetSnapshot: null })) } };
@@ -208,18 +223,15 @@ describe("ActionCoordinatorService", () => {
         const definition = capability();
         definition.execute.mockResolvedValueOnce({ unexpected: true });
         const proposed = actionRecord();
-        const prisma = { agent_action: {
-            findFirst: jest.fn().mockResolvedValue(proposed),
-            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-            update: jest.fn().mockImplementation(async ({ data }) => actionRecord({ ...data })),
-        } };
+        const prisma = mutableActionPrisma(proposed);
         const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never);
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
         expect(result.action.status).toBe("uncertain");
-        expect(prisma.agent_action.update).toHaveBeenCalledWith(expect.objectContaining({
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ status: "executing" }),
             data: expect.objectContaining({ status: "uncertain", error: expect.objectContaining({ code: "result_validation_failed" }) }),
         }));
     });
@@ -228,82 +240,84 @@ describe("ActionCoordinatorService", () => {
         const definition = capability();
         definition.execute.mockRejectedValueOnce(new Error("connection dropped"));
         const proposed = actionRecord();
-        const prisma = { agent_action: {
-            findFirst: jest.fn().mockResolvedValue(proposed),
-            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-            update: jest.fn().mockImplementation(async ({ data }) => actionRecord({ ...data })),
-        } };
+        const prisma = mutableActionPrisma(proposed);
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
         expect(result.action.status).toBe("uncertain");
-        expect(prisma.agent_action.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "uncertain" }) }));
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "executing" }), data: expect.objectContaining({ status: "uncertain" }) }));
     });
 
     it("marks only a proven pre-mutation exception as failed", async () => {
         const definition = capability();
         definition.execute.mockRejectedValueOnce(new AgentActionCertainFailureError("duplicate"));
         const proposed = actionRecord();
-        const prisma = { agent_action: {
-            findFirst: jest.fn().mockResolvedValue(proposed),
-            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-            update: jest.fn().mockImplementation(async ({ data }) => actionRecord({ ...data })),
-        } };
+        const prisma = mutableActionPrisma(proposed);
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
 
-        expect(prisma.agent_action.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "executing" }), data: expect.objectContaining({ status: "failed" }) }));
     });
 
     it("does not rewrite a succeeded action when result-part delivery fails", async () => {
         const definition = capability();
         const proposed = actionRecord();
-        const prisma = { agent_action: {
-            findFirst: jest.fn().mockResolvedValue(proposed),
-            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-            update: jest.fn().mockImplementation(async ({ data }) => actionRecord({ ...data })),
-        } };
+        const prisma = mutableActionPrisma(proposed);
         const sessions = { appendMessages: jest.fn().mockRejectedValue(new Error("session unavailable")) };
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never, sessions as never);
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
         expect(result.action.status).toBe("succeeded");
-        expect(prisma.agent_action.update).toHaveBeenCalledTimes(1);
-        expect(prisma.agent_action.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "succeeded" }) }));
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "executing" }), data: expect.objectContaining({ status: "succeeded" }) }));
+    });
+
+    it("does not overwrite an uncertain sweep result when provider completion loses the executing CAS", async () => {
+        const definition = capability();
+        let current = actionRecord();
+        const prisma = { agent_action: {
+            findFirst: jest.fn().mockImplementation(async () => current),
+            updateMany: jest.fn().mockImplementation(async ({ data }) => {
+                if (data.status === "succeeded") {
+                    current = actionRecord({ ...current, status: "uncertain", error: { code: "execution_interrupted" } });
+                    return { count: 0 };
+                }
+                current = actionRecord({ ...current, ...data });
+                return { count: 1 };
+            }),
+        } };
+        const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
+
+        const result = await service.approve(current.id, principal, current.proposalRevision);
+
+        expect(result.action.status).toBe("uncertain");
+        expect(result.action.error).toEqual({ code: "execution_interrupted" });
     });
 
     it("persists a schema-valid provider cancellation as cancelled", async () => {
         const definition = { ...capability(), classifyOutcome: jest.fn().mockReturnValue({ status: "cancelled", reason: "provider cancelled" }) };
         const proposed = actionRecord();
-        const prisma = { agent_action: {
-            findFirst: jest.fn().mockResolvedValue(proposed),
-            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-            update: jest.fn().mockImplementation(async ({ data }) => actionRecord({ ...data })),
-        } };
+        const prisma = mutableActionPrisma(proposed);
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
 
         const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
 
         expect(result.action.status).toBe("cancelled");
-        expect(prisma.agent_action.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "cancelled" }) }));
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "executing" }), data: expect.objectContaining({ status: "cancelled" }) }));
     });
 
     it("persists a schema-valid provider failure instead of reporting success", async () => {
         const definition = { ...capability(), classifyOutcome: jest.fn().mockReturnValue({ status: "failed", reason: "provider rejected" }) };
         const proposed = actionRecord();
-        const prisma = { agent_action: {
-            findFirst: jest.fn().mockResolvedValue(proposed),
-            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-            update: jest.fn().mockImplementation(async ({ data }) => actionRecord({ ...data })),
-        } };
+        const prisma = mutableActionPrisma(proposed);
         const service = new ActionCoordinatorService(prisma as never, { get: jest.fn().mockReturnValue(definition) } as never, { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never, { isAvailable: jest.fn().mockReturnValue(false) } as never);
 
         await expect(service.approve(proposed.id, principal, proposed.proposalRevision)).rejects.toBeInstanceOf(ConflictException);
 
-        expect(prisma.agent_action.update).toHaveBeenCalledWith(expect.objectContaining({
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ status: "executing" }),
             data: expect.objectContaining({ status: "failed", error: expect.objectContaining({ code: "provider_reported_failure" }) }),
         }));
     });
@@ -460,8 +474,9 @@ describe("ActionCoordinatorService", () => {
         );
     });
 
-    it("moves interrupted executions to uncertain instead of expiring or replaying them", async () => {
-        const executing = actionRecord({ status: "executing", expiresAt: new Date(Date.now() - 1_000) });
+    it("moves only stale interrupted executions to uncertain instead of using proposal expiry", async () => {
+        const updatedAt = new Date(Date.now() - 31 * 60 * 1000);
+        const executing = actionRecord({ status: "executing", expiresAt: new Date(Date.now() - 1_000), updatedAt });
         const uncertain = actionRecord({ status: "uncertain", expiresAt: executing.expiresAt, error: { code: "execution_interrupted" } });
         const sessions = { appendMessages: jest.fn().mockResolvedValue(undefined) };
         const prisma = { agent_action: {
@@ -480,7 +495,7 @@ describe("ActionCoordinatorService", () => {
         await expect(service.expirePending()).resolves.toBe(1);
 
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-            where: expect.objectContaining({ id: executing.id, status: "executing" }),
+            where: expect.objectContaining({ id: executing.id, status: "executing", updatedAt: expect.any(Object) }),
             data: expect.objectContaining({ status: "uncertain" }),
         }));
         expect(sessions.appendMessages).toHaveBeenCalledWith(

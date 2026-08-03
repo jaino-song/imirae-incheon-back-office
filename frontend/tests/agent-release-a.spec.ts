@@ -111,10 +111,14 @@ test.describe("Release A flag coexistence", () => {
         await page.getByRole("button", { name: "홍길동 조회 삭제" }).click();
         await expect(page.getByText("홍길동 조회")).toHaveCount(0);
         await page.getByRole("button", { name: "지점 바꾸기" }).click();
-        await expect(input).toHaveValue("");
+        await expect(page).toHaveURL(/\/select-branch$/);
 
-        await input.fill("중지 테스트");
-        await input.press("Enter");
+        await page.goto("/chat");
+        const restoredInput = page.getByLabel("질문 입력");
+        await expect(restoredInput).toHaveValue("");
+
+        await restoredInput.fill("중지 테스트");
+        await restoredInput.press("Enter");
         await expect(page.getByRole("button", { name: "중지" })).toBeVisible();
         await page.getByRole("button", { name: "중지" }).click();
         await expect(page.getByRole("button", { name: "전송" })).toBeVisible();

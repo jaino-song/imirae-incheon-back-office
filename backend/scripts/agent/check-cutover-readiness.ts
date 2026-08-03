@@ -15,6 +15,7 @@ import {
     AGENT_EVAL_CASE_DIGEST,
     AGENT_EVAL_FIXTURE_ASSERTION_DIGEST,
 } from "../../../evals/agent/cases";
+import { matchesEvaluationMutationPolicy } from "../../../evals/agent/evaluation-policy";
 
 const ShaSchema = z.string().regex(/^[0-9a-f]{7,64}$/i);
 const SignoffSchema = z.object({
@@ -118,7 +119,6 @@ for (const [kind, rawArtifact] of Object.entries(manifest.artifacts) as [Release
             artifact.payload.scores?.[metric as keyof typeof RELEASE_EVALUATION_THRESHOLDS] !== undefined
             && artifact.payload.scores[metric as keyof typeof RELEASE_EVALUATION_THRESHOLDS]! >= threshold
         ));
-        const providerAssertionCount = AGENT_EVAL_CASES.filter((item) => item.requiresProviderLedger).length + 1;
         const currentBranchAssertionCount = AGENT_EVAL_CASES.filter((item) => item.requiresCurrentBranchRead).length;
         const entityContinuityCount = AGENT_EVAL_CASES.filter((item) => item.requiresEntityContinuity).length;
         if (!scoresPass
@@ -132,7 +132,7 @@ for (const [kind, rawArtifact] of Object.entries(manifest.artifacts) as [Release
             || artifact.payload.fixturePassCount !== AGENT_EVAL_CASES.length
             || artifact.payload.caseDigest !== AGENT_EVAL_CASE_DIGEST
             || artifact.payload.fixtureAssertionDigest !== AGENT_EVAL_FIXTURE_ASSERTION_DIGEST
-            || artifact.payload.providerLedgerAssertions !== providerAssertionCount
+            || !matchesEvaluationMutationPolicy(artifact.payload, AGENT_EVAL_CASES)
             || artifact.payload.currentBranchReadAssertions !== currentBranchAssertionCount
             || artifact.payload.entityContinuityAssertions !== entityContinuityCount) {
             throw new Error("D13 real-model evaluation did not prove every committed fixture and action assertion");

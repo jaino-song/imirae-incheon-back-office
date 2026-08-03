@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import { Archive, ArrowLeft, Menu, Pencil, Plus, Send, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ export function AgentShellLoading() {
 }
 
 export function AgentShell() {
+    const router = useRouter();
     const [input, setInput] = useState("");
     const [sessionSearch, setSessionSearch] = useState("");
     const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
@@ -105,7 +107,7 @@ export function AgentShell() {
                     <Button ref={menuButtonRef} type="button" variant="ghost" size="icon" aria-label="사이드바 열기" aria-expanded={sidebarOpen} aria-controls="agent-shell-sidebar" onClick={toggleSidebar}><Menu className="h-4 w-4" /></Button>
                     <Button type="button" variant="ghost" size="icon" aria-label="기존 채팅으로 돌아가기" onClick={() => window.history.back()}><ArrowLeft className="h-4 w-4" /></Button>
                     <h1 className="font-semibold">AI 운영 코파일럿</h1>
-                    <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={resetBranch}>지점 바꾸기</Button>
+                    <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => { resetBranch(); router.push("/select-branch"); }}>지점 바꾸기</Button>
                 </header>
                 <ScrollArea className="min-h-0 flex-1"><div data-component="desktop_chat_agent-shell_thread_messages" className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 sm:p-8">
                     {messages.length === 0 && <div className="py-24 text-center text-muted-foreground"><p className="text-lg font-semibold">무엇을 찾아드릴까요?</p><p className="mt-2 text-sm">고객·직원·일정·계약 상태를 읽기 전용으로 확인합니다.</p></div>}

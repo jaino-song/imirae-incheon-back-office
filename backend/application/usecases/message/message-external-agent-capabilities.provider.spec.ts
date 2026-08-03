@@ -98,6 +98,17 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         expect(schedule.inputSchema.safeParse({ receiver: "01012345678", message: "안내", scheduledDate: date, scheduledTime: time }).success).toBe(false);
     });
 
+    it("discloses and records the LMS type used by the INFO delivery template", async () => {
+        const { capabilities } = setup();
+        const preview = capabilities.find((entry) => entry.meta.name === "messages.previewSms")!;
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+        const input = { receiver: "01012345678", message: "짧은 안내" };
+
+        await expect(preview.execute(context, input)).resolves.toEqual({ status: "preview", msgType: "LMS" });
+        await expect(send.inspect!(context, input)).resolves.toEqual(expect.objectContaining({ estimatedCost: "LMS 요금제 기준" }));
+        await expect(send.execute(context, input)).resolves.toEqual(expect.objectContaining({ status: "sent", msgType: "LMS" }));
+    });
+
     it("creates one action-keyed retry only for an explicitly provider-rejected job", async () => {
         const { repository, delivery, capabilities } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "messages.retrySms");

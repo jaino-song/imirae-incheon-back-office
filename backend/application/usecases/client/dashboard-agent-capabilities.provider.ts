@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
-import { ListClientsPaginatedUsecase } from "./list-clients-paginated.usecase";
+import { GetClientDashboardSummaryUsecase } from "./get-client-dashboard-summary.usecase";
 
 const InputSchema = z.object({}).default({});
 const OutputSchema = z.object({
@@ -14,7 +14,7 @@ const OutputSchema = z.object({
 @Injectable()
 @AgentCapabilityProvider()
 export class DashboardAgentCapabilitiesProvider implements AgentCapabilityProviderContract {
-    constructor(private readonly listClients: ListClientsPaginatedUsecase) {}
+    constructor(private readonly getSummary: GetClientDashboardSummaryUsecase) {}
 
     getCapabilities(): CapabilityDefinition[] {
         return [{
@@ -33,16 +33,7 @@ export class DashboardAgentCapabilitiesProvider implements AgentCapabilityProvid
             outputSchema: OutputSchema,
             execute: async (context, rawInput) => {
                 InputSchema.parse(rawInput);
-                const firstPage = await this.listClients.execute(context.principal.branchId, 1, 100);
-                const pages = [firstPage.data];
-                for (let page = 2; page <= firstPage.totalPages; page += 1) {
-                    pages.push((await this.listClients.execute(context.principal.branchId, page, 100)).data);
-                }
-                const activeClients = pages.flat().filter((client) => {
-                    const status = client.serviceStatus?.toLowerCase();
-                    return status !== "completed" && status !== "cancelled" && status !== "canceled";
-                }).length;
-                return OutputSchema.parse({ totalClients: firstPage.total, activeClients });
+                return OutputSchema.parse(await this.getSummary.execute(context.principal.branchId));
             },
         }];
     }

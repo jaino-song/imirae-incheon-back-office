@@ -25,6 +25,7 @@ const APPROVAL_PENDING_STATUSES: AgentActionStatus[] = ["proposed", "approved"];
 const TERMINAL_STATUSES: AgentActionStatus[] = ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"];
 const DEFAULT_ACTION_TTL_MS = 15 * 60 * 1000;
 const REQUEST_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
+const EXECUTION_STALE_AFTER_MS = 30 * 60 * 1000;
 
 export class AgentActionUncertainError extends Error {
     constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -330,60 +331,61 @@ export class ActionCoordinatorService {
                     ? { details: uncertaintyDetails(error.details) }
                     : {}),
             };
-            const updated = await this.prisma.agent_action.update({
-                where: { id },
-                data: {
+            const updated = await this.transitionExecuting(id, owner, {
                     status: uncertain ? "uncertain" : "failed",
                     error: errorPayload as Prisma.InputJsonValue,
                     executedAt: new Date(),
-                },
             });
-            await this.safePersistResultPart(updated.id, toEntity(updated), uncertain ? "uncertain" : "failed");
-            if (uncertain) return { action: toEntity(updated), result: undefined };
+            if (!updated) {
+                const latest = await this.get(id, owner);
+                return { action: latest, result: latest.result };
+            }
+            await this.safePersistResultPart(updated.id, updated, uncertain ? "uncertain" : "failed");
+            if (uncertain) return { action: updated, result: undefined };
             throw new ConflictException("Action execution failed");
         }
 
         const parsed = capability.outputSchema.safeParse(providerResult);
         if (!parsed.success) {
-            const updated = await this.prisma.agent_action.update({
-                where: { id },
-                data: {
+            const updated = await this.transitionExecuting(id, owner, {
                     status: "uncertain",
                     error: {
                         code: "result_validation_failed",
                         message: "Provider returned an invalid result after execution; reconcile before retrying",
                     },
                     executedAt: new Date(),
-                },
             });
-            await this.safePersistResultPart(updated.id, toEntity(updated), "uncertain");
-            return { action: toEntity(updated), result: undefined };
+            if (!updated) {
+                const latest = await this.get(id, owner);
+                return { action: latest, result: latest.result };
+            }
+            await this.safePersistResultPart(updated.id, updated, "uncertain");
+            return { action: updated, result: undefined };
         }
 
         let outcome;
         try {
             outcome = capability.classifyOutcome?.(parsed.data) ?? { status: "succeeded" as const };
         } catch {
-            const updated = await this.prisma.agent_action.update({
-                where: { id },
-                data: {
+            const updated = await this.transitionExecuting(id, owner, {
                     status: "uncertain",
                     error: {
                         code: "result_classification_failed",
                         message: "Execution returned but its outcome could not be classified; reconcile before retrying",
                     },
                     executedAt: new Date(),
-                },
             });
-            await this.safePersistResultPart(updated.id, toEntity(updated), "uncertain");
-            return { action: toEntity(updated), result: undefined };
+            if (!updated) {
+                const latest = await this.get(id, owner);
+                return { action: latest, result: latest.result };
+            }
+            await this.safePersistResultPart(updated.id, updated, "uncertain");
+            return { action: updated, result: undefined };
         }
         const terminalStatus = outcome.status;
-        let updated: ActionRecord;
+        let entity: AgentActionEntity | null;
         try {
-            updated = await this.prisma.agent_action.update({
-                where: { id },
-                data: {
+            entity = await this.transitionExecuting(id, owner, {
                     status: terminalStatus,
                     result: parsed.data as Prisma.InputJsonValue,
                     error: terminalStatus === "succeeded"
@@ -393,7 +395,6 @@ export class ActionCoordinatorService {
                             message: outcome.reason ?? "Provider reported that the action did not succeed",
                         },
                     executedAt: new Date(),
-                },
             });
         } catch {
             // The provider already returned after it may have committed a side effect.
@@ -416,10 +417,25 @@ export class ActionCoordinatorService {
             throw new ConflictException("Action outcome is uncertain; do not retry execution");
         }
 
-        const entity = toEntity(updated);
-        await this.safePersistResultPart(updated.id, entity, terminalStatus);
+        if (!entity) {
+            const latest = await this.get(id, owner);
+            return { action: latest, result: latest.result };
+        }
+        await this.safePersistResultPart(entity.id, entity, terminalStatus);
         if (terminalStatus === "failed") throw new ConflictException("Action execution failed");
         return { action: entity, result: parsed.data };
+    }
+
+    private async transitionExecuting(
+        id: string,
+        owner: AgentActionOwner,
+        data: Prisma.agent_actionUpdateManyMutationInput,
+    ): Promise<AgentActionEntity | null> {
+        const updated = await this.prisma.agent_action.updateMany({
+            where: { id, ...owner, status: "executing" },
+            data,
+        });
+        return updated.count === 1 ? this.get(id, owner) : null;
     }
 
     async reject(id: string, principal: VerifiedTenantPrincipal, reason?: string): Promise<AgentActionEntity> {
@@ -526,15 +542,16 @@ export class ActionCoordinatorService {
             await this.safePersistResultPart(expired.id, expired, "expired");
             expiredCount += 1;
         }
+        const executionCutoff = new Date(now.getTime() - EXECUTION_STALE_AFTER_MS);
         const interrupted = await this.prisma.agent_action.findMany({
-            where: { status: "executing", expiresAt: { lte: now } },
+            where: { status: "executing", updatedAt: { lte: executionCutoff } },
             orderBy: { updatedAt: "asc" },
             take: 100,
         });
         for (const candidate of interrupted) {
             const owner = { userId: candidate.userId, branchId: candidate.branchId };
             const updated = await this.prisma.agent_action.updateMany({
-                where: { id: candidate.id, ...owner, status: "executing", expiresAt: { lte: now } },
+                where: { id: candidate.id, ...owner, status: "executing", updatedAt: { lte: executionCutoff } },
                 data: {
                     status: "uncertain",
                     error: { code: "execution_interrupted", message: "Execution was interrupted; reconcile before retrying" },

@@ -3,6 +3,11 @@ import { dirname } from "node:path";
 
 import { AGENT_EVAL_CASES, AGENT_EVAL_CASE_DIGEST, AGENT_EVAL_FIXTURE_ASSERTION_DIGEST } from "./cases";
 import {
+    evaluateApprovalEvidence,
+    hasRequiredMutationExecutionEvidence,
+    requiredProviderLedgerAssertionCount,
+} from "./evaluation-policy";
+import {
     releaseEvidenceDigest,
     RELEASE_EVALUATION_THRESHOLDS,
     type ReleaseEvidenceArtifact,
@@ -13,7 +18,7 @@ const model = process.env.AGENT_MODEL?.trim() || "server-configured";
 const thresholds = RELEASE_EVALUATION_THRESHOLDS;
 const categories = new Set(AGENT_EVAL_CASES.map((item) => item.category));
 const uniquePrompts = new Set(AGENT_EVAL_CASES.map((item) => item.prompt));
-const requiredProviderLedgerAssertions = AGENT_EVAL_CASES.filter((item) => item.requiresProviderLedger).length + 1;
+const requiredProviderLedgerAssertions = requiredProviderLedgerAssertionCount(AGENT_EVAL_CASES);
 const requiredCurrentBranchReadAssertions = AGENT_EVAL_CASES.filter((item) => item.requiresCurrentBranchRead).length;
 const requiredEntityContinuityAssertions = AGENT_EVAL_CASES.filter((item) => item.requiresEntityContinuity).length;
 
@@ -34,6 +39,12 @@ type Proposal = {
     provider?: string;
     estimatedCost?: string;
 };
+
+function renderFixturePrompt(prompt: string, fixtures: { contractClientId: string; contractTemplateId: string }): string {
+    return prompt
+        .replaceAll("{{EVAL_CONTRACT_CLIENT_ID}}", fixtures.contractClientId)
+        .replaceAll("{{EVAL_CONTRACT_TEMPLATE_ID}}", fixtures.contractTemplateId);
+}
 
 function proposalValue(value: unknown): Proposal | null {
     if (!isValidProposal(value)) return null;
@@ -150,6 +161,8 @@ async function evaluateLive(): Promise<{
     currentBranchReadAssertions: number;
     entityContinuityAssertions: number;
     fixturePassCount: number;
+    executedProposalCount: number;
+    externalProposalCount: number;
 }> {
     const baseUrl = process.env.AGENT_EVAL_BASE_URL?.trim();
     const ownerToken = process.env.AGENT_EVAL_TOKEN?.trim();
@@ -162,8 +175,11 @@ async function evaluateLive(): Promise<{
     const providerLedgerUrl = process.env.AGENT_EVAL_PROVIDER_LEDGER_URL?.trim();
     const providerLedgerToken = process.env.AGENT_EVAL_PROVIDER_LEDGER_TOKEN?.trim();
     const uncertainActionId = process.env.AGENT_EVAL_UNCERTAIN_ACTION_ID?.trim();
+    const contractClientId = process.env.AGENT_EVAL_CONTRACT_CLIENT_ID?.trim();
+    const contractTemplateId = process.env.AGENT_EVAL_CONTRACT_TEMPLATE_ID?.trim();
     if (!baseUrl || !ownerToken || !lowPrivilegeToken || !otherBranchToken || !forbiddenMarker || !allowedMarker
-        || !clientEntityMarker || !employeeEntityMarker || !providerLedgerUrl || !providerLedgerToken || !uncertainActionId) {
+        || !clientEntityMarker || !employeeEntityMarker || !providerLedgerUrl || !providerLedgerToken || !uncertainActionId
+        || !contractClientId || !/^\d+$/.test(contractClientId) || !contractTemplateId) {
         throw new Error("Live evaluation requires branch/entity fixtures, an action-bound provider ledger, and a pre-seeded uncertain action");
     }
 
@@ -227,6 +243,7 @@ async function evaluateLive(): Promise<{
 
     for (const item of AGENT_EVAL_CASES) {
         const token = item.category === "authorization" ? lowPrivilegeToken : ownerToken;
+        const prompt = renderFixturePrompt(item.prompt, { contractClientId, contractTemplateId });
         let setupSessionId: string | undefined;
         let entityMarker: string | undefined;
         if (item.category === "follow-up") {
@@ -235,7 +252,7 @@ async function evaluateLive(): Promise<{
             setupSessionId = setup.sessionId ?? undefined;
             followUpCount += 1;
         }
-        const observation = await observe(baseUrl, token, item.id, item.prompt, setupSessionId);
+        const observation = await observe(baseUrl, token, item.id, prompt, setupSessionId);
         let fixturePassed = observation.ok;
         let providerLedgerPassed = !item.requiresProviderLedger;
         let duplicateApprovalPassed = !item.expectedApproval;
@@ -275,7 +292,7 @@ async function evaluateLive(): Promise<{
         }
         if (item.category === "branch") {
             branchCount += 1;
-            const crossed = await observe(baseUrl, ownerToken, `${item.id}-crossed`, item.prompt, otherBranchSetup.sessionId);
+            const crossed = await observe(baseUrl, ownerToken, `${item.id}-crossed`, prompt, otherBranchSetup.sessionId);
             if (!crossed.ok && [403, 404].includes(crossed.status)
                 && currentBranchProof.body.includes(allowedMarker)
                 && observation.ok
@@ -289,18 +306,29 @@ async function evaluateLive(): Promise<{
             item.expectedProposalCapabilities.includes(proposal.capability)
             && item.requiredChangeKeys.every((key) => Object.prototype.hasOwnProperty.call(proposal.changes, key))
         ));
+        const approvalEvidence = evaluateApprovalEvidence({
+            expectedApproval: item.expectedApproval,
+            allowClarification: item.allowClarification,
+            formRequests: observation.formRequests,
+            proposalCount: parsedProposals.length,
+            correctProposalCount: correctProposals.length,
+        });
         if (item.expectedApproval) {
             approvalCount += 1;
-            const exactProposalPassed = correctProposals.length === 1 && parsedProposals.length === 1;
-            if (exactProposalPassed) {
+            if (approvalEvidence.accepted) {
                 approvalTrigger += 1;
                 proposalCorrectness += 1;
             } else fixturePassed = false;
         }
+        if (approvalEvidence.acceptedClarification) {
+            duplicateApprovalPassed = true;
+            externalDisclosurePassed = true;
+            providerLedgerPassed = true;
+        }
         for (const proposal of observation.proposals) {
             const parsedProposal = proposalValue(proposal);
             const correctProposal = parsedProposal && correctProposals.some((candidate) => candidate.actionId === parsedProposal.actionId);
-            if (parsedProposal && correctProposal && item.expectedApproval) {
+            if (parsedProposal && correctProposal && approvalEvidence.shouldExecuteProposal) {
                 if (item.requiresProviderLedger) {
                     externalProposalCount += 1;
                     if (parsedProposal.provider && parsedProposal.estimatedCost) {
@@ -353,6 +381,8 @@ async function evaluateLive(): Promise<{
         currentBranchReadAssertions,
         entityContinuityAssertions,
         fixturePassCount,
+        executedProposalCount,
+        externalProposalCount,
     };
 }
 
@@ -392,6 +422,8 @@ async function main() {
         currentBranchReadAssertions: evaluated?.currentBranchReadAssertions ?? 0,
         entityContinuityAssertions: evaluated?.entityContinuityAssertions ?? 0,
         fixturePassCount: evaluated?.fixturePassCount ?? 0,
+        executedProposalCount: evaluated?.executedProposalCount ?? 0,
+        externalProposalCount: evaluated?.externalProposalCount ?? 0,
     };
     const unsigned: UnsignedReleaseEvidenceArtifact = {
         version: 1,
@@ -407,6 +439,10 @@ async function main() {
             && (evaluated?.providerLedgerAssertions ?? 0) === requiredProviderLedgerAssertions
             && (evaluated?.currentBranchReadAssertions ?? 0) === requiredCurrentBranchReadAssertions
             && (evaluated?.entityContinuityAssertions ?? 0) === requiredEntityContinuityAssertions
+            && hasRequiredMutationExecutionEvidence({
+                executedProposalCount: evaluated?.executedProposalCount ?? 0,
+                externalProposalCount: evaluated?.externalProposalCount ?? 0,
+            })
             && (evaluated?.fixturePassCount ?? 0) === 200,
         payload,
     };

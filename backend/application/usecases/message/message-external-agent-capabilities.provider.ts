@@ -5,7 +5,6 @@ import { AgentActionUncertainError } from "application/agent/action-coordinator.
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import type { AgentFormField } from "@babyjamjam/shared";
-import { resolveAligoSmsMessageType } from "application/dto/aligo/send-sms.dto";
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { MessageTriggerEventType, MessageTriggerOffsetType, MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
@@ -74,6 +73,7 @@ const AUTOMATION_RULE_FIELDS: AgentFormField[] = [
     { name: "templateKey", label: "템플릿 키", type: "text", required: true },
 ];
 const AUTOMATION_ID_FIELD: AgentFormField = { name: "id", label: "자동화 규칙 ID", type: "text", required: true };
+const AGENT_SMS_DELIVERY_TYPE = "LMS";
 
 function maskedReceiver(value: string): string {
     const digits = value.replace(/\D/g, "");
@@ -96,7 +96,10 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 meta: { domain: "messages", version: "1.0.0", requiredRoles: ["owner", "admin", "manager", "user"], sideEffect: false, name: "messages.previewSms", description: "Preview SMS content and cost category", risk: "read" as const, renderer: "activity" as const, flagKey: "agent.capability.messages.previewSms" },
                 inputSchema: PreviewSchema, outputSchema: SmsOutputSchema,
                 formFields: SMS_FIELDS,
-                execute: async (_context, rawInput) => ({ status: "preview", msgType: resolveAligoSmsMessageType(PreviewSchema.parse(rawInput)) }),
+                execute: async (_context, rawInput) => {
+                    PreviewSchema.parse(rawInput);
+                    return { status: "preview", msgType: AGENT_SMS_DELIVERY_TYPE };
+                },
             },
             {
                 meta: { domain: "messages", version: "1.0.0", requiredRoles: ["owner", "admin", "manager"], sideEffect: false, name: "messages.deliveryHistory", description: "List SMS delivery lifecycle history for the current branch", risk: "read" as const, renderer: "activity" as const, flagKey: "agent.capability.messages.deliveryHistory" },
@@ -143,7 +146,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                         title: "문자 발송",
                         summary: `${maskedReceiver(input.receiver)} 번호로 ${input.message.length}자 메시지를 발송합니다.`,
                         provider: "Aligo",
-                        estimatedCost: `${resolveAligoSmsMessageType(input)} 요금제 기준`,
+                        estimatedCost: `${AGENT_SMS_DELIVERY_TYPE} 요금제 기준`,
                     };
                 },
                 execute: async (context, rawInput) => {
@@ -151,9 +154,9 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                     const job = await this.enqueueSms(context, input, new Date(), "AI 문자 발송");
                     const delivered = await this.messageTriggerService.dispatchPendingJobNow(job.id);
                     if (delivered.status === "sent") {
-                        return { status: "sent", msgType: resolveAligoSmsMessageType(input), jobId: job.id };
+                        return { status: "sent", msgType: AGENT_SMS_DELIVERY_TYPE, jobId: job.id };
                     }
-                    if (delivered.status === "canceled") return { status: "canceled", msgType: resolveAligoSmsMessageType(input), jobId: job.id };
+                    if (delivered.status === "canceled") return { status: "canceled", msgType: AGENT_SMS_DELIVERY_TYPE, jobId: job.id };
                     throw new AgentActionUncertainError("SMS delivery status is uncertain", { jobId: job.id });
                 },
                 reconcile: async (context, _rawInput, uncertainty) => this.reconcileSmsJob(context, uncertainty),
@@ -168,14 +171,14 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                         title: "예약 문자 등록",
                         summary: `${input.scheduledDate} ${input.scheduledTime}에 ${maskedReceiver(input.receiver)} 번호로 발송합니다.`,
                         provider: "Aligo",
-                        estimatedCost: `${resolveAligoSmsMessageType(input)} 요금제 기준`,
+                        estimatedCost: `${AGENT_SMS_DELIVERY_TYPE} 요금제 기준`,
                     };
                 },
                 execute: async (context, rawInput) => {
                     const input = ScheduledSmsSchema.parse(rawInput);
                     const scheduledFor = new Date(`${input.scheduledDate}T${input.scheduledTime}:00+09:00`);
                     const job = await this.enqueueSms(context, input, scheduledFor, "AI 예약 문자");
-                    return { status: "scheduled", msgType: resolveAligoSmsMessageType(input), messageId: undefined, jobId: job.id };
+                    return { status: "scheduled", msgType: AGENT_SMS_DELIVERY_TYPE, messageId: undefined, jobId: job.id };
                 },
                 reconcile: async (context) => {
                     if (!context.actionId) return { status: "uncertain", reason: "Scheduled SMS action identity is missing" };
@@ -408,7 +411,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 templateVariables: {
                     triggerType: "agent_scheduled",
                     title: input.title ?? ruleName,
-                    msgType: resolveAligoSmsMessageType(input),
+                    msgType: AGENT_SMS_DELIVERY_TYPE,
                 },
             },
         }));

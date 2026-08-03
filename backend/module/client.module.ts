@@ -3,12 +3,15 @@ import {
     CreateClientUsecase,
     DeleteClientUsecase,
     FindClientByIdUsecase,
+    GetClientDashboardSummaryUsecase,
     ListClientsUsecase,
     ListClientsPaginatedUsecase,
     UpdateClientUsecase,
 } from "application/usecases/client";
 import { CLIENT_REPOSITORY } from "domain/repositories/client.repository.interface";
+import { CLIENT_DASHBOARD_REPOSITORY } from "domain/repositories/client-dashboard.repository.interface";
 import { SbClientRepository } from "infrastructure/database/repositories/sb.client.repository";
+import { PrismaClientDashboardRepository } from "infrastructure/database/repositories/prisma-client-dashboard.repository";
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { ClientService } from "application/services/client.service";
 import { ClientDueDateSchedulerService } from "application/services/client-due-date-scheduler.service";
@@ -38,6 +41,7 @@ import { ClientWriteAgentCapabilitiesProvider } from "application/usecases/clien
         CreateClientUsecase,
         DeleteClientUsecase,
         FindClientByIdUsecase,
+        GetClientDashboardSummaryUsecase,
         ListClientsUsecase,
         ListClientsPaginatedUsecase,
         UpdateClientUsecase,
@@ -49,6 +53,10 @@ import { ClientWriteAgentCapabilitiesProvider } from "application/usecases/clien
         {
             provide: CLIENT_REPOSITORY,
             useClass: SbClientRepository,
+        },
+        {
+            provide: CLIENT_DASHBOARD_REPOSITORY,
+            useClass: PrismaClientDashboardRepository,
         },
     ],
     exports: [ClientService],
