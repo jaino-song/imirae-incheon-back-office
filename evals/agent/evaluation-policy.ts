@@ -29,6 +29,81 @@ export interface ExternalFixtureCoverage {
     complete: boolean;
 }
 
+export const TERMINAL_ACTION_STATUSES = [
+    "succeeded",
+    "failed",
+    "uncertain",
+    "rejected",
+    "expired",
+    "cancelled",
+] as const;
+
+export interface ExternalExecutionEvidenceInput {
+    expectedActionId: string;
+    expectedCapability: string;
+    terminalAction: Readonly<Record<string, unknown>> | null | undefined;
+    confirmedAction: Readonly<Record<string, unknown>> | null | undefined;
+    providerCalls: number;
+}
+
+export interface ExternalExecutionEvidence {
+    terminal: boolean;
+    succeeded: boolean;
+    identityMatches: boolean;
+    capabilityMatches: boolean;
+    attemptMatches: boolean;
+    resultMatches: boolean;
+    providerCallCountMatches: boolean;
+    actionEvidenceMatches: boolean;
+    fixturePassed: boolean;
+}
+
+function actionIdentity(action: Readonly<Record<string, unknown>> | null | undefined): unknown {
+    if (!action) return undefined;
+    return action["id"] ?? action["actionId"];
+}
+
+/**
+ * Evaluate one action-bound external execution without treating a merely
+ * terminal failure or an unrelated action as successful fixture coverage.
+ */
+export function evaluateExternalExecutionEvidence(
+    input: ExternalExecutionEvidenceInput,
+): ExternalExecutionEvidence {
+    const terminalStatus = input.terminalAction?.["status"];
+    const confirmedStatus = input.confirmedAction?.["status"];
+    const terminal = typeof terminalStatus === "string"
+        && TERMINAL_ACTION_STATUSES.includes(terminalStatus as (typeof TERMINAL_ACTION_STATUSES)[number]);
+    const succeeded = terminalStatus === "succeeded" && confirmedStatus === "succeeded";
+    const identityMatches = actionIdentity(input.terminalAction) === input.expectedActionId
+        && actionIdentity(input.confirmedAction) === input.expectedActionId;
+    const capabilityMatches = input.terminalAction?.["capability"] === input.expectedCapability
+        && input.confirmedAction?.["capability"] === input.expectedCapability;
+    const attemptMatches = input.terminalAction?.["executionAttemptCount"] === 1
+        && input.confirmedAction?.["executionAttemptCount"] === 1;
+    const resultMatches = JSON.stringify(input.terminalAction?.["result"])
+        === JSON.stringify(input.confirmedAction?.["result"]);
+    const providerCallCountMatches = input.providerCalls === 1;
+    const actionEvidenceMatches = terminal
+        && confirmedStatus === terminalStatus
+        && identityMatches
+        && capabilityMatches
+        && attemptMatches
+        && resultMatches;
+    const fixturePassed = succeeded && actionEvidenceMatches && providerCallCountMatches;
+    return {
+        terminal,
+        succeeded,
+        identityMatches,
+        capabilityMatches,
+        attemptMatches,
+        resultMatches,
+        providerCallCountMatches,
+        actionEvidenceMatches,
+        fixturePassed,
+    };
+}
+
 /**
  * Compare the committed concrete external fixtures with the required
  * inventory. This is deliberately fail-closed: missing, unexpected, or

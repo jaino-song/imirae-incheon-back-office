@@ -9,10 +9,16 @@ import {
 } from "./cases";
 import {
     evaluateApprovalEvidence,
+    evaluateExternalExecutionEvidence,
     evaluateExternalFixtureCoverage,
     matchesEvaluationMutationPolicy,
     requiredProviderLedgerAssertionCount,
 } from "./evaluation-policy";
+import {
+    validateEvaluationBaseUrl,
+    validateEvaluationEndpoint,
+    withEvaluationFetchPolicy,
+} from "./network-policy";
 import {
     releaseEvidenceDigest,
     RELEASE_EVALUATION_THRESHOLDS,
@@ -135,30 +141,34 @@ function parseStream(body: string, response: Response): Observation {
 }
 
 async function observe(baseUrl: string, token: string, id: string, prompt: string, sessionId?: string): Promise<Observation> {
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/ai/agent/chat`, {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/ai/agent/chat`, withEvaluationFetchPolicy({
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ locale: "ko", ...(sessionId ? { sessionId } : {}), messages: [{ id, role: "user", parts: [{ type: "text", text: prompt }] }] }),
-    });
+    }));
     const body = await response.text();
     return parseStream(body, response);
 }
 
 async function readDiagnostics(baseUrl: string, token: string): Promise<Record<string, unknown>> {
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/ai/agent/diagnostics`, { headers: { authorization: `Bearer ${token}` } });
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/ai/agent/diagnostics`, withEvaluationFetchPolicy({
+        headers: { authorization: `Bearer ${token}` },
+    }));
     if (!response.ok) throw new Error(`Agent diagnostics failed with ${response.status}`);
     return response.json() as Promise<Record<string, unknown>>;
 }
 
 async function readAction(root: string, token: string, actionId: string): Promise<Record<string, unknown> | null> {
-    const response = await fetch(`${root}/ai/actions/${encodeURIComponent(actionId)}`, { headers: { authorization: `Bearer ${token}` } });
+    const response = await fetch(`${root}/ai/actions/${encodeURIComponent(actionId)}`, withEvaluationFetchPolicy({
+        headers: { authorization: `Bearer ${token}` },
+    }));
     return response.ok ? response.json() as Promise<Record<string, unknown>> : null;
 }
 
 async function readProviderLedger(root: string, token: string, actionId: string): Promise<number> {
-    const response = await fetch(`${root.replace(/\/$/, "")}/actions/${encodeURIComponent(actionId)}`, {
+    const response = await fetch(`${root.replace(/\/$/, "")}/actions/${encodeURIComponent(actionId)}`, withEvaluationFetchPolicy({
         headers: { authorization: `Bearer ${token}` },
-    });
+    }));
     if (!response.ok) throw new Error(`Provider ledger lookup failed with ${response.status}`);
     const body = await response.json() as Record<string, unknown>;
     if (body["actionId"] !== actionId || !Number.isInteger(body["providerCalls"]) || (body["providerCalls"] as number) < 0) {
@@ -178,14 +188,14 @@ async function waitForTerminalAction(root: string, token: string, actionId: stri
 
 async function approveAndRead(baseUrl: string, token: string, proposal: Proposal) {
     const root = baseUrl.replace(/\/$/, "");
-    const approve = () => fetch(`${root}/ai/actions/${encodeURIComponent(proposal.actionId)}/approve`, {
+    const approve = () => fetch(`${root}/ai/actions/${encodeURIComponent(proposal.actionId)}/approve`, withEvaluationFetchPolicy({
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({
             expectedRevision: proposal.expectedRevision,
             ...(proposal.acknowledgementToken ? { acknowledgementToken: proposal.acknowledgementToken } : {}),
         }),
-    });
+    }));
     const [first, second] = await Promise.all([approve(), approve()]);
     const [firstBody, secondBody] = await Promise.all([first.text(), second.text()]);
     const terminalAction = await waitForTerminalAction(root, token, proposal.actionId);
@@ -205,7 +215,10 @@ async function evaluateLive(): Promise<{
     externalProposalCount: number;
     externalFixtureExecutionCapabilities: string[];
 }> {
-    const baseUrl = process.env.AGENT_EVAL_BASE_URL?.trim();
+    const baseUrl = validateEvaluationBaseUrl(
+        process.env.AGENT_EVAL_BASE_URL,
+        process.env.AGENT_EVAL_ALLOWED_ORIGIN,
+    );
     const ownerToken = process.env.AGENT_EVAL_TOKEN?.trim();
     const lowPrivilegeToken = process.env.AGENT_EVAL_LOW_PRIVILEGE_TOKEN?.trim();
     const otherBranchToken = process.env.AGENT_EVAL_OTHER_BRANCH_TOKEN?.trim();
@@ -213,7 +226,10 @@ async function evaluateLive(): Promise<{
     const allowedMarker = process.env.AGENT_EVAL_ALLOWED_MARKER?.trim();
     const clientEntityMarker = process.env.AGENT_EVAL_CLIENT_ENTITY_MARKER?.trim();
     const employeeEntityMarker = process.env.AGENT_EVAL_EMPLOYEE_ENTITY_MARKER?.trim();
-    const providerLedgerUrl = process.env.AGENT_EVAL_PROVIDER_LEDGER_URL?.trim();
+    const providerLedgerUrl = validateEvaluationEndpoint(
+        process.env.AGENT_EVAL_PROVIDER_LEDGER_URL,
+        "Agent evaluation provider ledger URL",
+    );
     const providerLedgerToken = process.env.AGENT_EVAL_PROVIDER_LEDGER_TOKEN?.trim();
     const uncertainActionId = process.env.AGENT_EVAL_UNCERTAIN_ACTION_ID?.trim();
     const contractClientId = process.env.AGENT_EVAL_CONTRACT_CLIENT_ID?.trim();
@@ -223,7 +239,7 @@ async function evaluateLive(): Promise<{
     const retryJobId = process.env.AGENT_EVAL_RETRY_JOB_ID?.trim();
     const notificationUserId = process.env.AGENT_EVAL_NOTIFICATION_USER_ID?.trim();
     const automationRuleName = process.env.AGENT_EVAL_AUTOMATION_RULE_NAME?.trim();
-    if (!baseUrl || !ownerToken || !lowPrivilegeToken || !otherBranchToken || !forbiddenMarker || !allowedMarker
+    if (!ownerToken || !lowPrivilegeToken || !otherBranchToken || !forbiddenMarker || !allowedMarker
         || !clientEntityMarker || !employeeEntityMarker || !providerLedgerUrl || !providerLedgerToken || !uncertainActionId
         || !contractClientId || !/^\d+$/.test(contractClientId) || !contractTemplateId
         || !smsReceiver || !scheduledSmsReceiver || !retryJobId || !notificationUserId || !automationRuleName) {
@@ -282,10 +298,10 @@ async function evaluateLive(): Promise<{
         || uncertainCallsBefore !== 1) {
         throw new Error("The uncertainty fixture must begin as one uncertain execution and one provider call");
     }
-    const uncertainReconcile = await fetch(`${baseUrl.replace(/\/$/, "")}/ai/actions/${encodeURIComponent(uncertainActionId)}/reconcile`, {
+    const uncertainReconcile = await fetch(`${baseUrl.replace(/\/$/, "")}/ai/actions/${encodeURIComponent(uncertainActionId)}/reconcile`, withEvaluationFetchPolicy({
         method: "POST",
         headers: { authorization: `Bearer ${ownerToken}` },
-    });
+    }));
     const uncertainAfter = await waitForTerminalAction(baseUrl.replace(/\/$/, ""), ownerToken, uncertainActionId);
     const uncertainCallsAfter = await readProviderLedger(providerLedgerUrl, providerLedgerToken, uncertainActionId);
     uncertaintyCount = 1;
@@ -405,26 +421,26 @@ async function evaluateLive(): Promise<{
                 }
                 const execution = await approveAndRead(baseUrl, token, parsedProposal);
                 executedProposalCount += 1;
-                const terminalStatus = execution.terminalAction?.["status"];
-                const confirmedStatus = execution.confirmedAction?.["status"];
-                const terminal = ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"].includes(String(terminalStatus));
-                if (terminal
-                    && confirmedStatus === terminalStatus
-                    && (execution.confirmedAction?.["id"] === parsedProposal.actionId
-                        || execution.confirmedAction?.["actionId"] === parsedProposal.actionId)
-                    && execution.confirmedAction?.["capability"] === parsedProposal.capability
-                    && execution.confirmedAction?.["executionAttemptCount"] === 1
-                        && JSON.stringify(execution.terminalAction?.["result"] ?? null) === JSON.stringify(execution.confirmedAction?.["result"] ?? null)) {
+                const providerCalls = item.requiresProviderLedger
+                    ? await readProviderLedger(providerLedgerUrl, providerLedgerToken, parsedProposal.actionId)
+                    : 0;
+                const executionEvidence = evaluateExternalExecutionEvidence({
+                    expectedActionId: parsedProposal.actionId,
+                    expectedCapability: parsedProposal.capability,
+                    terminalAction: execution.terminalAction,
+                    confirmedAction: execution.confirmedAction,
+                    providerCalls,
+                });
+                if (executionEvidence.actionEvidenceMatches) {
                     duplicateApproval += 1;
                     duplicateApprovalPassed = true;
                 }
+                if (item.requiresProviderLedger && !executionEvidence.fixturePassed) fixturePassed = false;
                 if (item.requiresProviderLedger) {
-                    const providerCalls = await readProviderLedger(providerLedgerUrl, providerLedgerToken, parsedProposal.actionId);
-                    if (providerCalls === 1) {
+                    if (executionEvidence.providerCallCountMatches) {
                         providerLedgerAssertions += 1;
                         providerLedgerPassed = true;
-                        if (concreteExternalFixture
-                            && terminal
+                        if (concreteExternalFixture && executionEvidence.fixturePassed
                             && item.externalFixtureCapability === parsedProposal.capability) {
                             externalFixtureExecutionCapabilities.add(parsedProposal.capability);
                         }

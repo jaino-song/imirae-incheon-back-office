@@ -1,11 +1,17 @@
 import { AGENT_EVAL_CASES, REQUIRED_EXTERNAL_EXECUTION_CAPABILITIES } from "../../../evals/agent/cases";
 import {
     evaluateExternalFixtureCoverage,
+    evaluateExternalExecutionEvidence,
     evaluateApprovalEvidence,
     hasRequiredMutationExecutionEvidence,
     matchesEvaluationMutationPolicy,
     requiredProviderLedgerAssertionCount,
 } from "../../../evals/agent/evaluation-policy";
+import {
+    validateEvaluationBaseUrl,
+    validateEvaluationEndpoint,
+    withEvaluationFetchPolicy,
+} from "../../../evals/agent/network-policy";
 
 describe("agent evaluation approval policy", () => {
     it("accepts one form-only clarification without requiring execution evidence", () => {
@@ -86,5 +92,75 @@ describe("agent evaluation approval policy", () => {
         expect(fixtures.every((item) => item.requiresTerminalExecution === true)).toBe(true);
         expect(fixtures.every((item) => item.requiresProviderDisclosure === true)).toBe(true);
         expect(new Set(fixtures.map((item) => item.externalFixtureCapability)).size).toBe(fixtures.length);
+    });
+
+    it("counts only confirmed succeeded actions in external execution coverage", () => {
+        const terminalStatuses = ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"] as const;
+        for (const status of terminalStatuses) {
+            const action = {
+                id: "action-1",
+                status,
+                capability: "messages.sendSms",
+                executionAttemptCount: 1,
+                result: { providerId: "provider-1" },
+            };
+            const evidence = evaluateExternalExecutionEvidence({
+                expectedActionId: "action-1",
+                expectedCapability: "messages.sendSms",
+                terminalAction: action,
+                confirmedAction: action,
+                providerCalls: 1,
+            });
+
+            expect(evidence.terminal).toBe(true);
+            expect(evidence.actionEvidenceMatches).toBe(true);
+            expect(evidence.fixturePassed).toBe(status === "succeeded");
+        }
+    });
+
+    it("fails external execution evidence on identity, capability, attempt, result, or call-count drift", () => {
+        const terminalAction = {
+            id: "action-1",
+            status: "succeeded",
+            capability: "messages.sendSms",
+            executionAttemptCount: 1,
+            result: { providerId: "provider-1" },
+        } as const;
+        const cases = [
+            { label: "terminal identity", terminalAction: { ...terminalAction, id: "action-2" } },
+            { label: "confirmed capability", confirmedAction: { ...terminalAction, capability: "messages.scheduleSms" } },
+            { label: "terminal attempt", terminalAction: { ...terminalAction, executionAttemptCount: 2 } },
+            { label: "confirmed result", confirmedAction: { ...terminalAction, result: { providerId: "provider-2" } } },
+            { label: "provider calls", providerCalls: 2 },
+        ];
+
+        for (const item of cases) {
+            const evidence = evaluateExternalExecutionEvidence({
+                expectedActionId: "action-1",
+                expectedCapability: "messages.sendSms",
+                terminalAction: item.terminalAction ?? terminalAction,
+                confirmedAction: item.confirmedAction ?? terminalAction,
+                providerCalls: item.providerCalls ?? 1,
+            });
+            expect(evidence.fixturePassed).toBe(false);
+        }
+    });
+
+    it("requires the protected preview URL to use the exact HTTPS allowlisted origin", () => {
+        expect(validateEvaluationBaseUrl(
+            "https://preview.example.test/api",
+            "https://preview.example.test",
+        )).toBe("https://preview.example.test/api");
+        expect(() => validateEvaluationBaseUrl("http://preview.example.test", "https://preview.example.test")).toThrow();
+        expect(() => validateEvaluationBaseUrl("https://other.example.test", "https://preview.example.test")).toThrow();
+        expect(() => validateEvaluationBaseUrl("https://user:password@preview.example.test", "https://preview.example.test")).toThrow();
+        expect(() => validateEvaluationBaseUrl("https://preview.example.test", undefined)).toThrow();
+        expect(() => validateEvaluationEndpoint("https://user:password@ledger.example.test", "ledger URL")).toThrow();
+    });
+
+    it("forces evaluation requests to reject redirects", () => {
+        expect(withEvaluationFetchPolicy()).toEqual({ redirect: "error" });
+        expect(withEvaluationFetchPolicy({ method: "POST" })).toEqual({ method: "POST", redirect: "error" });
+        expect(() => withEvaluationFetchPolicy({ redirect: "follow" })).toThrow();
     });
 });
