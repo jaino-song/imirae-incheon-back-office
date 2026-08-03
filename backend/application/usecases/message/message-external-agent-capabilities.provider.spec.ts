@@ -98,6 +98,15 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         expect(schedule.inputSchema.safeParse({ receiver: "01012345678", message: "안내", scheduledDate: date, scheduledTime: time }).success).toBe(false);
     });
 
+    it("rejects impossible calendar dates and normalized out-of-range times", () => {
+        const { capabilities } = setup();
+        const schedule = capabilities.find((entry) => entry.meta.name === "messages.scheduleSms")!;
+        const base = { receiver: "01012345678", message: "안내" };
+
+        expect(schedule.inputSchema.safeParse({ ...base, scheduledDate: "2030-02-30", scheduledTime: "12:00" }).success).toBe(false);
+        expect(schedule.inputSchema.safeParse({ ...base, scheduledDate: "2030-03-01", scheduledTime: "24:00" }).success).toBe(false);
+    });
+
     it("discloses and records the LMS type used by the INFO delivery template", async () => {
         const { capabilities } = setup();
         const preview = capabilities.find((entry) => entry.meta.name === "messages.previewSms")!;

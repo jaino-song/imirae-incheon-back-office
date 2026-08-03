@@ -1,6 +1,13 @@
 import { CapabilityRouterService } from "./capability-router.service";
 
 describe("CapabilityRouterService", () => {
+    function enabledFlags() {
+        return {
+            getSnapshot: jest.fn().mockResolvedValue({ config: {}, emergencyDisabled: false }),
+            isCapabilityEnabledFromSnapshot: jest.fn().mockReturnValue(true),
+        };
+    }
+
     it("routes Korean and English terms only to enabled capabilities", async () => {
         const registry = {
             list: () => [
@@ -8,7 +15,7 @@ describe("CapabilityRouterService", () => {
                 { meta: { name: "contracts.status", domain: "contracts" } },
             ],
         };
-        const flags = { isCapabilityEnabled: jest.fn().mockResolvedValue(true) };
+        const flags = enabledFlags();
         const router = new CapabilityRouterService(registry as never, flags as never);
         const result = await router.route("계약 상태 보여줘", {
             userId: "u", branchId: "b", globalRole: "admin", branchRole: "admin",
@@ -16,6 +23,8 @@ describe("CapabilityRouterService", () => {
 
         expect(result.domains).toEqual(["contracts"]);
         expect(result.capabilities.map((item) => item.meta.name)).toEqual(["contracts.status"]);
+        expect(flags.getSnapshot).toHaveBeenCalledTimes(1);
+        expect(flags.isCapabilityEnabledFromSnapshot).toHaveBeenCalledTimes(2);
     });
 
     it("caps the bundle", async () => {
@@ -24,7 +33,7 @@ describe("CapabilityRouterService", () => {
         }));
         const router = new CapabilityRouterService(
             { list: () => capabilities } as never,
-            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            enabledFlags() as never,
         );
         await expect(router.route("client", {
             userId: "u", branchId: "b", globalRole: "admin", branchRole: "admin",
@@ -38,7 +47,7 @@ describe("CapabilityRouterService", () => {
                 { meta: { name: "clients.search", domain: "clients" } },
                 { meta: { name: "employees.search", domain: "employees" } },
             ] } as never,
-            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            enabledFlags() as never,
             { create } as never,
         );
         const previousClassifierFlag = process.env["AGENT_ROUTER_CLASSIFIER_ENABLED"];

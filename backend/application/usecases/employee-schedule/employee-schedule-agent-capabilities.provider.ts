@@ -21,7 +21,11 @@ export class EmployeeScheduleAgentCapabilitiesProvider implements AgentCapabilit
             execute: async (context, rawInput) => {
                 const { date } = InputSchema.parse(rawInput);
                 const schedules = await this.listSchedules.execute(context.principal.branchId);
-                return { schedules: schedules.filter((schedule) => !date || schedule.startDate.toISOString().startsWith(date)).slice(0, 50).map((schedule) => ({ id: schedule.id, clientId: schedule.clientId, primaryEmployeeId: schedule.primaryEmployeeId, secondaryEmployeeId: schedule.secondaryEmployeeId, startDate: schedule.startDate.toISOString(), endDate: schedule.endDate.toISOString(), replaced: schedule.replaced })) };
+                const dayStart = date ? new Date(`${date}T00:00:00.000Z`) : null;
+                const dayEnd = date ? new Date(`${date}T23:59:59.999Z`) : null;
+                return { schedules: schedules.filter((schedule) => (
+                    !dayStart || !dayEnd || (schedule.startDate <= dayEnd && schedule.endDate >= dayStart)
+                )).slice(0, 50).map((schedule) => ({ id: schedule.id, clientId: schedule.clientId, primaryEmployeeId: schedule.primaryEmployeeId, secondaryEmployeeId: schedule.secondaryEmployeeId, startDate: schedule.startDate.toISOString(), endDate: schedule.endDate.toISOString(), replaced: schedule.replaced })) };
             },
         }];
     }

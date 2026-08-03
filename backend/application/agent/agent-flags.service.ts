@@ -22,6 +22,10 @@ const AgentFlagsConfigSchema = z.object({
 const AgentFlagsPatchSchema = AgentFlagsConfigSchema.partial();
 
 export type AgentFlagsConfig = z.infer<typeof AgentFlagsConfigSchema>;
+export type AgentFlagsSnapshot = {
+    config: AgentFlagsConfig;
+    emergencyDisabled: boolean;
+};
 
 @Injectable()
 export class AgentFlagsService {
@@ -88,8 +92,24 @@ export class AgentFlagsService {
         capability: AgentCapabilityMeta,
         principal: VerifiedTenantPrincipal,
     ): Promise<boolean> {
-        if (await this.isEmergencyDisabled()) return false;
-        const flags = await this.getConfig();
+        return this.isCapabilityEnabledFromSnapshot(capability, principal, await this.getSnapshot());
+    }
+
+    async getSnapshot(): Promise<AgentFlagsSnapshot> {
+        const [config, emergencyDisabled] = await Promise.all([
+            this.getConfig(),
+            this.isEmergencyDisabled(),
+        ]);
+        return { config, emergencyDisabled };
+    }
+
+    isCapabilityEnabledFromSnapshot(
+        capability: AgentCapabilityMeta,
+        principal: VerifiedTenantPrincipal,
+        snapshot: AgentFlagsSnapshot,
+    ): boolean {
+        if (snapshot.emergencyDisabled) return false;
+        const flags = snapshot.config;
         if (!flags.enabled) return false;
         if (!this.isRolloutStageAllowed(flags, capability, principal)) return false;
         const nodeEnvironment = this.configService.get<string>("NODE_ENV") ?? "development";

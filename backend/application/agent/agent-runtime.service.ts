@@ -362,16 +362,36 @@ export class AgentRuntimeService {
             ],
             abortSignal: input.signal,
         });
+        let streamFailureCategory: "provider" | undefined;
+        let traceFinalized = false;
+        const finishTrace = async (
+            outcome: "succeeded" | "failed" | "cancelled",
+            usage?: unknown,
+            errorCategory?: string,
+        ) => {
+            if (traceFinalized) return;
+            traceFinalized = true;
+            await this.traces.finish(trace, outcome, usage, errorCategory, stepMetadata).catch(() => undefined);
+        };
         const persistCompletion: NonNullable<UIMessageStreamOptions<BjjUIMessage>["onFinish"]> = async ({ responseMessage, isAborted }) => {
             const lastInput = input.messages.at(-1);
-            await this.sessions.appendMessages(
-                session.id,
-                owner,
-                [lastInput, responseMessage].filter(Boolean) as BjjUIMessage[],
-                traceId,
-            );
             const usage = await Promise.resolve(result.usage).catch(() => undefined);
-            await this.traces.finish(trace, isAborted ? "cancelled" : "succeeded", usage, undefined, stepMetadata);
+            try {
+                await this.sessions.appendMessages(
+                    session.id,
+                    owner,
+                    [lastInput, responseMessage].filter(Boolean) as BjjUIMessage[],
+                    traceId,
+                );
+            } catch {
+                await finishTrace("failed", usage, "persistence");
+                return;
+            }
+            await finishTrace(
+                isAborted ? "cancelled" : streamFailureCategory ? "failed" : "succeeded",
+                usage,
+                streamFailureCategory,
+            );
         };
         const stream = createUIMessageStream<BjjUIMessage>({
             originalMessages: input.messages,
@@ -380,12 +400,16 @@ export class AgentRuntimeService {
                 streamWriter = writer;
                 for (const chunk of pendingDataChunks.splice(0)) writer.write(chunk);
                 writer.merge(result.toUIMessageStream({
-                    onError: () => "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                    onError: () => {
+                        streamFailureCategory = "provider";
+                        return "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+                    },
                 }));
             },
             onFinish: persistCompletion,
             onError: () => {
-                void this.traces.finish(trace, "failed", undefined, "provider");
+                streamFailureCategory = "provider";
+                void finishTrace("failed", undefined, "provider");
                 return "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
             },
         });

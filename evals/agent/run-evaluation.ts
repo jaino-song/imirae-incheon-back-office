@@ -14,7 +14,7 @@ import {
     type UnsignedReleaseEvidenceArtifact,
 } from "../../backend/application/agent/release-evidence-artifact";
 
-const model = process.env.AGENT_MODEL?.trim() || "server-configured";
+const requestedModel = process.env.AGENT_MODEL?.trim() || null;
 const thresholds = RELEASE_EVALUATION_THRESHOLDS;
 const categories = new Set(AGENT_EVAL_CASES.map((item) => item.category));
 const uniquePrompts = new Set(AGENT_EVAL_CASES.map((item) => item.prompt));
@@ -157,6 +157,7 @@ async function approveAndRead(baseUrl: string, token: string, proposal: Proposal
 async function evaluateLive(): Promise<{
     scores: Scores;
     diagnostics: Record<string, unknown>;
+    model: string;
     providerLedgerAssertions: number;
     currentBranchReadAssertions: number;
     entityContinuityAssertions: number;
@@ -184,6 +185,11 @@ async function evaluateLive(): Promise<{
     }
 
     const diagnostics = await readDiagnostics(baseUrl, ownerToken);
+    const model = typeof diagnostics["model"] === "string" ? diagnostics["model"].trim() : "";
+    if (!model) throw new Error("Live evaluation diagnostics must report the exact model id");
+    if (requestedModel && requestedModel !== model) {
+        throw new Error(`Live evaluation model mismatch: expected ${requestedModel}, received ${model}`);
+    }
     let routing = 0;
     let authorization = 0;
     let branchIsolation = 0;
@@ -364,6 +370,7 @@ async function evaluateLive(): Promise<{
 
     return {
         diagnostics,
+        model,
         scores: {
             routing: routingCount > 0 ? routing / routingCount : 0,
             authorization: authorization / authorizationCount,
@@ -397,6 +404,7 @@ async function main() {
     const agentVersion = typeof evaluated?.diagnostics["agentVersion"] === "string"
         ? evaluated.diagnostics["agentVersion"]
         : "not-executed";
+    const model = evaluated?.model ?? requestedModel ?? "not-executed";
     const manifestFresh = evaluated?.diagnostics["manifestFresh"] === true;
     const deployedCommitMatches = Boolean(evaluated) && deployedCommitSha === commitSha;
     const thresholdPassed = Boolean(evaluated) && Object.entries(thresholds)

@@ -66,14 +66,17 @@ export function useAgentChat() {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
+            let assistantMessageId: string | undefined;
             const parts: MobileAgentPart[] = [];
             const consume = (line: string) => {
                 if (!line.startsWith("data:")) return;
                 const raw = line.slice(5).trim();
                 if (!raw || raw === "[DONE]") return;
                 try {
-                    const chunk = JSON.parse(raw) as { type?: string; delta?: string; data?: unknown };
-                    if (chunk.type === "text-delta" && typeof chunk.delta === "string") {
+                    const chunk = JSON.parse(raw) as { type?: string; delta?: string; data?: unknown; messageId?: unknown };
+                    if (chunk.type === "start" && typeof chunk.messageId === "string" && chunk.messageId.length > 0) {
+                        assistantMessageId = chunk.messageId;
+                    } else if (chunk.type === "text-delta" && typeof chunk.delta === "string") {
                         const previous = parts.find((part) => part.type === "text");
                         if (previous) previous.text = `${previous.text ?? ""}${chunk.delta}`;
                         else parts.push({ type: "text", text: chunk.delta });
@@ -93,7 +96,7 @@ export function useAgentChat() {
                 if (next.done) break;
             }
             if (buffer) consume(buffer);
-            setMessages((current) => [...current, { id: makeId(), role: "assistant", parts: parts.length > 0 ? parts : [{ type: "text", text: "응답을 받지 못했습니다." }] } as MobileAgentMessage]);
+            setMessages((current) => [...current, { id: assistantMessageId ?? makeId(), role: "assistant", parts: parts.length > 0 ? parts : [{ type: "text", text: "응답을 받지 못했습니다." }] } as MobileAgentMessage]);
             setStatus("ready");
             await refreshSessions();
         } catch (error) {

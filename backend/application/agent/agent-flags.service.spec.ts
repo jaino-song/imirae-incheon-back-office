@@ -37,6 +37,19 @@ describe("AgentFlagsService", () => {
         })).resolves.toBe(true);
     });
 
+    it("evaluates a request bundle from one authoritative snapshot", async () => {
+        const config = new ConfigService({ NODE_ENV: "development" });
+        jest.spyOn(getSetting, "execute").mockResolvedValue(null);
+        const service = new AgentFlagsService(config, getSetting, updateSetting);
+        const principal = { userId: "user-1", branchId: "branch-1", globalRole: "admin", branchRole: "admin" } as const;
+
+        const snapshot = await service.getSnapshot();
+
+        expect(service.isCapabilityEnabledFromSnapshot(capability, principal, snapshot)).toBe(true);
+        expect(service.isCapabilityEnabledFromSnapshot({ ...capability, name: "clients.get" }, principal, snapshot)).toBe(true);
+        expect(getSetting.execute).toHaveBeenCalledTimes(2);
+    });
+
     it("should default production to disabled", async () => {
         const config = new ConfigService({ NODE_ENV: "production" });
         jest.spyOn(getSetting, "execute").mockResolvedValue(null);

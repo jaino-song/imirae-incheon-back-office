@@ -46,4 +46,35 @@ describe("MobileAgentPartRegistry", () => {
         expect(screen.getByText(/"delivered": 1/)).toBeInTheDocument();
         expect(screen.getByText(/"failed": 2/)).toBeInTheDocument();
     });
+
+    it("requires acknowledgement when a reversible proposal carries a server token", () => {
+        const onApproveAction = jest.fn();
+        render(<MobileAgentPartRegistry
+            part={{
+                type: "data-action-proposal",
+                data: {
+                    actionId: "action-reversible",
+                    capability: "contracts.prepareDispatch",
+                    title: "계약 준비",
+                    summary: "계약 발송 준비 정보를 확인합니다.",
+                    expiresAt: "2099-08-03T00:00:00.000Z",
+                    expectedRevision: "revision-1",
+                    risk: "reversible-write",
+                    changes: { clientId: 1 },
+                    acknowledgementToken: "ack-token",
+                },
+            }}
+            onEntitySelect={jest.fn()}
+            onApproveAction={onApproveAction}
+            onRejectAction={jest.fn()}
+            onSubmitForm={jest.fn()}
+        />);
+        const approve = screen.getByRole("button", { name: "승인하고 실행" });
+
+        expect(approve).toBeDisabled();
+        fireEvent.click(screen.getByRole("checkbox"));
+        expect(approve).toBeEnabled();
+        fireEvent.click(approve);
+        expect(onApproveAction).toHaveBeenCalledWith("action-reversible", "revision-1", "ack-token");
+    });
 });

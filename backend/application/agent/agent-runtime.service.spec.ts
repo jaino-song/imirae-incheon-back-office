@@ -333,4 +333,94 @@ describe("AgentRuntimeService", () => {
             }),
         ]));
     });
+
+    it("contains finish-time persistence failures and records a failed trace", async () => {
+        const capability = {
+            meta: { name: "clients.search", domain: "clients", version: "1.0.0", description: "Search clients", risk: "read" as const, requiredRoles: ["admin"], renderer: "activity" as const, flagKey: "agent.capability.clients.search", sideEffect: false },
+            inputSchema: z.object({ query: z.string().optional() }),
+            outputSchema: z.object({}),
+            execute: jest.fn().mockResolvedValue({}),
+        };
+        const sessions = {
+            create: jest.fn().mockResolvedValue({ id: "session-persistence", selectedEntities: {}, messages: [] }),
+            appendMessages: jest.fn().mockRejectedValue(new Error("database unavailable")),
+        };
+        const traces = {
+            start: jest.fn().mockResolvedValue({ id: "trace-persistence", startedAt: Date.now() }),
+            finish: jest.fn().mockResolvedValue(undefined),
+        };
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => new DeterministicAgentLanguageModel([{ type: "text", text: "완료" }]) } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            traces as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-persistence", role: "user", parts: [{ type: "text", text: "도와줘" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain so persistence and trace finalization run.
+        }
+
+        expect(traces.finish).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "trace-persistence" }),
+            "failed",
+            expect.anything(),
+            "persistence",
+            [{ capability: "clients.search", version: "1.0.0", risk: "read" }],
+        );
+    });
+
+    it("records provider stream failures as failed instead of successful traces", async () => {
+        const consoleError = jest.spyOn(console, "error").mockImplementation(() => undefined);
+        const capability = {
+            meta: { name: "clients.search", domain: "clients", version: "1.0.0", description: "Search clients", risk: "read" as const, requiredRoles: ["admin"], renderer: "activity" as const, flagKey: "agent.capability.clients.search", sideEffect: false },
+            inputSchema: z.object({ query: z.string().optional() }),
+            outputSchema: z.object({}),
+            execute: jest.fn().mockResolvedValue({}),
+        };
+        const sessions = {
+            create: jest.fn().mockResolvedValue({ id: "session-provider", selectedEntities: {}, messages: [] }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const traces = {
+            start: jest.fn().mockResolvedValue({ id: "trace-provider", startedAt: Date.now() }),
+            finish: jest.fn().mockResolvedValue(undefined),
+        };
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => new DeterministicAgentLanguageModel([{ type: "error", message: "provider failed" }]) } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            traces as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-provider", role: "user", parts: [{ type: "text", text: "도와줘" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the redacted provider error response.
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        consoleError.mockRestore();
+
+        expect(traces.finish).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "trace-provider" }),
+            "failed",
+            undefined,
+            "provider",
+            [{ capability: "clients.search", version: "1.0.0", risk: "read" }],
+        );
+        expect(traces.finish).not.toHaveBeenCalledWith(expect.anything(), "succeeded", expect.anything(), expect.anything(), expect.anything());
+    });
 });

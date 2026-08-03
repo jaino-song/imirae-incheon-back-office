@@ -2,9 +2,10 @@ import { ConfigService } from "@nestjs/config";
 import { ForbiddenException } from "@nestjs/common";
 import { AgentRateLimitService } from "application/agent/agent-rate-limit.service";
 import { AgentSessionService } from "application/agent/agent-session.service";
-import { AgentController } from "interface/controllers/agent.controller";
+import { abortWhenResponseCloses, AgentController } from "interface/controllers/agent.controller";
 import { redactModelValue } from "application/agent/agent-runtime.service";
 import type { IAgentSessionRepository } from "domain/repositories/agent-session.repository.interface";
+import { EventEmitter } from "node:events";
 
 describe("Release A agent security boundaries", () => {
     const repository = {
@@ -51,6 +52,51 @@ describe("Release A agent security boundaries", () => {
             {} as never, {} as never, { list: () => [] } as never, {} as never, {} as never, {} as never,
         );
         await expect(controller.capabilities({} as never)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("aborts model work when the response connection closes before completion", () => {
+        const response = Object.assign(new EventEmitter(), { writableFinished: false });
+        const controller = new AbortController();
+
+        abortWhenResponseCloses(response as never, controller);
+        response.emit("close");
+
+        expect(controller.signal.aborted).toBe(true);
+    });
+
+    it("does not start model work when the response closes during rate-limit I/O", async () => {
+        let releaseRateLimit!: () => void;
+        const runtime = { stream: jest.fn() };
+        const rateLimit = { check: jest.fn().mockImplementation(() => new Promise<void>((resolve) => { releaseRateLimit = resolve; })) };
+        const controller = new AgentController(
+            runtime as never,
+            {} as never,
+            { list: () => [] } as never,
+            {} as never,
+            rateLimit as never,
+            {} as never,
+        );
+        const response = Object.assign(new EventEmitter(), { writableFinished: false, destroyed: false, closed: false });
+        const pending = controller.chat(
+            { messages: [{ id: "message", role: "user", parts: [{ type: "text", text: "질문" }] }] } as never,
+            { tenant: { userId: "user", branchId: "branch", globalRole: "admin", branchRole: "admin" } } as never,
+            response as never,
+        );
+
+        response.emit("close");
+        releaseRateLimit();
+        await pending;
+
+        expect(runtime.stream).not.toHaveBeenCalled();
+    });
+
+    it("aborts immediately when listener registration sees an already-closed response", () => {
+        const response = Object.assign(new EventEmitter(), { writableFinished: false, destroyed: true, closed: true });
+        const controller = new AbortController();
+
+        abortWhenResponseCloses(response as never, controller);
+
+        expect(controller.signal.aborted).toBe(true);
     });
 
     it("minimizes structured model payloads before provider calls", () => {

@@ -1,6 +1,7 @@
 type ScriptedStep =
     | { type: "tool-call"; toolName: string; input: Record<string, unknown> }
-    | { type: "text"; text: string };
+    | { type: "text"; text: string }
+    | { type: "error"; message: string };
 
 const EMPTY_USAGE = {
     inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -29,6 +30,17 @@ export class DeterministicAgentLanguageModel {
 
     async doStream(_options: unknown) {
         const step = this.script[this.callIndex++] ?? { type: "text" as const, text: "완료했습니다." };
+        if (step.type === "error") {
+            return {
+                stream: new ReadableStream({
+                    start(controller) {
+                        controller.enqueue({ type: "stream-start", warnings: [] });
+                        controller.enqueue({ type: "error", error: new Error(step.message) });
+                        controller.close();
+                    },
+                }),
+            };
+        }
         const parts: Array<Record<string, unknown>> = [{ type: "stream-start", warnings: [] }];
 
         if (step.type === "tool-call") {

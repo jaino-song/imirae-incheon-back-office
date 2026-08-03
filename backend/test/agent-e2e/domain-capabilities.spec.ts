@@ -22,7 +22,7 @@ describe("Release A domain read capabilities", () => {
     });
 
     it("filters schedules by date without returning work addresses", async () => {
-        const list = { execute: jest.fn().mockResolvedValue([{ id: 1, clientId: 10, primaryEmployeeId: 2, secondaryEmployeeId: null, workAddress: "비공개", startDate: new Date("2026-08-03T00:00:00Z"), endDate: new Date("2026-08-10T00:00:00Z"), replaced: false }]) };
+        const list = { execute: jest.fn().mockResolvedValue([{ id: 1, clientId: 10, primaryEmployeeId: 2, secondaryEmployeeId: null, workAddress: "비공개", startDate: new Date("2026-08-01T00:00:00Z"), endDate: new Date("2026-08-10T00:00:00Z"), replaced: false }]) };
         const provider = new EmployeeScheduleAgentCapabilitiesProvider(list as never);
         const capability = provider.getCapabilities()[0]!;
         const output = await capability.execute(context, { date: "2026-08-03" });

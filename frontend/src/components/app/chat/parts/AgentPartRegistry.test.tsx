@@ -63,4 +63,34 @@ describe("AgentPartRegistry", () => {
         render(<AgentPartRegistry message={message} />);
         expect(screen.queryByRole("link", { name: "결과 열기" })).not.toBeInTheDocument();
     });
+
+    it("requires the server-issued acknowledgement even for reversible proposals", () => {
+        const onApproveAction = jest.fn();
+        const message = {
+            id: "assistant-6",
+            role: "assistant",
+            parts: [{
+                type: "data-action-proposal",
+                data: {
+                    actionId: "action-reversible",
+                    capability: "contracts.prepareDispatch",
+                    title: "계약 준비",
+                    summary: "계약 발송 준비 정보를 확인합니다.",
+                    expiresAt: "2099-08-03T00:00:00.000Z",
+                    expectedRevision: "revision-1",
+                    risk: "reversible-write",
+                    changes: { clientId: 1 },
+                    acknowledgementToken: "ack-token",
+                },
+            }],
+        } as unknown as UIMessage;
+        render(<AgentPartRegistry message={message} onApproveAction={onApproveAction} />);
+        const approve = screen.getByRole("button", { name: "승인하고 실행" });
+
+        expect(approve).toBeDisabled();
+        fireEvent.click(screen.getByRole("checkbox"));
+        expect(approve).toBeEnabled();
+        fireEvent.click(approve);
+        expect(onApproveAction).toHaveBeenCalledWith("action-reversible", "revision-1", "ack-token");
+    });
 });

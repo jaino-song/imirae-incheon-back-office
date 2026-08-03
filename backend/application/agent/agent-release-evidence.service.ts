@@ -32,7 +32,7 @@ export class AgentReleaseEvidenceService {
                 && payload.uniquePromptCount === 200
                 && payload.fixtureCount === 200
                 && payload.agentVersion === agentVersion
-                && (payload.model === model || payload.model === "server-configured")
+                && payload.model === model
                 && payload.manifestFresh
                 && payload.deployedCommitMatches
                 && payload.providerLedgerAssertions > 0

@@ -34,7 +34,8 @@ export function ActionApprovalPart({ actionId, capability, title, summary, expir
         return () => window.clearInterval(timer);
     }, []);
     const expired = now > 0 && new Date(expiresAt).getTime() <= now;
-    const requiresStrongAcknowledgement = ["irreversible-write", "external-side-effect", "paid-action", "privileged-administration"].includes(risk ?? "");
+    const requiresStrongAcknowledgement = Boolean(acknowledgementToken)
+        || ["irreversible-write", "external-side-effect", "paid-action", "privileged-administration"].includes(risk ?? "");
     return (
         <section data-component="desktop_chat_agent-action-approval" data-source-component="ActionApprovalPart" className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950" aria-label="승인 대기 작업">
             <div data-slot="header" className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold">{title}</p><p className="text-xs opacity-75">{capability}</p></div><span data-slot="expiry" className="text-xs">{expired ? "만료됨" : `만료 ${new Date(expiresAt).toLocaleString()}`}</span></div>

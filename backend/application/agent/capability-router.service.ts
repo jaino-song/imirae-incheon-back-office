@@ -38,10 +38,10 @@ export class CapabilityRouterService {
     ) {}
 
     async route(text: string, principal: VerifiedTenantPrincipal, max = 12) {
-        const enabledCapabilities = [];
-        for (const capability of this.registry.list()) {
-            if (await this.flags.isCapabilityEnabled(capability.meta, principal)) enabledCapabilities.push(capability);
-        }
+        const snapshot = await this.flags.getSnapshot();
+        const enabledCapabilities = this.registry.list().filter((capability) => (
+            this.flags.isCapabilityEnabledFromSnapshot(capability.meta, principal, snapshot)
+        ));
         const enabledDomains = new Set(enabledCapabilities.map((capability) => capability.meta.domain));
         const matched = Object.entries(DOMAIN_TERMS)
             .filter(([, pattern]) => pattern.test(text))

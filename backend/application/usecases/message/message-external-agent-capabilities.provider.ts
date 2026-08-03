@@ -15,12 +15,39 @@ import { createHash } from "node:crypto";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
 const SmsSchema = z.object({ receiver: z.string().trim().min(1).max(200), message: z.string().trim().min(1).max(2000), senderPhone: z.string().trim().max(40).optional(), title: z.string().max(200).optional(), scheduledDate: z.string().optional(), scheduledTime: z.string().optional() });
+
+function parseScheduledSmsDate(date: string, time: string): Date | null {
+    const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    const timeParts = /^(\d{2}):(\d{2})$/.exec(time);
+    if (!dateParts || !timeParts) return null;
+    const year = Number(dateParts[1]);
+    const month = Number(dateParts[2]);
+    const day = Number(dateParts[3]);
+    const hour = Number(timeParts[1]);
+    const minute = Number(timeParts[2]);
+    if (year < 1000 || year > 9999) return null;
+    const daysInMonth = month >= 1 && month <= 12
+        ? new Date(Date.UTC(year, month, 0)).getUTCDate()
+        : 0;
+    if (day < 1 || day > daysInMonth || hour > 23 || minute > 59) return null;
+    const scheduledAt = new Date(`${date}T${time}:00+09:00`);
+    if (Number.isNaN(scheduledAt.getTime())) return null;
+    const local = new Date(scheduledAt.getTime() + 9 * 60 * 60 * 1000);
+    return local.getUTCFullYear() === year
+        && local.getUTCMonth() + 1 === month
+        && local.getUTCDate() === day
+        && local.getUTCHours() === hour
+        && local.getUTCMinutes() === minute
+        ? scheduledAt
+        : null;
+}
+
 const ScheduledSmsSchema = SmsSchema.extend({
     scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     scheduledTime: z.string().regex(/^\d{2}:\d{2}$/),
 }).superRefine((value, context) => {
-    const scheduledAt = new Date(`${value.scheduledDate}T${value.scheduledTime}:00+09:00`);
-    if (Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() < Date.now() + 10 * 60 * 1000) {
+    const scheduledAt = parseScheduledSmsDate(value.scheduledDate, value.scheduledTime);
+    if (!scheduledAt || scheduledAt.getTime() < Date.now() + 10 * 60 * 1000) {
         context.addIssue({ code: "custom", path: ["scheduledDate"], message: "Scheduled SMS must be at least ten minutes in the future" });
     }
 });
@@ -176,7 +203,8 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 },
                 execute: async (context, rawInput) => {
                     const input = ScheduledSmsSchema.parse(rawInput);
-                    const scheduledFor = new Date(`${input.scheduledDate}T${input.scheduledTime}:00+09:00`);
+                    const scheduledFor = parseScheduledSmsDate(input.scheduledDate, input.scheduledTime);
+                    if (!scheduledFor) throw new Error("Invalid scheduled SMS date or time");
                     const job = await this.enqueueSms(context, input, scheduledFor, "AI 예약 문자");
                     return { status: "scheduled", msgType: AGENT_SMS_DELIVERY_TYPE, messageId: undefined, jobId: job.id };
                 },

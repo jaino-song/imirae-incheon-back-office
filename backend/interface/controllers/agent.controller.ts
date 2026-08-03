@@ -23,6 +23,21 @@ import { AgentFeedbackService } from "application/agent/agent-feedback.service";
 
 type AgentRequest = Request & { tenant?: VerifiedTenantPrincipal };
 
+export function abortWhenResponseCloses(response: Response, controller: AbortController): () => void {
+    const onClose = () => {
+        cleanup();
+        if (!response.writableFinished) controller.abort();
+    };
+    const cleanup = () => {
+        response.off("close", onClose);
+        response.off("finish", cleanup);
+    };
+    response.once("close", onClose);
+    response.once("finish", cleanup);
+    if (response.destroyed || response.closed) onClose();
+    return cleanup;
+}
+
 @Controller("ai")
 @UseGuards(JwtGuard, TenantGuard)
 export class AgentController {
@@ -42,11 +57,15 @@ export class AgentController {
     @Post("agent/chat")
     async chat(@Body() dto: AgentChatDto, @Req() request: AgentRequest, @Res() response: Response) {
         const principal = this.requirePrincipal(request);
-        await this.rateLimit.check(principal.userId, principal.branchId);
         const controller = new AbortController();
-        let responseFinished = false;
-        response.on("finish", () => { responseFinished = true; });
-        request.on("close", () => { if (!responseFinished) controller.abort(); });
+        const detachAbortListener = abortWhenResponseCloses(response, controller);
+        try {
+            await this.rateLimit.check(principal.userId, principal.branchId);
+        } catch (error) {
+            detachAbortListener();
+            throw error;
+        }
+        if (controller.signal.aborted) return;
         let messages: BjjUIMessage[];
         try {
             messages = AgentChatMessagesSchema.parse(dto.messages) as unknown as BjjUIMessage[];
@@ -64,6 +83,7 @@ export class AgentController {
                 signal: controller.signal,
             });
         } catch (error) {
+            detachAbortListener();
             if (error instanceof HttpException) throw error;
             throw new ServiceUnavailableException("Agent request unavailable");
         }
@@ -118,11 +138,10 @@ export class AgentController {
     @Get("capabilities")
     async capabilities(@Req() request: AgentRequest) {
         const principal = this.requirePrincipal(request);
-        const result = [];
-        for (const capability of this.registry.list()) {
-            if (await this.flags.isCapabilityEnabled(capability.meta, principal)) result.push(capability.meta);
-        }
-        return result;
+        const snapshot = await this.flags.getSnapshot();
+        return this.registry.list()
+            .filter((capability) => this.flags.isCapabilityEnabledFromSnapshot(capability.meta, principal, snapshot))
+            .map((capability) => capability.meta);
     }
 
     @Get("agent/diagnostics")
