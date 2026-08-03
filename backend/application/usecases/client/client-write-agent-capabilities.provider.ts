@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
@@ -77,6 +78,22 @@ const CLIENT_UPDATE_FORM_FIELDS: AgentFormField[] = [
     { name: "id", label: "고객 ID", type: "number", required: true },
     ...CLIENT_FORM_FIELDS.map((field) => ({ ...field, required: false })),
 ];
+const CLIENT_BRANCH_PHONE_UNIQUE_CONSTRAINT = "client_branch_phone_key";
+
+function isClientBranchPhoneUniqueViolation(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
+
+    const target = error.meta?.["target"];
+    if (target === CLIENT_BRANCH_PHONE_UNIQUE_CONSTRAINT) return true;
+    if (!Array.isArray(target) || target.length !== 2) return false;
+
+    const fields = target.map(String);
+    return fields.includes("phone") && (fields.includes("branchId") || fields.includes("branch_id"));
+}
+
+function clientPhoneConflictError(): AgentActionCertainFailureError {
+    return new AgentActionCertainFailureError("A client with this phone already exists in this branch");
+}
 
 function sameClientValue(actual: unknown, expected: unknown): boolean {
     if (actual instanceof Date && typeof expected === "string") return actual.toISOString() === parseClientDate(expected)?.toISOString();
@@ -164,31 +181,36 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         phone: input.phone,
                         serviceStatus: input.serviceStatus,
                     });
-                    return this.prisma.$transaction(async (transaction) => {
-                        const client = await this.createClient.execute(context.principal.branchId, {
-                            name: input.name,
-                            address: input.address ?? null,
-                            phone: input.phone,
-                            type: input.type ?? null,
-                            duration: input.duration ?? null,
-                            fullPrice: input.fullPrice ?? null,
-                            grant: input.grant ?? null,
-                            actualPrice: input.actualPrice ?? null,
-                            startDate: dates.startDate,
-                            endDate: dates.endDate,
-                            careCenter: input.careCenter ?? null,
-                            voucherClient: input.voucherClient ?? false,
-                            birthday: input.birthday ?? null,
-                            dueDate: parseClientDate(input.dueDate) ?? null,
-                            birthDate: parseClientDate(input.birthDate) ?? null,
-                            serviceStatus: input.serviceStatus ?? null,
-                            breastPump: input.breastPump ?? false,
-                            areaId: input.areaId ?? null,
-                        }, transaction);
-                        const result = { id: client.id, name: client.name, status: "created" };
-                        await recordAgentActionEffect(transaction, context, "clients.create", "client", client.id, result);
-                        return result;
-                    });
+                    try {
+                        return await this.prisma.$transaction(async (transaction) => {
+                            const client = await this.createClient.execute(context.principal.branchId, {
+                                name: input.name,
+                                address: input.address ?? null,
+                                phone: input.phone,
+                                type: input.type ?? null,
+                                duration: input.duration ?? null,
+                                fullPrice: input.fullPrice ?? null,
+                                grant: input.grant ?? null,
+                                actualPrice: input.actualPrice ?? null,
+                                startDate: dates.startDate,
+                                endDate: dates.endDate,
+                                careCenter: input.careCenter ?? null,
+                                voucherClient: input.voucherClient ?? false,
+                                birthday: input.birthday ?? null,
+                                dueDate: parseClientDate(input.dueDate) ?? null,
+                                birthDate: parseClientDate(input.birthDate) ?? null,
+                                serviceStatus: input.serviceStatus ?? null,
+                                breastPump: input.breastPump ?? false,
+                                areaId: input.areaId ?? null,
+                            }, transaction);
+                            const result = { id: client.id, name: client.name, status: "created" };
+                            await recordAgentActionEffect(transaction, context, "clients.create", "client", client.id, result);
+                            return result;
+                        });
+                    } catch (error) {
+                        if (isClientBranchPhoneUniqueViolation(error)) throw clientPhoneConflictError();
+                        throw error;
+                    }
                 },
                 reconcile: async (context) => {
                     const receipt = await readAgentActionEffect(this.prisma, context, "clients.create");
@@ -243,10 +265,15 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         birthDate: parseClientDate(updates.birthDate),
                     };
                     await validateClientWrite(this.prisma, this.clientRepository, context.principal.branchId, existing, parsedUpdates);
-                    const client = await this.updateClient.execute(context.principal.branchId, id, {
-                        ...parsedUpdates,
-                    });
-                    return { id: client.id, name: client.name, status: "updated" };
+                    try {
+                        const client = await this.updateClient.execute(context.principal.branchId, id, {
+                            ...parsedUpdates,
+                        });
+                        return { id: client.id, name: client.name, status: "updated" };
+                    } catch (error) {
+                        if (isClientBranchPhoneUniqueViolation(error)) throw clientPhoneConflictError();
+                        throw error;
+                    }
                 },
                 executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateClientSchema.parse(rawInput);
@@ -274,6 +301,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         if (error instanceof ClientTargetVersionMismatchError) {
                             throw new AgentActionCertainFailureError(error.message);
                         }
+                        if (isClientBranchPhoneUniqueViolation(error)) throw clientPhoneConflictError();
                         throw error;
                     }
                 },

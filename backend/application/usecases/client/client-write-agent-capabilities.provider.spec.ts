@@ -1,3 +1,6 @@
+import { Prisma } from "@prisma/client";
+
+import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { ClientWriteAgentCapabilitiesProvider } from "./client-write-agent-capabilities.provider";
 
 describe("ClientWriteAgentCapabilitiesProvider", () => {
@@ -239,5 +242,115 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
 
         await capability.executeApprovedTarget!(context, { id: 1, startDate: null }, "approved-target");
         expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith("branch-a", 1, expect.objectContaining({ startDate: null }), "approved-target");
+    });
+
+    it.each([
+        ["constraint name", "client_branch_phone_key"],
+        ["branchId target fields", ["branchId", "phone"]],
+        ["branch_id target fields", ["branch_id", "phone"]],
+    ])("converts client phone conflicts from %s into a certain failure without recording an effect", async (_label, target) => {
+        const { createClient, transaction, capabilities } = setup();
+        const conflict = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target },
+        });
+        createClient.execute.mockRejectedValue(conflict);
+        const create = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        const error = await create.execute(context, {
+            name: "홍길동", phone: "01012345678",
+        }).catch((caught) => caught);
+
+        expect(error).toBeInstanceOf(AgentActionCertainFailureError);
+        expect(transaction.agent_action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["unrelated unique constraint", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target: ["email"] },
+        })],
+        ["different composite unique constraint", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target: ["branchId", "phone", "name"] },
+        })],
+        ["unrelated database error", new Error("database unavailable")],
+    ])("passes through %s unchanged", async (_label, error) => {
+        const { createClient, capabilities } = setup();
+        createClient.execute.mockRejectedValue(error);
+        const create = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await expect(create.execute(context, {
+            name: "홍길동", phone: "01012345678",
+        })).rejects.toBe(error);
+    });
+
+    it.each([
+        ["direct update", "execute", "client_branch_phone_key"],
+        ["direct update", "execute", ["branchId", "phone"]],
+        ["direct update", "execute", ["branch_id", "phone"]],
+        ["approval-bound update", "executeApprovedTarget", "client_branch_phone_key"],
+        ["approval-bound update", "executeApprovedTarget", ["branchId", "phone"]],
+        ["approval-bound update", "executeApprovedTarget", ["branch_id", "phone"]],
+    ])("converts %s client phone conflicts from %s into a certain failure without recording an effect", async (_label, updateMethod, target) => {
+        const { updateClient, transaction, capabilities } = setup();
+        const conflict = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target },
+        });
+        updateClient[updateMethod as "execute" | "executeApprovedTarget"].mockRejectedValue(conflict);
+        const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        const result = updateMethod === "execute"
+            ? update.execute(context, { id: 1, phone: "01098765432" })
+            : update.executeApprovedTarget!(context, { id: 1, phone: "01098765432" }, "approved-target");
+
+        await expect(result).rejects.toBeInstanceOf(AgentActionCertainFailureError);
+        expect(transaction.agent_action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["direct update", "execute", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target: ["email"] },
+        })],
+        ["direct update", "execute", new Error("database unavailable")],
+        ["approval-bound update", "executeApprovedTarget", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target: ["branchId", "phone", "name"] },
+        })],
+        ["approval-bound update", "executeApprovedTarget", new Error("database unavailable")],
+    ])("passes through %s unrelated write errors unchanged", async (_label, updateMethod, error) => {
+        const { updateClient, capabilities } = setup();
+        updateClient[updateMethod as "execute" | "executeApprovedTarget"].mockRejectedValue(error);
+        const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        const result = updateMethod === "execute"
+            ? update.execute(context, { id: 1, phone: "01098765432" })
+            : update.executeApprovedTarget!(context, { id: 1, phone: "01098765432" }, "approved-target");
+
+        await expect(result).rejects.toBe(error);
     });
 });
