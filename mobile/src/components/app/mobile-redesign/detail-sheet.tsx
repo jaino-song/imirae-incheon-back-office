@@ -1,7 +1,12 @@
 "use client";
 
 import { createContext, useCallback, useContext, useLayoutEffect, useRef } from "react";
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import type {
+  CSSProperties,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import { Search, X } from "lucide-react";
 import Link from "next/link";
 
@@ -38,6 +43,24 @@ const MOBILE_DETAIL_ACTIONS_SOURCE_COMPONENT = "MobileDetailActions";
 const MOBILE_DETAIL_TAB_PANEL_SOURCE_COMPONENT = "MobileDetailTabPanel";
 const INFO_CARD_SOURCE_COMPONENT = "InfoCard";
 const INFO_ROW_SOURCE_COMPONENT = "InfoRow";
+const SHEET_DRAG_CLAIM_DISTANCE_PX = 8;
+const SHEET_DRAG_COMMIT_DISTANCE_RATIO = 0.28;
+const SHEET_DRAG_COMMIT_VELOCITY_PX_PER_MS = 0.5;
+const SHEET_DRAG_INTERACTIVE_SELECTOR =
+  'button,a,input,select,textarea,[role="button"]';
+
+interface SheetDragState {
+  pointerId: number | null;
+  startX: number;
+  startY: number;
+  claimed: boolean;
+  lastY: number;
+  lastT: number;
+  prevY: number;
+  prevT: number;
+  height: number;
+  candidate: boolean;
+}
 
 export function MobileDetailStack({
   "data-component": dataComponent,
@@ -100,6 +123,140 @@ export function MobileDetailStack({
   closeLabel?: string;
   closeDisabled?: boolean;
 }) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<SheetDragState>({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    claimed: false,
+    lastY: 0,
+    lastT: 0,
+    prevY: 0,
+    prevT: 0,
+    height: 0,
+    candidate: false,
+  });
+
+  const handleSheetPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!isOpen || !event.isPrimary) {
+      return;
+    }
+
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest(SHEET_DRAG_INTERACTIVE_SELECTOR) !== null
+    ) {
+      return;
+    }
+
+    const sheet = sheetRef.current;
+    if (sheet === null) {
+      return;
+    }
+
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      claimed: false,
+      lastY: event.clientY,
+      lastT: event.timeStamp,
+      prevY: event.clientY,
+      prevT: event.timeStamp,
+      height: sheet.getBoundingClientRect().height,
+      candidate: true,
+    };
+  };
+
+  const handleSheetPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const drag = dragRef.current;
+    if (!drag.candidate || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const dx = event.clientX - drag.startX;
+    const rawDy = event.clientY - drag.startY;
+
+    if (!drag.claimed) {
+      if (
+        rawDy > SHEET_DRAG_CLAIM_DISTANCE_PX &&
+        Math.abs(rawDy) > Math.abs(dx)
+      ) {
+        drag.claimed = true;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        sheetRef.current?.classList.add("sheet-dragging");
+      } else if (
+        Math.abs(rawDy) > SHEET_DRAG_CLAIM_DISTANCE_PX ||
+        Math.abs(dx) > SHEET_DRAG_CLAIM_DISTANCE_PX
+      ) {
+        drag.candidate = false;
+        return;
+      }
+    }
+
+    if (!drag.claimed || drag.height <= 0) {
+      return;
+    }
+
+    const dy = Math.min(Math.max(rawDy, 0), drag.height);
+    if (sheetRef.current !== null) {
+      sheetRef.current.style.transform = `translateY(${dy}px)`;
+    }
+
+    drag.prevY = drag.lastY;
+    drag.prevT = drag.lastT;
+    drag.lastY = event.clientY;
+    drag.lastT = event.timeStamp;
+  };
+
+  const finishSheetDrag = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    cancelled: boolean,
+  ) => {
+    const drag = dragRef.current;
+    if (drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    dragRef.current = {
+      ...drag,
+      pointerId: null,
+      claimed: false,
+      candidate: false,
+    };
+
+    if (!drag.claimed) {
+      return;
+    }
+
+    const dy = Math.min(
+      Math.max(event.clientY - drag.startY, 0),
+      drag.height,
+    );
+    const velocitySampleDuration = drag.lastT - drag.prevT;
+    const velocity =
+      velocitySampleDuration > 0
+        ? (drag.lastY - drag.prevY) / velocitySampleDuration
+        : 0;
+    const shouldClose =
+      !cancelled &&
+      (dy > SHEET_DRAG_COMMIT_DISTANCE_RATIO * drag.height ||
+        velocity > SHEET_DRAG_COMMIT_VELOCITY_PX_PER_MS);
+
+    sheetRef.current?.style.removeProperty("transform");
+    sheetRef.current?.classList.remove("sheet-dragging");
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+
+    if (shouldClose) {
+      onClose();
+    }
+  };
+
   return (
     <section
       data-component={sectionDataComponent ?? dataComponent}
@@ -132,6 +289,7 @@ export function MobileDetailStack({
           disabled={scrimDisabled}
         />
         <div
+          ref={sheetRef}
           className={cn("nav-page detail", detailClassName)}
           data-component={detailDataComponent ?? `${dataComponent}_stack_detail-page`}
           data-slot="mobile-detail-stack-detail-page"
@@ -141,11 +299,35 @@ export function MobileDetailStack({
           aria-describedby={detailAriaDescribedBy}
           aria-hidden={!isOpen}
         >
-          <div data-component={`${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_handle`} className="sheet-handle" />
-          <div className={cn("sheet-header", sheetHeaderClassName)} data-component={sheetHeaderDataComponent ?? `${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_header`}>
-            {sheetTitle ? <span className="sheet-title">{sheetTitle}</span> : null}
+          <div
+            data-component={`${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_handle`}
+            data-slot="sheet-handle"
+            className="sheet-handle"
+            onPointerDown={handleSheetPointerDown}
+            onPointerMove={handleSheetPointerMove}
+            onPointerUp={(event) => finishSheetDrag(event, false)}
+            onPointerCancel={(event) => finishSheetDrag(event, true)}
+          />
+          <div
+            data-component={
+              sheetHeaderDataComponent ??
+              `${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_header`
+            }
+            data-slot="sheet-header"
+            className={cn("sheet-header", sheetHeaderClassName)}
+            onPointerDown={handleSheetPointerDown}
+            onPointerMove={handleSheetPointerMove}
+            onPointerUp={(event) => finishSheetDrag(event, false)}
+            onPointerCancel={(event) => finishSheetDrag(event, true)}
+          >
+            {sheetTitle ? (
+              <span data-slot="sheet-title" className="sheet-title">
+                {sheetTitle}
+              </span>
+            ) : null}
             <button
               data-component={`${sheetHeaderDataComponent ?? `${detailDataComponent ?? `${dataComponent}_stack_detail-page`}_header`}_close`}
+              data-slot="sheet-close"
               type="button"
               className="sheet-close"
               aria-label={closeLabel}

@@ -1655,6 +1655,9 @@ body.mobile-all-route .menu-row {
 .nav-stack.show-detail .nav-page.detail {
   transform: translateY(0);
 }
+.nav-page.detail.sheet-dragging {
+  transition: none;
+}
 .scrim {
   position: absolute;
   inset: 0;
@@ -1677,6 +1680,7 @@ body.mobile-all-route .menu-row {
   border-radius: 999px;
   margin: 8px auto 0;
   flex-shrink: 0;
+  touch-action: none;
 }
 .sheet-header {
   padding: 8px 16px 12px;
