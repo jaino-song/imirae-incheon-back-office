@@ -200,7 +200,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/client/client-write-agent-capabilities.provider.ts",
-      "sourceDigest": "91c703de1407ccd3b5055ecc0bd45d7a5f67d8d8690bd05228481250342ea4b1"
+      "sourceDigest": "d165b72e38719a59ba0e7eff45fe60541bdf84988e9806b8526d1ef639b183b2"
     },
     {
       "name": "clients.get",
@@ -255,7 +255,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/client/client-write-agent-capabilities.provider.ts",
-      "sourceDigest": "91c703de1407ccd3b5055ecc0bd45d7a5f67d8d8690bd05228481250342ea4b1"
+      "sourceDigest": "d165b72e38719a59ba0e7eff45fe60541bdf84988e9806b8526d1ef639b183b2"
     },
     {
       "name": "consultations.list",
@@ -347,7 +347,7 @@
       "approvalPolicy": "strong",
       "idempotencyPolicy": "provider-key",
       "sourceFile": "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider.ts",
-      "sourceDigest": "4a7803584917f96c6c32771b232f3f9f53dabb603b27dcbd3d1e59de57fd2f85"
+      "sourceDigest": "f3f3652881dda9648b8d03ced4ac0046eae259866d5838d62839a1ab80909f67"
     },
     {
       "name": "contracts.status",
@@ -458,7 +458,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
-      "sourceDigest": "2c8fcabfe3e49aca435d08cdb2e94ab0a4869075d12a358b3117ebfb291bffc6"
+      "sourceDigest": "7e546095ec62cdd39212bbc001f796bb754a22e66d268bcd79b293db8e4751e8"
     },
     {
       "name": "employees.create",
@@ -477,7 +477,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
-      "sourceDigest": "2c8fcabfe3e49aca435d08cdb2e94ab0a4869075d12a358b3117ebfb291bffc6"
+      "sourceDigest": "7e546095ec62cdd39212bbc001f796bb754a22e66d268bcd79b293db8e4751e8"
     },
     {
       "name": "employees.get",
@@ -532,7 +532,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
-      "sourceDigest": "2c8fcabfe3e49aca435d08cdb2e94ab0a4869075d12a358b3117ebfb291bffc6"
+      "sourceDigest": "7e546095ec62cdd39212bbc001f796bb754a22e66d268bcd79b293db8e4751e8"
     },
     {
       "name": "files.delete",
