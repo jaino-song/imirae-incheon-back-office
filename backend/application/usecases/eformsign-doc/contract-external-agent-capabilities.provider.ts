@@ -11,13 +11,28 @@ import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.use
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { EFORMSIGN_COMPLETED_STATUS_CODES, TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
-import { clientAgentTargetSnapshot, clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
+import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
 const ContractInputSchema = z.object({ clientId: z.number().int().positive(), templateId: z.string().min(1).max(200), templateName: z.string().max(200).optional() });
 const ContractOutputSchema = z.object({ success: z.boolean(), documentId: z.string().optional(), status: z.string(), uncertain: z.boolean().optional() });
+const ContractApprovalSnapshotSchema = z.object({
+    clientId: z.number().int().positive(),
+    phoneLast4: z.string().min(1).max(20),
+    templateId: z.string().min(1).max(200),
+    templateName: z.string().max(200).nullable(),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    duration: z.number().int().nonnegative().nullable(),
+    fullPrice: z.string().max(40).nullable(),
+    grant: z.string().max(80).nullable(),
+    actualPrice: z.string().max(40).nullable(),
+    effectiveDate: z.string().datetime({ offset: true }),
+    includesSensitiveFields: z.literal(true),
+}).strict();
+type ContractApprovalSnapshot = z.infer<typeof ContractApprovalSnapshotSchema>;
 const CONTRACT_FORM_FIELDS: AgentFormField[] = [
     { name: "clientId", label: "고객 ID", type: "number", required: true },
     { name: "templateId", label: "템플릿 ID", type: "text", required: true },
@@ -44,38 +59,6 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
         };
         return [
             {
-                meta: { ...common, name: "contracts.prepareDispatch", description: "Prepare a contract dispatch for approval", risk: "reversible-write" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.contracts.prepareDispatch" },
-                inputSchema: ContractInputSchema, outputSchema: ContractOutputSchema,
-                classifyOutcome: (rawOutput) => ContractOutputSchema.parse(rawOutput).success
-                    ? { status: "succeeded" }
-                    : { status: "failed", reason: "Contract preparation was not completed" },
-                formFields: CONTRACT_FORM_FIELDS,
-                inspect: async (context, rawInput) => {
-                    const input = ContractInputSchema.parse(rawInput);
-                    const client = await this.findClientById.execute(context.principal.branchId, input.clientId);
-                    if (!client) throw new Error("Contract client was not found in the current branch");
-                    return {
-                        targetVersion: clientAgentTargetVersion(client),
-                        targetSnapshot: clientAgentTargetSnapshot(client),
-                        title: "계약서 준비",
-                        summary: `${client.name} 고객의 ${input.templateName ?? input.templateId} 계약서를 준비합니다.`,
-                        provider: "eformsign",
-                    };
-                },
-                execute: async (_context, rawInput) => ({ ...ContractInputSchema.parse(rawInput), status: "prepared", success: true }),
-                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
-                    const input = ContractInputSchema.parse(rawInput);
-                    await this.withLockedClientTarget(context, input.clientId, expectedTargetVersion);
-                    return { ...input, status: "prepared", success: true };
-                },
-                revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateClient(context, rawInput, expectedTargetVersion),
-                reconcile: async (_context, rawInput) => ({
-                    status: "succeeded",
-                    result: { ...ContractInputSchema.parse(rawInput), status: "prepared", success: true },
-                    reason: "Preparation has no external side effect",
-                }),
-            },
-            {
                 meta: { ...common, name: "contracts.dispatch", description: "Create and send a contract after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.contracts.dispatch" },
                 inputSchema: ContractInputSchema, outputSchema: ContractOutputSchema,
                 classifyOutcome: (rawOutput) => ContractOutputSchema.parse(rawOutput).success
@@ -86,11 +69,12 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                     const input = ContractInputSchema.parse(rawInput);
                     const client = await this.findClientById.execute(context.principal.branchId, input.clientId);
                     if (!client) throw new Error("Contract client was not found in the current branch");
+                    const effectiveDate = new Date();
                     return {
                         targetVersion: clientAgentTargetVersion(client),
-                        targetSnapshot: clientAgentTargetSnapshot(client),
+                        targetSnapshot: this.toContractApprovalSnapshot(client, input, effectiveDate),
                         title: "계약서 생성 및 발송",
-                        summary: `${client.name} 고객에게 ${input.templateName ?? input.templateId} 계약서를 발송합니다.`,
+                        summary: `${client.name} 고객에게 ${input.templateName ?? input.templateId} 계약서를 발송합니다. 수신번호 ${maskPhone(client.phone)}로 민감 필드를 포함해 전송합니다.`,
                         provider: "eformsign",
                         estimatedCost: "eformsign 계약 요금제 기준",
                     };
@@ -170,24 +154,6 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
         };
     }
 
-    private async withLockedClientTarget(
-        context: AgentContext,
-        clientId: number,
-        expectedTargetVersion: string,
-    ): Promise<ContractClientSnapshot> {
-        return this.prisma.$transaction(async (transaction) => {
-            const client = await this.clientRepository.findByIdForUpdate(
-                context.principal.branchId,
-                clientId,
-                transaction,
-            );
-            if (!client || clientAgentTargetVersion(client) !== expectedTargetVersion) {
-                throw new AgentActionCertainFailureError("Client changed after approval; review a new proposal");
-            }
-            return this.toContractClientSnapshot(client);
-        });
-    }
-
     private async stageDispatchTarget(
         context: AgentContext,
         input: z.infer<typeof ContractInputSchema>,
@@ -202,10 +168,23 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
             if (!client || clientAgentTargetVersion(client) !== expectedTargetVersion) {
                 throw new AgentActionCertainFailureError("Client changed after approval; review a new proposal");
             }
-            const clientSnapshot = this.toContractClientSnapshot(client);
+            const approvedSnapshot = ContractApprovalSnapshotSchema.safeParse(context.approvedTargetSnapshot);
+            if (!approvedSnapshot.success || approvedSnapshot.data.clientId !== input.clientId) {
+                throw new AgentActionCertainFailureError("Contract approval details are missing or invalid; review a new proposal");
+            }
+            const canonicalSnapshot = this.toContractApprovalSnapshot(
+                client,
+                input,
+                new Date(approvedSnapshot.data.effectiveDate),
+            );
+            if (JSON.stringify(canonicalSnapshot) !== JSON.stringify(approvedSnapshot.data)) {
+                throw new AgentActionCertainFailureError("Contract approval details changed; review a new proposal");
+            }
+            const clientSnapshot = this.toContractClientSnapshot(client, approvedSnapshot.data.effectiveDate);
             await recordAgentActionEffect(transaction, context, "contracts.dispatch", "contract-dispatch", input.clientId, {
                 input,
                 targetVersion: expectedTargetVersion,
+                approvalSnapshot: approvedSnapshot.data,
                 clientSnapshot,
             });
             return { clientSnapshot, targetVersion: expectedTargetVersion };
@@ -224,8 +203,7 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
         grant: string | null;
         actualPrice: string | null;
         duration: number | null;
-    }): ContractClientSnapshot {
-        const fallbackDate = new Date().toISOString();
+    }, fallbackDate = new Date().toISOString()): ContractClientSnapshot {
         return {
             id: client.id,
             name: client.name,
@@ -241,4 +219,40 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
             fallbackDate,
         };
     }
+
+    private toContractApprovalSnapshot(
+        client: {
+            id: number;
+            name: string;
+            phone: string | null;
+            startDate: Date | null;
+            endDate: Date | null;
+            duration: number | null;
+            fullPrice: string | null;
+            grant: string | null;
+            actualPrice: string | null;
+        },
+        input: z.infer<typeof ContractInputSchema>,
+        effectiveDate: Date,
+    ): ContractApprovalSnapshot {
+        return ContractApprovalSnapshotSchema.parse({
+            clientId: client.id,
+            phoneLast4: maskPhone(client.phone),
+            templateId: input.templateId,
+            templateName: input.templateName ?? null,
+            startDate: client.startDate?.toISOString().slice(0, 10) ?? null,
+            endDate: client.endDate?.toISOString().slice(0, 10) ?? null,
+            duration: client.duration,
+            fullPrice: client.fullPrice,
+            grant: client.grant,
+            actualPrice: client.actualPrice,
+            effectiveDate: effectiveDate.toISOString(),
+            includesSensitiveFields: true,
+        });
+    }
+}
+
+function maskPhone(value: string | null): string {
+    const digits = (value ?? "").replace(/\D/g, "");
+    return digits.length >= 4 ? `••••${digits.slice(-4)}` : "[masked]";
 }

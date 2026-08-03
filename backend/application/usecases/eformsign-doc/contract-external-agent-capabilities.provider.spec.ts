@@ -43,13 +43,53 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
         return { provider, createAndSend, transaction, prisma };
     }
 
+    async function inspectDispatch(provider: ContractExternalAgentCapabilitiesProvider) {
+        const capability = provider.getCapabilities().find((entry) => entry.meta.name === "contracts.dispatch")!;
+        const inspection = await capability.inspect!(context, {
+            clientId: 7,
+            templateId: "template-1",
+            templateName: "표준계약서",
+        });
+        return { capability, inspection };
+    }
+
+    it("exposes only dispatch and keeps a complete masked approval snapshot", async () => {
+        const { provider } = setup();
+        const capabilities = provider.getCapabilities();
+        expect(capabilities.map((entry) => entry.meta.name)).toEqual(["contracts.dispatch"]);
+
+        const { inspection } = await inspectDispatch(provider);
+        expect(inspection.targetSnapshot).toEqual(expect.objectContaining({
+            clientId: 7,
+            phoneLast4: "••••2222",
+            templateId: "template-1",
+            templateName: "표준계약서",
+            startDate: "2026-08-03",
+            endDate: "2026-08-17",
+            duration: 15,
+            fullPrice: "100000",
+            grant: "50000",
+            actualPrice: "50000",
+            effectiveDate: expect.stringMatching(/^2026-/),
+            includesSensitiveFields: true,
+        }));
+
+        const serializedInspection = JSON.stringify(inspection);
+        expect(serializedInspection).not.toContain("010-1111-2222");
+        expect(serializedInspection).not.toContain("인천");
+        expect(serializedInspection).not.toContain("900101");
+    });
+
     it("refuses dispatch when the locked target changed after preliminary revalidation", async () => {
         const original = client();
         const changed = client({ name: "다른 고객" });
         const { provider, createAndSend } = setup(changed);
-        const capability = provider.getCapabilities().find((entry) => entry.meta.name === "contracts.dispatch")!;
+        const { inspection } = await inspectDispatch(provider);
 
-        await expect(capability.executeApprovedTarget!(context, {
+        await expect(provider.getCapabilities()[0]!.executeApprovedTarget!({
+            ...context,
+            approvedTargetSnapshot: inspection.targetSnapshot,
+        }, {
             clientId: original.id,
             templateId: "template-1",
         }, clientAgentTargetVersion(original as never))).rejects.toBeInstanceOf(AgentActionCertainFailureError);
@@ -60,9 +100,12 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
     it("stages the exact client projection before sending and never re-reads it in the usecase", async () => {
         const current = client();
         const { provider, createAndSend, transaction } = setup(current);
-        const capability = provider.getCapabilities().find((entry) => entry.meta.name === "contracts.dispatch")!;
+        const { capability, inspection } = await inspectDispatch(provider);
 
-        await expect(capability.executeApprovedTarget!(context, {
+        await expect(capability.executeApprovedTarget!({
+            ...context,
+            approvedTargetSnapshot: inspection.targetSnapshot,
+        }, {
             clientId: current.id,
             templateId: "template-1",
             templateName: "표준계약서",
@@ -83,8 +126,33 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
                 name: "김고객",
                 phone: "010-1111-2222",
                 startDate: "2026-08-03T00:00:00.000Z",
+                fallbackDate: (inspection.targetSnapshot as Record<string, unknown>)["effectiveDate"],
             }),
             idempotencyKey: "action-a",
         }));
+    });
+
+    it("rejects execution when the approved snapshot is missing or unsafe", async () => {
+        const { provider, createAndSend } = setup();
+        const capability = provider.getCapabilities()[0]!;
+
+        await expect(capability.executeApprovedTarget!(context, {
+            clientId: 7,
+            templateId: "template-1",
+        }, clientAgentTargetVersion(client() as never))).rejects.toBeInstanceOf(AgentActionCertainFailureError);
+
+        const { inspection } = await inspectDispatch(provider);
+        await expect(capability.executeApprovedTarget!({
+            ...context,
+            approvedTargetSnapshot: {
+                ...inspection.targetSnapshot,
+                phoneLast4: "010-1111-2222",
+            },
+        }, {
+            clientId: 7,
+            templateId: "template-1",
+        }, clientAgentTargetVersion(client() as never))).rejects.toBeInstanceOf(AgentActionCertainFailureError);
+
+        expect(createAndSend.execute).not.toHaveBeenCalled();
     });
 });

@@ -60,7 +60,7 @@ describe("MobileAgentPartRegistry", () => {
         expect(screen.getByText(/"failed": 2/)).toBeInTheDocument();
     });
 
-    it("requires acknowledgement when a reversible proposal carries a server token", () => {
+    it("requires acknowledgement when a side-effect proposal carries a server token", () => {
         const onApproveAction = jest.fn();
         render(<MobileAgentPartRegistry
             data-component="mobile_chat_tests_agent-part-registry_action-proposal"
@@ -68,12 +68,12 @@ describe("MobileAgentPartRegistry", () => {
                 type: "data-action-proposal",
                 data: {
                     actionId: "action-reversible",
-                    capability: "contracts.prepareDispatch",
-                    title: "계약 준비",
-                    summary: "계약 발송 준비 정보를 확인합니다.",
+                    capability: "contracts.dispatch",
+                    title: "계약서 생성 및 발송",
+                    summary: "계약서를 생성하고 발송합니다.",
                     expiresAt: "2099-08-03T00:00:00.000Z",
                     expectedRevision: "revision-1",
-                    risk: "reversible-write",
+                    risk: "external-side-effect",
                     changes: { clientId: 1 },
                     acknowledgementToken: "ack-token",
                 },

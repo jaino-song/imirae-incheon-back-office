@@ -60,7 +60,6 @@ const writes: CapabilityCatalogEntry[] = ([
     ["files.delete", "files", "Delete an authorized file after strong approval", "irreversible-write", "strong", "action-id", ["owner", "admin", "manager"]],
     ["admin.createBranch", "admin", "Create a branch after owner-only strong approval", "privileged-administration", "strong", "action-id", ["owner"]],
     ["website.updateSettings", "website", "Update website settings after approval", "reversible-write", "structured", "action-id", ["owner"]],
-    ["contracts.prepareDispatch", "contracts", "Prepare a contract dispatch for approval", "reversible-write", "strong", "action-id", ["owner", "admin", "manager"]],
     ["contracts.dispatch", "contracts", "Create and send a contract after strong approval", "external-side-effect", "strong", "provider-key", ["owner", "admin", "manager"]],
     ["messages.sendSms", "messages", "Send an SMS after strong approval", "external-side-effect", "strong", "action-id", ["owner", "admin", "manager"]],
     ["messages.scheduleSms", "messages", "Schedule an SMS after strong approval", "external-side-effect", "strong", "action-id", ["owner", "admin", "manager"]],

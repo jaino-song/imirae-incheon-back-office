@@ -75,7 +75,7 @@ describe("AgentPartRegistry", () => {
         expect(screen.queryByRole("link", { name: "결과 열기" })).not.toBeInTheDocument();
     });
 
-    it("requires the server-issued acknowledgement even for reversible proposals", () => {
+    it("requires the server-issued acknowledgement for side-effect proposals", () => {
         const onApproveAction = jest.fn();
         const message = {
             id: "assistant-6",
@@ -84,12 +84,12 @@ describe("AgentPartRegistry", () => {
                 type: "data-action-proposal",
                 data: {
                     actionId: "action-reversible",
-                    capability: "contracts.prepareDispatch",
-                    title: "계약 준비",
-                    summary: "계약 발송 준비 정보를 확인합니다.",
+                    capability: "contracts.dispatch",
+                    title: "계약서 생성 및 발송",
+                    summary: "계약서를 생성하고 발송합니다.",
                     expiresAt: "2099-08-03T00:00:00.000Z",
                     expectedRevision: "revision-1",
-                    risk: "reversible-write",
+                    risk: "external-side-effect",
                     changes: { clientId: 1 },
                     acknowledgementToken: "ack-token",
                 },
