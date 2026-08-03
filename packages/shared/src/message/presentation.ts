@@ -22,7 +22,7 @@ export const MESSAGE_SECTION_DEFINITIONS = [
   { id: "history", label: "발송 기록", mobilePath: "/messages/history" },
   { id: "templates", label: "템플릿", mobilePath: "/messages/templates" },
   { id: "triggers", label: "자동 전송", mobilePath: "/messages/automation" },
-  { id: "settings", label: "설정", mobilePath: "/messages/sender-approval" },
+  { id: "settings", label: "설정", mobilePath: "/messages/settings" },
 ] as const satisfies ReadonlyArray<{
   id: MessageSectionId;
   label: string;

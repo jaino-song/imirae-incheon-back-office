@@ -116,7 +116,7 @@ describe("shared message presentation contract", () => {
         ["history", "발송 기록", "/messages/history"],
         ["templates", "템플릿", "/messages/templates"],
         ["triggers", "자동 전송", "/messages/automation"],
-        ["settings", "설정", "/messages/sender-approval"],
+        ["settings", "설정", "/messages/settings"],
       ]);
   });
 });

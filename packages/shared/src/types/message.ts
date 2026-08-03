@@ -350,6 +350,31 @@ export interface MessageSenderApprovalResponse {
   approvedAt: string | null;
 }
 
+export interface MessageAutomationPolicyRow {
+  id: string;
+  label: string;
+  value: string;
+}
+
+export interface MessageAutomationPolicy {
+  id: string;
+  title: string;
+  description: string;
+  active: boolean;
+  requiresApproval: boolean;
+  rows: MessageAutomationPolicyRow[];
+}
+
+export interface MessageAutomationPastTriggerConfig {
+  sendIntervalMinutes: number;
+  ruleOrder: string[];
+}
+
+export interface MessageAutomationPoliciesResponse {
+  policies: MessageAutomationPolicy[];
+  pastTriggerConfig: MessageAutomationPastTriggerConfig;
+}
+
 export interface SystemAdminBranchUser {
   id: string;
   name: string | null;
