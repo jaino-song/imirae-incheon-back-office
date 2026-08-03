@@ -11,6 +11,7 @@ export type AgentReconciliationOutcome =
 export type AgentExecutionOutcome =
     | { status: "succeeded" }
     | { status: "failed"; reason?: string }
+    | { status: "uncertain"; reason?: string }
     | { status: "cancelled"; reason?: string };
 
 export type AgentTargetRevalidation = {

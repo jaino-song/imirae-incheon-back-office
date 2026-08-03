@@ -605,6 +605,49 @@ describe("ActionCoordinatorService", () => {
         }));
     });
 
+    it("persists a partial provider outcome as uncertain with complete delivery counts", async () => {
+        const delivery = { status: "partial", subscriptions: 3, delivered: 2, failed: 1 };
+        const definition = {
+            ...capability(),
+            outputSchema: z.object({
+                status: z.string(),
+                subscriptions: z.number().int().nonnegative(),
+                delivered: z.number().int().nonnegative(),
+                failed: z.number().int().nonnegative(),
+            }),
+            execute: jest.fn().mockResolvedValue(delivery),
+            classifyOutcome: jest.fn().mockReturnValue({
+                status: "uncertain",
+                reason: "Web Push was delivered to only some subscriptions",
+            }),
+        };
+        const proposed = actionRecord({ dedupeExpiresAt: new Date(Date.now() - 60_000) });
+        const prisma = mutableActionPrisma(proposed);
+        const sessions = sessionPersistence();
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessions as never,
+            actionPersistence() as never,
+        );
+
+        const result = await service.approve(proposed.id, principal, proposed.proposalRevision);
+
+        expect(result.action.status).toBe("uncertain");
+        expect(result.action.result).toEqual(delivery);
+        expect(result.result).toEqual(delivery);
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ status: "executing" }),
+            data: expect.objectContaining({
+                status: "uncertain",
+                result: delivery,
+                error: expect.objectContaining({ code: "provider_uncertain" }),
+            }),
+        }));
+    });
+
     it("repairs missing terminal result parts idempotently", async () => {
         const succeeded = actionRecord({ status: "succeeded", result: { status: "updated" }, resultPartPersistedAt: null });
         const sessions = { upsertActionResultMessage: jest.fn().mockResolvedValue(true) };

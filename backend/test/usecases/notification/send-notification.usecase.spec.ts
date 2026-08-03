@@ -4,6 +4,7 @@ import { INotificationRepository } from "domain/repositories/notification.reposi
 import { IPushSubscriptionRepository } from "domain/repositories/push-subscription.repository.interface";
 import { IWebPushPort } from "domain/ports/web-push.port";
 import { MarkNotificationReadUsecase } from "application/usecases/notification/mark-notification-read.usecase";
+import { PushSubscriptionEntity } from "domain/entities/push-subscription.entity";
 
 describe("SendNotificationUsecase", () => {
     const createMockPushSubscriptionRepository = (): jest.Mocked<IPushSubscriptionRepository> => ({
@@ -141,5 +142,64 @@ describe("SendNotificationUsecase", () => {
             providerOutcome: expect.objectContaining({ status: "disabled" }),
         }));
         expect(state.readAt).toEqual(expect.any(Date));
+    });
+
+    it("persists complete partial delivery counts and removes only failed subscriptions", async () => {
+        webPushPort.isEnabled.mockReturnValue(true);
+        const savedNotification = NotificationEntity.create("user-1", "title", "body");
+        notificationRepository.create.mockResolvedValue(savedNotification);
+        pushSubscriptionRepository.findByUserId.mockResolvedValue([
+            PushSubscriptionEntity.reconstitute(1, "user-1", "endpoint-success", "p256dh-1", "auth-1", null, new Date()),
+            PushSubscriptionEntity.reconstitute(2, "user-1", "endpoint-failed", "p256dh-2", "auth-2", null, new Date()),
+            PushSubscriptionEntity.reconstitute(3, "user-1", "endpoint-success-2", "p256dh-3", "auth-3", null, new Date()),
+        ]);
+        webPushPort.sendNotificationToMany.mockResolvedValue(new Map([
+            ["endpoint-success", true],
+            ["endpoint-failed", false],
+            ["endpoint-success-2", true],
+        ]));
+
+        const outcome = await usecase.executeWithOutcome("branch-1", {
+            userId: "user-1",
+            title: "title",
+            body: "body",
+        });
+
+        expect(outcome).toEqual(expect.objectContaining({
+            status: "partial",
+            subscriptions: 3,
+            delivered: 2,
+            failed: 1,
+        }));
+        expect(notificationRepository.updateData).toHaveBeenCalledWith("branch-1", savedNotification.id, expect.objectContaining({
+            providerOutcome: { status: "partial", subscriptions: 3, delivered: 2, failed: 1 },
+        }));
+        expect(pushSubscriptionRepository.deleteByEndpoint).toHaveBeenCalledTimes(1);
+        expect(pushSubscriptionRepository.deleteByEndpoint).toHaveBeenCalledWith("endpoint-failed");
+    });
+
+    it.each([
+        { label: "full success", results: [["endpoint-1", true] as const, ["endpoint-2", true] as const], status: "delivered", delivered: 2, failed: 0 },
+        { label: "full failure", results: [["endpoint-1", false] as const, ["endpoint-2", false] as const], status: "failed", delivered: 0, failed: 2 },
+    ])("preserves $label delivery semantics", async ({ results, status, delivered, failed }) => {
+        webPushPort.isEnabled.mockReturnValue(true);
+        const savedNotification = NotificationEntity.create("user-1", "title", "body");
+        notificationRepository.create.mockResolvedValue(savedNotification);
+        pushSubscriptionRepository.findByUserId.mockResolvedValue([
+            PushSubscriptionEntity.reconstitute(1, "user-1", "endpoint-1", "p256dh-1", "auth-1", null, new Date()),
+            PushSubscriptionEntity.reconstitute(2, "user-1", "endpoint-2", "p256dh-2", "auth-2", null, new Date()),
+        ]);
+        webPushPort.sendNotificationToMany.mockResolvedValue(new Map(results));
+
+        const outcome = await usecase.executeWithOutcome("branch-1", {
+            userId: "user-1",
+            title: "title",
+            body: "body",
+        });
+
+        expect(outcome).toEqual(expect.objectContaining({ status, subscriptions: 2, delivered, failed }));
+        expect(notificationRepository.updateData).toHaveBeenCalledWith("branch-1", savedNotification.id, expect.objectContaining({
+            providerOutcome: { status, subscriptions: 2, delivered, failed },
+        }));
     });
 });

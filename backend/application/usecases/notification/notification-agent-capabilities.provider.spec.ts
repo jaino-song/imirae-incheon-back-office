@@ -10,12 +10,21 @@ const context = {
 
 describe("NotificationAgentCapabilitiesProvider", () => {
     const targetUserId = "11111111-1111-4111-8111-111111111111";
-    it.each(["disabled", "no-subscriptions", "partial", "failed"])("classifies %s delivery as a failed action", (status) => {
+    it.each(["disabled", "no-subscriptions", "failed"])("classifies %s delivery as a failed action", (status) => {
         const provider = new NotificationAgentCapabilitiesProvider({} as never, {} as never);
         const capability = provider.getCapabilities()[0]!;
 
         expect(capability.classifyOutcome?.({ status, subscriptions: 2, delivered: 1, failed: 1 })).toEqual(
             expect.objectContaining({ status: "failed" }),
+        );
+    });
+
+    it.each(["partial", "uncertain"])("classifies %s delivery as uncertain", (status) => {
+        const provider = new NotificationAgentCapabilitiesProvider({} as never, {} as never);
+        const capability = provider.getCapabilities()[0]!;
+
+        expect(capability.classifyOutcome?.({ status, subscriptions: 3, delivered: 2, failed: 1 })).toEqual(
+            expect.objectContaining({ status: "uncertain" }),
         );
     });
 
@@ -35,9 +44,8 @@ describe("NotificationAgentCapabilitiesProvider", () => {
         const capability = provider.getCapabilities()[0]!;
 
         await expect(capability.reconcile?.(context, {}, null)).resolves.toEqual({
-            status: "failed",
-            reason: "Persisted Web Push outcome: partial",
-            result: { status: "partial", notificationId: 9, subscriptions: 2, delivered: 1, failed: 1 },
+            status: "uncertain",
+            reason: "Persisted Web Push outcome remains uncertain",
         });
     });
 

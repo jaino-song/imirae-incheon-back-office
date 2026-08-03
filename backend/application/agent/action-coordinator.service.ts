@@ -410,7 +410,11 @@ export class ActionCoordinatorService {
                     error: terminalStatus === "succeeded"
                         ? Prisma.JsonNull
                         : {
-                            code: terminalStatus === "cancelled" ? "provider_cancelled" : "provider_reported_failure",
+                            code: terminalStatus === "uncertain"
+                                ? "provider_uncertain"
+                                : terminalStatus === "cancelled"
+                                    ? "provider_cancelled"
+                                    : "provider_reported_failure",
                             message: outcome.reason ?? "Provider reported that the action did not succeed",
                         },
                     executedAt: new Date(),

@@ -52,13 +52,19 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
             outputSchema: OutputSchema,
             classifyOutcome: (rawResult) => {
                 const result = OutputSchema.parse(rawResult);
-                return result.status === "delivered"
-                ? { status: "succeeded" as const }
-                : {
+                if (result.status === "delivered") return { status: "succeeded" as const };
+                if (result.status === "partial") {
+                    return {
+                        status: "uncertain" as const,
+                        reason: "Web Push was delivered to only some subscriptions",
+                    };
+                }
+                if (result.status === "uncertain") {
+                    return { status: "uncertain" as const, reason: "Web Push delivery status is uncertain" };
+                }
+                return {
                     status: "failed" as const,
-                    reason: result.status === "partial"
-                        ? "Web Push was delivered to only some subscriptions"
-                        : `Web Push did not deliver: ${result.status}`,
+                    reason: `Web Push did not deliver: ${result.status}`,
                 };
             },
             formFields: NOTIFICATION_FIELDS,
@@ -144,7 +150,7 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
                 });
                 if (!existing) return { status: "uncertain" as const, reason: "Notification record was not found" };
                 const outcome = this.persistedOutcome(existing.id, existing.data);
-                if (outcome.status === "uncertain") {
+                if (outcome.status === "uncertain" || outcome.status === "partial") {
                     return { status: "uncertain" as const, reason: "Persisted Web Push outcome remains uncertain" };
                 }
                 return outcome.status === "delivered"

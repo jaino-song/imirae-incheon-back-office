@@ -36,16 +36,16 @@ describe("MobileAgentPartRegistry", () => {
         expect(onEntitySelect).toHaveBeenCalledWith("employee-1", "employees");
     });
 
-    it("renders sanitized terminal failure details for operator recovery", () => {
+    it("renders sanitized uncertain delivery details for operator recovery", () => {
         render(<MobileAgentPartRegistry
             data-component="mobile_chat_tests_agent-part-registry_action-result"
             part={{
                 type: "data-action-result",
                 data: {
                     actionId: "action-1",
-                    status: "failed",
-                    summary: "일부 구독에 전달하지 못했습니다.",
-                    result: { status: "partial", delivered: 1, failed: 2, notificationId: 9 },
+                    status: "uncertain",
+                    summary: "일부 구독에 전달되어 결과 확인이 필요합니다.",
+                    result: { status: "partial", subscriptions: 3, delivered: 1, failed: 2, notificationId: 9 },
                 },
             }}
             onEntitySelect={jest.fn()}
@@ -54,7 +54,7 @@ describe("MobileAgentPartRegistry", () => {
             onSubmitForm={jest.fn()}
         />);
 
-        expect(screen.getByText("실패")).toBeInTheDocument();
+        expect(screen.getByText("확인 필요")).toBeInTheDocument();
         expect(screen.getByText("처리 상세")).toBeInTheDocument();
         expect(screen.getByText(/"delivered": 1/)).toBeInTheDocument();
         expect(screen.getByText(/"failed": 2/)).toBeInTheDocument();
