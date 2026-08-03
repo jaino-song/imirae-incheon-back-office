@@ -1,29 +1,127 @@
 const MODEL_EXCLUDED_KEYS = new Set([
-    "phone", "phonenumber", "mobile", "cellphone", "address", "email",
-    "documentcontent", "token", "tokens", "accesstoken", "refreshtoken",
-    "signedurl", "signedurls", "steprecipientsms", "accnum", "accountnumber",
+    "phone", "phonenumber", "mobile", "mobilephone", "cellphone", "telephone",
+    "address", "email", "emailaddress", "accountnumber", "bankaccountnumber", "accnum",
+    "bankaccount", "receiver", "recipient", "receiverphone", "recipientphone", "senderphone",
+    "documentcontent", "documentbody", "documenttext", "filecontent", "filedata",
+    "attachmentcontent", "rawcontent", "token", "tokens", "accesstoken", "refreshtoken",
+    "idtoken", "authtoken", "auth", "authid", "authentication", "authorization", "authorizations",
+    "cookie", "cookies", "apikey", "password", "passwd", "passphrase", "secret", "secrets", "signature",
+    "signedurl", "signedurls", "presignedurl", "storageurl", "storageurls", "storagepath",
+    "storagekey", "objectkey", "documenturl", "downloadurl", "steprecipientsms",
     "note", "notes", "customfield", "customfields",
 ]);
 
+const MASKED_OPERATIONAL_KEYS = new Set([
+    "accountlast4", "bankaccountlast4", "accountmasked", "maskedaccount",
+    "phonelast4", "mobilelast4", "emailmasked",
+]);
+
+const CANONICAL_IDENTIFIER_KEYS = new Set([
+    "id", "ids", "uuid", "uuids", "cuid", "cuids", "ulid", "ulids", "identifier", "identifiers",
+    "cursor", "cursors", "nextcursor", "previouscursor", "prevcursor", "pagecursor",
+    "version", "versions", "targetversion", "currentversion", "expectedversion", "schemaversion",
+    "revision", "revisions", "targetrevision", "currentrevision", "expectedrevision", "proposalrevision",
+    "actionid", "sessionid", "traceid", "branchid", "userid", "clientid", "documentid", "draftid",
+    "callid", "entityid", "employeeid", "serviceid", "bankaccountid", "addressid",
+    ...MASKED_OPERATIONAL_KEYS,
+]);
+
 const FREE_TEXT_REDACTIONS = [
+    // Credential-shaped text must be removed before the generic URL matcher.
+    /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+    /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+    /\b(?:authorization|set[_ -]?cookie|cookie|token|access[_ -]?token|refresh[_ -]?token|id[_ -]?token|auth|api[_ -]?key|client[_ -]?secret|secret|password|passwd|passphrase|signature|signed[_ -]?url|storage[_ -]?url)\s*[:=]\s*(?:"[^"]*"|'[^']*'|Bearer\s+\S+|[^\s,;}]+)/gi,
     /(?:\+?82[-\s]?)?0?1[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,
     /\b[\w.+-]+@[\w.-]+\.\w+\b/g,
     /https?:\/\/\S+/gi,
-    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
-    /\b[A-Za-z0-9_-]{24,}\b/g,
-    /\b\d{6,}\b/g,
+    /(?<![A-Za-z0-9_-])\d{6,}(?![A-Za-z0-9_-])/g,
 ];
+
+function normalizeKey(key: string): string {
+    return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Credential fields win over identifier-looking names (for example accessTokenId). */
+function isCredentialKey(normalized: string): boolean {
+    return normalized.includes("token")
+        || normalized.includes("authorization")
+        || normalized.includes("cookie")
+        || normalized.includes("apikey")
+        || normalized.includes("password")
+        || normalized.includes("passwd")
+        || normalized.includes("passphrase")
+        || normalized.includes("secret")
+        || normalized.includes("signature")
+        || normalized.includes("signedurl")
+        || normalized.includes("storageurl")
+        || normalized.includes("documentcontent")
+        || normalized.includes("filecontent")
+        || normalized.includes("attachmentcontent")
+        || normalized.includes("documenturl")
+        || normalized.includes("downloadurl")
+        || normalized.includes("storagepath")
+        || normalized.includes("storagekey")
+        || normalized === "auth"
+        || normalized === "authid"
+        || normalized === "authentication";
+}
+
+function isCanonicalIdentifierKey(key: string): boolean {
+    const normalized = normalizeKey(key);
+    if (CANONICAL_IDENTIFIER_KEYS.has(normalized)) return true;
+
+    // Require a real naming boundary for generic camel/snake/kebab identifiers.
+    // This deliberately does not classify ordinary words such as paid, valid, grid, or solid.
+    return /^[a-z][A-Za-z0-9]*(?:Id|ID|Ids|IDS)$/.test(key)
+        || /(?:^|[_-])id(?:s)?$/i.test(key)
+        || /(?:Cursor|Cursors|Version|Versions|Revision|Revisions)$/.test(key)
+        || /(?:^|[_-])(?:cursor|cursors|version|versions|revision|revisions)$/i.test(key);
+}
+
+function isSensitivePiiKey(key: string): boolean {
+    const normalized = normalizeKey(key);
+    if (MODEL_EXCLUDED_KEYS.has(normalized)) return true;
+    if (normalized === "content" || normalized === "body" || normalized === "text") return false;
+    if (/(?:document|file|attachment|storage)(?:content|body|text|url)$/.test(normalized)) return true;
+    if (normalized === "url" && /(?:document|file|attachment|storage|signed|download)/.test(normalized)) return true;
+
+    // Keep canonical IDs such as addressId, bankAccountId, and emailId intact.
+    if (isCanonicalIdentifierKey(key)) return false;
+    return normalized.includes("phone")
+        || normalized.includes("mobile")
+        || normalized.includes("email")
+        || normalized.includes("address")
+        || normalized.endsWith("accountnumber")
+        || normalized.endsWith("accountno")
+        || normalized === "bankaccount";
+}
+
+function isExcludedKey(key: string, parentKey = ""): boolean {
+    const normalized = normalizeKey(key);
+    if (isCredentialKey(normalized)) return true;
+    if (MASKED_OPERATIONAL_KEYS.has(normalized) || isCanonicalIdentifierKey(key)) return false;
+
+    const normalizedParent = normalizeKey(parentKey);
+    if ((normalized === "content" || normalized === "body" || normalized === "text")
+        && /(?:document|file|attachment|storage)/.test(normalizedParent)) return true;
+    if (normalized === "url" && /(?:document|file|attachment|storage|signed|download)/.test(normalizedParent)) return true;
+    return isSensitivePiiKey(key);
+}
 
 export function redactFreeText(text: string): string {
     return FREE_TEXT_REDACTIONS.reduce((value, pattern) => value.replace(pattern, "[redacted]"), text);
 }
 
-export function redactModelValue(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(redactModelValue);
-    if (typeof value === "string") return redactFreeText(value);
+function redactModelValueAtKey(value: unknown, key: string): unknown {
+    if (Array.isArray(value)) return value.map((item) => redactModelValueAtKey(item, key));
+    if (typeof value === "string") return isCanonicalIdentifierKey(key) ? value : redactFreeText(value);
     if (value instanceof Date) return value.toISOString();
     if (typeof value !== "object" || value === null) return value;
     return Object.fromEntries(Object.entries(value)
-        .filter(([key]) => !MODEL_EXCLUDED_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, "")))
-        .map(([key, nested]) => [key, redactModelValue(nested)]));
+        .filter(([nestedKey]) => !isExcludedKey(nestedKey, key))
+        .map(([nestedKey, nestedValue]) => [nestedKey, redactModelValueAtKey(nestedValue, nestedKey)]));
+}
+
+export function redactModelValue(value: unknown): unknown {
+    return redactModelValueAtKey(value, "");
 }

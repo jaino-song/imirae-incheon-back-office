@@ -261,7 +261,7 @@ export class CallInboxService {
         dto: ConfirmDraftDto,
         expectedTargetVersion: string,
     ) {
-        const draft = await this.prismaService.$transaction(async (transaction) => {
+        const prepared = await this.prismaService.$transaction(async (transaction) => {
             await this.lockDraftForUpdate(transaction, branchId, id);
             const current = await transaction.client_draft.findFirst({ where: { id, branchId } });
             if (!current || current.status !== "PENDING" || draftTargetVersion(current) !== expectedTargetVersion) {
@@ -270,27 +270,30 @@ export class CallInboxService {
             if (current.type === "NEW_CLIENT" && (!dto.fields || typeof dto.fields !== "object")) {
                 throw new BadRequestException("fields is required for NEW_CLIENT");
             }
-            if (current.type === "CLIENT_UPDATE" && (!dto.changes || typeof dto.changes !== "object" || Array.isArray(dto.changes))) {
-                throw new BadRequestException("changes is required for CLIENT_UPDATE");
+            const clientUpdateChanges = current.type === "CLIENT_UPDATE"
+                ? this.prepareClientUpdateChanges(current, dto.changes)
+                : undefined;
+            if (current.type !== "NEW_CLIENT" && current.type !== "CLIENT_UPDATE") {
+                throw new BadRequestException(`Unknown draft type: ${current.type}`);
             }
             const locked = await transaction.client_draft.updateMany({
                 where: { id, branchId, status: "PENDING" },
                 data: { status: "CONFIRMING", confirmingStartedAt: new Date() },
             });
             if (locked.count !== 1) throw new ConflictException("Draft already reviewed");
-            return current;
+            return { draft: current, clientUpdateChanges };
         });
 
-        if (draft.type === "NEW_CLIENT") {
-            return this.confirmNewClientWithDraft(branchId, userId, id, draft, {
+        if (prepared.draft.type === "NEW_CLIENT") {
+            return this.confirmNewClientWithDraft(branchId, userId, id, prepared.draft, {
                 fields: dto.fields as Record<string, unknown>,
                 suppressGreetingSms: dto.suppressGreetingSms,
             }, true);
         }
-        if (draft.type === "CLIENT_UPDATE") {
-            return this.confirmClientUpdate(branchId, userId, id, draft, dto.changes as Record<string, unknown>, true);
+        if (prepared.draft.type === "CLIENT_UPDATE") {
+            return this.confirmClientUpdate(branchId, userId, id, prepared.draft, prepared.clientUpdateChanges!, true);
         }
-        throw new BadRequestException(`Unknown draft type: ${draft.type}`);
+        throw new BadRequestException(`Unknown draft type: ${prepared.draft.type}`);
     }
 
     private async confirmNewClientWithDraft(
@@ -403,21 +406,16 @@ export class CallInboxService {
         rawChanges: Record<string, unknown>,
         alreadyLocked = false,
     ) {
-        // a. clientId must be set (guard before locking)
-        if (draft.clientId == null) {
-            throw new ConflictException("고객 연결이 필요합니다");
-        }
-        const clientId = draft.clientId;
-
-        // b. filter changes to PROPOSAL_FIELDS allowlist
-        const allowedSet = new Set<string>(PROPOSAL_FIELDS);
-        const filteredChanges: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(rawChanges)) {
-            if (allowedSet.has(key)) filteredChanges[key] = value;
-        }
-        if (Object.keys(filteredChanges).length === 0) {
-            throw new BadRequestException("No valid fields remain after allowlist filtering");
-        }
+        // Approved-target callers pass the prepared payload from the locked
+        // transaction. Re-validating here would introduce deterministic throws
+        // after PENDING→CONFIRMING and could strand the claim outside rollback.
+        const filteredChanges = alreadyLocked
+            ? rawChanges
+            : this.prepareClientUpdateChanges(draft, rawChanges);
+        // `prepareClientUpdateChanges` validates this for the ordinary path;
+        // the approved path supplies the same invariant from its locked
+        // transaction. Do not rethrow after the claim has been committed.
+        const clientId = draft.clientId as number;
 
         // c. optimistic lock PENDING → CONFIRMING.
         // confirmingStartedAt anchors the stuck-CONFIRMING sweep against this transition,
@@ -465,6 +463,27 @@ export class CallInboxService {
                 .catch(() => undefined);
             throw error;
         }
+    }
+
+    private prepareClientUpdateChanges(
+        draft: { clientId: number | null },
+        rawChanges: unknown,
+    ): Record<string, unknown> {
+        if (draft.clientId == null) {
+            throw new ConflictException("고객 연결이 필요합니다");
+        }
+        if (!rawChanges || typeof rawChanges !== "object" || Array.isArray(rawChanges)) {
+            throw new BadRequestException("changes is required for CLIENT_UPDATE");
+        }
+        const allowedSet = new Set<string>(PROPOSAL_FIELDS);
+        const filteredChanges: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(rawChanges)) {
+            if (allowedSet.has(key)) filteredChanges[key] = value;
+        }
+        if (Object.keys(filteredChanges).length === 0) {
+            throw new BadRequestException("No valid fields remain after allowlist filtering");
+        }
+        return filteredChanges;
     }
 
     async discard(branchId: string, userId: string, id: string, reason?: string) {

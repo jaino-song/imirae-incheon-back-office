@@ -24,6 +24,13 @@ import { Textarea } from "@/components/ui/textarea";
 
 type MobilePart = { type: string; text?: string; data?: unknown; state?: string; output?: unknown; errorText?: string; toolName?: string };
 
+function normalizeFormValues(fields: AgentFormField[], values: Record<string, unknown>) {
+    return {
+        ...Object.fromEntries(fields.filter((field) => field.type === "boolean").map((field) => [field.name, false])),
+        ...values,
+    };
+}
+
 type Props = {
     "data-component": string;
     part: MobilePart;
@@ -96,7 +103,7 @@ export function MobileAgentPartRegistry({ "data-component": dataComponent, part,
 
 function MobileAgentForm({ formId, title, fields, onSubmit }: { formId: string; title: string; fields: AgentFormField[]; onSubmit: (formId: string, values: Record<string, unknown>) => void }) {
     const [values, setValues] = useState<Record<string, unknown>>({});
-    return <form data-component="mobile_chat_agent-form" data-slot="form" className="flex flex-col gap-3 rounded-xl border p-3" onSubmit={(event) => { event.preventDefault(); onSubmit(formId, values); }}><p className="font-semibold">{title}</p>{fields.map((field) => <div key={field.name} className="flex flex-col gap-1"><Label htmlFor={`${formId}-${field.name}`}>{field.label}</Label>{field.type === "textarea" ? <Textarea id={`${formId}-${field.name}`} required={field.required} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} /> : field.type === "boolean" ? <Checkbox id={`${formId}-${field.name}`} checked={values[field.name] === true} onCheckedChange={(checked) => setValues((current) => ({ ...current, [field.name]: checked === true }))} /> : <Input id={`${formId}-${field.name}`} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} required={field.required} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: field.type === "number" ? Number(event.target.value) : event.target.value }))} />}</div>)}<Button type="submit">제출</Button></form>;
+    return <form data-component="mobile_chat_agent-form" data-slot="form" className="flex flex-col gap-3 rounded-xl border p-3" onSubmit={(event) => { event.preventDefault(); onSubmit(formId, normalizeFormValues(fields, values)); }}><p className="font-semibold">{title}</p>{fields.map((field) => <div key={field.name} className="flex flex-col gap-1"><Label htmlFor={`${formId}-${field.name}`}>{field.label}</Label>{field.type === "textarea" ? <Textarea id={`${formId}-${field.name}`} required={field.required} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} /> : field.type === "boolean" ? <Checkbox id={`${formId}-${field.name}`} checked={values[field.name] === true} onCheckedChange={(checked) => setValues((current) => ({ ...current, [field.name]: checked === true }))} /> : <Input id={`${formId}-${field.name}`} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} required={field.required} value={String(values[field.name] ?? "")} onChange={(event) => setValues((current) => ({ ...current, [field.name]: field.type === "number" ? Number(event.target.value) : event.target.value }))} />}</div>)}<Button type="submit">제출</Button></form>;
 }
 
 function Fallback() {

@@ -126,10 +126,10 @@ export class SendNotificationUsecase {
         notification: NotificationEntity,
         outcome: Omit<SendNotificationOutcome, "notification">,
     ): Promise<SendNotificationOutcome> {
-        const updated = await this.notificationRepository.update(branchId, notification.withData({
+        const updated = await this.notificationRepository.updateData(branchId, notification.id, {
             ...(notification.data ?? {}),
             providerOutcome: outcome,
-        }));
+        });
         return { notification: updated, ...outcome };
     }
 

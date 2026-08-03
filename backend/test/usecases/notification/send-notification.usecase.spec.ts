@@ -3,6 +3,7 @@ import { NotificationEntity } from "domain/entities/notification.entity";
 import { INotificationRepository } from "domain/repositories/notification.repository.interface";
 import { IPushSubscriptionRepository } from "domain/repositories/push-subscription.repository.interface";
 import { IWebPushPort } from "domain/ports/web-push.port";
+import { MarkNotificationReadUsecase } from "application/usecases/notification/mark-notification-read.usecase";
 
 describe("SendNotificationUsecase", () => {
     const createMockPushSubscriptionRepository = (): jest.Mocked<IPushSubscriptionRepository> => ({
@@ -21,7 +22,8 @@ describe("SendNotificationUsecase", () => {
         findUnreadByUserId: jest.fn(),
         countUnreadByUserId: jest.fn(),
         create: jest.fn(),
-        update: jest.fn(),
+        updateData: jest.fn(),
+        updateReadAt: jest.fn(),
         markAllAsReadByUserId: jest.fn(),
         deleteOlderThan: jest.fn(),
     });
@@ -43,7 +45,8 @@ describe("SendNotificationUsecase", () => {
         notificationRepository = createMockNotificationRepository();
         webPushPort = createMockWebPushPort();
         webPushPort.isEnabled.mockReturnValue(false);
-        notificationRepository.update.mockImplementation(async (_branchId, notification) => notification);
+        notificationRepository.updateData.mockImplementation(async (_branchId, id, data) =>
+            NotificationEntity.reconstitute(id, "user-1", "title", "body", data, new Date(), null));
         usecase = new SendNotificationUsecase(
             pushSubscriptionRepository,
             notificationRepository,
@@ -75,7 +78,7 @@ describe("SendNotificationUsecase", () => {
         expect(pushSubscriptionRepository.findByUserId).not.toHaveBeenCalled();
         expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
         expect(webPushPort.sendNotificationToMany).not.toHaveBeenCalled();
-        expect(notificationRepository.update).toHaveBeenCalledTimes(1);
+        expect(notificationRepository.updateData).toHaveBeenCalledTimes(1);
     });
 
     it("does not enumerate or delete subscriptions for broadcasts when push is disabled", async () => {
@@ -94,5 +97,49 @@ describe("SendNotificationUsecase", () => {
 
         expect(pushSubscriptionRepository.findByUserIds).not.toHaveBeenCalled();
         expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
+    });
+
+    it("keeps a concurrent mark-read write when provider outcome persistence is deferred", async () => {
+        const state = {
+            data: { initial: true } as Record<string, unknown> | null,
+            readAt: null as Date | null,
+        };
+        const savedNotification = NotificationEntity.reconstitute(
+            7, "user-1", "title", "body", state.data, new Date("2026-08-04T00:00:00.000Z"), null,
+        );
+        notificationRepository.create.mockResolvedValue(savedNotification);
+
+        let providerUpdateStarted!: () => void;
+        const providerStarted = new Promise<void>((resolve) => { providerUpdateStarted = resolve; });
+        let releaseProviderUpdate!: () => void;
+        const providerUpdateReleased = new Promise<void>((resolve) => { releaseProviderUpdate = resolve; });
+        notificationRepository.updateData.mockImplementation(async (_branchId, id, data) => {
+            providerUpdateStarted();
+            await providerUpdateReleased;
+            state.data = data;
+            return NotificationEntity.reconstitute(id, "user-1", "title", "body", state.data, savedNotification.sentAt, state.readAt);
+        });
+        notificationRepository.findById.mockResolvedValue(savedNotification);
+        notificationRepository.updateReadAt.mockImplementation(async (_branchId, id, readAt) => {
+            state.readAt = readAt;
+            return NotificationEntity.reconstitute(id, "user-1", "title", "body", state.data, savedNotification.sentAt, state.readAt);
+        });
+
+        const markRead = new MarkNotificationReadUsecase(notificationRepository);
+        const providerPromise = usecase.execute("branch-1", {
+            userId: "user-1",
+            title: "title",
+            body: "body",
+        });
+        await providerStarted;
+        await markRead.execute("branch-1", 7, "user-1");
+        releaseProviderUpdate();
+        await providerPromise;
+
+        expect(state.data).toEqual(expect.objectContaining({
+            initial: true,
+            providerOutcome: expect.objectContaining({ status: "disabled" }),
+        }));
+        expect(state.readAt).toEqual(expect.any(Date));
     });
 });

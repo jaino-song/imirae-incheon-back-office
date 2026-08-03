@@ -212,6 +212,110 @@ describe("CallInboxService", () => {
         );
     });
 
+    describe("confirmApprovedTarget CLIENT_UPDATE preparation", () => {
+        const expectedVersion = () => createHash("sha256").update(JSON.stringify(clientUpdateDraft)).digest("hex");
+
+        it("rejects a null client linkage before claiming the draft", async () => {
+            const draft = { ...clientUpdateDraft, clientId: null };
+            prisma.client_draft.findFirst.mockResolvedValue(draft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, createHash("sha256").update(JSON.stringify(draft)).digest("hex"))).rejects.toThrow(ConflictException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("rejects unsupported-only changes before claiming the draft", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { hairColor: "blonde" },
+            }, expectedVersion())).rejects.toThrow(BadRequestException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("rejects an unknown draft type before claiming the draft", async () => {
+            const draft = { ...clientUpdateDraft, type: "UNSUPPORTED" };
+            prisma.client_draft.findFirst.mockResolvedValue(draft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, createHash("sha256").update(JSON.stringify(draft)).digest("hex"))).rejects.toThrow(BadRequestException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("rejects a target-version mismatch before claiming the draft", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, "stale-version")).rejects.toThrow(ConflictException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("validates, claims, and confirms the prepared changes", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+            clientService.update.mockResolvedValue({});
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23", hairColor: "ignored" },
+            }, expectedVersion())).resolves.toEqual({ clientId: 142 });
+
+            expect(prisma.client_draft.updateMany).toHaveBeenCalledWith({
+                where: { id: "draft-1", branchId: "branch-1", status: "PENDING" },
+                data: { status: "CONFIRMING", confirmingStartedAt: expect.any(Date) },
+            });
+            expect(clientService.update).toHaveBeenCalledWith("branch-1", 142, { startDate: "2026-06-23" });
+            expect(prisma.client_draft.update).toHaveBeenCalledWith(expect.objectContaining({
+                where: { id: "draft-1" },
+                data: expect.objectContaining({ status: "CONFIRMED", reviewedById: "user-1" }),
+            }));
+        });
+
+        it("rolls a claimed draft back to PENDING when the client update fails", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+            clientService.update.mockRejectedValue(new Error("serviceStatus invalid"));
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { serviceStatus: "invalid" },
+            }, expectedVersion())).rejects.toThrow("serviceStatus invalid");
+
+            expect(prisma.client_draft.update).toHaveBeenCalledWith({
+                where: { id: "draft-1" },
+                data: { status: "PENDING", confirmingStartedAt: null },
+            });
+        });
+
+        it("contains bookkeeping failure after an approved client update", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+            clientService.update.mockResolvedValue({});
+            prisma.client_draft.update
+                .mockRejectedValueOnce(new Error("db blip"))
+                .mockResolvedValueOnce({});
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, expectedVersion())).resolves.toEqual({ clientId: 142 });
+
+            const updateCalls = prisma.client_draft.update.mock.calls;
+            expect(updateCalls.some(([args]: [{ data: { status?: string } }]) => args.data.status === "PENDING")).toBe(false);
+            expect(updateCalls[updateCalls.length - 1]![0].data).toEqual(
+                expect.objectContaining({ status: "CONFIRMED", confirmingStartedAt: null }),
+            );
+        });
+    });
+
     it("confirm dispatch: NEW_CLIENT without fields → 400", async () => {
         prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
 

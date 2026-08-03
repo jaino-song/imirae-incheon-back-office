@@ -103,4 +103,52 @@ describe("Release A agent security boundaries", () => {
         const value = redactModelValue({ id: 1, phone: "010-0000-0000", address: "비공개", text: "전화 010-0000-0000 또는 https://private.example/a", nested: { documentContent: "secret", label: "safe" } });
         expect(value).toEqual({ id: 1, text: "전화 [redacted] 또는 [redacted]", nested: { label: "safe" } });
     });
+
+    it("preserves action identifiers while excluding nested credentials and PII", () => {
+        const actionId = "123e4567-e89b-12d3-a456-426614174000";
+        const value = redactModelValue({
+            actionId,
+            targetVersion: "a".repeat(64),
+            cursor: "cursor_cuid_2m4x6z8q0v",
+            accounts: [{ area: "서울", bankName: "은행", accountLast4: "1234" }],
+            bankAccountId: "bank-account-identifier",
+            addressId: "address-identifier",
+            nested: {
+                authorization: "Bearer should-not-leak",
+                cookie: "session=should-not-leak",
+                apiKey: "api-secret",
+                secret: "secret-value",
+                signature: "signature-value",
+                signedUrl: "https://private.example/signed",
+                phoneNumber: "010-1234-5678",
+                email: "person@example.com",
+                address: "서울시",
+                accountNumber: "1234567890",
+                documentContent: "private document",
+                accessTokenId: "token-id-secret",
+                signedUrlId: "signed-url-id-secret",
+                authorizationId: "authorization-id-secret",
+            },
+            paid: "Bearer abc.def",
+            valid: "token: secret-value",
+            grid: "010-1234-5678",
+            solid: "person@example.com",
+            text: "Bearer abc.def token: secret-value eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+        }) as Record<string, unknown>;
+
+        expect(value).toMatchObject({
+            actionId,
+            targetVersion: "a".repeat(64),
+            cursor: "cursor_cuid_2m4x6z8q0v",
+            accounts: [{ area: "서울", bankName: "은행", accountLast4: "1234" }],
+            bankAccountId: "bank-account-identifier",
+            addressId: "address-identifier",
+            paid: "[redacted]",
+            valid: "[redacted]",
+            grid: "[redacted]",
+            solid: "[redacted]",
+        });
+        expect(value).toHaveProperty("nested", {});
+        expect(value).toHaveProperty("text", "[redacted] [redacted] [redacted]");
+    });
 });

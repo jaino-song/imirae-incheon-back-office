@@ -2,6 +2,17 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 import { MobileAgentPartRegistry } from "./MobileAgentPartRegistry";
 
+if (typeof globalThis.ResizeObserver === "undefined") {
+    Object.defineProperty(globalThis, "ResizeObserver", {
+        configurable: true,
+        value: class ResizeObserverMock {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
+    });
+}
+
 describe("MobileAgentPartRegistry", () => {
     it("preserves the entity domain when selecting a choice", () => {
         const onEntitySelect = jest.fn();
@@ -97,5 +108,68 @@ describe("MobileAgentPartRegistry", () => {
 
         expect(screen.getByText(/새 형식/)).toBeInTheDocument();
         expect(screen.queryByText("bad()")).not.toBeInTheDocument();
+    });
+
+    it("serializes untouched booleans as false and preserves non-boolean values", () => {
+        const onSubmitForm = jest.fn();
+        render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_form"
+            part={{
+                type: "data-form",
+                data: {
+                    formId: "profile-form",
+                    title: "프로필",
+                    schemaVersion: "1",
+                    fields: [
+                        { name: "enabled", label: "사용", type: "boolean" },
+                        { name: "name", label: "이름", type: "text" },
+                        { name: "count", label: "횟수", type: "number" },
+                    ],
+                },
+            }}
+            onEntitySelect={jest.fn()}
+            onApproveAction={jest.fn()}
+            onRejectAction={jest.fn()}
+            onSubmitForm={onSubmitForm}
+        />);
+
+        const form = screen.getByText("프로필").closest("form");
+        expect(form).toHaveAttribute("data-component", "mobile_chat_agent-form");
+        expect(form).toHaveAttribute("data-slot", "form");
+        fireEvent.change(screen.getByLabelText("이름"), { target: { value: "Dana" } });
+        fireEvent.change(screen.getByLabelText("횟수"), { target: { value: "3" } });
+        fireEvent.submit(form!);
+
+        expect(onSubmitForm).toHaveBeenCalledWith("profile-form", { enabled: false, name: "Dana", count: 3 });
+    });
+
+    it("keeps touched boolean values true and then false", () => {
+        const onSubmitForm = jest.fn();
+        render(<MobileAgentPartRegistry
+            data-component="mobile_chat_tests_agent-part-registry_form-toggle"
+            part={{
+                type: "data-form",
+                data: {
+                    formId: "settings-form",
+                    title: "설정",
+                    schemaVersion: "1",
+                    fields: [{ name: "enabled", label: "사용", type: "boolean" }],
+                },
+            }}
+            onEntitySelect={jest.fn()}
+            onApproveAction={jest.fn()}
+            onRejectAction={jest.fn()}
+            onSubmitForm={onSubmitForm}
+        />);
+
+        const form = screen.getByText("설정").closest("form");
+        const checkbox = screen.getByRole("checkbox", { name: "사용" });
+        fireEvent.click(checkbox);
+        fireEvent.submit(form!);
+        expect(onSubmitForm).toHaveBeenNthCalledWith(1, "settings-form", { enabled: true });
+
+        fireEvent.click(checkbox);
+        fireEvent.submit(form!);
+        expect(onSubmitForm).toHaveBeenNthCalledWith(2, "settings-form", { enabled: false });
     });
 });

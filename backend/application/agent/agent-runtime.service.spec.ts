@@ -50,12 +50,145 @@ describe("AgentRuntimeService", () => {
         expect(messages[0]?.parts).toEqual([{ type: "text", text: "[redacted] [redacted] 고객" }]);
     });
 
+    it("keeps operational IDs in the current user turn while redacting credential text", () => {
+        const actionId = "123e4567-e89b-12d3-a456-426614174000";
+        const targetVersion = "a".repeat(64);
+        const currentText = `actionId=${actionId} targetVersion=${targetVersion} cursor=cursor_cuid_2m4x6z8q0v Bearer should-not-leak 010-1234-5678`;
+        const messages = buildAuthoritativeModelMessages([], {
+            id: "current-identifiers",
+            role: "user",
+            parts: [{ type: "text", text: currentText }],
+        });
+        const text = (messages[0]?.parts[0] as { text: string }).text;
+
+        expect(text).toContain(actionId);
+        expect(text).toContain(targetVersion);
+        expect(text).toContain("cursor_cuid_2m4x6z8q0v");
+        expect(text).not.toContain("should-not-leak");
+        expect(text).not.toContain("010-1234-5678");
+    });
+
     it("redacts sensitive fields case-insensitively and scans every string value", () => {
         expect(redactModelValue({
             phoneNumber: "010-1234-5678",
             Email: "person@example.com",
             profile: { display: "연락처 010-9999-8888", createdAt: new Date("2026-08-03T00:00:00.000Z") },
         })).toEqual({ profile: { display: "연락처 [redacted]", createdAt: "2026-08-03T00:00:00.000Z" } });
+    });
+
+    it("preserves operational identifiers while removing nested credentials and PII", () => {
+        const actionId = "123e4567-e89b-12d3-a456-426614174000";
+        const targetVersion = "a".repeat(64);
+        const cursor = "cursor_cuid_2m4x6z8q0v";
+        const value = redactModelValue({
+            actionId,
+            targetVersion,
+            cursor,
+            entity: { id: "client_cuid_2m4x6z8q0v", name: "홍길동" },
+            accounts: [{ area: "서울", bankName: "은행", accountLast4: "1234" }],
+            bankAccountId: "bank-account-identifier",
+            addressId: "address-identifier",
+            paid: "010-1234-5678",
+            valid: "Bearer should-not-leak",
+            grid: "person@example.com",
+            solid: "https://private.example/solid",
+            authorization: "Bearer should-not-leak",
+            nested: {
+                apiKey: "api-secret",
+                password: "password-secret",
+                signature: "signature-secret",
+                signedUrl: "https://private.example/signed",
+                phone: "010-1234-5678",
+                email: "person@example.com",
+                accountNumber: "1234567890",
+                documentContent: "private document",
+            },
+            document: { content: "private nested document", url: "https://private.example/document" },
+        }) as Record<string, unknown>;
+
+        expect(value).toMatchObject({
+            actionId,
+            targetVersion,
+            cursor,
+            entity: { id: "client_cuid_2m4x6z8q0v" },
+            accounts: [{ area: "서울", bankName: "은행", accountLast4: "1234" }],
+            bankAccountId: "bank-account-identifier",
+            addressId: "address-identifier",
+            paid: "[redacted]",
+            valid: "[redacted]",
+            grid: "[redacted]",
+            solid: "[redacted]",
+        });
+        expect(value).not.toHaveProperty("authorization");
+        expect(value).not.toHaveProperty("nested.apiKey");
+        expect(value).not.toHaveProperty("nested.password");
+        expect(value).not.toHaveProperty("nested.signature");
+        expect(value).not.toHaveProperty("nested.signedUrl");
+        expect(value).not.toHaveProperty("nested.phone");
+        expect(value).not.toHaveProperty("nested.email");
+        expect(value).not.toHaveProperty("nested.accountNumber");
+        expect(value).not.toHaveProperty("nested.documentContent");
+        expect(value).toHaveProperty("document", {});
+    });
+
+    it("preserves string entity IDs through choice generation and selected-entity memory", async () => {
+        const capability = {
+            meta: {
+                name: "clients.search",
+                domain: "clients",
+                version: "1.0.0",
+                description: "Search clients",
+                risk: "read" as const,
+                requiredRoles: ["admin"],
+                renderer: "entity-choice" as const,
+                flagKey: "agent.capability.clients.search",
+                sideEffect: false,
+            },
+            inputSchema: z.object({ query: z.string() }),
+            outputSchema: z.object({
+                kind: z.literal("entity"),
+                entity: z.object({ id: z.string(), name: z.string() }),
+            }),
+            execute: jest.fn().mockResolvedValue({
+                kind: "entity",
+                entity: { id: "client_cuid_2m4x6z8q0v", name: "홍길동" },
+            }),
+        };
+        const sessions = {
+            create: jest.fn().mockResolvedValue({ id: "session-string-id", selectedEntities: {} }),
+            update: jest.fn().mockResolvedValue({ id: "session-string-id" }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            {
+                modelId: "deterministic-agent-v1",
+                create: () => new DeterministicAgentLanguageModel([
+                    { type: "tool-call", toolName: "clients_search", input: { query: "홍길동" } },
+                    { type: "text", text: "조회 결과입니다." },
+                ]),
+            } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-string-id" }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-string-id", role: "user", parts: [{ type: "text", text: "홍길동 산모 찾아줘" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the UI message stream so onFinish runs.
+        }
+
+        expect(sessions.update).toHaveBeenCalledWith(
+            "session-string-id",
+            { userId: "user-a", branchId: "branch-a" },
+            { selectedEntities: { clients: { id: "client_cuid_2m4x6z8q0v", name: "홍길동" } } },
+        );
     });
 
     it("excludes message ranges already covered by a validated server summary", () => {
@@ -641,12 +774,15 @@ describe("AgentRuntimeService", () => {
             outputSchema: z.object({
                 kind: z.literal("choices"),
                 prompt: z.string(),
-                choices: z.array(z.object({ id: z.number(), name: z.string(), serviceStatus: z.string().nullable() })),
+                choices: z.array(z.object({ id: z.string(), name: z.string(), serviceStatus: z.string().nullable() })),
             }),
             execute: jest.fn().mockResolvedValue({
                 kind: "choices",
                 prompt: "선택해 주세요",
-                choices: [{ id: 1, name: "홍길동", serviceStatus: null }, { id: 2, name: "홍길동", serviceStatus: "active" }],
+                choices: [
+                    { id: "client_cuid_2m4x6z8q0v", name: "홍길동", serviceStatus: null },
+                    { id: "client_cuid_7p9r1t3w5y", name: "홍길동", serviceStatus: "active" },
+                ],
             }),
         };
         const sessions = {
@@ -681,7 +817,10 @@ describe("AgentRuntimeService", () => {
         expect(chunks).toEqual(expect.arrayContaining([
             expect.objectContaining({
                 type: "data-entity-choice",
-                data: expect.objectContaining({ choices: [{ id: "1", label: "홍길동" }, { id: "2", label: "홍길동", description: "active" }] }),
+                data: expect.objectContaining({ choices: [
+                    { id: "client_cuid_2m4x6z8q0v", label: "홍길동" },
+                    { id: "client_cuid_7p9r1t3w5y", label: "홍길동", description: "active" },
+                ] }),
             }),
         ]));
     });

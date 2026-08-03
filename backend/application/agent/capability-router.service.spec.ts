@@ -74,7 +74,7 @@ describe("CapabilityRouterService", () => {
 
     it("minimizes phone, email, URL, and long identifiers before classifier dispatch", () => {
         expect(minimizeClassifierText("010-1234-5678 client@example.com https://private.example/a 123e4567-e89b-12d3-a456-426614174000 abcdefghijklmnopqrstuvwxyz 고객 123456789"))
-            .toBe("[redacted] [redacted] [redacted] [redacted] [redacted] 고객 [redacted]");
+            .toBe("[redacted] [redacted] [redacted] 123e4567-e89b-12d3-a456-426614174000 abcdefghijklmnopqrstuvwxyz 고객 [redacted]");
     });
 
     it("passes only minimized current-turn text to the ambiguous classifier", async () => {
@@ -97,7 +97,12 @@ describe("CapabilityRouterService", () => {
         }
 
         expect(mockedGenerateText).toHaveBeenCalledWith(expect.objectContaining({
-            prompt: "[redacted] [redacted] [redacted]",
+            prompt: "[redacted] [redacted] 123e4567-e89b-12d3-a456-426614174000",
         }));
+    });
+
+    it("removes labeled credentials while preserving opaque operational identifiers", () => {
+        expect(minimizeClassifierText("Bearer abc.def token: secret-value actionId=123e4567-e89b-12d3-a456-426614174000 cursor=cuid_2m4x6z8q0v"))
+            .toBe("[redacted] [redacted] actionId=123e4567-e89b-12d3-a456-426614174000 cursor=cuid_2m4x6z8q0v");
     });
 });
