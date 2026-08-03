@@ -1,7 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { IMessageTriggerJobRepository } from "domain/repositories/message-trigger-job.repository.interface";
+import {
+    IMessageTriggerJobRepository,
+    MessageTriggerJobCancellationScope,
+} from "domain/repositories/message-trigger-job.repository.interface";
 import {
     MessageTriggerJobEntity,
     MessageTriggerJobPayload,
@@ -56,6 +60,63 @@ type MessageTriggerJobRawRow = {
     updated_at: Date | string;
 };
 
+function stableJson(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (value && typeof value === "object") {
+        return `{${Object.entries(value as Record<string, unknown>)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+            .join(",")}}`;
+    }
+    return JSON.stringify(value) ?? "null";
+}
+
+function sameRetrySource(current: MessageTriggerJobEntity, expected: MessageTriggerJobEntity): boolean {
+    return current.id === expected.id
+        && current.branchId === expected.branchId
+        && current.ruleId === expected.ruleId
+        && current.status === expected.status
+        && current.scheduledFor.getTime() === expected.scheduledFor.getTime()
+        && (current.sentAt?.getTime() ?? null) === (expected.sentAt?.getTime() ?? null)
+        && (current.canceledAt?.getTime() ?? null) === (expected.canceledAt?.getTime() ?? null)
+        && current.cancelReason === expected.cancelReason
+        && current.clientId === expected.clientId
+        && current.employeeScheduleId === expected.employeeScheduleId
+        && current.recipientType === expected.recipientType
+        && current.recipientPhone === expected.recipientPhone
+        && current.templateKey === expected.templateKey
+        && current.dedupeKey === expected.dedupeKey
+        && stableJson(current.payload) === stableJson(expected.payload)
+        && current.attempts === expected.attempts
+        && (current.nextAttemptAt?.getTime() ?? null) === (expected.nextAttemptAt?.getTime() ?? null)
+        && current.createdAt.getTime() === expected.createdAt.getTime()
+        && current.updatedAt.getTime() === expected.updatedAt.getTime();
+}
+
+function jobTargetVersion(job: MessageTriggerJobEntity, snapshotHash: string): string {
+    return createHash("sha256").update(JSON.stringify({
+        id: job.id,
+        branchId: job.branchId,
+        ruleId: job.ruleId,
+        status: job.status,
+        scheduledFor: job.scheduledFor.toISOString(),
+        sentAt: job.sentAt?.toISOString() ?? null,
+        canceledAt: job.canceledAt?.toISOString() ?? null,
+        cancelReason: job.cancelReason,
+        clientId: job.clientId,
+        employeeScheduleId: job.employeeScheduleId,
+        recipientType: job.recipientType,
+        recipientPhone: job.recipientPhone,
+        templateKey: job.templateKey,
+        payload: job.payload,
+        attempts: job.attempts,
+        nextAttemptAt: job.nextAttemptAt?.toISOString() ?? null,
+        createdAt: job.createdAt.toISOString(),
+        updatedAt: job.updatedAt.toISOString(),
+        deliverySnapshotHash: snapshotHash,
+    })).digest("hex");
+}
+
 @Injectable()
 export class SbMessageTriggerJobRepository implements IMessageTriggerJobRepository {
     constructor(private readonly prisma: PrismaService) {}
@@ -86,6 +147,46 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             data: { status: "processing" },
         });
         return result.count === 1;
+    }
+
+    async claimPendingWithRuleFence(id: string, branchId: string | null): Promise<boolean> {
+        const branchPredicate = branchId === null
+            ? Prisma.sql`branch_id IS NULL`
+            : Prisma.sql`branch_id = ${branchId}::uuid`;
+
+        return this.prisma.$transaction(async (transaction) => {
+            // This read intentionally does not lock the job. Every lock that
+            // can win this race is acquired in rule-then-job order below.
+            const jobs = await transaction.$queryRaw<Array<{ rule_id: string; branch_id: string | null }>>(Prisma.sql`
+                SELECT rule_id, branch_id
+                FROM "message_trigger_job"
+                WHERE id = ${id}
+                  AND status = 'pending'
+            `);
+            const job = jobs[0];
+            if (!job || job.branch_id !== branchId) return false;
+
+            const rules = await transaction.$queryRaw<Array<{ id: string; jobs_stale: boolean }>>(Prisma.sql`
+                SELECT id, jobs_stale
+                FROM "message_trigger_rule"
+                WHERE id = ${job.rule_id}
+                  AND ${branchPredicate}
+                FOR UPDATE
+            `);
+            const rule = rules[0];
+            if (!rule || rule.jobs_stale) return false;
+
+            const claimed = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+                UPDATE "message_trigger_job"
+                SET status = 'processing', updated_at = now()
+                WHERE id = ${id}
+                  AND rule_id = ${job.rule_id}
+                  AND ${branchPredicate}
+                  AND status = 'pending'
+                RETURNING id
+            `);
+            return claimed.length === 1;
+        });
     }
 
     async findDuePending(limit = 100): Promise<MessageTriggerJobEntity[]> {
@@ -166,6 +267,22 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             where: { ruleId, status: "pending" },
         });
         return rows.map((row) => this.toDomain(row));
+    }
+
+    async hasActiveJobsBefore(branchId: string, ruleId: string, before: Date): Promise<boolean> {
+        const row = await this.prisma.message_trigger_job.findFirst({
+            where: {
+                branchId,
+                ruleId,
+                status: { in: ["pending", "processing"] },
+                // A stale rebuild may reactivate the same dedupe row. Its
+                // immutable createdAt belongs to the obsolete generation, so
+                // the mutable DB-updated timestamp is the generation fence.
+                updatedAt: { lt: before },
+            },
+            select: { id: true },
+        });
+        return row !== null;
     }
 
     async findPendingByRuleIdsAndClientId(
@@ -326,8 +443,118 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         return result.count;
     }
 
+    async cancelPendingForRuleGeneration(
+        branchId: string,
+        ruleId: string,
+        expectedUpdatedAt: Date,
+        expectedJobsStale: boolean,
+        reason: string,
+        scope: MessageTriggerJobCancellationScope = {},
+    ): Promise<number | null> {
+        return this.prisma.$transaction(async (transaction) => {
+            // Generation-aware cancellation uses the same rule-then-job lock
+            // order as the producer and dispatcher fences.
+            const rules = await transaction.$queryRaw<Array<{
+                id: string;
+                branch_id: string | null;
+                jobs_stale: boolean;
+                updated_at: Date | string;
+            }>>(Prisma.sql`
+                SELECT id, branch_id, jobs_stale, updated_at
+                FROM "message_trigger_rule"
+                WHERE id = ${ruleId}
+                  AND branch_id = ${branchId}::uuid
+                FOR UPDATE
+            `);
+            const rule = rules[0];
+            if (!rule || rule.branch_id !== branchId || rule.jobs_stale !== expectedJobsStale) {
+                return null;
+            }
+
+            const updatedAt = rule.updated_at instanceof Date
+                ? rule.updated_at
+                : new Date(rule.updated_at);
+            if (updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+                return null;
+            }
+
+            const predicates = [
+                Prisma.sql`branch_id = ${branchId}::uuid`,
+                Prisma.sql`rule_id = ${ruleId}`,
+                Prisma.sql`status = 'pending'`,
+            ];
+            if (scope.clientId !== undefined) {
+                predicates.push(Prisma.sql`client_id = ${scope.clientId}`);
+            }
+            if (scope.employeeScheduleId !== undefined) {
+                predicates.push(Prisma.sql`employee_schedule_id = ${scope.employeeScheduleId}`);
+            }
+            if (scope.scheduledBefore !== undefined) {
+                predicates.push(Prisma.sql`scheduled_for < ${scope.scheduledBefore}`);
+            }
+
+            const canceled = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+                UPDATE "message_trigger_job"
+                SET status = 'canceled',
+                    canceled_at = date_trunc('milliseconds', clock_timestamp()),
+                    cancel_reason = ${reason},
+                    updated_at = date_trunc('milliseconds', clock_timestamp())
+                WHERE ${Prisma.join(predicates, " AND ")}
+                RETURNING id
+            `);
+            return canceled.length;
+        });
+    }
+
     async upsertPending(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity> {
-        const rows = await this.prisma.$queryRaw<MessageTriggerJobRawRow[]>(Prisma.sql`
+        return this.upsertPendingWithClient(this.prisma, job);
+    }
+
+    async upsertPendingForRuleGeneration(
+        job: MessageTriggerJobEntity,
+        expectedUpdatedAt: Date,
+        expectedJobsStale: boolean,
+    ): Promise<MessageTriggerJobEntity | null> {
+        const branchPredicate = job.branchId === null
+            ? Prisma.sql`branch_id IS NULL`
+            : Prisma.sql`branch_id = ${job.branchId}::uuid`;
+
+        return this.prisma.$transaction(async (transaction) => {
+            // All generation-aware producers lock the rule before touching a job row.
+            // A producer that read an obsolete generation returns without any job write.
+            const rules = await transaction.$queryRaw<Array<{
+                id: string;
+                branch_id: string | null;
+                jobs_stale: boolean;
+                updated_at: Date | string;
+            }>>(Prisma.sql`
+                SELECT id, branch_id, jobs_stale, updated_at
+                FROM "message_trigger_rule"
+                WHERE id = ${job.ruleId}
+                  AND ${branchPredicate}
+                FOR UPDATE
+            `);
+            const rule = rules[0];
+            if (!rule || rule.branch_id !== job.branchId || rule.jobs_stale !== expectedJobsStale) {
+                return null;
+            }
+
+            const updatedAt = rule.updated_at instanceof Date
+                ? rule.updated_at
+                : new Date(rule.updated_at);
+            if (updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+                return null;
+            }
+
+            return this.upsertPendingWithClient(transaction, job);
+        });
+    }
+
+    private async upsertPendingWithClient(
+        client: PrismaService | Prisma.TransactionClient,
+        job: MessageTriggerJobEntity,
+    ): Promise<MessageTriggerJobEntity> {
+        const rows = await client.$queryRaw<MessageTriggerJobRawRow[]>(Prisma.sql`
             INSERT INTO "message_trigger_job" (
                 branch_id,
                 rule_id,
@@ -364,7 +591,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 ${JSON.stringify(job.payload)}::jsonb,
                 0,
                 NULL,
-                now()
+                date_trunc('milliseconds', clock_timestamp())
             )
             ON CONFLICT ("dedupe_key") DO UPDATE SET
                 status = 'pending',
@@ -378,7 +605,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 payload = EXCLUDED.payload,
                 attempts = 0,
                 next_attempt_at = NULL,
-                updated_at = now()
+                updated_at = date_trunc('milliseconds', clock_timestamp())
             WHERE "message_trigger_job"."status" NOT IN ('sent', 'processing')
             RETURNING *;
         `);
@@ -388,7 +615,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
             return this.rawRowToDomain(row);
         }
 
-        const existing = await this.prisma.message_trigger_job.findUnique({
+        const existing = await client.message_trigger_job.findUnique({
             where: { dedupeKey: job.dedupeKey },
         });
         if (!existing) {
@@ -396,6 +623,52 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         }
 
         return this.toDomain(existing);
+    }
+
+    async claimProviderRejectedForRetry(
+        branchId: string,
+        sourceJobId: string,
+        expectedTargetVersion: string,
+        expectedSnapshotHash: string,
+        expectedSource: MessageTriggerJobEntity,
+        retryJob: MessageTriggerJobEntity,
+    ): Promise<MessageTriggerJobEntity | null> {
+        // The target version is computed by the capability from the canonical
+        // provider snapshot. The row lock below is the linearization point at
+        // which that approved source is compared and the retry is claimed.
+        if (!expectedTargetVersion || jobTargetVersion(expectedSource, expectedSnapshotHash) !== expectedTargetVersion) return null;
+        return this.prisma.$transaction(async (transaction) => {
+            const rows = await transaction.$queryRaw<MessageTriggerJobRawRow[]>(Prisma.sql`
+                SELECT *
+                FROM "message_trigger_job"
+                WHERE "id" = ${sourceJobId}
+                  AND "branch_id" = ${branchId}::uuid
+                FOR UPDATE
+            `);
+            const row = rows[0];
+            if (!row) return null;
+
+            const current = this.rawRowToDomain(row);
+            const retrySafety = current.payload.templateVariables?.["retrySafety"];
+            if (
+                current.status !== "failed"
+                || retrySafety !== "provider-rejected"
+                || !sameRetrySource(current, expectedSource)
+                || jobTargetVersion(current, expectedSnapshotHash) !== expectedTargetVersion
+            ) {
+                return null;
+            }
+
+            const existing = await transaction.message_trigger_job.findUnique({
+                where: { dedupeKey: retryJob.dedupeKey },
+            });
+            if (existing) return this.toDomain(existing);
+
+            const created = await transaction.message_trigger_job.create({
+                data: this.toCreate(retryJob),
+            });
+            return this.toDomain(created);
+        });
     }
 
     private toCreate(job: MessageTriggerJobEntity) {

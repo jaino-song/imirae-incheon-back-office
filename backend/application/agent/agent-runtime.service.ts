@@ -175,6 +175,28 @@ export class AgentRuntimeService {
         const trace = await this.traces.start(session.id, input.principal, this.models.modelId, AGENT_VERSION, routed.domains);
         const traceId = trace.id;
         const stepMetadata = offered.map((capability) => ({ capability: capability.meta.name, version: capability.meta.version, risk: capability.meta.risk }));
+        let traceFinalized = false;
+        let streamFailureCategory: "provider" | undefined;
+        const finishTrace = async (
+            outcome: "succeeded" | "failed" | "cancelled",
+            usage?: unknown,
+            errorCategory?: string,
+        ) => {
+            if (traceFinalized) return;
+            traceFinalized = true;
+            const finalization = this.traces.finish(trace, outcome, usage, errorCategory, stepMetadata).catch(() => undefined);
+            let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+            const timeout = new Promise<void>((resolve) => {
+                timeoutHandle = setTimeout(resolve, 2_000);
+                timeoutHandle.unref?.();
+            });
+            await Promise.race([
+                finalization,
+                timeout,
+            ]);
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+        };
+        try {
         type AgentDataChunk = Parameters<UIMessageStreamWriter<BjjUIMessage>["write"]>[0];
         const pendingDataChunks: AgentDataChunk[] = [];
         let streamWriter: UIMessageStreamWriter<BjjUIMessage> | undefined;
@@ -356,17 +378,6 @@ export class AgentRuntimeService {
             prepareStep: () => ({ system: buildSystemPrompt() }),
             abortSignal: input.signal,
         });
-        let streamFailureCategory: "provider" | undefined;
-        let traceFinalized = false;
-        const finishTrace = async (
-            outcome: "succeeded" | "failed" | "cancelled",
-            usage?: unknown,
-            errorCategory?: string,
-        ) => {
-            if (traceFinalized) return;
-            traceFinalized = true;
-            await this.traces.finish(trace, outcome, usage, errorCategory, stepMetadata).catch(() => undefined);
-        };
         const persistCompletion: NonNullable<UIMessageStreamOptions<BjjUIMessage>["onFinish"]> = async ({ responseMessage, isAborted }) => {
             const lastInput = input.messages.at(-1);
             const usage = await Promise.resolve(result.usage).catch(() => undefined);
@@ -409,5 +420,9 @@ export class AgentRuntimeService {
         });
 
         return { sessionId: session.id, stream };
+        } catch (error) {
+            await finishTrace("failed", undefined, "setup");
+            throw error;
+        }
     }
 }

@@ -1,9 +1,10 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import { z } from "zod";
 
 import { AgentActionCertainFailureError, AgentActionUncertainError } from "./action-coordinator.service";
 import { AgentCapabilityProvider } from "./capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "./capability.types";
+import type { AgentContext } from "./agent-context";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { CallInboxService } from "application/services/call-inbox.service";
@@ -219,6 +220,10 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     });
                     await this.documents.deleteStorageForDocument(context.principal.branchId, String(id));
                     await this.documents.deleteMetadataAfterStorageDeletion(context.principal.branchId, String(id));
+                    await recordAgentActionEffect(this.prisma, context, name, "document", String(id), {
+                        status: "storage-deleted",
+                        id,
+                    });
                     return { status: "deleted", id };
                 }
                 if (name === "drafts.confirm") {
@@ -229,6 +234,36 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                 await model.updateMany({ where, data: { updatedAt: new Date() } });
                 return { status: "updated", id };
             },
+            executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                const input = IdSchema.parse(rawInput);
+                if (name.endsWith("delete")) {
+                    return this.executeApprovedFileDeletion(context, String(input.id), expectedTargetVersion);
+                }
+                return this.prisma.$transaction(async (transaction) => {
+                    await this.lockBranchRecordForUpdate(transaction, table, context.principal.branchId, input.id);
+                    const transactionModel = this.transactionModel(transaction, table);
+                    const existing = await transactionModel.findFirst({
+                        where: { branchId: context.principal.branchId, id: input.id },
+                    });
+                    if (!existing || this.targetVersion(existing) !== expectedTargetVersion) {
+                        throw new AgentActionCertainFailureError("Target changed after approval; review a new proposal");
+                    }
+                    if (name.endsWith("markRead")) {
+                        const updated = await transactionModel.updateMany({
+                            where: { branchId: context.principal.branchId, id: input.id },
+                            data: { readAt: new Date() },
+                        });
+                        if (updated.count !== 1) throw new AgentActionCertainFailureError("Target is no longer available");
+                        return { status: "updated", id: input.id };
+                    }
+                    const updated = await transactionModel.updateMany({
+                        where: { branchId: context.principal.branchId, id: input.id },
+                        data: { updatedAt: new Date() },
+                    });
+                    if (updated.count !== 1) throw new AgentActionCertainFailureError("Target is no longer available");
+                    return { status: "updated", id: input.id };
+                });
+            },
             revalidate: async (context, rawInput, expectedTargetVersion) => {
                 const input = IdSchema.parse(rawInput);
                 return this.revalidateBranchRecord(table, context.principal.branchId, input.id, expectedTargetVersion);
@@ -237,9 +272,13 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                 const input = IdSchema.parse(rawInput);
                 const record = await this.findBranchRecord(table, context.principal.branchId, input.id);
                 if (name.endsWith("delete")) {
-                    return record
-                        ? { status: "uncertain" as const, reason: "File metadata still exists" }
-                        : { status: "succeeded" as const, result: { status: "deleted", id: input.id } };
+                    const receipt = await readAgentActionEffect(this.prisma, context, name);
+                    if (record) return { status: "uncertain" as const, reason: "File metadata still exists" };
+                    if (receipt?.result["status"] === "storage-delete-authorized"
+                        || receipt?.result["status"] === "storage-deleted") {
+                        return { status: "succeeded" as const, result: { status: "deleted", id: input.id } };
+                    }
+                    return { status: "uncertain" as const, reason: "File storage deletion is not yet proven" };
                 }
                 if (name.endsWith("markRead") && record && (record["readAt"] || record["isRead"] === true)) {
                     return { status: "succeeded" as const, result: { status: "updated", id: input.id } };
@@ -252,7 +291,12 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     const receipt = await readAgentActionEffect(this.prisma, context, name);
                     if (receipt?.resourceType !== "document"
                         || String(receipt.resourceId) !== String(input.id)
-                        || receipt.result["status"] !== "storage-delete-authorized") return;
+                        || (receipt.result["status"] !== "storage-delete-authorized" && receipt.result["status"] !== "storage-deleted")) return;
+                    const storagePath = receipt.result["storagePath"];
+                    if (typeof storagePath === "string") {
+                        await this.documents.deleteStoragePath(storagePath);
+                        return;
+                    }
                     await this.documents.recoverStagedDeletion(context.principal.branchId, String(input.id));
                 },
             } : {}),
@@ -263,6 +307,74 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
         const model = (this.prisma as unknown as Record<string, unknown>)[table];
         if (!model || typeof model !== "object") throw new Error(`Agent table unavailable: ${table}`);
         return model as QueryModel;
+    }
+
+    private transactionModel(transaction: unknown, table: string): QueryModel {
+        const model = (transaction as Record<string, unknown>)[table];
+        if (!model || typeof model !== "object") throw new Error(`Agent transaction table unavailable: ${table}`);
+        return model as QueryModel;
+    }
+
+    private async lockBranchRecordForUpdate(
+        transaction: unknown,
+        table: string,
+        branchId: string,
+        id: string | number,
+    ): Promise<void> {
+        const lockQueries: Record<string, string> = {
+            consultation_inquiry: 'SELECT "id" FROM "consultation_inquiry" WHERE "id" = $1 AND "branch_id" = $2 FOR UPDATE',
+            document: 'SELECT "id" FROM "document" WHERE "id" = $1 AND "branch_id" = $2 FOR UPDATE',
+            client_draft: 'SELECT "id" FROM "client_draft" WHERE "id" = $1 AND "branch_id" = $2 FOR UPDATE',
+            call_record: 'SELECT "id" FROM "call_record" WHERE "id" = $1 AND "branch_id" = $2 FOR UPDATE',
+            service_record_case: 'SELECT "id" FROM "service_record_case" WHERE "id" = $1 AND "branch_id" = $2 FOR UPDATE',
+        };
+        const rawTransaction = transaction as {
+            $queryRawUnsafe?: (query: string, ...values: unknown[]) => Promise<unknown>;
+        };
+        const query = lockQueries[table];
+        if (query && typeof rawTransaction.$queryRawUnsafe === "function") {
+            await rawTransaction.$queryRawUnsafe(query, id, branchId);
+        }
+    }
+
+    private async executeApprovedFileDeletion(
+        context: AgentContext,
+        id: string,
+        expectedTargetVersion: string,
+    ): Promise<{ status: string; id: string }> {
+        const staged = await this.prisma.$transaction(async (transaction) => {
+            await this.lockBranchRecordForUpdate(transaction, "document", context.principal.branchId, id);
+            const document = await this.transactionModel(transaction, "document").findFirst({
+                where: { id, branchId: context.principal.branchId },
+            });
+            if (!document || this.targetVersion(document) !== expectedTargetVersion) {
+                throw new AgentActionCertainFailureError("File changed after approval; review a new proposal");
+            }
+            const documentRecord = typeof document === "object" && document !== null && !Array.isArray(document)
+                ? document as Record<string, unknown>
+                : null;
+            const storagePath = typeof documentRecord?.["storagePath"] === "string" ? documentRecord["storagePath"] : null;
+            if (!storagePath) throw new AgentActionCertainFailureError("File storage metadata is unavailable");
+            await recordAgentActionEffect(transaction, context, "files.delete", "document", id, {
+                status: "storage-delete-authorized",
+                id,
+                storagePath,
+                targetVersion: expectedTargetVersion,
+            });
+            const deleted = await this.transactionModel(transaction, "document").deleteMany?.({
+                where: { id, branchId: context.principal.branchId },
+            });
+            if (!deleted || deleted.count !== 1) throw new AgentActionCertainFailureError("File is no longer available");
+            return { id, storagePath };
+        });
+        await this.documents.deleteStoragePath(staged.storagePath);
+        await recordAgentActionEffect(this.prisma, context, "files.delete", "document", id, {
+            status: "storage-deleted",
+            id,
+            storagePath: staged.storagePath,
+            targetVersion: expectedTargetVersion,
+        });
+        return { status: "deleted", id };
     }
 
     private draftUpdate(): CapabilityDefinition {
@@ -283,6 +395,21 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     ...(input.proposals === undefined ? {} : { proposals: input.proposals as ProposalDto[] }),
                     ...(input.clientId === undefined ? {} : { clientId: input.clientId }),
                 });
+                return { status: "updated", id: input.id };
+            },
+            executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                const input = DraftUpdateSchema.parse(rawInput);
+                try {
+                    await this.callInbox.patchDraftApprovedTarget(context.principal.branchId, input.id, {
+                        ...(input.proposals === undefined ? {} : { proposals: input.proposals as ProposalDto[] }),
+                        ...(input.clientId === undefined ? {} : { clientId: input.clientId }),
+                    }, expectedTargetVersion);
+                } catch (error) {
+                    if (error instanceof ConflictException) {
+                        throw new AgentActionCertainFailureError(error.message);
+                    }
+                    throw error;
+                }
                 return { status: "updated", id: input.id };
             },
             revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateBranchRecord(
@@ -321,6 +448,24 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     // Greeting SMS is an external side effect and remains a separate Release C action.
                     suppressGreetingSms: true,
                 });
+                const id = typeof result === "object" && result !== null && "clientId" in result ? result.clientId : input.id;
+                return { status: "confirmed", id: id as string | number };
+            },
+            executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                const input = DraftConfirmSchema.parse(rawInput);
+                let result: unknown;
+                try {
+                    result = await this.callInbox.confirmApprovedTarget(context.principal.branchId, context.principal.userId, input.id, {
+                        ...(input.fields === undefined ? {} : { fields: input.fields }),
+                        ...(input.changes === undefined ? {} : { changes: input.changes }),
+                        suppressGreetingSms: true,
+                    }, expectedTargetVersion);
+                } catch (error) {
+                    if (error instanceof ConflictException) {
+                        throw new AgentActionCertainFailureError(error.message);
+                    }
+                    throw error;
+                }
                 const id = typeof result === "object" && result !== null && "clientId" in result ? result.clientId : input.id;
                 return { status: "confirmed", id: id as string | number };
             },
@@ -430,6 +575,25 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                 const result = { status: "created", id: branch.id };
                 return result;
             },
+            executeApprovedTarget: async (context, rawInput) => {
+                const input = BranchInputSchema.parse(rawInput);
+                try {
+                    const branch = await this.systemAdmin.createBranch({
+                        ...input,
+                        ownerId: context.principal.userId,
+                        isActive: true,
+                    }, async (transaction, branchId) => {
+                        await recordAgentActionEffect(transaction, context, "admin.createBranch", "branch", branchId, { status: "created", id: branchId });
+                    });
+                    return { status: "created", id: branch.id };
+                } catch (error) {
+                    if (error instanceof AgentActionCertainFailureError) throw error;
+                    if (error instanceof Error && /already|unique|사용 중|conflict|409/i.test(error.message)) {
+                        throw new AgentActionCertainFailureError("Branch slug is already in use");
+                    }
+                    throw error;
+                }
+            },
             revalidate: async (_context, rawInput, expectedTargetVersion) => {
                 const input = BranchInputSchema.parse(rawInput);
                 const existing = await this.prisma.branch.findUnique({ where: { slug: input.slug }, select: { id: true } });
@@ -478,6 +642,18 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
             execute: async (_context, rawInput) => {
                 const input = RibbonSettingsSchema.parse(rawInput);
                 await this.systemSettings.setRibbonConfig(input);
+                return { status: "updated", id: "ribbon_config" };
+            },
+            executeApprovedTarget: async (_context, rawInput, expectedTargetVersion) => {
+                const input = RibbonSettingsSchema.parse(rawInput);
+                try {
+                    await this.systemSettings.setRibbonConfigIfVersion(expectedTargetVersion, input);
+                } catch (error) {
+                    if (error instanceof ConflictException) {
+                        throw new AgentActionCertainFailureError(error.message);
+                    }
+                    throw error;
+                }
                 return { status: "updated", id: "ribbon_config" };
             },
             revalidate: async (_context, _rawInput, expectedTargetVersion) => {

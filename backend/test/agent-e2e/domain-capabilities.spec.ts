@@ -1,4 +1,5 @@
 import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
+import { EmployeeEntity } from "domain/entities/employee.entity";
 import { EmployeeScheduleAgentCapabilitiesProvider } from "application/usecases/employee-schedule/employee-schedule-agent-capabilities.provider";
 import { EmployeeAgentCapabilitiesProvider } from "application/usecases/employee/employee-agent-capabilities.provider";
 import { VoucherAgentCapabilitiesProvider } from "application/usecases/voucher-price-info/voucher-agent-capabilities.provider";
@@ -19,6 +20,27 @@ describe("Release A domain read capabilities", () => {
         const output = await capability.execute(context, { query: "서울" });
         expect(output).toEqual({ employees: [{ id: 1, name: "관리사", grade: "A", workArea: ["서울"], openToNextWork: true }] });
         expect(list.execute).toHaveBeenCalledWith("branch-a");
+    });
+
+    it("guards direct employee reads to active rows in the current branch", async () => {
+        const active = EmployeeEntity.reconstitute(7, "관리사", ["서울"], "010-1234-5678", "A", true, new Date());
+        const deleted = EmployeeEntity.reconstitute(8, "삭제 관리사", ["서울"], "010-9876-5432", "A", true, new Date(), undefined, new Date());
+        const find = { execute: jest.fn()
+            .mockResolvedValueOnce(active)
+            .mockResolvedValueOnce(deleted)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null) };
+        const provider = new EmployeeAgentCapabilitiesProvider({ execute: jest.fn() } as never, find as never);
+        const capability = provider.getCapabilities().find(({ meta }) => meta.name === "employees.get")!;
+
+        await expect(capability.execute(context, { id: 7 })).resolves.toMatchObject({ id: 7, name: "관리사" });
+        await expect(capability.execute(context, { id: 8 })).rejects.toThrow("Employee not found");
+        await expect(capability.execute(context, { id: 9 })).rejects.toThrow("Employee not found");
+        await expect(capability.execute(context, { id: 10 })).rejects.toThrow("Employee not found");
+        expect(find.execute).toHaveBeenNthCalledWith(1, "branch-a", 7);
+        expect(find.execute).toHaveBeenNthCalledWith(2, "branch-a", 8);
+        expect(find.execute).toHaveBeenNthCalledWith(3, "branch-a", 9);
+        expect(find.execute).toHaveBeenNthCalledWith(4, "branch-a", 10);
     });
 
     it("filters schedules by date without returning work addresses", async () => {

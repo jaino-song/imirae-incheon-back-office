@@ -1,16 +1,20 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { z } from "zod";
 
-import { AgentActionUncertainError } from "application/agent/action-coordinator.service";
+import { AgentActionCertainFailureError, AgentActionUncertainError } from "application/agent/action-coordinator.service";
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
+import type { AgentContext } from "application/agent/agent-context";
 import type { AgentFormField } from "@babyjamjam/shared";
-import { CreateAndSendContractUsecase } from "./create-and-send-contract.usecase";
+import { CreateAndSendContractUsecase, ContractClientSnapshot } from "./create-and-send-contract.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { EFORMSIGN_COMPLETED_STATUS_CODES, TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
 import { clientAgentTargetSnapshot, clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
+import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
+import { PrismaService } from "infrastructure/database/prisma.service";
+import { recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
 const ContractInputSchema = z.object({ clientId: z.number().int().positive(), templateId: z.string().min(1).max(200), templateName: z.string().max(200).optional() });
 const ContractOutputSchema = z.object({ success: z.boolean(), documentId: z.string().optional(), status: z.string(), uncertain: z.boolean().optional() });
@@ -28,6 +32,9 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
         private readonly getAccessToken: GetEformsignAccessTokenUsecase,
         private readonly fetchDocument: FetchEformsignDocFromApiUsecase,
         private readonly findClientById: FindClientByIdUsecase,
+        @Inject(CLIENT_REPOSITORY)
+        private readonly clientRepository: IClientRepository,
+        private readonly prisma: PrismaService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -56,6 +63,11 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                     };
                 },
                 execute: async (_context, rawInput) => ({ ...ContractInputSchema.parse(rawInput), status: "prepared", success: true }),
+                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                    const input = ContractInputSchema.parse(rawInput);
+                    await this.withLockedClientTarget(context, input.clientId, expectedTargetVersion);
+                    return { ...input, status: "prepared", success: true };
+                },
                 revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateClient(context, rawInput, expectedTargetVersion),
                 reconcile: async (_context, rawInput) => ({
                     status: "succeeded",
@@ -88,6 +100,26 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                         const result = await this.createAndSend.execute(context.principal.branchId, {
                             ...ContractInputSchema.parse(rawInput),
                             idempotencyKey: context.actionId,
+                        });
+                        if (!result.success && (result.uncertain || result.remoteDocumentId)) {
+                            throw new AgentActionUncertainError("Contract provider result is uncertain", { remoteDocumentId: result.remoteDocumentId });
+                        }
+                        if (!result.success) return { success: false, status: "failed" };
+                        return { success: true, documentId: result.documentId, status: "sent" };
+                    } catch (error) {
+                        if (error instanceof AgentActionUncertainError) throw error;
+                        throw new AgentActionUncertainError("Contract provider result is uncertain");
+                    }
+                },
+                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                    const input = ContractInputSchema.parse(rawInput);
+                    const staged = await this.stageDispatchTarget(context, input, expectedTargetVersion);
+                    try {
+                        const result = await this.createAndSend.execute(context.principal.branchId, {
+                            ...input,
+                            idempotencyKey: context.actionId,
+                            clientSnapshot: staged.clientSnapshot,
+                            clientTargetVersion: staged.targetVersion,
                         });
                         if (!result.success && (result.uncertain || result.remoteDocumentId)) {
                             throw new AgentActionUncertainError("Contract provider result is uncertain", { remoteDocumentId: result.remoteDocumentId });
@@ -135,6 +167,78 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
             valid: Boolean(client) && currentVersion === expectedTargetVersion,
             currentVersion,
             reason: client ? "Client changed after proposal" : "Client is no longer available in this branch",
+        };
+    }
+
+    private async withLockedClientTarget(
+        context: AgentContext,
+        clientId: number,
+        expectedTargetVersion: string,
+    ): Promise<ContractClientSnapshot> {
+        return this.prisma.$transaction(async (transaction) => {
+            const client = await this.clientRepository.findByIdForUpdate(
+                context.principal.branchId,
+                clientId,
+                transaction,
+            );
+            if (!client || clientAgentTargetVersion(client) !== expectedTargetVersion) {
+                throw new AgentActionCertainFailureError("Client changed after approval; review a new proposal");
+            }
+            return this.toContractClientSnapshot(client);
+        });
+    }
+
+    private async stageDispatchTarget(
+        context: AgentContext,
+        input: z.infer<typeof ContractInputSchema>,
+        expectedTargetVersion: string,
+    ): Promise<{ clientSnapshot: ContractClientSnapshot; targetVersion: string }> {
+        return this.prisma.$transaction(async (transaction) => {
+            const client = await this.clientRepository.findByIdForUpdate(
+                context.principal.branchId,
+                input.clientId,
+                transaction,
+            );
+            if (!client || clientAgentTargetVersion(client) !== expectedTargetVersion) {
+                throw new AgentActionCertainFailureError("Client changed after approval; review a new proposal");
+            }
+            const clientSnapshot = this.toContractClientSnapshot(client);
+            await recordAgentActionEffect(transaction, context, "contracts.dispatch", "contract-dispatch", input.clientId, {
+                input,
+                targetVersion: expectedTargetVersion,
+                clientSnapshot,
+            });
+            return { clientSnapshot, targetVersion: expectedTargetVersion };
+        });
+    }
+
+    private toContractClientSnapshot(client: {
+        id: number;
+        name: string;
+        phone: string | null;
+        address: string | null;
+        birthday: string | null;
+        startDate: Date | null;
+        endDate: Date | null;
+        fullPrice: string | null;
+        grant: string | null;
+        actualPrice: string | null;
+        duration: number | null;
+    }): ContractClientSnapshot {
+        const fallbackDate = new Date().toISOString();
+        return {
+            id: client.id,
+            name: client.name,
+            phone: client.phone,
+            address: client.address,
+            birthday: client.birthday,
+            startDate: client.startDate?.toISOString() ?? null,
+            endDate: client.endDate?.toISOString() ?? null,
+            fullPrice: client.fullPrice,
+            grant: client.grant,
+            actualPrice: client.actualPrice,
+            duration: client.duration,
+            fallbackDate,
         };
     }
 }

@@ -3,11 +3,13 @@ import { z } from "zod";
 
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
+import type { AgentContext } from "application/agent/agent-context";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { SendNotificationUsecase } from "./send-notification.usecase";
-import { AgentActionUncertainError } from "application/agent/action-coordinator.service";
+import { AgentActionCertainFailureError, AgentActionUncertainError } from "application/agent/action-coordinator.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { createHash } from "node:crypto";
+import { recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
 const TestSchema = z.object({ userId: z.string().uuid(), title: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(500) });
 const OutputSchema = z.object({
@@ -98,6 +100,33 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
                 }
                 return { status: result.status, notificationId: result.notification.id, subscriptions: result.subscriptions, delivered: result.delivered, failed: result.failed };
             },
+            executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                const input = TestSchema.parse(rawInput);
+                if (!context.actionId) throw new Error("Notification action identity is missing");
+                const existing = await this.prisma.notification.findFirst({
+                    where: {
+                        branchId: context.principal.branchId,
+                        data: { path: ["agentActionId"], equals: context.actionId },
+                    },
+                    select: { id: true, data: true },
+                });
+                if (existing) {
+                    const outcome = this.persistedOutcome(existing.id, existing.data);
+                    if (outcome.status === "uncertain") {
+                        throw new AgentActionUncertainError("The persisted Web Push outcome is incomplete", { notificationId: existing.id });
+                    }
+                    return outcome;
+                }
+                await this.stageApprovedNotificationTarget(context, input.userId, expectedTargetVersion, input);
+                const result = await this.sendNotification.executeWithOutcome(context.principal.branchId, {
+                    ...input,
+                    data: { agentActionId: context.actionId },
+                });
+                if (result.status === "uncertain") {
+                    throw new AgentActionUncertainError("Web Push delivery status is uncertain", { notificationId: result.notification.id });
+                }
+                return { status: result.status, notificationId: result.notification.id, subscriptions: result.subscriptions, delivered: result.delivered, failed: result.failed };
+            },
             revalidate: async (context, rawInput, expectedTargetVersion) => {
                 const input = TestSchema.parse(rawInput);
                 const currentVersion = await this.notificationTargetVersion(context.principal.branchId, input.userId);
@@ -146,7 +175,56 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
             }),
             this.prisma.branch.findUnique({ where: { id: branchId }, select: { ownerId: true } }),
         ]);
-        if (!membership && branch?.ownerId !== userId) return null;
+        return this.targetVersionFromMembership(branchId, userId, membership, branch?.ownerId);
+    }
+
+    private async stageApprovedNotificationTarget(
+        context: AgentContext,
+        userId: string,
+        expectedTargetVersion: string,
+        input: z.infer<typeof TestSchema>,
+    ): Promise<void> {
+        await this.prisma.$transaction(async (transaction) => {
+            const rawTransaction = transaction as {
+                $queryRawUnsafe?: (query: string, ...values: unknown[]) => Promise<unknown>;
+            };
+            if (typeof rawTransaction.$queryRawUnsafe === "function") {
+                await rawTransaction.$queryRawUnsafe(
+                    'SELECT "id" FROM "user_branch" WHERE "user_id" = $1 AND "branch_id" = $2 FOR UPDATE',
+                    userId,
+                    context.principal.branchId,
+                );
+                await rawTransaction.$queryRawUnsafe(
+                    'SELECT "id" FROM "branch" WHERE "id" = $1 FOR UPDATE',
+                    context.principal.branchId,
+                );
+            }
+            const [membership, branch] = await Promise.all([
+                transaction.user_branch.findFirst({
+                    where: { userId, branchId: context.principal.branchId },
+                    select: { id: true, role: true, joinedAt: true },
+                }),
+                transaction.branch.findUnique({ where: { id: context.principal.branchId }, select: { ownerId: true } }),
+            ]);
+            const currentVersion = this.targetVersionFromMembership(context.principal.branchId, userId, membership, branch?.ownerId);
+            if (!currentVersion || currentVersion !== expectedTargetVersion) {
+                throw new AgentActionCertainFailureError("Notification membership changed after approval");
+            }
+            await recordAgentActionEffect(transaction, context, "notifications.test", "notification-target", input.userId, {
+                status: "notification-authorized",
+                userId: input.userId,
+                targetVersion: expectedTargetVersion,
+            });
+        });
+    }
+
+    private targetVersionFromMembership(
+        branchId: string,
+        userId: string,
+        membership: { id: string; role: string | null; joinedAt: Date | null } | null,
+        ownerId: string | null | undefined,
+    ): string | null {
+        if (!membership && ownerId !== userId) return null;
         return createHash("sha256").update(JSON.stringify({
             userId,
             branchId,

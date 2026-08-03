@@ -4,6 +4,7 @@ import { AligoService } from "application/services/aligo.service";
 import { SendAligoSmsUsecase } from "application/usecases/aligo/send-sms.usecase";
 import { MessageTriggerDeliveryService } from "application/services/message-trigger-delivery.service";
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import { SmsTriggerDeliveryService } from "application/services/sms-trigger-delivery.service";
 import { ActionCoordinatorService } from "application/agent/action-coordinator.service";
 import { MessageTriggerEventType, MessageTriggerOffsetType, MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
@@ -62,6 +63,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             findHistoryByBranch: jest.fn().mockResolvedValue([source]),
             findById: jest.fn().mockResolvedValue(source),
             upsertPending: jest.fn().mockImplementation(async (candidate: MessageTriggerJobEntity) => Object.assign(candidate, { id: "retry-job" })),
+            claimProviderRejectedForRetry: jest.fn().mockImplementation(async (_branchId: string, _sourceJobId: string, _version: string, _snapshotHash: string, _source: MessageTriggerJobEntity, candidate: MessageTriggerJobEntity) => Object.assign(candidate, { id: "retry-job" })),
         };
         const delivery = {
             dispatchPendingJobNow: jest.fn().mockResolvedValue({ status: "sent" }),
@@ -69,7 +71,10 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             getRule: jest.fn().mockResolvedValue(rule),
             createRule: jest.fn().mockResolvedValue(rule),
             updateRule: jest.fn().mockImplementation(async (_branchId, _id, updates) => Object.assign(rule, updates)),
+            updateRuleApprovedTarget: jest.fn().mockResolvedValue(rule),
             deleteRule: jest.fn().mockResolvedValue(undefined),
+            deleteRuleApprovedTarget: jest.fn().mockResolvedValue(undefined),
+            isRuleMutationComplete: jest.fn().mockResolvedValue(true),
         };
         let effectReceipt: unknown = null;
         const prisma = {
@@ -96,14 +101,16 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             { getByKey: jest.fn() } as never,
             { save: jest.fn() } as never,
         );
+        const senderApproval = { ensureApproved: jest.fn().mockResolvedValue(undefined) };
         const provider = new MessageExternalAgentCapabilitiesProvider(
             prisma as never,
             delivery as never,
             repository as never,
             smsDelivery,
+            senderApproval as unknown as MessageSenderApprovalService,
         );
         const capabilities = provider.getCapabilities();
-        return { repository, delivery, prisma, smsDelivery, aligoService, capabilities };
+        return { repository, delivery, prisma, smsDelivery, aligoService, senderApproval, capabilities };
     }
 
     it("lists only terminal jobs through the branch-scoped repository boundary", async () => {
@@ -147,6 +154,71 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         await expect(send.execute(context, input)).resolves.toEqual(expect.objectContaining({ status: "sent", msgType: "LMS" }));
     });
 
+    it("returns a certain failed result for an explicit provider rejection", async () => {
+        const { delivery, capabilities } = setup();
+        const failed = terminalJob({ id: "retry-job" });
+        failed.payload.templateVariables["retrySafety"] = "provider-rejected";
+        delivery.dispatchPendingJobNow.mockResolvedValue(failed);
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await expect(send.execute(context, { receiver: "01012345678", message: "거절 테스트" }))
+            .resolves.toEqual({ status: "failed", msgType: "LMS", jobId: "retry-job" });
+    });
+
+    it("preserves canceled SMS outcomes as canceled", async () => {
+        const { delivery, capabilities } = setup();
+        const canceled = terminalJob({ id: "retry-job", status: "canceled", cancelReason: "승인 필요" });
+        delivery.dispatchPendingJobNow.mockResolvedValue(canceled);
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await expect(send.execute(context, { receiver: "01012345678", message: "취소 테스트" }))
+            .resolves.toEqual({ status: "canceled", msgType: "LMS", jobId: "retry-job" });
+    });
+
+    it("keeps thrown transport failures uncertain and does not infer a provider rejection", async () => {
+        const { delivery, capabilities } = setup();
+        delivery.dispatchPendingJobNow.mockRejectedValue(new Error("transport unavailable"));
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await expect(send.execute(context, { receiver: "01012345678", message: "전송 오류 테스트" }))
+            .rejects.toMatchObject({ name: "AgentActionUncertainError" });
+    });
+
+    it("keeps failed jobs without the provider-rejected marker uncertain", async () => {
+        const { delivery, capabilities } = setup();
+        const failed = terminalJob({ id: "retry-job" });
+        failed.payload.templateVariables["retrySafety"] = "uncertain";
+        delivery.dispatchPendingJobNow.mockResolvedValue(failed);
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await expect(send.execute(context, { receiver: "01012345678", message: "근거 부족 테스트" }))
+            .rejects.toMatchObject({ name: "AgentActionUncertainError" });
+    });
+
+    it("reconciles an explicitly provider-rejected persisted job as failed", async () => {
+        const { prisma, capabilities } = setup();
+        const failed = terminalJob({ id: "job-a" });
+        failed.payload.templateVariables["retrySafety"] = "provider-rejected";
+        prisma.message_trigger_job.findFirst.mockResolvedValue(failed as never);
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await expect(send.reconcile!(context, {}, { jobId: failed.id }))
+            .resolves.toEqual({ status: "failed", result: { status: "failed", jobId: failed.id } });
+    });
+
+    it("does not create an SMS rule or job when sender approval is revoked", async () => {
+        const { senderApproval, repository, prisma, capabilities } = setup();
+        senderApproval.ensureApproved.mockRejectedValue(new Error("approval required"));
+        const send = capabilities.find((entry) => entry.meta.name === "messages.sendSms")!;
+
+        await expect(send.inspect!(context, { receiver: "01012345678", message: "승인 필요" }))
+            .rejects.toThrow("approval required");
+        await expect(send.execute(context, { receiver: "01012345678", message: "승인 필요" }))
+            .rejects.toMatchObject({ name: "AgentActionCertainFailureError" });
+        expect(prisma.message_trigger_rule.upsert).not.toHaveBeenCalled();
+        expect(repository.upsertPending).not.toHaveBeenCalled();
+    });
+
     it("rejects unsupported SMS sender overrides and omits them from recovery forms", () => {
         const { capabilities } = setup();
         for (const name of ["messages.sendSms", "messages.scheduleSms"]) {
@@ -172,11 +244,18 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         const result = await capability!.execute(approvedContext, { jobId: "job-a" }) as { status: string; jobId: string };
 
         expect(inspection.targetVersion).toHaveLength(64);
-        expect(repository.upsertPending).toHaveBeenCalledWith(expect.objectContaining({
-            branchId: principal.branchId,
-            dedupeKey: `agent-sms-retry:${context.actionId}`,
-            status: "pending",
-        }));
+        expect(repository.claimProviderRejectedForRetry).toHaveBeenCalledWith(
+            principal.branchId,
+            "job-a",
+            inspection.targetVersion,
+            expect.any(String),
+            expect.objectContaining({ id: "job-a" }),
+            expect.objectContaining({
+                branchId: principal.branchId,
+                dedupeKey: `agent-sms-retry:${context.actionId}`,
+                status: "pending",
+            }),
+        );
         expect(delivery.dispatchPendingJobNow).toHaveBeenCalledWith("retry-job");
         expect(result).toEqual({ status: "sent", jobId: "retry-job" });
     });
@@ -209,7 +288,12 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 stagedRetry = Object.assign(candidate, { id: "retry-job" });
                 return stagedRetry;
             }),
+            claimProviderRejectedForRetry: jest.fn().mockImplementation(async (_branchId: string, _sourceJobId: string, _version: string, _snapshotHash: string, _source: MessageTriggerJobEntity, candidate: MessageTriggerJobEntity) => {
+                stagedRetry = Object.assign(candidate, { id: "retry-job" });
+                return stagedRetry;
+            }),
             claimPending: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
+            claimPendingWithRuleFence: jest.fn().mockImplementation(async (id: string) => id === stagedRetry?.id),
             update: jest.fn().mockResolvedValue(undefined),
             findSentTriggerJobIds: jest.fn().mockResolvedValue(new Set<string>()),
         };
@@ -229,7 +313,10 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             { save: jest.fn().mockImplementation(async (log: unknown) => log) } as never,
         );
         const triggerDelivery = new MessageTriggerDeliveryService(smsDelivery);
-        const senderApproval = { getApprovedBranchIds: jest.fn().mockResolvedValue(new Set([principal.branchId])) };
+        const senderApproval = {
+            getApprovedBranchIds: jest.fn().mockResolvedValue(new Set([principal.branchId])),
+            ensureApproved: jest.fn().mockResolvedValue(undefined),
+        };
         const triggerService = new MessageTriggerService(
             {} as never,
             triggerDelivery,
@@ -243,6 +330,7 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             triggerService,
             repository as never,
             smsDelivery,
+            senderApproval as never,
         );
         const retry = provider.getCapabilities().find((entry) => entry.meta.name === "messages.retrySms")!;
         const actionRecords: { current?: Record<string, any> } = {};
@@ -274,12 +362,22 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
                 }),
             },
         };
+        const actionRepository = {
+            createInActiveSession: jest.fn().mockImplementation(async (input: Record<string, unknown>) => {
+                const action = await actionPrisma.agent_action.create({ data: input });
+                return { status: "created", action };
+            }),
+        };
         const coordinator = new ActionCoordinatorService(
             actionPrisma as never,
             { get: jest.fn().mockReturnValue(retry) } as never,
             { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
             { isAvailable: jest.fn().mockReturnValue(false) } as never,
-            { upsertActionResultMessage: jest.fn().mockResolvedValue(true) } as never,
+            {
+                assertActive: jest.fn().mockResolvedValue(undefined),
+                upsertActionResultMessage: jest.fn().mockResolvedValue(true),
+            } as never,
+            actionRepository as never,
         );
 
         const action = await coordinator.propose({
@@ -394,6 +492,41 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         expect(updated.isActive).toBe(false);
     });
 
+    it("routes versioned automation mutations through approved-target CAS hooks", async () => {
+        const { delivery, capabilities } = setup();
+        const update = capabilities.find((entry) => entry.meta.name === "automation.update")!;
+        const remove = capabilities.find((entry) => entry.meta.name === "automation.delete")!;
+        const inspection = await update.inspect!(context, { id: "rule-a", name: "승인된 규칙" });
+        const approvedContext = {
+            ...context,
+            approvedTargetVersion: inspection.targetVersion,
+            approvedTargetSnapshot: inspection.targetSnapshot,
+        };
+
+        await expect(update.executeApprovedTarget!(approvedContext, { id: "rule-a", name: "승인된 규칙" }, inspection.targetVersion!))
+            .resolves.toEqual(expect.objectContaining({ status: "updated", id: "rule-a" }));
+        expect(delivery.updateRuleApprovedTarget).toHaveBeenCalledWith(
+            principal.branchId,
+            "rule-a",
+            { name: "승인된 규칙" },
+            inspection.targetVersion,
+            inspection.targetSnapshot,
+        );
+
+        const deleteInspection = await remove.inspect!(context, { id: "rule-a" });
+        await expect(remove.executeApprovedTarget!(
+            { ...context, approvedTargetSnapshot: deleteInspection.targetSnapshot },
+            { id: "rule-a" },
+            deleteInspection.targetVersion!,
+        )).resolves.toEqual({ status: "deleted", id: "rule-a" });
+        expect(delivery.deleteRuleApprovedTarget).toHaveBeenCalledWith(
+            principal.branchId,
+            "rule-a",
+            deleteInspection.targetVersion,
+            deleteInspection.targetSnapshot,
+        );
+    });
+
     it("reconciles automation creation only through its exact action receipt", async () => {
         const { delivery, prisma, capabilities } = setup();
         const create = capabilities.find((entry) => entry.meta.name === "automation.create")!;
@@ -505,6 +638,40 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
             status: "failed",
             reason: "Automation rule no longer exists",
         });
+    });
+
+    it("does not reconcile automation success until job fencing and rebuild complete", async () => {
+        const { delivery, capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "automation.update")!;
+        delivery.isRuleMutationComplete.mockResolvedValue(false);
+
+        await expect(capability.reconcile!(context, { id: "rule-a", name: "시작 알림" }, null)).resolves.toEqual({
+            status: "uncertain",
+            reason: "Automation rule jobs have not completed fencing and rebuild",
+        });
+        expect(delivery.isRuleMutationComplete).toHaveBeenCalledWith(
+            principal.branchId,
+            "rule-a",
+            { name: "시작 알림" },
+        );
+    });
+
+    it("reconciles a rebuilt pending automation before delivery", async () => {
+        const { delivery, capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "automation.update")!;
+        delivery.isRuleMutationComplete.mockResolvedValue(true);
+
+        await expect(capability.reconcile!(context, { id: "rule-a", name: "시작 알림" }, null)).resolves.toEqual({
+            status: "succeeded",
+            result: { status: "updated", id: "rule-a", isActive: true },
+        });
+
+        expect(delivery.isRuleMutationComplete).toHaveBeenCalledWith(
+            principal.branchId,
+            "rule-a",
+            { name: "시작 알림" },
+        );
+        expect(delivery.dispatchPendingJobNow).not.toHaveBeenCalled();
     });
 
     it("keeps synthetic ad-hoc SMS rules inactive", async () => {

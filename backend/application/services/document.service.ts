@@ -127,6 +127,24 @@ export class DocumentService {
         await this.deleteStorageObject(document);
     }
 
+    /**
+     * Delete an exact, already-authorized storage path.
+     *
+     * Agent actions use this after claiming document metadata in the same
+     * transaction as their durable effect receipt. The path is never resolved
+     * again from mutable metadata, so a later metadata change cannot redirect
+     * the deletion to another object.
+     */
+    async deleteStoragePath(storagePath: string): Promise<void> {
+        if (!this.fileStorage) throw new Error("File storage is unavailable");
+        try {
+            await this.fileStorage.delete(storagePath);
+        } catch (error) {
+            if (!(error instanceof FileStorageObjectNotFoundError)
+                && !(error instanceof Error && error.message.toLowerCase().includes("object not found"))) throw error;
+        }
+    }
+
     /** Idempotently complete an action-bound deletion staged before the external call. */
     async recoverStagedDeletion(branchId: string, id: string): Promise<void> {
         const document = await this.documentRepository.findById(branchId, id);
@@ -136,13 +154,7 @@ export class DocumentService {
     }
 
     private async deleteStorageObject(document: DocumentEntity): Promise<void> {
-        if (!this.fileStorage) throw new Error("File storage is unavailable");
-        try {
-            await this.fileStorage.delete(document.storagePath);
-        } catch (error) {
-            if (!(error instanceof FileStorageObjectNotFoundError)
-                && !(error instanceof Error && error.message.toLowerCase().includes("object not found"))) throw error;
-        }
+        await this.deleteStoragePath(document.storagePath);
     }
 
     /** Finish only branch-scoped metadata cleanup after storage deletion is proven. */

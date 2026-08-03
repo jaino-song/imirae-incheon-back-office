@@ -24,6 +24,16 @@ export interface ClientWithInitialSchedule {
 
 export interface IClientRepository {
     findById(branchid: string, id: number): Promise<ClientEntity | null>;
+    /**
+     * Lock one branch-owned client row for an approval-bound mutation or
+     * external-effect staging operation. The lock and all work performed with
+     * the returned entity must share the supplied transaction.
+     */
+    findByIdForUpdate(
+        branchid: string,
+        id: number,
+        transaction: Prisma.TransactionClient,
+    ): Promise<ClientEntity | null>;
     findAll(branchid: string): Promise<ClientEntity[]>;
     findAllPaginated(
         branchid: string,
@@ -38,6 +48,38 @@ export interface IClientRepository {
         schedule: InitialClientSchedule,
     ): Promise<ClientWithInitialSchedule>;
     update(branchid: string, client: ClientEntity): Promise<ClientEntity>;
+    /**
+     * Compare the approval target while holding the row lock, then apply the
+     * update before releasing that lock. A null result means the target version
+     * no longer matches; callers must not fall back to an unlocked update.
+     */
+    updateIfTargetVersion(
+        branchid: string,
+        id: number,
+        expectedTargetVersion: string,
+        updates: Partial<{
+            name: string;
+            address: string | null;
+            phone: string | null;
+            type: string | null;
+            duration: number | null;
+            fullPrice: string | null;
+            grant: string | null;
+            actualPrice: string | null;
+            startDate: Date | null;
+            endDate: Date | null;
+            careCenter: boolean | null;
+            voucherClient: boolean;
+            birthday: string | null;
+            dueDate: Date | null;
+            birthDate: Date | null;
+            serviceStatus: string | null;
+            breastPump: boolean;
+            eDocId: string | null;
+            areaId: string | null;
+        }>,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<ClientEntity | null>;
     delete(branchid: string, id: number): Promise<void>;
 
     // Date-based queries for scheduler (P3)

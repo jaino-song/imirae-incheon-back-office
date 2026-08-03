@@ -11,8 +11,10 @@ import { CapabilityRegistryService } from "application/agent/capability-registry
 import { CapabilityRouterService } from "application/agent/capability-router.service";
 import { AgentTraceService } from "application/agent/agent-trace.service";
 import { AGENT_SESSION_REPOSITORY } from "domain/repositories/agent-session.repository.interface";
+import { AGENT_ACTION_REPOSITORY } from "domain/repositories/agent-action.repository.interface";
 import { OwnerGuard } from "infrastructure/auth/owner.guard";
 import { PrismaAgentSessionRepository } from "infrastructure/database/repositories/prisma-agent-session.repository";
+import { PrismaAgentActionRepository } from "infrastructure/database/repositories/prisma-agent-action.repository";
 import { AgentModelFactory } from "infrastructure/agent/agent-model.factory";
 import { AgentActionSweepLockService } from "infrastructure/locking/agent-action-sweep-lock.service";
 import { AgentController } from "interface/controllers/agent.controller";
@@ -46,6 +48,7 @@ import { SystemAdminModule } from "module/system-admin.module";
         AgentFeedbackService,
         AgentModelFactory,
         OwnerGuard,
+        { provide: AGENT_ACTION_REPOSITORY, useClass: PrismaAgentActionRepository },
         { provide: AGENT_SESSION_REPOSITORY, useClass: PrismaAgentSessionRepository },
     ],
     exports: [CapabilityRegistryService],

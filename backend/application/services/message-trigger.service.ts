@@ -8,6 +8,7 @@ import {
     ServiceUnavailableException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
@@ -446,16 +447,133 @@ export class MessageTriggerService {
             offsetDays: this.normalizeOffsetDays(nextState.offsetType, nextState.offsetDays),
         });
         const updated = await this.ruleRepository.update(branchId, rule);
-        await this.cancelPendingJobsForRule(updated.id, "Rule updated");
+        await this.cancelPendingJobsForRule(branchId, updated, "Rule updated", false);
         await this.ruleRepository.markJobsStale(updated.id);
+        return updated;
+    }
+
+    /**
+     * Mutate an automation rule against the exact inspected snapshot. The
+     * repository performs the branch/resource-scoped conditional update; this
+     * method intentionally does not re-read the rule before writing.
+     */
+    async updateRuleApprovedTarget(
+        branchId: string,
+        id: string,
+        params: Partial<UpsertRuleParams>,
+        expectedTargetVersion: string,
+        targetSnapshot: Record<string, unknown> | undefined,
+    ): Promise<MessageTriggerRuleEntity> {
+        const mutationStartedAt = new Date();
+        await this.ensureTriggerSchemaReady();
+        await this.messageSenderApprovalService.ensureApproved(branchId);
+        const expected = this.ruleFromApprovedSnapshot(targetSnapshot);
+        if (
+            !expected
+            || expected.id !== id
+            || expected.branchId !== branchId
+            || this.ruleTargetVersion(expected) !== expectedTargetVersion
+        ) {
+            throw new BadRequestException("Automation rule approval snapshot is missing or stale");
+        }
+
+        const nextState: UpsertRuleParams = {
+            name: params.name ?? expected.name,
+            isActive: params.isActive ?? expected.isActive,
+            eventType: params.eventType ?? expected.eventType,
+            offsetType: params.offsetType ?? expected.offsetType,
+            offsetDays: params.offsetDays ?? expected.offsetDays,
+            recipientType: params.recipientType ?? expected.recipientType,
+            templateKey: params.templateKey ?? expected.templateKey,
+        };
+        this.validateRule(nextState);
+        const next = MessageTriggerRuleEntity.reconstitute(
+            expected.id,
+            expected.branchId,
+            expected.name,
+            expected.isActive,
+            expected.eventType,
+            expected.offsetType,
+            expected.offsetDays,
+            expected.recipientType,
+            expected.templateKey,
+            expected.createdAt,
+            expected.updatedAt,
+            expected.isDefault,
+            expected.jobsStale,
+        );
+        next.update({
+            ...nextState,
+            offsetDays: this.normalizeOffsetDays(nextState.offsetType, nextState.offsetDays),
+        });
+
+        const updated = await this.ruleRepository.updateIfTargetMatchesAndFenceJobs(
+            branchId,
+            expected,
+            next,
+            "Rule updated",
+            mutationStartedAt,
+        );
+        if (!updated) {
+            throw new BadRequestException("Automation rule changed after approval");
+        }
         return updated;
     }
 
     async deleteRule(branchId: string, id: string): Promise<void> {
         await this.ensureTriggerSchemaReady();
-        await this.getRule(branchId, id);
-        await this.cancelPendingJobsForRule(id, "Rule deleted");
+        const rule = await this.getRule(branchId, id);
+        await this.cancelPendingJobsForRule(branchId, rule, "Rule deleted", false);
         await this.ruleRepository.delete(branchId, id);
+    }
+
+    /** Delete an automation rule only when its inspected snapshot still matches. */
+    async deleteRuleApprovedTarget(
+        branchId: string,
+        id: string,
+        expectedTargetVersion: string,
+        targetSnapshot: Record<string, unknown> | undefined,
+    ): Promise<void> {
+        const mutationStartedAt = new Date();
+        await this.ensureTriggerSchemaReady();
+        await this.messageSenderApprovalService.ensureApproved(branchId);
+        const expected = this.ruleFromApprovedSnapshot(targetSnapshot);
+        if (
+            !expected
+            || expected.id !== id
+            || expected.branchId !== branchId
+            || this.ruleTargetVersion(expected) !== expectedTargetVersion
+        ) {
+            throw new BadRequestException("Automation rule approval snapshot is missing or stale");
+        }
+        const deleted = await this.ruleRepository.deleteIfTargetMatchesAndFenceJobs(
+            branchId,
+            expected,
+            "Rule deleted",
+            mutationStartedAt,
+        );
+        if (!deleted) {
+            throw new BadRequestException("Automation rule changed after approval");
+        }
+    }
+
+    /**
+     * Reconciliation must prove the whole automation mutation converged. A
+     * matching rule alone is insufficient while its stale-job rebuild is
+     * pending or an older active job remains dispatchable.
+     */
+    async isRuleMutationComplete(
+        branchId: string,
+        id: string,
+        params: Partial<UpsertRuleParams>,
+    ): Promise<boolean> {
+        const rule = await this.getRule(branchId, id);
+        const matches = Object.entries(params).every(([key, value]) => {
+            if (value === undefined) return true;
+            return JSON.stringify(rule[key as keyof MessageTriggerRuleEntity]) === JSON.stringify(value);
+        });
+        if (!matches || rule.jobsStale) return false;
+        return !(await this.jobRepository.hasActiveJobsBefore(branchId, rule.id, rule.updatedAt));
     }
 
     async dispatchDueJobs(): Promise<void> {
@@ -553,7 +671,8 @@ export class MessageTriggerService {
 
         if (includePast) {
             await this.cancelPendingJobsForClient(
-                rules.map((rule) => rule.id),
+                branchId,
+                rules,
                 clientId,
                 "Client data changed",
             );
@@ -567,7 +686,8 @@ export class MessageTriggerService {
 
             if (nonImmediateRules.length > 0) {
                 await this.cancelPendingJobsForClient(
-                    nonImmediateRules.map((rule) => rule.id),
+                    branchId,
+                    nonImmediateRules,
                     clientId,
                     "Client data changed",
                 );
@@ -597,7 +717,7 @@ export class MessageTriggerService {
             : candidateJobs;
 
         for (const { rule, job } of jobsToPersist) {
-            await this.persistPendingJob(job, rule, includePast);
+            await this.persistPendingJob(job, rule, includePast, false);
         }
     }
 
@@ -692,7 +812,8 @@ export class MessageTriggerService {
         ]);
 
         await this.cancelPendingJobsForEmployeeSchedule(
-            rules.map((rule) => rule.id),
+            branchId,
+            rules,
             employeeScheduleId,
             "Employee assignment changed",
         );
@@ -703,7 +824,7 @@ export class MessageTriggerService {
             if (await this.hasSentEmployeeAssignmentJobForSameEmployee(job)) {
                 continue;
             }
-            await this.persistPendingJob(job, rule, includePast);
+            await this.persistPendingJob(job, rule, includePast, false);
         }
     }
 
@@ -838,7 +959,7 @@ export class MessageTriggerService {
 
         for (const client of clients) {
             const job = this.buildClientJob(rule, client);
-            await this.persistPendingJob(job, rule, includePast);
+            await this.persistPendingJob(job, rule, includePast, rule.jobsStale);
         }
     }
 
@@ -846,6 +967,7 @@ export class MessageTriggerService {
         job: MessageTriggerJobEntity | null,
         rule: MessageTriggerRuleEntity,
         includePast: boolean,
+        expectedJobsStale: boolean,
     ): Promise<void> {
         if (!job) return;
         if (!includePast) {
@@ -863,7 +985,11 @@ export class MessageTriggerService {
                 return;
             }
         }
-        await this.jobRepository.upsertPending(job);
+        await this.jobRepository.upsertPendingForRuleGeneration(
+            job,
+            rule.updatedAt,
+            expectedJobsStale,
+        );
     }
 
     private async applyRetroactiveSendConfig(
@@ -970,7 +1096,11 @@ export class MessageTriggerService {
                 ...refreshedJob.payload,
                 ...(job.payload.catchUp ? { catchUp: job.payload.catchUp } : {}),
             };
-            await this.jobRepository.update(job);
+            await this.jobRepository.upsertPendingForRuleGeneration(
+                job,
+                rule.updatedAt,
+                false,
+            );
         }
     }
 
@@ -1224,6 +1354,74 @@ export class MessageTriggerService {
         return offsetDays ?? 0;
     }
 
+    private ruleTargetVersion(rule: MessageTriggerRuleEntity): string {
+        return createHash("sha256").update(JSON.stringify({
+            id: rule.id,
+            name: rule.name,
+            isActive: rule.isActive,
+            eventType: rule.eventType,
+            offsetType: rule.offsetType,
+            offsetDays: rule.offsetDays,
+            recipientType: rule.recipientType,
+            templateKey: rule.templateKey,
+            isDefault: rule.isDefault,
+            jobsStale: rule.jobsStale,
+            updatedAt: rule.updatedAt.toISOString(),
+        })).digest("hex");
+    }
+
+    private ruleFromApprovedSnapshot(snapshot: Record<string, unknown> | undefined): MessageTriggerRuleEntity | null {
+        if (!snapshot) return null;
+        const id = snapshot["id"];
+        const branchId = snapshot["branchId"];
+        const name = snapshot["name"];
+        const isActive = snapshot["isActive"];
+        const eventType = snapshot["eventType"];
+        const offsetType = snapshot["offsetType"];
+        const offsetDays = snapshot["offsetDays"];
+        const recipientType = snapshot["recipientType"];
+        const templateKey = snapshot["templateKey"];
+        const isDefault = snapshot["isDefault"];
+        const jobsStale = snapshot["jobsStale"];
+        const createdAt = snapshot["createdAt"];
+        const updatedAt = snapshot["updatedAt"];
+        if (
+            typeof id !== "string"
+            || typeof branchId !== "string"
+            || typeof name !== "string"
+            || typeof isActive !== "boolean"
+            || typeof eventType !== "string"
+            || typeof offsetType !== "string"
+            || typeof offsetDays !== "number"
+            || typeof recipientType !== "string"
+            || typeof templateKey !== "string"
+            || typeof isDefault !== "boolean"
+            || typeof jobsStale !== "boolean"
+            || typeof createdAt !== "string"
+            || typeof updatedAt !== "string"
+        ) {
+            return null;
+        }
+        const created = new Date(createdAt);
+        const updated = new Date(updatedAt);
+        if (Number.isNaN(created.getTime()) || Number.isNaN(updated.getTime())) return null;
+        return MessageTriggerRuleEntity.reconstitute(
+            id,
+            branchId,
+            name,
+            isActive,
+            eventType as MessageTriggerEventType,
+            offsetType as MessageTriggerOffsetType,
+            offsetDays,
+            recipientType as MessageTriggerRecipientType,
+            templateKey as MessageTriggerTemplateKey,
+            created,
+            updated,
+            isDefault,
+            jobsStale,
+        );
+    }
+
     private validateRule(params: UpsertRuleParams): void {
         const template = MESSAGE_TRIGGER_TEMPLATE_CATALOG[params.templateKey];
         if (!template) {
@@ -1263,8 +1461,20 @@ export class MessageTriggerService {
 
     }
 
-    private async cancelPendingJobsForRule(ruleId: string, reason: string): Promise<void> {
-        await this.jobRepository.cancelPendingByRuleId(ruleId, reason);
+    private async cancelPendingJobsForRule(
+        branchId: string,
+        rule: MessageTriggerRuleEntity,
+        reason: string,
+        expectedJobsStale: boolean,
+    ): Promise<boolean> {
+        const canceled = await this.jobRepository.cancelPendingForRuleGeneration(
+            branchId,
+            rule.id,
+            rule.updatedAt,
+            expectedJobsStale,
+            reason,
+        );
+        return canceled !== null;
     }
 
     private async listManualScheduledSmsLogs(
@@ -1365,29 +1575,38 @@ export class MessageTriggerService {
     }
 
     private async cancelPendingJobsForClient(
-        ruleIds: string[],
+        branchId: string,
+        rules: MessageTriggerRuleEntity[],
         clientId: number,
         reason: string,
     ): Promise<void> {
-        const jobs = await this.jobRepository.findPendingByRuleIdsAndClientId(ruleIds, clientId);
-        for (const job of jobs) {
-            job.cancel(reason);
-            await this.jobRepository.update(job);
+        for (const rule of rules) {
+            await this.jobRepository.cancelPendingForRuleGeneration(
+                branchId,
+                rule.id,
+                rule.updatedAt,
+                false,
+                reason,
+                { clientId },
+            );
         }
     }
 
     private async cancelPendingJobsForEmployeeSchedule(
-        ruleIds: string[],
+        branchId: string,
+        rules: MessageTriggerRuleEntity[],
         employeeScheduleId: number,
         reason: string,
     ): Promise<void> {
-        const jobs = await this.jobRepository.findPendingByRuleIdsAndEmployeeScheduleId(
-            ruleIds,
-            employeeScheduleId,
-        );
-        for (const job of jobs) {
-            job.cancel(reason);
-            await this.jobRepository.update(job);
+        for (const rule of rules) {
+            await this.jobRepository.cancelPendingForRuleGeneration(
+                branchId,
+                rule.id,
+                rule.updatedAt,
+                false,
+                reason,
+                { employeeScheduleId },
+            );
         }
     }
 
@@ -1396,7 +1615,7 @@ export class MessageTriggerService {
         sentIds: ReadonlySet<string>,
         approvedBranchIds: ReadonlySet<string>,
     ): Promise<void> {
-        const claimed = await this.jobRepository.claimPending(job.id);
+        const claimed = await this.jobRepository.claimPendingWithRuleFence(job.id, job.branchId);
         if (!claimed) {
             return;
         }
@@ -1512,10 +1731,22 @@ export class MessageTriggerService {
         for (const rule of staleRules) {
             const readUpdatedAt = rule.updatedAt;
             try {
-                if (!rule.isActive) {
-                    await this.jobRepository.cancelPendingByRuleId(rule.id, "Rule deactivated");
-                } else {
-                    await this.jobRepository.cancelPendingByRuleId(rule.id, "규칙 재생성");
+                if (!rule.branchId) {
+                    continue;
+                }
+                const canceled = await this.jobRepository.cancelPendingForRuleGeneration(
+                    rule.branchId,
+                    rule.id,
+                    readUpdatedAt,
+                    true,
+                    rule.isActive ? "규칙 재생성" : "Rule deactivated",
+                );
+                // Another worker may have already rebuilt and cleared this
+                // generation. Never rebuild or clear a newer generation.
+                if (canceled === null) {
+                    continue;
+                }
+                if (rule.isActive) {
                     await this.rebuildJobsForRule(rule.branchId, rule, false);
                 }
 

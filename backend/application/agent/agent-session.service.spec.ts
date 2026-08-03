@@ -8,7 +8,8 @@ describe("AgentSessionService", () => {
     const owner = { userId: "user-a", branchId: "branch-a" };
     const repository = {
         create: jest.fn(), list: jest.fn(), findOwned: jest.fn(), updateOwned: jest.fn(),
-        deleteOwned: jest.fn(), appendMessages: jest.fn(), upsertActionResultMessage: jest.fn(), deleteExpired: jest.fn(),
+        archiveOwned: jest.fn(), unarchiveOwned: jest.fn(), deleteOwned: jest.fn(), appendMessages: jest.fn(),
+        upsertActionResultMessage: jest.fn(), deleteExpired: jest.fn(),
     } as jest.Mocked<IAgentSessionRepository>;
 
     beforeEach(() => jest.resetAllMocks());
@@ -17,6 +18,14 @@ describe("AgentSessionService", () => {
         repository.findOwned.mockResolvedValue(null);
         const service = new AgentSessionService(repository, new ConfigService());
         await expect(service.get("session-a", owner)).rejects.toThrow("Agent session not found");
+        expect(repository.findOwned).toHaveBeenCalledWith("session-a", owner);
+    });
+
+    it("asserts that an action proposal still belongs to an active owned session", async () => {
+        repository.findOwned.mockResolvedValue(null);
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.assertActive("session-a", owner)).rejects.toBeInstanceOf(NotFoundException);
         expect(repository.findOwned).toHaveBeenCalledWith("session-a", owner);
     });
 
@@ -43,6 +52,36 @@ describe("AgentSessionService", () => {
         const service = new AgentSessionService(repository, new ConfigService());
 
         await expect(service.remove("session-a", owner)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it("routes archive blockers through a typed conflict", async () => {
+        repository.archiveOwned.mockResolvedValue("blocked");
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.archive("session-a", owner)).rejects.toBeInstanceOf(ConflictException);
+        expect(repository.archiveOwned).toHaveBeenCalledWith("session-a", owner, expect.any(Date));
+    });
+
+    it("keeps archive ownership failures indistinguishable from missing sessions", async () => {
+        repository.archiveOwned.mockResolvedValue("not_found");
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.archive("session-a", owner)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("permits owner-scoped unarchive without action checks", async () => {
+        repository.unarchiveOwned.mockResolvedValue("unarchived");
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.unarchive("session-a", owner)).resolves.toBeUndefined();
+        expect(repository.unarchiveOwned).toHaveBeenCalledWith("session-a", owner);
+    });
+
+    it("maps an unarchive ownership miss to not found", async () => {
+        repository.unarchiveOwned.mockResolvedValue("not_found");
+        const service = new AgentSessionService(repository, new ConfigService());
+
+        await expect(service.unarchive("session-a", owner)).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it("keeps action-result upserts scoped to the session owner", async () => {

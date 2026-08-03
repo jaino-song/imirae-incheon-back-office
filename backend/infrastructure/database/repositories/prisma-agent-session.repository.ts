@@ -10,8 +10,10 @@ import type {
     CreateAgentSessionInput,
 } from "domain/entities/agent-session.entity";
 import type {
+    AgentSessionArchiveResult,
     AgentSessionDeleteResult,
     AgentSessionPatch,
+    AgentSessionUnarchiveResult,
     IAgentSessionRepository,
 } from "domain/repositories/agent-session.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -113,6 +115,54 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
         return record ? toEntity(record) : null;
     }
 
+    async archiveOwned(
+        id: string,
+        owner: AgentSessionOwner,
+        archivedAt: Date,
+    ): Promise<AgentSessionArchiveResult> {
+        return this.prisma.$transaction(async (transaction) => {
+            const locked = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+                SELECT "id"
+                FROM "agent_session"
+                WHERE "id" = ${id}
+                  AND "user_id" = ${owner.userId}
+                  AND "branch_id" = ${owner.branchId}
+                FOR UPDATE
+            `);
+            if (locked.length === 0) return "not_found";
+
+            const blockingAction = await transaction.agent_action.findFirst({
+                where: {
+                    sessionId: id,
+                    ...owner,
+                    ...blockingActionWhere(new Date()),
+                },
+                select: { id: true },
+            });
+            if (blockingAction) return "blocked";
+
+            await transaction.agent_session.updateMany({
+                where: { id, ...owner, archivedAt: null },
+                data: { archivedAt },
+            });
+            return "archived";
+        });
+    }
+
+    async unarchiveOwned(id: string, owner: AgentSessionOwner): Promise<AgentSessionUnarchiveResult> {
+        const result = await this.prisma.agent_session.updateMany({
+            where: { id, ...owner, archivedAt: { not: null } },
+            data: { archivedAt: null },
+        });
+        if (result.count === 1) return "unarchived";
+
+        const session = await this.prisma.agent_session.findFirst({
+            where: { id, ...owner },
+            select: { id: true },
+        });
+        return session ? "unarchived" : "not_found";
+    }
+
     async deleteOwned(id: string, owner: AgentSessionOwner): Promise<AgentSessionDeleteResult> {
         const now = new Date();
         const result = await this.prisma.agent_session.deleteMany({
@@ -171,7 +221,40 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
         message: BjjUIMessage,
         traceId?: string,
     ): Promise<boolean> {
-        const session = await this.prisma.agent_session.findFirst({
+        try {
+            return await this.prisma.$transaction((transaction) => this.persistActionResultMessage(
+                transaction,
+                id,
+                owner,
+                message,
+                traceId,
+                true,
+            ));
+        } catch (error) {
+            // A concurrent deterministic insert can win after the initial
+            // existence check. Retry in a fresh transaction because the
+            // failed INSERT has already aborted the first transaction.
+            if (!isUniqueConstraintError(error)) throw error;
+            return this.prisma.$transaction((transaction) => this.persistActionResultMessage(
+                transaction,
+                id,
+                owner,
+                message,
+                traceId,
+                false,
+            ));
+        }
+    }
+
+    private async persistActionResultMessage(
+        transaction: Prisma.TransactionClient,
+        id: string,
+        owner: AgentSessionOwner,
+        message: BjjUIMessage,
+        traceId: string | undefined,
+        createIfMissing: boolean,
+    ): Promise<boolean> {
+        const session = await transaction.agent_session.findFirst({
             select: { id: true },
             where: { id, ...owner },
         });
@@ -185,12 +268,13 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
             parts: message.parts as unknown as Prisma.InputJsonValue,
             ...(traceId === undefined ? {} : { traceId }),
         };
-        const existing = await this.prisma.agent_message.findFirst({
+        const existing = await transaction.agent_message.findFirst({
             where: { id: messageId, sessionId: id },
             select: { id: true },
         });
-        if (existing) {
-            const updated = await this.prisma.agent_message.updateMany({
+        let persisted = false;
+        if (existing || !createIfMissing) {
+            const updated = await transaction.agent_message.updateMany({
                 where: { id: messageId, sessionId: id },
                 data: {
                     role: messageData.role,
@@ -198,24 +282,18 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
                     ...(traceId === undefined ? {} : { traceId }),
                 },
             });
-            return updated.count === 1;
+            persisted = updated.count === 1;
+        } else {
+            await transaction.agent_message.create({ data: messageData });
+            persisted = true;
         }
+        if (!persisted) return false;
 
-        try {
-            await this.prisma.agent_message.create({ data: messageData });
-            return true;
-        } catch (error) {
-            if (!isUniqueConstraintError(error)) throw error;
-            const updated = await this.prisma.agent_message.updateMany({
-                where: { id: messageId, sessionId: id },
-                data: {
-                    role: messageData.role,
-                    parts: messageData.parts,
-                    ...(traceId === undefined ? {} : { traceId }),
-                },
-            });
-            return updated.count === 1;
-        }
+        const refreshed = await transaction.agent_session.updateMany({
+            where: { id, ...owner },
+            data: { updatedAt: new Date(), summary: null },
+        });
+        return refreshed.count === 1;
     }
 
     private titleFromMessages(messages: BjjUIMessage[]): string | undefined {

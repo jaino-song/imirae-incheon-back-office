@@ -8,6 +8,7 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { EmployeeMapper } from "infrastructure/database/mapper/employee.mapper";
 import { normalizePhone } from "application/utils/normalize-phone";
 import type { Prisma } from "@prisma/client";
+import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 
 @Injectable()
 export class SbEmployeeRepository implements IEmployeeRepository {
@@ -15,6 +16,23 @@ export class SbEmployeeRepository implements IEmployeeRepository {
 
     async findById(branchid: string, id: number): Promise<EmployeeEntity | null> {
         const employee = await this.prismaService.employee.findFirst({
+            where: { id, branchId: branchid },
+        });
+        return employee ? EmployeeMapper.toDomain(employee) : null;
+    }
+
+    async findByIdForUpdate(
+        branchid: string,
+        id: number,
+        transaction: Prisma.TransactionClient,
+    ): Promise<EmployeeEntity | null> {
+        await transaction.$queryRaw`
+            SELECT "id"
+            FROM "employee"
+            WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
+            FOR UPDATE
+        `;
+        const employee = await transaction.employee.findFirst({
             where: { id, branchId: branchid },
         });
         return employee ? EmployeeMapper.toDomain(employee) : null;
@@ -55,6 +73,42 @@ export class SbEmployeeRepository implements IEmployeeRepository {
             throw new Error("Employee not found after update");
         }
         return EmployeeMapper.toDomain(updated);
+    }
+
+    async updateIfTargetVersion(
+        branchid: string,
+        id: number,
+        expectedTargetVersion: string,
+        updates: Parameters<IEmployeeRepository["updateIfTargetVersion"]>[3],
+        transaction?: Prisma.TransactionClient,
+    ): Promise<EmployeeEntity | null> {
+        const apply = async (tx: Prisma.TransactionClient): Promise<EmployeeEntity | null> => {
+            const current = await this.findByIdForUpdate(branchid, id, tx);
+            if (!current || current.deletedAt || employeeAgentTargetVersion(current) !== expectedTargetVersion) {
+                return null;
+            }
+
+            current.updateProfile(
+                updates.name,
+                updates.workArea,
+                updates.phone,
+                updates.grade,
+                updates.openToNextWork,
+                updates.birthday,
+            );
+            const updated = await tx.employee.updateMany({
+                where: { id, branchId: branchid, deletedAt: null },
+                data: EmployeeMapper.toPrismaUpdate(current),
+            });
+            if (updated.count !== 1) return null;
+
+            const row = await tx.employee.findFirst({
+                where: { id, branchId: branchid, deletedAt: null },
+            });
+            return row ? EmployeeMapper.toDomain(row) : null;
+        };
+
+        return transaction ? apply(transaction) : this.prismaService.$transaction(apply);
     }
 
     async delete(branchid: string, id: number): Promise<void> {

@@ -29,6 +29,10 @@ export class AgentSessionService {
         return session;
     }
 
+    async assertActive(id: string, owner: AgentSessionOwner): Promise<void> {
+        await this.get(id, owner);
+    }
+
     create(owner: AgentSessionOwner, locale: string, model: string, agentVersion: string) {
         return this.repository.create({
             ...owner,
@@ -43,6 +47,23 @@ export class AgentSessionService {
         const session = await this.repository.updateOwned(id, owner, patch);
         if (!session) throw new NotFoundException("Agent session not found");
         return session;
+    }
+
+    async archive(id: string, owner: AgentSessionOwner): Promise<void> {
+        const result = await this.repository.archiveOwned(id, owner, new Date());
+        if (result === "blocked") {
+            throw new ConflictException("Agent session has a nonterminal action");
+        }
+        if (result === "not_found") {
+            throw new NotFoundException("Agent session not found");
+        }
+    }
+
+    async unarchive(id: string, owner: AgentSessionOwner): Promise<void> {
+        const result = await this.repository.unarchiveOwned(id, owner);
+        if (result === "not_found") {
+            throw new NotFoundException("Agent session not found");
+        }
     }
 
     async remove(id: string, owner: AgentSessionOwner) {

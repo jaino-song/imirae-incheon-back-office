@@ -101,4 +101,26 @@ describe("MessageTemplateRepository", () => {
             "Message template not found for branch",
         );
     });
+
+    it("updates only when the inspected updatedAt still matches", async () => {
+        const expectedUpdatedAt = new Date("2026-07-27T01:00:00.000Z");
+        const template = MessageTemplateEntity.reconstitute(
+            "template-1",
+            "새 이름",
+            "새 내용",
+            [],
+            new Date("2026-07-27T00:00:00.000Z"),
+            new Date("2026-07-27T02:00:00.000Z"),
+        );
+        messageTemplateModel.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+
+        await expect(repository.updateIfVersionMatches("branch-a", "template-1", expectedUpdatedAt, template))
+            .resolves.toBe(template);
+        await expect(repository.updateIfVersionMatches("branch-a", "template-1", expectedUpdatedAt, template))
+            .resolves.toBeNull();
+        expect(messageTemplateModel.updateMany).toHaveBeenCalledWith({
+            where: { id: "template-1", branchId: "branch-a", updatedAt: expectedUpdatedAt },
+            data: expect.objectContaining({ updatedAt: template.updatedAt }),
+        });
+    });
 });

@@ -50,7 +50,7 @@ export class EmployeeAgentCapabilitiesProvider implements AgentCapabilityProvide
                 inputSchema: GetSchema, outputSchema: EmployeeSchema,
                 execute: async (context, rawInput) => {
                     const employee = await this.findEmployee.execute(context.principal.branchId, GetSchema.parse(rawInput).id);
-                    if (!employee) throw new Error("Employee not found");
+                    if (!employee || employee.deletedAt) throw new Error("Employee not found");
                     return safeEmployee(employee);
                 },
             },

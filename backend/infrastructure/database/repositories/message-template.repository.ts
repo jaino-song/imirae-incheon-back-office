@@ -53,6 +53,19 @@ export class MessageTemplateRepository implements IMessageTemplateRepository {
         return MessageTemplateMapper.toDomain(updated);
     }
 
+    async updateIfVersionMatches(
+        branchid: string,
+        id: string,
+        expectedUpdatedAt: Date,
+        template: MessageTemplateEntity,
+    ): Promise<MessageTemplateEntity | null> {
+        const result = await this.prismaService.message_template.updateMany({
+            where: { id, branchId: branchid, updatedAt: expectedUpdatedAt },
+            data: MessageTemplateMapper.toPrismaUpdate(template),
+        });
+        return result.count === 1 ? template : null;
+    }
+
     async delete(branchid: string, id: string): Promise<void> {
         const result = await this.prismaService.message_template.deleteMany({
             where: { id, branchId: branchid },

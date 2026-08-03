@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { z } from "zod";
 
 import { AgentActionCertainFailureError, AgentActionUncertainError } from "application/agent/action-coordinator.service";
@@ -6,6 +6,7 @@ import { AgentCapabilityProvider } from "application/agent/capability.decorator"
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import {
     SMS_DELIVERY_SNAPSHOT_VARIABLE,
     SmsTriggerDeliveryService,
@@ -127,6 +128,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         private readonly messageTriggerService: MessageTriggerService,
         @Inject(MESSAGE_TRIGGER_JOB_REPOSITORY) private readonly jobRepository: IMessageTriggerJobRepository,
         private readonly smsTriggerDeliveryService: SmsTriggerDeliveryService,
+        private readonly messageSenderApprovalService: MessageSenderApprovalService,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -176,11 +178,15 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             {
                 meta: { ...common, name: "messages.sendSms", description: "Send an SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.sendSms" },
                 inputSchema: SmsSchema, outputSchema: SmsOutputSchema,
-                classifyOutcome: (rawOutput) => SmsOutputSchema.parse(rawOutput).status === "canceled"
-                    ? { status: "cancelled", reason: "SMS delivery was cancelled before provider acceptance" }
-                    : { status: "succeeded" },
+                classifyOutcome: (rawOutput) => {
+                    const status = SmsOutputSchema.parse(rawOutput).status;
+                    if (status === "canceled") return { status: "cancelled" as const, reason: "SMS delivery was cancelled before provider acceptance" };
+                    if (status === "failed") return { status: "failed" as const, reason: "SMS provider explicitly rejected the message" };
+                    return { status: "succeeded" as const };
+                },
                 formFields: SMS_FIELDS,
-                inspect: async (_context, rawInput) => {
+                inspect: async (context, rawInput) => {
+                    await this.messageSenderApprovalService.ensureApproved(context.principal.branchId);
                     const input = SmsSchema.parse(rawInput);
                     return {
                         title: "문자 발송",
@@ -192,11 +198,19 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 execute: async (context, rawInput) => {
                     const input = SmsSchema.parse(rawInput);
                     const job = await this.enqueueSms(context, input, new Date(), "AI 문자 발송");
-                    const delivered = await this.messageTriggerService.dispatchPendingJobNow(job.id);
+                    let delivered: MessageTriggerJobEntity;
+                    try {
+                        delivered = await this.messageTriggerService.dispatchPendingJobNow(job.id);
+                    } catch {
+                        throw new AgentActionUncertainError("SMS delivery status is uncertain", { jobId: job.id });
+                    }
                     if (delivered.status === "sent") {
                         return { status: "sent", msgType: AGENT_SMS_DELIVERY_TYPE, jobId: job.id };
                     }
                     if (delivered.status === "canceled") return { status: "canceled", msgType: AGENT_SMS_DELIVERY_TYPE, jobId: job.id };
+                    if (delivered.status === "failed" && this.isProviderRejected(delivered)) {
+                        return { status: "failed", msgType: AGENT_SMS_DELIVERY_TYPE, jobId: job.id };
+                    }
                     throw new AgentActionUncertainError("SMS delivery status is uncertain", { jobId: job.id });
                 },
                 reconcile: async (context, _rawInput, uncertainty) => this.reconcileSmsJob(context, uncertainty),
@@ -205,7 +219,8 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 meta: { ...common, name: "messages.scheduleSms", description: "Schedule an SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.scheduleSms" },
                 inputSchema: ScheduledSmsSchema, outputSchema: SmsOutputSchema,
                 formFields: SCHEDULED_SMS_FIELDS,
-                inspect: async (_context, rawInput) => {
+                inspect: async (context, rawInput) => {
+                    await this.messageSenderApprovalService.ensureApproved(context.principal.branchId);
                     const input = ScheduledSmsSchema.parse(rawInput);
                     return {
                         title: "예약 문자 등록",
@@ -239,11 +254,15 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 meta: { ...common, name: "messages.retrySms", description: "Retry a provider-rejected SMS after strong approval", risk: "external-side-effect" as const, renderer: "action-proposal" as const, flagKey: "agent.capability.messages.retrySms" },
                 inputSchema: RetrySmsSchema,
                 outputSchema: SmsOutputSchema,
-                classifyOutcome: (rawOutput) => SmsOutputSchema.parse(rawOutput).status === "canceled"
-                    ? { status: "cancelled", reason: "SMS retry was cancelled before provider acceptance" }
-                    : { status: "succeeded" },
+                classifyOutcome: (rawOutput) => {
+                    const status = SmsOutputSchema.parse(rawOutput).status;
+                    if (status === "canceled") return { status: "cancelled" as const, reason: "SMS retry was cancelled before provider acceptance" };
+                    if (status === "failed") return { status: "failed" as const, reason: "SMS provider explicitly rejected the retry" };
+                    return { status: "succeeded" as const };
+                },
                 formFields: [{ name: "jobId", label: "실패한 발송 작업 ID", type: "text", required: true }],
                 inspect: async (context, rawInput) => {
+                    await this.messageSenderApprovalService.ensureApproved(context.principal.branchId);
                     const input = RetrySmsSchema.parse(rawInput);
                     const job = await this.findRetryableJob(context.principal.branchId, input.jobId);
                     const snapshot = await this.smsTriggerDeliveryService.resolveDeliverySnapshot(job);
@@ -261,53 +280,8 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                         estimatedCost: snapshot.estimatedCost,
                     };
                 },
-                execute: async (context, rawInput) => {
-                    const input = RetrySmsSchema.parse(rawInput);
-                    if (!context.actionId) throw new AgentActionUncertainError("SMS retry action identity is missing");
-                    if (!context.approvedTargetVersion || !context.approvedTargetSnapshot) {
-                        throw new AgentActionCertainFailureError("SMS retry approval snapshot is missing");
-                    }
-                    const source = await this.findRetryableJob(context.principal.branchId, input.jobId);
-                    const canonical = await this.smsTriggerDeliveryService.resolveCanonicalDeliverySnapshot(source);
-                    const currentTargetVersion = this.jobTargetVersion(source, canonical);
-                    if (currentTargetVersion !== context.approvedTargetVersion) {
-                        throw new AgentActionCertainFailureError("SMS job or provider snapshot changed after approval");
-                    }
-                    let snapshot;
-                    try {
-                        snapshot = this.smsTriggerDeliveryService.approvedSnapshotForExecution(
-                            source,
-                            context.approvedTargetSnapshot,
-                            canonical,
-                        );
-                    } catch {
-                        throw new AgentActionCertainFailureError("SMS approval snapshot no longer matches the provider-bound target");
-                    }
-                    const retry = await this.jobRepository.upsertPending(MessageTriggerJobEntity.create({
-                        branchId: context.principal.branchId,
-                        ruleId: source.ruleId,
-                        scheduledFor: new Date(),
-                        clientId: source.clientId,
-                        employeeScheduleId: source.employeeScheduleId,
-                        recipientType: source.recipientType,
-                        recipientPhone: source.recipientPhone,
-                        templateKey: source.templateKey,
-                        dedupeKey: `agent-sms-retry:${context.actionId}`,
-                        payload: {
-                            ...source.payload,
-                            memberId: `agent-action:${context.actionId}`,
-                            templateVariables: {
-                                ...source.payload.templateVariables,
-                                retrySafety: "pending-agent-retry",
-                                [SMS_DELIVERY_SNAPSHOT_VARIABLE]: this.smsTriggerDeliveryService.serializeSnapshot(snapshot),
-                            },
-                        },
-                    }));
-                    const delivered = await this.messageTriggerService.dispatchPendingJobNow(retry.id);
-                    if (delivered.status === "sent") return { status: "sent", jobId: retry.id };
-                    if (delivered.status === "canceled") return { status: "canceled", jobId: retry.id };
-                    throw new AgentActionUncertainError("SMS retry delivery status is uncertain", { jobId: retry.id });
-                },
+                execute: async (context, rawInput) => this.executeRetrySms(context, rawInput, context.approvedTargetVersion),
+                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => this.executeRetrySms(context, rawInput, expectedTargetVersion),
                 revalidate: async (context, rawInput, expectedTargetVersion) => {
                     try {
                         const job = await this.findRetryableJob(context.principal.branchId, RetrySmsSchema.parse(rawInput).jobId);
@@ -407,9 +381,48 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             inspect: async (context, rawInput) => {
                 const input = inputSchema.parse(rawInput);
                 const rule = await this.messageTriggerService.getRule(context.principal.branchId, input.id);
-                return { targetVersion: this.ruleTargetVersion(rule), targetSnapshot: this.ruleView(rule), title: description, summary: `${rule.name} 규칙을 변경합니다.`, provider: "Message automation scheduler", estimatedCost: "활성 규칙이 발송하는 각 문자에 SMS/LMS 요금이 발생할 수 있습니다." };
+                return {
+                    targetVersion: this.ruleTargetVersion(rule),
+                    targetSnapshot: { ...this.ruleView(rule), branchId: rule.branchId, createdAt: rule.createdAt.toISOString() },
+                    title: description,
+                    summary: `${rule.name} 규칙을 변경합니다.`,
+                    provider: "Message automation scheduler",
+                    estimatedCost: "활성 규칙이 발송하는 각 문자에 SMS/LMS 요금이 발생할 수 있습니다.",
+                };
             },
             execute: async (context, rawInput) => execute(context.principal.branchId, inputSchema.parse(rawInput)),
+            executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                const input = inputSchema.parse(rawInput) as { id: string; [key: string]: unknown };
+                try {
+                    if (name === "automation.delete") {
+                        await this.messageTriggerService.deleteRuleApprovedTarget(
+                            context.principal.branchId,
+                            input.id,
+                            expectedTargetVersion,
+                            context.approvedTargetSnapshot,
+                        );
+                        return { status: "deleted", id: input.id };
+                    }
+                    const { id, ...updates } = input;
+                    const updated = await this.messageTriggerService.updateRuleApprovedTarget(
+                        context.principal.branchId,
+                        id,
+                        updates,
+                        expectedTargetVersion,
+                        context.approvedTargetSnapshot,
+                    );
+                    const status = name === "automation.setActive"
+                        ? (updated.isActive ? "enabled" : "disabled")
+                        : "updated";
+                    return { status, id: updated.id, isActive: updated.isActive };
+                } catch (error) {
+                    if (error instanceof AgentActionCertainFailureError) throw error;
+                    if (error instanceof BadRequestException || error instanceof NotFoundException) {
+                        throw new AgentActionCertainFailureError(error.message);
+                    }
+                    throw error;
+                }
+            },
             revalidate: async (context, rawInput, expectedTargetVersion) => {
                 try {
                     const rule = await this.messageTriggerService.getRule(context.principal.branchId, inputSchema.parse(rawInput).id);
@@ -427,6 +440,16 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 const desired = Object.entries(input).filter(([key, value]) => key !== "id" && value !== undefined);
                 const matches = desired.every(([key, value]) => JSON.stringify(rule[key as keyof typeof rule]) === JSON.stringify(value));
                 if (!matches) return { status: "uncertain", reason: "Automation rule does not match the approved update" };
+                if (name !== "automation.delete") {
+                    const complete = await this.messageTriggerService.isRuleMutationComplete(
+                        context.principal.branchId,
+                        rule.id,
+                        Object.fromEntries(desired),
+                    );
+                    if (!complete) {
+                        return { status: "uncertain", reason: "Automation rule jobs have not completed fencing and rebuild" };
+                    }
+                }
                 const status = name === "automation.setActive"
                     ? (rule.isActive ? "enabled" : "disabled")
                     : "updated";
@@ -455,6 +478,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         ruleName: string,
     ): Promise<MessageTriggerJobEntity> {
         if (!context.actionId) throw new AgentActionUncertainError("SMS action identity is missing");
+        await this.ensureSmsApprovedForExecution(context.principal.branchId);
         const ruleId = `agent-sms:${context.principal.branchId}`;
         await this.prisma.message_trigger_rule.upsert({
             where: { id: ruleId },
@@ -473,6 +497,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             },
             update: { isActive: false },
         });
+        await this.ensureSmsApprovedForExecution(context.principal.branchId);
         return this.jobRepository.upsertPending(MessageTriggerJobEntity.create({
             branchId: context.principal.branchId,
             ruleId,
@@ -495,6 +520,101 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         }));
     }
 
+    private async executeRetrySms(
+        context: Parameters<CapabilityDefinition["execute"]>[0],
+        rawInput: unknown,
+        expectedTargetVersion: string | undefined,
+    ) {
+        const input = RetrySmsSchema.parse(rawInput);
+        if (!context.actionId) throw new AgentActionUncertainError("SMS retry action identity is missing");
+        if (!expectedTargetVersion || !context.approvedTargetSnapshot) {
+            throw new AgentActionCertainFailureError("SMS retry approval snapshot is missing");
+        }
+        await this.ensureSmsApprovedForExecution(context.principal.branchId);
+        const source = await this.findRetryableJob(context.principal.branchId, input.jobId);
+        const canonical = await this.smsTriggerDeliveryService.resolveCanonicalDeliverySnapshot(source);
+        const currentTargetVersion = this.jobTargetVersion(source, canonical);
+        if (currentTargetVersion !== expectedTargetVersion) {
+            throw new AgentActionCertainFailureError("SMS job or provider snapshot changed after approval");
+        }
+        let snapshot;
+        try {
+            snapshot = this.smsTriggerDeliveryService.approvedSnapshotForExecution(
+                source,
+                context.approvedTargetSnapshot,
+                canonical,
+            );
+        } catch {
+            throw new AgentActionCertainFailureError("SMS approval snapshot no longer matches the provider-bound target");
+        }
+        const retryCandidate = MessageTriggerJobEntity.create({
+            branchId: context.principal.branchId,
+            ruleId: source.ruleId,
+            scheduledFor: new Date(),
+            clientId: source.clientId,
+            employeeScheduleId: source.employeeScheduleId,
+            recipientType: source.recipientType,
+            recipientPhone: source.recipientPhone,
+            templateKey: source.templateKey,
+            dedupeKey: `agent-sms-retry:${context.actionId}`,
+            payload: {
+                ...source.payload,
+                memberId: `agent-action:${context.actionId}`,
+                templateVariables: {
+                    ...source.payload.templateVariables,
+                    retrySafety: "pending-agent-retry",
+                    [SMS_DELIVERY_SNAPSHOT_VARIABLE]: this.smsTriggerDeliveryService.serializeSnapshot(snapshot),
+                },
+            },
+        });
+        await this.ensureSmsApprovedForExecution(context.principal.branchId);
+        const retry = await this.jobRepository.claimProviderRejectedForRetry(
+            context.principal.branchId,
+            source.id,
+            expectedTargetVersion,
+            canonical.snapshotHash,
+            source,
+            retryCandidate,
+        );
+        if (!retry) {
+            throw new AgentActionCertainFailureError("SMS source job changed before the retry could be claimed");
+        }
+        let delivered: MessageTriggerJobEntity;
+        try {
+            delivered = await this.messageTriggerService.dispatchPendingJobNow(retry.id);
+        } catch {
+            throw new AgentActionUncertainError("SMS retry delivery status is uncertain", { jobId: retry.id });
+        }
+        if (delivered.status === "sent") return { status: "sent", jobId: retry.id };
+        if (delivered.status === "canceled") return { status: "canceled", jobId: retry.id };
+        if (delivered.status === "failed" && this.isProviderRejected(delivered)) {
+            return { status: "failed", jobId: retry.id };
+        }
+        throw new AgentActionUncertainError("SMS retry delivery status is uncertain", { jobId: retry.id });
+    }
+
+    private async ensureSmsApprovedForExecution(branchId: string): Promise<void> {
+        try {
+            await this.messageSenderApprovalService.ensureApproved(branchId);
+        } catch (error) {
+            throw new AgentActionCertainFailureError(
+                error instanceof Error ? error.message : "Message sender approval is required",
+            );
+        }
+    }
+
+    private isProviderRejected(job: { payload: unknown }): boolean {
+        const payload = job.payload;
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+        const variables = (payload as { templateVariables?: unknown }).templateVariables;
+        return Boolean(
+            variables
+            && typeof variables === "object"
+            && !Array.isArray(variables)
+            && (variables as Record<string, unknown>)["retrySafety"] === "provider-rejected",
+        );
+    }
+
     private async reconcileSmsJob(
         context: Parameters<NonNullable<CapabilityDefinition["reconcile"]>>[0],
         uncertainty: Record<string, unknown> | null,
@@ -514,6 +634,9 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
         }
         if (job.status === "canceled") {
             return { status: "failed" as const, result: { status: "canceled", jobId: job.id }, reason: job.cancelReason ?? "SMS delivery was canceled before provider dispatch" };
+        }
+        if (job.status === "failed" && this.isProviderRejected(job)) {
+            return { status: "failed" as const, result: { status: "failed", jobId: job.id } };
         }
         return { status: "uncertain" as const, reason: "SMS provider outcome cannot be proven from the local failed job" };
     }

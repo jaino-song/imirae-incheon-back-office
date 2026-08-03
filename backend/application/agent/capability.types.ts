@@ -36,6 +36,12 @@ export interface CapabilityDefinition<TInput = unknown, TOutput = unknown> {
     /** Resolve immutable review details before the durable proposal is created. */
     inspect?(context: AgentContext, input: TInput): Promise<AgentProposalInspection>;
     execute(context: AgentContext, input: TInput): Promise<TOutput>;
+    /**
+     * Execute a versioned, approved target through the provider's atomic
+     * compare-and-swap or durable staging boundary. The coordinator never
+     * falls back to `execute` when an action carries a target version.
+     */
+    executeApprovedTarget?(context: AgentContext, input: TInput, expectedTargetVersion: string): Promise<TOutput>;
     /** Classify a schema-valid provider response whose transport succeeded. */
     classifyOutcome?(output: TOutput): AgentExecutionOutcome;
     /** Re-read the canonical target immediately before execution; it must not mutate state. */

@@ -10,6 +10,7 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientMapper } from "infrastructure/database/mapper/client.mapper";
 import { hasColumn } from "infrastructure/database/schema-capabilities";
 import { normalizePhone } from "application/utils/normalize-phone";
+import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
 import type { Prisma } from "@prisma/client";
 
 @Injectable()
@@ -81,6 +82,29 @@ export class SbClientRepository implements IClientRepository {
             select,
         });
         return client ? ClientMapper.toDomain(client) : null;
+    }
+
+    async findByIdForUpdate(
+        branchid: string,
+        id: number,
+        transaction: Prisma.TransactionClient,
+    ): Promise<ClientEntity | null> {
+        // The approval target is read only after PostgreSQL has acquired the
+        // branch-scoped row lock. Callers must perform their comparison and
+        // any mutation with this same transaction; an unlocked re-read is not
+        // a substitute for this linearization point.
+        await transaction.$queryRaw`
+            SELECT "id"
+            FROM "client"
+            WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
+            FOR UPDATE
+        `;
+        const select = await this.getClientSelect();
+        const client = await transaction.client.findFirst({
+            where: { id, branchId: branchid },
+            select,
+        });
+        return client ? ClientMapper.toDomain(client as any) : null;
     }
 
     async findAll(branchid: string): Promise<ClientEntity[]> {
@@ -213,6 +237,38 @@ export class SbClientRepository implements IClientRepository {
             throw new Error("Client not found after update");
         }
         return ClientMapper.toDomain(updated as any);
+    }
+
+    async updateIfTargetVersion(
+        branchid: string,
+        id: number,
+        expectedTargetVersion: string,
+        updates: Parameters<IClientRepository["updateIfTargetVersion"]>[3],
+        transaction?: Prisma.TransactionClient,
+    ): Promise<ClientEntity | null> {
+        const apply = async (tx: Prisma.TransactionClient): Promise<ClientEntity | null> => {
+            const current = await this.findByIdForUpdate(branchid, id, tx);
+            if (!current || clientAgentTargetVersion(current) !== expectedTargetVersion) {
+                return null;
+            }
+
+            current.update(updates);
+            const data = await this.getClientUpdateData(current);
+            const updated = await tx.client.updateMany({
+                where: { id, branchId: branchid },
+                data,
+            });
+            if (updated.count !== 1) return null;
+
+            const select = await this.getClientSelect();
+            const row = await tx.client.findFirst({
+                where: { id, branchId: branchid },
+                select,
+            });
+            return row ? ClientMapper.toDomain(row as any) : null;
+        };
+
+        return transaction ? apply(transaction) : this.prismaService.$transaction(apply);
     }
 
     async delete(branchid: string, id: number): Promise<void> {

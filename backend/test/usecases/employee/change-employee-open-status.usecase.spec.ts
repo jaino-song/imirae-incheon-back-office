@@ -1,5 +1,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { ChangeEmployeeOpenStatusUsecase } from "application/usecases/employee/change-employee-open-status.usecase";
+import { EmployeeTargetVersionMismatchError } from "application/usecases/employee/update-employee.usecase";
+import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 import { MockEmployeeRepository, EmployeeFactory } from "../../utils";
 
 describe("ChangeEmployeeOpenStatusUsecase", () => {
@@ -105,6 +107,35 @@ describe("ChangeEmployeeOpenStatusUsecase", () => {
 
             result = await usecase.execute(branchId, 1, false);
             expect(result.openToNextWork).toBe(false);
+        });
+    });
+
+    describe("executeApprovedTarget", () => {
+        it("uses the repository compare-and-set boundary", async () => {
+            const employee = EmployeeFactory.createAvailable({ id: 1 });
+            mockRepository.setData([employee]);
+
+            const result = await usecase.executeApprovedTarget(
+                branchId,
+                1,
+                false,
+                employeeAgentTargetVersion(employee),
+            );
+
+            expect(result.openToNextWork).toBe(false);
+        });
+
+        it("returns a conflict without changing availability when the target changed", async () => {
+            const employee = EmployeeFactory.createAvailable({ id: 1 });
+            mockRepository.setData([employee]);
+
+            await expect(usecase.executeApprovedTarget(
+                branchId,
+                1,
+                false,
+                "stale-target-version",
+            )).rejects.toBeInstanceOf(EmployeeTargetVersionMismatchError);
+            expect((await mockRepository.findById(branchId, 1))?.openToNextWork).toBe(true);
         });
     });
 });

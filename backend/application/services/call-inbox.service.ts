@@ -15,6 +15,7 @@ import {
     ConfirmNewClientDraftDto,
     PatchClientDraftDto,
 } from "interface/dto/call-inbox.dto";
+import { createHash } from "node:crypto";
 
 const DRAFT_STATUSES = ["PENDING", "CONFIRMED", "DISCARDED"] as const;
 
@@ -213,6 +214,37 @@ export class CallInboxService {
         return this.getDraft(branchId, id);
     }
 
+    /** Apply an approved patch at the same linearization point as its target check. */
+    async patchDraftApprovedTarget(
+        branchId: string,
+        id: string,
+        dto: PatchClientDraftDto,
+        expectedTargetVersion: string,
+    ) {
+        await this.prismaService.$transaction(async (transaction) => {
+            await this.lockDraftForUpdate(transaction, branchId, id);
+            const draft = await transaction.client_draft.findFirst({ where: { id, branchId } });
+            if (!draft || draft.status !== "PENDING" || draftTargetVersion(draft) !== expectedTargetVersion) {
+                throw new ConflictException("Draft changed after approval; review a new proposal");
+            }
+            if (dto.clientId != null) {
+                const client = await transaction.client.findFirst({
+                    where: { id: dto.clientId, branchId },
+                    select: { id: true },
+                });
+                if (!client) throw new NotFoundException("Client not found in this branch");
+            }
+            await transaction.client_draft.update({
+                where: { id },
+                data: {
+                    ...(dto.proposals !== undefined ? { proposals: dto.proposals as unknown as object[] } : {}),
+                    ...(dto.clientId !== undefined ? { clientId: dto.clientId } : {}),
+                },
+            });
+        });
+        return this.getDraft(branchId, id);
+    }
+
     async confirmNewClient(branchId: string, userId: string, id: string, dto: ConfirmNewClientDraftDto) {
         const draft = await this.requirePendingDraft(branchId, id);
         if (draft.type !== "NEW_CLIENT") {
@@ -221,22 +253,65 @@ export class CallInboxService {
         return this.confirmNewClientWithDraft(branchId, userId, id, draft, dto);
     }
 
+    /** Claim a pending draft under a target-version lock before confirmation side effects. */
+    async confirmApprovedTarget(
+        branchId: string,
+        userId: string,
+        id: string,
+        dto: ConfirmDraftDto,
+        expectedTargetVersion: string,
+    ) {
+        const draft = await this.prismaService.$transaction(async (transaction) => {
+            await this.lockDraftForUpdate(transaction, branchId, id);
+            const current = await transaction.client_draft.findFirst({ where: { id, branchId } });
+            if (!current || current.status !== "PENDING" || draftTargetVersion(current) !== expectedTargetVersion) {
+                throw new ConflictException("Draft changed after approval; review a new proposal");
+            }
+            if (current.type === "NEW_CLIENT" && (!dto.fields || typeof dto.fields !== "object")) {
+                throw new BadRequestException("fields is required for NEW_CLIENT");
+            }
+            if (current.type === "CLIENT_UPDATE" && (!dto.changes || typeof dto.changes !== "object" || Array.isArray(dto.changes))) {
+                throw new BadRequestException("changes is required for CLIENT_UPDATE");
+            }
+            const locked = await transaction.client_draft.updateMany({
+                where: { id, branchId, status: "PENDING" },
+                data: { status: "CONFIRMING", confirmingStartedAt: new Date() },
+            });
+            if (locked.count !== 1) throw new ConflictException("Draft already reviewed");
+            return current;
+        });
+
+        if (draft.type === "NEW_CLIENT") {
+            return this.confirmNewClientWithDraft(branchId, userId, id, draft, {
+                fields: dto.fields as Record<string, unknown>,
+                suppressGreetingSms: dto.suppressGreetingSms,
+            }, true);
+        }
+        if (draft.type === "CLIENT_UPDATE") {
+            return this.confirmClientUpdate(branchId, userId, id, draft, dto.changes as Record<string, unknown>, true);
+        }
+        throw new BadRequestException(`Unknown draft type: ${draft.type}`);
+    }
+
     private async confirmNewClientWithDraft(
         branchId: string,
         userId: string,
         id: string,
         draft: { callRecordId: string },
         dto: { fields: Record<string, unknown>; suppressGreetingSms?: boolean },
+        alreadyLocked = false,
     ) {
         // optimistic lock BEFORE side effects: only one caller flips PENDING→CONFIRMING.
         // confirmingStartedAt anchors the stuck-CONFIRMING sweep so a slow confirm
         // running shortly after a long-pending draft cannot be reverted mid-flight.
-        const locked = await this.prismaService.client_draft.updateMany({
-            where: { id, status: "PENDING" },
-            data: { status: "CONFIRMING", confirmingStartedAt: new Date() },
-        });
-        if (locked.count === 0) {
-            throw new ConflictException("Draft already reviewed");
+        if (!alreadyLocked) {
+            const locked = await this.prismaService.client_draft.updateMany({
+                where: { id, status: "PENDING" },
+                data: { status: "CONFIRMING", confirmingStartedAt: new Date() },
+            });
+            if (locked.count === 0) {
+                throw new ConflictException("Draft already reviewed");
+            }
         }
 
         let createdClientId: number | null = null;
@@ -326,6 +401,7 @@ export class CallInboxService {
         id: string,
         draft: { clientId: number | null; callRecordId: string },
         rawChanges: Record<string, unknown>,
+        alreadyLocked = false,
     ) {
         // a. clientId must be set (guard before locking)
         if (draft.clientId == null) {
@@ -347,12 +423,14 @@ export class CallInboxService {
         // confirmingStartedAt anchors the stuck-CONFIRMING sweep against this transition,
         // not the draft's createdAt, so an in-flight confirm cannot be reverted by the
         // sweep just because the draft has been sitting around for a while.
-        const locked = await this.prismaService.client_draft.updateMany({
-            where: { id, status: "PENDING" },
-            data: { status: "CONFIRMING", confirmingStartedAt: new Date() },
-        });
-        if (locked.count === 0) {
-            throw new ConflictException("Draft already reviewed");
+        if (!alreadyLocked) {
+            const locked = await this.prismaService.client_draft.updateMany({
+                where: { id, status: "PENDING" },
+                data: { status: "CONFIRMING", confirmingStartedAt: new Date() },
+            });
+            if (locked.count === 0) {
+                throw new ConflictException("Draft already reviewed");
+            }
         }
 
         let updateApplied = false;
@@ -412,4 +490,20 @@ export class CallInboxService {
         if (draft.status !== "PENDING") throw new ConflictException("Draft already reviewed");
         return draft;
     }
+
+    private async lockDraftForUpdate(transaction: unknown, branchId: string, id: string): Promise<void> {
+        const rawTransaction = transaction as {
+            $queryRawUnsafe?: (query: string, ...values: unknown[]) => Promise<unknown>;
+        };
+        if (typeof rawTransaction.$queryRawUnsafe !== "function") return;
+        await rawTransaction.$queryRawUnsafe(
+            'SELECT "id" FROM "client_draft" WHERE "id" = $1 AND "branch_id" = $2 FOR UPDATE',
+            id,
+            branchId,
+        );
+    }
+}
+
+function draftTargetVersion(value: unknown): string {
+    return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }

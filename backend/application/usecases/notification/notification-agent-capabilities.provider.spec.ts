@@ -9,6 +9,7 @@ const context = {
 };
 
 describe("NotificationAgentCapabilitiesProvider", () => {
+    const targetUserId = "11111111-1111-4111-8111-111111111111";
     it.each(["disabled", "no-subscriptions", "partial", "failed"])("classifies %s delivery as a failed action", (status) => {
         const provider = new NotificationAgentCapabilitiesProvider({} as never, {} as never);
         const capability = provider.getCapabilities()[0]!;
@@ -49,5 +50,50 @@ describe("NotificationAgentCapabilitiesProvider", () => {
             status: "uncertain",
             reason: "Persisted Web Push outcome remains uncertain",
         });
+    });
+
+    it("requires the approved membership version at the atomic execution boundary", async () => {
+        const membership = { id: "membership-1", role: "admin", joinedAt: new Date("2026-08-04T00:00:00.000Z") };
+        const prisma = {
+            $transaction: jest.fn(),
+            notification: { findFirst: jest.fn().mockResolvedValue(null) },
+            user_branch: { findFirst: jest.fn().mockResolvedValue(membership) },
+            branch: { findUnique: jest.fn().mockResolvedValue({ ownerId: "owner-1" }) },
+            agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        };
+        prisma.$transaction.mockImplementation(async (callback: (transaction: typeof prisma) => Promise<unknown>) => callback(prisma));
+        const sendNotification = { executeWithOutcome: jest.fn() };
+        const provider = new NotificationAgentCapabilitiesProvider(sendNotification as never, prisma as never);
+        const capability = provider.getCapabilities()[0]!;
+        const expected = await capability.inspect!(context, { userId: targetUserId, title: "테스트", body: "본문" });
+
+        prisma.user_branch.findFirst.mockResolvedValue({ ...membership, role: "user" });
+        await expect(capability.executeApprovedTarget!(context, { userId: targetUserId, title: "테스트", body: "본문" }, expected.targetVersion!))
+            .rejects.toThrow("membership changed");
+        expect(sendNotification.executeWithOutcome).not.toHaveBeenCalled();
+    });
+
+    it("stages membership authorization before invoking the notification provider", async () => {
+        const membership = { id: "membership-1", role: "admin", joinedAt: new Date("2026-08-04T00:00:00.000Z") };
+        const prisma = {
+            $transaction: jest.fn(),
+            notification: { findFirst: jest.fn().mockResolvedValue(null) },
+            user_branch: { findFirst: jest.fn().mockResolvedValue(membership) },
+            branch: { findUnique: jest.fn().mockResolvedValue({ ownerId: "owner-1" }) },
+            agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        };
+        prisma.$transaction.mockImplementation(async (callback: (transaction: typeof prisma) => Promise<unknown>) => callback(prisma));
+        const sendNotification = {
+            executeWithOutcome: jest.fn().mockResolvedValue({
+                status: "delivered", notification: { id: 8 }, subscriptions: 1, delivered: 1, failed: 0,
+            }),
+        };
+        const provider = new NotificationAgentCapabilitiesProvider(sendNotification as never, prisma as never);
+        const capability = provider.getCapabilities()[0]!;
+        const expected = await capability.inspect!(context, { userId: targetUserId, title: "테스트", body: "본문" });
+
+        await expect(capability.executeApprovedTarget!(context, { userId: targetUserId, title: "테스트", body: "본문" }, expected.targetVersion!))
+            .resolves.toEqual({ status: "delivered", notificationId: 8, subscriptions: 1, delivered: 1, failed: 0 });
+        expect(prisma.agent_action.updateMany.mock.invocationCallOrder[0]).toBeLessThan(sendNotification.executeWithOutcome.mock.invocationCallOrder[0]!);
     });
 });

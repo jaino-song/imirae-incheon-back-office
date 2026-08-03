@@ -3,6 +3,11 @@ import { MessageTemplateWriteAgentCapabilitiesProvider } from "./message-templat
 describe("MessageTemplateWriteAgentCapabilitiesProvider", () => {
     function setup() {
         const createTemplate = { execute: jest.fn().mockResolvedValue({ id: "template-a", name: "안내" }) };
+        const updateTemplate = {
+            execute: jest.fn(),
+            executeApproved: jest.fn().mockResolvedValue({ id: "template-a", name: "안내", status: "updated" }),
+        };
+        const findTemplate = { execute: jest.fn() };
         const transaction = { agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
         const prisma = {
             $transaction: jest.fn(),
@@ -11,11 +16,11 @@ describe("MessageTemplateWriteAgentCapabilitiesProvider", () => {
         prisma.$transaction.mockImplementation(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction));
         const provider = new MessageTemplateWriteAgentCapabilitiesProvider(
             createTemplate as never,
-            { execute: jest.fn() } as never,
-            { execute: jest.fn() } as never,
+            updateTemplate as never,
+            findTemplate as never,
             prisma as never,
         );
-        return { createTemplate, transaction, prisma, capabilities: provider.getCapabilities() };
+        return { createTemplate, updateTemplate, findTemplate, transaction, prisma, capabilities: provider.getCapabilities() };
     }
 
     const context = {
@@ -51,5 +56,34 @@ describe("MessageTemplateWriteAgentCapabilitiesProvider", () => {
         const capability = capabilities.find((entry) => entry.meta.name === "messages.updateTemplate")!;
 
         expect(capability.inputSchema.safeParse({ id: "template-a" }).success).toBe(false);
+    });
+
+    it("uses an immutable inspected template snapshot for approved updates", async () => {
+        const { capabilities, findTemplate, updateTemplate } = setup();
+        const template = {
+            id: "template-a",
+            name: "안내",
+            content: "안녕하세요 {{name}}",
+            variables: [{ key: "name", type: "text", label: "이름", required: true }],
+            createdAt: new Date("2026-08-03T00:00:00.000Z"),
+            updatedAt: new Date("2026-08-03T01:00:00.000Z"),
+        };
+        findTemplate.execute.mockResolvedValue(template);
+        const capability = capabilities.find((entry) => entry.meta.name === "messages.updateTemplate")!;
+        const inspection = await capability.inspect!(context, { id: "template-a", name: "새 안내" });
+
+        await expect(capability.executeApprovedTarget!(
+            { ...context, approvedTargetSnapshot: inspection.targetSnapshot },
+            { id: "template-a", name: "새 안내" },
+            inspection.targetVersion!,
+        )).resolves.toEqual({ id: "template-a", name: "안내", status: "updated" });
+        expect(updateTemplate.executeApproved).toHaveBeenCalledWith(
+            "branch-a",
+            "template-a",
+            { name: "새 안내" },
+            template.updatedAt,
+            inspection.targetSnapshot,
+        );
+        expect(findTemplate.execute).toHaveBeenCalledTimes(1);
     });
 });

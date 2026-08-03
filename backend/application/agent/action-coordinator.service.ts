@@ -2,6 +2,7 @@ import {
     BadRequestException,
     ConflictException,
     ForbiddenException,
+    Inject,
     Injectable,
     NotFoundException,
 } from "@nestjs/common";
@@ -12,6 +13,7 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import type { AgentActionRisk, AgentActionStatus } from "@babyjamjam/shared";
 import type { BjjUIMessage } from "@babyjamjam/shared";
 import type { AgentActionEntity, AgentActionOwner } from "domain/entities/agent-action.entity";
+import { AGENT_ACTION_REPOSITORY, type IAgentActionRepository } from "domain/repositories/agent-action.repository.interface";
 import type { VerifiedTenantPrincipal } from "infrastructure/tenant/tenant.context";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { CapabilityRegistryService } from "./capability-registry.service";
@@ -131,9 +133,14 @@ export class ActionCoordinatorService {
         private readonly flags: AgentFlagsService,
         private readonly sweepLock: AgentActionSweepLockService,
         private readonly sessions: AgentSessionService,
+        @Inject(AGENT_ACTION_REPOSITORY) private readonly actionRepository: IAgentActionRepository,
     ) {}
 
     async propose(input: AgentActionProposalInput): Promise<AgentActionEntity> {
+        await this.sessions.assertActive(input.sessionId, {
+            userId: input.principal.userId,
+            branchId: input.principal.branchId,
+        });
         const capability = this.registry.get(input.capability);
         if (capability.meta.risk === "read" || !capability.meta.sideEffect) {
             throw new BadRequestException("Read capabilities cannot create actions");
@@ -204,29 +211,29 @@ export class ActionCoordinatorService {
             traceId: input.traceId ?? null,
         };
         try {
-            const record = await this.prisma.agent_action.create({
-                data: {
-                    id: actionId,
-                    sessionId: input.sessionId,
-                    userId: input.principal.userId,
-                    branchId: input.principal.branchId,
-                    capability: input.capability,
-                    capabilityVersion: capability.meta.version,
-                    risk: capability.meta.risk,
-                    status: "proposed",
-                    proposal: proposal as Prisma.InputJsonValue,
-                    proposalRevision,
-                    inputHash,
-                    targetSnapshot: targetSnapshot as Prisma.InputJsonValue | undefined,
-                    targetVersion: parsedTargetVersion,
-                    authorizationContext: authorizationContext as Prisma.InputJsonValue,
-                    expiresAt,
-                    idempotencyKey,
-                    requestDedupeKey,
-                    dedupeExpiresAt,
-                },
+            const result = await this.actionRepository.createInActiveSession({
+                id: actionId,
+                sessionId: input.sessionId,
+                userId: input.principal.userId,
+                branchId: input.principal.branchId,
+                capability: input.capability,
+                capabilityVersion: capability.meta.version,
+                risk: capability.meta.risk,
+                status: "proposed",
+                proposal,
+                proposalRevision,
+                inputHash,
+                targetSnapshot: targetSnapshot ?? null,
+                targetVersion: parsedTargetVersion ?? null,
+                authorizationContext,
+                expiresAt,
+                idempotencyKey,
+                requestDedupeKey,
+                dedupeExpiresAt,
             });
-            return toEntity(record);
+            if (result.status === "created") return result.action;
+            if (result.status === "not_found") throw new NotFoundException("Agent session not found");
+            throw new ConflictException(`Agent session is ${result.status}`);
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
                 const raced = await this.prisma.agent_action.findUnique({ where: { requestDedupeKey } });
@@ -269,11 +276,16 @@ export class ActionCoordinatorService {
             throw new ConflictException("Action has expired");
         }
         const capability = this.registry.get(action.capability);
+        const targetVersion = action.targetVersion;
+        const hasTargetVersion = targetVersion !== null && targetVersion !== undefined;
         if (expectedRevision !== action.proposalRevision) {
             throw new ConflictException("Action proposal changed; review the latest proposal");
         }
         if (capability.meta.version !== action.capabilityVersion) {
             throw new ConflictException("Capability changed; create and review a new proposal");
+        }
+        if (hasTargetVersion && !capability.executeApprovedTarget) {
+            throw new ConflictException("Versioned action cannot be executed safely; create a new proposal");
         }
         if (capability.meta.approvalPolicy === "strong"
             && acknowledgementToken !== this.strongAcknowledgementToken(action)) {
@@ -291,15 +303,15 @@ export class ActionCoordinatorService {
                 ? action.authorizationContext["traceId"]
                 : randomUUID(),
             locale: typeof proposal["locale"] === "string" ? proposal["locale"] : "ko",
-            ...(action.targetVersion ? { approvedTargetVersion: action.targetVersion } : {}),
+            ...(hasTargetVersion ? { approvedTargetVersion: targetVersion } : {}),
             ...(action.targetSnapshot ? { approvedTargetSnapshot: action.targetSnapshot } : {}),
         };
-        if (action.targetVersion) {
+        if (hasTargetVersion) {
             if (!capability.revalidate) {
                 throw new ConflictException("Target cannot be safely revalidated; create a new proposal");
             }
-            const revalidation = await capability.revalidate(actionContext, proposal["input"], action.targetVersion);
-            if (!revalidation.valid || (revalidation.currentVersion && revalidation.currentVersion !== action.targetVersion)) {
+            const revalidation = await capability.revalidate(actionContext, proposal["input"], targetVersion);
+            if (!revalidation.valid || (revalidation.currentVersion && revalidation.currentVersion !== targetVersion)) {
                 throw new ConflictException(revalidation.reason ?? "Action target changed; review a new proposal");
             }
         }
@@ -326,7 +338,9 @@ export class ActionCoordinatorService {
 
         let providerResult: unknown;
         try {
-            providerResult = await capability.execute(actionContext, proposal["input"]);
+            providerResult = hasTargetVersion
+                ? await capability.executeApprovedTarget!(actionContext, proposal["input"], targetVersion)
+                : await capability.execute(actionContext, proposal["input"]);
         } catch (error) {
             const uncertain = !(error instanceof AgentActionCertainFailureError);
             const errorPayload = {
@@ -601,16 +615,16 @@ export class ActionCoordinatorService {
             });
             let reconciled = 0;
             for (const record of records) {
-                const capability = this.registry.get(record.capability);
-                if (!capability.reconcile) continue;
-                const authorization = jsonObject(record.authorizationContext);
-                const principal: VerifiedTenantPrincipal = {
-                    userId: record.userId,
-                    branchId: record.branchId,
-                    globalRole: typeof authorization["globalRole"] === "string" ? authorization["globalRole"] : "user",
-                    branchRole: typeof authorization["branchRole"] === "string" ? authorization["branchRole"] : "user",
-                };
                 try {
+                    const capability = this.registry.get(record.capability);
+                    if (!capability.reconcile) continue;
+                    const authorization = jsonObject(record.authorizationContext);
+                    const principal: VerifiedTenantPrincipal = {
+                        userId: record.userId,
+                        branchId: record.branchId,
+                        globalRole: typeof authorization["globalRole"] === "string" ? authorization["globalRole"] : "user",
+                        branchRole: typeof authorization["branchRole"] === "string" ? authorization["branchRole"] : "user",
+                    };
                     const outcome = await this.reconcile(record.id, principal);
                     if (outcome.status !== "uncertain") reconciled += 1;
                 } catch {

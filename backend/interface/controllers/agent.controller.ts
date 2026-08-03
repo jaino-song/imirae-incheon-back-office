@@ -104,10 +104,13 @@ export class AgentController {
     @Patch("agent/sessions/:id")
     update(@Param("id") id: string, @Body() dto: AgentSessionPatchDto, @Req() request: AgentRequest) {
         const { archived, ...patch } = dto;
-        return this.sessions.update(id, this.owner(request), {
-            ...patch,
-            ...(archived === undefined ? {} : { archivedAt: archived ? new Date() : null }),
-        });
+        const owner = this.owner(request);
+        if (archived !== undefined) {
+            const archiveOperation = archived ? this.sessions.archive(id, owner) : this.sessions.unarchive(id, owner);
+            if (Object.keys(patch).length === 0) return archiveOperation;
+            return archiveOperation.then(() => this.sessions.update(id, owner, patch));
+        }
+        return this.sessions.update(id, owner, patch);
     }
 
     @Delete("agent/sessions/:id")

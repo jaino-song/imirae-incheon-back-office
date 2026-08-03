@@ -142,6 +142,17 @@ describe("DocumentService", () => {
         expect(documentRepository.delete).toHaveBeenCalledWith("branch-1", document.id);
     });
 
+    it("deletes only the exact staged storage path without reading mutable metadata", async () => {
+        const storage = { delete: jest.fn().mockResolvedValue(undefined) };
+        service = new DocumentService(documentRepository, storage as never);
+
+        await service.deleteStoragePath("documents/staged-contract.pdf");
+
+        expect(storage.delete).toHaveBeenCalledWith("documents/staged-contract.pdf");
+        expect(documentRepository.findById).not.toHaveBeenCalled();
+        expect(documentRepository.delete).not.toHaveBeenCalled();
+    });
+
     it("treats already-missing metadata as a completed staged deletion", async () => {
         const storage = { delete: jest.fn() };
         documentRepository.findById.mockResolvedValue(null);

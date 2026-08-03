@@ -1,17 +1,17 @@
 import { Injectable } from "@nestjs/common";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import { ChangeEmployeeOpenStatusUsecase } from "./change-employee-open-status.usecase";
 import { CreateEmployeeUsecase } from "./create-employee.usecase";
-import { UpdateEmployeeUsecase } from "./update-employee.usecase";
+import { EmployeeTargetVersionMismatchError, UpdateEmployeeUsecase } from "./update-employee.usecase";
 import { FindEmployeeByIdUsecase } from "./find-employee-by-id.usecase";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
+import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 
 const CreateEmployeeSchema = z.object({
     name: z.string().trim().min(1).max(100),
@@ -58,15 +58,6 @@ const EMPLOYEE_AVAILABILITY_FIELDS: AgentFormField[] = [
     { name: "id", label: "직원 ID", type: "number", required: true },
     { name: "openToNextWork", label: "다음 업무 가능", type: "boolean", required: true },
 ];
-
-function employeeVersion(employee: Awaited<ReturnType<FindEmployeeByIdUsecase["execute"]>>): string {
-    if (!employee) return "missing";
-    return createHash("sha256").update(JSON.stringify({
-        id: employee.id, name: employee.name, workArea: employee.workArea, phone: employee.phone,
-        grade: employee.grade, openToNextWork: employee.openToNextWork, birthday: employee.birthday ?? null,
-        deletedAt: employee.deletedAt?.toISOString() ?? null,
-    })).digest("hex");
-}
 
 function isActiveEmployee(employee: Awaited<ReturnType<FindEmployeeByIdUsecase["execute"]>>): employee is NonNullable<typeof employee> {
     return Boolean(employee && !employee.deletedAt);
@@ -124,6 +115,24 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                     const employee = await this.updateEmployee.execute(context.principal.branchId, id, updates);
                     return { id: employee.id, name: employee.name, status: "updated" };
                 },
+                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                    const input = UpdateEmployeeSchema.parse(rawInput);
+                    const { id, ...updates } = input;
+                    try {
+                        const employee = await this.updateEmployee.executeApprovedTarget(
+                            context.principal.branchId,
+                            id,
+                            updates,
+                            expectedTargetVersion,
+                        );
+                        return { id: employee.id, name: employee.name, status: "updated" };
+                    } catch (error) {
+                        if (error instanceof EmployeeTargetVersionMismatchError) {
+                            throw new AgentActionCertainFailureError(error.message);
+                        }
+                        throw error;
+                    }
+                },
                 reconcile: async (context, rawInput) => this.reconcileEmployeeUpdate(context.principal.branchId, UpdateEmployeeSchema.parse(rawInput), "updated"),
             },
             {
@@ -137,6 +146,23 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                     await this.requireActiveEmployee(context.principal.branchId, input.id);
                     const employee = await this.changeAvailability.execute(context.principal.branchId, input.id, input.openToNextWork);
                     return { id: employee.id, name: employee.name, status: input.openToNextWork ? "available" : "unavailable" };
+                },
+                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                    const input = AvailabilitySchema.parse(rawInput);
+                    try {
+                        const employee = await this.changeAvailability.executeApprovedTarget(
+                            context.principal.branchId,
+                            input.id,
+                            input.openToNextWork,
+                            expectedTargetVersion,
+                        );
+                        return { id: employee.id, name: employee.name, status: input.openToNextWork ? "available" : "unavailable" };
+                    } catch (error) {
+                        if (error instanceof EmployeeTargetVersionMismatchError) {
+                            throw new AgentActionCertainFailureError(error.message);
+                        }
+                        throw error;
+                    }
                 },
                 reconcile: async (context, rawInput) => {
                     const input = AvailabilitySchema.parse(rawInput);
@@ -153,14 +179,14 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
     private async inspectEmployee(branchId: string, id: number) {
         const employee = await this.requireActiveEmployee(branchId, id);
         return {
-            targetVersion: employeeVersion(employee),
+            targetVersion: employeeAgentTargetVersion(employee),
             targetSnapshot: { id: employee.id, name: employee.name, grade: employee.grade, openToNextWork: employee.openToNextWork },
         };
     }
 
     private async revalidateEmployee(branchId: string, id: number, expectedTargetVersion: string) {
         const employee = await this.findEmployee.execute(branchId, id);
-        const currentVersion = employeeVersion(employee);
+        const currentVersion = employeeAgentTargetVersion(employee);
         return { valid: isActiveEmployee(employee) && currentVersion === expectedTargetVersion, currentVersion, reason: isActiveEmployee(employee) ? "Employee changed" : "Employee no longer exists or was deleted" };
     }
 

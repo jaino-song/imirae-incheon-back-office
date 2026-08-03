@@ -1,6 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { z } from "zod";
 
+import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import { CreateMessageTemplateUsecase } from "./create-message-template.usecase";
@@ -89,7 +90,14 @@ export class MessageTemplateWriteAgentCapabilitiesProvider implements AgentCapab
                     const template = await this.findTemplate.execute(context.principal.branchId, input.id);
                     return {
                         targetVersion: template.updatedAt.toISOString(),
-                        targetSnapshot: { id: template.id, name: template.name, updatedAt: template.updatedAt.toISOString() },
+                        targetSnapshot: {
+                            id: template.id,
+                            name: template.name,
+                            content: template.content,
+                            variables: template.variables,
+                            createdAt: template.createdAt.toISOString(),
+                            updatedAt: template.updatedAt.toISOString(),
+                        },
                     };
                 },
                 revalidate: async (context, rawInput, expectedTargetVersion) => {
@@ -103,6 +111,30 @@ export class MessageTemplateWriteAgentCapabilitiesProvider implements AgentCapab
                     const { id, ...updates } = input;
                     const template = await this.updateTemplate.execute(context.principal.branchId, id, updates);
                     return { id: template.id, name: template.name, status: "updated" };
+                },
+                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                    const input = UpdateSchema.parse(rawInput);
+                    const { id, ...updates } = input;
+                    const expectedUpdatedAt = new Date(expectedTargetVersion);
+                    if (Number.isNaN(expectedUpdatedAt.getTime())) {
+                        throw new AgentActionCertainFailureError("Message template approval version is invalid");
+                    }
+                    try {
+                        const template = await this.updateTemplate.executeApproved(
+                            context.principal.branchId,
+                            id,
+                            updates,
+                            expectedUpdatedAt,
+                            context.approvedTargetSnapshot,
+                        );
+                        return { id: template.id, name: template.name, status: "updated" };
+                    } catch (error) {
+                        if (error instanceof AgentActionCertainFailureError) throw error;
+                        if (error instanceof ConflictException || error instanceof BadRequestException) {
+                            throw new AgentActionCertainFailureError(error.message);
+                        }
+                        throw error;
+                    }
                 },
                 reconcile: async (context, rawInput) => {
                     const input = UpdateSchema.parse(rawInput);

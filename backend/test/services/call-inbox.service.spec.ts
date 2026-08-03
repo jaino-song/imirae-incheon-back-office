@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, NotFoundException, NotImplementedException } from "@nestjs/common";
 import { CallInboxService } from "application/services/call-inbox.service";
+import { createHash } from "node:crypto";
 
 describe("CallInboxService", () => {
     const prisma = {
+        $transaction: jest.fn(),
         call_record: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
         client_draft: {
             findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(),
@@ -10,6 +12,7 @@ describe("CallInboxService", () => {
         },
         client: { findMany: jest.fn(), findFirst: jest.fn() },
     };
+    prisma.$transaction.mockImplementation(async (callback: (transaction: never) => Promise<unknown>) => callback(prisma as never));
     const clientService = { create: jest.fn(), update: jest.fn() };
     let service: CallInboxService;
 
@@ -23,6 +26,7 @@ describe("CallInboxService", () => {
 
     beforeEach(() => {
         jest.resetAllMocks();
+        prisma.$transaction.mockImplementation(async (callback: (transaction: never) => Promise<unknown>) => callback(prisma as never));
         prisma.client.findMany.mockResolvedValue([]);
         prisma.client_draft.update.mockResolvedValue({});
         prisma.call_record.update.mockResolvedValue({});
@@ -261,5 +265,42 @@ describe("CallInboxService", () => {
         expect(result.data[0]!.phoneMatchesExistingClient).toBe(true);
         expect(result.total).toBe(2);
         expect(result.totalPages).toBe(1);
+    });
+
+    it("patchDraftApprovedTarget mutates only when the locked draft still matches", async () => {
+        const draft = {
+            id: "draft-atomic",
+            branchId: "branch-1",
+            status: "PENDING",
+            proposals: [],
+            updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+        };
+        prisma.client_draft.findFirst.mockResolvedValue(draft);
+        prisma.client_draft.update.mockResolvedValue({});
+        const expected = createHash("sha256").update(JSON.stringify(draft)).digest("hex");
+
+        await service.patchDraftApprovedTarget("branch-1", "draft-atomic", { proposals: [] }, expected);
+
+        expect(prisma.client_draft.update).toHaveBeenCalledWith(expect.objectContaining({
+            where: { id: "draft-atomic" },
+            data: { proposals: [] },
+        }));
+    });
+
+    it("patchDraftApprovedTarget rejects an interleaved target change before any mutation", async () => {
+        const original = {
+            id: "draft-race",
+            branchId: "branch-1",
+            status: "PENDING",
+            proposals: [],
+            updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+        };
+        const changed = { ...original, proposals: [{ field: "name", value: "changed" }] };
+        prisma.client_draft.findFirst.mockResolvedValue(changed);
+        const expected = createHash("sha256").update(JSON.stringify(original)).digest("hex");
+
+        await expect(service.patchDraftApprovedTarget("branch-1", "draft-race", { proposals: [] }, expected))
+            .rejects.toThrow(ConflictException);
+        expect(prisma.client_draft.update).not.toHaveBeenCalled();
     });
 });

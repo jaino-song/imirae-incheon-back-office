@@ -6,7 +6,7 @@ import type { AgentCapabilityProviderContract, CapabilityDefinition } from "appl
 import { CreateClientUsecase } from "./create-client.usecase";
 import { FindClientByIdUsecase } from "./find-client-by-id.usecase";
 import { ListClientsPaginatedUsecase } from "./list-clients-paginated.usecase";
-import { UpdateClientUsecase } from "./update-client.usecase";
+import { ClientTargetVersionMismatchError, UpdateClientUsecase } from "./update-client.usecase";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { clientAgentTargetSnapshot, clientAgentTargetVersion } from "./client-agent-target";
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
@@ -72,9 +72,12 @@ const CLIENT_UPDATE_FORM_FIELDS: AgentFormField[] = [
 
 function date(value: string | null | undefined): Date | null | undefined {
     if (value === undefined || value === null) return value;
-    return /^\d{4}-\d{2}-\d{2}$/.test(value)
-        ? new Date(`${value}T00:00:00+09:00`)
-        : new Date(value);
+    // Client date columns are calendar dates (`@db.Date`), not instants. Keep
+    // the submitted calendar components at UTC midnight even when a caller
+    // sends an offset datetime, otherwise a timezone conversion can shift the
+    // stored day backwards or forwards.
+    const calendarDate = value.slice(0, 10);
+    return new Date(`${calendarDate}T00:00:00.000Z`);
 }
 
 function sameClientValue(actual: unknown, expected: unknown): boolean {
@@ -188,6 +191,30 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                         birthDate: date(updates.birthDate),
                     });
                     return { id: client.id, name: client.name, status: "updated" };
+                },
+                executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
+                    const input = UpdateClientSchema.parse(rawInput);
+                    const { id, targetVersion: _targetVersion, ...updates } = input;
+                    try {
+                        const client = await this.updateClient.executeApprovedTarget(
+                            context.principal.branchId,
+                            id,
+                            {
+                                ...updates,
+                                startDate: date(updates.startDate),
+                                endDate: date(updates.endDate),
+                                dueDate: date(updates.dueDate),
+                                birthDate: date(updates.birthDate),
+                            },
+                            expectedTargetVersion,
+                        );
+                        return { id: client.id, name: client.name, status: "updated" };
+                    } catch (error) {
+                        if (error instanceof ClientTargetVersionMismatchError) {
+                            throw new AgentActionCertainFailureError(error.message);
+                        }
+                        throw error;
+                    }
                 },
                 reconcile: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);

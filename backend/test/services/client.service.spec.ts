@@ -139,11 +139,13 @@ describe("ClientService", () => {
 
     const createMockClientRepository = (): jest.Mocked<IClientRepository> => ({
         findById: jest.fn(),
+        findByIdForUpdate: jest.fn(),
         findAll: jest.fn(),
         findAllPaginated: jest.fn(),
         create: jest.fn(),
         createWithInitialSchedule: jest.fn(),
         update: jest.fn(),
+        updateIfTargetVersion: jest.fn(),
         delete: jest.fn(),
         findByStartDate: jest.fn(),
         findByEndDate: jest.fn(),

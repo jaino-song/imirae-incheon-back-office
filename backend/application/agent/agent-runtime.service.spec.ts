@@ -775,4 +775,76 @@ describe("AgentRuntimeService", () => {
         );
         expect(traces.finish).not.toHaveBeenCalledWith(expect.anything(), "succeeded", expect.anything(), expect.anything(), expect.anything());
     });
+
+    it("finalizes the trace before rethrowing a model setup failure", async () => {
+        const capability = {
+            meta: { name: "clients.search", domain: "clients", version: "1.0.0", description: "Search clients", risk: "read" as const, requiredRoles: ["admin"], renderer: "activity" as const, flagKey: "agent.capability.clients.search", sideEffect: false },
+            inputSchema: z.object({}),
+            outputSchema: z.object({}),
+            execute: jest.fn().mockResolvedValue({}),
+        };
+        const traces = {
+            start: jest.fn().mockResolvedValue({ id: "trace-model-setup", startedAt: Date.now() }),
+            finish: jest.fn().mockResolvedValue(undefined),
+        };
+        const runtime = new AgentRuntimeService(
+            { list: jest.fn().mockReturnValue([capability]) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { create: jest.fn().mockResolvedValue({ id: "session-model-setup", messages: [] }) } as never,
+            { modelId: "deterministic-agent-v1", create: jest.fn(() => { throw new Error("model factory failed"); }) } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            traces as never,
+        );
+
+        await expect(runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-model-setup", role: "user", parts: [{ type: "text", text: "도와줘" }] }] as never,
+        })).rejects.toThrow("model factory failed");
+
+        expect(traces.finish).toHaveBeenCalledTimes(1);
+        expect(traces.finish).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "trace-model-setup" }),
+            "failed",
+            undefined,
+            "setup",
+            [{ capability: "clients.search", version: "1.0.0", risk: "read" }],
+        );
+    });
+
+    it("finalizes exactly once when setup fails before a stream can be constructed", async () => {
+        const capability = {
+            meta: { name: "clients.search", domain: "clients", version: "1.0.0", description: "Search clients", risk: "read" as const, requiredRoles: ["admin"], renderer: "activity" as const, flagKey: "agent.capability.clients.search", sideEffect: false },
+            inputSchema: z.object({}),
+            outputSchema: z.object({}),
+            execute: jest.fn().mockResolvedValue({}),
+        };
+        const traces = {
+            start: jest.fn().mockResolvedValue({ id: "trace-message-setup", startedAt: Date.now() }),
+            finish: jest.fn().mockResolvedValue(undefined),
+        };
+        const runtime = new AgentRuntimeService(
+            { list: jest.fn().mockReturnValue([capability]) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { create: jest.fn().mockResolvedValue({ id: "session-message-setup", messages: [] }) } as never,
+            { modelId: "deterministic-agent-v1", create: () => new DeterministicAgentLanguageModel([{ type: "text", text: "완료" }]) } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            traces as never,
+        );
+
+        await expect(runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [] as never,
+        })).rejects.toThrow("Current user message missing");
+
+        expect(traces.finish).toHaveBeenCalledTimes(1);
+        expect(traces.finish).toHaveBeenCalledWith(
+            expect.objectContaining({ id: "trace-message-setup" }),
+            "failed",
+            undefined,
+            "setup",
+            [{ capability: "clients.search", version: "1.0.0", risk: "read" }],
+        );
+    });
 });

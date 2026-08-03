@@ -33,6 +33,7 @@ export class MessageTemplateMapper {
             name: entity.name,
             content: entity.content,
             variables: entity.variables as unknown as Prisma.InputJsonValue,
+            updatedAt: entity.updatedAt,
         };
     }
 }
