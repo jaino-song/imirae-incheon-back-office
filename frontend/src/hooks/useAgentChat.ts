@@ -33,14 +33,23 @@ export type AgentClientError = {
     effectState: "nothing-happened" | "succeeded-unconfirmed" | "partial";
 };
 
-function actionErrorFromStatus(status: unknown, fallbackCode: string, fallbackMessage: string): AgentClientError {
+function readActionErrorCode(error: unknown): string | undefined {
+    if (!error || typeof error !== "object" || Array.isArray(error)) return undefined;
+    const code = (error as Record<string, unknown>).code;
+    return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+function actionErrorFromStatus(status: unknown, serverErrorCode: string | undefined, fallbackCode: string, fallbackMessage: string): AgentClientError {
     if (status === "uncertain" || status === "succeeded") {
-        return { code: "action_result_unconfirmed", message: "서버 작업 기록을 새로고침해 최종 결과를 확인해 주세요.", effectState: "succeeded-unconfirmed" };
+        return { code: serverErrorCode ?? "action_result_unconfirmed", message: "서버 작업 기록을 새로고침해 최종 결과를 확인해 주세요.", effectState: "succeeded-unconfirmed" };
+    }
+    if (status === "failed" && serverErrorCode === "execution_failed") {
+        return { code: serverErrorCode, message: fallbackMessage, effectState: "nothing-happened" };
     }
     if (status === "failed" || status === "executing") {
-        return { code: "action_partial", message: "작업의 일부 단계가 실행되었을 수 있습니다. 기록 확인 전에는 다시 실행하지 마세요.", effectState: "partial" };
+        return { code: serverErrorCode ?? "action_partial", message: "작업의 일부 단계가 실행되었을 수 있습니다. 기록 확인 전에는 다시 실행하지 마세요.", effectState: "partial" };
     }
-    return { code: fallbackCode, message: fallbackMessage, effectState: "nothing-happened" };
+    return { code: serverErrorCode ?? fallbackCode, message: fallbackMessage, effectState: "nothing-happened" };
 }
 
 function isTruthy(value: string | undefined): boolean {
@@ -164,8 +173,8 @@ export function useAgentChat() {
         try {
             const response = await fetch(`/api/ai/actions/${encodeURIComponent(actionId)}`, { credentials: "same-origin" });
             if (!response.ok) return { code: "action_unconfirmed", message: "작업 기록을 확인하지 못했습니다. 중복 실행하지 마세요.", effectState: "succeeded-unconfirmed" as const };
-            const action = await response.json() as { status?: unknown };
-            return actionErrorFromStatus(action.status, fallbackCode, fallbackMessage);
+            const action = await response.json() as { status?: unknown; error?: unknown };
+            return actionErrorFromStatus(action.status, readActionErrorCode(action.error), fallbackCode, fallbackMessage);
         } catch {
             return { code: "action_unconfirmed", message: "작업 기록을 확인하지 못했습니다. 중복 실행하지 마세요.", effectState: "succeeded-unconfirmed" as const };
         }

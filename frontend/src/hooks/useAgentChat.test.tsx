@@ -37,6 +37,56 @@ describe("useAgentChat", () => {
         await waitFor(() => expect(setMessages).toHaveBeenCalledWith(restoredMessages));
     });
 
+    it("marks certain execution failures as nothing-happened and preserves the server error code", async () => {
+        (useChat as jest.Mock).mockReturnValue({
+            messages: [], setMessages: jest.fn(), sendMessage: jest.fn(), regenerate: jest.fn(), stop: jest.fn(), status: "ready",
+        });
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url === "/api/ai/agent/sessions") return { ok: false } as Response;
+            if (url.endsWith("/approve")) return { ok: false, json: async () => ({}) } as Response;
+            if (url.endsWith("/api/ai/actions/action-a")) {
+                return { ok: true, json: async () => ({ status: "failed", error: { code: "execution_failed" } }) } as Response;
+            }
+            return { ok: true, json: async () => [] } as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/ai/agent/sessions", { credentials: "same-origin" }));
+
+        await act(async () => { await result.current.approveAction("action-a", "revision-a"); });
+
+        expect(result.current.actionError).toEqual({
+            code: "execution_failed",
+            message: "승인된 작업을 완료하지 못했습니다.",
+            effectState: "nothing-happened",
+        });
+    });
+
+    it("keeps provider-reported failures partial and preserves the server error code", async () => {
+        (useChat as jest.Mock).mockReturnValue({
+            messages: [], setMessages: jest.fn(), sendMessage: jest.fn(), regenerate: jest.fn(), stop: jest.fn(), status: "ready",
+        });
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url === "/api/ai/agent/sessions") return { ok: false } as Response;
+            if (url.endsWith("/approve")) return { ok: false, json: async () => ({}) } as Response;
+            if (url.endsWith("/api/ai/actions/action-b")) {
+                return { ok: true, json: async () => ({ status: "failed", error: { code: "provider_reported_failure" } }) } as Response;
+            }
+            return { ok: true, json: async () => [] } as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/ai/agent/sessions", { credentials: "same-origin" }));
+
+        await act(async () => { await result.current.approveAction("action-b", "revision-b"); });
+
+        expect(result.current.actionError).toEqual({
+            code: "provider_reported_failure",
+            message: "작업의 일부 단계가 실행되었을 수 있습니다. 기록 확인 전에는 다시 실행하지 마세요.",
+            effectState: "partial",
+        });
+    });
+
     it("stops the active stream and ignores an older overlapping session selection", async () => {
         const setMessages = jest.fn();
         const stop = jest.fn();
