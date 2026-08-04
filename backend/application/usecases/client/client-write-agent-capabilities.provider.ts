@@ -76,6 +76,7 @@ const ClientWriteFields = z.object({
 const CreateClientSchema = ClientWriteFields.extend({
     phone: z.string().trim().min(1).max(40),
 });
+type CreateClientInput = z.infer<typeof CreateClientSchema>;
 const CLIENT_MUTABLE_FIELD_KEYS = Object.keys(ClientWriteFields.shape);
 const UpdateClientSchema = ClientWriteFields.partial().extend({
     id: z.number().int().positive(),
@@ -85,6 +86,7 @@ const UpdateClientSchema = ClientWriteFields.partial().extend({
         context.addIssue({ code: "custom", message: "At least one client field must be updated" });
     }
 });
+type UpdateClientInput = z.infer<typeof UpdateClientSchema>;
 const ClientWriteOutputSchema = z.object({ id: z.number().int().positive(), name: z.string(), status: z.string() });
 const CLIENT_FORM_FIELDS: AgentFormField[] = [
     { name: "name", label: "산모 이름", type: "text", required: true },
@@ -254,6 +256,20 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 inputSchema: CreateClientSchema,
                 outputSchema: ClientWriteOutputSchema,
                 formFields: CLIENT_FORM_FIELDS,
+                canonicalizeInput: (_context, input: CreateClientInput) => {
+                    const voucherClient = input.voucherClient ?? false;
+                    return {
+                        ...input,
+                        voucherClient,
+                        ...normalizeClientPricing({
+                            voucherClient,
+                            type: input.type ?? null,
+                            fullPrice: input.fullPrice ?? null,
+                            grant: input.grant ?? null,
+                            actualPrice: input.actualPrice ?? null,
+                        }),
+                    };
+                },
                 execute: async (context, rawInput) => {
                     const input = CreateClientSchema.parse(rawInput);
                     const dates = {
@@ -318,6 +334,18 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
                 inputSchema: UpdateClientSchema,
                 outputSchema: ClientWriteOutputSchema,
                 formFields: CLIENT_UPDATE_FORM_FIELDS,
+                canonicalizeInput: async (context, input: UpdateClientInput) => {
+                    const existing = await this.findClient.execute(context.principal.branchId, input.id);
+                    if (!existing) throw new AgentActionCertainFailureError("Client no longer exists");
+                    const normalizedPricing = normalizeMergedClientPricing(existing, input);
+                    return normalizedPricing
+                        ? {
+                            ...input,
+                            voucherClient: input.voucherClient ?? existing.voucherClient,
+                            ...normalizedPricing,
+                        }
+                        : input;
+                },
                 inspect: async (context, rawInput) => {
                     const input = UpdateClientSchema.parse(rawInput);
                     const existing = await this.findClient.execute(context.principal.branchId, input.id);

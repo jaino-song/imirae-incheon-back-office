@@ -124,6 +124,70 @@ describe("ActionCoordinatorService", () => {
         expect(prisma.agent_action.findUnique).toHaveBeenCalledWith({ where: { requestDedupeKey: action.requestDedupeKey } });
     });
 
+    it("canonicalizes capability input before hashing, dedupe, and proposal persistence", async () => {
+        const definition = {
+            ...capability(),
+            inputSchema: z.object({
+                id: z.number().int().positive(),
+                grant: z.string(),
+                actualPrice: z.string(),
+            }),
+            canonicalizeInput: jest.fn((_context, input: { id: number; grant: string; actualPrice: string }) => ({
+                ...input,
+                grant: "0",
+                actualPrice: "100000",
+            })),
+        };
+        let created: ReturnType<typeof actionRecord> | null = null;
+        const prisma = {
+            agent_action: {
+                findUnique: jest.fn().mockImplementation(async () => created),
+                create: jest.fn().mockImplementation(async ({ data }) => {
+                    created = actionRecord({
+                        ...data,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                        approvedBy: null,
+                        approvedAt: null,
+                        rejectedBy: null,
+                        rejectedAt: null,
+                        result: null,
+                        error: null,
+                        executedAt: null,
+                        resultPartPersistedAt: null,
+                        targetSnapshot: null,
+                    });
+                    return created;
+                }),
+            },
+        };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+            actionPersistence(prisma) as never,
+        );
+        const proposalInput = {
+            sessionId: "session-a",
+            principal,
+            capability: "clients.update",
+            input: { id: 3, grant: "99999", actualPrice: "1" },
+            locale: "ko",
+        };
+
+        const first = await service.propose(proposalInput);
+        const duplicate = await service.propose(proposalInput);
+
+        expect(first.id).toBe(duplicate.id);
+        expect(first.proposal["input"]).toEqual({ id: 3, grant: "0", actualPrice: "100000" });
+        expect(first.inputHash).toBe(duplicate.inputHash);
+        expect(first.requestDedupeKey).toBe(duplicate.requestDedupeKey);
+        expect(prisma.agent_action.create).toHaveBeenCalledTimes(1);
+        expect(definition.canonicalizeInput).toHaveBeenCalledTimes(2);
+    });
+
     it("does not create an action for an archived or expired session", async () => {
         const definition = capability();
         const sessions = sessionPersistence();

@@ -158,6 +158,53 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         }), expect.anything());
     });
 
+    it("canonicalizes create input before it reaches proposal hashing", async () => {
+        const { capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+
+        expect(capability.canonicalizeInput!(context, {
+            name: "홍길동",
+            phone: "01012345678",
+            voucherClient: false,
+            type: "private",
+            fullPrice: "120000",
+            grant: "90000",
+            actualPrice: "30000",
+        })).toEqual(expect.objectContaining({
+            voucherClient: false,
+            type: null,
+            fullPrice: "120000",
+            grant: "0",
+            actualPrice: "120000",
+        }));
+    });
+
+    it("canonicalizes update input from the branch-owned current client", async () => {
+        const { capabilities, findClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+
+        await expect(capability.canonicalizeInput!(context, {
+            id: 1,
+            fullPrice: "130000",
+        })).resolves.toEqual(expect.objectContaining({
+            id: 1,
+            voucherClient: true,
+            type: "standard",
+            fullPrice: "130000",
+            grant: "50000",
+            actualPrice: "50000",
+        }));
+        expect(findClient.execute).toHaveBeenCalledWith("branch-a", 1);
+    });
+
     it("offers every client update field without requiring unrelated values", () => {
         const { capabilities } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;

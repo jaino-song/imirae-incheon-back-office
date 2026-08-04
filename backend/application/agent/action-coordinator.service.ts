@@ -166,14 +166,23 @@ export class ActionCoordinatorService {
         if (!await this.flags.isCapabilityEnabled(capability.meta, input.principal)) {
             throw new ForbiddenException("Capability disabled");
         }
-        const parsedInput = capability.inputSchema.parse(input.input);
+        const traceId = input.traceId ?? randomUUID();
+        const proposalContext = {
+            principal: input.principal,
+            sessionId: input.sessionId,
+            traceId,
+            locale: input.locale,
+        };
+        const schemaInput = capability.inputSchema.parse(input.input);
+        const parsedInput = capability.canonicalizeInput
+            ? capability.inputSchema.parse(await capability.canonicalizeInput(proposalContext, schemaInput))
+            : schemaInput;
         const inputHash = createHash("sha256").update(stableJson(parsedInput)).digest("hex");
         const now = new Date();
         const expiresAt = input.expiresAt ?? new Date(now.getTime() + DEFAULT_ACTION_TTL_MS);
         const requestDedupeKey = createHash("sha256")
             .update(`${input.sessionId}:${input.principal.userId}:${input.principal.branchId}:${input.capability}:${inputHash}`)
             .digest("hex");
-        const traceId = input.traceId ?? randomUUID();
         let proposalData: {
             proposal: Record<string, unknown>;
             proposalRevision: string;
@@ -183,12 +192,7 @@ export class ActionCoordinatorService {
         const buildProposal = async () => {
             if (proposalData) return proposalData;
             const inspection = capability.inspect
-                ? await capability.inspect({
-                    principal: input.principal,
-                    sessionId: input.sessionId,
-                    traceId,
-                    locale: input.locale,
-                }, parsedInput)
+                ? await capability.inspect(proposalContext, parsedInput)
                 : undefined;
             const parsedTargetVersion = inspection?.targetVersion ?? input.targetVersion;
             const targetSnapshot = input.targetSnapshot ?? inspection?.targetSnapshot;

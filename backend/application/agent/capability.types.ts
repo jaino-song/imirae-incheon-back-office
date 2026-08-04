@@ -34,6 +34,8 @@ export interface CapabilityDefinition<TInput = unknown, TOutput = unknown> {
     inputSchema: z.ZodType<TInput>;
     outputSchema: z.ZodType<TOutput>;
     formFields?: AgentFormField[];
+    /** Normalize proposal input before it contributes to hashes or persistence. */
+    canonicalizeInput?(context: AgentContext, input: TInput): Promise<TInput> | TInput;
     /** Resolve immutable review details before the durable proposal is created. */
     inspect?(context: AgentContext, input: TInput): Promise<AgentProposalInspection>;
     execute(context: AgentContext, input: TInput): Promise<TOutput>;
