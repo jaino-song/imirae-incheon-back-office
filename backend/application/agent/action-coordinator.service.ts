@@ -221,10 +221,13 @@ export class ActionCoordinatorService {
         if (existing) {
             const status = existing.status as AgentActionStatus;
             const dedupeActive = existing.dedupeExpiresAt.getTime() > now.getTime();
-            if (status === "proposed" && dedupeActive) {
+            if (status === "proposed") {
                 const currentProposal = await buildProposal();
-                if (currentProposal.proposalRevision === existing.proposalRevision) return toEntity(existing);
-                await this.rotateRequestDedupeKey(existing, requestDedupeKey, now, false);
+                if (dedupeActive && currentProposal.proposalRevision === existing.proposalRevision) return toEntity(existing);
+                const superseded = await this.supersedeProposedAction(existing, requestDedupeKey);
+                if (!superseded) {
+                    return this.recoverProposalReplacementRace(existing, requestDedupeKey, input.principal);
+                }
             } else if (releasesDedupeImmediately(existing)) {
                 await this.rotateRequestDedupeKey(existing, requestDedupeKey, now, false);
             } else if (retainsDedupeReservation(existing) || dedupeActive) {
@@ -283,6 +286,41 @@ export class ActionCoordinatorService {
         }
     }
 
+    /**
+     * Close a stale proposal and free its request fingerprint in the same CAS.
+     * Once this succeeds, an approval claim constrained to `status: proposed`
+     * cannot execute the stale proposal.
+     */
+    private async supersedeProposedAction(existing: ActionRecord, requestDedupeKey: string): Promise<boolean> {
+        const updated = await this.prisma.agent_action.updateMany({
+            where: { id: existing.id, status: "proposed", requestDedupeKey },
+            data: {
+                status: "cancelled",
+                error: {
+                    code: "proposal_superseded",
+                    message: "The proposal was superseded by a refreshed target inspection",
+                } as Prisma.InputJsonValue,
+                requestDedupeKey: this.rotatedRequestDedupeKey(requestDedupeKey, existing.id),
+            },
+        });
+        return updated.count === 1;
+    }
+
+    /** Recover the reservation that won the approval/replacement race. */
+    private async recoverProposalReplacementRace(
+        existing: ActionRecord,
+        requestDedupeKey: string,
+        principal: VerifiedTenantPrincipal,
+    ): Promise<AgentActionEntity> {
+        const byKey = await this.prisma.agent_action.findUnique({ where: { requestDedupeKey } });
+        if (byKey) return toEntity(byKey);
+        const current = await this.prisma.agent_action.findFirst({
+            where: { id: existing.id, userId: principal.userId, branchId: principal.branchId },
+        });
+        if (current) return toEntity(current);
+        throw new ConflictException("Action proposal replacement raced with another request");
+    }
+
     /** Rotate a request fingerprint only when the row still owns that key. */
     private async rotateRequestDedupeKey(
         existing: ActionRecord,
@@ -298,11 +336,15 @@ export class ActionCoordinatorService {
                 ...(requireExpired ? { dedupeExpiresAt: { lte: now } } : {}),
             },
             data: {
-                requestDedupeKey: createHash("sha256")
-                    .update(`released:${requestDedupeKey}:${existing.id}:${randomUUID()}`)
-                    .digest("hex"),
+                requestDedupeKey: this.rotatedRequestDedupeKey(requestDedupeKey, existing.id),
             },
         });
+    }
+
+    private rotatedRequestDedupeKey(requestDedupeKey: string, actionId: string): string {
+        return createHash("sha256")
+            .update(`released:${requestDedupeKey}:${actionId}:${randomUUID()}`)
+            .digest("hex");
     }
 
     async get(id: string, owner: AgentActionOwner): Promise<AgentActionEntity> {

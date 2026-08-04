@@ -52,6 +52,12 @@ function actionPersistence(prisma?: unknown) {
     };
 }
 
+function deferred<T = void>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+    return { promise, resolve };
+}
+
 describe("ActionCoordinatorService", () => {
     function actionRecord(overrides: Record<string, unknown> = {}) {
         const now = new Date();
@@ -331,7 +337,7 @@ describe("ActionCoordinatorService", () => {
                 const current = records.get(where.requestDedupeKey);
                 if (!current || current.status !== where.status) return { count: 0 };
                 records.delete(where.requestDedupeKey);
-                records.set(data.requestDedupeKey, actionRecord({ ...current, requestDedupeKey: data.requestDedupeKey }));
+                records.set(data.requestDedupeKey, actionRecord({ ...current, ...data, requestDedupeKey: data.requestDedupeKey }));
                 return { count: 1 };
             }),
             create: jest.fn().mockImplementation(async ({ data }) => {
@@ -356,6 +362,9 @@ describe("ActionCoordinatorService", () => {
 
         expect(replacement.id).not.toBe(first.id);
         expect(replacement.targetVersion).toBe("target-v2");
+        expect([...records.values()]).toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: first.id, status: "cancelled", error: expect.objectContaining({ code: "proposal_superseded" }) }),
+        ]));
         expect(definition.inspect).toHaveBeenCalledTimes(2);
         expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
             where: expect.objectContaining({
@@ -365,6 +374,153 @@ describe("ActionCoordinatorService", () => {
             }),
         }));
         expect(prisma.agent_action.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("makes replacement win the approval race so the stale proposal cannot execute", async () => {
+        let revisionLabel = "target-v1";
+        const definition = {
+            ...capability(),
+            inspect: jest.fn().mockImplementation(async () => ({ summary: `Apply ${revisionLabel}` })),
+        };
+        const recordsById = new Map<string, ReturnType<typeof actionRecord>>();
+        const recordsByKey = new Map<string, ReturnType<typeof actionRecord>>();
+        const supersedeCommitted = deferred();
+        const allowReplacementCreate = deferred();
+        let createCount = 0;
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockImplementation(async ({ where }) => (
+                where.id ? recordsById.get(where.id) ?? null : recordsByKey.get(where.requestDedupeKey) ?? null
+            )),
+            findFirst: jest.fn().mockImplementation(async ({ where }) => recordsById.get(where.id) ?? null),
+            updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
+                const current = recordsById.get(where.id);
+                if (!current || (where.status && current.status !== where.status)
+                    || (where.requestDedupeKey && current.requestDedupeKey !== where.requestDedupeKey)) return { count: 0 };
+                const previousKey = current.requestDedupeKey;
+                if (data.status === "cancelled") supersedeCommitted.resolve();
+                const updated = actionRecord({ ...current, ...data });
+                recordsById.set(updated.id, updated);
+                if (updated.requestDedupeKey !== previousKey) {
+                    recordsByKey.delete(previousKey);
+                    recordsByKey.set(updated.requestDedupeKey, updated);
+                } else {
+                    recordsByKey.set(updated.requestDedupeKey, updated);
+                }
+                return { count: 1 };
+            }),
+            create: jest.fn().mockImplementation(async ({ data }) => {
+                createCount += 1;
+                if (createCount === 2) await allowReplacementCreate.promise;
+                const created = actionRecord({ ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null });
+                recordsById.set(created.id, created);
+                recordsByKey.set(created.requestDedupeKey, created);
+                return created;
+            }),
+        } };
+        const sessions = sessionPersistence();
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessions as never,
+            actionPersistence(prisma) as never,
+        );
+        const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
+
+        const first = await service.propose(input);
+        revisionLabel = "target-v2";
+        const replacementPromise = service.propose(input);
+        await supersedeCommitted.promise;
+
+        const approval = await service.approve(first.id, principal, first.proposalRevision);
+        expect(approval.action.status).toBe("cancelled");
+        expect(definition.execute).not.toHaveBeenCalled();
+
+        allowReplacementCreate.resolve();
+        const replacement = await replacementPromise;
+        expect(replacement.id).not.toBe(first.id);
+        expect(replacement.status).toBe("proposed");
+        expect(recordsById.get(first.id)).toEqual(expect.objectContaining({
+            status: "cancelled",
+            error: expect.objectContaining({ code: "proposal_superseded" }),
+        }));
+        const actionable = [...recordsById.values()].filter((record) => ["proposed", "approved", "executing", "uncertain"].includes(record.status));
+        expect(actionable).toHaveLength(1);
+        expect(actionable[0]?.id).toBe(replacement.id);
+    });
+
+    it("returns the approval winner when replacement CAS loses without creating a second action", async () => {
+        let revisionLabel = "target-v1";
+        const definition = {
+            ...capability(),
+            inspect: jest.fn().mockImplementation(async () => ({ summary: `Apply ${revisionLabel}` })),
+        };
+        const recordsById = new Map<string, ReturnType<typeof actionRecord>>();
+        const recordsByKey = new Map<string, ReturnType<typeof actionRecord>>();
+        const supersedeAttempted = deferred();
+        const allowSupersede = deferred();
+        let createCount = 0;
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockImplementation(async ({ where }) => (
+                where.id ? recordsById.get(where.id) ?? null : recordsByKey.get(where.requestDedupeKey) ?? null
+            )),
+            findFirst: jest.fn().mockImplementation(async ({ where }) => recordsById.get(where.id) ?? null),
+            updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
+                if (data.status === "cancelled") {
+                    supersedeAttempted.resolve();
+                    await allowSupersede.promise;
+                }
+                const current = recordsById.get(where.id);
+                if (!current || (where.status && current.status !== where.status)
+                    || (where.requestDedupeKey && current.requestDedupeKey !== where.requestDedupeKey)) return { count: 0 };
+                const updated = actionRecord({
+                    ...current,
+                    ...data,
+                    executionAttemptCount: data.executionAttemptCount?.increment
+                        ? current.executionAttemptCount + data.executionAttemptCount.increment
+                        : current.executionAttemptCount,
+                });
+                recordsById.set(updated.id, updated);
+                recordsByKey.set(updated.requestDedupeKey, updated);
+                return { count: 1 };
+            }),
+            create: jest.fn().mockImplementation(async ({ data }) => {
+                createCount += 1;
+                const created = actionRecord({ ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null });
+                recordsById.set(created.id, created);
+                recordsByKey.set(created.requestDedupeKey, created);
+                return created;
+            }),
+        } };
+        const sessions = sessionPersistence();
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessions as never,
+            actionPersistence(prisma) as never,
+        );
+        const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
+
+        const first = await service.propose(input);
+        revisionLabel = "target-v2";
+        const replacementPromise = service.propose(input);
+        await supersedeAttempted.promise;
+
+        const approval = await service.approve(first.id, principal, first.proposalRevision);
+        expect(approval.action.status).toBe("succeeded");
+        allowSupersede.resolve();
+        const winner = await replacementPromise;
+
+        expect(winner.id).toBe(first.id);
+        expect(winner.status).toBe("succeeded");
+        expect(createCount).toBe(1);
+        expect(definition.execute).toHaveBeenCalledTimes(1);
+        const reserved = [...recordsById.values()].filter((record) => ["proposed", "approved", "executing", "uncertain", "succeeded"].includes(record.status));
+        expect(reserved).toHaveLength(1);
+        expect(reserved[0]?.id).toBe(first.id);
     });
 
     it("reuses an active proposed action only when its complete revision is identical", async () => {
