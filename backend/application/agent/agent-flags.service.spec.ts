@@ -103,6 +103,87 @@ describe("AgentFlagsService", () => {
         expect(getSetting.execute).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+        ["AGENT_ENABLED", "enabled"],
+        ["AGENT_READ_ENABLED", "read"],
+        ["AGENT_WRITE_ENABLED", "reversible-write"],
+        ["AGENT_EXTERNAL_ENABLED", "external-side-effect"],
+        ["AGENT_PRIVILEGED_ENABLED", "privileged-administration"],
+    ] as const)("preserves stored true intent for %s through unrelated patches and recovers after switch removal", async (environmentFlag, target) => {
+        const config = new ConfigService({ NODE_ENV: "development", [environmentFlag]: "false" });
+        const stored = {
+            enabled: true,
+            rolloutStage: "development",
+            domains: { clients: true },
+            capabilities: { "clients.search": true },
+            risks: {
+                read: true,
+                "reversible-write": true,
+                "irreversible-write": true,
+                "external-side-effect": true,
+                "paid-action": true,
+                "privileged-administration": true,
+            },
+            branchAllowlist: ["branch-1"],
+            userAllowlist: ["user-1"],
+        };
+        jest.spyOn(getSetting, "execute").mockResolvedValue(JSON.stringify(stored));
+        jest.spyOn(updateSetting, "execute").mockResolvedValue(undefined as never);
+        const service = new AgentFlagsService(config, getSetting, updateSetting);
+
+        const disabled = await service.getConfig();
+        if (target === "enabled") expect(disabled.enabled).toBe(false);
+        else expect(disabled.risks[target]).toBe(false);
+
+        await service.updateConfig({ domains: { employees: true } });
+        const updateCalls = (updateSetting.execute as unknown as jest.Mock).mock.calls as Array<[string, string]>;
+        const persistedPatch = updateCalls.find(([key]) => key === "agent.flags");
+        const persisted = JSON.parse(persistedPatch?.[1] as string);
+        expect(persisted).toEqual(expect.objectContaining({
+            enabled: true,
+            domains: { clients: true, employees: true },
+            capabilities: stored.capabilities,
+            risks: expect.objectContaining({ [target === "enabled" ? "read" : target]: true }),
+        }));
+
+        config.set(environmentFlag, "true");
+        const recovered = await service.getConfig();
+        if (target === "enabled") expect(recovered.enabled).toBe(true);
+        else expect(recovered.risks[target]).toBe(true);
+    });
+
+    it("merges emergency disable against raw intent without dropping domains, capabilities, or risks", async () => {
+        const config = new ConfigService({ NODE_ENV: "development" });
+        const stored = {
+            enabled: true,
+            rolloutStage: "development",
+            domains: { clients: true },
+            capabilities: { "clients.search": true },
+            risks: { read: true, "reversible-write": true },
+            branchAllowlist: ["branch-1"],
+            userAllowlist: ["user-1"],
+        };
+        jest.spyOn(getSetting, "execute").mockResolvedValue(JSON.stringify(stored));
+        jest.spyOn(updateSetting, "execute").mockResolvedValue(undefined as never);
+        const service = new AgentFlagsService(config, getSetting, updateSetting);
+
+        await expect(service.updateConfig({ enabled: false })).resolves.toEqual(expect.objectContaining({
+            enabled: false,
+            domains: stored.domains,
+            capabilities: stored.capabilities,
+            risks: expect.objectContaining(stored.risks),
+        }));
+
+        const updateCalls = (updateSetting.execute as unknown as jest.Mock).mock.calls as Array<[string, string]>;
+        const persistedPatch = updateCalls.find(([key]) => key === "agent.flags");
+        expect(JSON.parse(persistedPatch?.[1] as string)).toEqual(expect.objectContaining({
+            enabled: false,
+            domains: stored.domains,
+            capabilities: stored.capabilities,
+            risks: expect.objectContaining(stored.risks),
+        }));
+    });
+
     it("fails closed in production when enabled flags have no explicit rollout allowlist", async () => {
         const config = new ConfigService({ NODE_ENV: "production", AGENT_ENABLED: "true", AGENT_READ_ENABLED: "true" });
         jest.spyOn(getSetting, "execute").mockResolvedValue(JSON.stringify({

@@ -203,8 +203,7 @@ export class AgentController {
     @Post("agent/emergency-disable")
     @UseGuards(OwnerGuard)
     async emergencyDisable() {
-        const config = await this.flags.getConfig();
-        return this.flags.updateConfig({ ...config, enabled: false });
+        return this.flags.updateConfig({ enabled: false });
     }
 
     private owner(request: AgentRequest) {
