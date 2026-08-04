@@ -701,6 +701,7 @@ describe("SbMessageTriggerJobRepository", () => {
                 status: "pending",
                 clientId: null,
                 employeeScheduleId: null,
+                NOT: { ruleId: { startsWith: "agent-sms:" } },
             },
             data: {
                 status: "canceled",

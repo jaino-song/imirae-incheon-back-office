@@ -33,6 +33,8 @@ export enum MessageTriggerTemplateKey {
     INFO = "INFO",
 }
 
+export const AGENT_SMS_RULE_ID_PREFIX = "agent-sms:";
+
 export type SupportedTriggerProvider = "sms";
 
 // Free pairing: every SMS (system-template) trigger may fire on any client lifecycle event.

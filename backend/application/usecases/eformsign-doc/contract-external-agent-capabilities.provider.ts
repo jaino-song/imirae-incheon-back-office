@@ -139,7 +139,10 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                         if (TERMINAL_STATUS_CODES.has(statusType)) {
                             return { status: "failed" as const, result: { success: false, documentId: remoteDocumentId, status }, reason: "Provider reported a terminal non-completed status" };
                         }
-                        return { status: "uncertain" as const, reason: "Provider document is still in progress" };
+                        return {
+                            status: "succeeded" as const,
+                            result: { success: true, documentId: remoteDocumentId, status },
+                        };
                     } catch {
                         return { status: "uncertain" as const, reason: "Provider status lookup failed" };
                     }

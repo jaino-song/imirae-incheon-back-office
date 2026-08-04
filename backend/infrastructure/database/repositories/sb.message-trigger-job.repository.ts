@@ -12,6 +12,7 @@ import {
     MessageTriggerJobStatus,
 } from "domain/entities/message-trigger-job.entity";
 import {
+    AGENT_SMS_RULE_ID_PREFIX,
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
@@ -359,6 +360,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 status: "pending",
                 clientId: null,
                 employeeScheduleId: null,
+                NOT: { ruleId: { startsWith: AGENT_SMS_RULE_ID_PREFIX } },
             },
             data: {
                 status: "canceled",

@@ -38,6 +38,8 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
 
     function setup(currentClient = client(), currentTemplates = [template()]) {
         const createAndSend = { execute: jest.fn().mockResolvedValue({ success: true, documentId: "remote-1" }) };
+        const getAccessToken = { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) };
+        const fetchDocument = { execute: jest.fn() };
         const transaction = { agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
         const prisma = {
             $transaction: jest.fn(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)),
@@ -45,14 +47,14 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
         const areaTemplateService = { findAll: jest.fn().mockResolvedValue(currentTemplates) };
         const provider = new ContractExternalAgentCapabilitiesProvider(
             createAndSend as never,
-            { execute: jest.fn() } as never,
-            { execute: jest.fn() } as never,
+            getAccessToken as never,
+            fetchDocument as never,
             { execute: jest.fn().mockResolvedValue(currentClient) } as never,
             areaTemplateService as never,
             { findByIdForUpdate: jest.fn().mockResolvedValue(currentClient) } as never,
             prisma as never,
         );
-        return { provider, createAndSend, transaction, prisma, areaTemplateService };
+        return { provider, createAndSend, getAccessToken, fetchDocument, transaction, prisma, areaTemplateService };
     }
 
     async function inspectDispatch(
@@ -260,5 +262,29 @@ describe("ContractExternalAgentCapabilitiesProvider approval-bound dispatch", ()
         }, clientAgentTargetVersion(client() as never))).rejects.toBeInstanceOf(AgentActionCertainFailureError);
 
         expect(createAndSend.execute).not.toHaveBeenCalled();
+    });
+
+    it("reconciles a remotely accepted in-progress document as a successful dispatch", async () => {
+        const { provider, fetchDocument } = setup();
+        fetchDocument.execute.mockResolvedValue({
+            current_status: {
+                status_type: "001",
+                status_doc_detail: "서명 요청됨",
+            },
+        });
+        const capability = provider.getCapabilities()[0]!;
+
+        await expect(capability.reconcile!(context, {
+            clientId: 7,
+            templateId: "template-1",
+        }, { remoteDocumentId: "remote-1" })).resolves.toEqual({
+            status: "succeeded",
+            result: {
+                success: true,
+                documentId: "remote-1",
+                status: "서명 요청됨",
+            },
+        });
+        expect(fetchDocument.execute).toHaveBeenCalledWith("token", "remote-1");
     });
 });
