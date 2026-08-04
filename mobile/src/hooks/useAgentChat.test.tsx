@@ -187,6 +187,93 @@ describe("mobile useAgentChat", () => {
         expect(result.current.messages.at(-1)?.parts).toEqual([{ type: "text", text: "첫" }]);
     });
 
+    it("retires a stopped stream before delayed abort rejection and allows a later send", async () => {
+        let chatCallCount = 0;
+        let releaseAbortedRead: (() => void) | undefined;
+        let markFirstChunkRead: (() => void) | undefined;
+        const firstChunkRead = new Promise<void>((resolve) => { markFirstChunkRead = resolve; });
+        const firstChunk = new Uint8Array(Buffer.from([
+            'data: {"type":"text-delta","delta":"부분"}',
+            "",
+        ].join("\n")));
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
+            const url = String(input);
+            if (!url.endsWith("/chat")) return { ok: true, json: async () => [] } as Response;
+            chatCallCount += 1;
+            if (chatCallCount === 1) {
+                let readCount = 0;
+                return {
+                    ok: true,
+                    headers: { get: () => "session-stopped" },
+                    body: {
+                        getReader: () => ({
+                            read: async () => {
+                                if (readCount === 0) {
+                                    readCount += 1;
+                                    markFirstChunkRead?.();
+                                    return { done: false, value: firstChunk };
+                                }
+                                if (readCount === 1) {
+                                    readCount += 1;
+                                    await new Promise<void>((resolve) => { releaseAbortedRead = resolve; });
+                                    throw Object.assign(new Error("aborted"), { name: "AbortError" });
+                                }
+                                return { done: true, value: new Uint8Array() };
+                            },
+                        }),
+                    },
+                } as unknown as Response;
+            }
+            let consumed = false;
+            return {
+                ok: true,
+                headers: { get: () => "session-next" },
+                body: {
+                    getReader: () => ({
+                        read: async () => {
+                            if (consumed) return { done: true, value: new Uint8Array() };
+                            consumed = true;
+                            return {
+                                done: false,
+                                value: new Uint8Array(Buffer.from([
+                                    'data: {"type":"start","messageId":"assistant-next"}',
+                                    'data: {"type":"text-delta","delta":"새 응답"}',
+                                    "data: [DONE]",
+                                    "",
+                                ].join("\n"))),
+                            };
+                        },
+                    }),
+                },
+            } as unknown as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        let firstSend: Promise<void> | undefined;
+        await act(async () => {
+            firstSend = result.current.sendMessage("중단할 질문");
+            await firstChunkRead;
+        });
+        await waitFor(() => expect(result.current.messages.at(-1)?.parts).toEqual([{ type: "text", text: "부분" }]));
+        expect(result.current.status).toBe("streaming");
+
+        act(() => { result.current.stop(); });
+        expect(result.current.status).toBe("ready");
+
+        releaseAbortedRead?.();
+        await act(async () => { await firstSend; });
+        expect(result.current.status).toBe("ready");
+        expect(result.current.messages.at(-1)?.parts).toEqual([{ type: "text", text: "부분" }]);
+
+        await act(async () => { await result.current.sendMessage("다음 질문"); });
+        expect(result.current.status).toBe("ready");
+        expect(result.current.messages.at(-1)).toEqual({
+            id: "assistant-next",
+            role: "assistant",
+            parts: [{ type: "text", text: "새 응답" }],
+        });
+    });
+
     it("does not append later chunks from a stale stream after switching sessions", async () => {
         let releaseLaterChunk: (() => void) | undefined;
         let markFirstChunkRead: (() => void) | undefined;

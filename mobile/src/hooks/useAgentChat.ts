@@ -163,7 +163,12 @@ export function useAgentChat() {
         }
     }, [messages, refreshSessions, status]);
 
-    const stop = useCallback(() => abortRef.current?.abort(), []);
+    const stop = useCallback(() => {
+        operationEpochRef.current += 1;
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setStatus("ready");
+    }, []);
     const selectSession = useCallback(async (id: string) => {
         const operationEpoch = ++operationEpochRef.current;
         pendingSessionId.current = id;
