@@ -33,8 +33,8 @@ export class MarkNotificationReadUsecase {
             throw new NotFoundException(`Notification not found: ${notificationId}`);
         }
 
-        notification.markAsRead();
-        return this.notificationRepository.update(branchid, notification);
+        if (notification.readAt) return notification;
+        return this.notificationRepository.updateReadAt(branchid, notificationId, new Date());
     }
 
     async markAllAsRead(branchid: string, userId: string): Promise<void> {

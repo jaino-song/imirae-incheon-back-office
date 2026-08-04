@@ -16,4 +16,14 @@ export class UpdateSettingUsecase {
         const entity = SystemSettingEntity.create(key, value);
         return this.repository.upsert(entity);
     }
+
+    async executeIfVersion(
+        key: string,
+        value: string,
+        expectedVersion: string,
+        versionOf: (currentValue: string | null) => string,
+    ): Promise<SystemSettingEntity | null> {
+        const entity = SystemSettingEntity.create(key, value);
+        return this.repository.compareAndSet(key, expectedVersion, entity, versionOf);
+    }
 }

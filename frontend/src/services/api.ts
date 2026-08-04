@@ -13,6 +13,7 @@ import type { RegisterRequest } from "@babyjamjam/shared";
 import { ContractDataDto } from '@/backend/application/dto/contract.dto';
 import {
     EformsignApiListResponse,
+    EformsignContractClientCandidateResponse,
     CreateEformsignDocRecordRequest,
     EformsignAuthStatusResponse,
     EformsignDeleteDocumentsResponse,
@@ -178,6 +179,12 @@ export const eformsignApi = {
     getDocument: async (documentId: string) => {
         const { data } = await api.get(`/eformsign/documents/${documentId}`);
         return data;
+    },
+    getDocumentClientCandidate: async (documentId: string) => {
+        const { data } = await api.get(
+            `/eformsign/documents/${encodeURIComponent(documentId)}/client-candidate`
+        );
+        return data as EformsignContractClientCandidateResponse;
     },
     // Receipt = page 7 of the document PDF, extracted by the download_files BFF route.
     // Browser-navigable BFF URL (full /api path, used as href/download — NOT via the axios client).

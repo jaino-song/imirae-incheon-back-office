@@ -441,7 +441,7 @@ describe("SbEmployeeRepository", () => {
 
                 // Assert
                 expect(employeeModel.updateMany).toHaveBeenCalledWith({
-                    where: { id: 7, branchId: branchId },
+                    where: { id: 7, branchId: branchId, deletedAt: null },
                     data: {
                         name: "Charlie",
                         workArea: ["Busan"],
@@ -644,7 +644,7 @@ describe("SbEmployeeRepository", () => {
 
                 // Assert
                 expect(employeeModel.updateMany).toHaveBeenCalledWith({
-                    where: { id: 10, branchId: branchId },
+                    where: { id: 10, branchId: branchId, deletedAt: null },
                     data: { openToNextWork: false },
                 });
             });
@@ -660,7 +660,7 @@ describe("SbEmployeeRepository", () => {
 
                 // Assert
                 expect(employeeModel.updateMany).toHaveBeenCalledWith({
-                    where: { id: 15, branchId: branchId },
+                    where: { id: 15, branchId: branchId, deletedAt: null },
                     data: { openToNextWork: true },
                 });
             });

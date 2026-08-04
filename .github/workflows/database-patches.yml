@@ -185,6 +185,26 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
 
+      - name: Apply agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
+
+      - name: Apply agent action identity hardening patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
+
+      - name: Apply agent action result delivery patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
+
+      - name: Apply agent action effect receipt patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
+
+      - name: Verify agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
+
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -496,6 +516,26 @@ jobs:
         working-directory: backend
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
 
+      - name: Apply agent copilot tables patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
+
+      - name: Apply agent action identity hardening patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
+
+      - name: Apply agent action result delivery patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
+
+      - name: Apply agent action effect receipt patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
+
+      - name: Verify agent copilot tables patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
+
   apply-production:
     name: apply production database patches
     needs: [apply-preview]
@@ -786,3 +826,23 @@ jobs:
       - name: Verify client birth date patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
+
+      - name: Apply agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
+
+      - name: Apply agent action identity hardening patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
+
+      - name: Apply agent action result delivery patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
+
+      - name: Apply agent action effect receipt patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
+
+      - name: Verify agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql

@@ -75,6 +75,139 @@ model chat_session {
   @@index([userId])
 }
 
+model agent_session {
+  id               String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId           String           @map("user_id") @db.Uuid
+  branchId         String           @map("branch_id") @db.Uuid
+  locale           String           @default("ko") @db.VarChar(10)
+  title            String?
+  summary          String?
+  selectedEntities Json             @default("{}") @map("selected_entities")
+  model            String
+  agentVersion     String           @map("agent_version")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  expiresAt        DateTime         @map("expires_at") @db.Timestamptz(6)
+  archivedAt       DateTime?        @map("archived_at") @db.Timestamptz(6)
+  user             user             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch           branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  messages         agent_message[]
+  actions          agent_action[]
+  traces           agent_trace[]
+  feedback         agent_feedback[]
+
+  @@index([branchId, userId, updatedAt], map: "idx_agent_session_owner_updated")
+  @@index([expiresAt], map: "idx_agent_session_expires_at")
+  @@index([archivedAt], map: "idx_agent_session_archived_at")
+}
+
+model agent_message {
+  id        String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  sessionId String           @map("session_id")
+  role      String           @db.VarChar(20)
+  parts     Json
+  traceId   String?          @map("trace_id")
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  session   agent_session    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  trace     agent_trace?     @relation(fields: [traceId], references: [id], onDelete: SetNull)
+  feedback  agent_feedback[]
+
+  @@index([sessionId, createdAt], map: "idx_agent_message_session_created")
+  @@index([traceId], map: "idx_agent_message_trace")
+}
+
+model agent_action {
+  id                   String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  sessionId            String        @map("session_id")
+  userId               String        @map("user_id") @db.Uuid
+  branchId             String        @map("branch_id") @db.Uuid
+  capability           String
+  capabilityVersion    String        @map("capability_version")
+  risk                 String        @db.VarChar(40)
+  status               String        @default("proposed") @db.VarChar(20)
+  proposal             Json
+  proposalRevision     String        @map("proposal_revision")
+  inputHash            String        @map("input_hash")
+  targetSnapshot       Json?         @map("target_snapshot")
+  targetVersion        String?       @map("target_version")
+  authorizationContext Json          @map("authorization_context")
+  approvedBy           String?       @map("approved_by") @db.Uuid
+  approvedAt           DateTime?     @map("approved_at") @db.Timestamptz(6)
+  rejectedBy           String?       @map("rejected_by") @db.Uuid
+  rejectedAt           DateTime?     @map("rejected_at") @db.Timestamptz(6)
+  expiresAt            DateTime      @map("expires_at") @db.Timestamptz(6)
+  idempotencyKey       String        @unique(map: "agent_action_idempotency_key_key") @map("idempotency_key")
+  requestDedupeKey     String        @unique(map: "agent_action_request_dedupe_key_key") @map("request_dedupe_key")
+  dedupeExpiresAt      DateTime      @map("dedupe_expires_at") @db.Timestamptz(6)
+  result               Json?
+  error                Json?
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  executedAt           DateTime?     @map("executed_at") @db.Timestamptz(6)
+  executionAttemptCount Int          @default(0) @map("execution_attempt_count")
+  resultPartPersistedAt DateTime?    @map("result_part_persisted_at") @db.Timestamptz(6)
+  effectReceipt         Json?        @map("effect_receipt")
+  effectRecordedAt      DateTime?    @map("effect_recorded_at") @db.Timestamptz(6)
+  session              agent_session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user                 user          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch               branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt], map: "idx_agent_action_session_created")
+  @@index([branchId, userId, status], map: "idx_agent_action_owner_status")
+  @@index([status, expiresAt], map: "idx_agent_action_status_expires")
+  @@index([dedupeExpiresAt], map: "idx_agent_action_dedupe_expires")
+}
+
+model agent_trace {
+  id                String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  sessionId         String           @map("session_id")
+  userId            String           @map("user_id") @db.Uuid
+  branchId          String           @map("branch_id") @db.Uuid
+  model             String
+  agentVersion      String           @map("agent_version")
+  routedDomains     Json             @default("[]") @map("routed_domains")
+  stepMetadata      Json             @default("[]") @map("step_metadata")
+  usage             Json?
+  latencyMs         Int?             @map("latency_ms")
+  outcome           String           @default("running") @db.VarChar(20)
+  errorCategory     String?          @map("error_category") @db.VarChar(30)
+  redactionMetadata Json?            @map("redaction_metadata")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt        DateTime?        @map("finished_at") @db.Timestamptz(6)
+  session           agent_session    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user              user             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch            branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  messages          agent_message[]
+  feedback          agent_feedback[]
+
+  @@index([sessionId, createdAt], map: "idx_agent_trace_session_created")
+  @@index([branchId, userId, createdAt], map: "idx_agent_trace_owner_created")
+  @@index([outcome, createdAt], map: "idx_agent_trace_outcome_created")
+}
+
+model agent_feedback {
+  id        String        @id @default(dbgenerated("(gen_random_uuid())::text"))
+  sessionId String        @map("session_id")
+  messageId String        @map("message_id")
+  traceId   String?       @map("trace_id")
+  userId    String        @map("user_id") @db.Uuid
+  branchId  String        @map("branch_id") @db.Uuid
+  type      String        @db.VarChar(20)
+  comment   String?
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  session   agent_session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  message   agent_message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  trace     agent_trace?  @relation(fields: [traceId], references: [id], onDelete: SetNull)
+  user      user          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch    branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId], map: "agent_feedback_message_user_key")
+  @@index([sessionId, createdAt], map: "idx_agent_feedback_session_created")
+  @@index([messageId], map: "idx_agent_feedback_message")
+  @@index([traceId], map: "idx_agent_feedback_trace")
+  @@index([branchId, userId], map: "idx_agent_feedback_owner")
+}
+
 model client {
   id                     Int                       @id @default(autoincrement())
   name                   String
@@ -252,7 +385,7 @@ model employee {
   branch                     branch?                     @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   primaryEmployeeSchedules   employee_schedule[]         @relation("employee_schedule_primary_employee_idToemployee")
   secondaryEmployeeSchedules employee_schedule[]         @relation("employee_schedule_secondary_employee_idToemployee")
-  serviceRecordTokens     service_record_token[]
+  serviceRecordTokens        service_record_token[]
   serviceRecordAssignments   service_record_assignment[]
   serviceRecordDays          service_record_day[]
 
@@ -274,7 +407,7 @@ model employee_schedule {
   branch                  branch?                    @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   primaryEmployee         employee                   @relation("employee_schedule_primary_employee_idToemployee", fields: [primaryEmployeeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   secondaryEmployee       employee?                  @relation("employee_schedule_secondary_employee_idToemployee", fields: [secondaryEmployeeId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  serviceRecordTokens          service_record_token[]
+  serviceRecordTokens     service_record_token[]
   serviceRecord           service_record?
   serviceRecordDays       service_record_day[]
   scheduleChangeRequests  schedule_change_request[]
@@ -365,7 +498,7 @@ model branch {
   callIngestTokens             call_ingest_token[]
   callRecords                  call_record[]
   clientDrafts                 client_draft[]
-  serviceRecordTokens       service_record_token[]
+  serviceRecordTokens          service_record_token[]
   serviceRecords               service_record[]
   serviceRecordDays            service_record_day[]
   serviceRecordCases           service_record_case[]
@@ -373,6 +506,10 @@ model branch {
   serviceRecordSnapshotChunks  service_record_snapshot_chunk[]
   scheduleChangeRequests       schedule_change_request[]
   authSessions                 auth_session[]
+  agentSessions                agent_session[]
+  agentActions                 agent_action[]
+  agentTraces                  agent_trace[]
+  agentFeedback                agent_feedback[]
   owner                        user?                           @relation(fields: [ownerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   userBranches                 user_branch[]
 
@@ -446,6 +583,10 @@ model user {
   tokenVersion         Int                 @default(0) @map("token_version")
   chatFeedback         chat_feedback[]
   chatSessions         chat_session[]
+  agentSessions        agent_session[]
+  agentActions         agent_action[]
+  agentTraces          agent_trace[]
+  agentFeedback        agent_feedback[]
   notifications        notification[]
   ownedBranches        branch[]
   pushSubscriptions    push_subscription[]
@@ -474,10 +615,10 @@ model user_branch {
   branch   branch    @relation(fields: [branchId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user     user      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@unique([userId, branchId], map: "user_branch_user_id_branch_id_key")
   @@index([branchId], map: "idx_user_branch_branch")
   @@index([userId], map: "idx_user_branch_user")
   @@index([userId, branchId], map: "idx_user_branch_user_branch")
-  @@unique([userId, branchId], map: "user_branch_user_id_branch_id_key")
 }
 
 model auth_session {
@@ -517,22 +658,22 @@ model auth_refresh_token {
 }
 
 model auth_email_outbox {
-  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId      String     @map("user_id") @db.Uuid
-  authTokenId String     @map("auth_token_id") @db.Uuid
-  kind        String     @db.VarChar
-  recipient   String     @db.VarChar
-  name        String?    @db.VarChar
-  status      String     @default("pending") @db.VarChar
-  attempts    Int        @default(0)
-  nextAttemptAt DateTime @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
-  claimedAt   DateTime?  @map("claimed_at") @db.Timestamptz(6)
-  sentAt      DateTime?  @map("sent_at") @db.Timestamptz(6)
-  errorCode   String?    @map("error_code") @db.VarChar
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user        user       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  authToken   auth_token @relation(fields: [authTokenId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String     @map("user_id") @db.Uuid
+  authTokenId   String     @map("auth_token_id") @db.Uuid
+  kind          String     @db.VarChar
+  recipient     String     @db.VarChar
+  name          String?    @db.VarChar
+  status        String     @default("pending") @db.VarChar
+  attempts      Int        @default(0)
+  nextAttemptAt DateTime   @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  claimedAt     DateTime?  @map("claimed_at") @db.Timestamptz(6)
+  sentAt        DateTime?  @map("sent_at") @db.Timestamptz(6)
+  errorCode     String?    @map("error_code") @db.VarChar
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user          user       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  authToken     auth_token @relation(fields: [authTokenId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([authTokenId, kind], map: "auth_email_outbox_token_kind_key")
   @@index([status, nextAttemptAt], map: "idx_auth_email_outbox_delivery")
@@ -601,14 +742,14 @@ model voucher_price_info_2025 {
 }
 
 model auth_token {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  token     String    @unique
-  type      String // "email_verification" | "password_reset"
-  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
-  user      user      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  token       String              @unique
+  type        String // "email_verification" | "password_reset"
+  expiresAt   DateTime            @map("expires_at") @db.Timestamptz(6)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  usedAt      DateTime?           @map("used_at") @db.Timestamptz(6)
+  user        user                @relation(fields: [userId], references: [id], onDelete: Cascade)
   emailOutbox auth_email_outbox[]
 
   @@index([userId])
@@ -804,8 +945,8 @@ model service_record_day {
   notes                String?
   paymentConfirmed     Boolean              @default(false) @map("payment_confirmed")
   momApproval          String?              @map("mom_approval")
-  clientSignature         String?              @map("client_signature")
-  clientSignedAt          DateTime?            @map("client_signed_at") @db.Timestamptz(6)
+  clientSignature      String?              @map("client_signature")
+  clientSignedAt       DateTime?            @map("client_signed_at") @db.Timestamptz(6)
   locked               Boolean              @default(false)
   submittedAt          DateTime?            @map("submitted_at") @db.Timestamptz(6)
   createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -853,7 +994,7 @@ model service_record_case {
   client                client?                         @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   assignments           service_record_assignment[]
   days                  service_record_day[]
-  serviceRecordTokens        service_record_token[]
+  serviceRecordTokens   service_record_token[]
   legacyHeaders         service_record[]
   snapshotChunks        service_record_snapshot_chunk[]
   eformsignDocs         eformsign_doc[]

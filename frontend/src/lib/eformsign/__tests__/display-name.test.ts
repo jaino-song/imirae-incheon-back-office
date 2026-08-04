@@ -3,6 +3,7 @@ import {
   contractDisplayName,
   customerName,
   mergeDocumentForDisplayData,
+  resolveDocumentCustomerName,
 } from "@/lib/eformsign/display-name";
 import type { EformsignDocument } from "@/lib/eformsign/types";
 
@@ -92,5 +93,17 @@ describe("contract display names", () => {
     });
 
     expect(customerName(doc)).toBe("송진호");
+  });
+
+  it("prefers the customer name embedded in the document over a stale client mapping", () => {
+    const doc = documentFixture({
+      fields: [{ id: "이용자 성명", value: "안현주" }],
+    });
+
+    expect(resolveDocumentCustomerName(doc, "인천 아이미래로")).toBe("안현주");
+  });
+
+  it("uses the client mapping only when the document has no customer name", () => {
+    expect(resolveDocumentCustomerName(documentFixture(), " 송진호 ")).toBe("송진호");
   });
 });

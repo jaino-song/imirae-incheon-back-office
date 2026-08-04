@@ -1,6 +1,8 @@
 import { EmployeeEntity } from "domain/entities/employee.entity";
 import { IEmployeeRepository } from "domain/repositories/employee.repository.interface";
 import { normalizePhone } from "application/utils/normalize-phone";
+import type { Prisma } from "@prisma/client";
+import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 
 /**
  * 테스트용 Mock Employee Repository
@@ -42,6 +44,11 @@ export class MockEmployeeRepository implements IEmployeeRepository {
         return this.employees.get(id) ?? null;
     }
 
+    async findByIdForUpdate(_branchid: string, id: number, _transaction: Prisma.TransactionClient): Promise<EmployeeEntity | null> {
+        void _transaction;
+        return this.employees.get(id) ?? null;
+    }
+
     async findByPhone(_branchid: string, normalizedPhone: string): Promise<EmployeeEntity | null> {
         return Array.from(this.employees.values()).find(
             (employee) => normalizePhone(employee.phone) === normalizedPhone,
@@ -72,6 +79,21 @@ export class MockEmployeeRepository implements IEmployeeRepository {
             throw new Error(`Employee with id ${employee.id} not found`);
         }
         this.employees.set(employee.id, employee);
+        return employee;
+    }
+
+    async updateIfTargetVersion(
+        _branchid: string,
+        id: number,
+        expectedTargetVersion: string,
+        updates: Partial<Pick<EmployeeEntity, "name" | "workArea" | "phone" | "grade" | "openToNextWork" | "birthday">>,
+        _transaction?: Prisma.TransactionClient,
+    ): Promise<EmployeeEntity | null> {
+        void _transaction;
+        const employee = this.employees.get(id);
+        if (!employee || employee.deletedAt || employeeAgentTargetVersion(employee) !== expectedTargetVersion) return null;
+        employee.updateProfile(updates.name, updates.workArea, updates.phone, updates.grade, updates.openToNextWork, updates.birthday);
+        this.employees.set(id, employee);
         return employee;
     }
 

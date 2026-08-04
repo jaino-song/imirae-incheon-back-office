@@ -43,6 +43,35 @@ function subtitle(container: HTMLElement): Element | null {
 }
 
 describe("ContractsListItem", () => {
+  it.each([
+    ["pending", "서명 대기", "bg-v3-dim-white", "text-v3-text-muted"],
+    ["signed", "서명 완료", "bg-v3-primary-light", "text-v3-primary"],
+    ["review", "검토 필요", "bg-v3-orange-light", "text-v3-orange"],
+    ["completed", "계약 완료", "bg-v3-green-light", "text-v3-green"],
+    ["expired", "기간 만료", "bg-v3-burgundy-light", "text-v3-burgundy"],
+  ] as const)(
+    "matches the avatar tone to the %s status badge",
+    (displayStatus, statusLabel, avatarBackgroundClass, avatarIconClass) => {
+      const document = {
+        ...documentFixture(),
+        display_status: displayStatus,
+      };
+      const { container } = render(
+        <ContractsListItem
+          data-component="desktop_contracts_tests_list-item"
+          document={document}
+          customerName="송진호"
+          isLoading={false}
+        />,
+      );
+
+      expect(container.querySelector('[data-component="desktop_contracts_tests_list-item_status"]')).toHaveTextContent(statusLabel);
+      const avatar = container.querySelector('[data-component="desktop_contracts_tests_list-item_icon"]');
+      expect(avatar).toHaveClass(avatarBackgroundClass);
+      expect(avatar?.querySelector("svg")).toHaveClass(avatarIconClass);
+    },
+  );
+
   it.each([null, "", "   ", "-"])(
     "shows 이름 없음 when the recipient name is unresolved (%p)",
     (customerName) => {

@@ -322,6 +322,32 @@ describe("ContractCreationForm — initialClient mode", () => {
     );
   });
 
+  it("sends null when an existing client's 출산일 is explicitly cleared", async () => {
+    seedValidContract({ birthDate: "2026-08-05" });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ContractCreationForm activeStep={0} onActiveStepChange={jest.fn()} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("출산일"), { target: { value: "" } });
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ContractCreationForm activeStep={CONTRACT_INFO_STEP_INDEX} onActiveStepChange={jest.fn()} />
+      </QueryClientProvider>,
+    );
+    mockDispatchHeadless.mockResolvedValue({ ok: true });
+    fireEvent.click(screen.getByTestId("contract-creation-submit"));
+
+    await waitFor(() => expect(mockUpdateClientMutateAsync).toHaveBeenCalled());
+    expect(mockUpdateClientMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ dto: expect.objectContaining({ birthDate: null }) }),
+    );
+  });
+
   it("signals onSubmissionStateChange(true) then (false) around a contract-creation run", async () => {
     seedValidContract();
     mockDispatchHeadless.mockResolvedValue({ ok: true });

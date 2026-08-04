@@ -6,6 +6,7 @@ describe("GetSettingUsecase", () => {
     const createMockRepository = (): jest.Mocked<ISystemSettingRepository> => ({
         findByKey: jest.fn(),
         upsert: jest.fn(),
+        compareAndSet: jest.fn(),
     });
 
     let usecase: GetSettingUsecase;

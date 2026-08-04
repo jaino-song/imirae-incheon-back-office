@@ -5,11 +5,37 @@ import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CreateEformsignDocUsecase } from "./create-eformsign-doc.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { EformsignApiError } from "infrastructure/api/eformsign-api.error";
 
 export interface CreateAndSendContractParams {
     clientId: number;
     templateId: string;
     templateName?: string;
+    idempotencyKey?: string;
+    /**
+     * Approval-bound contract dispatches pass the exact client projection that
+     * was durably staged while the target row was locked. The provider path
+     * must never re-read a newer client row after that point.
+     */
+    clientSnapshot?: ContractClientSnapshot;
+    /** Exact approval target used to fence the post-provider e_doc_id link. */
+    clientTargetVersion?: string;
+}
+
+export interface ContractClientSnapshot {
+    id: number;
+    name: string;
+    phone: string | null;
+    address: string | null;
+    birthday: string | null;
+    startDate: string | null;
+    endDate: string | null;
+    fullPrice: string | null;
+    grant: string | null;
+    actualPrice: string | null;
+    duration: number | null;
+    /** Snapshot-time UTC instant used for null service dates and today's fields. */
+    fallbackDate?: string;
 }
 
 export interface CreateAndSendContractResult {
@@ -17,6 +43,7 @@ export interface CreateAndSendContractResult {
     documentId?: string;
     error?: string;
     remoteDocumentId?: string;
+    uncertain?: boolean;
 }
 
 @Injectable()
@@ -37,9 +64,9 @@ export class CreateAndSendContractUsecase {
         branchid: string,
         params: CreateAndSendContractParams
     ): Promise<CreateAndSendContractResult> {
-        const { clientId, templateId, templateName } = params;
+        const { clientId, templateId, templateName, idempotencyKey } = params;
 
-        const client = await this.clientRepository.findById(branchid, clientId);
+        const client = params.clientSnapshot ?? await this.clientRepository.findById(branchid, clientId);
         if (!client) {
             return { success: false, error: "고객을 찾을 수 없습니다" };
         }
@@ -49,31 +76,34 @@ export class CreateAndSendContractUsecase {
         }
 
         let remoteDocumentId: string | undefined;
+        let providerAttempted = false;
         try {
             await this.assignmentGuard.assertAssignedClient(branchid, clientId);
             const executionTime = Date.now();
             const tokenResponse = await this.getAccessTokenUsecase.execute(executionTime);
             const accessToken = tokenResponse.oauth_token.access_token;
 
-            const formatDate = (date: Date | null): { year: string; month: string; day: string } => {
+            const fallbackInstant = params.clientSnapshot?.fallbackDate ?? new Date().toISOString();
+            const formatDate = (date: Date | string | null): { year: string; month: string; day: string } => {
                 if (!date) {
-                    const now = new Date();
+                    const now = new Date(fallbackInstant);
                     return {
-                        year: now.getFullYear().toString(),
-                        month: (now.getMonth() + 1).toString().padStart(2, '0'),
-                        day: now.getDate().toString().padStart(2, '0'),
+                        year: now.getUTCFullYear().toString(),
+                        month: (now.getUTCMonth() + 1).toString().padStart(2, '0'),
+                        day: now.getUTCDate().toString().padStart(2, '0'),
                     };
                 }
+                const instant = typeof date === "string" ? new Date(date) : date;
                 return {
-                    year: date.getFullYear().toString(),
-                    month: (date.getMonth() + 1).toString().padStart(2, '0'),
-                    day: date.getDate().toString().padStart(2, '0'),
+                    year: instant.getUTCFullYear().toString(),
+                    month: (instant.getUTCMonth() + 1).toString().padStart(2, '0'),
+                    day: instant.getUTCDate().toString().padStart(2, '0'),
                 };
             };
 
             const startDate = formatDate(client.startDate);
             const endDate = formatDate(client.endDate);
-            const today = formatDate(new Date());
+            const today = formatDate(fallbackInstant);
 
             const prefillFields = [
                 { id: "이용자 성명", value: client.name },
@@ -101,8 +131,10 @@ export class CreateAndSendContractUsecase {
             // record whatever eformsign named it, falling back to our own label if the response
             // omits it, so the mirror row never carries a title the vendor disagrees with.
             const fallbackDocumentName = `${templateName || "계약서"} - ${client.name}`;
+            providerAttempted = true;
             const result = await this.eformsignClient.createDocument(accessToken, {
                 templateId,
+                idempotencyKey,
                 prefillFields,
                 recipient: {
                     name: client.name,
@@ -130,6 +162,7 @@ export class CreateAndSendContractUsecase {
                 templateId,
                 templateName: templateName ?? null,
                 customerName: client.name,
+                clientTargetVersion: params.clientTargetVersion,
             });
 
             this.logger.log(`Contract created and sent: documentId=${result.documentId}, clientId=${clientId}`);
@@ -140,10 +173,15 @@ export class CreateAndSendContractUsecase {
             };
         } catch (error) {
             this.logger.error(`Failed to create contract: ${error}`);
+            const certainProviderRejection = error instanceof EformsignApiError
+                && error.status >= 400
+                && error.status < 500
+                && error.status !== 408;
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "계약서 생성에 실패했습니다",
-                remoteDocumentId,
+                ...(remoteDocumentId ? { remoteDocumentId } : {}),
+                ...(providerAttempted ? { uncertain: !certainProviderRejection } : {}),
             };
         }
     }

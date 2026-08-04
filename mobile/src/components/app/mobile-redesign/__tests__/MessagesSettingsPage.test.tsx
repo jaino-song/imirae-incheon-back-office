@@ -401,4 +401,22 @@ describe("MessagesSettingsPage", () => {
       expect(mockedSettingsApi.getMessageAutomationPolicies).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("keeps the sender-approval deep link on screen and retries after an approval error", async () => {
+    mockedSettingsApi.getMessageSenderApproval.mockRejectedValue(
+      new Error("approval unavailable"),
+    );
+    mockSearchParams = new URLSearchParams({ item: "current-tenant" });
+    renderPage();
+
+    expect(
+      await screen.findByText("메시지 발송 신청 상태를 불러오지 못했습니다"),
+    ).toBeInTheDocument();
+    expect(mockReplace).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "신청 상태 재시도" }));
+    await waitFor(() => {
+      expect(mockedSettingsApi.getMessageSenderApproval).toHaveBeenCalledTimes(2);
+    });
+  });
 });

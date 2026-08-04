@@ -18,6 +18,13 @@ import {
     UpdateClientUsecase,
 } from "application/usecases/client";
 import { LinkMirroredEformsignDocByPhoneUsecase } from "application/usecases/eformsign-doc";
+import {
+    assertAllowedClientArea,
+    assertAllowedServiceStatus,
+    findClientByNormalizedPhone,
+    mergeAndValidateClientServicePeriod,
+    parseClientDate,
+} from "application/usecases/client/client-write-validation";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
@@ -25,7 +32,7 @@ import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.clie
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { addBusinessDaysKr, diffBusinessDaysKr, isoDateInKorea } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { computeServiceStatus, isServiceStatus, SERVICE_STATUS, SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
+import { computeServiceStatus, SERVICE_STATUS, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { MessageTriggerService } from "./message-trigger.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
@@ -143,6 +150,11 @@ export interface ClientActionRequired {
 /** The latest contract signal the document-status/active-document checks read. */
 interface LatestContractSignal {
     statusType: string;
+    permanentPurgeRequestedAt: Date | null;
+    documentId: string;
+    stepType: string | null;
+    stepName: string | null;
+    detailPayload: unknown;
 }
 
 export interface ClientActionRequiredAlert extends ClientActionRequired {
@@ -192,16 +204,6 @@ export class ClientService {
             this.logger.error(
                 `[SERVICE_RECORD_LINK_REVOKE_FAILED] 제공기록지 링크 폐기 실패 — 고객 ${clientId}, ` +
                 `스케줄 ${scheduleId} 수동 확인 필요: ${error}`,
-            );
-        }
-    }
-
-    private assertAllowedServiceStatus(status: string | null | undefined): void {
-        if (status == null) return;
-
-        if (!isServiceStatus(status)) {
-            throw new BadRequestException(
-                `serviceStatus must be one of: ${SERVICE_STATUS_VALUES.join(", ")}`
             );
         }
     }
@@ -587,8 +589,6 @@ export class ClientService {
         const contractDocs = await this.prismaService.eformsign_doc.findMany({
             where: {
                 clientId: { in: clientIds },
-                permanentPurgeRequestedAt: null,
-                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
                 serviceRecordCaseId: null,
                 // Contract lifecycle status is an indexed projection that commits before
                 // detail/PDF artifacts finish. Do not filter it by artifact syncStatus:
@@ -604,7 +604,12 @@ export class ClientService {
             ],
             select: {
                 clientId: true,
+                documentId: true,
                 statusType: true,
+                stepType: true,
+                stepName: true,
+                detailPayload: true,
+                permanentPurgeRequestedAt: true,
                 documentKind: true,
                 serviceRecordCaseId: true,
                 templateId: true,
@@ -619,6 +624,11 @@ export class ClientService {
             if (!latestContractMap.has(doc.clientId)) {
                 latestContractMap.set(doc.clientId, {
                     statusType: doc.statusType,
+                    permanentPurgeRequestedAt: doc.permanentPurgeRequestedAt,
+                    documentId: doc.documentId,
+                    stepType: doc.stepType,
+                    stepName: doc.stepName,
+                    detailPayload: doc.detailPayload,
                 });
             }
         }
@@ -635,7 +645,9 @@ export class ClientService {
         return new Map(
             [...latestContractMap].map(([clientId, contract]) => [
                 clientId,
-                ACTIVE_DOCUMENT_STATUSES.has(this.mapStatusTypeToDocumentStatus(contract.statusType)),
+                contract.permanentPurgeRequestedAt == null
+                && !DELETED_DOCUMENT_STATUS_TYPES.has(contract.statusType.trim().padStart(3, "0"))
+                && ACTIVE_DOCUMENT_STATUSES.has(this.mapStatusTypeToDocumentStatus(contract.statusType)),
             ]),
         );
     }
@@ -748,25 +760,6 @@ export class ClientService {
         return badges.sort((left, right) => left.priority - right.priority);
     }
 
-    private async assertAllowedClientArea(branchid: string, areaId: string | null | undefined): Promise<void> {
-        if (!areaId) return;
-
-        const areaScope = branchid
-            ? [{ branchId: branchid }, { branchId: null }]
-            : [{ branchId: null }];
-        const area = await this.prismaService.area.findFirst({
-            where: {
-                id: areaId,
-                OR: areaScope,
-            },
-            select: { id: true },
-        });
-
-        if (!area) {
-            throw new BadRequestException("areaId must reference an available area");
-        }
-    }
-
     private async assertAllowedEmployees(
         branchid: string,
         primaryEmployeeId: number | null,
@@ -795,12 +788,6 @@ export class ClientService {
         });
         if (employees.length !== employeeIds.length) {
             throw new BadRequestException("selected employees must belong to the client branch");
-        }
-    }
-
-    private assertValidServicePeriod(startDate: Date | null, endDate: Date | null): void {
-        if (startDate && endDate && startDate > endDate) {
-            throw new BadRequestException("서비스 시작일은 종료일보다 늦을 수 없습니다.");
         }
     }
 
@@ -889,13 +876,13 @@ export class ClientService {
         reuseExistingClient?: boolean;
         source?: string;
     }): Promise<ClientEntity> {
-        const startDate = params.startDate ? new Date(params.startDate) : null;
-        const endDate = params.endDate ? new Date(params.endDate) : null;
-        const dueDate = params.dueDate ? new Date(params.dueDate) : null;
-        const birthDate = params.birthDate ? new Date(params.birthDate) : null;
-        this.assertValidServicePeriod(startDate, endDate);
-        this.assertAllowedServiceStatus(params.serviceStatus);
-        await this.assertAllowedClientArea(branchid, params.areaId);
+        const startDate = parseClientDate(params.startDate) ?? null;
+        const endDate = parseClientDate(params.endDate) ?? null;
+        const dueDate = parseClientDate(params.dueDate) ?? null;
+        const birthDate = parseClientDate(params.birthDate) ?? null;
+        mergeAndValidateClientServicePeriod(null, { startDate, endDate });
+        assertAllowedServiceStatus(params.serviceStatus);
+        await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
 
         let suppressGreetingSms = params.suppressGreetingSms ?? false;
         const applyMessageAutomation = params.applyMessageAutomation ?? true;
@@ -910,51 +897,52 @@ export class ClientService {
             suppressGreetingSms = !greetingEnabled;
         }
 
-        const normalizedPhone = normalizePhone(params.phone ?? null);
-        if (normalizedPhone) {
-            const existing = await this.clientRepository.findByPhone(branchid, normalizedPhone);
-            if (existing) {
-                if (params.reuseExistingClient !== true) {
-                    throw new ConflictException({
-                        statusCode: 409,
-                        error: "Conflict",
-                        message: "이미 같은 전화번호의 고객이 있습니다.",
-                        clientId: existing.id,
-                    });
-                }
-                this.logger.log(`[Client] Reusing existing client ${existing.id} for duplicate phone in branch ${branchid}`);
-                if (params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined) {
-                    const assignment = await this.syncEmployeeAssignment(branchid, {
-                        clientId: existing.id,
-                        primaryEmployeeId: params.primaryEmployeeId ?? undefined,
-                        secondaryEmployeeId: params.secondaryEmployeeId,
-                        workAddress: params.address ?? existing.address ?? "",
-                        startDate: startDate ?? existing.startDate ?? new Date(),
-                        endDate: endDate ?? existing.endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
-                    });
-                    if (assignment.replacedScheduleId !== null) {
-                        await this.revokeServiceRecordLinkAfterCommit(
-                            existing.id,
-                            assignment.replacedScheduleId,
-                        );
-                    }
-                    if (assignment.createdScheduleId !== null) {
-                        await this.triggerService
-                            ?.syncEmployeeAssignmentRulesForSchedule(branchid, assignment.createdScheduleId, true)
-                            ?.catch((error) => {
-                                this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
-                            });
-                        this.serviceRecordLinkService
-                            ?.scheduleForServiceStart(assignment.createdScheduleId)
-                            ?.catch((error) => {
-                                this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
-                            });
-                    }
-                }
-                await this.linkContractDocumentsByPhone(branchid, existing, normalizedPhone);
-                await this.serviceRecordLifecycleService?.ensureForClient(existing.id);
-                return existing;
+        const { normalizedPhone, existingClient: existing } = await findClientByNormalizedPhone(
+            this.clientRepository,
+            branchid,
+            params.phone,
+        );
+        if (existing && normalizedPhone) {
+            if (params.reuseExistingClient !== true) {
+                throw new ConflictException({
+                    statusCode: 409,
+                    error: "Conflict",
+                    message: "이미 같은 전화번호의 고객이 있습니다.",
+                    clientId: existing.id,
+                });
             }
+            this.logger.log(`[Client] Reusing existing client ${existing.id} for duplicate phone in branch ${branchid}`);
+            if (params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined) {
+                const assignment = await this.syncEmployeeAssignment(branchid, {
+                    clientId: existing.id,
+                    primaryEmployeeId: params.primaryEmployeeId ?? undefined,
+                    secondaryEmployeeId: params.secondaryEmployeeId,
+                    workAddress: params.address ?? existing.address ?? "",
+                    startDate: startDate ?? existing.startDate ?? new Date(),
+                    endDate: endDate ?? existing.endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
+                });
+                if (assignment.replacedScheduleId !== null) {
+                    await this.revokeServiceRecordLinkAfterCommit(
+                        existing.id,
+                        assignment.replacedScheduleId,
+                    );
+                }
+                if (assignment.createdScheduleId !== null) {
+                    await this.triggerService
+                        ?.syncEmployeeAssignmentRulesForSchedule(branchid, assignment.createdScheduleId, true)
+                        ?.catch((error) => {
+                            this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
+                        });
+                    this.serviceRecordLinkService
+                        ?.scheduleForServiceStart(assignment.createdScheduleId)
+                        ?.catch((error) => {
+                            this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
+                        });
+                }
+            }
+            await this.linkContractDocumentsByPhone(branchid, existing, normalizedPhone);
+            await this.serviceRecordLifecycleService?.ensureForClient(existing.id);
+            return existing;
         }
 
         const normalizedPricing = normalizeClientPricing({
@@ -1176,7 +1164,9 @@ export class ClientService {
                 clientsNeedingUpdate.push({ id: client.id, newStatus: computedStatus });
             }
             const latestContract = latestContractMap.get(client.id);
-            const documentStatus = this.mapStatusTypeToDocumentStatus(latestContract?.statusType);
+            const documentStatus = latestContract?.permanentPurgeRequestedAt != null
+                ? "deleted"
+                : this.mapStatusTypeToDocumentStatus(latestContract?.statusType);
             const hasActiveContractDocument = ACTIVE_DOCUMENT_STATUSES.has(documentStatus);
             const contractSignals = {
                 serviceStatus: computedStatus,
@@ -1353,30 +1343,32 @@ export class ClientService {
                 actualPrice: params.actualPrice === undefined ? existingClient.actualPrice : params.actualPrice,
             })
             : null;
-        this.assertAllowedServiceStatus(params.serviceStatus);
-        await this.assertAllowedClientArea(branchid, params.areaId);
+        assertAllowedServiceStatus(params.serviceStatus);
+        await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
+        const startDateUpdate = params.startDate === undefined ? undefined : parseClientDate(params.startDate);
+        const endDateUpdate = params.endDate === undefined ? undefined : parseClientDate(params.endDate);
         await this.serviceRecordLifecycleService?.validatePeriodChange({
             clientId: id,
-            startDate: params.startDate === undefined
-                ? undefined
-                : params.startDate ? new Date(params.startDate) : null,
-            endDate: params.endDate === undefined
-                ? undefined
-                : params.endDate ? new Date(params.endDate) : null,
+            startDate: startDateUpdate,
+            endDate: endDateUpdate,
             duration: params.duration,
         });
 
-        const normalizedPhone = normalizePhone(params.phone ?? null);
-        if (normalizedPhone) {
-            const clientWithPhone = await this.clientRepository.findByPhone(branchid, normalizedPhone);
-            if (clientWithPhone && clientWithPhone.id !== id) {
-                throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });
-            }
+        const { existingClient: clientWithPhone } = await findClientByNormalizedPhone(
+            this.clientRepository,
+            branchid,
+            params.phone,
+        );
+        if (clientWithPhone && clientWithPhone.id !== id) {
+            throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });
         }
 
-        const startDate = params.startDate ? new Date(params.startDate) : existingClient.startDate ?? new Date();
-        const endDate = params.endDate ? new Date(params.endDate) : existingClient.endDate ?? new Date(startDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
-        this.assertValidServicePeriod(startDate, endDate);
+        const mergedServicePeriod = mergeAndValidateClientServicePeriod(existingClient, {
+            startDate: startDateUpdate,
+            endDate: endDateUpdate,
+        });
+        const startDate = mergedServicePeriod.startDate ?? new Date();
+        const endDate = mergedServicePeriod.endDate ?? new Date(startDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
 
         // Check if employee assignment is being changed
         const employeeChanged = params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined;
@@ -1439,14 +1431,14 @@ export class ClientService {
                 data: {
                     name: params.name,
                     address: params.address ?? undefined,
-                    phone: params.phone ?? undefined,
+                    phone: params.phone === undefined ? undefined : params.phone,
                     type: normalizedPricing?.type,
                     duration: params.duration ?? undefined,
                     fullPrice: normalizedPricing?.fullPrice,
                     grant: normalizedPricing?.grant,
                     actualPrice: normalizedPricing?.actualPrice,
-                    startDate: params.startDate ? new Date(params.startDate) : undefined,
-                    endDate: params.endDate ? new Date(params.endDate) : undefined,
+                    startDate: startDateUpdate,
+                    endDate: endDateUpdate,
                     careCenter: params.careCenter ?? undefined,
                     voucherClient: params.voucherClient,
                     birthday: params.birthday ?? undefined,
@@ -1454,7 +1446,7 @@ export class ClientService {
                     birthDate: params.birthDate === undefined
                         ? undefined
                         : (params.birthDate ? new Date(params.birthDate) : null),
-                    serviceStatus: params.serviceStatus ?? undefined,
+                    serviceStatus: params.serviceStatus === undefined ? undefined : params.serviceStatus,
                     breastPump: params.breastPump,
                     eDocId: params.eDocId ?? undefined,
                     areaId: params.areaId === undefined ? undefined : params.areaId,
@@ -1575,7 +1567,7 @@ export class ClientService {
             newSecondaryEmployeeId ?? null,
         );
 
-        this.assertValidServicePeriod(client.startDate, client.endDate);
+        mergeAndValidateClientServicePeriod(client, {});
         const replacementStartDate = new Date();
         const replacementEndDate = client.endDate ?? new Date(replacementStartDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
 
@@ -1693,7 +1685,7 @@ export class ClientService {
         const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
         const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59);
 
-        const [activeClients, contractsNotSent, pendingSignatureDocRows, upcomingThisMonth, upcomingNextMonth] =
+        const [activeClients, contractsNotSent, branchClients, upcomingThisMonth, upcomingNextMonth] =
             await Promise.all([
                 this.prismaService.client.count({
                     where: { serviceStatus: SERVICE_STATUS.ACTIVE, branchId: branchid },
@@ -1706,22 +1698,8 @@ export class ClientService {
                     },
                 }),
                 this.prismaService.client.findMany({
-                    where: {
-                        eDocId: { not: null },
-                        eformsignDocByEDocId: { statusType: { not: '050' } },
-                        branchId: branchid,
-                    },
-                    select: {
-                        eformsignDocByEDocId: {
-                            select: {
-                                documentId: true,
-                                statusType: true,
-                                stepType: true,
-                                stepName: true,
-                                detailPayload: true,
-                            },
-                        },
-                    },
+                    where: { branchId: branchid },
+                    select: { id: true },
                 }),
                 this.prismaService.client.count({
                     where: {
@@ -1741,9 +1719,16 @@ export class ClientService {
 
         // 대시보드의 "검토 필요 문서"는 계약서 목록과 같은 규칙으로 센다: 제공기관
         // 검토 단계에 있고 검토 창(계약 종료 영업일 1일 전~)이 열린 문서만.
-        const contractsPendingSignature = pendingSignatureDocRows.filter((row) => {
-            const doc = row.eformsignDocByEDocId;
-            if (!doc) return false;
+        const latestContracts = await this.findLatestContractByClientId(
+            branchClients.map((client) => client.id),
+        );
+        const contractsPendingSignature = [...latestContracts.values()].filter((doc) => {
+            if (
+                doc.permanentPurgeRequestedAt != null
+                || DELETED_DOCUMENT_STATUS_TYPES.has(doc.statusType.trim().padStart(3, "0"))
+            ) {
+                return false;
+            }
             const endDate = doc.detailPayload && typeof doc.detailPayload === "object"
                 ? extractEformsignContractEndDate(doc.detailPayload as unknown as EformsignApiDocumentResponse)
                 : null;

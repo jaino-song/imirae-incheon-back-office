@@ -1,7 +1,12 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { AligoService } from "application/services/aligo.service";
 import { SystemTemplateService } from "application/services/system-template.service";
-import { SendAligoSmsResult } from "application/dto/aligo/send-sms.dto";
+import {
+    resolveAligoSmsMessageType,
+    SendAligoSmsResult,
+    type AligoSmsMessageType,
+} from "application/dto/aligo/send-sms.dto";
 import { SYSTEM_TEMPLATE_REGISTRY, SystemTemplateKey } from "domain/constants/system-template-registry";
 import { MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import {
@@ -23,13 +28,40 @@ import {
 } from "domain/repositories/message-log.repository.interface";
 import { isTransientPrismaConnectivityError } from "infrastructure/database/prisma-error.utils";
 
-interface SmsTemplateDeliveryConfig {
+export interface SmsTemplateDeliveryConfig {
     smsLogTemplateKey: string;
     automationKey: string;
     triggerType: string;
     title: string;
     systemTemplateKey?: SystemTemplateKey;
     usePayloadMessage?: boolean;
+}
+
+/**
+ * Bump this whenever the catalog-to-provider mapping changes. The value is
+ * included in the approval fingerprint so an approved retry cannot silently
+ * adopt a different title, template key, or provider routing rule.
+ */
+export const SMS_DELIVERY_CONFIG_VERSION = "sms-template-delivery-v1";
+export const SMS_DELIVERY_SNAPSHOT_VARIABLE = "__smsDeliverySnapshot";
+
+export interface SmsTriggerDeliverySnapshot {
+    readonly templateKey: MessageTriggerTemplateKey;
+    /** The exact receiver value passed to AligoService (before provider normalization). */
+    readonly receiver: string;
+    readonly maskedReceiver: string;
+    readonly recipientName: string;
+    readonly message: string;
+    readonly title: string;
+    readonly requestedDeliveryType: "AUTO";
+    readonly deliveryType: AligoSmsMessageType;
+    readonly estimatedCost: string;
+    readonly templateVersion: string;
+    readonly templateHash: string;
+    readonly configVersion: string;
+    readonly configHash: string;
+    readonly snapshotHash: string;
+    readonly systemTemplateKey?: SystemTemplateKey;
 }
 
 export const SMS_TEMPLATE_DELIVERY: Partial<Record<MessageTriggerTemplateKey, SmsTemplateDeliveryConfig>> = {
@@ -134,6 +166,143 @@ export class SmsTriggerDeliveryService {
         return Boolean(SMS_TEMPLATE_DELIVERY[templateKey]);
     }
 
+    /**
+     * Resolve the exact provider-bound values without mutating the job or
+     * calling Aligo. Agent approval, revalidation, and retry execution all use
+     * this resolver so they share one immutable snapshot contract.
+     */
+    async resolveDeliverySnapshot(job: MessageTriggerJobEntity): Promise<Readonly<SmsTriggerDeliverySnapshot>> {
+        if (!job.branchId) {
+            throw new Error(`SMS trigger job ${job.id} is missing branchId`);
+        }
+
+        const config = SMS_TEMPLATE_DELIVERY[job.templateKey];
+        if (!config) {
+            throw new Error(`SMS trigger template ${job.templateKey} is not supported`);
+        }
+        const missingPriceInfoKeys = this.missingPriceInfoKeys(job, config);
+        if (missingPriceInfoKeys.length > 0) {
+            throw new Error(`PRICE_INFO delivery snapshot is missing required values: ${missingPriceInfoKeys.join(", ")}`);
+        }
+
+        const canonical = await this.resolveCanonicalSnapshot(job, config);
+        const staged = this.readStagedSnapshot(job, canonical);
+        if (staged) {
+            if (staged.snapshotHash !== canonical.snapshotHash) {
+                throw new Error("SMS delivery template or provider configuration changed after staging");
+            }
+            return staged;
+        }
+
+        return canonical;
+    }
+
+    /** Resolve the current provider-bound target without trusting staged data. */
+    async resolveCanonicalDeliverySnapshot(job: MessageTriggerJobEntity): Promise<Readonly<SmsTriggerDeliverySnapshot>> {
+        if (!job.branchId) {
+            throw new Error(`SMS trigger job ${job.id} is missing branchId`);
+        }
+        const config = SMS_TEMPLATE_DELIVERY[job.templateKey];
+        if (!config) {
+            throw new Error(`SMS trigger template ${job.templateKey} is not supported`);
+        }
+        const missingPriceInfoKeys = this.missingPriceInfoKeys(job, config);
+        if (missingPriceInfoKeys.length > 0) {
+            throw new Error(`PRICE_INFO delivery snapshot is missing required values: ${missingPriceInfoKeys.join(", ")}`);
+        }
+        return this.resolveCanonicalSnapshot(job, config);
+    }
+
+    /**
+     * Validate the exact target that was shown to the approver and rebuild it
+     * with the current receiver identity. The durable target never contains a
+     * raw phone number.
+     */
+    approvedSnapshotForExecution(
+        job: MessageTriggerJobEntity,
+        targetSnapshot: Record<string, unknown>,
+        canonical: SmsTriggerDeliverySnapshot,
+    ): Readonly<SmsTriggerDeliverySnapshot> {
+        const readString = (key: string): string => {
+            const value = targetSnapshot[key];
+            if (typeof value !== "string") throw new Error(`approved SMS snapshot field ${key} is invalid`);
+            return value;
+        };
+        if (readString("templateKey") !== job.templateKey) throw new Error("approved SMS template key changed");
+        if (readString("receiver") !== canonical.maskedReceiver) throw new Error("approved SMS recipient changed");
+        if (targetSnapshot["requestedDeliveryType"] !== "AUTO") throw new Error("approved SMS requested delivery type changed");
+        const deliveryType = readString("deliveryType") as AligoSmsMessageType;
+        if (deliveryType !== "SMS" && deliveryType !== "LMS") throw new Error("approved SMS delivery type is invalid");
+
+        const candidateWithoutHash: Omit<SmsTriggerDeliverySnapshot, "snapshotHash"> = {
+            templateKey: job.templateKey,
+            receiver: canonical.receiver,
+            maskedReceiver: canonical.maskedReceiver,
+            recipientName: canonical.recipientName,
+            message: readString("messageBody"),
+            title: readString("title"),
+            requestedDeliveryType: "AUTO" as const,
+            deliveryType,
+            estimatedCost: readString("estimatedCost"),
+            templateVersion: readString("templateVersion"),
+            templateHash: readString("templateHash"),
+            configVersion: readString("configVersion"),
+            configHash: readString("configHash"),
+            ...(typeof targetSnapshot["systemTemplateKey"] === "string"
+                ? { systemTemplateKey: targetSnapshot["systemTemplateKey"] as SystemTemplateKey }
+                : {}),
+        };
+        const snapshotHash = readString("snapshotHash");
+        if (this.hashSnapshot(candidateWithoutHash) !== snapshotHash || snapshotHash !== canonical.snapshotHash) {
+            throw new Error("approved SMS snapshot does not match the current provider-bound target");
+        }
+
+        return Object.freeze({ ...candidateWithoutHash, snapshotHash });
+    }
+
+    /** Return only fields safe to persist in an approval target snapshot. */
+    snapshotForApproval(snapshot: SmsTriggerDeliverySnapshot): Record<string, unknown> {
+        return {
+            templateKey: snapshot.templateKey,
+            receiver: snapshot.maskedReceiver,
+            messageBody: snapshot.message,
+            title: snapshot.title,
+            requestedDeliveryType: snapshot.requestedDeliveryType,
+            deliveryType: snapshot.deliveryType,
+            estimatedCost: snapshot.estimatedCost,
+            templateVersion: snapshot.templateVersion,
+            templateHash: snapshot.templateHash,
+            configVersion: snapshot.configVersion,
+            configHash: snapshot.configHash,
+            snapshotHash: snapshot.snapshotHash,
+            ...(snapshot.systemTemplateKey ? { systemTemplateKey: snapshot.systemTemplateKey } : {}),
+        };
+    }
+
+    /**
+     * Stage exact rendered values on an agent retry job. The serialized form
+     * intentionally omits the raw receiver so persisted approval/log payloads
+     * cannot disclose it.
+     */
+    serializeSnapshot(snapshot: SmsTriggerDeliverySnapshot): string {
+        return JSON.stringify({
+            templateKey: snapshot.templateKey,
+            maskedReceiver: snapshot.maskedReceiver,
+            recipientName: snapshot.recipientName,
+            message: snapshot.message,
+            title: snapshot.title,
+            requestedDeliveryType: snapshot.requestedDeliveryType,
+            deliveryType: snapshot.deliveryType,
+            estimatedCost: snapshot.estimatedCost,
+            templateVersion: snapshot.templateVersion,
+            templateHash: snapshot.templateHash,
+            configVersion: snapshot.configVersion,
+            configHash: snapshot.configHash,
+            snapshotHash: snapshot.snapshotHash,
+            ...(snapshot.systemTemplateKey ? { systemTemplateKey: snapshot.systemTemplateKey } : {}),
+        });
+    }
+
     async sendJob(job: MessageTriggerJobEntity): Promise<boolean> {
         if (!job.branchId) {
             throw new Error(`SMS trigger job ${job.id} is missing branchId`);
@@ -141,6 +310,15 @@ export class SmsTriggerDeliveryService {
 
         const config = SMS_TEMPLATE_DELIVERY[job.templateKey];
         if (!config) {
+            return false;
+        }
+
+        const missingPriceInfoKeys = this.missingPriceInfoKeys(job, config);
+        if (missingPriceInfoKeys.length > 0) {
+            job.cancel(`비용 안내 발송 건너뜀: 필수 정보 누락 (${missingPriceInfoKeys.join(", ")})`);
+            this.logger.warn(
+                `[SMS Automation] PRICE_INFO skipped for job ${job.id}: missing ${missingPriceInfoKeys.join(", ")}`,
+            );
             return false;
         }
 
@@ -152,44 +330,22 @@ export class SmsTriggerDeliveryService {
         config: SmsTemplateDeliveryConfig,
     ): Promise<boolean> {
         const payload = job.payload;
-        const baseVariables: Record<string, string> = {
-            name: payload.recipientName,
-            employeeName: payload.recipientName,
-            clientName: payload.recipientName,
-            buttonUrl: payload.buttonUrl ?? "",
-            serviceRecordUrl: payload.buttonUrl ?? "",
-            ...payload.templateVariables,
-        };
-        if (config.systemTemplateKey === SystemTemplateKey.PRICE_INFO) {
-            const requiredKeys = ["fullPrice", "grant", "actualPrice", "bankName", "accNum", "duration", "type"];
-            const missing = requiredKeys.filter((key) => !baseVariables[key]?.trim());
-            if (missing.length > 0) {
-                job.cancel(`비용 안내 발송 건너뜀: 필수 정보 누락 (${missing.join(", ")})`);
-                this.logger.warn(
-                    `[SMS Automation] PRICE_INFO skipped for job ${job.id}: missing ${missing.join(", ")}`,
-                );
-                return false;
-            }
-        }
-
-        const message = config.usePayloadMessage
-            ? this.resolvePayloadSmsMessage(job)
-            : await this.resolveSmsMessage(config.systemTemplateKey, baseVariables);
-        const receiver = payload.recipientPhone;
+        const snapshot = await this.resolveDeliverySnapshot(job);
 
         try {
             const result = await this.aligoService.sendSms({
-                receiver,
-                message,
-                recipientName: payload.recipientName,
-                title: config.title,
-                msgType: "AUTO",
+                receiver: snapshot.receiver,
+                message: snapshot.message,
+                recipientName: snapshot.recipientName,
+                title: snapshot.title,
+                msgType: snapshot.requestedDeliveryType,
             });
             const isAccepted = this.isAcceptedSmsResult(result);
+            job.payload.templateVariables["retrySafety"] = isAccepted ? "delivered" : "provider-rejected";
             await this.recordSmsLog({
                 job,
                 config,
-                message,
+                snapshot,
                 receiver: result.request.receiver,
                 status: isAccepted ? "sent" : "failed",
                 aligoMid: result.response.msg_id ? String(result.response.msg_id) : null,
@@ -199,16 +355,17 @@ export class SmsTriggerDeliveryService {
             });
             return isAccepted;
         } catch (error) {
+            job.payload.templateVariables["retrySafety"] = "uncertain";
             const errorMessage = this.formatErrorMessage(error);
             await this.recordSmsLog({
                 job,
                 config,
-                message,
-                receiver,
+                snapshot,
+                receiver: snapshot.receiver,
                 status: "failed",
                 aligoMid: null,
                 errorMessage,
-                msgType: "AUTO",
+                msgType: snapshot.requestedDeliveryType,
                 templateVariables: payload.templateVariables,
             }).catch((logError) => {
                 this.logger.warn(
@@ -219,16 +376,89 @@ export class SmsTriggerDeliveryService {
         }
     }
 
-    private async resolveSmsMessage(
+    private async resolveCanonicalSnapshot(
+        job: MessageTriggerJobEntity,
+        config: SmsTemplateDeliveryConfig,
+    ): Promise<Readonly<SmsTriggerDeliverySnapshot>> {
+        const payload = job.payload;
+        const baseVariables: Record<string, string> = {
+            name: payload.recipientName,
+            employeeName: payload.recipientName,
+            clientName: payload.recipientName,
+            buttonUrl: payload.buttonUrl ?? "",
+            serviceRecordUrl: payload.buttonUrl ?? "",
+            ...payload.templateVariables,
+        };
+        const usesPayloadMessage = config.usePayloadMessage || payload.templateVariables["triggerType"] === "agent_scheduled";
+        const template = usesPayloadMessage
+            ? this.resolvePayloadTemplate(job)
+            : await this.resolveSystemTemplate(config.systemTemplateKey);
+        // Payload messages retain the legacy trim/no-render behavior in
+        // resolvePayloadTemplate; editable system templates are rendered
+        // byte-for-byte so approval and provider requests remain equivalent.
+        const message = usesPayloadMessage
+            ? template.content
+            : this.renderTemplate(template.content, baseVariables);
+        const title = usesPayloadMessage
+            ? payload.templateVariables["title"]?.trim() || config.title
+            : config.title;
+        const receiver = payload.recipientPhone?.trim() || job.recipientPhone?.trim() || "";
+        if (!receiver) {
+            throw new Error(`SMS recipient is missing for job ${job.id}`);
+        }
+
+        const deliveryType = resolveAligoSmsMessageType({
+            message,
+            title,
+            requestedType: "AUTO",
+        });
+        const configHash = this.hash({
+            version: SMS_DELIVERY_CONFIG_VERSION,
+            templateKey: job.templateKey,
+            config,
+            title,
+            requestedDeliveryType: "AUTO",
+        });
+        const snapshotWithoutHash = {
+            templateKey: job.templateKey,
+            receiver,
+            maskedReceiver: this.maskedReceiver(receiver),
+            recipientName: payload.recipientName,
+            message,
+            title,
+            requestedDeliveryType: "AUTO" as const,
+            deliveryType,
+            estimatedCost: `${deliveryType} 요금제 기준`,
+            templateVersion: template.version,
+            templateHash: template.hash,
+            configVersion: SMS_DELIVERY_CONFIG_VERSION,
+            configHash,
+            ...(config.systemTemplateKey ? { systemTemplateKey: config.systemTemplateKey } : {}),
+        };
+        return Object.freeze({
+            ...snapshotWithoutHash,
+            snapshotHash: this.hashSnapshot(snapshotWithoutHash),
+        });
+    }
+
+    private async resolveSystemTemplate(
         systemTemplateKey: SystemTemplateKey | undefined,
-        variables: Record<string, string>,
-    ): Promise<string> {
+    ): Promise<{ content: string; version: string; hash: string }> {
         if (!systemTemplateKey) {
             throw new Error("systemTemplateKey is required for templated SMS delivery");
         }
         try {
             const template = await this.systemTemplateService.getByKey(systemTemplateKey);
-            return this.renderTemplate(template.content, variables);
+            const content = template.content;
+            const hash = this.hash(content);
+            const updatedAt = template.updatedAt instanceof Date && !Number.isNaN(template.updatedAt.getTime())
+                ? template.updatedAt.toISOString()
+                : `content:${hash}`;
+            return {
+                content,
+                version: `${template.id || systemTemplateKey}:${updatedAt}`,
+                hash,
+            };
         } catch (error) {
             if (isTransientPrismaConnectivityError(error)) {
                 throw new TriggerJobDeferredError(
@@ -242,19 +472,19 @@ export class SmsTriggerDeliveryService {
                     error instanceof Error ? error.message : String(error)
                 }`,
             );
-            return this.renderTemplate(
-                SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey].defaultContent,
-                variables,
-            );
+            const content = SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey].defaultContent;
+            const hash = this.hash(content);
+            return { content, version: `registry-default:${systemTemplateKey}`, hash };
         }
     }
 
-    private resolvePayloadSmsMessage(job: MessageTriggerJobEntity): string {
-        const message = job.payload.messageBody?.trim();
-        if (!message) {
+    private resolvePayloadTemplate(job: MessageTriggerJobEntity): { content: string; version: string; hash: string } {
+        const content = job.payload.messageBody?.trim();
+        if (!content) {
             throw new Error(`SMS payload message is missing for job ${job.id}`);
         }
-        return message;
+        const hash = this.hash(content);
+        return { content, version: `payload:${hash}`, hash };
     }
 
     private renderTemplate(template: string, variables: Record<string, string>): string {
@@ -264,7 +494,7 @@ export class SmsTriggerDeliveryService {
     private async recordSmsLog(params: {
         job: MessageTriggerJobEntity;
         config: SmsTemplateDeliveryConfig;
-        message: string;
+        snapshot: SmsTriggerDeliverySnapshot;
         receiver: string;
         status: MessageLogStatus;
         aligoMid: string | null;
@@ -274,12 +504,19 @@ export class SmsTriggerDeliveryService {
     }): Promise<void> {
         const now = new Date();
         const variables: Record<string, string> = {
-            ...params.templateVariables,
+            ...this.sanitizeLogVariables(params.templateVariables),
             automationKey: params.config.automationKey,
             recipientName: params.job.payload.recipientName,
-            title: params.config.title,
+            title: params.snapshot.title,
             triggerType: params.config.triggerType,
             msgType: params.msgType,
+            deliveryType: params.snapshot.deliveryType,
+            estimatedCost: params.snapshot.estimatedCost,
+            templateVersion: params.snapshot.templateVersion,
+            templateHash: params.snapshot.templateHash,
+            configVersion: params.snapshot.configVersion,
+            configHash: params.snapshot.configHash,
+            recipientDisplay: params.snapshot.maskedReceiver,
         };
         if (params.config.systemTemplateKey) {
             variables["systemTemplateKey"] = params.config.systemTemplateKey;
@@ -294,7 +531,7 @@ export class SmsTriggerDeliveryService {
                 params.job.id,
                 params.receiver,
                 params.job.clientId,
-                params.message,
+                params.snapshot.message,
                 variables,
                 params.status,
                 params.aligoMid,
@@ -310,6 +547,115 @@ export class SmsTriggerDeliveryService {
                 params.job.payload.recipientPhone,
             ),
         );
+    }
+
+    private missingPriceInfoKeys(
+        job: MessageTriggerJobEntity,
+        config: SmsTemplateDeliveryConfig,
+    ): string[] {
+        if (config.systemTemplateKey !== SystemTemplateKey.PRICE_INFO) {
+            return [];
+        }
+
+        const variables: Record<string, string> = {
+            ...job.payload.templateVariables,
+            name: job.payload.recipientName,
+        };
+        const requiredKeys = ["fullPrice", "grant", "actualPrice", "bankName", "accNum", "duration", "type"];
+        return requiredKeys.filter((key) => !variables[key]?.trim());
+    }
+
+    private readStagedSnapshot(
+        job: MessageTriggerJobEntity,
+        canonical: SmsTriggerDeliverySnapshot,
+    ): SmsTriggerDeliverySnapshot | null {
+        const serialized = job.payload.templateVariables[SMS_DELIVERY_SNAPSHOT_VARIABLE];
+        if (!serialized) {
+            return null;
+        }
+
+        try {
+            const parsed = JSON.parse(serialized) as Partial<SmsTriggerDeliverySnapshot>;
+            if (
+                parsed.templateKey !== job.templateKey
+                || typeof parsed.message !== "string"
+                || typeof parsed.title !== "string"
+                || parsed.requestedDeliveryType !== "AUTO"
+                || (parsed.deliveryType !== "SMS" && parsed.deliveryType !== "LMS")
+                || typeof parsed.maskedReceiver !== "string"
+                || parsed.maskedReceiver !== canonical.maskedReceiver
+                || typeof parsed.recipientName !== "string"
+                || typeof parsed.estimatedCost !== "string"
+                || typeof parsed.templateVersion !== "string"
+                || typeof parsed.templateHash !== "string"
+                || typeof parsed.configVersion !== "string"
+                || typeof parsed.configHash !== "string"
+                || typeof parsed.snapshotHash !== "string"
+            ) {
+                throw new Error("invalid staged SMS delivery snapshot");
+            }
+
+            const snapshotWithoutHash: Omit<SmsTriggerDeliverySnapshot, "snapshotHash"> = {
+                templateKey: parsed.templateKey,
+                receiver: canonical.receiver,
+                maskedReceiver: canonical.maskedReceiver,
+                recipientName: parsed.recipientName,
+                message: parsed.message,
+                title: parsed.title,
+                requestedDeliveryType: "AUTO",
+                deliveryType: parsed.deliveryType as AligoSmsMessageType,
+                estimatedCost: parsed.estimatedCost,
+                templateVersion: parsed.templateVersion,
+                templateHash: parsed.templateHash,
+                configVersion: parsed.configVersion,
+                configHash: parsed.configHash,
+                ...(parsed.systemTemplateKey ? { systemTemplateKey: parsed.systemTemplateKey } : {}),
+            };
+            if (this.hashSnapshot(snapshotWithoutHash) !== parsed.snapshotHash) {
+                throw new Error("staged SMS delivery snapshot hash mismatch");
+            }
+            return { ...snapshotWithoutHash, snapshotHash: parsed.snapshotHash };
+        } catch (error) {
+            throw new Error(
+                `SMS delivery snapshot is invalid: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+    }
+
+    private sanitizeLogVariables(templateVariables: Record<string, string>): Record<string, string> {
+        return Object.fromEntries(
+            Object.entries(templateVariables).filter(([key]) =>
+                key !== SMS_DELIVERY_SNAPSHOT_VARIABLE
+                && !/(phone|receiver|telephone|mobile)/i.test(key)),
+        );
+    }
+
+    private maskedReceiver(value: string): string {
+        const digits = value.replace(/\D/g, "");
+        return digits.length >= 4 ? `••••${digits.slice(-4)}` : "마스킹된 번호";
+    }
+
+    private hash(value: unknown): string {
+        return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+    }
+
+    private hashSnapshot(snapshot: Omit<SmsTriggerDeliverySnapshot, "snapshotHash">): string {
+        return this.hash({
+            templateKey: snapshot.templateKey,
+            receiver: snapshot.receiver,
+            maskedReceiver: snapshot.maskedReceiver,
+            recipientName: snapshot.recipientName,
+            message: snapshot.message,
+            title: snapshot.title,
+            requestedDeliveryType: snapshot.requestedDeliveryType,
+            deliveryType: snapshot.deliveryType,
+            estimatedCost: snapshot.estimatedCost,
+            templateVersion: snapshot.templateVersion,
+            templateHash: snapshot.templateHash,
+            configVersion: snapshot.configVersion,
+            configHash: snapshot.configHash,
+            ...(snapshot.systemTemplateKey ? { systemTemplateKey: snapshot.systemTemplateKey } : {}),
+        });
     }
 
     private isAcceptedSmsResult(result: SendAligoSmsResult): boolean {

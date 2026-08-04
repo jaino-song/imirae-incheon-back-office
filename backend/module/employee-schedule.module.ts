@@ -15,6 +15,7 @@ import { EmployeeScheduleService } from "application/services/employee-schedule.
 import { EmployeeScheduleController } from "interface/controllers/employee-schedule.controller";
 import { MessageModule } from "./message.module";
 import { ServiceRecordEntryModule } from "./service-record-entry.module";
+import { EmployeeScheduleAgentCapabilitiesProvider } from "application/usecases/employee-schedule/employee-schedule-agent-capabilities.provider";
 
 @Module({
     imports: [DatabaseModule, MessageModule, ServiceRecordEntryModule],
@@ -28,6 +29,7 @@ import { ServiceRecordEntryModule } from "./service-record-entry.module";
         ListEmployeeSchedulesUsecase,
         UpdateEmployeeScheduleUsecase,
         EmployeeScheduleService,
+        EmployeeScheduleAgentCapabilitiesProvider,
         {
             provide: EMPLOYEE_SCHEDULE_REPOSITORY,
             useClass: SbEmployeeScheduleRepository,

@@ -9,6 +9,7 @@ import {
 import { useCreateClient, useUpdateClient } from "@/hooks/useClients";
 import { useClientPhoneDuplicateCheck } from "@/hooks/useClientPhoneDuplicateCheck";
 import { useOutOfPocketPriceInfos, useVoucherPriceInfos, useVoucherYears } from "@/hooks/useVoucherData";
+import type { ClientFormData } from "@/features/clients/types";
 import { EmployeeAutocomplete } from "./EmployeeAutocomplete";
 import { EmployeeFormDialog } from "@/components/app/employees/EmployeeFormDialog";
 import { useClientDialogStore } from "@/stores/client-dialog-store";
@@ -59,17 +60,21 @@ export interface ClientFormDialogProps {
     open: boolean;
     onClose: () => void;
     client?: Client | null; // null/undefined for create mode, Client for edit mode
+    /** 생성 모드에서 다이얼로그가 open 상태로 전환될 때 적용된다. 열린 뒤 참조가 바뀌어도 반영되지 않으며, client가 있으면(수정 모드) 무시된다. */
+    prefill?: Partial<ClientFormData>;
+    /** 다이얼로그 상단에 표시할 안내 문구 (예: 계약서 연동 주의사항). */
+    notice?: string;
     onSuccess?: (client: Client) => void; // Optional callback when client is created/updated
 }
 
-export interface ClientFormPanelProps extends Omit<ClientFormDialogProps, "open"> {
+export interface ClientFormPanelProps extends Omit<ClientFormDialogProps, "open" | "notice"> {
     open?: boolean;
     activeStep?: number;
     onActiveStepChange?: (step: number) => void;
     renderLayout?: (parts: { content: ReactNode; footer: ReactNode }) => ReactNode;
 }
 
-type ClientFormData = Omit<CreateClientDto, "primaryEmployeeId"> & { primaryEmployeeId: number | null };
+export type { ClientFormData };
 
 const PANEL_STEP_CONTENT_CLASS_NAME =
     "grid w-full grid-cols-1 gap-[calc(16px*var(--glint-ui-scale,1))] pb-[calc(24px*var(--glint-ui-scale,1))] md:grid-cols-2";
@@ -228,6 +233,7 @@ export function ClientFormPanel({
     open = true,
     onClose,
     client,
+    prefill,
     onSuccess,
     activeStep,
     onActiveStepChange,
@@ -240,6 +246,7 @@ export function ClientFormPanel({
             open={open}
             onClose={onClose}
             client={client}
+            prefill={prefill}
             onSuccess={onSuccess}
             activeStep={activeStep}
             onActiveStepChange={onActiveStepChange}
@@ -248,7 +255,15 @@ export function ClientFormPanel({
     );
 }
 
-export function ClientFormDialog({ "data-component": dataComponent, open, onClose, client, onSuccess }: ClientFormDialogProps) {
+export function ClientFormDialog({
+    "data-component": dataComponent,
+    open,
+    onClose,
+    client,
+    prefill,
+    notice,
+    onSuccess,
+}: ClientFormDialogProps) {
     return (
         <ClientFormContent
             surface="dialog"
@@ -256,6 +271,8 @@ export function ClientFormDialog({ "data-component": dataComponent, open, onClos
             open={open}
             onClose={onClose}
             client={client}
+            prefill={prefill}
+            notice={notice}
             onSuccess={onSuccess}
         />
     );
@@ -267,6 +284,8 @@ function ClientFormContent({
     open,
     onClose,
     client,
+    prefill,
+    notice,
     onSuccess,
     activeStep: controlledActiveStep,
     onActiveStepChange,
@@ -278,6 +297,10 @@ function ClientFormContent({
     const searchParams = useSearchParams();
     const locale = useLocale();
     const isEditMode = !!client;
+    const prefillRef = useRef(prefill);
+    useEffect(() => {
+        prefillRef.current = prefill;
+    }, [prefill]);
 
     // Read pre-filled name from Zustand store (when opened from ClientAutocomplete)
     const prefillName = useClientDialogStore((state) => state.prefillName);
@@ -607,7 +630,13 @@ function ClientFormContent({
                     breastPump: false,
                     serviceStatus: "pre_booking",
                     applyMessageAutomation: true,
+                    ...Object.fromEntries(
+                        Object.entries(prefillRef.current ?? {}).filter(([, value]) => value !== undefined),
+                    ),
                 };
+                nextPricesManuallyEdited = Boolean(
+                    prefillRef.current?.fullPrice || prefillRef.current?.grant || prefillRef.current?.actualPrice,
+                );
                 clearPrefillName();
             }
 
@@ -616,6 +645,9 @@ function ClientFormContent({
                 startDate: normalizeDateForCompactState(nextFormData.startDate),
                 endDate: normalizeDateForCompactState(nextFormData.endDate),
             };
+            if (!client && !nextFormData.endDate && nextFormData.startDate && nextFormData.duration) {
+                skipNextEndDateRecalculationRef.current = false;
+            }
             queueMicrotask(() => {
                 setFormData(nextFormData);
                 setInitializedEditClientId(client?.id ?? null);
@@ -1787,6 +1819,11 @@ function ClientFormContent({
                     contentClassName="space-y-5"
                     footer={dialogFormActions}
                 >
+                    {notice && (
+                        <p data-component={`${base}_notice`} className="text-sm text-v3-text-muted" role="note">
+                            {notice}
+                        </p>
+                    )}
                     {formContent}
                 </FormDialogShell>
             </Dialog>

@@ -29,13 +29,17 @@ export class NotificationMapper {
             userId: entity.userId,
             title: entity.title,
             body: entity.body,
-            data: entity.data as Prisma.InputJsonValue | undefined,
+            ...(entity.data === null ? {} : { data: entity.data as Prisma.InputJsonValue }),
         };
     }
 
-    static toPrismaUpdate(entity: NotificationEntity) {
+    static toPrismaDataUpdate(data: Record<string, unknown> | null) {
         return {
-            readAt: entity.readAt,
+            data: data === null ? Prisma.JsonNull : data as Prisma.InputJsonValue,
         };
+    }
+
+    static toPrismaReadAtUpdate(readAt: Date | null) {
+        return { readAt };
     }
 }

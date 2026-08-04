@@ -6,6 +6,7 @@ export default tseslint.config(
             "dist/",
             "node_modules/",
             "prisma/generated/",
+            "vendor/",
             "supabase/",
             "scripts/",
             "coverage/",

@@ -4,3 +4,4 @@ export * from "./list-clients.usecase";
 export * from "./list-clients-paginated.usecase";
 export * from "./update-client.usecase";
 export * from "./delete-client.usecase";
+export * from "./get-client-dashboard-summary.usecase";

@@ -134,6 +134,7 @@ export function MessagesSettingsPage(): ReactElement {
   useEffect(() => {
     if (
       isInitialLoading ||
+      approvalQuery.isError ||
       selectedItemId === null ||
       selectedItem !== undefined
     ) {
@@ -141,7 +142,7 @@ export function MessagesSettingsPage(): ReactElement {
     }
 
     router.replace("/messages/settings", { scroll: false });
-  }, [isInitialLoading, router, selectedItem, selectedItemId]);
+  }, [approvalQuery.isError, isInitialLoading, router, selectedItem, selectedItemId]);
 
   const handleSelect = (id: string) => {
     if (id === selectedItemId) {
@@ -236,7 +237,7 @@ export function MessagesSettingsPage(): ReactElement {
             data-component={SLIDING_CARD_BASE}
             open={
               selectedItemId !== null &&
-              (selectedItem !== undefined || !isInitialLoading)
+              selectedItem !== undefined
             }
             onBack={handleBack}
             backLabel="설정"
@@ -250,6 +251,8 @@ export function MessagesSettingsPage(): ReactElement {
                 isLoading={isInitialLoading}
                 policiesError={policiesQuery.isError}
                 onRetryPolicies={() => policiesQuery.refetch()}
+                approvalError={approvalQuery.isError}
+                onRetryApproval={() => approvalQuery.refetch()}
                 isApproved={approvalQuery.data?.isApproved ?? false}
               />
             )}

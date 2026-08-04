@@ -504,6 +504,26 @@ describe("ServiceRecordLifecycleService", () => {
         })).resolves.toBeUndefined();
     });
 
+    it("rejects shortening the period before a locked service day", async () => {
+        const prisma = {
+            service_record_case: {
+                findUnique: jest.fn().mockResolvedValue({
+                    status: SERVICE_RECORD_CASE_STATUS.IN_PROGRESS,
+                    startDate: date("2026-07-01"),
+                    endDate: date("2026-07-20"),
+                    requiredSessionCount: 10,
+                    days: [{ serviceDate: date("2026-07-12"), locked: true }],
+                }),
+            },
+        };
+        const service = new ServiceRecordLifecycleService(prisma as unknown as PrismaService);
+
+        await expectConflict(
+            service.validatePeriodChange({ clientId: 1, endDate: date("2026-07-11") }),
+            "SERVICE_RECORD_END_DATE_BEFORE_LOCKED_SESSION",
+        );
+    });
+
     it("does not allow clearing or reducing the contracted session count after recording starts", async () => {
         const prisma = {
             service_record_case: {

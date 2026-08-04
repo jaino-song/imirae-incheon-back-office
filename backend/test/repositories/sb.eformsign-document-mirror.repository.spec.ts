@@ -96,6 +96,26 @@ describe("SbEformsignDocumentMirrorRepository", () => {
                         files: [file],
                     })
                     .mockResolvedValueOnce({
+                        detailPayload: {
+                            id: "doc-1",
+                            current_status: { status_type: "062" },
+                        },
+                        detailSourceUpdatedDate: detailVersion,
+                        syncStatus: "partial",
+                        permanentPurgeRequestedAt: null,
+                        files: [file],
+                    })
+                    .mockResolvedValueOnce({
+                        detailPayload: {
+                            id: "doc-1",
+                            current_status: { status_type: "062" },
+                        },
+                        detailSourceUpdatedDate: detailVersion,
+                        syncStatus: "partial",
+                        permanentPurgeRequestedAt: null,
+                        files: [{ ...file, fileType: "audit_trail" }],
+                    })
+                    .mockResolvedValueOnce({
                         detailPayload: { id: "doc-1" },
                         detailSourceUpdatedDate: detailVersion,
                         syncStatus: "ready",
@@ -112,6 +132,10 @@ describe("SbEformsignDocumentMirrorRepository", () => {
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
+        await expect(repository.findFile("doc-1", "document")).resolves.toMatchObject({
+            content: Buffer.from("pdf"),
+        });
+        await expect(repository.findFile("doc-1", "audit_trail")).resolves.toBeNull();
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
     });
 

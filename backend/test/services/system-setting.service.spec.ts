@@ -12,6 +12,7 @@ describe("SystemSettingService", () => {
 
     const createMockUpdateSettingUsecase = () => ({
         execute: jest.fn(),
+        executeIfVersion: jest.fn(),
     });
 
     let service: SystemSettingService;
@@ -95,6 +96,45 @@ describe("SystemSettingService", () => {
                 }),
             );
             expect(result).toBe(entity);
+        });
+    });
+
+    describe("ribbon compare-and-set", () => {
+        it("persists only when the approved ribbon version still matches", async () => {
+            const entity = new SystemSettingEntity("ribbon_config", "{}", new Date());
+            updateSettingUsecase.executeIfVersion.mockResolvedValue(entity);
+
+            await expect(service.setRibbonConfigIfVersion("approved-version", {
+                enabled: false,
+                message: "",
+                backgroundColor: "#004AAD",
+                textColor: "#FFFFFF",
+                linkText: "",
+                linkHref: "",
+                linkColor: "#FFB27B",
+            })).resolves.toBe(entity);
+
+            expect(updateSettingUsecase.executeIfVersion).toHaveBeenCalledWith(
+                "ribbon_config",
+                expect.any(String),
+                "approved-version",
+                expect.any(Function),
+            );
+        });
+
+        it("rejects a stale ribbon version without invoking a second unconditional write", async () => {
+            updateSettingUsecase.executeIfVersion.mockResolvedValue(null);
+
+            await expect(service.setRibbonConfigIfVersion("stale-version", {
+                enabled: true,
+                message: "점검",
+                backgroundColor: "#004AAD",
+                textColor: "#FFFFFF",
+                linkText: "",
+                linkHref: "",
+                linkColor: "#FFB27B",
+            })).rejects.toThrow("Ribbon configuration changed");
+            expect(updateSettingUsecase.execute).not.toHaveBeenCalled();
         });
     });
 

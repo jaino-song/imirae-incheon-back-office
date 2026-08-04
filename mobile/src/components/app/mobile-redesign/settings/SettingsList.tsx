@@ -21,6 +21,8 @@ export interface SettingsListProps {
   isLoading: boolean;
   policiesError?: boolean;
   onRetryPolicies?: () => void;
+  approvalError?: boolean;
+  onRetryApproval?: () => void;
   isApproved: boolean;
 }
 
@@ -32,6 +34,8 @@ export function SettingsList({
   isLoading,
   policiesError = false,
   onRetryPolicies,
+  approvalError = false,
+  onRetryApproval,
   isApproved,
 }: SettingsListProps): ReactElement {
   const sub = (suffix: string) => `${dataComponent}_${suffix}`;
@@ -173,23 +177,26 @@ export function SettingsList({
               );
             })}
 
-            {policiesError ? (
+            {approvalError || policiesError ? (
               <div
-                data-component={sub("items_policies-error")}
+                data-component={sub("items_query-error")}
                 className="flex items-center justify-between gap-[calc(12px*var(--glint-ui-scale,1))] rounded-[calc(14px*var(--glint-ui-scale,1))] border-[calc(1px*var(--glint-ui-scale,1))] border-v3-border bg-v3-dim-white px-[calc(12px*var(--glint-ui-scale,1))] py-[calc(10px*var(--glint-ui-scale,1))]"
                 role="alert"
               >
                 <span
-                  data-component={sub("items_policies-error_message")}
+                  data-component={sub("items_query-error_message")}
                   className="min-w-0 text-[calc(0.68rem*var(--glint-ui-scale,1))] font-semibold leading-[calc(0.95rem*var(--glint-ui-scale,1))] text-v3-text-muted"
                 >
-                  자동 전송 정책을 불러오지 못했습니다
+                  {approvalError
+                    ? "메시지 발송 신청 상태를 불러오지 못했습니다"
+                    : "자동 전송 정책을 불러오지 못했습니다"}
                 </span>
                 <button
-                  data-component={sub("items_policies-error_retry")}
+                  data-component={sub("items_query-error_retry")}
                   type="button"
+                  aria-label={approvalError ? "신청 상태 재시도" : "재시도"}
                   className="min-h-[calc(36px*var(--glint-ui-scale,1))] shrink-0 cursor-pointer rounded-[calc(10px*var(--glint-ui-scale,1))] bg-v3-primary-light px-[calc(10px*var(--glint-ui-scale,1))] text-[calc(0.68rem*var(--glint-ui-scale,1))] font-bold text-v3-primary outline-none transition-colors active:bg-v3-primary/15 focus-visible:ring-[calc(3px*var(--glint-ui-scale,1))] focus-visible:ring-v3-primary/10"
-                  onClick={onRetryPolicies}
+                  onClick={approvalError ? onRetryApproval : onRetryPolicies}
                 >
                   재시도
                 </button>
