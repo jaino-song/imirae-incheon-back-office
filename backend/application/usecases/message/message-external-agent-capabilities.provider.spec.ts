@@ -540,6 +540,75 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         expect(updated.isActive).toBe(false);
     });
 
+    it.each([
+        ["invalid recipient", { recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE }, "Invalid recipient for selected event type"],
+        ["invalid offset", { offsetType: MessageTriggerOffsetType.IMMEDIATE }, "Invalid offset type for selected event type"],
+        ["non-positive offset days", { offsetDays: 0 }, "Offset days must be greater than 0"],
+        ["incompatible template", { templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED }, "Template is not compatible with the selected event and recipient"],
+    ] as Array<[string, Record<string, unknown>, string]>)
+    ("rejects %s during automation creation inspection", async (_label, overrides, message) => {
+        const { prisma, delivery, capabilities } = setup();
+        const create = capabilities.find((entry) => entry.meta.name === "automation.create")!;
+        const input = {
+            name: "서비스 시작 알림",
+            isActive: true,
+            eventType: MessageTriggerEventType.SERVICE_START,
+            offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
+            offsetDays: 1,
+            recipientType: MessageTriggerRecipientType.CLIENT,
+            templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+            ...overrides,
+        };
+
+        await expect(create.inspect!(context, input)).rejects.toThrow(message);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(delivery.createRule).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["invalid recipient", { recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE }, "Invalid recipient for selected event type"],
+        ["invalid offset", { offsetType: MessageTriggerOffsetType.IMMEDIATE }, "Invalid offset type for selected event type"],
+        ["non-positive offset days", { offsetDays: 0 }, "Offset days must be greater than 0"],
+        ["incompatible template", { templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED }, "Template is not compatible with the selected event and recipient"],
+    ] as Array<[string, Record<string, unknown>, string]>)
+    ("rejects %s during merged automation update inspection", async (_label, overrides, message) => {
+        const { delivery, capabilities } = setup();
+        const update = capabilities.find((entry) => entry.meta.name === "automation.update")!;
+        const input = { id: "rule-a", ...overrides };
+
+        await expect(update.inspect!(context, input)).rejects.toThrow(message);
+        expect(delivery.updateRule).not.toHaveBeenCalled();
+    });
+
+    it("classifies invalid automation creation as certain before starting a transaction", async () => {
+        const { prisma, delivery, capabilities } = setup();
+        const create = capabilities.find((entry) => entry.meta.name === "automation.create")!;
+        const input = {
+            name: "서비스 시작 알림",
+            isActive: true,
+            eventType: MessageTriggerEventType.SERVICE_START,
+            offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
+            offsetDays: 0,
+            recipientType: MessageTriggerRecipientType.CLIENT,
+            templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+        };
+
+        await expect(create.execute(context, input)).rejects.toMatchObject({ name: "AgentActionCertainFailureError" });
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(prisma.agent_action.updateMany).not.toHaveBeenCalled();
+        expect(delivery.createRule).not.toHaveBeenCalled();
+    });
+
+    it("classifies invalid automation updates as certain before the canonical write", async () => {
+        const { prisma, delivery, capabilities } = setup();
+        const update = capabilities.find((entry) => entry.meta.name === "automation.update")!;
+        const input = { id: "rule-a", templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED };
+
+        await expect(update.execute(context, input)).rejects.toMatchObject({ name: "AgentActionCertainFailureError" });
+        expect(prisma.agent_action.updateMany).not.toHaveBeenCalled();
+        expect(delivery.updateRule).not.toHaveBeenCalled();
+    });
+
     it("routes versioned automation mutations through approved-target CAS hooks", async () => {
         const { delivery, capabilities } = setup();
         const update = capabilities.find((entry) => entry.meta.name === "automation.update")!;

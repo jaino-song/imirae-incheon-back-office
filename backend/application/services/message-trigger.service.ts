@@ -63,6 +63,11 @@ interface UpsertRuleParams {
     templateKey: MessageTriggerTemplateKey;
 }
 
+type MessageTriggerRuleValidationParams = Pick<
+    UpsertRuleParams,
+    "eventType" | "offsetType" | "offsetDays" | "recipientType" | "templateKey"
+>;
+
 const DEFAULT_SERVICE_INFO_TRIGGER: UpsertRuleParams = {
     name: "서비스 시작 7일 전 서비스 안내",
     isActive: true,
@@ -88,6 +93,57 @@ const ORPHANED_TRIGGER_JOB_CANCEL_REASON = "Related client or schedule deleted";
 const EXPIRED_PENDING_JOB_CANCEL_REASON = "기존 발송 예정 24시간 경과";
 const MISSING_CATCH_UP_PREDECESSOR_CANCEL_REASON = "보충 발송 이전 순위 job 없음";
 const MS_PER_MINUTE = 60 * 1000;
+
+function normalizeMessageTriggerOffsetDays(
+    offsetType: MessageTriggerOffsetType,
+    offsetDays?: number,
+): number {
+    if (
+        offsetType === MessageTriggerOffsetType.IMMEDIATE ||
+        offsetType === MessageTriggerOffsetType.SAME_DAY
+    ) {
+        return 0;
+    }
+    return offsetDays ?? 0;
+}
+
+export function validateMessageTriggerRule(params: MessageTriggerRuleValidationParams): void {
+    const template = MESSAGE_TRIGGER_TEMPLATE_CATALOG[params.templateKey];
+    if (!template) {
+        throw new BadRequestException("Unknown template key");
+    }
+
+    if (!template.providers.sms) {
+        throw new BadRequestException("SMS 발송 채널이 없는 템플릿입니다.");
+    }
+
+    if (!EVENT_RECIPIENT_OPTIONS[params.eventType].includes(params.recipientType)) {
+        throw new BadRequestException("Invalid recipient for selected event type");
+    }
+
+    if (!EVENT_OFFSET_OPTIONS[params.eventType].includes(params.offsetType)) {
+        throw new BadRequestException("Invalid offset type for selected event type");
+    }
+
+    const normalizedOffsetDays = normalizeMessageTriggerOffsetDays(params.offsetType, params.offsetDays);
+    if (
+        (params.offsetType === MessageTriggerOffsetType.BEFORE_DAYS ||
+            params.offsetType === MessageTriggerOffsetType.AFTER_DAYS) &&
+        normalizedOffsetDays <= 0
+    ) {
+        throw new BadRequestException("Offset days must be greater than 0");
+    }
+
+    if (
+        !isCompatibleMessageTriggerTemplate({
+            templateKey: params.templateKey,
+            eventType: params.eventType,
+            recipientType: params.recipientType,
+        })
+    ) {
+        throw new BadRequestException("Template is not compatible with the selected event and recipient");
+    }
+}
 
 function isPrismaUniqueViolation(error: unknown): boolean {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
@@ -1345,13 +1401,7 @@ export class MessageTriggerService {
         offsetType: MessageTriggerOffsetType,
         offsetDays?: number,
     ): number {
-        if (
-            offsetType === MessageTriggerOffsetType.IMMEDIATE ||
-            offsetType === MessageTriggerOffsetType.SAME_DAY
-        ) {
-            return 0;
-        }
-        return offsetDays ?? 0;
+        return normalizeMessageTriggerOffsetDays(offsetType, offsetDays);
     }
 
     private ruleTargetVersion(rule: MessageTriggerRuleEntity): string {
@@ -1423,42 +1473,7 @@ export class MessageTriggerService {
     }
 
     private validateRule(params: UpsertRuleParams): void {
-        const template = MESSAGE_TRIGGER_TEMPLATE_CATALOG[params.templateKey];
-        if (!template) {
-            throw new BadRequestException("Unknown template key");
-        }
-
-        if (!template.providers.sms) {
-            throw new BadRequestException("SMS 발송 채널이 없는 템플릿입니다.");
-        }
-
-        if (!EVENT_RECIPIENT_OPTIONS[params.eventType].includes(params.recipientType)) {
-            throw new BadRequestException("Invalid recipient for selected event type");
-        }
-
-        if (!EVENT_OFFSET_OPTIONS[params.eventType].includes(params.offsetType)) {
-            throw new BadRequestException("Invalid offset type for selected event type");
-        }
-
-        const normalizedOffsetDays = this.normalizeOffsetDays(params.offsetType, params.offsetDays);
-        if (
-            (params.offsetType === MessageTriggerOffsetType.BEFORE_DAYS ||
-                params.offsetType === MessageTriggerOffsetType.AFTER_DAYS) &&
-            normalizedOffsetDays <= 0
-        ) {
-            throw new BadRequestException("Offset days must be greater than 0");
-        }
-
-        if (
-            !isCompatibleMessageTriggerTemplate({
-                templateKey: params.templateKey,
-                eventType: params.eventType,
-                recipientType: params.recipientType,
-            })
-        ) {
-            throw new BadRequestException("Template is not compatible with the selected event and recipient");
-        }
-
+        validateMessageTriggerRule(params);
     }
 
     private async cancelPendingJobsForRule(

@@ -5,7 +5,10 @@ import { AgentActionCertainFailureError, AgentActionUncertainError } from "appli
 import { AgentCapabilityProvider } from "application/agent/capability.decorator";
 import type { AgentCapabilityProviderContract, CapabilityDefinition } from "application/agent/capability.types";
 import type { AgentFormField } from "@babyjamjam/shared";
-import { MessageTriggerService } from "application/services/message-trigger.service";
+import {
+    MessageTriggerService,
+    validateMessageTriggerRule,
+} from "application/services/message-trigger.service";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
 import {
     SMS_DELIVERY_SNAPSHOT_VARIABLE,
@@ -124,6 +127,25 @@ const AUTOMATION_RULE_FIELDS: AgentFormField[] = [
 ];
 const AUTOMATION_ID_FIELD: AgentFormField = { name: "id", label: "자동화 규칙 ID", type: "text", required: true };
 const AGENT_SMS_DELIVERY_TYPE = "LMS";
+type MessageTriggerRuleValidationParams = Parameters<typeof validateMessageTriggerRule>[0];
+
+function mergedAutomationRuleValidationInput(
+    rule: MessageTriggerRuleEntity,
+    updates: Partial<MessageTriggerRuleValidationParams>,
+): MessageTriggerRuleValidationParams {
+    return {
+        eventType: updates.eventType ?? rule.eventType,
+        offsetType: updates.offsetType ?? rule.offsetType,
+        offsetDays: updates.offsetDays ?? rule.offsetDays,
+        recipientType: updates.recipientType ?? rule.recipientType,
+        templateKey: updates.templateKey ?? rule.templateKey,
+    };
+}
+
+function throwCertainValidationFailure(error: unknown): void {
+    if (error instanceof AgentActionCertainFailureError) throw error;
+    if (error instanceof BadRequestException) throw new AgentActionCertainFailureError(error.message);
+}
 
 function maskedReceiver(value: string): string {
     const digits = value.replace(/\D/g, "");
@@ -318,15 +340,23 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             formFields: AUTOMATION_RULE_FIELDS,
             inspect: async (_context, rawInput) => {
                 const input = AutomationRuleBaseSchema.parse(rawInput);
+                validateMessageTriggerRule(input);
                 return { title: "메시지 자동화 생성", summary: `${input.name} 규칙을 ${input.isActive ? "활성" : "비활성"} 상태로 생성합니다.`, provider: "Message automation scheduler", estimatedCost: "활성 규칙이 발송하는 각 문자에 SMS/LMS 요금이 발생할 수 있습니다." };
             },
             execute: async (context, rawInput) => {
-                return this.prisma.$transaction(async (transaction) => {
-                    const rule = await this.messageTriggerService.createRule(context.principal.branchId, AutomationRuleBaseSchema.parse(rawInput), transaction);
-                    const result = { status: "created", id: rule.id, isActive: rule.isActive };
-                    await recordAgentActionEffect(transaction, context, "automation.create", "automation-rule", rule.id, result);
-                    return result;
-                });
+                const input = AutomationRuleBaseSchema.parse(rawInput);
+                try {
+                    validateMessageTriggerRule(input);
+                    return await this.prisma.$transaction(async (transaction) => {
+                        const rule = await this.messageTriggerService.createRule(context.principal.branchId, input, transaction);
+                        const result = { status: "created", id: rule.id, isActive: rule.isActive };
+                        await recordAgentActionEffect(transaction, context, "automation.create", "automation-rule", rule.id, result);
+                        return result;
+                    });
+                } catch (error) {
+                    throwCertainValidationFailure(error);
+                    throw error;
+                }
             },
             reconcile: async (context) => {
                 const receipt = await readAgentActionEffect(this.prisma, context, "automation.create");
@@ -340,6 +370,8 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
 
     private automationUpdate(common: Record<string, unknown>): CapabilityDefinition {
         return this.automationExistingRuleCapability(common, "automation.update", "Update a message automation rule after strong approval", AutomationRuleUpdateSchema, async (branchId, input) => {
+            const existing = await this.messageTriggerService.getRule(branchId, input.id);
+            validateMessageTriggerRule(mergedAutomationRuleValidationInput(existing, input));
             const { id, ...updates } = input;
             const rule = await this.messageTriggerService.updateRule(branchId, id, updates);
             return { status: "updated", id: rule.id, isActive: rule.isActive };
@@ -391,6 +423,12 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
             inspect: async (context, rawInput) => {
                 const input = inputSchema.parse(rawInput);
                 const rule = await this.messageTriggerService.getRule(context.principal.branchId, input.id);
+                if (name === "automation.update") {
+                    validateMessageTriggerRule(mergedAutomationRuleValidationInput(
+                        rule,
+                        input as Partial<MessageTriggerRuleValidationParams>,
+                    ));
+                }
                 return {
                     targetVersion: this.ruleTargetVersion(rule),
                     targetSnapshot: { ...this.ruleView(rule), branchId: rule.branchId, createdAt: rule.createdAt.toISOString() },
@@ -400,7 +438,14 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                     estimatedCost: "활성 규칙이 발송하는 각 문자에 SMS/LMS 요금이 발생할 수 있습니다.",
                 };
             },
-            execute: async (context, rawInput) => execute(context.principal.branchId, inputSchema.parse(rawInput)),
+            execute: async (context, rawInput) => {
+                try {
+                    return await execute(context.principal.branchId, inputSchema.parse(rawInput));
+                } catch (error) {
+                    throwCertainValidationFailure(error);
+                    throw error;
+                }
+            },
             executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                 const input = inputSchema.parse(rawInput) as { id: string; [key: string]: unknown };
                 try {
