@@ -12,15 +12,17 @@ describe("AgentIntelligenceService", () => {
                 selectedEntities: {
                     clients: {
                         id: "client_cuid_2m4x6z8q0v",
-                        identifier: "900101-1234567",
-                        phone: "02-1234-5678",
-                        businessNumber: "123-45-67890",
+                        identifier: "070-1234-5678",
+                        phone: "+82-2-1234-5678",
+                        businessNumber: "080-123-4567",
+                        traceId: "0505-123-4567",
+                        sessionId: "+82-31-123-4567",
                         asOf: "2026-08-03",
                         version: "v1.2.3",
                     },
                 },
                 messages: [
-                    { id: "m1", role: "user", parts: [{ type: "text", text: "031-123-4567 900101-1234567" }] },
+                    { id: "m1", role: "user", parts: [{ type: "text", text: "031-123-4567 900101-1234567 123-45-67890" }] },
                 ],
             }),
             update: jest.fn().mockResolvedValue(undefined),
@@ -34,8 +36,8 @@ describe("AgentIntelligenceService", () => {
         expect(selected).toContain("client_cuid_2m4x6z8q0v");
         expect(selected).toContain("2026-08-03");
         expect(selected).toContain("v1.2.3");
-        expect(selected).not.toMatch(/02-1234-5678|031-123-4567|900101-1234567|123-45-67890/);
-        expect(parsed.goals[0]).not.toMatch(/031-123-4567|900101-1234567/);
+        expect(selected).not.toMatch(/\+82-2-1234-5678|\+82-31-123-4567|070-1234-5678|080-123-4567|0505-123-4567|031-123-4567|900101-1234567|123-45-67890/);
+        expect(parsed.goals[0]).not.toMatch(/031-123-4567|900101-1234567|123-45-67890/);
     });
 
     it("compacts server-owned context while preserving unresolved work and minimizing PII", async () => {

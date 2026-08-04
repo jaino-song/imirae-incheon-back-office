@@ -108,21 +108,21 @@ describe("Release A agent security boundaries", () => {
         const value = redactModelValue({
             entity: {
                 id: "entity_cuid_2m4x6z8q0v",
-                identifier: "900101-1234567",
-                phone: "02-1234-5678",
+                identifier: "070-1234-5678",
+                phone: "+82-2-1234-5678",
             },
-            toolResult: { businessNumber: "123-45-67890", text: "031-123-4567" },
+            toolResult: { id: "+82-31-123-4567", businessNumber: "080-123-4567", text: "0505-123-4567" },
             date: "2026-08-03",
             version: "v1.2.3",
         }) as Record<string, unknown>;
 
         expect(value).toMatchObject({
             entity: { id: "entity_cuid_2m4x6z8q0v", identifier: "[redacted]" },
-            toolResult: { businessNumber: "[redacted]", text: "[redacted]" },
+            toolResult: { id: "[redacted]", businessNumber: "[redacted]", text: "[redacted]" },
             date: "2026-08-03",
             version: "v1.2.3",
         });
-        expect(JSON.stringify(value)).not.toMatch(/02-1234-5678|031-123-4567|900101-1234567|123-45-67890/);
+        expect(JSON.stringify(value)).not.toMatch(/\+82-2-1234-5678|\+82-31-123-4567|070-1234-5678|080-123-4567|0505-123-4567/);
     });
 
     it("preserves action identifiers while excluding nested credentials and PII", () => {

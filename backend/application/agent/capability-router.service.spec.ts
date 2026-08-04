@@ -185,8 +185,8 @@ describe("CapabilityRouterService", () => {
     });
 
     it("minimizes Korean landlines and hyphenated identifiers while preserving operational metadata", () => {
-        expect(minimizeClassifierText("02-1234-5678 031-123-4567 900101-1234567 123-45-67890 2026-08-03 v1.2.3 123e4567-e89b-12d3-a456-426614174000"))
-            .toBe("[redacted] [redacted] [redacted] [redacted] 2026-08-03 v1.2.3 123e4567-e89b-12d3-a456-426614174000");
+        expect(minimizeClassifierText("02-1234-5678 031-123-4567 070-1234-5678 080-123-4567 0505-123-4567 +82-2-1234-5678 +82-31-123-4567 900101-1234567 123-45-67890 2026-08-03 v1.2.3 123e4567-e89b-12d3-a456-426614174000"))
+            .toBe("[redacted] [redacted] [redacted] [redacted] [redacted] [redacted] [redacted] [redacted] [redacted] 2026-08-03 v1.2.3 123e4567-e89b-12d3-a456-426614174000");
     });
 
     it("passes only minimized current-turn text to the ambiguous classifier", async () => {

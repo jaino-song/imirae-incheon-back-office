@@ -52,16 +52,16 @@ describe("AgentRuntimeService", () => {
 
     it("redacts Korean landlines and hyphenated identifiers in persisted history and the current turn", () => {
         const messages = buildAuthoritativeModelMessages([
-            { id: "history", role: "user", parts: [{ type: "text", text: "02-1234-5678 900101-1234567" }] },
+            { id: "history", role: "user", parts: [{ type: "text", text: "02-1234-5678 900101-1234567 070-1234-5678 +82-2-1234-5678" }] },
         ], {
             id: "current",
             role: "user",
-            parts: [{ type: "text", text: "031-123-4567 123-45-67890" }],
+            parts: [{ type: "text", text: "031-123-4567 123-45-67890 080-123-4567 0505-123-4567 +82-31-123-4567" }],
         });
         const text = messages.flatMap((message) => message.parts.map((part) => (part as { text?: string }).text ?? "")).join(" ");
 
-        expect(text).not.toMatch(/02-1234-5678|031-123-4567|900101-1234567|123-45-67890/);
-        expect(text.match(/\[redacted\]/g)).toHaveLength(4);
+        expect(text).not.toMatch(/02-1234-5678|031-123-4567|070-1234-5678|080-123-4567|0505-123-4567|\+82-2-1234-5678|\+82-31-123-4567|900101-1234567|123-45-67890/);
+        expect(text.match(/\[redacted\]/g)).toHaveLength(9);
     });
 
     it("keeps operational IDs in the current user turn while redacting credential text", () => {
@@ -92,9 +92,11 @@ describe("AgentRuntimeService", () => {
 
     it("scans identifier-like keys while preserving operational IDs, hashes, dates, and versions", () => {
         const value = redactModelValue({
-            identifier: "02-1234-5678",
-            clientId: "900101-1234567",
-            id: "123-45-67890",
+            identifier: "070-1234-5678",
+            clientId: "080-123-4567",
+            id: "0505-123-4567",
+            traceId: "+82-2-1234-5678",
+            sessionId: "+82-31-123-4567",
             uuid: "123e4567-e89b-12d3-a456-426614174000",
             cuid: "client_cuid_2m4x6z8q0v",
             ulid: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -107,6 +109,8 @@ describe("AgentRuntimeService", () => {
             identifier: "[redacted]",
             clientId: "[redacted]",
             id: "[redacted]",
+            traceId: "[redacted]",
+            sessionId: "[redacted]",
             uuid: "123e4567-e89b-12d3-a456-426614174000",
             cuid: "client_cuid_2m4x6z8q0v",
             ulid: "01ARZ3NDEKTSV4RRFFQ69G5FAV",

@@ -32,7 +32,7 @@ const FREE_TEXT_REDACTIONS = [
     /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
     /\b(?:authorization|set[_ -]?cookie|cookie|token|access[_ -]?token|refresh[_ -]?token|id[_ -]?token|auth|api[_ -]?key|client[_ -]?secret|secret|password|passwd|passphrase|signature|signed[_ -]?url|storage[_ -]?url)\s*[:=]\s*(?:"[^"]*"|'[^']*'|Bearer\s+\S+|[^\s,;}]+)/gi,
     /(?:\+?82[-\s]?)?0?1[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,
-    /(?<![A-Za-z0-9_.])(?:02|0[3-6][0-9])[-\s]?\d{3,4}[-\s]?\d{4}(?![A-Za-z0-9_.])/g,
+    /(?<![A-Za-z0-9_.])(?:\+82[-\s]?(?:2|[3-6][0-9]|[7-8][0-9]|50[0-9])|(?:02|0[3-6][0-9]|07[0-9]|08[0-9]|050[0-9]))[-\s]?\d{3,4}[-\s]?\d{4}(?![A-Za-z0-9_.])/g,
     /(?<![A-Za-z0-9_-])\d{6}-\d{7}(?![A-Za-z0-9_-])/g,
     /(?<![A-Za-z0-9_-])\d{3}-\d{2}-\d{5}(?![A-Za-z0-9_-])/g,
     /\b[\w.+-]+@[\w.-]+\.\w+\b/g,
