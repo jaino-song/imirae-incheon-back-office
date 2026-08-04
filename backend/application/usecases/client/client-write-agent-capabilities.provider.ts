@@ -31,6 +31,25 @@ const DateInputValue = z.union([
     z.string().datetime({ offset: true }),
 ]);
 const DateInput = DateInputValue.nullable().optional();
+
+function isCalendarValidYymmdd(value: string): boolean {
+    if (!/^\d{6}$/.test(value)) return false;
+
+    const year = Number(value.slice(0, 2));
+    const month = Number(value.slice(2, 4));
+    const day = Number(value.slice(4, 6));
+    if (month < 1 || month > 12 || day < 1) return false;
+
+    const daysInMonth = [31, year % 4 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return day <= (daysInMonth[month - 1] ?? 0);
+}
+
+const ClientBirthdaySchema = z.string()
+    .regex(/^\d{6}$/, "Birthday must be six numeric YYMMDD digits")
+    .refine(isCalendarValidYymmdd, "Birthday must be a calendar-valid YYMMDD date")
+    .nullable()
+    .optional();
+
 const ClientWriteFields = z.object({
     name: z.string().trim().min(1).max(120),
     address: z.string().trim().max(300).nullable().optional(),
@@ -44,7 +63,7 @@ const ClientWriteFields = z.object({
     endDate: DateInput,
     careCenter: z.boolean().nullable().optional(),
     voucherClient: z.boolean().optional(),
-    birthday: z.string().max(20).nullable().optional(),
+    birthday: ClientBirthdaySchema,
     dueDate: DateInput,
     birthDate: DateInput,
     serviceStatus: z.enum([...SERVICE_STATUS_VALUES] as [ServiceStatusType, ...ServiceStatusType[]]).nullable().optional(),

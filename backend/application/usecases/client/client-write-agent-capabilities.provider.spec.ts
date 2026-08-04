@@ -154,6 +154,94 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         }), expect.anything());
     });
 
+    it.each([
+        ["leap day", "240229"],
+        ["century leap day", "000229"],
+    ])("accepts a calendar-valid YYMMDD birthday for create and update (%s)", async (_label, birthday) => {
+        const { capabilities, createClient, updateClient } = setup();
+        const create = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        expect(create.inputSchema.safeParse({ name: "홍길동", phone: "01012345678", birthday }).success).toBe(true);
+        expect(update.inputSchema.safeParse({ id: 1, birthday }).success).toBe(true);
+
+        await create.execute(context, { name: "홍길동", phone: "01012345678", birthday });
+        await update.execute(context, { id: 1, birthday });
+        await update.executeApprovedTarget!(context, { id: 1, birthday }, "approved-target");
+
+        expect(createClient.execute).toHaveBeenCalledWith("branch-a", expect.objectContaining({ birthday }), expect.anything());
+        expect(updateClient.execute).toHaveBeenCalledWith("branch-a", 1, expect.objectContaining({ birthday }));
+        expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith(
+            "branch-a", 1, expect.objectContaining({ birthday }), "approved-target",
+        );
+    });
+
+    it.each([
+        ["non-leap February 29", "230229"],
+        ["invalid day", "900231"],
+        ["invalid month", "901300"],
+        ["nonnumeric", "90A101"],
+        ["too short", "90010"],
+        ["too long", "9001011"],
+    ])("rejects %s YYMMDD birthday before create or update mutation", async (_label, birthday) => {
+        const { capabilities, createClient, updateClient, findClient, prisma } = setup();
+        const create = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+        const createInput = { name: "홍길동", phone: "01012345678", birthday };
+        const updateInput = { id: 1, birthday };
+
+        expect(create.inputSchema.safeParse(createInput).success).toBe(false);
+        expect(update.inputSchema.safeParse(updateInput).success).toBe(false);
+        await expect(create.execute(context, createInput)).rejects.toThrow();
+        await expect(update.execute(context, updateInput)).rejects.toThrow();
+        await expect(update.executeApprovedTarget!(context, updateInput, "approved-target")).rejects.toThrow();
+
+        expect(createClient.execute).not.toHaveBeenCalled();
+        expect(updateClient.execute).not.toHaveBeenCalled();
+        expect(updateClient.executeApprovedTarget).not.toHaveBeenCalled();
+        expect(findClient.execute).not.toHaveBeenCalled();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["null", null],
+        ["omitted", undefined],
+    ])("accepts a %s nullable/optional birthday value", async (_label, birthday) => {
+        const { capabilities, createClient, updateClient } = setup();
+        const create = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+        const createInput = {
+            name: "홍길동",
+            phone: "01012345678",
+            ...(birthday === undefined ? {} : { birthday }),
+        };
+        const updateInput = birthday === undefined
+            ? { id: 1, name: "김길동" }
+            : { id: 1, birthday };
+
+        expect(create.inputSchema.safeParse(createInput).success).toBe(true);
+        expect(update.inputSchema.safeParse(updateInput).success).toBe(true);
+        await create.execute(context, createInput);
+        await update.execute(context, updateInput);
+        await update.executeApprovedTarget!(context, updateInput, "approved-target");
+
+        expect(createClient.execute).toHaveBeenCalled();
+        expect(updateClient.execute).toHaveBeenCalled();
+        expect(updateClient.executeApprovedTarget).toHaveBeenCalled();
+    });
+
     it("restricts serviceStatus to canonical values and does not invoke create on invalid input", async () => {
         const { capabilities, createClient } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
