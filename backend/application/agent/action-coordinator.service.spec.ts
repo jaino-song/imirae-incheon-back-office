@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { AgentFlagsService } from "./agent-flags.service";
@@ -187,7 +188,7 @@ describe("ActionCoordinatorService", () => {
         expect(prisma.agent_action.create).toHaveBeenCalledTimes(2);
     });
 
-    it.each(["executing", "uncertain"] as const)("retains an expired dedupe reservation while the action is %s", async (status) => {
+    it.each(["approved", "executing", "uncertain", "succeeded"] as const)("retains an expired dedupe reservation while the action is %s", async (status) => {
         const definition = capability();
         const existing = actionRecord({
             status,
@@ -216,7 +217,7 @@ describe("ActionCoordinatorService", () => {
         expect(prisma.agent_action.create).not.toHaveBeenCalled();
     });
 
-    it.each(["proposed", "approved", "succeeded", "failed", "rejected", "expired", "cancelled"] as const)(
+    it.each(["proposed", "rejected", "expired", "cancelled"] as const)(
         "releases an expired dedupe reservation when the prior action is %s",
         async (status) => {
             const definition = capability();
@@ -248,6 +249,198 @@ describe("ActionCoordinatorService", () => {
             expect(prisma.agent_action.create).toHaveBeenCalledTimes(1);
         },
     );
+
+    it("retains an effect-ambiguous failed action after its dedupe window expires", async () => {
+        const definition = capability();
+        const existing = actionRecord({
+            status: "failed",
+            error: { code: "provider_reported_failure", message: "provider rejected after invocation" },
+            dedupeExpiresAt: new Date(Date.now() - 60_000),
+        });
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockResolvedValue(existing),
+            updateMany: jest.fn(),
+            create: jest.fn(),
+        } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+            actionPersistence() as never,
+        );
+
+        const duplicate = await service.propose({
+            sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko",
+        });
+
+        expect(duplicate.id).toBe(existing.id);
+        expect(prisma.agent_action.updateMany).not.toHaveBeenCalled();
+        expect(prisma.agent_action.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["rejected", null],
+        ["failed", { code: "execution_failed", message: "no provider call began" }],
+    ] as const)("immediately releases a %s action for reconsideration", async (status, error) => {
+        const definition = capability();
+        const existing = actionRecord({ status, error, dedupeExpiresAt: new Date(Date.now() + 60_000) });
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockResolvedValue(existing),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            create: jest.fn().mockImplementation(async ({ data }) => actionRecord({
+                ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null,
+            })),
+        } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+            actionPersistence(prisma) as never,
+        );
+
+        const replacement = await service.propose({
+            sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko",
+        });
+
+        expect(replacement.id).not.toBe(existing.id);
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ id: existing.id, status, requestDedupeKey: expect.any(String) }),
+        }));
+        expect(prisma.agent_action.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("re-inspects an active proposed action and rotates its key when the complete revision changes", async () => {
+        let targetVersion = "target-v1";
+        const definition = {
+            ...capability(),
+            inspect: jest.fn().mockImplementation(async () => ({
+                targetVersion,
+                targetSnapshot: { id: 3, version: targetVersion },
+                title: "Update client",
+                summary: `Apply ${targetVersion}`,
+            })),
+        };
+        const records = new Map<string, ReturnType<typeof actionRecord>>();
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockImplementation(async ({ where }) => records.get(where.requestDedupeKey) ?? null),
+            updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
+                const current = records.get(where.requestDedupeKey);
+                if (!current || current.status !== where.status) return { count: 0 };
+                records.delete(where.requestDedupeKey);
+                records.set(data.requestDedupeKey, actionRecord({ ...current, requestDedupeKey: data.requestDedupeKey }));
+                return { count: 1 };
+            }),
+            create: jest.fn().mockImplementation(async ({ data }) => {
+                const created = actionRecord({ ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null });
+                records.set(data.requestDedupeKey, created);
+                return created;
+            }),
+        } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+            actionPersistence(prisma) as never,
+        );
+        const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
+
+        const first = await service.propose(input);
+        targetVersion = "target-v2";
+        const replacement = await service.propose(input);
+
+        expect(replacement.id).not.toBe(first.id);
+        expect(replacement.targetVersion).toBe("target-v2");
+        expect(definition.inspect).toHaveBeenCalledTimes(2);
+        expect(prisma.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                id: first.id,
+                status: "proposed",
+                requestDedupeKey: first.requestDedupeKey,
+            }),
+        }));
+        expect(prisma.agent_action.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("reuses an active proposed action only when its complete revision is identical", async () => {
+        const definition = {
+            ...capability(),
+            inspect: jest.fn().mockResolvedValue({
+                targetVersion: "target-v1",
+                targetSnapshot: { id: 3, version: "target-v1" },
+                title: "Update client",
+                summary: "Apply target-v1",
+            }),
+        };
+        const records = new Map<string, ReturnType<typeof actionRecord>>();
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockImplementation(async ({ where }) => records.get(where.requestDedupeKey) ?? null),
+            updateMany: jest.fn(),
+            create: jest.fn().mockImplementation(async ({ data }) => {
+                const created = actionRecord({ ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null });
+                records.set(data.requestDedupeKey, created);
+                return created;
+            }),
+        } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+            actionPersistence(prisma) as never,
+        );
+        const input = { sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko" };
+
+        const first = await service.propose(input);
+        const duplicate = await service.propose(input);
+
+        expect(duplicate.id).toBe(first.id);
+        expect(definition.inspect).toHaveBeenCalledTimes(2);
+        expect(prisma.agent_action.updateMany).not.toHaveBeenCalled();
+        expect(prisma.agent_action.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns the winner when action creation loses a request-dedupe P2002 race", async () => {
+        const definition = capability();
+        let raced: ReturnType<typeof actionRecord> | null = null;
+        let racedId: string | undefined;
+        const prisma = { agent_action: {
+            findUnique: jest.fn().mockImplementation(async ({ where }) => (
+                raced && raced.requestDedupeKey === where.requestDedupeKey ? raced : null
+            )),
+            create: jest.fn().mockImplementation(async ({ data }) => {
+                const created = actionRecord({ ...data, createdAt: new Date(), updatedAt: new Date(), resultPartPersistedAt: null });
+                raced = created;
+                racedId = created.id;
+                throw new Prisma.PrismaClientKnownRequestError("unique constraint", {
+                    code: "P2002",
+                    clientVersion: "6.19.1",
+                });
+            }),
+        } };
+        const service = new ActionCoordinatorService(
+            prisma as never,
+            { get: jest.fn().mockReturnValue(definition) } as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            { isAvailable: jest.fn().mockReturnValue(false) } as never,
+            sessionPersistence() as never,
+            actionPersistence(prisma) as never,
+        );
+
+        const result = await service.propose({
+            sessionId: "session-a", principal, capability: "clients.update", input: { id: 3 }, locale: "ko",
+        });
+
+        expect(result.id).toBe(racedId);
+        expect(prisma.agent_action.create).toHaveBeenCalledTimes(1);
+        expect(prisma.agent_action.findUnique).toHaveBeenCalledTimes(2);
+    });
 
     it("does not accept a capability version as approval proof", async () => {
         const definition = capability();

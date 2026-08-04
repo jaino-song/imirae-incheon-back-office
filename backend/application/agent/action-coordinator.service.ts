@@ -24,7 +24,7 @@ import type { AgentReconciliationOutcome } from "./capability.types";
 
 const APPROVAL_PENDING_STATUSES: AgentActionStatus[] = ["proposed", "approved"];
 const TERMINAL_STATUSES: AgentActionStatus[] = ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"];
-const DEDUPE_RESERVED_STATUSES: AgentActionStatus[] = ["executing", "uncertain"];
+const DEDUPE_RESERVED_STATUSES: AgentActionStatus[] = ["approved", "executing", "uncertain", "succeeded"];
 const DEFAULT_ACTION_TTL_MS = 15 * 60 * 1000;
 const REQUEST_DEDUPE_WINDOW_MS = 15 * 60 * 1000;
 const EXECUTION_STALE_AFTER_MS = 30 * 60 * 1000;
@@ -91,6 +91,24 @@ function uncertaintyDetails(value: unknown): Record<string, unknown> | undefined
     return Object.keys(details).length > 0 ? details : undefined;
 }
 
+function errorCode(record: Pick<ActionRecord, "error">): string | undefined {
+    const error = jsonObject(record.error);
+    return typeof error["code"] === "string" ? error["code"] : undefined;
+}
+
+function retainsDedupeReservation(record: Pick<ActionRecord, "status" | "error">): boolean {
+    const status = record.status as AgentActionStatus;
+    if (DEDUPE_RESERVED_STATUSES.includes(status)) return true;
+    // A failed action is reserved unless the coordinator recorded the
+    // capability's explicit proof that no provider side effect began.
+    return status === "failed" && errorCode(record) !== "execution_failed";
+}
+
+function releasesDedupeImmediately(record: Pick<ActionRecord, "status" | "error">): boolean {
+    const status = record.status as AgentActionStatus;
+    return status === "rejected" || (status === "failed" && errorCode(record) === "execution_failed");
+}
+
 function toEntity(record: ActionRecord): AgentActionEntity {
     return {
         id: record.id,
@@ -155,54 +173,76 @@ export class ActionCoordinatorService {
         const requestDedupeKey = createHash("sha256")
             .update(`${input.sessionId}:${input.principal.userId}:${input.principal.branchId}:${input.capability}:${inputHash}`)
             .digest("hex");
+        const traceId = input.traceId ?? randomUUID();
+        let proposalData: {
+            proposal: Record<string, unknown>;
+            proposalRevision: string;
+            targetSnapshot: Record<string, unknown> | null;
+            targetVersion: string | null;
+        } | undefined;
+        const buildProposal = async () => {
+            if (proposalData) return proposalData;
+            const inspection = capability.inspect
+                ? await capability.inspect({
+                    principal: input.principal,
+                    sessionId: input.sessionId,
+                    traceId,
+                    locale: input.locale,
+                }, parsedInput)
+                : undefined;
+            const parsedTargetVersion = inspection?.targetVersion ?? input.targetVersion;
+            const targetSnapshot = input.targetSnapshot ?? inspection?.targetSnapshot;
+            const proposal = {
+                capability: input.capability,
+                title: inspection?.title ?? input.title ?? capability.meta.description,
+                summary: inspection?.summary ?? input.summary ?? capability.meta.description,
+                input: parsedInput,
+                targetSnapshot: targetSnapshot ?? null,
+                targetVersion: parsedTargetVersion ?? null,
+                provider: inspection?.provider ?? null,
+                estimatedCost: inspection?.estimatedCost ?? null,
+                locale: input.locale,
+            };
+            const proposalRevision = createHash("sha256").update(stableJson({
+                capability: input.capability,
+                capabilityVersion: capability.meta.version,
+                risk: capability.meta.risk,
+                proposal,
+            })).digest("hex");
+            proposalData = {
+                proposal,
+                proposalRevision,
+                targetSnapshot: targetSnapshot ?? null,
+                targetVersion: parsedTargetVersion ?? null,
+            };
+            return proposalData;
+        };
         const existing = await this.prisma.agent_action.findUnique({ where: { requestDedupeKey } });
-        if (existing?.dedupeExpiresAt && existing.dedupeExpiresAt.getTime() > now.getTime()) return toEntity(existing);
         if (existing) {
-            if (DEDUPE_RESERVED_STATUSES.includes(existing.status as AgentActionStatus)) {
+            const status = existing.status as AgentActionStatus;
+            const dedupeActive = existing.dedupeExpiresAt.getTime() > now.getTime();
+            if (status === "proposed" && dedupeActive) {
+                const currentProposal = await buildProposal();
+                if (currentProposal.proposalRevision === existing.proposalRevision) return toEntity(existing);
+                await this.rotateRequestDedupeKey(existing, requestDedupeKey, now, false);
+            } else if (releasesDedupeImmediately(existing)) {
+                await this.rotateRequestDedupeKey(existing, requestDedupeKey, now, false);
+            } else if (retainsDedupeReservation(existing) || dedupeActive) {
                 return toEntity(existing);
+            } else {
+                await this.rotateRequestDedupeKey(existing, requestDedupeKey, now, true);
             }
-            // Free the stable fingerprint only after its window expires. The
-            // compare-and-swap plus unique index closes concurrent boundary races.
-            await this.prisma.agent_action.updateMany({
-                where: { id: existing.id, status: existing.status, requestDedupeKey, dedupeExpiresAt: { lte: now } },
-                data: {
-                    requestDedupeKey: createHash("sha256")
-                        .update(`expired:${requestDedupeKey}:${existing.id}:${randomUUID()}`)
-                        .digest("hex"),
-                },
-            });
         }
 
         const actionId = randomUUID();
         const idempotencyKey = `agent-action:${actionId}`;
         const dedupeExpiresAt = new Date(now.getTime() + REQUEST_DEDUPE_WINDOW_MS);
-        const inspection = capability.inspect
-            ? await capability.inspect({
-                principal: input.principal,
-                sessionId: input.sessionId,
-                traceId: input.traceId ?? randomUUID(),
-                locale: input.locale,
-            }, parsedInput)
-            : undefined;
-        const parsedTargetVersion = inspection?.targetVersion ?? input.targetVersion;
-        const targetSnapshot = input.targetSnapshot ?? inspection?.targetSnapshot;
-        const proposal = {
-            capability: input.capability,
-            title: inspection?.title ?? input.title ?? capability.meta.description,
-            summary: inspection?.summary ?? input.summary ?? capability.meta.description,
-            input: parsedInput,
-            targetSnapshot: targetSnapshot ?? null,
-            targetVersion: parsedTargetVersion ?? null,
-            provider: inspection?.provider ?? null,
-            estimatedCost: inspection?.estimatedCost ?? null,
-            locale: input.locale,
-        };
-        const proposalRevision = createHash("sha256").update(stableJson({
-            capability: input.capability,
-            capabilityVersion: capability.meta.version,
-            risk: capability.meta.risk,
+        const {
             proposal,
-        })).digest("hex");
+            proposalRevision,
+            targetSnapshot,
+            targetVersion: parsedTargetVersion,
+        } = await buildProposal();
         const authorizationContext = {
             userId: input.principal.userId,
             branchId: input.principal.branchId,
@@ -241,6 +281,28 @@ export class ActionCoordinatorService {
             }
             throw error;
         }
+    }
+
+    /** Rotate a request fingerprint only when the row still owns that key. */
+    private async rotateRequestDedupeKey(
+        existing: ActionRecord,
+        requestDedupeKey: string,
+        now: Date,
+        requireExpired: boolean,
+    ): Promise<void> {
+        await this.prisma.agent_action.updateMany({
+            where: {
+                id: existing.id,
+                status: existing.status,
+                requestDedupeKey,
+                ...(requireExpired ? { dedupeExpiresAt: { lte: now } } : {}),
+            },
+            data: {
+                requestDedupeKey: createHash("sha256")
+                    .update(`released:${requestDedupeKey}:${existing.id}:${randomUUID()}`)
+                    .digest("hex"),
+            },
+        });
     }
 
     async get(id: string, owner: AgentActionOwner): Promise<AgentActionEntity> {
