@@ -4,8 +4,12 @@ import { SystemSettingEntity } from "domain/entities/system-setting.entity";
 
 describe("SbSystemSettingRepository", () => {
     const createMockPrismaClient = () => ({
+        $transaction: jest.fn(),
+        $queryRawUnsafe: jest.fn(),
         findUnique: jest.fn(),
         upsert: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
     });
 
     const createSystemSettingRow = (overrides = {}) => ({
@@ -21,7 +25,12 @@ describe("SbSystemSettingRepository", () => {
 
     beforeEach(() => {
         systemSettingModel = createMockPrismaClient();
-        prisma = { system_setting: systemSettingModel } as unknown as PrismaService;
+        prisma = {
+            system_setting: systemSettingModel,
+            $transaction: jest.fn(),
+            $queryRawUnsafe: jest.fn(),
+        } as unknown as PrismaService;
+        (prisma.$transaction as jest.Mock).mockImplementation(async (callback: (transaction: typeof prisma) => Promise<unknown>) => callback(prisma));
         repository = new SbSystemSettingRepository(prisma);
     });
 
@@ -109,6 +118,31 @@ describe("SbSystemSettingRepository", () => {
                 });
                 expect(result.value).toBe("none");
             });
+        });
+    });
+
+    describe("compareAndSet", () => {
+        it("locks and updates an existing setting only when its version matches", async () => {
+            const current = createSystemSettingRow({ value: "old" });
+            const updated = createSystemSettingRow({ value: "new" });
+            systemSettingModel.findUnique.mockResolvedValue(current);
+            systemSettingModel.update.mockResolvedValue(updated);
+            const entity = SystemSettingEntity.create("alimtalk_provider", "new");
+
+            await expect(repository.compareAndSet("alimtalk_provider", "old", entity, (value) => value ?? "missing"))
+                .resolves.toEqual(expect.objectContaining({ value: "new" }));
+            expect((prisma.$transaction as jest.Mock)).toHaveBeenCalled();
+            expect(systemSettingModel.update).toHaveBeenCalledWith(expect.objectContaining({ where: { key: "alimtalk_provider" } }));
+        });
+
+        it("does not write when the version is stale", async () => {
+            systemSettingModel.findUnique.mockResolvedValue(createSystemSettingRow({ value: "newer" }));
+            const entity = SystemSettingEntity.create("alimtalk_provider", "new");
+
+            await expect(repository.compareAndSet("alimtalk_provider", "old", entity, (value) => value ?? "missing"))
+                .resolves.toBeNull();
+            expect(systemSettingModel.update).not.toHaveBeenCalled();
+            expect(systemSettingModel.create).not.toHaveBeenCalled();
         });
     });
 });

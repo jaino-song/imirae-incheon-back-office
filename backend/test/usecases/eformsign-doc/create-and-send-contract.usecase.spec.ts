@@ -163,4 +163,66 @@ describe("CreateAndSendContractUsecase", () => {
             }),
         );
     });
+
+    it("uses the approved client snapshot instead of re-reading mutable client data", async () => {
+        const createDocument = jest.fn().mockResolvedValue({ documentId: "remote-approved" });
+        const findById = jest.fn().mockResolvedValue({
+            id: 7,
+            name: "변경된 고객",
+            phone: "010-9999-9999",
+            address: "변경된 주소",
+            birthday: "991231",
+            startDate: new Date("2026-09-01T00:00:00.000Z"),
+            endDate: new Date("2026-09-30T00:00:00.000Z"),
+            fullPrice: "900000",
+            grant: "100000",
+            actualPrice: "800000",
+            duration: 30,
+        });
+        const snapshot = {
+            id: 7,
+            name: "승인 당시 고객",
+            phone: "010-1111-2222",
+            address: "승인 당시 주소",
+            birthday: "900101",
+            startDate: "2026-08-03T00:00:00.000Z",
+            endDate: "2026-08-17T00:00:00.000Z",
+            fullPrice: "100000",
+            grant: "50000",
+            actualPrice: "50000",
+            duration: 15,
+            fallbackDate: "2026-08-04T01:02:03.000Z",
+        };
+        const usecase = new CreateAndSendContractUsecase(
+            { createDocument } as never,
+            { findById } as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: jest.fn().mockResolvedValue({ documentId: "remote-approved" }) } as never,
+            { assertAssignedClient: jest.fn() } as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: snapshot.id,
+            templateId: "template-1",
+            templateName: "표준계약서",
+            idempotencyKey: "action-approved",
+            clientSnapshot: snapshot,
+            clientTargetVersion: "target-approved",
+        })).resolves.toEqual({ success: true, documentId: "remote-approved" });
+
+        expect(findById).not.toHaveBeenCalled();
+        expect(createDocument).toHaveBeenCalledWith("token", expect.objectContaining({
+            recipient: { name: "승인 당시 고객", sms: "010-1111-2222" },
+            prefillFields: expect.arrayContaining([
+                { id: "이용자 생년월일", value: "900101" },
+                { id: "이용자 주소", value: "승인 당시 주소" },
+                { id: "계약 시작 년도", value: "2026" },
+                { id: "계약 종료 일", value: "17" },
+                { id: "본인부담금 수령 년도", value: "2026" },
+                { id: "본인부담금 수령 월", value: "08" },
+                { id: "본인부담금 수령 일", value: "04" },
+            ]),
+            idempotencyKey: "action-approved",
+        }));
+    });
 });

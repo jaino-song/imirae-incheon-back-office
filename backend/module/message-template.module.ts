@@ -11,6 +11,7 @@ import { MESSAGE_TEMPLATE_REPOSITORY } from "domain/repositories/message-templat
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { MessageTemplateRepository } from "infrastructure/database/repositories/message-template.repository";
 import { MessageTemplateController } from "interface/controllers/message-template.controller";
+import { MessageTemplateWriteAgentCapabilitiesProvider } from "application/usecases/message-template/message-template-write-agent-capabilities.provider";
 
 @Module({
     imports: [DatabaseModule],
@@ -22,6 +23,7 @@ import { MessageTemplateController } from "interface/controllers/message-templat
         ListMessageTemplatesUsecase,
         FindMessageTemplateByIdUsecase,
         MessageTemplateService,
+        MessageTemplateWriteAgentCapabilitiesProvider,
         {
             provide: MESSAGE_TEMPLATE_REPOSITORY,
             useClass: MessageTemplateRepository,

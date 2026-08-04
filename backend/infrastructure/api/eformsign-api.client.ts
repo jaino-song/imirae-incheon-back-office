@@ -446,6 +446,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${accessToken}`,
+                    ...(payload.idempotencyKey ? { "Idempotency-Key": payload.idempotencyKey } : {}),
                 },
                 body: JSON.stringify(requestBody),
             },
@@ -454,6 +455,9 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 // Creating a document also sends it to the customer. A 5xx, timeout, or network
                 // error has an ambiguous outcome and retrying could create/send a duplicate.
                 // A 429 is safe because the server explicitly rejected the request before work.
+                // The header correlates an agent action, but eformsign's contract does not
+                // provide a verified exactly-once guarantee for this endpoint. Keep document
+                // creation single-shot; timeouts are reconciled or left uncertain, never replayed.
                 idempotent: false,
                 timeoutMs: EFORMSIGN_CREATE_DOCUMENT_TIMEOUT_MS,
             },

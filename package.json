@@ -21,9 +21,14 @@
   },
   "pnpm": {
     "overrides": {
-      "brace-expansion@5": "5.0.8",
-      "postcss@<8.5.18": "8.5.18",
-      "ip-address@<10.1.1": "10.1.1",
+      "brace-expansion@1": "1.1.18",
+      "brace-expansion@2": "2.1.4",
+      "brace-expansion@5": "5.0.9",
+      "postcss@<8.5.23": "8.5.23",
+      "ip-address@>=10.0.0 <10.3.1": "10.3.1",
+      "fast-uri@>=3.0.0 <3.1.5": "3.1.5",
+      "undici@>=6.0.0 <6.28.0": "6.28.0",
+      "hono@>=4.0.0 <4.12.34": "4.12.34",
       "passport-oauth2@<1.6.1": "1.6.1",
       "effect@<3.20.0": "3.20.0",
       "sharp@<0.35.0": "0.35.0"

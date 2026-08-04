@@ -98,7 +98,10 @@ export class SystemAdminService {
         }));
     }
 
-    async createBranch(dto: CreateSystemAdminBranchDto): Promise<SystemAdminBranchRequestDto> {
+    async createBranch(
+        dto: CreateSystemAdminBranchDto,
+        onCreated?: (transaction: Prisma.TransactionClient, branchId: string) => Promise<void>,
+    ): Promise<SystemAdminBranchRequestDto> {
         const manager = dto.ownerId ? await this.getEligibleBranchManager(dto.ownerId) : null;
 
         try {
@@ -121,6 +124,7 @@ export class SystemAdminService {
                 if (manager) {
                     await this.assignBranchManager(tx, createdBranch.id, manager);
                 }
+                await onCreated?.(tx, createdBranch.id);
                 return createdBranch;
             });
 

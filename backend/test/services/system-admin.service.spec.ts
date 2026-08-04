@@ -510,6 +510,23 @@ describe("SystemAdminService", () => {
             expect(result.id).toBe("branch-1");
         });
 
+        it("runs the action receipt callback inside the branch transaction", async () => {
+            const onCreated = jest.fn().mockResolvedValue(undefined);
+
+            await service.createBranch(branchInput, onCreated);
+
+            expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ branch: branchModel }), "branch-1");
+            expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        });
+
+        it("rolls the branch mutation back when the action receipt callback fails", async () => {
+            const onCreated = jest.fn().mockRejectedValue(new Error("receipt could not be persisted"));
+
+            await expect(service.createBranch(branchInput, onCreated)).rejects.toThrow("receipt could not be persisted");
+            expect(branchModel.create).toHaveBeenCalledTimes(1);
+            expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ branch: branchModel }), "branch-1");
+        });
+
         it("updates a branch to a null owner without promoting a manager", async () => {
             await service.updateBranch("branch-1", {
                 ...branchInput,

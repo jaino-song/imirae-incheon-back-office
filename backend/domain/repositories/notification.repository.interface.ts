@@ -31,9 +31,22 @@ export interface INotificationRepository {
     create(branchid: string, notification: NotificationEntity): Promise<NotificationEntity>;
 
     /**
-     * Update notification (e.g., mark as read)
+     * Persist provider-owned notification metadata without touching readAt.
      */
-    update(branchid: string, notification: NotificationEntity): Promise<NotificationEntity>;
+    updateData(
+        branchid: string,
+        id: number,
+        data: Record<string, unknown> | null,
+    ): Promise<NotificationEntity>;
+
+    /**
+     * Persist the user-owned read marker without touching provider metadata.
+     */
+    updateReadAt(
+        branchid: string,
+        id: number,
+        readAt: Date | null,
+    ): Promise<NotificationEntity>;
 
     /**
      * Mark all notifications as read for a user

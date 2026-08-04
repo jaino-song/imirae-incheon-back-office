@@ -61,16 +61,41 @@ export class SbNotificationRepository implements INotificationRepository {
         return NotificationMapper.toDomain(created);
     }
 
-    async update(branchid: string, notification: NotificationEntity): Promise<NotificationEntity> {
+    async updateData(
+        branchid: string,
+        id: number,
+        data: Record<string, unknown> | null,
+    ): Promise<NotificationEntity> {
         const result = await this.prismaService.notification.updateMany({
-            where: { id: notification.id, branchId: branchid },
-            data: NotificationMapper.toPrismaUpdate(notification),
+            where: { id, branchId: branchid },
+            data: NotificationMapper.toPrismaDataUpdate(data),
         });
         if (result.count === 0) {
             throw new Error("Notification not found for branch");
         }
         const updated = await this.prismaService.notification.findFirst({
-            where: { id: notification.id, branchId: branchid },
+            where: { id, branchId: branchid },
+        });
+        if (!updated) {
+            throw new Error("Notification not found after update");
+        }
+        return NotificationMapper.toDomain(updated);
+    }
+
+    async updateReadAt(
+        branchid: string,
+        id: number,
+        readAt: Date | null,
+    ): Promise<NotificationEntity> {
+        const result = await this.prismaService.notification.updateMany({
+            where: { id, branchId: branchid },
+            data: NotificationMapper.toPrismaReadAtUpdate(readAt),
+        });
+        if (result.count === 0) {
+            throw new Error("Notification not found for branch");
+        }
+        const updated = await this.prismaService.notification.findFirst({
+            where: { id, branchId: branchid },
         });
         if (!updated) {
             throw new Error("Notification not found after update");

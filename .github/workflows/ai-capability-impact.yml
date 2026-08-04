@@ -1,0 +1,40 @@
+name: AI capability impact
+
+on:
+  pull_request:
+    paths:
+      - "backend/application/agent/**"
+      - "backend/application/usecases/**/*agent-capabilities*"
+      - "backend/agent-manifest.json"
+      - "backend/scripts/agent/**"
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Publish informational capability diff
+        id: report
+        run: echo "body<<EOF" >> "$GITHUB_OUTPUT" && pnpm --filter ./backend exec ts-node scripts/agent/impact-report.ts >> "$GITHUB_OUTPUT" && echo "EOF" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: ai-capability-impact
+          message: ${{ steps.report.outputs.body }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

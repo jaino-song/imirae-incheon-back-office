@@ -8,7 +8,8 @@ describe("CleanupNotificationsUsecase", () => {
         findUnreadByUserId: jest.fn(),
         countUnreadByUserId: jest.fn(),
         create: jest.fn(),
-        update: jest.fn(),
+        updateData: jest.fn(),
+        updateReadAt: jest.fn(),
         markAllAsReadByUserId: jest.fn(),
         deleteOlderThan: jest.fn(),
     });

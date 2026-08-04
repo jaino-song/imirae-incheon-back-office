@@ -5,6 +5,8 @@ import {
     InitialClientSchedule,
     PaginatedResult,
 } from "domain/repositories/client.repository.interface";
+import type { Prisma } from "@prisma/client";
+import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
 
 /**
  * 테스트용 Mock Client Repository
@@ -44,6 +46,15 @@ export class MockClientRepository implements IClientRepository {
 
     async findById(_branchid: string, id: number): Promise<ClientEntity | null> {
         return this.clients.get(id) ?? null;
+    }
+
+    async findByIdForUpdate(
+        branchid: string,
+        id: number,
+        _transaction: Prisma.TransactionClient,
+    ): Promise<ClientEntity | null> {
+        void _transaction;
+        return this.findById(branchid, id);
     }
 
     async findAll(_branchid: string): Promise<ClientEntity[]> {
@@ -125,6 +136,20 @@ export class MockClientRepository implements IClientRepository {
             throw new Error(`Client with id ${client.id} not found`);
         }
         this.clients.set(client.id, client);
+        return client;
+    }
+
+    async updateIfTargetVersion(
+        branchid: string,
+        id: number,
+        expectedTargetVersion: string,
+        updates: Parameters<IClientRepository["updateIfTargetVersion"]>[3],
+        _transaction?: Prisma.TransactionClient,
+    ): Promise<ClientEntity | null> {
+        void _transaction;
+        const client = await this.findById(branchid, id);
+        if (!client || clientAgentTargetVersion(client) !== expectedTargetVersion) return null;
+        client.update(updates);
         return client;
     }
 

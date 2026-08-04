@@ -17,6 +17,7 @@ const config: Config = {
         "/dist/",
         "<rootDir>/test/e2e/",
         "<rootDir>/test/auth-e2e/",
+        "<rootDir>/test/agent-e2e/runtime/",
     ],
     moduleNameMapper: {
         "^application/(.*)$": "<rootDir>/application/$1",

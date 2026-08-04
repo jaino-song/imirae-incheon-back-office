@@ -2,6 +2,7 @@ import { SbClientRepository } from "infrastructure/database/repositories/sb.clie
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientEntity } from "domain/entities/client.entity";
 import { clearSchemaCapabilityCache } from "infrastructure/database/schema-capabilities";
+import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
 
 describe("SbClientRepository", () => {
     // ============================================
@@ -634,6 +635,65 @@ describe("SbClientRepository", () => {
                     }),
                 });
             });
+        });
+    });
+
+    describe("approval-bound update", () => {
+        const createTransaction = () => ({
+            $queryRaw: jest.fn().mockResolvedValue([]),
+            client: {
+                findFirst: jest.fn(),
+                updateMany: jest.fn(),
+            },
+        });
+
+        it("locks the branch-owned row before comparing and mutating", async () => {
+            const row = createClientRow({ id: 42, branchId });
+            const transaction = createTransaction();
+            transaction.client.findFirst
+                .mockResolvedValueOnce(row)
+                .mockResolvedValueOnce({ ...row, name: "Updated" });
+            transaction.client.updateMany.mockResolvedValue({ count: 1 });
+            const current = ClientEntity.reconstitute(
+                row.id, row.name, row.address, row.phone, row.type, row.duration,
+                row.fullPrice, row.grant, row.actualPrice, row.startDate, row.endDate,
+                row.careCenter, row.voucherClient, row.birthday, row.dueDate,
+                row.serviceStatus, row.breastPump, row.eDocId, null, null, branchId,
+                false, null,
+            );
+
+            const result = await repository.updateIfTargetVersion(
+                branchId,
+                row.id,
+                clientAgentTargetVersion(current),
+                { name: "Updated" },
+                transaction as never,
+            );
+
+            expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+            expect(transaction.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: { id: row.id, branchId },
+                data: expect.objectContaining({ name: "Updated" }),
+            }));
+            expect(result).toMatchObject({ id: row.id, name: "Updated" });
+        });
+
+        it("does not mutate when the locked row no longer matches the approved target", async () => {
+            const row = createClientRow({ id: 43, branchId, name: "Changed" });
+            const transaction = createTransaction();
+            transaction.client.findFirst.mockResolvedValue(row);
+
+            const result = await repository.updateIfTargetVersion(
+                branchId,
+                row.id,
+                "stale-target-version",
+                { name: "Should not persist" },
+                transaction as never,
+            );
+
+            expect(result).toBeNull();
+            expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+            expect(transaction.client.updateMany).not.toHaveBeenCalled();
         });
     });
 

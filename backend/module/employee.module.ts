@@ -19,6 +19,8 @@ import { EMPLOYEE_REPOSITORY } from "domain/repositories/employee.repository.int
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.employee.repository";
 import { EmployeeController } from "interface/controllers/employee.controller";
+import { EmployeeAgentCapabilitiesProvider } from "application/usecases/employee/employee-agent-capabilities.provider";
+import { EmployeeWriteAgentCapabilitiesProvider } from "application/usecases/employee/employee-write-agent-capabilities.provider";
 
 @Module({
     imports: [DatabaseModule],
@@ -38,6 +40,8 @@ import { EmployeeController } from "interface/controllers/employee.controller";
         ChangeEmployeeOpenStatusUsecase,
         ListEmployeesOpenToNextWorkUsecase,
         EmployeeService,
+        EmployeeAgentCapabilitiesProvider,
+        EmployeeWriteAgentCapabilitiesProvider,
         {
             provide: EMPLOYEE_REPOSITORY,
             useClass: SbEmployeeRepository,

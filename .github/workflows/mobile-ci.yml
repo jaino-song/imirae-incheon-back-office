@@ -241,6 +241,18 @@ jobs:
             pnpm --filter ./mobile run test:e2e
           fi
 
+      - name: Rebuild mobile app with operational copilot shell
+        env:
+          NEXT_PUBLIC_E2E_TEST: 'true'
+          NEXT_PUBLIC_AGENT_SHELL_ENABLED: 'true'
+          NODE_ENV: production
+        run: pnpm --filter ./mobile exec next build
+
+      - name: Run mobile operational copilot against the real backend
+        env:
+          RUN_AGENT_REAL_E2E: '1'
+        run: pnpm --filter ./mobile exec playwright test tests/agent-real-backend.spec.ts
+
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: always()

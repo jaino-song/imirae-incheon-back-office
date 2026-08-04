@@ -228,9 +228,7 @@ export class DocumentController {
      */
     @Delete(":id")
     async delete(@CurrentTenant() tenant: { branchId?: string }, @Param("id") id: string) {
-        const doc = await this.documentService.findById(tenant.branchId ?? "", id);
-        await this.fileStorage.delete(doc.storagepath);
-        await this.documentService.delete(tenant.branchId ?? "", id);
+        await this.documentService.deleteWithStorage(tenant.branchId ?? "", id);
         return { message: "Document deleted successfully" };
     }
 
