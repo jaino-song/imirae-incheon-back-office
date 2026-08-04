@@ -21,15 +21,18 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 type AgentSessionRecord = Prisma.agent_sessionGetPayload<{ include: { messages: true } }>;
 const ALWAYS_BLOCKING_ACTION_STATUSES = ["executing", "uncertain"];
 const EXPIRABLE_ACTION_STATUSES = ["proposed", "approved"];
+const TERMINAL_ACTION_STATUSES = ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"];
 
-function blockingActionWhere(now: Date, owner?: AgentSessionOwner) {
+function blockingActionWhere(now: Date, owner?: AgentSessionOwner, includeUnpersistedTerminal = false) {
     const ownerScope = owner ? { userId: owner.userId, branchId: owner.branchId } : {};
-    return {
-        OR: [
-            { ...ownerScope, status: { in: ALWAYS_BLOCKING_ACTION_STATUSES } },
-            { ...ownerScope, status: { in: EXPIRABLE_ACTION_STATUSES }, expiresAt: { gt: now } },
-        ],
-    };
+    const OR: Prisma.agent_actionWhereInput[] = [
+        { ...ownerScope, status: { in: ALWAYS_BLOCKING_ACTION_STATUSES } },
+        { ...ownerScope, status: { in: EXPIRABLE_ACTION_STATUSES }, expiresAt: { gt: now } },
+    ];
+    if (includeUnpersistedTerminal) {
+        OR.push({ ...ownerScope, status: { in: TERMINAL_ACTION_STATUSES }, resultPartPersistedAt: null });
+    }
+    return { OR };
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -169,7 +172,7 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
             where: {
                 id,
                 ...owner,
-                actions: { none: blockingActionWhere(now, owner) },
+                actions: { none: blockingActionWhere(now, owner, true) },
             },
         });
         if (result.count === 1) return "deleted";
@@ -310,7 +313,7 @@ export class PrismaAgentSessionRepository implements IAgentSessionRepository {
         return (await this.prisma.agent_session.deleteMany({
             where: {
                 expiresAt: { lte: now },
-                actions: { none: blockingActionWhere(now) },
+                actions: { none: blockingActionWhere(now, undefined, true) },
             },
         })).count;
     }

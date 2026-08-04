@@ -29,6 +29,12 @@ describe("PrismaAgentSessionRepository", () => {
                                 status: { in: ["proposed", "approved"] },
                                 expiresAt: { gt: expect.any(Date) },
                             },
+                            {
+                                userId: owner.userId,
+                                branchId: owner.branchId,
+                                status: { in: ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"] },
+                                resultPartPersistedAt: null,
+                            },
                         ],
                     },
                 },
@@ -89,6 +95,12 @@ describe("PrismaAgentSessionRepository", () => {
                     status: { in: ["proposed", "approved"] },
                     expiresAt: { gt: now },
                 },
+                {
+                    userId: owner.userId,
+                    branchId: owner.branchId,
+                    status: { in: ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"] },
+                    resultPartPersistedAt: null,
+                },
             ]);
         } finally {
             jest.useRealTimers();
@@ -117,6 +129,44 @@ describe("PrismaAgentSessionRepository", () => {
                 },
             }),
         }));
+    });
+
+    it.each(["succeeded", "failed", "uncertain"] as const)("blocks owned deletion while a %s result part is not persisted", async (status) => {
+        const prisma = {
+            agent_session: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+                findFirst: jest.fn().mockResolvedValue({ id: "session-a" }),
+            },
+        };
+        const repository = new PrismaAgentSessionRepository(prisma as never);
+
+        await expect(repository.deleteOwned("session-a", owner)).resolves.toBe("blocked");
+
+        const where = prisma.agent_session.deleteMany.mock.calls[0]?.[0].where;
+        expect(where.actions.none.OR).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                userId: owner.userId,
+                branchId: owner.branchId,
+                status: { in: expect.arrayContaining([status]) },
+                resultPartPersistedAt: null,
+            }),
+        ]));
+    });
+
+    it("allows owned deletion once every terminal result part is persisted", async () => {
+        const prisma = {
+            agent_session: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+                findFirst: jest.fn(),
+            },
+        };
+        const repository = new PrismaAgentSessionRepository(prisma as never);
+
+        await expect(repository.deleteOwned("session-a", owner)).resolves.toBe("deleted");
+        expect(prisma.agent_session.findFirst).not.toHaveBeenCalled();
+        expect(prisma.agent_session.deleteMany.mock.calls[0]?.[0].where.actions.none.OR).toEqual(expect.arrayContaining([
+            expect.objectContaining({ resultPartPersistedAt: null }),
+        ]));
     });
 
     it("does not let a mismatched owner action block or identify an owned session", async () => {
@@ -163,11 +213,55 @@ describe("PrismaAgentSessionRepository", () => {
                         OR: [
                             { status: { in: ["executing", "uncertain"] } },
                             { status: { in: ["proposed", "approved"] }, expiresAt: { gt: now } },
+                            { status: { in: ["succeeded", "failed", "uncertain", "rejected", "expired", "cancelled"] }, resultPartPersistedAt: null },
                         ],
                     },
                 },
             },
         });
+    });
+
+    it.each(["succeeded", "failed", "uncertain"] as const)("retains expired sessions while a %s terminal result part is pending", async (status) => {
+        const now = new Date("2026-08-04T00:00:00.000Z");
+        const prisma = {
+            agent_session: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+        };
+        const repository = new PrismaAgentSessionRepository(prisma as never);
+
+        await expect(repository.deleteExpired(now)).resolves.toBe(0);
+
+        const where = prisma.agent_session.deleteMany.mock.calls[0]?.[0].where;
+        expect(where.actions.none.OR).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                status: { in: expect.arrayContaining([status]) },
+                resultPartPersistedAt: null,
+            }),
+        ]));
+    });
+
+    it("allows retention cleanup after terminal result parts are persisted", async () => {
+        const now = new Date("2026-08-04T00:00:00.000Z");
+        const prisma = {
+            agent_session: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 2 }),
+            },
+        };
+        const repository = new PrismaAgentSessionRepository(prisma as never);
+
+        await expect(repository.deleteExpired(now)).resolves.toBe(2);
+        expect(prisma.agent_session.deleteMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({
+                actions: {
+                    none: expect.objectContaining({
+                        OR: expect.arrayContaining([
+                            expect.objectContaining({ resultPartPersistedAt: null }),
+                        ]),
+                    }),
+                },
+            }),
+        }));
     });
 
     it("upserts a scoped result message without changing its createdAt", async () => {
