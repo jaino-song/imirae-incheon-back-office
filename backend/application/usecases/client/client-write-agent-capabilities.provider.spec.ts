@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { ConflictException } from "@nestjs/common";
 
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { ClientWriteAgentCapabilitiesProvider } from "./client-write-agent-capabilities.provider";
@@ -15,12 +16,22 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             name: "홍길동",
             startDate: new Date("2024-01-01T00:00:00.000Z"),
             endDate: new Date("2024-06-01T00:00:00.000Z"),
+            duration: 10,
+            voucherClient: true,
+            type: "standard",
+            fullPrice: "100000",
+            grant: "50000",
+            actualPrice: "50000",
             serviceStatus: "active",
             areaId: "global",
         };
         const findClient = { execute: jest.fn().mockResolvedValue(existingClient) };
         const clientRepository = { findByPhone: jest.fn().mockResolvedValue(null) };
         const transaction = { agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
+        const serviceRecordLifecycle = {
+            validatePeriodChange: jest.fn().mockResolvedValue(undefined),
+            ensureForClient: jest.fn().mockResolvedValue(undefined),
+        };
         const prisma = {
             $transaction: jest.fn(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)),
             agent_action: transaction.agent_action,
@@ -32,8 +43,19 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             findClient as never,
             clientRepository as never,
             prisma as never,
+            serviceRecordLifecycle as never,
         );
-        return { createClient, updateClient, findClient, clientRepository, existingClient, prisma, transaction, capabilities: provider.getCapabilities() };
+        return {
+            createClient,
+            updateClient,
+            findClient,
+            clientRepository,
+            existingClient,
+            prisma,
+            transaction,
+            serviceRecordLifecycle,
+            capabilities: provider.getCapabilities(),
+        };
     }
 
     it("accepts date-only values emitted by date form controls", async () => {
@@ -81,6 +103,61 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(createClient.execute).toHaveBeenCalledWith("branch-a", expect.any(Object), transaction);
     });
 
+    it("normalizes non-voucher create pricing and synchronizes its service record in the transaction", async () => {
+        const { capabilities, createClient, serviceRecordLifecycle, transaction } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await capability.execute(context, {
+            name: "홍길동",
+            phone: "01012345678",
+            voucherClient: false,
+            type: "private",
+            fullPrice: "120000",
+            grant: "90000",
+            actualPrice: "30000",
+        });
+
+        expect(createClient.execute).toHaveBeenCalledWith("branch-a", expect.objectContaining({
+            voucherClient: false,
+            type: null,
+            fullPrice: "120000",
+            grant: "0",
+            actualPrice: "120000",
+        }), transaction);
+        expect(serviceRecordLifecycle.ensureForClient).toHaveBeenCalledWith(1, transaction);
+    });
+
+    it("preserves voucher pricing when creating a voucher client", async () => {
+        const { capabilities, createClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await capability.execute(context, {
+            name: "홍길동",
+            phone: "01012345678",
+            voucherClient: true,
+            type: "voucher",
+            fullPrice: "120000",
+            grant: "90000",
+            actualPrice: "30000",
+        });
+
+        expect(createClient.execute).toHaveBeenCalledWith("branch-a", expect.objectContaining({
+            voucherClient: true,
+            type: "voucher",
+            fullPrice: "120000",
+            grant: "90000",
+            actualPrice: "30000",
+        }), expect.anything());
+    });
+
     it("offers every client update field without requiring unrelated values", () => {
         const { capabilities } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
@@ -95,7 +172,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
     });
 
     it("uses the approval-bound client hook instead of the unlocked update path", async () => {
-        const { capabilities, updateClient } = setup();
+        const { capabilities, updateClient, transaction, serviceRecordLifecycle } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
         const context = {
             principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
@@ -121,8 +198,64 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
                 birthDate: new Date("1990-02-28T00:00:00.000Z"),
             }),
             "approved-target",
+            transaction,
         );
+        expect(serviceRecordLifecycle.validatePeriodChange).toHaveBeenCalledWith(expect.objectContaining({
+            clientId: 1,
+            startDate: new Date("2024-02-29T00:00:00.000Z"),
+            endDate: new Date("2024-03-01T00:00:00.000Z"),
+        }), transaction);
+        expect(serviceRecordLifecycle.ensureForClient).toHaveBeenCalledWith(1, transaction);
+        expect(transaction.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ capability: "clients.update" }),
+        }));
         expect(updateClient.execute).not.toHaveBeenCalled();
+    });
+
+    it("normalizes partial pricing updates and synchronizes direct writes", async () => {
+        const { capabilities, updateClient, serviceRecordLifecycle } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await capability.execute(context, { id: 1, fullPrice: "130000" });
+
+        expect(updateClient.execute).toHaveBeenCalledWith("branch-a", 1, expect.objectContaining({
+            fullPrice: "130000",
+            type: "standard",
+            grant: "50000",
+            actualPrice: "50000",
+        }));
+        expect(serviceRecordLifecycle.validatePeriodChange).toHaveBeenCalledWith(expect.objectContaining({ clientId: 1 }), undefined);
+        expect(serviceRecordLifecycle.ensureForClient).toHaveBeenCalledWith(1);
+    });
+
+    it("normalizes a voucher toggle to canonical non-voucher pricing", async () => {
+        const { capabilities, updateClient } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await capability.execute(context, {
+            id: 1,
+            voucherClient: false,
+            type: "ignored-type",
+            fullPrice: "140000",
+            grant: "100000",
+            actualPrice: "40000",
+        });
+
+        expect(updateClient.execute).toHaveBeenCalledWith("branch-a", 1, expect.objectContaining({
+            voucherClient: false,
+            type: null,
+            fullPrice: "140000",
+            grant: "0",
+            actualPrice: "140000",
+        }));
     });
 
     it("rejects invalid dates and preserves leap-day calendar dates", async () => {
@@ -158,7 +291,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         ["leap day", "240229"],
         ["century leap day", "000229"],
     ])("accepts a calendar-valid YYMMDD birthday for create and update (%s)", async (_label, birthday) => {
-        const { capabilities, createClient, updateClient } = setup();
+        const { capabilities, createClient, updateClient, transaction } = setup();
         const create = capabilities.find((entry) => entry.meta.name === "clients.create")!;
         const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
         const context = {
@@ -176,7 +309,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(createClient.execute).toHaveBeenCalledWith("branch-a", expect.objectContaining({ birthday }), expect.anything());
         expect(updateClient.execute).toHaveBeenCalledWith("branch-a", 1, expect.objectContaining({ birthday }));
         expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith(
-            "branch-a", 1, expect.objectContaining({ birthday }), "approved-target",
+            "branch-a", 1, expect.objectContaining({ birthday }), "approved-target", transaction,
         );
     });
 
@@ -309,7 +442,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
     });
 
     it("merges partial dates before direct and approved updates, allowing equal or null dates", async () => {
-        const { capabilities, updateClient } = setup();
+        const { capabilities, updateClient, transaction } = setup();
         const capability = capabilities.find((entry) => entry.meta.name === "clients.update")!;
         const context = {
             principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
@@ -329,7 +462,9 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
         expect(updateClient.executeApprovedTarget).not.toHaveBeenCalled();
 
         await capability.executeApprovedTarget!(context, { id: 1, startDate: null }, "approved-target");
-        expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith("branch-a", 1, expect.objectContaining({ startDate: null }), "approved-target");
+        expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith(
+            "branch-a", 1, expect.objectContaining({ startDate: null }), "approved-target", transaction,
+        );
     });
 
     it.each([
@@ -440,5 +575,124 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             : update.executeApprovedTarget!(context, { id: 1, phone: "01098765432" }, "approved-target");
 
         await expect(result).rejects.toBe(error);
+    });
+
+    it("normalizes approval-bound pricing inside the CAS transaction", async () => {
+        const { capabilities, updateClient, transaction } = setup();
+        const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await update.executeApprovedTarget!(context, {
+            id: 1,
+            voucherClient: false,
+            type: "ignored-type",
+            fullPrice: "150000",
+            grant: "120000",
+            actualPrice: "30000",
+        }, "approved-target");
+
+        expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith(
+            "branch-a",
+            1,
+            expect.objectContaining({
+                voucherClient: false,
+                type: null,
+                fullPrice: "150000",
+                grant: "0",
+                actualPrice: "150000",
+            }),
+            "approved-target",
+            transaction,
+        );
+    });
+
+    it.each(["SERVICE_RECORD_START_DATE_LOCKED", "SERVICE_RECORD_FINALIZED"])(
+        "denies lifecycle-protected %s updates before mutation",
+        async (code) => {
+            const { capabilities, updateClient, transaction, serviceRecordLifecycle } = setup();
+            serviceRecordLifecycle.validatePeriodChange.mockRejectedValue(new ConflictException({ code }));
+            const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+            const context = {
+                principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+                sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+            } as const;
+
+            await expect(update.inspect!(context, { id: 1, startDate: "2024-02-01" })).rejects.toThrow(code);
+            await expect(update.execute(context, { id: 1, startDate: "2024-02-01" })).rejects.toThrow(code);
+            await expect(update.executeApprovedTarget!(context, { id: 1, startDate: "2024-02-01" }, "approved-target"))
+                .rejects.toThrow(code);
+
+            expect(updateClient.execute).not.toHaveBeenCalled();
+            expect(updateClient.executeApprovedTarget).not.toHaveBeenCalled();
+            expect(transaction.agent_action.updateMany).not.toHaveBeenCalled();
+        },
+    );
+
+    it("rolls approval-bound lifecycle synchronization back before recording an effect", async () => {
+        const { capabilities, updateClient, transaction, serviceRecordLifecycle } = setup();
+        serviceRecordLifecycle.ensureForClient.mockRejectedValue(new Error("service record sync failed"));
+        const update = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        await expect(update.executeApprovedTarget!(context, { id: 1, name: "새 이름" }, "approved-target"))
+            .rejects.toThrow("service record sync failed");
+
+        expect(updateClient.executeApprovedTarget).toHaveBeenCalledWith(
+            "branch-a", 1, expect.objectContaining({ name: "새 이름" }), "approved-target", transaction,
+        );
+        expect(transaction.agent_action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("reconciles voucher pricing from the merged canonical fields", async () => {
+        const { capabilities, existingClient } = setup();
+        const reconcile = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        const result = await reconcile.reconcile!(context, { id: 1, voucherClient: true }, null);
+
+        expect(result).toEqual({
+            status: "succeeded",
+            result: { id: 1, name: "홍길동", status: "updated" },
+        });
+        expect(existingClient.voucherClient).toBe(true);
+    });
+
+    it("reconciles non-voucher pricing against canonical grant and actual price", async () => {
+        const { capabilities, existingClient } = setup();
+        Object.assign(existingClient, {
+            voucherClient: false,
+            type: null,
+            fullPrice: "160000",
+            grant: "0",
+            actualPrice: "160000",
+        });
+        const reconcile = capabilities.find((entry) => entry.meta.name === "clients.update")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        const result = await reconcile.reconcile!(context, {
+            id: 1,
+            voucherClient: false,
+            type: "stale-input",
+            fullPrice: "160000",
+            grant: "99999",
+            actualPrice: "1",
+        }, null);
+
+        expect(result).toEqual({
+            status: "succeeded",
+            result: { id: 1, name: "홍길동", status: "updated" },
+        });
     });
 });
