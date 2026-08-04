@@ -6,6 +6,38 @@ import {
 } from "./agent-intelligence.service";
 
 describe("AgentIntelligenceService", () => {
+    it("redacts landlines and hyphenated identifiers from summaries and selected entity memory", async () => {
+        const sessions = {
+            get: jest.fn().mockResolvedValue({
+                selectedEntities: {
+                    clients: {
+                        id: "client_cuid_2m4x6z8q0v",
+                        identifier: "900101-1234567",
+                        phone: "02-1234-5678",
+                        businessNumber: "123-45-67890",
+                        asOf: "2026-08-03",
+                        version: "v1.2.3",
+                    },
+                },
+                messages: [
+                    { id: "m1", role: "user", parts: [{ type: "text", text: "031-123-4567 900101-1234567" }] },
+                ],
+            }),
+            update: jest.fn().mockResolvedValue(undefined),
+        };
+        const service = new AgentIntelligenceService(sessions as never, { list: jest.fn().mockResolvedValue([]) } as never);
+
+        const result = await service.compact("session-a", { userId: "user-a", branchId: "branch-a" });
+        const parsed = AgentSessionSummarySchema.parse(JSON.parse(result.summary));
+        const selected = JSON.stringify(parsed.selectedEntities);
+
+        expect(selected).toContain("client_cuid_2m4x6z8q0v");
+        expect(selected).toContain("2026-08-03");
+        expect(selected).toContain("v1.2.3");
+        expect(selected).not.toMatch(/02-1234-5678|031-123-4567|900101-1234567|123-45-67890/);
+        expect(parsed.goals[0]).not.toMatch(/031-123-4567|900101-1234567/);
+    });
+
     it("compacts server-owned context while preserving unresolved work and minimizing PII", async () => {
         const sessions = {
             get: jest.fn().mockResolvedValue({

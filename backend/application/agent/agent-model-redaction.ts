@@ -22,7 +22,7 @@ const CANONICAL_IDENTIFIER_KEYS = new Set([
     "version", "versions", "targetversion", "currentversion", "expectedversion", "schemaversion",
     "revision", "revisions", "targetrevision", "currentrevision", "expectedrevision", "proposalrevision",
     "actionid", "sessionid", "traceid", "branchid", "userid", "clientid", "documentid", "draftid",
-    "callid", "entityid", "employeeid", "serviceid", "bankaccountid", "addressid",
+    "callid", "entityid", "employeeid", "serviceid", "bankaccountid", "addressid", "hash", "hashes", "checksum", "checksums",
     ...MASKED_OPERATIONAL_KEYS,
 ]);
 
@@ -32,10 +32,18 @@ const FREE_TEXT_REDACTIONS = [
     /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
     /\b(?:authorization|set[_ -]?cookie|cookie|token|access[_ -]?token|refresh[_ -]?token|id[_ -]?token|auth|api[_ -]?key|client[_ -]?secret|secret|password|passwd|passphrase|signature|signed[_ -]?url|storage[_ -]?url)\s*[:=]\s*(?:"[^"]*"|'[^']*'|Bearer\s+\S+|[^\s,;}]+)/gi,
     /(?:\+?82[-\s]?)?0?1[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,
+    /(?<![A-Za-z0-9_.])(?:02|0[3-6][0-9])[-\s]?\d{3,4}[-\s]?\d{4}(?![A-Za-z0-9_.])/g,
+    /(?<![A-Za-z0-9_-])\d{6}-\d{7}(?![A-Za-z0-9_-])/g,
+    /(?<![A-Za-z0-9_-])\d{3}-\d{2}-\d{5}(?![A-Za-z0-9_-])/g,
     /\b[\w.+-]+@[\w.-]+\.\w+\b/g,
     /https?:\/\/\S+/gi,
     /(?<![A-Za-z0-9_-])\d{6,}(?![A-Za-z0-9_-])/g,
 ];
+
+const OPERATIONAL_IDENTIFIER_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+const HEX_HASH_SHAPE = /^[A-F0-9]{32,128}$/i;
+const ULID_SHAPE = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
+const COMPACT_DATE_SHAPE = /^(?:19|20)\d{6}$/;
 
 function normalizeKey(key: string): string {
     return key.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -112,9 +120,19 @@ export function redactFreeText(text: string): string {
     return FREE_TEXT_REDACTIONS.reduce((value, pattern) => value.replace(pattern, "[redacted]"), text);
 }
 
+function isAllowedOperationalIdentifier(value: string): boolean {
+    if (!OPERATIONAL_IDENTIFIER_SHAPE.test(value)) return false;
+    if (HEX_HASH_SHAPE.test(value) || ULID_SHAPE.test(value) || COMPACT_DATE_SHAPE.test(value)) return true;
+    return redactFreeText(value) === value;
+}
+
 function redactModelValueAtKey(value: unknown, key: string): unknown {
     if (Array.isArray(value)) return value.map((item) => redactModelValueAtKey(item, key));
-    if (typeof value === "string") return isCanonicalIdentifierKey(key) ? value : redactFreeText(value);
+    if (typeof value === "string") {
+        return isCanonicalIdentifierKey(key) && isAllowedOperationalIdentifier(value)
+            ? value
+            : redactFreeText(value);
+    }
     if (value instanceof Date) return value.toISOString();
     if (typeof value !== "object" || value === null) return value;
     return Object.fromEntries(Object.entries(value)

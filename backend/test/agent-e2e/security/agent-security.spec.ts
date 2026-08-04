@@ -104,6 +104,27 @@ describe("Release A agent security boundaries", () => {
         expect(value).toEqual({ id: 1, text: "전화 [redacted] 또는 [redacted]", nested: { label: "safe" } });
     });
 
+    it("redacts PII in entity and tool values while preserving operational metadata", () => {
+        const value = redactModelValue({
+            entity: {
+                id: "entity_cuid_2m4x6z8q0v",
+                identifier: "900101-1234567",
+                phone: "02-1234-5678",
+            },
+            toolResult: { businessNumber: "123-45-67890", text: "031-123-4567" },
+            date: "2026-08-03",
+            version: "v1.2.3",
+        }) as Record<string, unknown>;
+
+        expect(value).toMatchObject({
+            entity: { id: "entity_cuid_2m4x6z8q0v", identifier: "[redacted]" },
+            toolResult: { businessNumber: "[redacted]", text: "[redacted]" },
+            date: "2026-08-03",
+            version: "v1.2.3",
+        });
+        expect(JSON.stringify(value)).not.toMatch(/02-1234-5678|031-123-4567|900101-1234567|123-45-67890/);
+    });
+
     it("preserves action identifiers while excluding nested credentials and PII", () => {
         const actionId = "123e4567-e89b-12d3-a456-426614174000";
         const value = redactModelValue({

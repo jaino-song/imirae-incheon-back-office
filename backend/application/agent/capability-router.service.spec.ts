@@ -184,6 +184,11 @@ describe("CapabilityRouterService", () => {
             .toBe("[redacted] [redacted] [redacted] 123e4567-e89b-12d3-a456-426614174000 abcdefghijklmnopqrstuvwxyz 고객 [redacted]");
     });
 
+    it("minimizes Korean landlines and hyphenated identifiers while preserving operational metadata", () => {
+        expect(minimizeClassifierText("02-1234-5678 031-123-4567 900101-1234567 123-45-67890 2026-08-03 v1.2.3 123e4567-e89b-12d3-a456-426614174000"))
+            .toBe("[redacted] [redacted] [redacted] [redacted] 2026-08-03 v1.2.3 123e4567-e89b-12d3-a456-426614174000");
+    });
+
     it("passes only minimized current-turn text to the ambiguous classifier", async () => {
         mockedGenerateText.mockResolvedValueOnce({ text: '{"domains":["clients"]}' } as never);
         const router = new CapabilityRouterService(

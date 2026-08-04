@@ -50,6 +50,20 @@ describe("AgentRuntimeService", () => {
         expect(messages[0]?.parts).toEqual([{ type: "text", text: "[redacted] [redacted] 고객" }]);
     });
 
+    it("redacts Korean landlines and hyphenated identifiers in persisted history and the current turn", () => {
+        const messages = buildAuthoritativeModelMessages([
+            { id: "history", role: "user", parts: [{ type: "text", text: "02-1234-5678 900101-1234567" }] },
+        ], {
+            id: "current",
+            role: "user",
+            parts: [{ type: "text", text: "031-123-4567 123-45-67890" }],
+        });
+        const text = messages.flatMap((message) => message.parts.map((part) => (part as { text?: string }).text ?? "")).join(" ");
+
+        expect(text).not.toMatch(/02-1234-5678|031-123-4567|900101-1234567|123-45-67890/);
+        expect(text.match(/\[redacted\]/g)).toHaveLength(4);
+    });
+
     it("keeps operational IDs in the current user turn while redacting credential text", () => {
         const actionId = "123e4567-e89b-12d3-a456-426614174000";
         const targetVersion = "a".repeat(64);
@@ -74,6 +88,32 @@ describe("AgentRuntimeService", () => {
             Email: "person@example.com",
             profile: { display: "연락처 010-9999-8888", createdAt: new Date("2026-08-03T00:00:00.000Z") },
         })).toEqual({ profile: { display: "연락처 [redacted]", createdAt: "2026-08-03T00:00:00.000Z" } });
+    });
+
+    it("scans identifier-like keys while preserving operational IDs, hashes, dates, and versions", () => {
+        const value = redactModelValue({
+            identifier: "02-1234-5678",
+            clientId: "900101-1234567",
+            id: "123-45-67890",
+            uuid: "123e4567-e89b-12d3-a456-426614174000",
+            cuid: "client_cuid_2m4x6z8q0v",
+            ulid: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            hash: "a".repeat(64),
+            date: "2026-08-03",
+            version: "v1.2.3",
+        }) as Record<string, unknown>;
+
+        expect(value).toMatchObject({
+            identifier: "[redacted]",
+            clientId: "[redacted]",
+            id: "[redacted]",
+            uuid: "123e4567-e89b-12d3-a456-426614174000",
+            cuid: "client_cuid_2m4x6z8q0v",
+            ulid: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            hash: "a".repeat(64),
+            date: "2026-08-03",
+            version: "v1.2.3",
+        });
     });
 
     it("preserves operational identifiers while removing nested credentials and PII", () => {
