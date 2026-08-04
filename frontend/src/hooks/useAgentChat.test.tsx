@@ -21,20 +21,69 @@ describe("useAgentChat", () => {
         });
         window.sessionStorage.setItem("agent_session_id", "session-a");
         const restoredMessages = [{ id: "message-a", role: "assistant", parts: [{ type: "text", text: "복원됨" }] }];
+        const restoredSessions = [{ id: "session-a", title: "대화", updatedAt: "2026-08-03" }];
         global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
             const url = String(input);
-            const payload = url.endsWith("/sessions/session-a")
-                ? { id: "session-a", title: "대화", updatedAt: "2026-08-03", messages: restoredMessages }
-                : [];
+            const payload = url === "/api/ai/agent/sessions"
+                ? restoredSessions
+                : url.endsWith("/sessions/session-a")
+                    ? { id: "session-a", title: "대화", updatedAt: "2026-08-03", messages: restoredMessages }
+                    : [];
 
             return { ok: true, json: async () => payload } as Response;
         });
 
-        renderHook(() => useAgentChat(), {
+        const { result } = renderHook(() => useAgentChat(), {
             wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>,
         });
 
         await waitFor(() => expect(setMessages).toHaveBeenCalledWith(restoredMessages));
+        await waitFor(() => expect(result.current.sessions).toEqual(restoredSessions));
+    });
+
+    it.each(["delete", "archive"] as const)("ignores a delayed pre-mutation session list after %s", async (mutation) => {
+        let listCallCount = 0;
+        let releaseStaleList: (() => void) | undefined;
+        let markStaleListStarted: (() => void) | undefined;
+        let markStaleListResolved: (() => void) | undefined;
+        const staleListStarted = new Promise<void>((resolve) => { markStaleListStarted = resolve; });
+        const staleListResolved = new Promise<void>((resolve) => { markStaleListResolved = resolve; });
+        const staleSessions = [{ id: "session-stale", title: "오래된 목록", updatedAt: "2026-08-03" }];
+        const freshSessions = [{ id: "session-fresh", title: "최신 목록", updatedAt: "2026-08-04" }];
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+            const url = String(input);
+            if (url === "/api/ai/agent/sessions") {
+                listCallCount += 1;
+                if (listCallCount === 1) {
+                    return {
+                        ok: true,
+                        json: async () => {
+                            markStaleListStarted?.();
+                            await new Promise<void>((resolve) => { releaseStaleList = resolve; });
+                            markStaleListResolved?.();
+                            return staleSessions;
+                        },
+                    } as Response;
+                }
+                return { ok: true, json: async () => freshSessions } as Response;
+            }
+            if (url.endsWith("/sessions/session-stale") && (init?.method === "DELETE" || init?.method === "PATCH")) {
+                return { ok: true, json: async () => ({}) } as Response;
+            }
+            return { ok: true, json: async () => [] } as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        await staleListStarted;
+        await act(async () => {
+            if (mutation === "delete") await result.current.deleteSession("session-stale");
+            else await result.current.archiveSession("session-stale");
+        });
+        expect(result.current.sessions).toEqual(freshSessions);
+
+        releaseStaleList?.();
+        await act(async () => { await staleListResolved; });
+        expect(result.current.sessions).toEqual(freshSessions);
     });
 
     it("marks certain execution failures as nothing-happened and preserves the server error code", async () => {

@@ -92,27 +92,53 @@ export function useAgentChat() {
             let buffer = "";
             let assistantMessageId: string | undefined;
             const parts: MobileAgentPart[] = [];
+            const streamIsCurrent = () => !controller.signal.aborted && operationEpoch === operationEpochRef.current;
+            const publishAssistantSnapshot = () => {
+                if (!streamIsCurrent()) return;
+                const id = assistantMessageId ??= makeId();
+                const snapshot = parts.map((part) => ({ ...part }));
+                setMessages((current) => {
+                    if (!streamIsCurrent()) return current;
+                    const nextMessage = { id, role: "assistant" as const, parts: snapshot } as MobileAgentMessage;
+                    const existingIndex = current.findIndex((message) => message.id === id);
+                    if (existingIndex < 0) return [...current, nextMessage];
+                    const nextMessages = [...current];
+                    nextMessages[existingIndex] = nextMessage;
+                    return nextMessages;
+                });
+            };
             const consume = (line: string) => {
-                if (!line.startsWith("data:")) return;
+                if (!streamIsCurrent() || !line.startsWith("data:")) return;
                 const raw = line.slice(5).trim();
                 if (!raw || raw === "[DONE]") return;
+                let changed = false;
                 try {
                     const chunk = JSON.parse(raw) as { type?: string; delta?: string; data?: unknown; messageId?: unknown };
                     if (chunk.type === "start" && typeof chunk.messageId === "string" && chunk.messageId.length > 0) {
-                        assistantMessageId = chunk.messageId;
+                        if (!assistantMessageId) {
+                            assistantMessageId = chunk.messageId;
+                            changed = true;
+                        }
                     } else if (chunk.type === "text-delta" && typeof chunk.delta === "string") {
                         const previous = parts.find((part) => part.type === "text");
                         if (previous) previous.text = `${previous.text ?? ""}${chunk.delta}`;
                         else parts.push({ type: "text", text: chunk.delta });
+                        changed = true;
                     } else if (chunk.type?.startsWith("data-")) {
                         parts.push({ type: chunk.type, data: chunk.data });
+                        changed = true;
                     }
                 } catch {
-                    if (raw.startsWith('"')) parts.push({ type: "text", text: raw.slice(1, -1) });
+                    if (raw.startsWith('"')) {
+                        parts.push({ type: "text", text: raw.slice(1, -1) });
+                        changed = true;
+                    }
                 }
+                if (changed) publishAssistantSnapshot();
             };
             while (true) {
                 const next = await reader.read();
+                if (!streamIsCurrent()) return;
                 buffer += decoder.decode(next.value ?? new Uint8Array(), { stream: !next.done });
                 const lines = buffer.split("\n");
                 buffer = lines.pop() ?? "";
@@ -121,7 +147,8 @@ export function useAgentChat() {
             }
             if (buffer) consume(buffer);
             if (controller.signal.aborted || operationEpoch !== operationEpochRef.current) return;
-            setMessages((current) => [...current, { id: assistantMessageId ?? makeId(), role: "assistant", parts: parts.length > 0 ? parts : [{ type: "text", text: "응답을 받지 못했습니다." }] } as MobileAgentMessage]);
+            if (parts.length === 0) parts.push({ type: "text", text: "응답을 받지 못했습니다." });
+            publishAssistantSnapshot();
             setStatus("ready");
             await refreshSessions();
         } catch (error) {

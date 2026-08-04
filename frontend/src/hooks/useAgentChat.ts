@@ -97,13 +97,16 @@ export function useAgentChat() {
     const activeSessionIdRef = useRef<string | null>(readAgentSessionId());
     const sessionSelectionGenerationRef = useRef(new Map<string, number>());
     const invalidatedSelectionGenerationRef = useRef(new Map<string, number>());
+    const sessionListGenerationRef = useRef(0);
     const sessionOperationEpoch = useMemo(() => new SessionOperationEpoch(), []);
 
     const refreshSessions = useCallback(async () => {
+        const requestGeneration = ++sessionListGenerationRef.current;
         const requestEpoch = sessionOperationEpoch.read();
         const response = await fetch("/api/ai/agent/sessions", { credentials: "same-origin" });
         if (!response.ok) return;
         const next = await response.json() as AgentSessionSummary[];
+        if (requestGeneration !== sessionListGenerationRef.current) return;
         if (requestEpoch !== sessionOperationEpoch.read()) return;
         setSessions(Array.isArray(next) ? next : []);
     }, [sessionOperationEpoch]);
@@ -162,9 +165,13 @@ export function useAgentChat() {
         if (restoredSession.current) return;
         restoredSession.current = true;
         queueMicrotask(() => {
-            void refreshSessions();
-            const sessionId = window.sessionStorage.getItem(AGENT_SESSION_KEY);
-            if (sessionId) void selectSession(sessionId).catch(() => window.sessionStorage.removeItem(AGENT_SESSION_KEY));
+            void (async () => {
+                const sessionId = window.sessionStorage.getItem(AGENT_SESSION_KEY);
+                if (sessionId) {
+                    await selectSession(sessionId).catch(() => window.sessionStorage.removeItem(AGENT_SESSION_KEY));
+                }
+                await refreshSessions();
+            })();
         });
     }, [refreshSessions, selectSession]);
 
@@ -240,6 +247,7 @@ export function useAgentChat() {
     }, []);
 
     const deleteSession = useCallback(async (sessionId: string) => {
+        sessionListGenerationRef.current += 1;
         activeSessionIdRef.current = readAgentSessionId();
         const deletingActiveSession = activeSessionIdRef.current === sessionId;
         if (deletingActiveSession) {
@@ -263,6 +271,7 @@ export function useAgentChat() {
     const renameSession = useCallback(async (sessionId: string, title: string) => {
         const nextTitle = title.trim();
         if (!nextTitle) return false;
+        sessionListGenerationRef.current += 1;
         const response = await fetch(`/api/ai/agent/sessions/${encodeURIComponent(sessionId)}`, {
             method: "PATCH",
             credentials: "same-origin",
@@ -275,6 +284,7 @@ export function useAgentChat() {
     }, [refreshSessions]);
 
     const archiveSession = useCallback(async (sessionId: string) => {
+        sessionListGenerationRef.current += 1;
         activeSessionIdRef.current = readAgentSessionId();
         const archivingActiveSession = activeSessionIdRef.current === sessionId;
         if (archivingActiveSession) {
@@ -301,6 +311,7 @@ export function useAgentChat() {
     }, [chat, invalidatePendingSelection, refreshSessions, sessionOperationEpoch]);
 
     const resetBranch = () => {
+        sessionListGenerationRef.current += 1;
         sessionOperationEpoch.next();
         chat.stop();
         activeSessionIdRef.current = null;

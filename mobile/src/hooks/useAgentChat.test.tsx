@@ -60,6 +60,201 @@ describe("mobile useAgentChat", () => {
         }));
     });
 
+    it("publishes one immutable assistant snapshot before the stream closes and updates that message", async () => {
+        let releaseLaterChunk: (() => void) | undefined;
+        let markFirstChunkRead: (() => void) | undefined;
+        const firstChunkRead = new Promise<void>((resolve) => { markFirstChunkRead = resolve; });
+        const firstChunk = new Uint8Array(Buffer.from([
+            'data: {"type":"start","messageId":"assistant-stream-id"}',
+            'data: {"type":"text-delta","delta":"첫"}',
+            'data: {"type":"data-action-result","data":{"status":"pending"}}',
+            "",
+        ].join("\n")));
+        const laterChunk = new Uint8Array(Buffer.from([
+            'data: {"type":"text-delta","delta":"번째"}',
+            "data: [DONE]",
+            "",
+        ].join("\n")));
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
+            const url = String(input);
+            if (!url.endsWith("/chat")) return { ok: true, json: async () => [] } as Response;
+            let readCount = 0;
+            return {
+                ok: true,
+                headers: { get: () => "session-stream" },
+                body: {
+                    getReader: () => ({
+                        read: async () => {
+                            if (readCount === 0) {
+                                readCount += 1;
+                                markFirstChunkRead?.();
+                                return { done: false, value: firstChunk };
+                            }
+                            if (readCount === 1) {
+                                readCount += 1;
+                                await new Promise<void>((resolve) => { releaseLaterChunk = resolve; });
+                                return { done: false, value: laterChunk };
+                            }
+                            return { done: true, value: new Uint8Array() };
+                        },
+                    }),
+                },
+            } as unknown as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        let sendPromise: Promise<void> | undefined;
+        await act(async () => {
+            sendPromise = result.current.sendMessage("질문");
+            await firstChunkRead;
+        });
+        await waitFor(() => expect(result.current.messages).toHaveLength(2));
+        const firstAssistant = result.current.messages.at(-1);
+        expect(firstAssistant).toEqual({
+            id: "assistant-stream-id",
+            role: "assistant",
+            parts: [
+                { type: "text", text: "첫" },
+                { type: "data-action-result", data: { status: "pending" } },
+            ],
+        });
+
+        releaseLaterChunk?.();
+        await act(async () => { await sendPromise; });
+
+        const finalAssistant = result.current.messages.at(-1);
+        expect(finalAssistant).not.toBe(firstAssistant);
+        expect(finalAssistant?.parts).not.toBe(firstAssistant?.parts);
+        expect(finalAssistant?.id).toBe(firstAssistant?.id);
+        expect(finalAssistant?.parts).toEqual([
+            { type: "text", text: "첫번째" },
+            { type: "data-action-result", data: { status: "pending" } },
+        ]);
+    });
+
+    it("does not append later chunks from an aborted stream", async () => {
+        let releaseLaterChunk: (() => void) | undefined;
+        let markFirstChunkRead: (() => void) | undefined;
+        const firstChunkRead = new Promise<void>((resolve) => { markFirstChunkRead = resolve; });
+        const firstChunk = new Uint8Array(Buffer.from([
+            'data: {"type":"text-delta","delta":"첫"}',
+            "",
+        ].join("\n")));
+        const laterChunk = new Uint8Array(Buffer.from([
+            'data: {"type":"text-delta","delta":"늦은"}',
+            "data: [DONE]",
+            "",
+        ].join("\n")));
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
+            const url = String(input);
+            if (!url.endsWith("/chat")) return { ok: true, json: async () => [] } as Response;
+            let readCount = 0;
+            return {
+                ok: true,
+                headers: { get: () => "session-aborted" },
+                body: {
+                    getReader: () => ({
+                        read: async () => {
+                            if (readCount === 0) {
+                                readCount += 1;
+                                markFirstChunkRead?.();
+                                return { done: false, value: firstChunk };
+                            }
+                            if (readCount === 1) {
+                                readCount += 1;
+                                await new Promise<void>((resolve) => { releaseLaterChunk = resolve; });
+                                return { done: false, value: laterChunk };
+                            }
+                            return { done: true, value: new Uint8Array() };
+                        },
+                    }),
+                },
+            } as unknown as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        let sendPromise: Promise<void> | undefined;
+        await act(async () => {
+            sendPromise = result.current.sendMessage("질문");
+            await firstChunkRead;
+        });
+        await waitFor(() => expect(result.current.messages.at(-1)?.parts).toEqual([{ type: "text", text: "첫" }]));
+
+        act(() => { result.current.stop(); });
+        releaseLaterChunk?.();
+        await act(async () => { await sendPromise; });
+
+        expect(result.current.messages.at(-1)?.parts).toEqual([{ type: "text", text: "첫" }]);
+    });
+
+    it("does not append later chunks from a stale stream after switching sessions", async () => {
+        let releaseLaterChunk: (() => void) | undefined;
+        let markFirstChunkRead: (() => void) | undefined;
+        const firstChunkRead = new Promise<void>((resolve) => { markFirstChunkRead = resolve; });
+        const firstChunk = new Uint8Array(Buffer.from([
+            'data: {"type":"text-delta","delta":"이전"}',
+            "",
+        ].join("\n")));
+        const laterChunk = new Uint8Array(Buffer.from([
+            'data: {"type":"text-delta","delta":" 응답"}',
+            "data: [DONE]",
+            "",
+        ].join("\n")));
+        global.fetch = jest.fn().mockImplementation(async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url.endsWith("/chat")) {
+                let readCount = 0;
+                return {
+                    ok: true,
+                    headers: { get: () => "session-old" },
+                    body: {
+                        getReader: () => ({
+                            read: async () => {
+                                if (readCount === 0) {
+                                    readCount += 1;
+                                    markFirstChunkRead?.();
+                                    return { done: false, value: firstChunk };
+                                }
+                                if (readCount === 1) {
+                                    readCount += 1;
+                                    await new Promise<void>((resolve) => { releaseLaterChunk = resolve; });
+                                    return { done: false, value: laterChunk };
+                                }
+                                return { done: true, value: new Uint8Array() };
+                            },
+                        }),
+                    },
+                } as unknown as Response;
+            }
+            if (url.endsWith("/sessions/session-new")) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        id: "session-new", title: "새 대화", updatedAt: "2026-08-04",
+                        messages: [{ id: "message-new", role: "assistant", parts: [{ type: "text", text: "새 대화" }] }],
+                    }),
+                } as Response;
+            }
+            return { ok: true, json: async () => [] } as Response;
+        });
+        const { result } = renderHook(() => useAgentChat());
+
+        let sendPromise: Promise<void> | undefined;
+        await act(async () => {
+            sendPromise = result.current.sendMessage("질문");
+            await firstChunkRead;
+        });
+        await waitFor(() => expect(result.current.messages.at(-1)?.parts).toEqual([{ type: "text", text: "이전" }]));
+
+        await act(async () => { await result.current.selectSession("session-new"); });
+        releaseLaterChunk?.();
+        await act(async () => { await sendPromise; });
+
+        expect(result.current.messages).toEqual([
+            { id: "message-new", role: "assistant", parts: [{ type: "text", text: "새 대화" }] },
+        ]);
+    });
+
     it("aborts and detaches the active stream before switching sessions", async () => {
         let releaseRead: (() => void) | undefined;
         let chatSignal: AbortSignal | undefined;
