@@ -18,8 +18,28 @@ describe("Release A domain read capabilities", () => {
         const provider = new EmployeeAgentCapabilitiesProvider(list as never, find as never);
         const capability = provider.getCapabilities().find(({ meta }) => meta.name === "employees.search")!;
         const output = await capability.execute(context, { query: "서울" });
-        expect(output).toEqual({ employees: [{ id: 1, name: "관리사", grade: "A", workArea: ["서울"], openToNextWork: true }] });
+        expect(output).toEqual({ kind: "entity", entity: { id: 1, name: "관리사", grade: "A", workArea: ["서울"], openToNextWork: true } });
         expect(list.execute).toHaveBeenCalledWith("branch-a");
+    });
+
+    it("returns discriminated none and choices search results", async () => {
+        const list = {
+            execute: jest.fn()
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([
+                    { id: 1, name: "관리사 1", phone: "010-1234-5678", grade: "A", workArea: ["서울"], openToNextWork: true },
+                    { id: 2, name: "관리사 2", phone: "010-9876-5432", grade: "A", workArea: ["서울"], openToNextWork: false },
+                ]),
+        };
+        const provider = new EmployeeAgentCapabilitiesProvider(list as never, { execute: jest.fn() } as never);
+        const capability = provider.getCapabilities().find(({ meta }) => meta.name === "employees.search")!;
+
+        await expect(capability.execute(context, { query: "없는 직원" })).resolves.toEqual({ kind: "none", query: "없는 직원" });
+        await expect(capability.execute(context, { query: "관리사" })).resolves.toEqual({
+            kind: "choices",
+            prompt: "어느 직원을 말씀하시는지 선택해 주세요.",
+            choices: [{ id: 1, name: "관리사 1" }, { id: 2, name: "관리사 2" }],
+        });
     });
 
     it("guards direct employee reads to active rows in the current branch", async () => {
@@ -33,7 +53,7 @@ describe("Release A domain read capabilities", () => {
         const provider = new EmployeeAgentCapabilitiesProvider({ execute: jest.fn() } as never, find as never);
         const capability = provider.getCapabilities().find(({ meta }) => meta.name === "employees.get")!;
 
-        await expect(capability.execute(context, { id: 7 })).resolves.toMatchObject({ id: 7, name: "관리사" });
+        await expect(capability.execute(context, { id: 7 })).resolves.toMatchObject({ kind: "entity", entity: { id: 7, name: "관리사" } });
         await expect(capability.execute(context, { id: 8 })).rejects.toThrow("Employee not found");
         await expect(capability.execute(context, { id: 9 })).rejects.toThrow("Employee not found");
         await expect(capability.execute(context, { id: 10 })).rejects.toThrow("Employee not found");

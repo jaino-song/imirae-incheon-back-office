@@ -403,6 +403,63 @@ describe("AgentRuntimeService", () => {
         expect(systemForCall(2)).toContain('"staff":{"id":2,"name":"Staff"}');
     });
 
+    it("persists employee selection from search and carries it into the next get step", async () => {
+        const searchExecute = jest.fn().mockResolvedValue({
+            kind: "entity",
+            entity: { id: 7, name: "관리사" },
+        });
+        const getExecute = jest.fn().mockResolvedValue({
+            kind: "entity",
+            entity: { id: 7, name: "관리사" },
+        });
+        const search = buildEntityCapability("employees.search", "employees", searchExecute);
+        const get = {
+            ...buildEntityCapability("employees.get", "employees", getExecute),
+            inputSchema: z.object({ id: z.number().int().positive() }),
+        };
+        const sessions = {
+            create: jest.fn().mockResolvedValue({ id: "session-employee-memory", selectedEntities: {}, messages: [] }),
+            update: jest.fn().mockResolvedValue({ id: "session-employee-memory" }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const model = new DeterministicAgentLanguageModel([
+            { type: "tool-call", toolName: "employees_search", input: {} },
+            { type: "tool-call", toolName: "employees_get", input: { id: 7 } },
+            { type: "text", text: "직원 정보를 확인했습니다." },
+        ]);
+        const modelStream = jest.spyOn(model, "doStream");
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => model } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["employees"], capabilities: [search, get] }) } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-employee-memory", startedAt: Date.now() }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-employee-memory", role: "user", parts: [{ type: "text", text: "직원 정보를 확인해줘" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the UI message stream so each employee tool step completes.
+        }
+
+        const owner = { userId: "user-a", branchId: "branch-a" };
+        expect(getExecute).toHaveBeenCalledWith(expect.objectContaining({}), { id: 7 });
+        expect(sessions.update).toHaveBeenNthCalledWith(1, "session-employee-memory", owner, {
+            selectedEntities: { employees: { id: 7, name: "관리사" } },
+        });
+        expect(sessions.update).toHaveBeenNthCalledWith(2, "session-employee-memory", owner, {
+            selectedEntities: { employees: { id: 7, name: "관리사" } },
+        });
+        const systemForCall = (callIndex: number) => ((modelStream.mock.calls[callIndex]?.[0] as { prompt?: Array<{ role: string; content: string }> }).prompt?.[0]?.content);
+        expect(systemForCall(1)).toContain('"employees":{"id":7,"name":"관리사"}');
+        expect(systemForCall(2)).toContain('"employees":{"id":7,"name":"관리사"}');
+    });
+
     it("replaces only the same domain when a later entity result arrives", async () => {
         const execute = jest.fn()
             .mockResolvedValueOnce({ kind: "entity", entity: { id: 1, name: "First" } })

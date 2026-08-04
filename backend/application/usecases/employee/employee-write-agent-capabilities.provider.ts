@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -14,6 +14,8 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 import { AgentActionCertainFailureError } from "application/agent/action-coordinator.service";
 import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 import { EMPLOYEE_GRADES, normalizeEmployeeGrade } from "domain/constants/employee-grade.constants";
+import { normalizePhone } from "application/utils/normalize-phone";
+import { EMPLOYEE_REPOSITORY, IEmployeeRepository } from "domain/repositories/employee.repository.interface";
 
 const EmployeeGradeSchema = z.preprocess(
     (value) => typeof value === "string" ? normalizeEmployeeGrade(value) : value,
@@ -48,6 +50,28 @@ function isEmployeeBranchPhoneUniqueViolation(error: unknown): boolean {
 
     const fields = target.map(String);
     return fields.includes("phone") && (fields.includes("branchId") || fields.includes("branch_id"));
+}
+
+function normalizeEmployeePhone(rawPhone: string): string {
+    const normalized = normalizePhone(rawPhone);
+    if (!normalized) {
+        throw new AgentActionCertainFailureError("Employee phone number is invalid");
+    }
+    return normalized;
+}
+
+async function ensureEmployeePhoneAvailable(
+    employeeRepository: IEmployeeRepository,
+    branchId: string,
+    normalizedPhone: string | undefined,
+    currentEmployeeId?: number,
+): Promise<void> {
+    if (normalizedPhone === undefined) return;
+
+    const existing = await employeeRepository.findByPhone(branchId, normalizedPhone);
+    if (existing && existing.id !== currentEmployeeId) {
+        throw new AgentActionCertainFailureError("An employee with this phone already exists in this branch");
+    }
 }
 
 const CreateEmployeeSchema = z.object({
@@ -108,6 +132,8 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
         private readonly updateEmployee: UpdateEmployeeUsecase,
         private readonly changeAvailability: ChangeEmployeeOpenStatusUsecase,
         private readonly findEmployee: FindEmployeeByIdUsecase,
+        @Inject(EMPLOYEE_REPOSITORY)
+        private readonly employeeRepository: IEmployeeRepository,
         private readonly prisma: PrismaService,
     ) {}
 
@@ -124,9 +150,11 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 formFields: EMPLOYEE_CREATE_FIELDS,
                 execute: async (context, rawInput) => {
                     const input = CreateEmployeeSchema.parse(rawInput);
+                    const normalizedPhone = normalizeEmployeePhone(input.phone);
                     try {
+                        await ensureEmployeePhoneAvailable(this.employeeRepository, context.principal.branchId, normalizedPhone);
                         return await this.prisma.$transaction(async (transaction) => {
-                            const employee = await this.createEmployee.execute(context.principal.branchId, input.name, input.workArea, input.phone, input.grade, input.openToNextWork, undefined, input.birthday, transaction);
+                            const employee = await this.createEmployee.execute(context.principal.branchId, input.name, input.workArea, normalizedPhone, input.grade, input.openToNextWork, undefined, input.birthday, transaction);
                             const result = { id: employee.id, name: employee.name, status: "created" };
                             await recordAgentActionEffect(transaction, context, "employees.create", "employee", employee.id, result);
                             return result;
@@ -154,25 +182,43 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
                 revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateEmployee(context.principal.branchId, UpdateEmployeeSchema.parse(rawInput).id, expectedTargetVersion),
                 execute: async (context, rawInput) => {
                     const input = UpdateEmployeeSchema.parse(rawInput);
+                    const normalizedPhone = input.phone === undefined ? undefined : normalizeEmployeePhone(input.phone);
                     await this.requireActiveEmployee(context.principal.branchId, input.id);
                     const { id, ...updates } = input;
-                    const employee = await this.updateEmployee.execute(context.principal.branchId, id, updates);
-                    return { id: employee.id, name: employee.name, status: "updated" };
+                    try {
+                        await ensureEmployeePhoneAvailable(this.employeeRepository, context.principal.branchId, normalizedPhone, id);
+                        const employee = await this.updateEmployee.execute(
+                            context.principal.branchId,
+                            id,
+                            normalizedPhone === undefined ? updates : { ...updates, phone: normalizedPhone },
+                        );
+                        return { id: employee.id, name: employee.name, status: "updated" };
+                    } catch (error) {
+                        if (isEmployeeBranchPhoneUniqueViolation(error)) {
+                            throw new AgentActionCertainFailureError("An employee with this phone already exists in this branch");
+                        }
+                        throw error;
+                    }
                 },
                 executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                     const input = UpdateEmployeeSchema.parse(rawInput);
+                    const normalizedPhone = input.phone === undefined ? undefined : normalizeEmployeePhone(input.phone);
                     const { id, ...updates } = input;
                     try {
+                        await ensureEmployeePhoneAvailable(this.employeeRepository, context.principal.branchId, normalizedPhone, id);
                         const employee = await this.updateEmployee.executeApprovedTarget(
                             context.principal.branchId,
                             id,
-                            updates,
+                            normalizedPhone === undefined ? updates : { ...updates, phone: normalizedPhone },
                             expectedTargetVersion,
                         );
                         return { id: employee.id, name: employee.name, status: "updated" };
                     } catch (error) {
                         if (error instanceof EmployeeTargetVersionMismatchError) {
                             throw new AgentActionCertainFailureError(error.message);
+                        }
+                        if (isEmployeeBranchPhoneUniqueViolation(error)) {
+                            throw new AgentActionCertainFailureError("An employee with this phone already exists in this branch");
                         }
                         throw error;
                     }
@@ -237,7 +283,13 @@ export class EmployeeWriteAgentCapabilitiesProvider implements AgentCapabilityPr
     private async reconcileEmployeeUpdate(branchId: string, input: z.infer<typeof UpdateEmployeeSchema>, status: string) {
         const employee = await this.findEmployee.execute(branchId, input.id);
         if (!isActiveEmployee(employee)) return { status: "failed" as const, reason: "Employee no longer exists or was deleted" };
-        const desired = Object.entries(input).filter(([key, value]) => key !== "id" && value !== undefined);
+        const normalizedPhone = input.phone === undefined ? undefined : normalizePhone(input.phone);
+        if (input.phone !== undefined && !normalizedPhone) {
+            return { status: "uncertain" as const, reason: "Employee phone number is invalid" };
+        }
+        const desired = Object.entries(input)
+            .filter(([key, value]) => key !== "id" && value !== undefined)
+            .map(([key, value]) => [key, key === "phone" ? normalizedPhone : value] as const);
         const matches = desired.every(([key, value]) => JSON.stringify(employee[key as keyof typeof employee]) === JSON.stringify(value));
         return matches
             ? { status: "succeeded" as const, result: { id: employee.id, name: employee.name, status } }

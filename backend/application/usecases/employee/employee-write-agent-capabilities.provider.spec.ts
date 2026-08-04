@@ -11,9 +11,10 @@ const context = {
 describe("EmployeeWriteAgentCapabilitiesProvider", () => {
     function setup(employee: EmployeeEntity | null) {
         const createEmployee = { execute: jest.fn() };
-        const updateEmployee = { execute: jest.fn() };
+        const updateEmployee = { execute: jest.fn(), executeApprovedTarget: jest.fn() };
         const changeAvailability = { execute: jest.fn() };
         const findEmployee = { execute: jest.fn().mockResolvedValue(employee) };
+        const employeeRepository = { findByPhone: jest.fn().mockResolvedValue(null) };
         const transaction = { agent_action: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
         const prisma = { $transaction: jest.fn(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)), agent_action: transaction.agent_action };
         const provider = new EmployeeWriteAgentCapabilitiesProvider(
@@ -21,9 +22,10 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
             updateEmployee as never,
             changeAvailability as never,
             findEmployee as never,
+            employeeRepository as never,
             prisma as never,
         );
-        return { createEmployee, updateEmployee, changeAvailability, findEmployee, transaction, prisma, capabilities: provider.getCapabilities() };
+        return { createEmployee, updateEmployee, changeAvailability, findEmployee, employeeRepository, transaction, prisma, capabilities: provider.getCapabilities() };
     }
 
     it("fails soft-deleted employees closed across inspect, revalidate, execute, and reconcile", async () => {
@@ -249,5 +251,176 @@ describe("EmployeeWriteAgentCapabilitiesProvider", () => {
             phone: "01012345678",
             grade: "프리미엄",
         })).rejects.toBe(error);
+    });
+
+    it("persists a normalized phone on employee creation", async () => {
+        const { createEmployee, employeeRepository, capabilities } = setup(null);
+        createEmployee.execute.mockResolvedValue(EmployeeEntity.reconstitute(42, "홍길동", ["서울"], "01012345678", "A", false, new Date()));
+        const create = capabilities.find((entry) => entry.meta.name === "employees.create")!;
+
+        await create.execute(context, {
+            name: "홍길동", workArea: ["서울"], phone: "010-1234-5678", grade: "프리미엄",
+        });
+
+        expect(employeeRepository.findByPhone).toHaveBeenCalledWith("branch-a", "01012345678");
+        expect(createEmployee.execute).toHaveBeenCalledWith(
+            "branch-a", "홍길동", ["서울"], "01012345678", "프리미엄", false, undefined, undefined, expect.anything(),
+        );
+    });
+
+    it.each([
+        ["010-1234-5678", "01012345678"],
+        ["01012345678", "01012345678"],
+    ])("rejects a create preflight duplicate for formatted/raw phone %s", async (inputPhone, normalizedPhone) => {
+        const existing = EmployeeEntity.reconstitute(8, "기존 직원", ["서울"], normalizedPhone, "A", true, new Date());
+        const { createEmployee, employeeRepository, capabilities } = setup(null);
+        employeeRepository.findByPhone.mockResolvedValue(existing);
+        const create = capabilities.find((entry) => entry.meta.name === "employees.create")!;
+
+        await expect(create.execute(context, {
+            name: "신규 직원", workArea: ["서울"], phone: inputPhone, grade: "프리미엄",
+        })).rejects.toBeInstanceOf(AgentActionCertainFailureError);
+
+        expect(employeeRepository.findByPhone).toHaveBeenCalledWith("branch-a", normalizedPhone);
+        expect(createEmployee.execute).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["010-1234-5678", "01012345678"],
+        ["01012345678", "01012345678"],
+    ])("persists a normalized phone on direct updates for formatted/raw input %s", async (inputPhone, normalizedPhone) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], normalizedPhone, "A", true, new Date());
+        const { updateEmployee, employeeRepository, capabilities } = setup(existing);
+        updateEmployee.execute.mockResolvedValue(existing);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        await update.execute(context, { id: 7, phone: inputPhone });
+
+        expect(employeeRepository.findByPhone).toHaveBeenCalledWith("branch-a", normalizedPhone);
+        expect(updateEmployee.execute).toHaveBeenCalledWith("branch-a", 7, { phone: normalizedPhone });
+    });
+
+    it("persists a normalized phone on approval-bound updates", async () => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
+        const { updateEmployee, employeeRepository, capabilities } = setup(existing);
+        updateEmployee.executeApprovedTarget.mockResolvedValue(existing);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        await update.executeApprovedTarget!(context, { id: 7, phone: "010-1234-5678" }, "approved-target");
+
+        expect(employeeRepository.findByPhone).toHaveBeenCalledWith("branch-a", "01012345678");
+        expect(updateEmployee.executeApprovedTarget).toHaveBeenCalledWith(
+            "branch-a", 7, { phone: "01012345678" }, "approved-target",
+        );
+    });
+
+    it("reconciles formatted phone input against the normalized persisted value", async () => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
+        const { capabilities } = setup(existing);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        await expect(update.reconcile!(context, { id: 7, phone: "010-1234-5678" }, null)).resolves.toEqual({
+            status: "succeeded",
+            result: { id: 7, name: "홍길동", status: "updated" },
+        });
+    });
+
+    it.each([
+        ["direct update", "execute"],
+        ["approval-bound update", "executeApprovedTarget"],
+    ])("allows %s to retain its own normalized phone", async (_label, updateMethod) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
+        const { updateEmployee, employeeRepository, capabilities } = setup(existing);
+        employeeRepository.findByPhone.mockResolvedValue(existing);
+        updateEmployee[updateMethod as "execute" | "executeApprovedTarget"].mockResolvedValue(existing);
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        const result = updateMethod === "execute"
+            ? update.execute(context, { id: 7, phone: "010-1234-5678" })
+            : update.executeApprovedTarget!(context, { id: 7, phone: "010-1234-5678" }, "approved-target");
+
+        await expect(result).resolves.toEqual({ id: 7, name: "홍길동", status: "updated" });
+        expect(employeeRepository.findByPhone).toHaveBeenCalledWith("branch-a", "01012345678");
+    });
+
+    it.each([
+        ["create", "execute"],
+        ["direct update", "execute"],
+        ["approval-bound update", "executeApprovedTarget"],
+    ])("rejects an empty normalized phone before the %s write", async (_label, operation) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
+        const { createEmployee, updateEmployee, employeeRepository, capabilities } = setup(operation === "create" ? null : existing);
+        const create = capabilities.find((entry) => entry.meta.name === "employees.create")!;
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        const result = operation === "create"
+            ? create.execute(context, { name: "홍길동", workArea: ["서울"], phone: "---", grade: "프리미엄" })
+            : operation === "execute"
+                ? update.execute(context, { id: 7, phone: "---" })
+                : update.executeApprovedTarget!(context, { id: 7, phone: "---" }, "approved-target");
+
+        await expect(result).rejects.toBeInstanceOf(AgentActionCertainFailureError);
+        expect(employeeRepository.findByPhone).not.toHaveBeenCalled();
+        expect(createEmployee.execute).not.toHaveBeenCalled();
+        expect(updateEmployee.execute).not.toHaveBeenCalled();
+        expect(updateEmployee.executeApprovedTarget).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["create", "employee_branch_id_phone_key"],
+        ["create", ["branchId", "phone"]],
+        ["create", ["branch_id", "phone"]],
+        ["direct update", "employee_branch_id_phone_key"],
+        ["direct update", ["branchId", "phone"]],
+        ["direct update", ["branch_id", "phone"]],
+        ["approval-bound update", "employee_branch_id_phone_key"],
+        ["approval-bound update", ["branchId", "phone"]],
+        ["approval-bound update", ["branch_id", "phone"]],
+    ])("maps concurrent %s phone conflicts to a certain failure", async (operation, target) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
+        const { createEmployee, updateEmployee, employeeRepository, capabilities } = setup(operation === "create" ? null : existing);
+        const conflict = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002", clientVersion: "test", meta: { target },
+        });
+        employeeRepository.findByPhone.mockResolvedValue(null);
+        createEmployee.execute.mockRejectedValue(conflict);
+        updateEmployee.execute.mockRejectedValue(conflict);
+        updateEmployee.executeApprovedTarget.mockRejectedValue(conflict);
+        const create = capabilities.find((entry) => entry.meta.name === "employees.create")!;
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        const result = operation === "create"
+            ? create.execute(context, { name: "홍길동", workArea: ["서울"], phone: "010-1234-5678", grade: "프리미엄" })
+            : operation === "direct update"
+                ? update.execute(context, { id: 7, phone: "010-1234-5678" })
+                : update.executeApprovedTarget!(context, { id: 7, phone: "010-1234-5678" }, "approved-target");
+
+        await expect(result).rejects.toBeInstanceOf(AgentActionCertainFailureError);
+    });
+
+    it.each([
+        ["create", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002", clientVersion: "test", meta: { target: ["email"] },
+        })],
+        ["direct update", new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002", clientVersion: "test", meta: { target: ["branchId", "phone", "name"] },
+        })],
+        ["approval-bound update", new Error("database unavailable")],
+    ])("preserves unrelated %s write errors", async (operation, error) => {
+        const existing = EmployeeEntity.reconstitute(7, "홍길동", ["서울"], "01012345678", "A", true, new Date());
+        const { createEmployee, updateEmployee, capabilities } = setup(operation === "create" ? null : existing);
+        createEmployee.execute.mockRejectedValue(error);
+        updateEmployee.execute.mockRejectedValue(error);
+        updateEmployee.executeApprovedTarget.mockRejectedValue(error);
+        const create = capabilities.find((entry) => entry.meta.name === "employees.create")!;
+        const update = capabilities.find((entry) => entry.meta.name === "employees.update")!;
+
+        const result = operation === "create"
+            ? create.execute(context, { name: "홍길동", workArea: ["서울"], phone: "01012345678", grade: "프리미엄" })
+            : operation === "direct update"
+                ? update.execute(context, { id: 7, phone: "01012345678" })
+                : update.executeApprovedTarget!(context, { id: 7, phone: "01012345678" }, "approved-target");
+
+        await expect(result).rejects.toBe(error);
     });
 });
