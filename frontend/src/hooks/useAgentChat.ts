@@ -99,6 +99,7 @@ export function useAgentChat() {
     const invalidatedSelectionGenerationRef = useRef(new Map<string, number>());
     const sessionListGenerationRef = useRef(0);
     const sessionOperationEpoch = useMemo(() => new SessionOperationEpoch(), []);
+    const structuredFormSubmissionInFlightRef = useRef(false);
 
     const refreshSessions = useCallback(async () => {
         const requestGeneration = ++sessionListGenerationRef.current;
@@ -220,10 +221,17 @@ export function useAgentChat() {
     }, [refreshCurrentSession, resolveActionError]);
 
     const submitStructuredForm = useCallback((formId: string, values: Record<string, unknown>) => {
-        void chat.sendMessage({
-            role: "user",
-            parts: [{ type: "data-form-submit", data: { formId, values } }],
-        } as never);
+        if (structuredFormSubmissionInFlightRef.current || chat.status === "submitted" || chat.status === "streaming") return;
+        structuredFormSubmissionInFlightRef.current = true;
+        const clearSubmissionGuard = () => { structuredFormSubmissionInFlightRef.current = false; };
+        try {
+            void Promise.resolve(chat.sendMessage({
+                role: "user",
+                parts: [{ type: "data-form-submit", data: { formId, values } }],
+            } as never)).then(clearSubmissionGuard, clearSubmissionGuard);
+        } catch {
+            clearSubmissionGuard();
+        }
     }, [chat]);
 
     const submitFeedback = useCallback(async (messageId: string, type: "positive" | "negative", comment?: string) => {

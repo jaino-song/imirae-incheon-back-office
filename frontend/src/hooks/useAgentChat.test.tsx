@@ -136,6 +136,75 @@ describe("useAgentChat", () => {
         });
     });
 
+    it("blocks same-tick duplicate structured form submissions", async () => {
+        let resolveSubmission: (() => void) | undefined;
+        const sendMessage = jest.fn(() => new Promise<void>((resolve) => { resolveSubmission = resolve; }));
+        (useChat as jest.Mock).mockReturnValue({
+            messages: [], setMessages: jest.fn(), sendMessage, regenerate: jest.fn(), stop: jest.fn(), status: "ready",
+        });
+        global.fetch = jest.fn().mockResolvedValue({ ok: false } as Response);
+        const { result } = renderHook(() => useAgentChat());
+
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/ai/agent/sessions", { credentials: "same-origin" }));
+        act(() => {
+            result.current.submitStructuredForm("profile-form", { name: "Dana" });
+            result.current.submitStructuredForm("profile-form", { name: "Dana" });
+        });
+
+        expect(sendMessage).toHaveBeenCalledTimes(1);
+        resolveSubmission?.();
+    });
+
+    it.each(["submitted", "streaming"] as const)("blocks historical structured forms while status is %s", async (status) => {
+        const sendMessage = jest.fn();
+        (useChat as jest.Mock).mockReturnValue({
+            messages: [], setMessages: jest.fn(), sendMessage, regenerate: jest.fn(), stop: jest.fn(), status,
+        });
+        global.fetch = jest.fn().mockResolvedValue({ ok: false } as Response);
+        const { result } = renderHook(() => useAgentChat());
+
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/ai/agent/sessions", { credentials: "same-origin" }));
+        act(() => { result.current.submitStructuredForm("profile-form", { name: "Dana" }); });
+
+        expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("releases the structured form guard after completion and error", async () => {
+        let resolveFirst: (() => void) | undefined;
+        let rejectSecond: ((error: Error) => void) | undefined;
+        const firstSubmission = new Promise<void>((resolve) => { resolveFirst = resolve; });
+        const secondSubmission = new Promise<void>((_, reject) => { rejectSecond = reject; });
+        const sendMessage = jest.fn()
+            .mockReturnValueOnce(firstSubmission)
+            .mockReturnValueOnce(secondSubmission)
+            .mockResolvedValue(undefined);
+        (useChat as jest.Mock).mockReturnValue({
+            messages: [], setMessages: jest.fn(), sendMessage, regenerate: jest.fn(), stop: jest.fn(), status: "ready",
+        });
+        global.fetch = jest.fn().mockResolvedValue({ ok: false } as Response);
+        const { result } = renderHook(() => useAgentChat());
+
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/ai/agent/sessions", { credentials: "same-origin" }));
+        act(() => { result.current.submitStructuredForm("profile-form", { name: "first" }); });
+        expect(sendMessage).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            resolveFirst?.();
+            await firstSubmission;
+            await Promise.resolve();
+        });
+        act(() => { result.current.submitStructuredForm("profile-form", { name: "second" }); });
+        expect(sendMessage).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+            rejectSecond?.(new Error("failed"));
+            await secondSubmission.catch(() => undefined);
+            await Promise.resolve();
+        });
+        act(() => { result.current.submitStructuredForm("profile-form", { name: "third" }); });
+        expect(sendMessage).toHaveBeenCalledTimes(3);
+    });
+
     it("stops the active stream and ignores an older overlapping session selection", async () => {
         const setMessages = jest.fn();
         const stop = jest.fn();

@@ -99,4 +99,26 @@ describe("FormRequestPart", () => {
         fireEvent.submit(form!);
         expect(onSubmit).toHaveBeenCalledTimes(1);
     });
+
+    it("disables and guards submission while the agent turn is busy", () => {
+        const onSubmit = jest.fn();
+        render(
+            <FormRequestPart
+                data-component={dataComponent}
+                formId="profile"
+                title="프로필"
+                fields={[{ name: "name", label: "이름", type: "text" }]}
+                isBusy
+                onSubmit={onSubmit}
+            />,
+        );
+
+        const form = screen.getByRole("heading", { name: "프로필" }).closest("form");
+        expect(form).toHaveAttribute("aria-busy", "true");
+        expect(screen.getByRole("button", { name: "입력 제출" })).toBeDisabled();
+
+        fireEvent.submit(form!);
+
+        expect(onSubmit).not.toHaveBeenCalled();
+    });
 });

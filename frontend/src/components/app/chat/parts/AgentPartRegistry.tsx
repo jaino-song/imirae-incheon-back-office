@@ -30,9 +30,10 @@ type AgentPartRegistryProps = {
     onSubmitForm?: (formId: string, values: Record<string, unknown>) => void;
     onRetry?: () => void;
     terminalActionIds?: ReadonlySet<string>;
+    isBusy?: boolean;
 };
 
-export function AgentPartRegistry({ "data-component": dataComponent, message, onEntitySelect, onFeedback, onApproveAction, onRejectAction, onSubmitForm, onRetry, terminalActionIds }: AgentPartRegistryProps) {
+export function AgentPartRegistry({ "data-component": dataComponent, message, onEntitySelect, onFeedback, onApproveAction, onRejectAction, onSubmitForm, onRetry, terminalActionIds, isBusy = false }: AgentPartRegistryProps) {
     const component = (suffix: string) => `${dataComponent}_${suffix}`;
 
     return (
@@ -74,7 +75,7 @@ export function AgentPartRegistry({ "data-component": dataComponent, message, on
                 }
                 if (part.type === "data-form") {
                     const parsed = AgentFormPartSchema.safeParse(data);
-                    return parsed.success ? <FormRequestPart key={index} data-component={component("form-request")} {...parsed.data} onSubmit={onSubmitForm} /> : <SafePartFallback key={index} data-component={component("fallback")} />;
+                    return parsed.success ? <FormRequestPart key={index} data-component={component("form-request")} {...parsed.data} isBusy={isBusy} onSubmit={onSubmitForm} /> : <SafePartFallback key={index} data-component={component("fallback")} />;
                 }
                 if (part.type === "data-form-submit") {
                     return AgentFormSubmitPartSchema.safeParse(data).success ? <p key={index} data-component={component("form-submit")} data-slot="form-submit" className="text-sm text-muted-foreground">구조화된 입력을 제출했습니다.</p> : <SafePartFallback key={index} data-component={component("fallback")} />;
