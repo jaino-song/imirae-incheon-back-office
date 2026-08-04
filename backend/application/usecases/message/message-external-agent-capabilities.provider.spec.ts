@@ -144,6 +144,36 @@ describe("MessageExternalAgentCapabilitiesProvider", () => {
         expect(schedule.inputSchema.safeParse({ ...base, scheduledDate: "2030-03-01", scheduledTime: "24:00" }).success).toBe(false);
     });
 
+    it.each(["01012345678", "010-1234-5678"])("accepts one valid %s receiver for preview, send, and schedule", (receiver) => {
+        const { capabilities } = setup();
+        const inputs = {
+            "messages.previewSms": { receiver, message: "안내" },
+            "messages.sendSms": { receiver, message: "안내" },
+            "messages.scheduleSms": { receiver, message: "안내", scheduledDate: "2099-08-03", scheduledTime: "12:00" },
+        } as const;
+
+        for (const name of Object.keys(inputs) as Array<keyof typeof inputs>) {
+            const capability = capabilities.find((entry) => entry.meta.name === name)!;
+            expect(capability.inputSchema.safeParse(inputs[name]).success).toBe(true);
+        }
+    });
+
+    it.each(["messages.previewSms", "messages.sendSms", "messages.scheduleSms"])("rejects comma-separated receivers for %s before any SMS write", async (name) => {
+        const { capabilities, repository, prisma, delivery, aligoService } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === name)!;
+        const input = name === "messages.scheduleSms"
+            ? { receiver: "01012345678,01087654321", message: "안내", scheduledDate: "2099-08-03", scheduledTime: "12:00" }
+            : { receiver: "01012345678,01087654321", message: "안내" };
+
+        expect(capability.inputSchema.safeParse(input).success).toBe(false);
+        await expect(capability.execute(context, input)).rejects.toThrow();
+
+        expect(prisma.message_trigger_rule.upsert).not.toHaveBeenCalled();
+        expect(repository.upsertPending).not.toHaveBeenCalled();
+        expect(delivery.dispatchPendingJobNow).not.toHaveBeenCalled();
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+    });
+
     it("discloses and records the LMS type used by the INFO delivery template", async () => {
         const { capabilities } = setup();
         const preview = capabilities.find((entry) => entry.meta.name === "messages.previewSms")!;

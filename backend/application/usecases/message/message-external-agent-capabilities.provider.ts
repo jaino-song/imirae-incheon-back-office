@@ -18,14 +18,21 @@ import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.ent
 import { MessageTriggerEventType, MessageTriggerOffsetType, MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import type { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import { MESSAGE_TRIGGER_JOB_REPOSITORY, type IMessageTriggerJobRepository } from "domain/repositories/message-trigger-job.repository.interface";
+import { PhoneNumber } from "domain/value-objects/phone-number.vo";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { createHash } from "node:crypto";
 import { readAgentActionEffect, recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
 
 const IMMEDIATE_SMS_TITLE = "AI 문자 발송";
 const SCHEDULED_SMS_TITLE = "AI 예약 문자";
+const SmsReceiverSchema = z.string()
+    .trim()
+    .min(1)
+    .max(200)
+    .refine((receiver) => !receiver.includes(","), "Agent SMS accepts exactly one recipient")
+    .refine((receiver) => PhoneNumber.create(receiver) !== null, "Receiver must be a valid phone number");
 const SmsBaseSchema = z.object({
-    receiver: z.string().trim().min(1).max(200),
+    receiver: SmsReceiverSchema,
     message: z.string().trim().min(1).max(2000),
     title: z.string().max(200).optional(),
 }).strict();
