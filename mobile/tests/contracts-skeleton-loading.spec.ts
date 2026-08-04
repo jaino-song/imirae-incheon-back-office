@@ -5,7 +5,7 @@ import {
   type ContractMockDocument,
 } from './helpers/contracts-api-mock';
 
-const FILTER_SKELETON_COUNT = 6;
+const FILTER_SKELETON_COUNT = 7;
 const LOADING_ROW_COUNT = 9;
 
 const MOCK_DOCUMENTS: { documents: ContractMockDocument[] } = {

@@ -2,19 +2,6 @@
 # reason, and (where applicable) the conditions under which it must be revisited.
 
 [[IgnoredVulns]]
-id = "GHSA-mh99-v99m-4gvg"
-# brace-expansion expand() unbounded-expansion OOM DoS. Only 5.0.8 is patched;
-# no fixed release exists for the 1.x/2.x majors that minimatch@3/@9 (eslint,
-# jest, glob tooling) require, and forcing 5.x breaks minimatch@3 at runtime
-# (v5 exports { expand } named, v1 consumers require() the bare function —
-# verified empirically). Our 5.x copy is pinned to 5.0.8 via pnpm overrides.
-# Exposure review: expand() inputs in this repo are developer-authored glob
-# patterns in build/lint/test tooling — no untrusted user input reaches brace
-# expansion in production runtime code. Revisit when minimatch ships releases
-# on brace-expansion >=5.0.8 (then drop this entry and the override).
-reason = "No patched 1.x/2.x release exists; 5.x pinned to 5.0.8; vulnerable path only reachable via developer-authored glob patterns in build tooling, not untrusted input."
-
-[[IgnoredVulns]]
 id = "GHSA-w5hq-g745-h8pq"
 # uuid 10.0.0 → fixed only in 11.1.1 (major jump). Deferred to a dedicated
 # dependency-upgrade PR with its own regression run; not bumped inside a

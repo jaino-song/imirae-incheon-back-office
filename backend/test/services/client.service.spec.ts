@@ -139,11 +139,13 @@ describe("ClientService", () => {
 
     const createMockClientRepository = (): jest.Mocked<IClientRepository> => ({
         findById: jest.fn(),
+        findByIdForUpdate: jest.fn(),
         findAll: jest.fn(),
         findAllPaginated: jest.fn(),
         create: jest.fn(),
         createWithInitialSchedule: jest.fn(),
         update: jest.fn(),
+        updateIfTargetVersion: jest.fn(),
         delete: jest.fn(),
         findByStartDate: jest.fn(),
         findByEndDate: jest.fn(),
@@ -1289,6 +1291,29 @@ describe("ClientService", () => {
                 // Assert
                 const { data } = prismaService.client.updateMany.mock.calls[0][0];
                 expect(data.birthDate).toBeUndefined();
+            });
+
+            it("preserves explicit null service dates and allows equal dates", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await service.update(branchId, 1, { startDate: null, endDate: null });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ startDate: null, endDate: null }),
+                }));
+            });
+
+            it("merges a partial service period with the existing client before rejecting reversed dates", async () => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+
+                await expect(service.update(branchId, 1, { endDate: "2023-12-31" }))
+                    .rejects.toThrow("서비스 시작일은 종료일보다 늦을 수 없습니다.");
+
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
+                expect(prismaService.client.updateMany).not.toHaveBeenCalled();
             });
 
             it("links matching contracts by the effective phone after client information is updated", async () => {

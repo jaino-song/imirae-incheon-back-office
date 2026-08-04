@@ -23,10 +23,6 @@
     "frontend/src/app/(protected)/all/page.tsx": {
       "ui-architecture/no-visual-tailwind-in-pages": 36
     },
-    "frontend/src/app/(protected)/chat/page.tsx": {
-      "ui-architecture/no-page-local-components": 3,
-      "ui-architecture/no-visual-tailwind-in-pages": 22
-    },
     "frontend/src/app/(protected)/clients/filtered/page.tsx": {
       "ui-architecture/no-page-local-components": 1,
       "ui-architecture/no-visual-tailwind-in-pages": 11
@@ -169,10 +165,6 @@
     },
     "mobile/src/app/(shell)/admin/feedback/page.tsx": {
       "ui-architecture/no-visual-tailwind-in-pages": 24
-    },
-    "mobile/src/app/(shell)/chat/page.tsx": {
-      "ui-architecture/no-page-local-components": 5,
-      "ui-architecture/no-raw-ui-in-pages": 6
     },
     "mobile/src/app/(shell)/clients/new/page.tsx": {
       "ui-architecture/no-page-local-components": 1,

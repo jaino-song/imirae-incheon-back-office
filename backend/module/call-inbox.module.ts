@@ -36,5 +36,6 @@ import { ClientModule } from "./client.module";
             useFactory: createCallExtractionAdapter,
         },
     ],
+    exports: [CallInboxService],
 })
 export class CallInboxModule {}

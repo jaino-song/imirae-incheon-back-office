@@ -1,5 +1,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { UpdateEmployeeUsecase } from "application/usecases/employee/update-employee.usecase";
+import { EmployeeTargetVersionMismatchError } from "application/usecases/employee/update-employee.usecase";
+import { employeeAgentTargetVersion } from "domain/entities/employee-agent-target";
 import { MockEmployeeRepository, EmployeeFactory } from "../../utils";
 
 describe("UpdateEmployeeUsecase", () => {
@@ -266,6 +268,35 @@ describe("UpdateEmployeeUsecase", () => {
                 // Assert
                 expect(result.registeredDate).toEqual(registeredDate);
             });
+        });
+    });
+
+    describe("executeApprovedTarget", () => {
+        it("uses the repository compare-and-set boundary", async () => {
+            const employee = EmployeeFactory.create({ id: 1, name: "원래" });
+            mockRepository.setData([employee]);
+
+            const result = await usecase.executeApprovedTarget(
+                branchId,
+                1,
+                { name: "승인된 변경" },
+                employeeAgentTargetVersion(employee),
+            );
+
+            expect(result.name).toBe("승인된 변경");
+        });
+
+        it("returns a conflict without an unlocked update when the target changed", async () => {
+            const employee = EmployeeFactory.create({ id: 1, name: "다른 변경" });
+            mockRepository.setData([employee]);
+
+            await expect(usecase.executeApprovedTarget(
+                branchId,
+                1,
+                { name: "에이전트 변경" },
+                "stale-target-version",
+            )).rejects.toBeInstanceOf(EmployeeTargetVersionMismatchError);
+            expect((await mockRepository.findById(branchId, 1))?.name).toBe("다른 변경");
         });
     });
 });

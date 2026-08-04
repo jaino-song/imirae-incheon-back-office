@@ -19,5 +19,6 @@ import { NotificationModule } from "module/notification.module";
         ConsultationInquiryService,
         RateLimitGuard,
     ],
+    exports: [ConsultationInquiryService],
 })
 export class ConsultationInquiryModule {}

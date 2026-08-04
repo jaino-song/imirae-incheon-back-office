@@ -1,0 +1,11 @@
+{
+  "version": 4,
+  "legacyRemovalAuthorized": false,
+  "requiredObservationWindowDays": 30,
+  "legacySentinels": [
+    "application/services/ai-chat.service.ts",
+    "interface/controllers/ai-chat.controller.ts",
+    "../frontend/src/app/api/ai/chat/stream/route.ts",
+    "../mobile/src/app/api/ai/chat/stream/route.ts"
+  ]
+}

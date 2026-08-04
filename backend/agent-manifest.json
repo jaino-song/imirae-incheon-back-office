@@ -1,0 +1,865 @@
+{
+  "version": 2,
+  "generatedAt": "static",
+  "capabilities": [
+    {
+      "name": "admin.createBranch",
+      "domain": "admin",
+      "version": "1.0.0",
+      "description": "Create a branch after owner-only strong approval",
+      "risk": "privileged-administration",
+      "requiredRoles": [
+        "owner"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.admin.createBranch",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "analytics.summary",
+      "domain": "analytics",
+      "renderer": "text",
+      "description": "Read operational analytics for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.analytics.summary",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "automation.create",
+      "domain": "automation",
+      "version": "1.0.0",
+      "description": "Create a message automation rule after strong approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.automation.create",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "automation.delete",
+      "domain": "automation",
+      "version": "1.0.0",
+      "description": "Delete a message automation rule and cancel pending jobs after strong approval",
+      "risk": "irreversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.automation.delete",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "automation.list",
+      "domain": "automation",
+      "renderer": "text",
+      "description": "List message automation rules for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.automation.list",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "automation.setActive",
+      "domain": "automation",
+      "version": "1.0.0",
+      "description": "Enable or disable a message automation rule after strong approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.automation.setActive",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "automation.update",
+      "domain": "automation",
+      "version": "1.0.0",
+      "description": "Update a message automation rule after strong approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.automation.update",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "bank.accounts",
+      "domain": "bank",
+      "renderer": "text",
+      "description": "Read branch bank account references without exposing full account numbers",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin"
+      ],
+      "flagKey": "agent.capability.bank.accounts",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/bank-account-info/bank-account-agent-capabilities.provider.ts",
+      "sourceDigest": "9a09377ed5d4f67f1e65fd62e0f50f092b0f2e240c2b82bba0790d2db6032cc3"
+    },
+    {
+      "name": "calls.list",
+      "domain": "calls",
+      "renderer": "text",
+      "description": "List calls for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.calls.list",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "calls.transcriptSummary",
+      "domain": "calls",
+      "renderer": "text",
+      "description": "List call transcript summaries without exposing raw transcripts",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.calls.transcriptSummary",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "clients.create",
+      "domain": "clients",
+      "version": "1.0.0",
+      "description": "Create a client after explicit approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.clients.create",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/client/client-write-agent-capabilities.provider.ts",
+      "sourceDigest": "847ed9335e62a13a2fbc23b23b770f4743570ab9a0380f890c923105e1e55ae6"
+    },
+    {
+      "name": "clients.get",
+      "domain": "clients",
+      "renderer": "text",
+      "description": "Get a client from the current branch by canonical client id",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.clients.get",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/client/client-agent-capabilities.provider.ts",
+      "sourceDigest": "b01131ef7679c642012cf4b96753e17b5d74a2f133307402d99d268332e23ef4"
+    },
+    {
+      "name": "clients.search",
+      "domain": "clients",
+      "renderer": "entity-choice",
+      "description": "Search clients in the current branch by name or identifier",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.clients.search",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/client/client-agent-capabilities.provider.ts",
+      "sourceDigest": "b01131ef7679c642012cf4b96753e17b5d74a2f133307402d99d268332e23ef4"
+    },
+    {
+      "name": "clients.update",
+      "domain": "clients",
+      "version": "1.0.0",
+      "description": "Update an existing client after explicit approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.clients.update",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/client/client-write-agent-capabilities.provider.ts",
+      "sourceDigest": "847ed9335e62a13a2fbc23b23b770f4743570ab9a0380f890c923105e1e55ae6"
+    },
+    {
+      "name": "consultations.list",
+      "domain": "consultations",
+      "renderer": "text",
+      "description": "List consultation inquiries for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.consultations.list",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "consultations.markRead",
+      "domain": "consultations",
+      "version": "1.0.0",
+      "description": "Mark a consultation inquiry read after approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.consultations.markRead",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "consultations.search",
+      "domain": "consultations",
+      "renderer": "text",
+      "description": "Search consultation inquiries for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.consultations.search",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "consultations.unread",
+      "domain": "consultations",
+      "renderer": "text",
+      "description": "List unread consultation inquiries",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.consultations.unread",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "contracts.dispatch",
+      "domain": "contracts",
+      "version": "1.0.0",
+      "description": "Create and send a contract after strong approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.contracts.dispatch",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "provider-key",
+      "sourceFile": "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider.ts",
+      "sourceDigest": "f3f3652881dda9648b8d03ced4ac0046eae259866d5838d62839a1ab80909f67"
+    },
+    {
+      "name": "contracts.status",
+      "domain": "contracts",
+      "renderer": "activity",
+      "description": "Read active contract status for a client",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.contracts.status",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/eformsign-doc/eformsign-agent-capabilities.provider.ts",
+      "sourceDigest": "3f7be5dc880a91eb2e930fdf805ef1f8520d2c240223f7907b6a6ac3fcd48cf8"
+    },
+    {
+      "name": "dashboard.summary",
+      "domain": "dashboard",
+      "renderer": "activity",
+      "description": "Summarize branch client counts without exposing personal contact data",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.dashboard.summary",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/client/dashboard-agent-capabilities.provider.ts",
+      "sourceDigest": "1fab0d9add6e4ef7799e0fad9792b35856c7bb78cc82a1dd40e67881b4bc115c"
+    },
+    {
+      "name": "drafts.confirm",
+      "domain": "drafts",
+      "version": "1.0.0",
+      "description": "Confirm a pending client draft through the canonical draft workflow",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.drafts.confirm",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "drafts.list",
+      "domain": "drafts",
+      "renderer": "text",
+      "description": "List client drafts for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.drafts.list",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "drafts.update",
+      "domain": "drafts",
+      "version": "1.0.0",
+      "description": "Update a pending client draft through the canonical draft use case",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.drafts.update",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "employees.changeAvailability",
+      "domain": "employees",
+      "version": "1.0.0",
+      "description": "Change employee availability after explicit approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.employees.changeAvailability",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
+      "sourceDigest": "494f54dc7574359cc5f79f18945089989401aa632ed2312b63991295c115d6df"
+    },
+    {
+      "name": "employees.create",
+      "domain": "employees",
+      "version": "1.0.0",
+      "description": "Create an employee after explicit approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.employees.create",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
+      "sourceDigest": "494f54dc7574359cc5f79f18945089989401aa632ed2312b63991295c115d6df"
+    },
+    {
+      "name": "employees.get",
+      "domain": "employees",
+      "renderer": "text",
+      "description": "Get an employee in the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.employees.get",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/employee/employee-agent-capabilities.provider.ts",
+      "sourceDigest": "9f5fc95a7f7eeacd6ae294570c0637c00a4d98719b447344cc402f0fa77cdae9"
+    },
+    {
+      "name": "employees.search",
+      "domain": "employees",
+      "renderer": "entity-choice",
+      "description": "Search employees in the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.employees.search",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/employee/employee-agent-capabilities.provider.ts",
+      "sourceDigest": "9f5fc95a7f7eeacd6ae294570c0637c00a4d98719b447344cc402f0fa77cdae9"
+    },
+    {
+      "name": "employees.update",
+      "domain": "employees",
+      "version": "1.0.0",
+      "description": "Update an employee after explicit approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.employees.update",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/employee/employee-write-agent-capabilities.provider.ts",
+      "sourceDigest": "494f54dc7574359cc5f79f18945089989401aa632ed2312b63991295c115d6df"
+    },
+    {
+      "name": "files.delete",
+      "domain": "files",
+      "version": "1.0.0",
+      "description": "Delete an authorized file after strong approval",
+      "risk": "irreversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.files.delete",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "files.metadata",
+      "domain": "files",
+      "renderer": "attachment",
+      "description": "Read authorized file metadata without signed URLs",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.files.metadata",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "files.search",
+      "domain": "files",
+      "renderer": "attachment",
+      "description": "Search authorized files for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.files.search",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "messages.createTemplate",
+      "domain": "messages",
+      "version": "1.0.0",
+      "description": "Create a message template after explicit approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.messages.createTemplate",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message-template/message-template-write-agent-capabilities.provider.ts",
+      "sourceDigest": "ca151a13b474a032e10f41720299d9c953888ef7bc60e4543bb2c3542896da01"
+    },
+    {
+      "name": "messages.deliveryHistory",
+      "domain": "messages",
+      "renderer": "activity",
+      "description": "List SMS delivery lifecycle history for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "flagKey": "agent.capability.messages.deliveryHistory",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "messages.previewSms",
+      "domain": "messages",
+      "renderer": "activity",
+      "description": "Preview SMS content and cost category",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.messages.previewSms",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "messages.retrySms",
+      "domain": "messages",
+      "version": "1.0.0",
+      "description": "Retry a provider-rejected SMS after strong approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.messages.retrySms",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "messages.scheduleSms",
+      "domain": "messages",
+      "version": "1.0.0",
+      "description": "Schedule an SMS after strong approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.messages.scheduleSms",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "messages.sendSms",
+      "domain": "messages",
+      "version": "1.0.0",
+      "description": "Send an SMS after strong approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.messages.sendSms",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message/message-external-agent-capabilities.provider.ts",
+      "sourceDigest": "1573e6edec49a754205c7c971cfc82ac122d07844c41a6040cb1dd22d75db2d8"
+    },
+    {
+      "name": "messages.updateTemplate",
+      "domain": "messages",
+      "version": "1.0.0",
+      "description": "Update a message template after explicit approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.messages.updateTemplate",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/message-template/message-template-write-agent-capabilities.provider.ts",
+      "sourceDigest": "ca151a13b474a032e10f41720299d9c953888ef7bc60e4543bb2c3542896da01"
+    },
+    {
+      "name": "notifications.test",
+      "domain": "notifications",
+      "version": "1.0.0",
+      "description": "Persist a test notification and attempt web push after explicit approval",
+      "risk": "external-side-effect",
+      "requiredRoles": [
+        "owner",
+        "admin"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.notifications.test",
+      "sideEffect": true,
+      "approvalPolicy": "strong",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/usecases/notification/notification-agent-capabilities.provider.ts",
+      "sourceDigest": "897eb9cbf5afe3b0f51e019239fc4c64b900fbc145ec841a77d22aae6b375e4e"
+    },
+    {
+      "name": "policy.retrieve",
+      "domain": "policy",
+      "renderer": "text",
+      "description": "Retrieve versioned operational policy for explanatory answers",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.policy.retrieve",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "schedules.list",
+      "domain": "schedules",
+      "renderer": "activity",
+      "description": "List schedules in the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.schedules.list",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/employee-schedule/employee-schedule-agent-capabilities.provider.ts",
+      "sourceDigest": "f0d695770e6c8784b2cf7931b389f77a136293258d7f03a80ffbfe4115a60828"
+    },
+    {
+      "name": "service-records.oversight",
+      "domain": "service-records",
+      "renderer": "text",
+      "description": "Read service-record oversight rows for the current branch",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.service-records.oversight",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "settings.read",
+      "domain": "settings",
+      "renderer": "text",
+      "description": "Read explicitly approved operational policies for the current branch",
+      "version": "1.1.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.settings.read",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "vouchers.prices",
+      "domain": "vouchers",
+      "renderer": "text",
+      "description": "Read voucher price information",
+      "version": "1.0.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager"
+      ],
+      "flagKey": "agent.capability.vouchers.prices",
+      "sideEffect": false,
+      "sourceFile": "application/usecases/voucher-price-info/voucher-agent-capabilities.provider.ts",
+      "sourceDigest": "008071f68d43308eedf2385ee6dae6e6dd8d37001555d26c08372f3decc19a83"
+    },
+    {
+      "name": "website.settings",
+      "domain": "website",
+      "renderer": "text",
+      "description": "Read the public ribbon configuration without exposing raw system settings",
+      "version": "1.1.0",
+      "risk": "read",
+      "requiredRoles": [
+        "owner",
+        "admin",
+        "manager",
+        "user"
+      ],
+      "flagKey": "agent.capability.website.settings",
+      "sideEffect": false,
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    },
+    {
+      "name": "website.updateSettings",
+      "domain": "website",
+      "version": "1.0.0",
+      "description": "Update website settings after approval",
+      "risk": "reversible-write",
+      "requiredRoles": [
+        "owner"
+      ],
+      "renderer": "action-proposal",
+      "flagKey": "agent.capability.website.updateSettings",
+      "sideEffect": true,
+      "approvalPolicy": "structured",
+      "idempotencyPolicy": "action-id",
+      "sourceFile": "application/agent/extended-read-agent-capabilities.provider.ts",
+      "sourceDigest": "d90705416058924af884d16ed97b33b411f82f36e05a948adb97bfed12043b17"
+    }
+  ]
+}

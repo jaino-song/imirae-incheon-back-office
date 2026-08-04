@@ -23,6 +23,7 @@ describe("DeleteMessageTemplateUsecase", () => {
             findAll: jest.fn(),
             create: jest.fn(),
             update: jest.fn(),
+            updateIfVersionMatches: jest.fn(),
             delete: jest.fn(),
         };
         usecase = new DeleteMessageTemplateUsecase(repository);

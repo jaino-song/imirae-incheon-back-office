@@ -13,6 +13,7 @@ import { BankAccountInfoService } from "application/services/bank-account-info.s
 import { BankAccountInfoController } from "interface/controllers/bank-account-info.controller";
 import { BANK_ACCOUNT_INFO_REPOSITORY } from "domain/repositories/bank-account-info.repository.interface";
 import { DatabaseModule } from "infrastructure/database/database.module";
+import { BankAccountAgentCapabilitiesProvider } from "application/usecases/bank-account-info/bank-account-agent-capabilities.provider";
 
 @Module({
     imports: [DatabaseModule],
@@ -24,6 +25,7 @@ import { DatabaseModule } from "infrastructure/database/database.module";
         UpdateBankAccountInfoUsecase,
         DeleteBankAccountInfoUsecase,
         BankAccountInfoService,
+        BankAccountAgentCapabilitiesProvider,
         {
             provide: BANK_ACCOUNT_INFO_REPOSITORY,
             useClass: SbBankAccountInfoRepository,

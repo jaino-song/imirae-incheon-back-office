@@ -1,4 +1,5 @@
 import { CreateEmployeeUsecase } from "application/usecases/employee/create-employee.usecase";
+import { EmployeeEntity } from "domain/entities/employee.entity";
 import { MockEmployeeRepository } from "../../utils/mocks";
 
 describe("CreateEmployeeUsecase", () => {
@@ -100,6 +101,25 @@ describe("CreateEmployeeUsecase", () => {
             expect(result.workArea).toHaveLength(4);
             expect(result.workArea).toContain("인천 연수구");
             expect(result.workArea).toContain("인천 서구");
+        });
+
+        it("forwards the transaction used by an action receipt to the repository", async () => {
+            const transaction = {} as never;
+            const createSpy = jest.spyOn(mockRepository, "create");
+
+            await usecase.execute(
+                branchId,
+                "트랜잭션 직원",
+                ["서울"],
+                "010-1111-3333",
+                "프리미엄",
+                false,
+                undefined,
+                undefined,
+                transaction,
+            );
+
+            expect(createSpy).toHaveBeenCalledWith(branchId, expect.any(EmployeeEntity), transaction);
         });
     });
 });

@@ -3,6 +3,7 @@ import { IMessageTemplateRepository } from "domain/repositories/message-template
 import { MessageTemplateEntity } from "domain/entities/message-template.entity";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { MessageTemplateMapper } from "infrastructure/database/mapper/message-template.mapper";
+import type { Prisma } from "@prisma/client";
 
 @Injectable()
 export class MessageTemplateRepository implements IMessageTemplateRepository {
@@ -23,10 +24,10 @@ export class MessageTemplateRepository implements IMessageTemplateRepository {
         return rows.map(MessageTemplateMapper.toDomain);
     }
 
-    async create(branchid: string, template: MessageTemplateEntity): Promise<MessageTemplateEntity> {
+    async create(branchid: string, template: MessageTemplateEntity, transaction?: Prisma.TransactionClient): Promise<MessageTemplateEntity> {
         const { branch, ...data } = MessageTemplateMapper.toPrismaCreate(template);
         void branch;
-        const created = await this.prismaService.message_template.create({
+        const created = await (transaction ?? this.prismaService).message_template.create({
             data: {
                 ...data,
                 branchId: branchid,
@@ -50,6 +51,19 @@ export class MessageTemplateRepository implements IMessageTemplateRepository {
             throw new Error("Message template not found after update");
         }
         return MessageTemplateMapper.toDomain(updated);
+    }
+
+    async updateIfVersionMatches(
+        branchid: string,
+        id: string,
+        expectedUpdatedAt: Date,
+        template: MessageTemplateEntity,
+    ): Promise<MessageTemplateEntity | null> {
+        const result = await this.prismaService.message_template.updateMany({
+            where: { id, branchId: branchid, updatedAt: expectedUpdatedAt },
+            data: MessageTemplateMapper.toPrismaUpdate(template),
+        });
+        return result.count === 1 ? template : null;
     }
 
     async delete(branchid: string, id: string): Promise<void> {

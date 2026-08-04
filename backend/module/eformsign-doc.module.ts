@@ -56,6 +56,9 @@ import {
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { EformsignMirrorReadinessService } from "application/services/eformsign-mirror-readiness.service";
 import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/usecases/eformsign-doc/reconcile-completed-mirrored-eformsign-doc.usecase";
+import { EformsignAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/eformsign-agent-capabilities.provider";
+import { ContractExternalAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider";
+import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
 
 @Module({
     imports: [
@@ -77,6 +80,7 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         UpdateEformsignDocStatusUsecase,
         LinkDocumentToClientUsecase,
         ListClientNamesByBranchUsecase,
+        FindClientByIdUsecase,
         SyncClientEndDateUsecase,
         // Use cases - External API
         GetEformsignAccessTokenUsecase,
@@ -109,6 +113,8 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         EformsignDocumentMirrorService,
         ServiceRecordLifecycleService,
         EformsignMirrorReadinessService,
+        EformsignAgentCapabilitiesProvider,
+        ContractExternalAgentCapabilitiesProvider,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
