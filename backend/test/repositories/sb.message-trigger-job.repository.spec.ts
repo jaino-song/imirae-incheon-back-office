@@ -722,6 +722,7 @@ describe("SbMessageTriggerJobRepository", () => {
                 clientId: null,
                 employeeScheduleId: null,
                 recipientType: MessageTriggerRecipientType.CLIENT,
+                NOT: { ruleId: { startsWith: "agent-sms:" } },
                 OR: [
                     { status: "pending" },
                     {

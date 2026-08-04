@@ -7,9 +7,11 @@ import type { AgentCapabilityProviderContract, CapabilityDefinition } from "appl
 import type { AgentContext } from "application/agent/agent-context";
 import type { AgentFormField } from "@babyjamjam/shared";
 import { CreateAndSendContractUsecase, ContractClientSnapshot } from "./create-and-send-contract.usecase";
+import { AdoptEformsignDocUsecase } from "./adopt-eformsign-doc.usecase";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
 import { FetchEformsignDocFromApiUsecase } from "./fetch-eformsign-doc-from-api.usecase";
 import { EFORMSIGN_COMPLETED_STATUS_CODES, TERMINAL_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
 import { AreaTemplateService } from "application/services/area-template.service";
 import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
@@ -21,6 +23,15 @@ import { recordAgentActionEffect } from "application/agent/agent-action-effect-r
 const ContractInputSchema = z.object({ clientId: z.number().int().positive(), templateId: z.string().min(1).max(200), templateName: z.string().max(200).optional() });
 const ContractOutputSchema = z.object({ success: z.boolean(), documentId: z.string().optional(), status: z.string(), uncertain: z.boolean().optional() });
 const CONTRACT_TEMPLATE_UNAVAILABLE_ERROR = "Contract template is unavailable";
+const DISPATCH_CONFIRMED_IN_PROGRESS_STATUS_CODES = new Set([
+    "010", // doc_request_approval
+    "020", // doc_request_reception
+    "030", // doc_request_outsider
+    "060", // doc_request_participant
+    "063", // doc_rerequest_participant
+    "064", // doc_open_participant
+    "070", // doc_request_reviewer
+]);
 const ContractApprovalSnapshotSchema = z.object({
     clientId: z.number().int().positive(),
     phoneLast4: z.string().min(1).max(20),
@@ -49,6 +60,7 @@ const CONTRACT_FORM_FIELDS: AgentFormField[] = [
 export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilityProviderContract {
     constructor(
         private readonly createAndSend: CreateAndSendContractUsecase,
+        private readonly adoptEformsignDoc: AdoptEformsignDocUsecase,
         private readonly getAccessToken: GetEformsignAccessTokenUsecase,
         private readonly fetchDocument: FetchEformsignDocFromApiUsecase,
         private readonly findClientById: FindClientByIdUsecase,
@@ -125,27 +137,45 @@ export class ContractExternalAgentCapabilitiesProvider implements AgentCapabilit
                     }
                 },
                 revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateClient(context, rawInput, expectedTargetVersion),
-                reconcile: async (_context, _rawInput, uncertainty) => {
+                reconcile: async (context, rawInput, uncertainty) => {
                     const remoteDocumentId = typeof uncertainty?.["remoteDocumentId"] === "string" ? uncertainty["remoteDocumentId"] : undefined;
                     if (!remoteDocumentId) return { status: "uncertain" as const, reason: "Remote document identity is unavailable" };
+                    const input = ContractInputSchema.parse(rawInput);
+                    let document: Awaited<ReturnType<FetchEformsignDocFromApiUsecase["execute"]>>;
                     try {
                         const token = await this.getAccessToken.execute(Date.now());
-                        const document = await this.fetchDocument.execute(token.oauth_token.access_token, remoteDocumentId);
-                        const statusType = document.current_status.status_type;
-                        const status = document.current_status.status_doc_detail ?? statusType;
-                        if (EFORMSIGN_COMPLETED_STATUS_CODES.has(statusType)) {
-                            return { status: "succeeded" as const, result: { success: true, documentId: remoteDocumentId, status } };
-                        }
-                        if (TERMINAL_STATUS_CODES.has(statusType)) {
-                            return { status: "failed" as const, result: { success: false, documentId: remoteDocumentId, status }, reason: "Provider reported a terminal non-completed status" };
-                        }
-                        return {
-                            status: "succeeded" as const,
-                            result: { success: true, documentId: remoteDocumentId, status },
-                        };
+                        document = await this.fetchDocument.execute(token.oauth_token.access_token, remoteDocumentId);
                     } catch {
                         return { status: "uncertain" as const, reason: "Provider status lookup failed" };
                     }
+
+                    try {
+                        const repaired = await this.adoptEformsignDoc.execute(context.principal.branchId, {
+                            documentId: remoteDocumentId,
+                            clientId: input.clientId,
+                        });
+                        if (repaired.warnings?.length) {
+                            return { status: "uncertain" as const, reason: "Local contract projection repair is incomplete" };
+                        }
+                    } catch {
+                        return { status: "uncertain" as const, reason: "Local contract projection repair failed" };
+                    }
+
+                    const statusType = normalizeEformsignStatusCode(document.current_status.status_type);
+                    const status = document.current_status.status_doc_detail ?? statusType;
+                    if (EFORMSIGN_COMPLETED_STATUS_CODES.has(statusType)) {
+                        return { status: "succeeded" as const, result: { success: true, documentId: remoteDocumentId, status } };
+                    }
+                    if (TERMINAL_STATUS_CODES.has(statusType)) {
+                        return { status: "failed" as const, result: { success: false, documentId: remoteDocumentId, status }, reason: "Provider reported a terminal non-completed status" };
+                    }
+                    if (!DISPATCH_CONFIRMED_IN_PROGRESS_STATUS_CODES.has(statusType)) {
+                        return { status: "uncertain" as const, reason: "Provider status does not prove contract dispatch" };
+                    }
+                    return {
+                        status: "succeeded" as const,
+                        result: { success: true, documentId: remoteDocumentId, status },
+                    };
                 },
             },
         ];

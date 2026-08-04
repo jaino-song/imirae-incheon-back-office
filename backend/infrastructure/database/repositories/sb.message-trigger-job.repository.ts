@@ -381,6 +381,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 clientId: null,
                 employeeScheduleId: null,
                 recipientType: MessageTriggerRecipientType.CLIENT,
+                NOT: { ruleId: { startsWith: AGENT_SMS_RULE_ID_PREFIX } },
                 OR: [
                     { status: "pending" },
                     {
