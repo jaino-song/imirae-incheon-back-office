@@ -103,13 +103,13 @@ jobs:
         env:
           RUN_AGENT_REAL_E2E: '1'
           NEXT_PUBLIC_AGENT_SHELL_ENABLED: 'true'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: frontend-playwright-report
           path: frontend/playwright-report/
           retention-days: 30
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: frontend-backend-log

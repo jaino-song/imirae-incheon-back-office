@@ -254,7 +254,7 @@ jobs:
         run: pnpm --filter ./mobile exec playwright test tests/agent-real-backend.spec.ts
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mobile-playwright-report
@@ -262,7 +262,7 @@ jobs:
           retention-days: 30
 
       - name: Upload backend log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mobile-backend-log
