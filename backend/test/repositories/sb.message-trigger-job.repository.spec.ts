@@ -701,6 +701,7 @@ describe("SbMessageTriggerJobRepository", () => {
                 status: "pending",
                 clientId: null,
                 employeeScheduleId: null,
+                NOT: { ruleId: { startsWith: "agent-sms:" } },
             },
             data: {
                 status: "canceled",
@@ -721,6 +722,7 @@ describe("SbMessageTriggerJobRepository", () => {
                 clientId: null,
                 employeeScheduleId: null,
                 recipientType: MessageTriggerRecipientType.CLIENT,
+                NOT: { ruleId: { startsWith: "agent-sms:" } },
                 OR: [
                     { status: "pending" },
                     {
