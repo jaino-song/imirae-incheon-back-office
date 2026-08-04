@@ -200,7 +200,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/client/client-write-agent-capabilities.provider.ts",
-      "sourceDigest": "886913f3de488c2ecf4216c7419e9f920574d348d69d7c15835f451ac8ed293d"
+      "sourceDigest": "847ed9335e62a13a2fbc23b23b770f4743570ab9a0380f890c923105e1e55ae6"
     },
     {
       "name": "clients.get",
@@ -255,7 +255,7 @@
       "approvalPolicy": "structured",
       "idempotencyPolicy": "action-id",
       "sourceFile": "application/usecases/client/client-write-agent-capabilities.provider.ts",
-      "sourceDigest": "886913f3de488c2ecf4216c7419e9f920574d348d69d7c15835f451ac8ed293d"
+      "sourceDigest": "847ed9335e62a13a2fbc23b23b770f4743570ab9a0380f890c923105e1e55ae6"
     },
     {
       "name": "consultations.list",
