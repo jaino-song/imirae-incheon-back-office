@@ -26,7 +26,6 @@ jest.mock("@/hooks/useAgentChat", () => ({
         sessions: [{ id: "session-a", title: "첫 대화", updatedAt: "2026-08-03" }],
         selectSession: jest.fn(),
         renameSession: mockRenameSession,
-        archiveSession: jest.fn(),
         deleteSession: jest.fn(),
         approveAction: jest.fn(),
         rejectAction: jest.fn(),
@@ -75,6 +74,14 @@ describe("AgentShell input composition", () => {
 
         fireEvent.keyDown(renameInput, { key: "Enter", isComposing: false });
         await waitFor(() => expect(mockRenameSession).toHaveBeenCalledWith("session-a", "새 제목"));
+    });
+
+    it("does not render the desktop archive action while retaining rename and delete actions", () => {
+        render(<AgentShell />);
+
+        expect(screen.queryByRole("button", { name: "첫 대화 보관" })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "첫 대화 이름 변경" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "첫 대화 삭제" })).toBeInTheDocument();
     });
 
     it("keeps stream and action errors in separate completed namespaces", () => {

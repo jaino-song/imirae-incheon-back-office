@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArrowLeft, Menu, Pencil, Plus, Send, Square, Trash2 } from "lucide-react";
+import { ArrowLeft, Menu, Pencil, Plus, Send, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,7 +40,7 @@ export function AgentShell() {
     const sidebarOpen = isMobile ? mobileSidebarOpen : desktopSidebarOpen;
     const menuButtonRef = useRef<HTMLButtonElement>(null);
     const sidebarRef = useRef<HTMLElement>(null);
-    const { messages, sendMessage, status, error, actionError, stop, regenerate, resetBranch, sessions, selectSession, renameSession, archiveSession, deleteSession, approveAction, rejectAction, submitStructuredForm, submitFeedback } = useAgentChat();
+    const { messages, sendMessage, status, error, actionError, stop, regenerate, resetBranch, sessions, selectSession, renameSession, deleteSession, approveAction, rejectAction, submitStructuredForm, submitFeedback } = useAgentChat();
     const isStreaming = status === "streaming" || status === "submitted";
     const terminalActionIds = useMemo(() => new Set(messages.flatMap((message) => message.parts.flatMap((part) => {
         if (part.type !== "data-action-result") return [];
@@ -95,7 +95,6 @@ export function AgentShell() {
                                 ? <Input autoFocus value={renameValue} aria-label="대화 제목" onChange={(event) => setRenameValue(event.target.value)} onBlur={() => setRenamingSessionId(null)} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter") { event.preventDefault(); void renameSession(session.id, renameValue).then((saved) => { if (saved) setRenamingSessionId(null); }); } if (event.key === "Escape") setRenamingSessionId(null); }} />
                                 : <Button type="button" variant="ghost" size="sm" className="min-w-0 flex-1 justify-start truncate" onClick={() => { void selectSession(session.id); closeSidebarOnMobile(); }}>{session.title || "새 대화"}</Button>}
                             <Button type="button" variant="ghost" size="icon" aria-label={`${session.title || "대화"} 이름 변경`} onMouseDown={(event) => event.preventDefault()} onClick={() => { setRenameValue(session.title || "새 대화"); setRenamingSessionId(session.id); }}><Pencil className="h-4 w-4" /></Button>
-                            <Button type="button" variant="ghost" size="icon" aria-label={`${session.title || "대화"} 보관`} onClick={() => void archiveSession(session.id)}><Archive className="h-4 w-4" /></Button>
                             <Button type="button" variant="ghost" size="icon" aria-label={`${session.title || "대화"} 삭제`} onClick={() => void deleteSession(session.id)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                     ))}
