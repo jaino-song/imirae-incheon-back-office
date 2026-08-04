@@ -256,6 +256,92 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
         );
     });
 
+    it("records a confirmation effect receipt and reconciles only with matching proof", async () => {
+        const { models, callInbox, capabilities } = setup();
+        const confirm = capabilities.find((entry) => entry.meta.name === "drafts.confirm")!;
+        callInbox.confirm.mockResolvedValue({ clientId: 42 });
+
+        await expect(confirm.execute(context, { id: "draft-a", fields: { name: "홍길동" } }))
+            .resolves.toEqual({ status: "confirmed", id: 42 });
+        expect(models.agent_action.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            data: expect.objectContaining({
+                effectReceipt: expect.objectContaining({
+                    actionId: "action-a",
+                    capability: "drafts.confirm",
+                    resourceType: "client_draft",
+                    resourceId: "draft-a",
+                    result: expect.objectContaining({
+                        status: "confirmed",
+                        draftId: "draft-a",
+                        clientId: 42,
+                        inputDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+                    }),
+                }),
+            }),
+        }));
+
+        models.client_draft.findFirst.mockResolvedValue({ id: "draft-a", status: "CONFIRMED", clientId: 42 });
+        await expect(confirm.reconcile!(context, { id: "draft-a", fields: { name: "홍길동" } }, null))
+            .resolves.toEqual({ status: "succeeded", result: { status: "confirmed", id: 42 } });
+    });
+
+    it("does not infer confirmation from missing, mismatched, or unrelated receipts", async () => {
+        const { models, callInbox, capabilities } = setup();
+        const confirm = capabilities.find((entry) => entry.meta.name === "drafts.confirm")!;
+        callInbox.confirm.mockResolvedValue({ clientId: 42 });
+        await confirm.execute(context, { id: "draft-a", fields: { name: "홍길동" } });
+
+        const baseReceipt = models.agent_action.updateMany.mock.calls[0]?.[0]?.data?.effectReceipt as {
+            actionId: string;
+            capability: string;
+            resourceType: string;
+            resourceId: string;
+            result: Record<string, unknown>;
+            recordedAt: string;
+        };
+        models.client_draft.findFirst.mockResolvedValue({ id: "draft-a", status: "CONFIRMED", clientId: 42 });
+        const cases: Array<[string, unknown]> = [
+            ["missing receipt", null],
+            ["wrong action", { ...baseReceipt, actionId: "other-action" }],
+            ["wrong draft", {
+                ...baseReceipt,
+                resourceId: "draft-b",
+                result: { ...baseReceipt.result, draftId: "draft-b" },
+            }],
+            ["wrong input", {
+                ...baseReceipt,
+                result: { ...baseReceipt.result, inputDigest: "0".repeat(64) },
+            }],
+            ["unrelated later confirmed draft", {
+                ...baseReceipt,
+                resourceId: "draft-b",
+                result: { ...baseReceipt.result, draftId: "draft-b", clientId: 99 },
+            }],
+        ];
+
+        for (const [, receipt] of cases) {
+            models.agent_action.findFirst.mockResolvedValueOnce({ effectReceipt: receipt });
+            await expect(confirm.reconcile!(context, { id: "draft-a", fields: { name: "홍길동" } }, null))
+                .resolves.toEqual(expect.objectContaining({ status: "uncertain" }));
+        }
+    });
+
+    it("remains uncertain when receipt persistence fails after confirmation mutation", async () => {
+        const { models, callInbox, capabilities } = setup();
+        const confirm = capabilities.find((entry) => entry.meta.name === "drafts.confirm")!;
+        callInbox.confirm.mockResolvedValue({ clientId: 42 });
+        models.agent_action.updateMany.mockResolvedValueOnce({ count: 0 });
+
+        await expect(confirm.execute(context, { id: "draft-a", fields: { name: "홍길동" } }))
+            .rejects.toThrow("Action effect receipt could not be persisted");
+        expect(callInbox.confirm).toHaveBeenCalledTimes(1);
+
+        models.client_draft.findFirst.mockResolvedValue({ id: "draft-a", status: "CONFIRMED", clientId: 42 });
+        models.agent_action.findFirst.mockResolvedValue({ effectReceipt: null });
+        await expect(confirm.reconcile!(context, { id: "draft-a", fields: { name: "홍길동" } }, null))
+            .resolves.toEqual(expect.objectContaining({ status: "uncertain" }));
+    });
+
     it("rejects draft updates without a mutation and never calls the patch service", async () => {
         const { models, callInbox, capabilities } = setup();
         const update = capabilities.find((entry) => entry.meta.name === "drafts.update")!;

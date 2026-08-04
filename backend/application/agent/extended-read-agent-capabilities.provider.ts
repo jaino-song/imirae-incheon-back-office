@@ -63,6 +63,25 @@ const parseJsonInput = (value: unknown): unknown => {
         return value;
     }
 };
+
+function stableJson(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (value && typeof value === "object") {
+        return `{${Object.entries(value as Record<string, unknown>)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+            .join(",")}}`;
+    }
+    return JSON.stringify(value) ?? "null";
+}
+
+function confirmationClientId(result: unknown, fallback: string): string | number {
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+        const clientId = (result as Record<string, unknown>)["clientId"];
+        if (typeof clientId === "string" || typeof clientId === "number") return clientId;
+    }
+    return fallback;
+}
 const DraftUpdateSchema = z.object({
     id: z.string().min(1),
     proposals: z.preprocess(parseJsonInput, z.array(ProposalInputSchema).optional()),
@@ -87,6 +106,11 @@ const DraftConfirmSchema = z.object({
         context.addIssue({ code: "custom", path: ["fields"], message: "Draft confirmation payload is required" });
     }
 });
+
+function draftConfirmInputDigest(input: z.infer<typeof DraftConfirmSchema>): string {
+    return createHash("sha256").update(stableJson(input)).digest("hex");
+}
+
 const DRAFT_UPDATE_FORM_FIELDS: AgentFormField[] = [
     { name: "id", label: "초안 ID", type: "text", required: true },
     { name: "proposals", label: "제안 JSON", type: "textarea" },
@@ -448,8 +472,14 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     // Greeting SMS is an external side effect and remains a separate Release C action.
                     suppressGreetingSms: true,
                 });
-                const id = typeof result === "object" && result !== null && "clientId" in result ? result.clientId : input.id;
-                return { status: "confirmed", id: id as string | number };
+                const id = confirmationClientId(result, input.id);
+                await recordAgentActionEffect(this.prisma, context, "drafts.confirm", "client_draft", input.id, {
+                    status: "confirmed",
+                    draftId: input.id,
+                    inputDigest: draftConfirmInputDigest(input),
+                    clientId: id,
+                });
+                return { status: "confirmed", id };
             },
             executeApprovedTarget: async (context, rawInput, expectedTargetVersion) => {
                 const input = DraftConfirmSchema.parse(rawInput);
@@ -466,8 +496,14 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                     }
                     throw error;
                 }
-                const id = typeof result === "object" && result !== null && "clientId" in result ? result.clientId : input.id;
-                return { status: "confirmed", id: id as string | number };
+                const id = confirmationClientId(result, input.id);
+                await recordAgentActionEffect(this.prisma, context, "drafts.confirm", "client_draft", input.id, {
+                    status: "confirmed",
+                    draftId: input.id,
+                    inputDigest: draftConfirmInputDigest(input),
+                    clientId: id,
+                });
+                return { status: "confirmed", id };
             },
             revalidate: async (context, rawInput, expectedTargetVersion) => this.revalidateBranchRecord(
                 "client_draft", context.principal.branchId, DraftConfirmSchema.parse(rawInput).id, expectedTargetVersion,
@@ -477,7 +513,28 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                 const record = await this.findBranchRecord("client_draft", context.principal.branchId, input.id);
                 if (!record) return { status: "failed", reason: "Draft no longer exists" };
                 if (record["status"] !== "CONFIRMED") return { status: "uncertain", reason: "Draft confirmation is not terminal" };
-                const id = typeof record["clientId"] === "number" ? record["clientId"] : input.id;
+                const receipt = await readAgentActionEffect(this.prisma, context, "drafts.confirm");
+                const receiptResult = receipt?.result;
+                const receiptClientId = receiptResult?.["clientId"];
+                const recordClientId = record["clientId"];
+                const hasClientId = (value: unknown): value is string | number =>
+                    typeof value === "string" || typeof value === "number";
+                const clientIdsMatch = hasClientId(recordClientId)
+                    && hasClientId(receiptClientId)
+                    && String(recordClientId) === String(receiptClientId);
+                const receiptMatches = receipt !== null
+                    && receipt.actionId === context.actionId
+                    && receipt.capability === "drafts.confirm"
+                    && receipt.resourceType === "client_draft"
+                    && receipt.resourceId === input.id
+                    && receiptResult?.["status"] === "confirmed"
+                    && receiptResult?.["draftId"] === input.id
+                    && receiptResult?.["inputDigest"] === draftConfirmInputDigest(input)
+                    && clientIdsMatch;
+                if (!receiptMatches) {
+                    return { status: "uncertain", reason: "Draft confirmation effect receipt is missing or does not match the approved action" };
+                }
+                const id = receiptClientId as string | number;
                 return { status: "succeeded", result: { status: "confirmed", id } };
             },
         };
