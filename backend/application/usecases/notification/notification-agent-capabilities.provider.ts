@@ -10,6 +10,7 @@ import { AgentActionCertainFailureError, AgentActionUncertainError } from "appli
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { createHash } from "node:crypto";
 import { recordAgentActionEffect } from "application/agent/agent-action-effect-receipt";
+import { maskEmail, maskPhone } from "application/utils/mask";
 
 const TestSchema = z.object({ userId: z.string().uuid(), title: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(500) });
 const OutputSchema = z.object({
@@ -24,6 +25,38 @@ const NOTIFICATION_FIELDS: AgentFormField[] = [
     { name: "title", label: "제목", type: "text", required: true },
     { name: "body", label: "내용", type: "textarea", required: true },
 ];
+
+type NotificationIdentity = {
+    name: string | null;
+    phone: string | null;
+    email: string | null;
+};
+
+type NotificationTarget = NotificationIdentity & {
+    membershipId: string | null;
+    role: string | null;
+    joinedAt: Date | null;
+};
+
+type NotificationTargetSnapshot = {
+    userId: string;
+    name: string;
+    maskedContact: string;
+};
+
+function safeMaskedContact(phone: string | null | undefined, email: string | null | undefined): string {
+    const maskedPhone = maskPhone(phone);
+    if (typeof phone === "string" && phone.trim() && typeof maskedPhone === "string" && maskedPhone !== phone) {
+        return maskedPhone;
+    }
+
+    const maskedEmail = maskEmail(email);
+    if (typeof email === "string" && email.trim() && typeof maskedEmail === "string" && maskedEmail !== email) {
+        return maskedEmail;
+    }
+
+    return "연락처 미등록";
+}
 
 @Injectable()
 @AgentCapabilityProvider()
@@ -70,13 +103,15 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
             formFields: NOTIFICATION_FIELDS,
             inspect: async (context, rawInput) => {
                 const input = TestSchema.parse(rawInput);
-                const targetVersion = await this.notificationTargetVersion(context.principal.branchId, input.userId);
-                if (!targetVersion) throw new Error("Notification target is outside the current branch");
+                const target = await this.resolveNotificationTarget(context.principal.branchId, input.userId);
+                if (!target) throw new Error("Notification target is outside the current branch");
+                const targetVersion = this.targetVersionFromTarget(context.principal.branchId, input.userId, target);
+                const targetSnapshot = this.targetSnapshot(input.userId, target);
                 return {
                     targetVersion,
-                    targetSnapshot: { userId: input.userId },
+                    targetSnapshot,
                     title: "테스트 알림 발송",
-                    summary: `${input.userId} 사용자에게 테스트 알림을 발송합니다.`,
+                    summary: `${targetSnapshot.name} (${targetSnapshot.maskedContact}) 사용자에게 테스트 알림을 발송합니다.`,
                     provider: "Web Push",
                 };
             },
@@ -174,14 +209,58 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
     }
 
     private async notificationTargetVersion(branchId: string, userId: string): Promise<string | null> {
+        const target = await this.resolveNotificationTarget(branchId, userId);
+        return target ? this.targetVersionFromTarget(branchId, userId, target) : null;
+    }
+
+    private async resolveNotificationTarget(branchId: string, userId: string): Promise<NotificationTarget | null> {
         const [membership, branch] = await Promise.all([
             this.prisma.user_branch.findFirst({
                 where: { userId, branchId },
-                select: { id: true, role: true, joinedAt: true },
+                select: {
+                    id: true,
+                    role: true,
+                    joinedAt: true,
+                    user: { select: { name: true, phone: true, email: true } },
+                },
             }),
-            this.prisma.branch.findUnique({ where: { id: branchId }, select: { ownerId: true } }),
+            this.prisma.branch.findUnique({
+                where: { id: branchId },
+                select: {
+                    ownerId: true,
+                    owner: { select: { name: true, phone: true, email: true } },
+                },
+            }),
         ]);
-        return this.targetVersionFromMembership(branchId, userId, membership, branch?.ownerId);
+        if (membership?.user) {
+            return {
+                membershipId: membership.id,
+                role: membership.role,
+                joinedAt: membership.joinedAt,
+                name: membership.user.name,
+                phone: membership.user.phone,
+                email: membership.user.email,
+            };
+        }
+        if (branch?.ownerId !== userId || !branch.owner) return null;
+        return {
+            membershipId: null,
+            role: null,
+            joinedAt: null,
+            name: branch.owner.name,
+            phone: branch.owner.phone,
+            email: branch.owner.email,
+        };
+    }
+
+    private targetSnapshot(userId: string, target: NotificationTarget): NotificationTargetSnapshot {
+        const name = target.name?.trim();
+        if (!name) throw new Error("Notification target name is unavailable");
+        return {
+            userId,
+            name,
+            maskedContact: safeMaskedContact(target.phone, target.email),
+        };
     }
 
     private async stageApprovedNotificationTarget(
@@ -208,11 +287,43 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
             const [membership, branch] = await Promise.all([
                 transaction.user_branch.findFirst({
                     where: { userId, branchId: context.principal.branchId },
-                    select: { id: true, role: true, joinedAt: true },
+                    select: {
+                        id: true,
+                        role: true,
+                        joinedAt: true,
+                        user: { select: { name: true, phone: true, email: true } },
+                    },
                 }),
-                transaction.branch.findUnique({ where: { id: context.principal.branchId }, select: { ownerId: true } }),
+                transaction.branch.findUnique({
+                    where: { id: context.principal.branchId },
+                    select: {
+                        ownerId: true,
+                        owner: { select: { name: true, phone: true, email: true } },
+                    },
+                }),
             ]);
-            const currentVersion = this.targetVersionFromMembership(context.principal.branchId, userId, membership, branch?.ownerId);
+            const target = membership?.user
+                ? {
+                    membershipId: membership.id,
+                    role: membership.role,
+                    joinedAt: membership.joinedAt,
+                    name: membership.user.name,
+                    phone: membership.user.phone,
+                    email: membership.user.email,
+                }
+                : branch?.ownerId === userId && branch.owner
+                    ? {
+                        membershipId: null,
+                        role: null,
+                        joinedAt: null,
+                        name: branch.owner.name,
+                        phone: branch.owner.phone,
+                        email: branch.owner.email,
+                    }
+                    : null;
+            const currentVersion = target
+                ? this.targetVersionFromTarget(context.principal.branchId, userId, target)
+                : null;
             if (!currentVersion || currentVersion !== expectedTargetVersion) {
                 throw new AgentActionCertainFailureError("Notification membership changed after approval");
             }
@@ -224,19 +335,20 @@ export class NotificationAgentCapabilitiesProvider implements AgentCapabilityPro
         });
     }
 
-    private targetVersionFromMembership(
+    private targetVersionFromTarget(
         branchId: string,
         userId: string,
-        membership: { id: string; role: string | null; joinedAt: Date | null } | null,
-        ownerId: string | null | undefined,
-    ): string | null {
-        if (!membership && ownerId !== userId) return null;
+        target: NotificationTarget,
+    ): string {
         return createHash("sha256").update(JSON.stringify({
             userId,
             branchId,
-            membershipId: membership?.id ?? null,
-            role: membership?.role ?? "owner",
-            joinedAt: membership?.joinedAt?.toISOString() ?? null,
+            membershipId: target.membershipId,
+            role: target.role ?? "owner",
+            joinedAt: target.joinedAt?.toISOString() ?? null,
+            name: target.name,
+            phone: target.phone,
+            email: target.email,
         })).digest("hex");
     }
 }
