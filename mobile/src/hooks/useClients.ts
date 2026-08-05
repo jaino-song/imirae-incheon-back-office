@@ -3,6 +3,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { dashboardQueryKeys } from "@/hooks/useDashboardAnalytics";
+import { messageTriggerKeys } from "@/features/message-triggers/hooks/keys";
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
 import type { 
     Client, 
     CreateClientDto, 
@@ -145,39 +152,68 @@ export function useUpdateClient() {
     });
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null;
+
+const isPaginatedClientResponse = (value: unknown): value is PaginatedResponse<Client> =>
+    isRecord(value) && Array.isArray(value.data);
+
+// Removes a client from a cached list, adjusting counts only when the client was
+// actually present. Covers the plain all-clients array, the paginated list keys
+// and the `useInfiniteClients` all-pages aggregate (an ordinary paginated
+// response, not TanStack `InfiniteData`). Unknown shapes pass through unchanged.
+const removeClientFromCacheData = (currentData: unknown, id: number): unknown => {
+    if (!currentData) return currentData;
+
+    if (Array.isArray(currentData)) {
+        return removeById(currentData as Client[], id);
+    }
+
+    if (isPaginatedClientResponse(currentData)) {
+        const data = removeById(currentData.data, id);
+        if (data === currentData.data) return currentData;
+
+        const total = Math.max(0, currentData.total - 1);
+        return {
+            ...currentData,
+            data,
+            total,
+            totalPages:
+                currentData.limit > 0 ? Math.ceil(total / currentData.limit) : currentData.totalPages,
+        };
+    }
+
+    return currentData;
+};
+
 export function useDeleteClient() {
     const queryClient = useQueryClient();
 
-    return useMutation({
+    return useMutation<void, Error, number, { previous: QuerySnapshot }>({
         mutationFn: async (id: number) => {
             await api.delete(`/clients/${id}`);
         },
-        onMutate: async (id: number) => {
-            await queryClient.cancelQueries({ queryKey: clientQueryKeys.all });
-
-            const previousQueries = queryClient.getQueriesData<PaginatedResponse<Client>>({
-                queryKey: clientQueryKeys.lists(),
-            });
-
-            queryClient.setQueriesData<PaginatedResponse<Client>>(
-                { queryKey: clientQueryKeys.lists() },
-                (old) => old ? {
-                    ...old,
-                    data: old.data.filter((c) => c.id !== id),
-                    total: old.total - 1,
-                } : old,
+        onMutate: async (id) => {
+            // Covers the exact all-clients array, paginated lists, the all-pages
+            // aggregate and filtered arrays, while excluding detail caches.
+            const previous = await snapshotAndTransformQueries(
+                queryClient,
+                {
+                    queryKey: clientQueryKeys.all,
+                    predicate: (query) => query.queryKey[1] !== "detail",
+                },
+                (current) => removeClientFromCacheData(current, id),
             );
-
-            return { previousQueries };
+            return { previous };
         },
-        onError: (_err, _id, context) => {
-            context?.previousQueries?.forEach(([queryKey, data]) => {
-                queryClient.setQueryData(queryKey, data);
-            });
+        onError: (_error, _id, context) => {
+            if (context?.previous) restoreQueries(queryClient, context.previous);
         },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
             queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.analytics() });
+            // Backend client deletion also cancels that client's pending jobs.
+            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
         },
     });
 }
