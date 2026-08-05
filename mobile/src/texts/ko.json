@@ -398,7 +398,11 @@
       "title": "제공인력 삭제",
       "message": "정말로 이 제공인력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
       "error": "제공인력 삭제에 실패했습니다. 다시 시도해주세요."
-    }
+    },
+    "delete-success": "제공인력 삭제 완료",
+    "delete-success-description": "선택한 제공인력을 삭제했습니다.",
+    "delete-fail": "제공인력 삭제 실패",
+    "delete-fail-description": "제공인력 삭제 중 오류가 발생했습니다."
   },
   "settings": {
     "title": "설정",

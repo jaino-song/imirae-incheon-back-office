@@ -27,6 +27,9 @@ export function Toaster() {
           )}
         >
           <div className="grid gap-1">
+            {toast.title && (
+              <p className="text-sm font-semibold">{toast.title}</p>
+            )}
             {toast.description && (
               <p className="text-sm opacity-90">{toast.description}</p>
             )}
