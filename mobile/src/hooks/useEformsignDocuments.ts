@@ -104,10 +104,6 @@ export function useDeleteEformsignDocument() {
     onMutate: async (documentId: string) => {
       await queryClient.cancelQueries({ queryKey: ["eformsign-documents"] });
 
-      const previousQueries = queryClient.getQueriesData<EformsignDocumentsResponse>({
-        queryKey: ["eformsign-documents"],
-      });
-
       queryClient.setQueriesData<EformsignDocumentsResponse>(
         { queryKey: ["eformsign-documents"] },
         (old) => old ? {
@@ -116,14 +112,12 @@ export function useDeleteEformsignDocument() {
           total_rows: Math.max(0, (old.total_rows || 0) - 1),
         } : old,
       );
-
-      return { previousQueries };
     },
-    onError: (_err, _id, context) => {
-      context?.previousQueries?.forEach(([queryKey, data]) => {
-        queryClient.setQueryData(queryKey, data);
-      });
-    },
+    // Deliberately no onError rollback, unlike every other delete hook. The
+    // backend can retain a permanent purge intent, or finish purging the
+    // document locally, and still report an error on a later step. Restoring a
+    // pre-delete snapshot would resurrect a document that is already gone
+    // server side, so settlement refetch is left as the single source of truth.
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["eformsign-documents"] });
     },

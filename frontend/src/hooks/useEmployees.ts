@@ -2,6 +2,12 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
 
 // Employee status type
 export type EmployeeStatus = 'available' | 'working' | 'unavailable';
@@ -91,15 +97,33 @@ export function useUpdateEmployee() {
     });
 }
 
+// Removes an employee from a cached list. Non-list shapes pass through unchanged.
+function removeEmployeeFromCacheData(current: unknown, id: number): unknown {
+    if (!Array.isArray(current)) return current;
+    return removeById(current as Employee[], id);
+}
+
 // Delete employee
 export function useDeleteEmployee() {
     const queryClient = useQueryClient();
 
-    return useMutation({
+    return useMutation<void, Error, number, { previous: QuerySnapshot }>({
         mutationFn: async (id: number) => {
             await api.delete("/employees", { params: { id } });
         },
-        onSuccess: async () => {
+        onMutate: async (id) => {
+            // Scope to list keys so detail caches are never optimistically edited.
+            const previous = await snapshotAndTransformQueries(
+                queryClient,
+                { queryKey: employeeQueryKeys.lists() },
+                (current) => removeEmployeeFromCacheData(current, id),
+            );
+            return { previous };
+        },
+        onError: (_error, _id, context) => {
+            if (context?.previous) restoreQueries(queryClient, context.previous);
+        },
+        onSettled: async () => {
             await queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
         },
     });
