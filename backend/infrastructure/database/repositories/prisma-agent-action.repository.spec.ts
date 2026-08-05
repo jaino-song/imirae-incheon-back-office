@@ -1,6 +1,13 @@
 import { PrismaAgentActionRepository } from "./prisma-agent-action.repository";
 
 describe("PrismaAgentActionRepository", () => {
+    // Session liveness is decided against the wall clock, so these fixtures are
+    // relative. Hard-coded calendar dates silently rot into the past and turn a
+    // supposedly active session into an expired one.
+    const HOUR_MS = 60 * 60 * 1000;
+    const futureExpiry = () => new Date(Date.now() + HOUR_MS);
+    const pastExpiry = () => new Date(Date.now() - HOUR_MS);
+
     const owner = { userId: "user-a", branchId: "branch-a" };
     const input = {
         ...owner,
@@ -45,11 +52,11 @@ describe("PrismaAgentActionRepository", () => {
     }
 
     it("locks the owner-scoped active session before inserting the action", async () => {
-        const transaction = transactionFor({ archivedAt: null, expiresAt: new Date("2026-08-05T00:00:00.000Z") });
+        const transaction = transactionFor({ archivedAt: null, expiresAt: futureExpiry() });
         const events: string[] = [];
         transaction.$queryRaw.mockImplementation(async () => {
             events.push("session-lock");
-            return [{ id: "session-a", archivedAt: null, expiresAt: new Date("2026-08-05T00:00:00.000Z") }];
+            return [{ id: "session-a", archivedAt: null, expiresAt: futureExpiry() }];
         });
         transaction.agent_action.create.mockImplementation(async () => {
             events.push("action-insert");
@@ -83,8 +90,9 @@ describe("PrismaAgentActionRepository", () => {
 
     it.each([
         ["not_found", []],
-        ["archived", [{ id: "session-a", archivedAt: new Date(), expiresAt: new Date("2026-08-05T00:00:00.000Z") }]],
-        ["expired", [{ id: "session-a", archivedAt: null, expiresAt: new Date("2026-08-03T00:00:00.000Z") }]],
+        // Archived-but-unexpired, so the outcome proves archival is checked first.
+        ["archived", [{ id: "session-a", archivedAt: new Date(), expiresAt: futureExpiry() }]],
+        ["expired", [{ id: "session-a", archivedAt: null, expiresAt: pastExpiry() }]],
     ] as const)("returns a typed %s outcome without creating an action", async (status, locked) => {
         const transaction = {
             $queryRaw: jest.fn().mockResolvedValue(locked),
