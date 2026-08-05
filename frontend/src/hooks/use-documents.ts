@@ -2,6 +2,12 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
 
 export interface Document {
     id: string;
@@ -138,22 +144,39 @@ export function useUpdateDocument() {
     });
 }
 
+// Removes a document from a cached list. Non-list shapes pass through unchanged.
+function removeDocumentFromCacheData(current: unknown, id: string): unknown {
+    if (!Array.isArray(current)) return current;
+    return removeById(current as Document[], id);
+}
+
 /**
  * Hook to delete a document
  */
 export function useDeleteDocument() {
      const queryClient = useQueryClient();
 
-     return useMutation<string, Error, string>({
+     return useMutation<string, Error, string, { previous: QuerySnapshot }>({
          mutationFn: async (id: string) => {
              await api.delete(`/file-storage/files/${id}`);
              return id;
          },
-         onSuccess: async () => {
-             await queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
+         onMutate: async (id) => {
+             // Scope to list keys so detail caches are never optimistically edited.
+             // Every per-categoryId list variant lives under this prefix.
+             const previous = await snapshotAndTransformQueries(
+                 queryClient,
+                 { queryKey: documentQueryKeys.lists() },
+                 (current) => removeDocumentFromCacheData(current, id),
+             );
+             return { previous };
          },
-         onError: (error) => {
+         onError: (error, _id, context) => {
+             if (context?.previous) restoreQueries(queryClient, context.previous);
              console.error("[useDeleteDocument] onError called:", error);
+         },
+         onSettled: async () => {
+             await queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
          },
      });
 }

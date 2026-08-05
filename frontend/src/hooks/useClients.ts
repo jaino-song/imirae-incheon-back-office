@@ -2,11 +2,18 @@
 
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
-import type { 
-    Client, 
-    CreateClientDto, 
-    UpdateClientDto, 
-    PaginatedResponse 
+import { messageTriggerKeys } from "@/features/message-triggers/hooks/keys";
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
+import type {
+    Client,
+    CreateClientDto,
+    UpdateClientDto,
+    PaginatedResponse
 } from "@/lib/client/types";
 
 type InfiniteClientPages = {
@@ -186,17 +193,89 @@ export function useUpdateClient() {
     });
 }
 
+// Removes a client from one paginated page, adjusting the count only when the
+// client was actually present. Returns the original page when nothing changed.
+const removeClientFromPage = (
+    page: PaginatedResponse<Client>,
+    id: number,
+): PaginatedResponse<Client> => {
+    const data = removeById(page.data, id);
+    if (data === page.data) return page;
+
+    const total = Math.max(0, page.total - 1);
+    return {
+        ...page,
+        data,
+        total,
+        totalPages: page.limit > 0 ? Math.ceil(total / page.limit) : page.totalPages,
+    };
+};
+
+const removeClientFromCacheData = (currentData: unknown, id: number): unknown => {
+    if (!currentData) return currentData;
+
+    if (Array.isArray(currentData)) {
+        return removeById(currentData as Client[], id);
+    }
+
+    if (isInfiniteClientPages(currentData)) {
+        // `total` is a global result count repeated on every page, so decrement it
+        // once and write the corrected value to all pages.
+        const removedIndex = currentData.pages.findIndex((page) =>
+            page.data.some((client) => client.id === id),
+        );
+        if (removedIndex === -1) return currentData;
+
+        const source = currentData.pages[removedIndex];
+        const total = Math.max(0, source.total - 1);
+
+        return {
+            ...currentData,
+            pages: currentData.pages.map((page, index) => ({
+                ...page,
+                data: index === removedIndex ? removeById(page.data, id) : page.data,
+                total,
+                totalPages: page.limit > 0 ? Math.ceil(total / page.limit) : page.totalPages,
+            })),
+        };
+    }
+
+    if (isPaginatedClientResponse(currentData)) {
+        return removeClientFromPage(currentData, id);
+    }
+
+    return currentData;
+};
+
 // Delete client mutation
 export function useDeleteClient() {
     const queryClient = useQueryClient();
 
-    return useMutation({
+    return useMutation<void, Error, number, { previous: QuerySnapshot }>({
         mutationFn: async (id: number) => {
             await api.delete(`/clients/${id}`);
         },
-        onSuccess: async () => {
+        onMutate: async (id) => {
+            // Covers the exact all-clients array, paginated lists, the infinite
+            // list and filtered arrays, while excluding detail caches.
+            const previous = await snapshotAndTransformQueries(
+                queryClient,
+                {
+                    queryKey: clientQueryKeys.all,
+                    predicate: (query) => query.queryKey[1] !== "detail",
+                },
+                (current) => removeClientFromCacheData(current, id),
+            );
+            return { previous };
+        },
+        onError: (_error, _id, context) => {
+            if (context?.previous) restoreQueries(queryClient, context.previous);
+        },
+        onSettled: async () => {
             // Invalidate all client queries (lists + details) using prefix match
             await queryClient.invalidateQueries({ queryKey: clientQueryKeys.all });
+            // Backend client deletion also cancels that client's pending jobs.
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
         },
     });
 }
