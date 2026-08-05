@@ -55,6 +55,10 @@ function throwHttpOrInternalError(error: unknown): never {
         throw error;
     }
 
+    if (error instanceof EformsignApiError) {
+        throw new HttpException({ error: error.message }, error.status);
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
     throw new HttpException(
         { error: message },
@@ -379,11 +383,7 @@ export class EformsignController {
             );
             return result;
         } catch (error) {
-            const message = error instanceof Error ? error.message : "Unknown error";
-            throw new HttpException(
-                { error: message },
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
+            throwHttpOrInternalError(error);
         }
     }
 
@@ -396,11 +396,7 @@ export class EformsignController {
             );
             return result;
         } catch (error) {
-            const message = error instanceof Error ? error.message : "Unknown error";
-            throw new HttpException(
-                { error: message },
-                HttpStatus.INTERNAL_SERVER_ERROR
-            );
+            throwHttpOrInternalError(error);
         }
     }
 

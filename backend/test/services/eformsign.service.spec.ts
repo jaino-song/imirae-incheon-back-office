@@ -1,4 +1,5 @@
 import { ConfigService } from "@nestjs/config";
+import * as crypto from "crypto";
 
 import { ContractDataDto } from "application/dto/contract.dto";
 import {
@@ -7,6 +8,11 @@ import {
     EFORMSIGN_MAX_DOWNLOAD_BYTES,
     EformsignService,
 } from "application/services/eformsign.service";
+
+function generateEformsignPrivateKeyHex(): string {
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    return (privateKey.export({ format: "der", type: "pkcs8" }) as Buffer).toString("hex");
+}
 
 function createConfigService(overrides: Record<string, string | undefined> = {}): ConfigService {
     return {
@@ -162,6 +168,32 @@ describe("EformsignService", () => {
 
         await expect(service.cancelDocuments("access-token", ["doc-1"]))
             .rejects.toMatchObject({ status: 400, vendorCode: "4000164" });
+    });
+
+    it("surfaces a vendor rejection of an access-token request as an api error", async () => {
+        const service = new EformsignService(createConfigService({
+            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
+        }));
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ code: "4010001", ErrorMessage: "unauthorized" }),
+            { status: 401, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.getAccessToken(Date.now()))
+            .rejects.toMatchObject({ status: 401, vendorCode: "4010001" });
+    });
+
+    it("surfaces a vendor rejection of a refresh-token request as an api error", async () => {
+        const service = new EformsignService(createConfigService({
+            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
+        }));
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ code: "4010002", ErrorMessage: "expired refresh token" }),
+            { status: 401, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.refreshAccessToken(Date.now(), "stale-refresh-token"))
+            .rejects.toMatchObject({ status: 401, vendorCode: "4010002" });
     });
 
     it("aborts and cancels a mirrored PDF body that stops streaming before the deadline", async () => {
