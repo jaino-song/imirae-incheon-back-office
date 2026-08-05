@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import TemplatesPage from "./page";
 
-const mockDeleteMutate = jest.fn();
+const mockDeleteMutateAsync = jest.fn();
 const mockToast = jest.fn();
 
 jest.mock("@/features/message-templates/hooks/use-message-templates", () => ({
@@ -20,7 +20,7 @@ jest.mock("@/features/message-templates/hooks/use-message-templates", () => ({
     isLoading: false,
   }),
   useDeleteMessageTemplate: () => ({
-    mutate: mockDeleteMutate,
+    mutateAsync: mockDeleteMutateAsync,
     isPending: false,
   }),
 }));
@@ -111,16 +111,12 @@ jest.mock("@/components/ui/skeleton", () => ({
 
 describe("TemplatesPage deletion", () => {
   beforeEach(() => {
-    mockDeleteMutate.mockReset();
+    mockDeleteMutateAsync.mockReset();
     mockToast.mockReset();
-    mockDeleteMutate.mockImplementation(
-      (_id: string, options?: { onSuccess?: () => void }) => options?.onSuccess?.(),
-    );
+    mockDeleteMutateAsync.mockResolvedValue(undefined);
   });
 
-  it("renders delete action, confirms deletion, and clears the selected template", () => {
-    render(<TemplatesPage />);
-
+  function confirmDelete() {
     fireEvent.click(screen.getByRole("button", { name: "검수 템플릿" }));
     fireEvent.click(screen.getByRole("button", { name: "삭제" }));
 
@@ -130,13 +126,37 @@ describe("TemplatesPage deletion", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
+  }
 
-    expect(mockDeleteMutate).toHaveBeenCalledWith(
-      "template-1",
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
+  it("renders delete action, confirms deletion, and clears the selected template", async () => {
+    render(<TemplatesPage />);
+
+    confirmDelete();
+
+    expect(mockDeleteMutateAsync).toHaveBeenCalledWith("template-1");
+    await waitFor(() =>
+      expect(
+        screen.getByText("지점 템플릿을 선택하면 상세 정보가 표시됩니다."),
+      ).toBeInTheDocument(),
     );
-    expect(
-      screen.getByText("지점 템플릿을 선택하면 상세 정보가 표시됩니다."),
-    ).toBeInTheDocument();
+  });
+
+  // The optimistic removal unmounts the detail panel mid-flight. Awaiting the
+  // mutation keeps the failure path alive; mutate's per-call callbacks would be
+  // dropped with the observer and the user would never learn the delete failed.
+  it("still reports failure after the optimistic removal unmounts the detail panel", async () => {
+    mockDeleteMutateAsync.mockRejectedValue(new Error("boom"));
+    render(<TemplatesPage />);
+
+    confirmDelete();
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: "destructive",
+          description: "삭제 중 오류가 발생했습니다.",
+        }),
+      ),
+    );
   });
 });
