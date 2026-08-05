@@ -174,7 +174,11 @@ export class EformsignService {
 
         if (!response.ok) {
             const errorData = await response.text();
-            throw new Error(`Failed to get access token: ${response.status} - ${errorData}`);
+            throw new EformsignApiError(
+                `Failed to get access token: ${response.status} - ${errorData}`,
+                response.status,
+                extractEformsignVendorCode(errorData),
+            );
         }
 
         return await response.json();
@@ -203,7 +207,11 @@ export class EformsignService {
 
         if (!response.ok) {
             const errorData = await response.text();
-            throw new Error(`Failed to refresh token: ${response.status} - ${errorData}`);
+            throw new EformsignApiError(
+                `Failed to refresh token: ${response.status} - ${errorData}`,
+                response.status,
+                extractEformsignVendorCode(errorData),
+            );
         }
 
         return await response.json();

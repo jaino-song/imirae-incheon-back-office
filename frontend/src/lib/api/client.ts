@@ -98,7 +98,7 @@ function isAppAuthRequiredError(error: AxiosError): boolean {
     if (!data || typeof data !== "object") return false;
     const message = (data as { error?: unknown; message?: unknown }).error
         ?? (data as { error?: unknown; message?: unknown }).message;
-    return typeof message === "string" && message.includes("Authentication required");
+    return typeof message === "string" && message.startsWith("Authentication required.");
 }
 
 function redirectToLoginOnce() {

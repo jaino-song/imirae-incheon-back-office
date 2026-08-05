@@ -267,6 +267,30 @@ describe("EformsignController (Integration)", () => {
         expect(eformsignService.refreshAccessToken).not.toHaveBeenCalled();
     });
 
+    it("propagates the vendor's real status when refresh-token fails", async () => {
+        eformsignService.refreshAccessToken.mockRejectedValue(
+            new EformsignApiError("expired refresh token", 401),
+        );
+
+        const response = await request(app.getHttpServer())
+            .post("/api/refresh-token")
+            .send({ executionTime: 1780000000000, refreshToken: "stale-token" });
+
+        expect(response.status).toBe(401);
+    });
+
+    it("propagates the vendor's real status when access-token fails", async () => {
+        eformsignService.getAccessToken.mockRejectedValue(
+            new EformsignApiError("unauthorized", 401),
+        );
+
+        const response = await request(app.getHttpServer())
+            .post("/api/access-token")
+            .send({ executionTime: 1780000000000 });
+
+        expect(response.status).toBe(401);
+    });
+
     it("rejects malformed contract data before generating document options", async () => {
         const response = await request(app.getHttpServer())
             .post("/api/generate-document")
