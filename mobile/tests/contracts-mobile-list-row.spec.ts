@@ -1129,7 +1129,7 @@ test.describe("Mobile contracts list rows", () => {
       stepSeq: "1",
       comment: "재요청입니다.",
     });
-    await expect(page.locator('[data-component="mobile_shell_toaster_toast"]')).toContainText("대기고객님에게 전자문서 작성을 재요청했습니다.");
+    await expect(page.locator('[data-component="mobile_shell_toaster_toast"]')).toContainText("대기고객님에게 전자문서 작성을 재요청했어요");
 
     reRequestPayload = null;
     await page.locator(".sheet-close").click();
