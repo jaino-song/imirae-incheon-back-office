@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   FilterPills,
@@ -81,13 +81,17 @@ export default function CallsPage() {
   // coming before the next page has arrived. Never below what is already
   // loaded, or a shrinking total would strand rows the user can see.
   const serverTotal = isQueue ? draftsQuery.total : recordsQuery.total;
-  const activeTotal = Math.max(loadedCount, serverTotal);
   const isLoadingActive = isQueue ? draftsQuery.isLoading : recordsQuery.isLoading;
   const hasNextPage = isQueue ? draftsQuery.hasNextPage : recordsQuery.hasNextPage;
   const isFetchingNextPage = isQueue
     ? draftsQuery.isFetchingNextPage
     : recordsQuery.isFetchingNextPage;
   const isLoadMoreError = isQueue ? draftsQuery.isLoadMoreError : recordsQuery.isLoadMoreError;
+  // Once the server says there is nothing further, what is loaded IS the total.
+  // Dedup drops rows the offset repeated, so the server count can sit above the
+  // loaded rows for good — the reveal would keep offering "더보기" for rows that
+  // will never arrive.
+  const activeTotal = hasNextPage ? Math.max(loadedCount, serverTotal) : loadedCount;
   // True while the records query is showing the previous filter's rows because
   // the new one has not landed. Those rows belong to a query that is no longer
   // current, so their count says nothing about what to fetch next.
@@ -101,18 +105,40 @@ export default function CallsPage() {
       totalItems: activeTotal,
     });
 
+  /**
+   * Where the reveal stood the last time a page was asked for and did not come.
+   *
+   * A failure leaves hasNextPage true and flips isFetchingNextPage back to
+   * false without changing anything else the effect below reads, so re-running
+   * on the spot would loop forever. isFetchNextPageError does not clear itself
+   * either — it stays set until the next fetch — so keying off it alone would
+   * strand pagination for good. Pinning the position lets the two be told
+   * apart: same place is the loop, further down is the user asking again.
+   */
+  const loadMoreFailedAt = useRef<number | null>(null);
+
   // The other list pages hold their whole list in memory and let the reveal walk
   // it. Call records only ever grow, so they arrive a page at a time: fetch once
   // the reveal is within a step of the end, so every tap has real rows to show.
-  //
-  // Stopping on isLoadMoreError matters more than it looks: a failed fetch
-  // leaves hasNextPage true and flips isFetchingNextPage back to false without
-  // changing anything else, so without this the effect would re-fire forever.
-  // Revealing more rows clears it, which makes the sentinel the retry.
   useEffect(() => {
+    if (isLoadMoreError) {
+      // Already tried from here, so the reveal has not moved since the failure
+      // and nothing has been asked for. Re-firing would loop at the retry
+      // cadence, since a failure restores every other flag to what it was.
+      if (loadMoreFailedAt.current !== null && visibleCount <= loadMoreFailedAt.current) return;
+      const isFirstSighting = loadMoreFailedAt.current === null;
+      // Move the mark to where this attempt is being made, so the next failure
+      // is measured against it rather than against a position already passed.
+      loadMoreFailedAt.current = visibleCount;
+      // The first sighting is the failure itself arriving, not a new request.
+      if (isFirstSighting) return;
+    } else {
+      loadMoreFailedAt.current = null;
+    }
+
     if (isShowingPreviousResults) return;
     if (visibleCount + LIST_INFINITE_PAGE_SIZE < loadedCount) return;
-    if (!hasNextPage || isFetchingNextPage || isLoadMoreError) return;
+    if (!hasNextPage || isFetchingNextPage) return;
     void (isQueue ? fetchDraftsNextPage() : fetchRecordsNextPage());
   }, [
     isQueue,

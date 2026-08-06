@@ -391,11 +391,18 @@ test.describe("Call inbox", () => {
     await revealAll(page);
     await page.waitForTimeout(1500);
 
-    const afterFailure = draftCalls;
-    await page.waitForTimeout(1500);
-    // A failed load-more leaves hasNextPage true and clears isFetchingNextPage,
-    // so an unguarded effect would keep re-firing on its own forever.
-    expect(draftCalls).toBe(afterFailure);
+    // Retrying is allowed — the reveal moving on is the user asking again, and
+    // page 2 is retried once per step, so the count is bounded by how far the
+    // reveal walked. What must never happen is the effect firing on its own.
+    const afterReveal = draftCalls;
+    expect(afterReveal).toBeLessThan(DRAFT_TOTAL);
+
+    // Nothing touches the page from here; an unguarded effect would keep
+    // re-firing because a failure leaves hasNextPage true and clears
+    // isFetchingNextPage without changing anything else it reads.
+    await page.waitForTimeout(2000);
+    expect(draftCalls).toBe(afterReveal);
+
     // Whatever did arrive stays on screen.
     expect(await rows(page).count()).toBeGreaterThan(0);
   });

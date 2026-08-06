@@ -65,6 +65,18 @@ export function yymmddToIso(value: string): string {
   return normalizeIsoDate(`20${trimmed.slice(0, 2)}-${trimmed.slice(2, 4)}-${trimmed.slice(4, 6)}`);
 }
 
+/**
+ * Normalises a date that may arrive in either shape into YYYY-MM-DD.
+ *
+ * Prefill sources — a contract document, an eformsign edit — still speak the
+ * six-digit YYMMDD that predates the ISO wizard store. Anything already ISO
+ * passes through; anything unrecognisable becomes "". Do not use it on
+ * 생년월일, which is stored as YYMMDD on purpose.
+ */
+export function toIsoDate(value: string | null | undefined): string {
+  return normalizeIsoDate(value) || yymmddToIso((value ?? "").trim());
+}
+
 export function isoToYymmdd(value: string | null | undefined): string {
   const isoDate = normalizeIsoDate(value);
 

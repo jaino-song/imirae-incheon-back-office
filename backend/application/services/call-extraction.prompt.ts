@@ -47,6 +47,7 @@ export function buildCallExtractionPrompt(input: {
 - proposals: category별로 다음 필드만 사용 (그 외 필드명 금지):
   ${PROPOSAL_FIELDS.join(", ")}
   - NEW_CONSULTATION: 파악된 모든 고객 정보 (name, phone, address, dueDate,
+    birthDate(이미 출산한 경우에만),
     duration(일수, 숫자), careCenter(조리원 이용, boolean), voucherClient(정부지원, boolean),
     startDate(희망 시작일), type 등)
   - CLIENT_SERVICE: 변경 요청된 필드만. 관리사 교체 요청 → field "serviceStatus",

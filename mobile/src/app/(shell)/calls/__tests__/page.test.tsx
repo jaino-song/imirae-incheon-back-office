@@ -198,6 +198,47 @@ describe("CallsPage", () => {
       expect(fetchNextPage).not.toHaveBeenCalled();
     });
 
+    // The other half of the no-loop guard: refiring on the spot loops, but the
+    // user revealing further rows is a fresh request and has to be able to
+    // recover. isFetchNextPageError never clears itself, so keying off it alone
+    // would strand pagination permanently.
+    it("retries once the reveal moves past where the failure happened", () => {
+      const fetchNextPage = jest.fn();
+      const failed = (overrides: Record<string, unknown> = {}) =>
+        mockUseClientDrafts.mockReturnValue(
+          draftsResult(manyDrafts, {
+            hasNextPage: true,
+            isLoadMoreError: true,
+            fetchNextPage,
+            ...overrides,
+          }),
+        );
+
+      mockVisibleCount = 100;
+      failed();
+      const { rerender } = render(<CallsPage />);
+      rerender(<CallsPage />);
+      expect(fetchNextPage).not.toHaveBeenCalled();
+
+      // The reveal advances — the sentinel or a tap asked for more.
+      mockVisibleCount = 106;
+      rerender(<CallsPage />);
+      expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+      // That retry now runs and fails in turn. Toggling isFetchingNextPage is
+      // what makes the effect re-run — plain rerenders leave the deps untouched
+      // and would never reach the guard at all. The reveal has not moved since
+      // the retry, so this must add nothing: leaving the mark where the FIRST
+      // failure happened instead of moving it to each attempt is what turned
+      // this into a request every retry-backoff, forever.
+      failed({ isFetchingNextPage: true });
+      rerender(<CallsPage />);
+      failed({ isFetchingNextPage: false });
+      rerender(<CallsPage />);
+
+      expect(fetchNextPage).toHaveBeenCalledTimes(1);
+    });
+
     it("drives the records query on the log tab, not the drafts query", async () => {
       const user = userEvent.setup();
       const fetchRecords = jest.fn();

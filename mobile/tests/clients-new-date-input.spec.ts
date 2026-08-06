@@ -94,6 +94,29 @@ test.describe("Client registration date inputs", () => {
     await expect(dueDate(page)).toHaveValue("2026-09-15");
   });
 
+  test("lifts a six-digit date from the contract document into the ISO field", async ({ page }) => {
+    // Editing a client that came from a contract prefills the blanks from the
+    // signed document, which still carries YYMMDD. Taken verbatim that would
+    // sit inside a YYYY-MM-DD input and then be dropped to null on submit,
+    // losing the date without a word.
+    await mockApi(page);
+    await page.route("**/api/clients/7", (route) =>
+      route.fulfill(json({ ...CLIENT, dueDate: null, eDocId: "doc-1" })),
+    );
+    await page.route("**/api/eformsign/documents/doc-1", (route) =>
+      route.fulfill(
+        json({
+          id: "doc-1",
+          fields: [{ id: "출산 예정일", value: "260611" }],
+        }),
+      ),
+    );
+
+    await page.goto("/clients/new?clientId=7");
+
+    await expect(dueDate(page)).toHaveValue("2026-06-11", { timeout: 10_000 });
+  });
+
   test("fills an existing client's dates back in as ISO", async ({ page }) => {
     await mockApi(page);
     await page.goto("/clients/new?clientId=7");

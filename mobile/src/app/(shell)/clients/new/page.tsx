@@ -37,6 +37,7 @@ import {
   formatIsoDateInput,
   isStrictIsoDate,
   normalizeIsoDate,
+  toIsoDate,
 } from "@/lib/contracts/date-input";
 import { parsePositiveIntQueryParam } from "@/lib/query-params";
 import { buildClientEditPrefillFromEformsignDocument } from "@/lib/eformsign/client-prefill";
@@ -136,6 +137,7 @@ const isoOrNull = (value: string | null | undefined): string | null => {
   const normalized = normalizeIsoDate(value);
   return normalized || null;
 };
+
 
 const normalizeOptionToken = (value: string): string => value.replace(/[\s_-]+/g, "").toLowerCase();
 
@@ -310,7 +312,7 @@ export default function NewClientPage() {
 
     if (prefillClient.name !== undefined) setField("name", prefillClient.name);
     if (prefillClient.birthday !== undefined) setField("birthday", prefillClient.birthday);
-    if (prefillClient.dueDate !== undefined) setField("dueDate", prefillClient.dueDate);
+    if (prefillClient.dueDate !== undefined) setField("dueDate", toIsoDate(prefillClient.dueDate));
     if (prefillClient.address !== undefined) setField("address", prefillClient.address);
     if (prefillClient.phone !== undefined) setField("phone", prefillClient.phone);
     if (prefillClient.type !== undefined) setField("type", prefillClient.type);
@@ -318,8 +320,8 @@ export default function NewClientPage() {
     if (prefillClient.fullPrice !== undefined) setField("fullPrice", prefillClient.fullPrice);
     if (prefillClient.grant !== undefined) setField("grant", prefillClient.grant);
     if (prefillClient.actualPrice !== undefined) setField("actualPrice", prefillClient.actualPrice);
-    if (prefillClient.startDate !== undefined) setField("startDate", prefillClient.startDate);
-    if (prefillClient.endDate !== undefined) setField("endDate", prefillClient.endDate);
+    if (prefillClient.startDate !== undefined) setField("startDate", toIsoDate(prefillClient.startDate));
+    if (prefillClient.endDate !== undefined) setField("endDate", toIsoDate(prefillClient.endDate));
     if (prefillClient.careCenter !== undefined) setField("careCenter", prefillClient.careCenter);
     if (prefillClient.voucherClient !== undefined) setField("voucherClient", prefillClient.voucherClient);
     if (prefillClient.breastPump !== undefined) setField("breastPump", prefillClient.breastPump);
@@ -406,7 +408,7 @@ export default function NewClientPage() {
     );
 
     if (!store.birthday && prefill.birthday) setField("birthday", prefill.birthday);
-    if (!store.dueDate && prefill.dueDate) setField("dueDate", prefill.dueDate);
+    if (!store.dueDate && prefill.dueDate) setField("dueDate", toIsoDate(prefill.dueDate));
     if (!store.address && prefill.address) setField("address", prefill.address);
     if (!store.phone && prefill.phone) setField("phone", prefill.phone);
     if (!store.type && voucherType) setField("type", voucherType);
@@ -414,8 +416,8 @@ export default function NewClientPage() {
     if (!store.fullPrice && prefill.fullPrice) setField("fullPrice", prefill.fullPrice);
     if (!store.grant && prefill.grant) setField("grant", prefill.grant);
     if (!store.actualPrice && prefill.actualPrice) setField("actualPrice", prefill.actualPrice);
-    if (!store.startDate && prefill.startDate) setField("startDate", prefill.startDate);
-    if (!store.endDate && prefill.endDate) setField("endDate", prefill.endDate);
+    if (!store.startDate && prefill.startDate) setField("startDate", toIsoDate(prefill.startDate));
+    if (!store.endDate && prefill.endDate) setField("endDate", toIsoDate(prefill.endDate));
     if (store.primaryEmployeeId == null && primaryEmployee) setField("primaryEmployeeId", primaryEmployee.id);
     if (store.secondaryEmployeeId == null && secondaryEmployee) setField("secondaryEmployeeId", secondaryEmployee.id);
 
