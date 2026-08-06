@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api/client";
@@ -36,8 +37,33 @@ function nextPageParam<T>(lastPage: Paginated<T>): number | undefined {
     return lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined;
 }
 
+/**
+ * Offset pagination is only coherent against a list that holds still. A call
+ * landing between two page requests shifts every later row down, so page 2 can
+ * repeat a row page 1 already showed — de-duplicating by id keeps React keys
+ * unique. The offsets themselves still come from the raw page numbers.
+ * `useInfiniteContracts` paginates the same way and does the same thing.
+ *
+ * The count comes from the newest page: the first one was fetched earliest and
+ * is the most likely to be stale.
+ */
+function flattenPages<T extends { id: string }>(pages: Paginated<T>[] | undefined) {
+    const seen = new Set<string>();
+    const items: T[] = [];
+
+    for (const page of pages ?? []) {
+        for (const item of page.data ?? []) {
+            if (seen.has(item.id)) continue;
+            seen.add(item.id);
+            items.push(item);
+        }
+    }
+
+    return { items, total: pages?.length ? pages[pages.length - 1].total : items.length };
+}
+
 export function useCallRecords(category?: CallCategory, search?: string) {
-    return useInfiniteQuery({
+    const query = useInfiniteQuery({
         queryKey: callInboxKeys.records(category, search),
         queryFn: async ({ pageParam }) => {
             const params = new URLSearchParams({
@@ -53,6 +79,19 @@ export function useCallRecords(category?: CallCategory, search?: string) {
         getNextPageParam: nextPageParam,
         staleTime: 1000 * 30,
     });
+
+    const pages = query.data?.pages;
+    const { items, total } = useMemo(() => flattenPages(pages), [pages]);
+
+    return {
+        ...query,
+        /** Every record loaded so far, in server order, de-duplicated by id. */
+        records: items,
+        /** Records matching the active filters on the server, per the newest page. */
+        total,
+        /** A "load more" failed; the rows already loaded stay on screen. */
+        isLoadMoreError: query.isFetchNextPageError,
+    };
 }
 
 export function useCallRecord(id: string | null) {
@@ -67,7 +106,7 @@ export function useCallRecord(id: string | null) {
 }
 
 export function useClientDrafts(status: string = "PENDING") {
-    return useInfiniteQuery({
+    const query = useInfiniteQuery({
         queryKey: callInboxKeys.drafts(status),
         queryFn: async ({ pageParam }) => {
             const { data } = await api.get(
@@ -79,6 +118,19 @@ export function useClientDrafts(status: string = "PENDING") {
         getNextPageParam: nextPageParam,
         staleTime: 1000 * 30,
     });
+
+    const pages = query.data?.pages;
+    const { items, total } = useMemo(() => flattenPages(pages), [pages]);
+
+    return {
+        ...query,
+        /** Every draft loaded so far, in server order, de-duplicated by id. */
+        drafts: items,
+        /** Drafts in this status on the server, per the newest page. */
+        total,
+        /** A "load more" failed; the rows already loaded stay on screen. */
+        isLoadMoreError: query.isFetchNextPageError,
+    };
 }
 
 export function usePendingDraftCount() {

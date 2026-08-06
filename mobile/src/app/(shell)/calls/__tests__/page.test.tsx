@@ -20,10 +20,13 @@ jest.mock("@/hooks/useCallInbox", () => ({
 }));
 
 // The reveal hook measures real row heights and drives an IntersectionObserver;
-// neither is meaningful in jsdom, so hand the page a fully-revealed list.
+// neither is meaningful in jsdom, so the tests drive visibleCount directly.
+let mockVisibleCount = 100;
+
 jest.mock("@/hooks/useListInfiniteScroll", () => ({
+  LIST_INFINITE_PAGE_SIZE: 6,
   useListInfiniteScroll: () => ({
-    visibleCount: 100,
+    visibleCount: mockVisibleCount,
     isInitialLoad: false,
     hasMore: false,
     sentinelRef: { current: null },
@@ -63,8 +66,15 @@ const draft = {
   phoneMatchesExistingClient: false,
 };
 
-/** The hooks are infinite queries now, so the page reads rows out of `pages`. */
-function infiniteResult<T>(rows: T[], overrides: Record<string, unknown> = {}) {
+/**
+ * The hooks flatten their own pages now, so this mirrors what they return:
+ * de-duplicated rows plus the newest page's total.
+ */
+function listResult<T extends { id: string }>(
+  key: "drafts" | "records",
+  rows: T[],
+  overrides: Record<string, unknown> = {},
+) {
   const page: Paginated<T> = {
     data: rows,
     total: rows.length,
@@ -74,21 +84,31 @@ function infiniteResult<T>(rows: T[], overrides: Record<string, unknown> = {}) {
   };
   return {
     data: { pages: [page], pageParams: [1] },
+    [key]: rows,
+    total: rows.length,
     isLoading: false,
+    isPending: false,
     hasNextPage: false,
     isFetchingNextPage: false,
+    isLoadMoreError: false,
     fetchNextPage: jest.fn(),
     ...overrides,
   };
 }
 
+const draftsResult = (rows: unknown[], overrides?: Record<string, unknown>) =>
+  listResult("drafts", rows as { id: string }[], overrides);
+const recordsResult = (rows: unknown[], overrides?: Record<string, unknown>) =>
+  listResult("records", rows as { id: string }[], overrides);
+
 describe("CallsPage", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockVisibleCount = 100;
     mockUsePendingDraftCount.mockReturnValue({ data: { count: 1 } });
-    mockUseClientDrafts.mockReturnValue(infiniteResult([draft]));
+    mockUseClientDrafts.mockReturnValue(draftsResult([draft]));
     mockUseCallRecords.mockReturnValue(
-      infiniteResult([], { data: undefined, isLoading: true }),
+      recordsResult([], { data: undefined, isLoading: true, isPending: true }),
     );
   });
 
@@ -101,7 +121,7 @@ describe("CallsPage", () => {
 
   it("switches to the call-log tab and shows its empty state", async () => {
     const user = userEvent.setup();
-    mockUseCallRecords.mockReturnValue(infiniteResult([]));
+    mockUseCallRecords.mockReturnValue(recordsResult([]));
     render(<CallsPage />);
 
     // FilterPills renders each tab label as a button with a trailing count span.
@@ -111,15 +131,92 @@ describe("CallsPage", () => {
     expect(screen.getByText("통화 기록이 없습니다")).toBeInTheDocument();
   });
 
-  it("pulls the next server page once the reveal runs past the loaded rows", () => {
-    const fetchNextPage = jest.fn();
-    mockUseClientDrafts.mockReturnValue(
-      infiniteResult([draft], { hasNextPage: true, fetchNextPage }),
-    );
-    render(<CallsPage />);
+  describe("server-page glue", () => {
+    /** Enough loaded rows that the reveal can sit well short of the end. */
+    const manyDrafts = Array.from({ length: 40 }, (_, i) => ({ ...draft, id: `draft-${i}` }));
 
-    // The mocked reveal exposes 100 rows while only one has arrived, which is
-    // the condition the page uses to ask the server for more.
-    expect(fetchNextPage).toHaveBeenCalled();
+    it("pulls the next page exactly once when the reveal nears the loaded rows", () => {
+      const fetchNextPage = jest.fn();
+      mockVisibleCount = 38; // 38 + 6 >= 40
+      mockUseClientDrafts.mockReturnValue(
+        draftsResult(manyDrafts, { hasNextPage: true, fetchNextPage }),
+      );
+      render(<CallsPage />);
+
+      expect(fetchNextPage).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves the server alone while the reveal is still inside the loaded rows", () => {
+      const fetchNextPage = jest.fn();
+      mockVisibleCount = 10; // 10 + 6 < 40
+      mockUseClientDrafts.mockReturnValue(
+        draftsResult(manyDrafts, { hasNextPage: true, fetchNextPage }),
+      );
+      render(<CallsPage />);
+
+      expect(fetchNextPage).not.toHaveBeenCalled();
+    });
+
+    it("does not stack a second request on top of one in flight", () => {
+      const fetchNextPage = jest.fn();
+      mockUseClientDrafts.mockReturnValue(
+        draftsResult(manyDrafts, {
+          hasNextPage: true,
+          isFetchingNextPage: true,
+          fetchNextPage,
+        }),
+      );
+      render(<CallsPage />);
+
+      expect(fetchNextPage).not.toHaveBeenCalled();
+    });
+
+    it("stops asking once the server has no further page", () => {
+      const fetchNextPage = jest.fn();
+      mockUseClientDrafts.mockReturnValue(
+        draftsResult(manyDrafts, { hasNextPage: false, fetchNextPage }),
+      );
+      render(<CallsPage />);
+
+      expect(fetchNextPage).not.toHaveBeenCalled();
+    });
+
+    // A failed load-more leaves hasNextPage true and clears isFetchingNextPage,
+    // so nothing else in the guard would stop the effect re-firing forever.
+    it("does not retry on its own after a load-more failure", () => {
+      const fetchNextPage = jest.fn();
+      mockUseClientDrafts.mockReturnValue(
+        draftsResult(manyDrafts, {
+          hasNextPage: true,
+          isLoadMoreError: true,
+          fetchNextPage,
+        }),
+      );
+      const { rerender } = render(<CallsPage />);
+      rerender(<CallsPage />);
+
+      expect(fetchNextPage).not.toHaveBeenCalled();
+    });
+
+    it("drives the records query on the log tab, not the drafts query", async () => {
+      const user = userEvent.setup();
+      const fetchRecords = jest.fn();
+      const fetchDrafts = jest.fn();
+      mockUseClientDrafts.mockReturnValue(
+        draftsResult([draft], { hasNextPage: false, fetchNextPage: fetchDrafts }),
+      );
+      mockUseCallRecords.mockReturnValue(
+        recordsResult(
+          [{ id: "rec-1", callerName: "박지훈", callerPhone: null, summaryLine: "요약" }],
+          { hasNextPage: true, fetchNextPage: fetchRecords },
+        ),
+      );
+      render(<CallsPage />);
+
+      await user.click(screen.getByText("통화 기록", { exact: false, selector: "button" }));
+
+      expect(fetchRecords).toHaveBeenCalled();
+      expect(fetchDrafts).not.toHaveBeenCalled();
+    });
   });
 });

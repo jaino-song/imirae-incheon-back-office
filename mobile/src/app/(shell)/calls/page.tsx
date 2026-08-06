@@ -21,7 +21,10 @@ import {
   useClientDrafts,
   usePendingDraftCount,
 } from "@/hooks/useCallInbox";
-import { useListInfiniteScroll } from "@/hooks/useListInfiniteScroll";
+import {
+  LIST_INFINITE_PAGE_SIZE,
+  useListInfiniteScroll,
+} from "@/hooks/useListInfiniteScroll";
 import type { CallCategory, ClientDraftListItem } from "@/lib/call-inbox/types";
 import "@/components/app/mobile-redesign/redesign.css";
 
@@ -54,9 +57,10 @@ export default function CallsPage() {
     [categoryLabel],
   );
 
+  const searchTerm = search.trim();
   const { data: pendingCount } = usePendingDraftCount();
   const draftsQuery = useClientDrafts("PENDING");
-  const recordsQuery = useCallRecords(category, search.trim() || undefined);
+  const recordsQuery = useCallRecords(category, searchTerm || undefined);
 
   // snapshot at click time: the live page query can drop the row (pagination,
   // post-mutation refetch) and would silently hide the duplicate-phone banner
@@ -68,43 +72,42 @@ export default function CallsPage() {
     setSelectedDraft(null);
   };
 
-  const drafts = useMemo(
-    () => draftsQuery.data?.pages.flatMap((page) => page.data) ?? [],
-    [draftsQuery.data],
-  );
-  const records = useMemo(
-    () => recordsQuery.data?.pages.flatMap((page) => page.data) ?? [],
-    [recordsQuery.data],
-  );
-
   const isQueue = tab === "queue";
-  const loadedCount = isQueue ? drafts.length : records.length;
-  // Every page carries the same total, so the first one is enough. Taking it
-  // from the server rather than from the loaded rows lets the reveal know more
-  // is coming before the next page has arrived.
-  const activeTotal = isQueue
-    ? draftsQuery.data?.pages[0]?.total ?? drafts.length
-    : recordsQuery.data?.pages[0]?.total ?? records.length;
+  const drafts = draftsQuery.drafts;
+  const records = recordsQuery.records;
+  const rows = isQueue ? drafts : records;
+  const loadedCount = rows.length;
+  // The server's count, not the loaded row count, so the reveal knows more is
+  // coming before the next page has arrived. Never below what is already
+  // loaded, or a shrinking total would strand rows the user can see.
+  const serverTotal = isQueue ? draftsQuery.total : recordsQuery.total;
+  const activeTotal = Math.max(loadedCount, serverTotal);
   const isLoadingActive = isQueue ? draftsQuery.isLoading : recordsQuery.isLoading;
   const hasNextPage = isQueue ? draftsQuery.hasNextPage : recordsQuery.hasNextPage;
   const isFetchingNextPage = isQueue
     ? draftsQuery.isFetchingNextPage
     : recordsQuery.isFetchingNextPage;
+  const isLoadMoreError = isQueue ? draftsQuery.isLoadMoreError : recordsQuery.isLoadMoreError;
   const fetchDraftsNextPage = draftsQuery.fetchNextPage;
   const fetchRecordsNextPage = recordsQuery.fetchNextPage;
 
   const { visibleCount, isInitialLoad, hasMore, sentinelRef, scrollContainerRef, loadMore } =
     useListInfiniteScroll({
-      resetKey: `${tab}:${categoryLabel}:${search}`,
+      resetKey: `${tab}:${categoryLabel}:${searchTerm}`,
       totalItems: activeTotal,
     });
 
   // The other list pages hold their whole list in memory and let the reveal walk
-  // it. Call records only ever grow, so they arrive a page at a time: when the
-  // reveal reaches the end of what has arrived, ask the server for the next one.
+  // it. Call records only ever grow, so they arrive a page at a time: fetch once
+  // the reveal is within a step of the end, so every tap has real rows to show.
+  //
+  // Stopping on isLoadMoreError matters more than it looks: a failed fetch
+  // leaves hasNextPage true and flips isFetchingNextPage back to false without
+  // changing anything else, so without this the effect would re-fire forever.
+  // Revealing more rows clears it, which makes the sentinel the retry.
   useEffect(() => {
-    if (visibleCount < loadedCount) return;
-    if (!hasNextPage || isFetchingNextPage) return;
+    if (visibleCount + LIST_INFINITE_PAGE_SIZE < loadedCount) return;
+    if (!hasNextPage || isFetchingNextPage || isLoadMoreError) return;
     void (isQueue ? fetchDraftsNextPage() : fetchRecordsNextPage());
   }, [
     isQueue,
@@ -112,13 +115,16 @@ export default function CallsPage() {
     loadedCount,
     hasNextPage,
     isFetchingNextPage,
+    isLoadMoreError,
     fetchDraftsNextPage,
     fetchRecordsNextPage,
   ]);
 
   const tabFilters = [
     { label: TAB_QUEUE, count: pendingCount?.count ?? "" },
-    { label: TAB_LOG, count: isQueue ? "" : activeTotal },
+    // Blank rather than 0 until the first page lands, so the pill does not
+    // flash a count the server never reported.
+    { label: TAB_LOG, count: isQueue || recordsQuery.isPending ? "" : activeTotal },
   ];
 
   return (

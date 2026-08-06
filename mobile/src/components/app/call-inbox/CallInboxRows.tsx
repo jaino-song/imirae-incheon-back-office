@@ -28,7 +28,8 @@ function callerLine(name: string | null, phone: string | null): string {
 
 /**
  * The row avatar. Every other list page leads with one, so a call gets a tinted
- * tile too — the icon carries what a client's initial carries there.
+ * tile too — the icon carries what a client's initial carries there. The av-*
+ * classes are the tone map redesign.css defines for .list-avatar.
  */
 function CallRowIcon({
   tone,
@@ -37,16 +38,24 @@ function CallRowIcon({
   tone: "primary" | "green" | "orange";
   children: ReactNode;
 }) {
-  const toneClass =
-    tone === "green" ? "bg-v3-green" : tone === "orange" ? "bg-v3-orange" : "bg-v3-primary";
-  return <div className={`list-avatar ${toneClass}`}>{children}</div>;
+  return <div className={`list-avatar av-${tone}`}>{children}</div>;
+}
+
+/**
+ * The caller line yields space before the flags do. `.list-name` is a flex row
+ * that clips its overflow, so without shrinking this the flags — the reason a
+ * reviewer picks one row over another — get pushed off the edge by a long
+ * name-plus-phone. A truncated name is recoverable; a hidden warning is not.
+ */
+function CallerName({ children }: { children: ReactNode }) {
+  return <span className="min-w-0 flex-1 truncate">{children}</span>;
 }
 
 /** A short marker in the row title; the full reasoning lives in the review sheet. */
 function RowFlag({ label, tone = "warning" }: { label: string; tone?: "warning" | "danger" | "muted" }) {
   const toneClass =
     tone === "danger" ? "text-red-600" : tone === "muted" ? "text-v3-text-muted" : "text-amber-600";
-  return <span className={`text-[0.62rem] font-bold ${toneClass}`}>{label}</span>;
+  return <span className={`shrink-0 text-[0.62rem] font-bold ${toneClass}`}>{label}</span>;
 }
 
 export function DraftRow({
@@ -82,7 +91,7 @@ export function DraftRow({
       }
       name={
         <>
-          {callerLine(draft.callerName, draft.callerPhone)}
+          <CallerName>{callerLine(draft.callerName, draft.callerPhone)}</CallerName>
           {draft.client && <RowFlag label={`고객 #${draft.client.id} 일치`} tone="muted" />}
           {draft.hasLowConfidence && <RowFlag label="⚠ 확신도 낮음" />}
           {draft.possibleDuplicate && <RowFlag label="중복 가능" />}
@@ -133,7 +142,7 @@ export function RecordRow({
       }
       name={
         <>
-          {callerLine(record.callerName, record.callerPhone)}
+          <CallerName>{callerLine(record.callerName, record.callerPhone)}</CallerName>
           {processingSuffix && (
             <RowFlag
               label={processingSuffix}
