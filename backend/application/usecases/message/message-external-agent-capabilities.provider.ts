@@ -15,7 +15,13 @@ import {
     SmsTriggerDeliveryService,
 } from "application/services/sms-trigger-delivery.service";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
-import { MessageTriggerEventType, MessageTriggerOffsetType, MessageTriggerRecipientType, MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
+import {
+    AGENT_SMS_RULE_ID_PREFIX,
+    MessageTriggerEventType,
+    MessageTriggerOffsetType,
+    MessageTriggerRecipientType,
+    MessageTriggerTemplateKey,
+} from "domain/constants/message-trigger-catalog";
 import type { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import { MESSAGE_TRIGGER_JOB_REPOSITORY, type IMessageTriggerJobRepository } from "domain/repositories/message-trigger-job.repository.interface";
 import { PhoneNumber } from "domain/value-objects/phone-number.vo";
@@ -541,7 +547,7 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
     ): Promise<MessageTriggerJobEntity> {
         if (!context.actionId) throw new AgentActionUncertainError("SMS action identity is missing");
         await this.ensureSmsApprovedForExecution(context.principal.branchId);
-        const ruleId = `agent-sms:${context.principal.branchId}`;
+        const ruleId = `${AGENT_SMS_RULE_ID_PREFIX}${context.principal.branchId}`;
         await this.prisma.message_trigger_rule.upsert({
             where: { id: ruleId },
             create: {

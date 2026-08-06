@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { EformsignDocClientSummary } from "@babyjamjam/shared/types/eformsign";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { matchesSearchQuery } from "@/lib/search/korean-search";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
 import {
   FileText,
@@ -35,6 +34,7 @@ import { useInfiniteContracts } from "@/hooks/useInfiniteContracts";
 import { ServiceRecordHeaderCard } from "@/features/service-records/components/ServiceRecordHeaderCard";
 import { useClientServiceRecords } from "@/features/service-records/hooks/use-service-records";
 import type { EformsignDocument, EformsignDocumentOption } from "@/lib/eformsign/types";
+import { matchesDocumentSearch } from "@/lib/eformsign/contract-search";
 import {
   DocumentFilterType,
   contractStatusBadgeType,
@@ -98,11 +98,7 @@ import {
   extractOpenEvents,
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
-import {
-  UNKNOWN_CUSTOMER_NAME,
-  customerName as getEformsignCustomerName,
-  resolveDocumentCustomerName,
-} from "@/lib/eformsign/display-name";
+import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
@@ -193,20 +189,6 @@ type InfoCardRow = {
   label: string;
   value: React.ReactNode;
 };
-
-function displayCustomerName(doc: EformsignDocument | null): string | null {
-  if (!doc) return null;
-  const name = getEformsignCustomerName(doc);
-  return name === UNKNOWN_CUSTOMER_NAME ? null : name;
-}
-
-function matchesDocumentSearch(
-  doc: EformsignDocument,
-  query: string,
-  mappedCustomerName?: string | null,
-): boolean {
-  return matchesSearchQuery(query, [mappedCustomerName ?? displayCustomerName(doc), doc.document_name]);
-}
 
 function matchesDocumentStatusTab(doc: EformsignDocument, tab: string): boolean {
   if (tab === "all") return true;
