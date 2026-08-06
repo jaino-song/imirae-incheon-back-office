@@ -3270,11 +3270,13 @@ body:has([data-slot="auth-login-page"]) main[data-slot="main-content"] {
   background: hsl(var(--v3-dim-white));
 }
 
+/* No max-width here: login was the only auth page clamping itself to a 430px
+   centred column, so it rendered narrower than register, forgot-password,
+   reset-password, verify-email and callback beside it. On a handset the clamp
+   never applied anyway — it only ever showed up as an inconsistency on wider
+   screens. */
 [data-slot="auth-login-page"].auth-page {
-  width: 100%;
-  max-width: 430px;
   min-height: 100%;
-  margin: 0 auto;
   padding: 24px;
 }
 
