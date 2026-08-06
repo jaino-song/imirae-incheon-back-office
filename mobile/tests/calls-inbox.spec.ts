@@ -149,6 +149,67 @@ async function revealAll(page: Page, cap = 20) {
 test.describe("Call inbox", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
+  test("sits in the shell the same way the other list pages do", async ({ page }) => {
+    await mockCallInbox(page);
+    await page.goto("/calls");
+    // Wait for a real row, not the loading skeleton: the skeleton also carries
+    // .list-item, and the body class goes on in a passive effect, so a skeleton
+    // can be on screen a frame before the shell class lands.
+    await expect(page.locator('[data-component$="queue-list_row"]').first()).toBeVisible();
+
+    // The shell only clamps main-content for routes that opt in by body class.
+    // Without it the header spacing is 16px out and, worse, the sheet is free to
+    // grow past the viewport so the list has nothing to scroll inside.
+    const shell = await page.evaluate(() => {
+      const main = document.querySelector<HTMLElement>('[data-slot="main-content"]')!;
+      const sheet = document.querySelector<HTMLElement>(".mobile-detail-sheet")!;
+      const nav = document.querySelector<HTMLElement>('[data-slot="mobile-bottom-nav"]');
+      const mainStyle = getComputedStyle(main);
+      return {
+        hasRouteClass: document.body.classList.contains("mobile-calls-route"),
+        mainPaddingTop: mainStyle.paddingTop,
+        mainOverflowY: mainStyle.overflowY,
+        sheetTop: Math.round(sheet.getBoundingClientRect().top),
+        sheetBottom: Math.round(sheet.getBoundingClientRect().bottom),
+        navPosition: nav ? getComputedStyle(nav).position : null,
+        navBottom: nav ? Math.round(window.innerHeight - nav.getBoundingClientRect().bottom) : null,
+        viewportHeight: window.innerHeight,
+      };
+    });
+
+    expect(shell.hasRouteClass).toBe(true);
+    expect(shell.mainPaddingTop).toBe("64px");
+    expect(shell.mainOverflowY).toBe("hidden");
+    expect(shell.sheetTop).toBe(64);
+    // Clamped to the viewport rather than growing with the list.
+    expect(shell.sheetBottom).toBeLessThanOrEqual(shell.viewportHeight);
+    // The tab bar is pinned near the bottom, not pushed off the end of the page.
+    expect(shell.navPosition).toBe("absolute");
+    expect(shell.navBottom).toBeGreaterThanOrEqual(0);
+    expect(shell.navBottom).toBeLessThan(40);
+  });
+
+  test("scrolls the list inside the card rather than the page", async ({ page }) => {
+    await mockCallInbox(page);
+    await page.goto("/calls");
+    await expect(loadMoreButton(page)).toBeVisible();
+    await loadMoreButton(page).click();
+    await expect(loadMoreButton(page)).toBeHidden();
+
+    const scroller = await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>(".mobile-app-root *")].find(
+        (node) =>
+          node.scrollHeight > node.clientHeight + 4 &&
+          ["auto", "scroll"].includes(getComputedStyle(node).overflowY),
+      );
+      return el ? { dc: el.getAttribute("data-component"), overflow: el.scrollHeight - el.clientHeight } : null;
+    });
+
+    expect(scroller).not.toBeNull();
+    expect(scroller!.dc).toContain("list-card_body");
+    expect(scroller!.overflow).toBeGreaterThan(0);
+  });
+
   test("shows a teaser of the queue with a tap-to-expand affordance", async ({ page }) => {
     await mockCallInbox(page);
     await page.goto("/calls");

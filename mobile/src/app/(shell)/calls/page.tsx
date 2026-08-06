@@ -37,6 +37,18 @@ const LIST_CONTENT_BASE = `${SHEET_BASE}_stack_list-page_content`;
 const LIST_CARD_BASE = `${LIST_CONTENT_BASE}_list-card`;
 const LIST_BODY_BASE = `${LIST_CARD_BASE}_body`;
 
+/**
+ * Opts the route into the shell's list-page treatment, the same way clients,
+ * contracts and prices do. Without it V3MainContent's default applies: the
+ * header sits 16px lower than on every other list page and the sheet is free to
+ * grow past the viewport, which leaves the list with nothing to scroll inside.
+ *
+ * Named ...MARKER rather than ...CLASS because it is a route marker the
+ * stylesheet keys on, and no-page-style-constants reads a *_CLASS constant in a
+ * page as a Tailwind string. (clients/page.tsx predates that rule.)
+ */
+const CALLS_ROUTE_BODY_MARKER = "mobile-calls-route";
+
 const ALL_CATEGORY = "전체";
 const CATEGORY_FILTERS: { label: string; value: CallCategory | undefined }[] = [
   { label: ALL_CATEGORY, value: undefined },
@@ -56,6 +68,13 @@ export default function CallsPage() {
     () => CATEGORY_FILTERS.find((c) => c.label === categoryLabel)?.value,
     [categoryLabel],
   );
+
+  useEffect(() => {
+    document.body.classList.add(CALLS_ROUTE_BODY_MARKER);
+    return () => {
+      document.body.classList.remove(CALLS_ROUTE_BODY_MARKER);
+    };
+  }, []);
 
   const searchTerm = search.trim();
   const { data: pendingCount } = usePendingDraftCount();
@@ -134,7 +153,11 @@ export default function CallsPage() {
       isOpen={Boolean(reviewDraftId || logRecordId)}
       onClose={closeSheets}
       list={
-        <div className="shell-content" data-component={LIST_CONTENT_BASE}>
+        <div
+          className="shell-content"
+          data-component={LIST_CONTENT_BASE}
+          data-slot="calls-content"
+        >
           <ListCard
             data-component={LIST_CARD_BASE}
             title="통화 인박스"

@@ -1979,7 +1979,8 @@ body.mobile-all-route .menu-row {
   /* Matches .sheet-header: opaque for the sticky case, in the sheet's colour. */
   background: hsl(var(--v3-dim-white));
 }
-body.mobile-clients-route .detail-tabs {
+body.mobile-clients-route .detail-tabs,
+body.mobile-calls-route .detail-tabs {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -2416,7 +2417,8 @@ body.mobile-clients-route .detail-tabs {
   animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"],
+body.mobile-calls-route [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -2433,23 +2435,27 @@ body.mobile-clients-route [data-slot="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"],
+body.mobile-calls-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] a {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] a,
+body.mobile-calls-route [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] svg {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] svg,
+body.mobile-calls-route [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] span {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] span,
+body.mobile-calls-route [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -2459,13 +2465,15 @@ body.mobile-clients-route [data-slot="mobile-bottom-nav-clients"] {
   background: transparent;
 }
 
-body.mobile-clients-route:has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"] {
+body.mobile-clients-route:has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"],
+body.mobile-calls-route:has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
 
-body.mobile-clients-route [data-slot="mobile-header"] {
+body.mobile-clients-route [data-slot="mobile-header"],
+body.mobile-calls-route [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -4226,31 +4234,40 @@ body.mobile-contracts-route [data-slot="mobile-detail-stack-track"].show-detail 
 /* Lock the app shell to the viewport on the clients route (parity with the
    dashboard, redesign.css:155-212) so the page itself never scrolls — only the
    inner [data-slot="clients-content"] list scrolls. */
-body.mobile-clients-route {
+body.mobile-clients-route,
+body.mobile-calls-route {
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-slot="app-root"] {
+body.mobile-clients-route [data-slot="app-root"],
+body.mobile-calls-route [data-slot="app-root"] {
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  body.mobile-clients-route [data-slot="app-root"] {
+  body.mobile-clients-route [data-slot="app-root"],
+body.mobile-calls-route [data-slot="app-root"] {
     height: min(100dvh, 844px);
     max-height: 844px;
   }
 }
 
-body.mobile-clients-route [data-slot="app-root"] [data-slot="app-content"] {
+body.mobile-clients-route [data-slot="app-root"] [data-slot="app-content"],
+body.mobile-calls-route [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-slot="main-content"] {
+/* The call inbox shares this treatment: same list-plus-detail-sheet shape, same
+   64px header to clear. Without it the shell falls back to V3MainContent's
+   default (pt-20, no clamp), which pushes the header spacing 16px out, lets the
+   sheet grow past the viewport, and leaves the list with no scroll container. */
+body.mobile-clients-route [data-slot="main-content"],
+body.mobile-calls-route [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -4264,11 +4281,16 @@ body.mobile-clients-route [data-slot="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-clients-route .mobile-detail-sheet {
+body.mobile-clients-route .mobile-detail-sheet,
+body.mobile-calls-route .mobile-detail-sheet {
   flex: 1;
   height: 100%;
   min-height: 0 !important;
   margin: 0 !important;
+}
+
+body.mobile-calls-route [data-slot="calls-content"] {
+  padding: 12px 14px 76px;
 }
 
 body.mobile-clients-route [data-slot="clients-content"] {
@@ -4276,7 +4298,8 @@ body.mobile-clients-route [data-slot="clients-content"] {
   overflow-y: auto;
 }
 
-body.mobile-clients-route [data-slot="mobile-detail-stack-track"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-track"],
+body.mobile-calls-route [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -4284,16 +4307,20 @@ body.mobile-clients-route [data-slot="mobile-detail-stack-track"] {
 }
 
 body.mobile-clients-route [data-slot="mobile-detail-stack-list-page"],
-body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"],
+body.mobile-calls-route [data-slot="mobile-detail-stack-list-page"],
+body.mobile-calls-route [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"],
+body.mobile-calls-route [data-slot="mobile-detail-stack-detail-page"] {
   top: 50px;
 }
 
-body.mobile-clients-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
+body.mobile-clients-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list,
+body.mobile-calls-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
