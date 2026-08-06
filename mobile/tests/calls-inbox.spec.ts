@@ -166,7 +166,6 @@ test.describe("Call inbox", () => {
       const nav = document.querySelector<HTMLElement>('[data-slot="mobile-bottom-nav"]');
       const mainStyle = getComputedStyle(main);
       return {
-        hasRouteClass: document.body.classList.contains("mobile-calls-route"),
         mainPaddingTop: mainStyle.paddingTop,
         mainOverflowY: mainStyle.overflowY,
         sheetTop: Math.round(sheet.getBoundingClientRect().top),
@@ -177,7 +176,6 @@ test.describe("Call inbox", () => {
       };
     });
 
-    expect(shell.hasRouteClass).toBe(true);
     expect(shell.mainPaddingTop).toBe("64px");
     expect(shell.mainOverflowY).toBe("hidden");
     expect(shell.sheetTop).toBe(64);
@@ -187,6 +185,84 @@ test.describe("Call inbox", () => {
     expect(shell.navPosition).toBe("absolute");
     expect(shell.navBottom).toBeGreaterThanOrEqual(0);
     expect(shell.navBottom).toBeLessThan(40);
+  });
+
+  test("has its final layout on the first paint, before anything loads", async ({ page }) => {
+    // The shell layout used to arrive with hydration, so the loading state drew
+    // a taller header gap, a differently sized card and no tab bar, then
+    // everything jumped. Keying the stylesheet on server markup rather than a
+    // class an effect adds is what removes the jump — measure both ends.
+    await mockCallInbox(page);
+    await page.route("**/api/client-drafts?**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      return route.fulfill(json(paginate([], new URL(route.request().url()))));
+    });
+
+    const read = () =>
+      page.evaluate(() => {
+        const main = document.querySelector<HTMLElement>('[data-slot="main-content"]');
+        const card = document.querySelector<HTMLElement>(".list-card");
+        const nav = document.querySelector<HTMLElement>('[data-slot="mobile-bottom-nav"]');
+        // .list-card runs a pop-up entry animation, so its own top is in motion
+        // at first paint. Measure the box it sits in instead — that is what the
+        // shell layout decides, and it is what was moving before.
+        const content = document.querySelector<HTMLElement>('[data-slot="calls-content"]');
+        return {
+          mainPaddingTop: main ? getComputedStyle(main).paddingTop : null,
+          mainOverflowY: main ? getComputedStyle(main).overflowY : null,
+          contentTop: content ? Math.round(content.getBoundingClientRect().top) : null,
+          contentHeight: content ? Math.round(content.getBoundingClientRect().height) : null,
+          cardWidth: card ? Math.round(card.getBoundingClientRect().width) : null,
+          navPosition: nav ? getComputedStyle(nav).position : null,
+          navOnScreen: nav ? nav.getBoundingClientRect().top < window.innerHeight : null,
+        };
+      });
+
+    await page.goto("/calls", { waitUntil: "commit" });
+    await page.waitForSelector('[data-slot="calls-content"]');
+    const firstPaint = await read();
+
+    await expect(page.locator('[data-component$="queue-empty"]')).toBeVisible({ timeout: 10_000 });
+    const settled = await read();
+
+    // Everything that decides the page's shape has to already be right.
+    expect(firstPaint).toEqual(settled);
+    expect(settled.mainPaddingTop).toBe("64px");
+    expect(settled.navOnScreen).toBe(true);
+  });
+
+  test("draws skeleton rows the same height as the rows they stand in for", async ({ page }) => {
+    // A call row stacks a badge over a timestamp, so its height comes from the
+    // trailing column. A one-line placeholder there leaves the skeleton short
+    // and the whole list shifts down the moment the data lands.
+    await mockCallInbox(page);
+    await page.route("**/api/client-drafts?**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      return route.fulfill(
+        json(paginate(Array.from({ length: DRAFT_TOTAL }, (_, i) => makeDraft(i + 1)), new URL(route.request().url()))),
+      );
+    });
+
+    const rowMetrics = () =>
+      page.evaluate(() => {
+        const row = document.querySelector<HTMLElement>(".list-item");
+        const right = row?.querySelector<HTMLElement>(".list-right");
+        return {
+          height: row ? Math.round(row.getBoundingClientRect().height) : null,
+          rightHeight: right ? Math.round(right.getBoundingClientRect().height) : null,
+        };
+      });
+
+    await page.goto("/calls");
+    await expect(page.locator('[data-component$="queue-skeleton"]')).toBeVisible();
+    const skeleton = await rowMetrics();
+
+    await expect(page.locator('[data-component$="queue-list_row"]').first()).toBeVisible({
+      timeout: 10_000,
+    });
+    const loaded = await rowMetrics();
+
+    expect(skeleton).toEqual(loaded);
   });
 
   test("scrolls the list inside the card rather than the page", async ({ page }) => {

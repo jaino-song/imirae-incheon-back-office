@@ -113,9 +113,17 @@ export function ListCountSkeleton({
 export function ListRowsSkeleton({
   "data-component": dataComponent,
   rowCount = 6,
+  rightLines = 1,
 }: {
   "data-component": string;
   rowCount?: number;
+  /**
+   * How many stacked placeholders the trailing column gets. It drives the row
+   * height, so it has to match what the loaded row puts there or the list
+   * reflows when the data lands. One is right for a lone badge or chevron;
+   * pass 2 where a badge sits above a timestamp.
+   */
+  rightLines?: 1 | 2;
 }) {
   return (
     <div
@@ -144,6 +152,13 @@ export function ListRowsSkeleton({
             data-component={`${dataComponent}_row_right`}
           >
             <Skeleton className="h-6 w-14 rounded-full bg-v3-dim-white animate-pulse" />
+            {/* 16px, not the 14px the timestamp actually renders at: the badge
+                placeholder above is 24px against a real badge's 26px, so this
+                makes the column add up to the same 43px and the rows stay put
+                when the data arrives. */}
+            {rightLines > 1 && (
+              <Skeleton className="h-4 w-12 bg-v3-dim-white animate-pulse" />
+            )}
           </div>
         </div>
       ))}

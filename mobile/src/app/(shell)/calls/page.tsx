@@ -37,18 +37,6 @@ const LIST_CONTENT_BASE = `${SHEET_BASE}_stack_list-page_content`;
 const LIST_CARD_BASE = `${LIST_CONTENT_BASE}_list-card`;
 const LIST_BODY_BASE = `${LIST_CARD_BASE}_body`;
 
-/**
- * Opts the route into the shell's list-page treatment, the same way clients,
- * contracts and prices do. Without it V3MainContent's default applies: the
- * header sits 16px lower than on every other list page and the sheet is free to
- * grow past the viewport, which leaves the list with nothing to scroll inside.
- *
- * Named ...MARKER rather than ...CLASS because it is a route marker the
- * stylesheet keys on, and no-page-style-constants reads a *_CLASS constant in a
- * page as a Tailwind string. (clients/page.tsx predates that rule.)
- */
-const CALLS_ROUTE_BODY_MARKER = "mobile-calls-route";
-
 const ALL_CATEGORY = "전체";
 const CATEGORY_FILTERS: { label: string; value: CallCategory | undefined }[] = [
   { label: ALL_CATEGORY, value: undefined },
@@ -68,13 +56,6 @@ export default function CallsPage() {
     () => CATEGORY_FILTERS.find((c) => c.label === categoryLabel)?.value,
     [categoryLabel],
   );
-
-  useEffect(() => {
-    document.body.classList.add(CALLS_ROUTE_BODY_MARKER);
-    return () => {
-      document.body.classList.remove(CALLS_ROUTE_BODY_MARKER);
-    };
-  }, []);
 
   const searchTerm = search.trim();
   const { data: pendingCount } = usePendingDraftCount();
@@ -162,6 +143,10 @@ export default function CallsPage() {
         <div
           className="shell-content"
           data-component={LIST_CONTENT_BASE}
+          // The shell's list-page layout keys on this slot. It has to be real
+          // server markup rather than a class an effect adds after hydration:
+          // the stylesheet then matches on the very first paint, so the header
+          // gap, the card and the tab bar never shift once the page settles.
           data-slot="calls-content"
         >
           <ListCard
@@ -203,6 +188,9 @@ export default function CallsPage() {
             {isLoadingActive ? (
               <ListRowsSkeleton
                 data-component={`${LIST_BODY_BASE}_${isQueue ? "queue" : "log"}-skeleton`}
+                // A call row stacks its badge over the timestamp, so the
+                // placeholder needs both or the rows grow when the data lands.
+                rightLines={2}
               />
             ) : loadedCount === 0 ? (
               <div
