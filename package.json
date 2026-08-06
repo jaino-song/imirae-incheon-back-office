@@ -17,7 +17,8 @@
     "test": "pnpm -r --workspace-concurrency=1 test",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "lint": "pnpm -r --workspace-concurrency=1 --if-present run lint",
-    "lint:ui-architecture": "node packages/shared/scripts/ui-architecture-gate.mjs"
+    "lint:ui-architecture": "node packages/shared/scripts/ui-architecture-gate.mjs",
+    "lint:e2e-strings": "node packages/shared/scripts/e2e-string-drift-gate.mjs"
   },
   "pnpm": {
     "overrides": {
