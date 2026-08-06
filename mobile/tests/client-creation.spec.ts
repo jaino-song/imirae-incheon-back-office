@@ -132,8 +132,8 @@ async function mockClientsWizardRoutes(page: Page, options?: { onCreate?: (paylo
 async function fillStepZero(page: Page) {
   await page.getByPlaceholder("홍길동").fill("홍테스트 고객");
   await page.getByPlaceholder("010-1234-5678").fill("01011112222");
-  await page.getByPlaceholder("YYMMDD").nth(0).fill("950101");
-  await page.getByPlaceholder("YYMMDD").nth(1).fill("260615");
+  await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birthday-field_birthday-input"]').fill("950101");
+  await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_due-date-field_due-date-input"]').fill("2026-06-15");
   await page.getByPlaceholder("서울시 강남구...").fill("인천광역시 연수구 테스트로 10");
 
   await expect(
