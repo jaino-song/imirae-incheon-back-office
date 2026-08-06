@@ -335,6 +335,56 @@ test.describe("Call inbox", () => {
     await expect(rows(page).first()).toContainText("발신자7");
   });
 
+  test("keeps the log on screen while a filter or search reloads it", async ({ page }) => {
+    // The category and search terms are part of the server query key, so each
+    // change starts a fresh query. Every other list page filters in memory and
+    // never blanks; without keepPreviousData this one drops to a skeleton on
+    // every keystroke.
+    await mockCallInbox(page);
+    await page.route("**/api/call-records?**", async (route) => {
+      const url = new URL(route.request().url());
+      const search = url.searchParams.get("search");
+      const all = Array.from({ length: RECORD_TOTAL }, (_, i) => makeRecord(i + 1));
+      const filtered = search ? all.filter((r) => r.callerName.includes(search)) : all;
+      // Slow enough that a skeleton would be caught if one were rendered.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return route.fulfill(json(paginate(filtered, url)));
+    });
+
+    await page.goto("/calls");
+    await page.getByRole("button", { name: /통화 기록/ }).click();
+    // A real row, not rows(): the loading skeleton carries .list-item too, so
+    // waiting on that would start the watch while the first query is still in
+    // flight and catch its skeleton rather than a filter-induced one.
+    await expect(page.locator('[data-component$="log-list_row"]').first()).toBeVisible();
+
+    const skeleton = page.locator('[data-component$="-skeleton"]');
+
+    // Sample continuously across the reload rather than checking once after it
+    // settles — the skeleton would only be on screen while the query is in
+    // flight, which is exactly the window a single assertion would miss.
+    const watchForSkeleton = async (durationMs: number) => {
+      let sawSkeleton = false;
+      const deadline = Date.now() + durationMs;
+      while (Date.now() < deadline) {
+        if ((await skeleton.count()) > 0) sawSkeleton = true;
+        await page.waitForTimeout(40);
+      }
+      return sawSkeleton;
+    };
+
+    const categoryPromise = watchForSkeleton(900);
+    await page.getByRole("button", { name: /^신규상담/ }).click();
+    expect(await categoryPromise).toBe(false);
+
+    const searchPromise = watchForSkeleton(900);
+    await page.getByPlaceholder("이름, 전화번호 검색").fill("발신자7");
+    expect(await searchPromise).toBe(false);
+
+    // The rows still update once the new query lands.
+    await expect(rows(page).first()).toContainText("발신자7");
+  });
+
   test("shows the empty state for each tab", async ({ page }) => {
     await mockCallInbox(page, { drafts: [], records: [] });
     await page.goto("/calls");

@@ -107,6 +107,10 @@ export default function CallsPage() {
     ? draftsQuery.isFetchingNextPage
     : recordsQuery.isFetchingNextPage;
   const isLoadMoreError = isQueue ? draftsQuery.isLoadMoreError : recordsQuery.isLoadMoreError;
+  // True while the records query is showing the previous filter's rows because
+  // the new one has not landed. Those rows belong to a query that is no longer
+  // current, so their count says nothing about what to fetch next.
+  const isShowingPreviousResults = !isQueue && recordsQuery.isPlaceholderData;
   const fetchDraftsNextPage = draftsQuery.fetchNextPage;
   const fetchRecordsNextPage = recordsQuery.fetchNextPage;
 
@@ -125,11 +129,13 @@ export default function CallsPage() {
   // changing anything else, so without this the effect would re-fire forever.
   // Revealing more rows clears it, which makes the sentinel the retry.
   useEffect(() => {
+    if (isShowingPreviousResults) return;
     if (visibleCount + LIST_INFINITE_PAGE_SIZE < loadedCount) return;
     if (!hasNextPage || isFetchingNextPage || isLoadMoreError) return;
     void (isQueue ? fetchDraftsNextPage() : fetchRecordsNextPage());
   }, [
     isQueue,
+    isShowingPreviousResults,
     visibleCount,
     loadedCount,
     hasNextPage,

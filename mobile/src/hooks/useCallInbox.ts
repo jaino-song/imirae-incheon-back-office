@@ -1,5 +1,11 @@
 import { useMemo } from "react";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+    keepPreviousData,
+    useInfiniteQuery,
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from "@tanstack/react-query";
 
 import { api } from "@/lib/api/client";
 import { clientQueryKeys } from "@/hooks/useClients";
@@ -78,6 +84,12 @@ export function useCallRecords(category?: CallCategory, search?: string) {
         initialPageParam: 1,
         getNextPageParam: nextPageParam,
         staleTime: 1000 * 30,
+        // The category and search terms are part of the key, so changing either
+        // starts a fresh query. Without this the list the user is reading gets
+        // replaced by a loading skeleton on every keystroke; the other list
+        // pages filter in memory and never blank out. Holding the previous
+        // results keeps isLoading false, so only the first visit shows one.
+        placeholderData: keepPreviousData,
     });
 
     const pages = query.data?.pages;
