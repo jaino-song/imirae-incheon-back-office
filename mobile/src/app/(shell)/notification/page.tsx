@@ -5,7 +5,6 @@ import { useMutation } from "@tanstack/react-query";
 import { BellRing, Mail, Send, type LucideIcon } from "lucide-react";
 
 import { Switch } from "@/components/ui/switch";
-import { Toaster } from "@/components/ui/toaster";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
 import { usePushNotification } from "@/hooks/usePushNotification";
 import { useToast } from "@/hooks/use-toast";
@@ -134,14 +133,15 @@ export default function NotificationPage() {
     },
     onSuccess: (data) => {
       toast({
-        title: "테스트 알림 전송 완료",
+        variant: "success",
+        title: "테스트 알림을 보냈어요",
         description: `성공 ${data.sent}건 · 실패 ${data.failed}건`,
       });
     },
     onError: () => {
       toast({
-        title: "테스트 알림 실패",
-        description: "알림 전송에 실패했습니다.",
+        title: "테스트 알림을 보내지 못했어요",
+        description: "잠시 후 다시 시도해 주세요",
         variant: "destructive",
       });
     },
@@ -156,10 +156,10 @@ export default function NotificationPage() {
 
     if (!success) {
       toast({
-        title: "앱 알림 설정 실패",
+        title: "앱 알림 설정을 바꾸지 못했어요",
         description: checked
-          ? "앱 알림을 켜지 못했습니다. 브라우저 알림 권한을 확인해주세요."
-          : "앱 알림을 끄지 못했습니다. 잠시 후 다시 시도해주세요.",
+          ? "앱 알림을 켜지 못했어요. 브라우저 알림 권한을 확인해 주세요"
+          : "앱 알림을 끄지 못했어요. 잠시 후 다시 시도해 주세요",
         variant: "destructive",
       });
     }
@@ -298,8 +298,6 @@ export default function NotificationPage() {
           </div>
         </div>
       </div>
-
-      <Toaster />
     </section>
   );
 }

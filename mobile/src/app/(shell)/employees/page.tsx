@@ -303,6 +303,7 @@ export default function EmployeesPage() {
       }
       setDeleteTarget(null);
       toast({
+        variant: "success",
         title: t(locale, "employees.delete-success"),
         description: t(locale, "employees.delete-success-description"),
       });

@@ -240,7 +240,7 @@
     "delete-success": "Client deleted",
     "delete-success-description": "The client has been deleted.",
     "delete-fail": "Delete failed",
-    "delete-fail-description": "An error occurred while deleting the client.",
+    "delete-fail-description": "Please try again in a moment.",
     "table": {
       "name": "Name",
       "phone": "Phone",
@@ -328,7 +328,7 @@
     "delete-success": "Employee deleted",
     "delete-success-description": "The employee has been deleted.",
     "delete-fail": "Delete failed",
-    "delete-fail-description": "An error occurred while deleting the employee.",
+    "delete-fail-description": "Please try again in a moment.",
     "subtitle": "Manage registered provider information and register new providers.",
     "add": "Add",
     "add-employee": "Register New Provider",

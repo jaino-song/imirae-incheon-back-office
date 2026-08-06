@@ -112,6 +112,31 @@
   --v3-text: 214 25% 28%;
   --v3-text-muted: 214 10% 55%;
   --v3-border: 214 20% 92%;
+
+  /* Status surfaces — one semantic triple per state: tinted surface, matching
+     line, readable text. Single source for StatusBadge and Toaster, so a
+     "danger" badge and a "danger" toast are the same colour. */
+  --status-neutral: 220 20% 97%;
+  --status-neutral-line: 220 20% 90%;
+  --status-neutral-fg: 214 10% 55%;
+
+  --status-info: 214 80% 95%;
+  --status-info-line: 214 70% 85%;
+  --status-info-fg: 214 100% 34%;
+
+  --status-success: 137 60% 94%;
+  --status-success-line: 137 34% 84%;
+  --status-success-fg: 137 34% 31%;
+
+  /* The warning and danger lines are drawn at low alpha; the alpha is applied
+     once in @theme rather than repeated at every call site. */
+  --status-warning: 47 100% 92%;
+  --status-warning-line: 38 92% 35%;
+  --status-warning-fg: 38 92% 35%;
+
+  --status-danger: 355 40% 94%;
+  --status-danger-line: 355 36% 45%;
+  --status-danger-fg: 355 36% 45%;
 }
 
 /* Dark Mode */
@@ -271,6 +296,24 @@
   --color-v3-text-muted: hsl(var(--v3-text-muted));
   --color-v3-border: hsl(var(--v3-border));
   --color-v3-dim-white: hsl(var(--v3-dim-white));
+
+  /* Status surfaces (defined in :root). The warning and danger lines carry
+     their alpha here so call sites stay plain utility classes. */
+  --color-status-neutral: hsl(var(--status-neutral));
+  --color-status-neutral-line: hsl(var(--status-neutral-line));
+  --color-status-neutral-fg: hsl(var(--status-neutral-fg));
+  --color-status-info: hsl(var(--status-info));
+  --color-status-info-line: hsl(var(--status-info-line));
+  --color-status-info-fg: hsl(var(--status-info-fg));
+  --color-status-success: hsl(var(--status-success));
+  --color-status-success-line: hsl(var(--status-success-line));
+  --color-status-success-fg: hsl(var(--status-success-fg));
+  --color-status-warning: hsl(var(--status-warning));
+  --color-status-warning-line: hsl(var(--status-warning-line) / 0.18);
+  --color-status-warning-fg: hsl(var(--status-warning-fg));
+  --color-status-danger: hsl(var(--status-danger));
+  --color-status-danger-line: hsl(var(--status-danger-line) / 0.2);
+  --color-status-danger-fg: hsl(var(--status-danger-fg));
 
   /* Border Radius */
   --radius-lg: var(--radius);

@@ -98,8 +98,8 @@ function BranchTemplateDetail({
     updateMutation.mutate(
       { id: template.id, request: { name, content, variables: template.variables } },
       {
-        onSuccess: () => toast({ description: "지점 템플릿이 저장되었습니다." }),
-        onError: () => toast({ variant: "destructive", description: "저장 중 오류가 발생했습니다." }),
+        onSuccess: () => toast({ variant: "success", description: "지점 템플릿을 저장했어요" }),
+        onError: () => toast({ variant: "destructive", description: "지점 템플릿을 저장하지 못했어요" }),
       },
     );
   };
@@ -112,9 +112,9 @@ function BranchTemplateDetail({
       await deleteMutation.mutateAsync(template.id);
       setDeleteDialogOpen(false);
       onDeleted();
-      toast({ description: "지점 템플릿이 삭제되었습니다." });
+      toast({ variant: "success", description: "지점 템플릿을 삭제했어요" });
     } catch {
-      toast({ variant: "destructive", description: "삭제 중 오류가 발생했습니다." });
+      toast({ variant: "destructive", description: "지점 템플릿을 삭제하지 못했어요" });
     }
   };
 

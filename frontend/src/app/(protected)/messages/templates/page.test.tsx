@@ -154,7 +154,7 @@ describe("TemplatesPage deletion", () => {
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
           variant: "destructive",
-          description: "삭제 중 오류가 발생했습니다.",
+          description: "지점 템플릿을 삭제하지 못했어요",
         }),
       ),
     );

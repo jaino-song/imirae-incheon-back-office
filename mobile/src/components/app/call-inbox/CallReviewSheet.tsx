@@ -28,6 +28,26 @@ import { findEvidenceTurnIndex, transcriptTurnId, TranscriptView } from "./Trans
 
 const REVIEW_BASE = "mobile_call-inbox_detail-sheet_stack_detail-page_review";
 
+/**
+ * Matches --duration-emphasis, which `.nav-page.detail` uses to slide out.
+ * Not --duration-spatial: that is the list pane's horizontal slide, which is
+ * the shorter of the two and would release the toast while the sheet is still
+ * on its way down.
+ */
+const SHEET_EXIT_MS = 420;
+
+/**
+ * Every success here closes the sheet. Raising the toast in the same tick sends
+ * it up from the bottom of the screen while the sheet drops past it, so the two
+ * cross in the same strip. Waiting for the sheet to land reads as one motion.
+ *
+ * The store behind toast() is module level, so this still fires after the sheet
+ * — and this component with it — has unmounted.
+ */
+function toastAfterSheetClose(props: Parameters<typeof toast>[0]) {
+  setTimeout(() => toast(props), SHEET_EXIT_MS);
+}
+
 const FIELD_LABELS: Record<string, string> = {
   name: "산모명",
   phone: "연락처",
@@ -258,10 +278,10 @@ function NewClientReview({
   const handleDiscard = async () => {
     try {
       await discardDraft.mutateAsync({});
-      toast({ title: "폐기됨" });
+      toastAfterSheetClose({ title: "폐기했어요", variant: "success" });
       onClose();
     } catch {
-      toast({ title: "폐기 실패", variant: "destructive" });
+      toast({ title: "폐기하지 못했어요", variant: "destructive" });
     }
   };
 
@@ -290,10 +310,13 @@ function NewClientReview({
         },
         suppressGreetingSms: !sendGreeting,
       });
-      toast({ title: `고객 등록 완료 (#${result.clientId})` });
+      toastAfterSheetClose({
+        title: `고객을 등록했어요 (#${result.clientId})`,
+        variant: "success",
+      });
       onClose();
     } catch {
-      toast({ title: "고객 등록 실패", variant: "destructive" });
+      toast({ title: "고객을 등록하지 못했어요", variant: "destructive" });
     }
   };
 
@@ -424,10 +447,10 @@ function ClientUpdateReview({
   const handleDiscard = async () => {
     try {
       await discardDraft.mutateAsync({});
-      toast({ title: "폐기됨" });
+      toastAfterSheetClose({ title: "폐기했어요", variant: "success" });
       onClose();
     } catch {
-      toast({ title: "폐기 실패", variant: "destructive" });
+      toast({ title: "폐기하지 못했어요", variant: "destructive" });
     }
   };
 
@@ -452,11 +475,14 @@ function ClientUpdateReview({
 
     try {
       await confirmDraft.mutateAsync({ changes });
-      toast({ title: `변경 적용 완료 (${includedCount}건)` });
+      toastAfterSheetClose({
+        title: `변경사항 ${includedCount}건을 적용했어요`,
+        variant: "success",
+      });
       onClose();
     } catch {
       toast({
-        title: "적용에 실패했습니다. 값을 확인해 주세요.",
+        title: "적용하지 못했어요. 값을 확인해 주세요",
         variant: "destructive",
       });
     }

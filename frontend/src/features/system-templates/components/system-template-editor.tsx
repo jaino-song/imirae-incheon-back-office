@@ -30,7 +30,7 @@ export function SystemTemplateEditor({ template }: Props) {
     if (!newVariable.key.trim() || !newVariable.label.trim()) {
       toast({
         variant: 'destructive',
-        description: '변수 키와 레이블을 입력해주세요.',
+        description: '변수 키와 레이블을 입력해 주세요',
       });
       return;
     }
@@ -39,7 +39,7 @@ export function SystemTemplateEditor({ template }: Props) {
     if (customVariables.some((v) => v.key === newVariable.key)) {
       toast({
         variant: 'destructive',
-        description: '이미 존재하는 변수 키입니다.',
+        description: '이미 있는 변수 키예요',
       });
       return;
     }
@@ -67,11 +67,12 @@ export function SystemTemplateEditor({ template }: Props) {
         customVariables,
       });
       toast({
-        description: '템플릿이 저장되었습니다.',
+        variant: "success",
+        description: '템플릿을 저장했어요',
       });
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : '저장 중 오류가 발생했습니다.';
+        error instanceof Error ? error.message : '템플릿을 저장하지 못했어요';
       toast({
         variant: 'destructive',
         description: errorMessage,

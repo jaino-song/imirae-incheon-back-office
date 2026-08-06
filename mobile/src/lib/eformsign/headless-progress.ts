@@ -99,9 +99,9 @@ export function resolveFailedHeadlessProgress(
 }
 
 export function getSafeHeadlessFailureMessage(reason: string | undefined): string {
-    if (!reason) return "백엔드 자동 처리에 실패했습니다. 잠시 후 다시 시도해주세요.";
-    if (/timed out|timeout/i.test(reason)) return "백엔드 자동 처리 시간이 초과되었습니다.";
-    if (/chromium|browser|executable/i.test(reason)) return "백엔드 브라우저 실행에 실패했습니다.";
-    if (/missing document_id/i.test(reason)) return "전자문서 전송 응답에서 문서 ID를 받지 못했습니다.";
-    return "백엔드 자동 처리에 실패했습니다.";
+    if (!reason) return "백엔드 자동 처리에 실패했어요. 잠시 후 다시 시도해 주세요";
+    if (/timed out|timeout/i.test(reason)) return "백엔드 자동 처리 시간이 초과됐어요";
+    if (/chromium|browser|executable/i.test(reason)) return "백엔드 브라우저를 실행하지 못했어요";
+    if (/missing document_id/i.test(reason)) return "전자문서 전송 응답에서 문서 ID를 받지 못했어요";
+    return "백엔드 자동 처리에 실패했어요";
 }
