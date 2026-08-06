@@ -5,6 +5,18 @@ export const formatPhoneNumber = (value: string): string => {
     return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
 };
 
+/**
+ * Types out to YYYY-MM-DD, inserting the dashes as the digits arrive — the same
+ * shape as formatPhoneNumber above. Lets a reviewer key a date straight in
+ * instead of going through the native picker.
+ */
+export const formatDateInput = (value: string): string => {
+    const digits = value.replace(/\D/g, "").slice(0, 8);
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+};
+
 export const formatDateForInput = (dateString: string | null | undefined): string => {
     if (!dateString) return "";
     const date = new Date(dateString);

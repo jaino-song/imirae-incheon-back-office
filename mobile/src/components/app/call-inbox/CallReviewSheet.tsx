@@ -18,7 +18,7 @@ import {
   useDiscardDraft,
   usePatchDraft,
 } from "@/hooks/useCallInbox";
-import { formatCallTime, formatPhoneNumber } from "@/lib/call-inbox/format";
+import { formatCallTime, formatDateInput, formatPhoneNumber } from "@/lib/call-inbox/format";
 import type {
   ClientDraftDetail,
   ClientDraftListItem,
@@ -56,36 +56,61 @@ const FIELD_LABELS: Record<string, string> = {
   birthday: "생년월일",
   startDate: "시작일",
   endDate: "종료일",
-  duration: "기간(일)",
+  duration: "서비스 기간",
   type: "서비스 유형",
+  // Wording follows the client registration wizard at /clients/new, which is
+  // where these same fields are filled in by hand.
   careCenter: "조리원 이용",
-  voucherClient: "정부지원",
-  breastPump: "유축기",
+  voucherClient: "바우처 고객",
+  breastPump: "유축기 대여",
   serviceStatus: "서비스 상태",
   fullPrice: "전체 금액",
   grant: "지원금",
   actualPrice: "실결제 금액",
 };
 
+/**
+ * `kind` decides how a keystroke is reshaped, not just the input's type: the
+ * three ISO dates are typed straight in as YYYY-MM-DD rather than going through
+ * the native picker, and birthday stays plain because it is YYMMDD, not ISO.
+ */
 const TEXT_FIELDS = [
-  { field: "name", type: "text" },
-  { field: "phone", type: "tel" },
-  { field: "address", type: "text" },
-  { field: "dueDate", type: "date" },
-  { field: "birthday", type: "text" },
-  { field: "startDate", type: "date" },
-  { field: "endDate", type: "date" },
-  { field: "duration", type: "number" },
+  { field: "name", type: "text", kind: "plain" },
+  { field: "phone", type: "tel", kind: "phone" },
+  { field: "address", type: "text", kind: "plain" },
+  { field: "dueDate", type: "text", kind: "date" },
+  { field: "birthday", type: "text", kind: "plain" },
+  { field: "startDate", type: "text", kind: "date" },
+  { field: "endDate", type: "text", kind: "date" },
+  { field: "duration", type: "number", kind: "plain" },
 ] as const;
+
+const INPUT_HINTS: Record<string, { inputMode: "numeric"; maxLength: number; placeholder: string }> = {
+  phone: { inputMode: "numeric", maxLength: 13, placeholder: "010-1234-5678" },
+  date: { inputMode: "numeric", maxLength: 10, placeholder: "YYYY-MM-DD" },
+};
 
 const TOGGLE_FIELDS = [
-  { field: "careCenter", label: "조리원 이용" },
-  { field: "voucherClient", label: "정부지원" },
-  { field: "breastPump", label: "유축기" },
+  { field: "careCenter", label: FIELD_LABELS.careCenter },
+  { field: "voucherClient", label: FIELD_LABELS.voucherClient },
+  { field: "breastPump", label: FIELD_LABELS.breastPump },
 ] as const;
 
-// birthday is YYMMDD text, not ISO — keep it out
-const DATE_FIELDS = new Set(["dueDate", "startDate", "endDate"]);
+const FIELD_KIND: Record<string, (typeof TEXT_FIELDS)[number]["kind"]> = Object.fromEntries(
+  TEXT_FIELDS.map(({ field, kind }) => [field, kind]),
+);
+
+/**
+ * Applied both to what the extraction proposes and to what the reviewer types,
+ * so a number the model returned as 01012345678 reads the same as one keyed in
+ * by hand.
+ */
+function formatFieldValue(field: string, value: string): string {
+  const kind = FIELD_KIND[field];
+  if (kind === "phone") return formatPhoneNumber(value);
+  if (kind === "date") return formatDateInput(value);
+  return value;
+}
 
 function proposalFor(proposals: Proposal[], field: string): Proposal | undefined {
   return proposals.find((p) => p.field === field);
@@ -255,7 +280,7 @@ function NewClientReview({
   const [fields, setFields] = useState<Record<string, string>>(() => {
     const seed: Record<string, string> = {};
     for (const { field } of TEXT_FIELDS) {
-      seed[field] = proposalString(proposals, field);
+      seed[field] = formatFieldValue(field, proposalString(proposals, field));
     }
     if (!seed.phone && draft.callRecord.callerPhone) {
       seed.phone = formatPhoneNumber(draft.callRecord.callerPhone);
@@ -337,9 +362,10 @@ function NewClientReview({
 
       <div className="flex flex-col gap-3">
         <div className="text-[0.75rem] font-bold text-v3-text-muted">추출된 고객 정보 — 수정 후 등록</div>
-        {TEXT_FIELDS.map(({ field, type }) => {
+        {TEXT_FIELDS.map(({ field, type, kind }) => {
           const proposal = proposalFor(proposals, field);
           const isLow = proposal?.confidence === "low";
+          const hints = INPUT_HINTS[kind];
           return (
             <div key={field} className="flex flex-col gap-1">
               <Label htmlFor={`review-${field}`} className="text-[0.72rem] text-v3-text-muted">
@@ -350,12 +376,10 @@ function NewClientReview({
                 type={type}
                 value={fields[field] ?? ""}
                 disabled={!isPending}
-                onChange={(e) =>
-                  setField(
-                    field,
-                    field === "phone" ? formatPhoneNumber(e.target.value) : e.target.value,
-                  )
-                }
+                inputMode={hints?.inputMode}
+                maxLength={hints?.maxLength}
+                placeholder={hints?.placeholder}
+                onChange={(e) => setField(field, formatFieldValue(field, e.target.value))}
                 className={isLow ? "border-amber-400 bg-amber-50" : undefined}
               />
               <EvidenceChip proposal={proposal} transcript={draft.callRecord.transcript} onJump={jump} />
@@ -437,7 +461,12 @@ function ClientUpdateReview({
     Object.fromEntries(
       proposals
         .filter((p) => typeof p.value !== "boolean")
-        .map((p) => [p.field, p.value === null || p.value === undefined ? "" : String(p.value)]),
+        .map((p) => [
+          p.field,
+          p.value === null || p.value === undefined
+            ? ""
+            : formatFieldValue(p.field, String(p.value)),
+        ]),
     ),
   );
 
@@ -557,11 +586,17 @@ function ClientUpdateReview({
               )}
               {isPending && !isBool ? (
                 <Input
-                  type={DATE_FIELDS.has(proposal.field) ? "date" : "text"}
+                  type={proposal.field === "phone" ? "tel" : "text"}
                   value={editedValues[proposal.field] ?? ""}
                   disabled={!isIncluded}
+                  inputMode={INPUT_HINTS[FIELD_KIND[proposal.field] ?? ""]?.inputMode}
+                  maxLength={INPUT_HINTS[FIELD_KIND[proposal.field] ?? ""]?.maxLength}
+                  placeholder={INPUT_HINTS[FIELD_KIND[proposal.field] ?? ""]?.placeholder}
                   onChange={(e) =>
-                    setEditedValues((prev) => ({ ...prev, [proposal.field]: e.target.value }))
+                    setEditedValues((prev) => ({
+                      ...prev,
+                      [proposal.field]: formatFieldValue(proposal.field, e.target.value),
+                    }))
                   }
                   className="text-[0.85rem]"
                   aria-label={FIELD_LABELS[proposal.field] ?? proposal.field}

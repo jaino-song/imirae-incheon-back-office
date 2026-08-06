@@ -125,6 +125,66 @@ describe("CallReviewSheet — NEW_CLIENT PENDING", () => {
     expect(phoneInput).toHaveValue("010-4821-7763");
   });
 
+  describe("input rules", () => {
+    // The extraction returns bare digits; the reviewer sees, and types, the
+    // punctuated form. The three ISO dates are typed rather than picked, so
+    // they are text inputs — birthday is YYMMDD and stays untouched.
+    const rawDetail = {
+      ...baseDetail,
+      proposals: [
+        { field: "phone", value: "01012345678", evidence: "발신 번호", confidence: "high" as const },
+        { field: "dueDate", value: "20260715", evidence: "예정일", confidence: "high" as const },
+        { field: "birthday", value: "990315", evidence: "생년월일", confidence: "high" as const },
+      ],
+    };
+
+    it("punctuates the phone number and the ISO dates it was handed", () => {
+      mockUseClientDraft.mockReturnValue({ data: rawDetail, isLoading: false });
+      render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+      expect(screen.getByRole("textbox", { name: /연락처/i })).toHaveValue("010-1234-5678");
+      expect(screen.getByLabelText(/출산예정일/i)).toHaveValue("2026-07-15");
+      // YYMMDD, not ISO — left exactly as extracted.
+      expect(screen.getByLabelText(/생년월일/i)).toHaveValue("990315");
+    });
+
+    it("takes dates from the keyboard instead of a native picker", () => {
+      render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+      for (const label of [/출산예정일/i, /시작일/i, /종료일/i]) {
+        expect(screen.getByLabelText(label)).toHaveAttribute("type", "text");
+      }
+    });
+
+    it("inserts the dashes as a date is typed", async () => {
+      const user = userEvent.setup();
+      render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+      const endDate = screen.getByLabelText(/종료일/i);
+      await user.type(endDate, "20261231");
+      expect(endDate).toHaveValue("2026-12-31");
+    });
+
+    it("inserts the dashes as a phone number is typed", async () => {
+      const user = userEvent.setup();
+      render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+      const phone = screen.getByRole("textbox", { name: /연락처/i });
+      await user.clear(phone);
+      await user.type(phone, "01099998888");
+      expect(phone).toHaveValue("010-9999-8888");
+    });
+
+    it("names the service fields the way the registration wizard does", () => {
+      render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+      expect(screen.getByText("서비스 기간")).toBeInTheDocument();
+      expect(screen.getByText("조리원 이용")).toBeInTheDocument();
+      expect(screen.getByText("바우처 고객")).toBeInTheDocument();
+      expect(screen.getByText("유축기 대여")).toBeInTheDocument();
+    });
+  });
+
   it("renders evidence chips for proposals that have evidence", () => {
     render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
 
