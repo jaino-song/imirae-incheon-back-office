@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The e2e copy drift gate diffs against a base commit; the default
           # depth-1 checkout has no history for it to resolve and the gate
@@ -165,7 +165,7 @@ jobs:
           - 8025:8025
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history; the changed-spec selection below no longer depends on it
           # (it asks the API instead), but keep it so any future git-based step works.
