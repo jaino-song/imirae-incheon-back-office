@@ -49,10 +49,12 @@ describe("client mutation message job invalidation", () => {
     });
   });
 
+  // Deletion invalidates from `onSettled` rather than `onSuccess` so the cache is
+  // reconciled after a failed optimistic removal too.
   it("invalidates upcoming jobs after deleting a client", async () => {
-    const mutation = useDeleteClient() as unknown as { onSuccess: () => Promise<void> };
+    const mutation = useDeleteClient() as unknown as { onSettled: () => Promise<void> };
 
-    await mutation.onSuccess();
+    await mutation.onSettled();
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: messageTriggerKeys.upcoming(),

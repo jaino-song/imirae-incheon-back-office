@@ -26,7 +26,6 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { Toaster } from "@/components/ui/toaster";
 import { KakaoLinkResultModal } from "@/features/auth/settings/kakao-link-result-modal";
 import {
   NOTIFICATION_EMAIL_ENABLED,
@@ -434,8 +433,6 @@ export default function SettingsPage() {
 
         </div>
       </div>
-
-      <Toaster />
     </section>
   );
 }

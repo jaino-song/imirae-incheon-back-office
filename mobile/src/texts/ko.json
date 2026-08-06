@@ -265,10 +265,10 @@
     "no-data": "등록된 고객이 없습니다.",
     "load-error": "고객 목록을 불러오는데 실패했습니다.",
     "delete-confirm": "정말로 이 고객을 삭제하시겠습니까?",
-    "delete-success": "고객 삭제 완료",
-    "delete-success-description": "선택한 고객을 삭제했습니다.",
-    "delete-fail": "고객 삭제 실패",
-    "delete-fail-description": "고객 삭제 중 오류가 발생했습니다.",
+    "delete-success": "고객을 삭제했어요",
+    "delete-success-description": "선택한 고객을 목록에서 지웠어요",
+    "delete-fail": "고객을 삭제하지 못했어요",
+    "delete-fail-description": "잠시 후 다시 시도해 주세요",
     "table": {
       "name": "이름",
       "phone": "연락처",
@@ -313,18 +313,18 @@
       "voucher-client": "바우처 고객",
       "care-center": "산후조리원",
       "breast-pump": "유축기 대여",
-      "error-name-required": "이름을 입력해주세요.",
-      "error-birthday-required": "생년월일을 입력해주세요.",
-      "error-due-date-required": "출산 예정일을 입력해주세요.",
-      "error-address-required": "주소를 입력해주세요.",
-      "error-phone-required": "연락처를 입력해주세요.",
-      "error-employee-required": "주 담당 인력을 선택해주세요.",
-      "error-type-required": "바우처 유형을 선택해주세요.",
-      "error-duration-required": "서비스 기간을 선택해주세요.",
-      "error-price-required": "요금 정보를 입력해주세요.",
-      "error-start-date-required": "시작일을 입력해주세요.",
-      "error-end-date-required": "종료일을 입력해주세요.",
-      "error-save-failed": "저장에 실패했습니다. 다시 시도해주세요.",
+      "error-name-required": "이름을 입력해 주세요",
+      "error-birthday-required": "생년월일을 입력해 주세요",
+      "error-due-date-required": "출산 예정일을 입력해 주세요",
+      "error-address-required": "주소를 입력해 주세요",
+      "error-phone-required": "연락처를 입력해 주세요",
+      "error-employee-required": "주 담당 인력을 선택해 주세요",
+      "error-type-required": "바우처 유형을 선택해 주세요",
+      "error-duration-required": "서비스 기간을 선택해 주세요",
+      "error-price-required": "요금 정보를 입력해 주세요",
+      "error-start-date-required": "시작일을 입력해 주세요",
+      "error-end-date-required": "종료일을 입력해 주세요",
+      "error-save-failed": "저장하지 못했어요. 다시 시도해 주세요",
       "employee-search-placeholder": "이름으로 검색...",
       "no-employee-found": "일치하는 제공인력이 없습니다.",
       "add-new-employee": "새 제공인력 추가",
@@ -345,7 +345,7 @@
       "doc-deleted": "삭제됨",
       "add-description": "새로운 고객을 등록하기 위해 양식을 작성하세요",
       "edit-description": "고객 정보를 수정합니다",
-      "error-phone-duplicate": "이미 등록된 연락처입니다"
+      "error-phone-duplicate": "이미 등록된 연락처예요"
     },
     "detail": {
       "description": "고객 상세 정보를 확인합니다"
@@ -386,7 +386,7 @@
       "error-phone-duplicate": "이미 등록된 연락처입니다. 다른 연락처를 입력해주세요.",
       "error-create-failed": "제공인력 등록에 실패했습니다. 다시 시도해주세요.",
       "error-update-failed": "제공인력 정보 수정에 실패했습니다. 다시 시도해주세요.",
-      "error-save-failed": "저장에 실패했습니다. 다시 시도해주세요.",
+      "error-save-failed": "저장하지 못했어요. 다시 시도해 주세요",
       "create-description": "새로운 제공인력을 등록하기 위해 양식을 작성하세요",
       "edit-description": "제공인력 정보를 수정합니다"
     },
@@ -398,7 +398,11 @@
       "title": "제공인력 삭제",
       "message": "정말로 이 제공인력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
       "error": "제공인력 삭제에 실패했습니다. 다시 시도해주세요."
-    }
+    },
+    "delete-success": "제공인력을 삭제했어요",
+    "delete-success-description": "선택한 제공인력을 목록에서 지웠어요",
+    "delete-fail": "제공인력을 삭제하지 못했어요",
+    "delete-fail-description": "잠시 후 다시 시도해 주세요"
   },
   "settings": {
     "title": "설정",

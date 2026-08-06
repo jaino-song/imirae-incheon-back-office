@@ -663,7 +663,7 @@ function ClientDetailPanelBody({
         toast({
             variant: "destructive",
             description: getScheduleChangeErrorCode(error) === "REQUEST_STALE"
-                ? "요청이 최신 상태와 달라 만료되었습니다"
+                ? "요청이 최신 상태와 달라 만료됐어요"
                 : fallbackMessage,
         });
     };
@@ -683,9 +683,9 @@ function ClientDetailPanelBody({
             void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overviewAll() });
             onScheduleChangeDecided?.(client.id);
             setActiveDetailTab("basic");
-            toast({ description: "일정 변경 요청을 승인했습니다." });
+            toast({ variant: "success", description: "일정 변경 요청을 승인했어요" });
         } catch (error) {
-            showScheduleChangeErrorToast(error, "일정 변경 요청 승인 중 오류가 발생했습니다.");
+            showScheduleChangeErrorToast(error, "일정 변경 요청을 승인하지 못했어요");
         }
     };
 
@@ -701,9 +701,9 @@ function ClientDetailPanelBody({
             void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overviewAll() });
             onScheduleChangeDecided?.(client.id);
             setActiveDetailTab("basic");
-            toast({ description: "일정 변경 요청을 거부했습니다." });
+            toast({ variant: "success", description: "일정 변경 요청을 거부했어요" });
         } catch (error) {
-            showScheduleChangeErrorToast(error, "일정 변경 요청 거부 중 오류가 발생했습니다.");
+            showScheduleChangeErrorToast(error, "일정 변경 요청을 거부하지 못했어요");
         }
     };
 

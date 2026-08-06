@@ -1,6 +1,7 @@
 import { getClientBadgeStatusToken } from "@babyjamjam/shared/tokens/status-badge";
 import { legacyClientBadges } from "@babyjamjam/shared/client/badges";
 
+import { STATUS_SURFACE } from "@/components/app/ui/status-surface";
 import type { Client, ClientBadge, ClientBadgeTone } from "@/lib/client/types";
 
 const SCHEDULE_CHANGE_BADGE_LABEL = "일정 변경";
@@ -11,11 +12,11 @@ const isScheduleChangeBadge = (badge: ClientBadge): boolean => (
 );
 
 const CLIENT_BADGE_AVATAR_CLASS_BY_TONE: Record<ClientBadgeTone, string> = {
-    danger: "border border-[hsla(355,36%,45%,0.20)] bg-[hsl(355,40%,94%)] text-[hsl(355,36%,45%)]",
-    success: "border border-[hsl(137,34%,84%)] bg-[hsl(137,60%,94%)] text-v3-green",
-    primary: "border border-[hsl(214,70%,85%)] bg-[hsl(214,80%,95%)] text-v3-primary",
-    warning: "border border-[hsla(38,92%,35%,0.18)] bg-[hsl(47,100%,92%)] text-[hsl(38,92%,35%)]",
-    neutral: "border border-[hsl(220,20%,90%)] bg-[hsl(220,20%,97%)] text-v3-text-muted",
+    danger: `border ${STATUS_SURFACE.danger}`,
+    success: `border ${STATUS_SURFACE.success}`,
+    primary: `border ${STATUS_SURFACE.primary}`,
+    warning: `border ${STATUS_SURFACE.warning}`,
+    neutral: `border ${STATUS_SURFACE.neutral}`,
 };
 
 export const applyScheduleChangeBadge = (

@@ -5,6 +5,24 @@ const DASHBOARD_LIST_ROW =
 const DASHBOARD_DETAIL_TABS =
   "mobile_dashboard_detail-sheet_stack_detail-page_content_tabs";
 
+/**
+ * The dashboard only lists a client if it lands in one of three buckets, and
+ * the one this fixture relies on — 종료 예정 — keeps clients whose endDate is
+ * between today and 30 days out. A hard-coded endDate therefore rots out of
+ * the window overnight: this spec passed on its 2026-08-05 endDate and failed
+ * the next morning with an empty list. Anchor the service window to the run
+ * date so the client always falls in the bucket.
+ */
+function isoDaysFromToday(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  // Built from local parts, not toISOString(), so the date does not shift a
+  // day in timezones ahead of UTC.
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
 const CLIENT = {
   id: 62,
   name: "송진호",
@@ -19,8 +37,9 @@ const CLIENT = {
   fullPrice: "2136000",
   grant: "1494000",
   actualPrice: "642000",
-  startDate: "2026-07-14",
-  endDate: "2026-08-05",
+  // 23-day window that is already running and ends inside the 종료 예정 bucket.
+  startDate: isoDaysFromToday(-13),
+  endDate: isoDaysFromToday(10),
   careCenter: true,
   voucherClient: true,
   breastPump: true,

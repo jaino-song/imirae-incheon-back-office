@@ -1,6 +1,12 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from '@/lib/query/optimistic-list-cache';
 import { messageTemplatesApi } from '../api/message-templates.api';
 import { messageTemplateKeys } from './keys';
 import type { MessageTemplate, PaginatedTemplates, CreateTemplateDto, UpdateTemplateDto } from '../types';
@@ -45,12 +51,31 @@ export function useUpdateMessageTemplate() {
     });
 }
 
+// Removes a template from a cached list. `PaginatedTemplates` is an array despite
+// its name, so non-array shapes (e.g. detail caches) pass through unchanged.
+function removeTemplateFromCacheData(current: unknown, id: string): unknown {
+    if (!Array.isArray(current)) return current;
+    return removeById(current as MessageTemplate[], id);
+}
+
 export function useDeleteMessageTemplate() {
     const queryClient = useQueryClient();
 
-    return useMutation({
+    return useMutation<unknown, Error, string, { previous: QuerySnapshot }>({
         mutationFn: (id: string) => messageTemplatesApi.delete(id),
-        onSuccess: async () => {
+        onMutate: async (id) => {
+            // Scope to list keys so detail caches are never optimistically edited.
+            const previous = await snapshotAndTransformQueries(
+                queryClient,
+                { queryKey: messageTemplateKeys.lists() },
+                (current) => removeTemplateFromCacheData(current, id),
+            );
+            return { previous };
+        },
+        onError: (_error, _id, context) => {
+            if (context?.previous) restoreQueries(queryClient, context.previous);
+        },
+        onSettled: async () => {
             await queryClient.invalidateQueries({ queryKey: messageTemplateKeys.all });
         },
     });
