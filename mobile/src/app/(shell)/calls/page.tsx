@@ -82,6 +82,9 @@ export default function CallsPage() {
   // loaded, or a shrinking total would strand rows the user can see.
   const serverTotal = isQueue ? draftsQuery.total : recordsQuery.total;
   const isLoadingActive = isQueue ? draftsQuery.isLoading : recordsQuery.isLoading;
+  // Only consulted when nothing is on screen, so a failed load-more — which
+  // also sets isError — never blanks a list that already has rows in it.
+  const isErrorActive = isQueue ? draftsQuery.isError : recordsQuery.isError;
   const hasNextPage = isQueue ? draftsQuery.hasNextPage : recordsQuery.hasNextPage;
   const isFetchingNextPage = isQueue
     ? draftsQuery.isFetchingNextPage
@@ -218,6 +221,17 @@ export default function CallsPage() {
                 // placeholder needs both or the rows grow when the data lands.
                 rightLines={2}
               />
+            ) : loadedCount === 0 && isErrorActive ? (
+              // "없습니다" would be a claim about the data, and a request that
+              // failed says nothing about it. Wording follows /prices, which
+              // already separates the two.
+              <div
+                className="detail-empty-state is-error"
+                data-component={`${LIST_BODY_BASE}_${isQueue ? "queue" : "log"}-error`}
+              >
+                {isQueue ? "검토 대기 목록을" : "통화 기록을"} 불러오지 못했습니다. 잠시 후 다시
+                시도해주세요.
+              </div>
             ) : loadedCount === 0 ? (
               <div
                 className="detail-empty-state"

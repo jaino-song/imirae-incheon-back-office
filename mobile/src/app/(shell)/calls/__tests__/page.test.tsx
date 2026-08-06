@@ -131,6 +131,33 @@ describe("CallsPage", () => {
     expect(screen.getByText("통화 기록이 없습니다")).toBeInTheDocument();
   });
 
+  it("says the queue failed to load rather than that it is empty", () => {
+    mockUseClientDrafts.mockReturnValue(draftsResult([], { isError: true }));
+    render(<CallsPage />);
+
+    expect(screen.getByText(/불러오지 못했습니다/)).toBeInTheDocument();
+    expect(screen.queryByText("검토할 통화가 없습니다")).not.toBeInTheDocument();
+  });
+
+  it("still says the queue is empty when the request simply returned nothing", () => {
+    mockUseClientDrafts.mockReturnValue(draftsResult([]));
+    render(<CallsPage />);
+
+    expect(screen.getByText("검토할 통화가 없습니다")).toBeInTheDocument();
+  });
+
+  // A page-2 failure sets isError too, so keying the message off it alone would
+  // replace a list the reviewer is working through with an error.
+  it("keeps the loaded rows on screen when a later page fails", () => {
+    mockUseClientDrafts.mockReturnValue(
+      draftsResult([draft], { isError: true, isLoadMoreError: true, hasNextPage: true }),
+    );
+    render(<CallsPage />);
+
+    expect(screen.getByText(/김서연/)).toBeInTheDocument();
+    expect(screen.queryByText(/불러오지 못했습니다/)).not.toBeInTheDocument();
+  });
+
   describe("server-page glue", () => {
     /** Enough loaded rows that the reveal can sit well short of the end. */
     const manyDrafts = Array.from({ length: 40 }, (_, i) => ({ ...draft, id: `draft-${i}` }));

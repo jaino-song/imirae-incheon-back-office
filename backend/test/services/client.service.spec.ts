@@ -1,4 +1,4 @@
-import { Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 import { ClientService } from "../../application/services/client.service";
@@ -1277,6 +1277,39 @@ describe("ClientService", () => {
                 expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
                     where: { id: 1, branchId },
                     data: expect.objectContaining({ birthDate: new Date("1995-03-15") }),
+                }));
+            });
+
+            // A raw `new Date` accepted both of these: a month-only string became
+            // the first of that month, and an unparseable one reached Prisma as
+            // an Invalid Date and surfaced as a 500. They are bad input, so they
+            // have to be rejected before the transaction opens.
+            it.each([
+                ["a month without a day", "2026-08"],
+                ["a day that does not exist", "2026-02-31"],
+                ["something that is not a date", "내일"],
+            ])("rejects %s rather than guessing at it", async (_label, value) => {
+                findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+
+                await expect(service.update(branchId, 1, { birthDate: value })).rejects.toBeInstanceOf(
+                    BadRequestException,
+                );
+                await expect(service.update(branchId, 1, { dueDate: value })).rejects.toBeInstanceOf(
+                    BadRequestException,
+                );
+
+                expect(prismaService.$transaction).not.toHaveBeenCalled();
+            });
+
+            // These columns are calendar dates, not instants. A raw `new Date`
+            // honours the offset and lands the write on the 14th in UTC.
+            it("keeps 출산예정일 on the day the caller submitted, offset or not", async () => {
+                findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+
+                await service.update(branchId, 1, { dueDate: "2026-09-15T00:00:00+09:00" });
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    data: expect.objectContaining({ dueDate: new Date("2026-09-15T00:00:00.000Z") }),
                 }));
             });
 

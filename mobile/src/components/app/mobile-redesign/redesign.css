@@ -1889,6 +1889,11 @@ body.mobile-all-route .menu-row {
   line-height: 1.45;
   text-align: center;
 }
+/* A request that failed, not a list that is empty. Muted grey reads as "there
+   is nothing here"; this has to read as "something went wrong". */
+.detail-empty-state.is-error {
+  color: hsl(var(--v3-burgundy));
+}
 .info-row {
   display: flex;
   align-items: flex-start;
