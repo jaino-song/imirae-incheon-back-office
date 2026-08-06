@@ -90,9 +90,9 @@ export default function FilesPage() {
       await uploadMutation.mutateAsync({ ...params, onProgress: (p: number) => setUploadProgress(p) });
       setIsUploadOpen(false);
       setUploadDropzoneState(EMPTY_UPLOAD_STATE);
-      toast({ title: "성공", description: "문서가 업로드되었습니다.", variant: "default" });
+      toast({ description: "문서를 업로드했어요", variant: "success" });
     } catch {
-      toast({ title: "오류", description: "문서 업로드에 실패했습니다.", variant: "destructive" });
+      toast({ description: "문서를 업로드하지 못했어요", variant: "destructive" });
     }
   };
 
@@ -109,9 +109,9 @@ export default function FilesPage() {
     try {
       await updateMutation.mutateAsync({ id, ...params });
       setEditDoc(null);
-      toast({ title: "성공", description: "문서가 수정되었습니다.", variant: "default" });
+      toast({ description: "문서를 수정했어요", variant: "success" });
     } catch {
-      toast({ title: "오류", description: "문서 수정에 실패했습니다.", variant: "destructive" });
+      toast({ description: "문서를 수정하지 못했어요", variant: "destructive" });
     }
   };
 
@@ -120,9 +120,9 @@ export default function FilesPage() {
     try {
       await deleteMutation.mutateAsync(deleteDoc.id);
       setDeleteDoc(null);
-      toast({ title: "성공", description: "문서가 삭제되었습니다.", variant: "default" });
+      toast({ description: "문서를 삭제했어요", variant: "success" });
     } catch {
-      toast({ title: "오류", description: "문서 삭제에 실패했습니다.", variant: "destructive" });
+      toast({ description: "문서를 삭제하지 못했어요", variant: "destructive" });
     }
   };
 
@@ -130,9 +130,9 @@ export default function FilesPage() {
     try {
       await createCategoryMutation.mutateAsync(category);
       setIsAddCategoryOpen(false);
-      toast({ title: "성공", description: "카테고리가 추가되었습니다.", variant: "default" });
+      toast({ description: "카테고리를 추가했어요", variant: "success" });
     } catch {
-      toast({ title: "오류", description: "카테고리 추가에 실패했습니다.", variant: "destructive" });
+      toast({ description: "카테고리를 추가하지 못했어요", variant: "destructive" });
     }
   };
 

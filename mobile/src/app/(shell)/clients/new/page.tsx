@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, X } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   findOutOfPocketPriceInfo,
@@ -11,6 +10,7 @@ import {
 } from "@babyjamjam/shared";
 import { useClient, useCreateClient, useUpdateClient } from "@/hooks/useClients";
 import { useNavigationPending } from "@/hooks/use-navigation-pending";
+import { toast } from "@/hooks/use-toast";
 import {
   useAllVoucherPrices,
   useOutOfPocketPriceInfos,
@@ -215,15 +215,12 @@ export default function NewClientPage() {
   const store = useClientWizardStore();
   const { currentStep, pricesManuallyEdited, setField, setCurrentStep, setPricesManuallyEdited, reset } = store;
 
-  const [floatingError, setFloatingError] = useState<string | null>(null);
-  const prefersReducedMotion = useReducedMotion();
   const [isEmployeeDialogOpen, setIsEmployeeDialogOpen] = useState(false);
   const [employeeDialogTarget, setEmployeeDialogTarget] = useState<"primary" | "secondary" | null>(null);
   const [isCheckingPhoneDuplicate, setIsCheckingPhoneDuplicate] = useState(false);
   const [isPhoneDuplicate, setIsPhoneDuplicate] = useState(false);
   const [hasPhoneDuplicateCheckFailed, setHasPhoneDuplicateCheckFailed] = useState(false);
   const [lastCheckedPhoneDigits, setLastCheckedPhoneDigits] = useState<string | null>(null);
-  const floatingErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastInitializedFormKeyRef = useRef<string | null>(null);
   const lastHydratedIdRef = useRef<number | null>(null);
   const lastHydratedContractDocIdRef = useRef<string | null>(null);
@@ -278,24 +275,10 @@ export default function NewClientPage() {
           ? "ok"
           : "muted";
 
-  const showFloatingError = (message: string) => {
-    setFloatingError(message);
-    if (floatingErrorTimeoutRef.current) {
-      clearTimeout(floatingErrorTimeoutRef.current);
-    }
-    floatingErrorTimeoutRef.current = setTimeout(() => {
-      setFloatingError(null);
-      floatingErrorTimeoutRef.current = null;
-    }, 5000);
+  const showErrorToast = (message: string) => {
+    toast({ variant: "destructive", description: message });
   };
 
-  useEffect(() => {
-    return () => {
-      if (floatingErrorTimeoutRef.current) {
-        clearTimeout(floatingErrorTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const formSessionKey = isEditMode ? `edit:${editingClientId}` : "create";
 
@@ -724,17 +707,17 @@ export default function NewClientPage() {
 
     if (step === 0) {
       if (!store.name.trim()) {
-        showFloatingError(t(locale, "clients.form.error-name-required"));
+        showErrorToast(t(locale, "clients.form.error-name-required"));
       } else if (store.birthday.replace(/\D/g, "").length !== 6) {
-        showFloatingError(t(locale, "clients.form.error-birthday-required"));
+        showErrorToast(t(locale, "clients.form.error-birthday-required"));
       } else if (!store.dueDate) {
-        showFloatingError(t(locale, "clients.form.error-due-date-required"));
+        showErrorToast(t(locale, "clients.form.error-due-date-required"));
       } else if (phoneDigits.length !== 11) {
-        showFloatingError(t(locale, "clients.form.error-phone-required"));
+        showErrorToast(t(locale, "clients.form.error-phone-required"));
       } else if (hasPhoneDuplicateCheckFailed) {
-        showFloatingError(PHONE_DUPLICATE_CHECK_FAILED_MESSAGE);
+        showErrorToast(PHONE_DUPLICATE_CHECK_FAILED_MESSAGE);
       } else if (isPhoneDuplicate) {
-        showFloatingError(t(locale, "clients.form.error-phone-duplicate"));
+        showErrorToast(t(locale, "clients.form.error-phone-duplicate"));
       }
     }
 
@@ -779,7 +762,7 @@ export default function NewClientPage() {
       startNavigation();
       router.push(clientsReturnHref);
     } catch (err: unknown) {
-      showFloatingError(getErrorMessage(err, locale, "clients.form.error-save-failed"));
+      showErrorToast(getErrorMessage(err, locale, "clients.form.error-save-failed"));
     }
   };
 
@@ -821,46 +804,6 @@ export default function NewClientPage() {
 
   return (
     <>
-      <AnimatePresence>
-        {floatingError && (
-          <motion.div
-            key="clients-new-floating-error"
-            data-component="mobile_clients-new_feedback_toast"
-            className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.75rem)] z-[1001] max-w-[320px] overflow-hidden rounded-2xl bg-v3-burgundy-light px-4 py-3 text-[0.8rem] font-semibold text-v3-burgundy shadow-[0_8px_24px_hsla(349,50%,45%,0.2)] md:top-4"
-            initial={
-              prefersReducedMotion
-                ? { opacity: 0 }
-                : { opacity: 0, scale: 0.92, y: -6 }
-            }
-            animate={
-              prefersReducedMotion
-                ? { opacity: 1 }
-                : { opacity: 1, scale: 1, y: 0 }
-            }
-            exit={
-              prefersReducedMotion
-                ? { opacity: 0 }
-                : { opacity: 0, scale: 0.95, y: -4 }
-            }
-            transition={{ duration: prefersReducedMotion ? 0.16 : 0.28, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {!prefersReducedMotion && (
-              <motion.div
-                data-component="mobile_clients-new_feedback_toast_ripple"
-                className="pointer-events-none absolute inset-0 rounded-[inherit] border border-v3-burgundy/50"
-                initial={{ opacity: 0.5, scale: 0.72 }}
-                animate={{ opacity: 0, scale: 1.28 }}
-                exit={{ opacity: 0, scale: 1.18 }}
-                transition={{ duration: 0.52, ease: [0.22, 1, 0.36, 1] }}
-              />
-            )}
-            <span data-component="mobile_clients-new_feedback_toast_message" className="relative z-[1]">
-              {floatingError}
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <div
         className={styles.pageRoot}
         data-component="mobile_clients-new_screen_root"

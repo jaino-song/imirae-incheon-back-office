@@ -167,7 +167,10 @@ describe("SenderApprovalDetail", () => {
     await waitFor(() => {
       expect(mockedSettingsApi.requestMessageSenderApproval).toHaveBeenCalledTimes(1);
     });
-    expect(mockToast).toHaveBeenCalledWith({ description: "신청이 완료되었습니다." });
+    expect(mockToast).toHaveBeenCalledWith({
+      variant: "success",
+      description: "신청을 접수했어요",
+    });
     expect(mockReplace).toHaveBeenCalledWith("/all");
   });
 });

@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, X } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import dayjs from "dayjs";
 import { isAxiosError } from "axios";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,6 +11,7 @@ import { getApiErrorMessage } from "@babyjamjam/shared";
 import { useFormStore } from "@/stores/form-store";
 import { useEformsign } from "@/hooks/useEformsign";
 import { useNavigationPending } from "@/hooks/use-navigation-pending";
+import { toast } from "@/hooks/use-toast";
 import { useVoucherYears, useVoucherPriceInfos, useAreaTemplates, useAllVoucherPrices } from "@/hooks";
 import { useAllClients, useCreateClient, useDeleteClient, useUpdateClient } from "@/hooks/useClients";
 import { useEmployees, type Employee } from "@/hooks/useEmployees";
@@ -176,7 +176,6 @@ export default function ContractCreationPage() {
   const router = useRouter();
   const { isNavigationPending, startNavigation } = useNavigationPending();
   const queryClient = useQueryClient();
-  const prefersReducedMotion = useReducedMotion();
 
   const createClientMutation = useCreateClient();
   const deleteClientMutation = useDeleteClient();
@@ -210,7 +209,6 @@ export default function ContractCreationPage() {
 
   const [activeStep, setActiveStep] = useState(0);
   const [pricesManuallyEdited, setPricesManuallyEdited] = useState(false);
-  const [floatingError, setFloatingError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEformsignModalOpen, setIsEformsignModalOpen] = useState(false);
   const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
@@ -231,7 +229,6 @@ export default function ContractCreationPage() {
   const [creationProgress, setCreationProgress] = useState<HeadlessProgressState>(INITIAL_HEADLESS_PROGRESS);
   const [progressErrorHint, setProgressErrorHint] = useState<string | null>(null);
   const progressSourceRef = useRef<EventSource | null>(null);
-  const floatingErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedClientRef = useRef<Pick<Client, "id" | "name"> | null>(null);
   const defaultPaymentDate = useMemo(() => todayIsoDate(), []);
   const hasAppliedPaymentStepDefaultRef = useRef(false);
@@ -456,17 +453,11 @@ export default function ContractCreationPage() {
     if (endIso) setEndDate(endIso);
   }, [startDate, voucherDuration, setEndDate]);
 
-  const showFloatingError = (message: string) => {
-    setFloatingError(message);
-    if (floatingErrorTimeoutRef.current) clearTimeout(floatingErrorTimeoutRef.current);
-    floatingErrorTimeoutRef.current = setTimeout(() => {
-      setFloatingError(null);
-      floatingErrorTimeoutRef.current = null;
-    }, 5000);
+  const showErrorToast = (message: string) => {
+    toast({ variant: "destructive", description: message });
   };
 
   useEffect(() => () => {
-    if (floatingErrorTimeoutRef.current) clearTimeout(floatingErrorTimeoutRef.current);
     progressSourceRef.current?.close();
   }, []);
 
@@ -609,17 +600,17 @@ export default function ContractCreationPage() {
   const isCurrentStepValid = [isStep1Valid, isStep2Valid, isStep3Valid, isStep4Valid][activeStep] ?? true;
 
   const getStepValidationMessage = (step: number): string | null => {
-    if (step === 0 && !isStep1Valid) return "고객 정보와 계약서를 선택해 주세요.";
-    if (step === 1 && !isStep2Valid) return "등록된 제공인력을 목록에서 선택해 주세요.";
-    if (step === 2 && !isStep3Valid) return "바우처 유형/기간과 금액 정보를 입력해 주세요.";
-    if (step === 3 && !isStep4Valid) return "계약 시작일, 종료일, 본인부담금 수령 날짜를 입력해 주세요.";
+    if (step === 0 && !isStep1Valid) return "고객 정보와 계약서를 선택해 주세요";
+    if (step === 1 && !isStep2Valid) return "등록된 제공인력을 목록에서 선택해 주세요";
+    if (step === 2 && !isStep3Valid) return "바우처 유형/기간과 금액 정보를 입력해 주세요";
+    if (step === 3 && !isStep4Valid) return "계약 시작일, 종료일, 본인부담금 수령 날짜를 입력해 주세요";
     return null;
   };
 
   const handleNext = () => {
     if (!isCurrentStepValid) {
       const msg = getStepValidationMessage(activeStep);
-      if (msg) showFloatingError(msg);
+      if (msg) showErrorToast(msg);
       return;
     }
     if (activeStep === WIZARD_STEPS.length - 1) {
@@ -649,7 +640,7 @@ export default function ContractCreationPage() {
     expiry: dayjs.Dayjs,
   ): Promise<boolean> => {
     if (!isEformsignLoaded) {
-      showFloatingError("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
+      showErrorToast("eformsign SDK를 아직 불러오는 중이에요. 잠시 후 다시 시도해 주세요");
       return false;
     }
     const documentOption: EformsignDocumentOption = await eformsignApi.generateDocument(
@@ -682,7 +673,7 @@ export default function ContractCreationPage() {
           }, SUCCESS_REDIRECT_DELAY_MS);
         },
         onError: (response) => {
-          showFloatingError(`문서 생성 실패: ${response.message}`);
+          showErrorToast(`문서를 만들지 못했어요. ${response.message}`);
           closeEformsignModal();
         },
         onAction: () => { /* noop */ },
@@ -694,7 +685,7 @@ export default function ContractCreationPage() {
   const handleSubmit = async () => {
     if (employeeId === null || (showEmployee2 && employee2Id === null)) {
       setActiveStep(1);
-      showFloatingError("등록된 제공인력을 목록에서 선택해 주세요.");
+      showErrorToast("등록된 제공인력을 목록에서 선택해 주세요");
       return;
     }
     setIsSubmitting(true);
@@ -939,7 +930,7 @@ export default function ContractCreationPage() {
           failedStep: headlessFailureStep,
         });
         if (headlessFailureReason) {
-          showFloatingError(getSafeHeadlessFailureMessage(headlessFailureReason));
+          showErrorToast(getSafeHeadlessFailureMessage(headlessFailureReason));
         }
         setIsProgressModalOpen(false);
         keepSubmittingUntilIframeCloses = await runIframeFallback(contractData, finalClientId, end);
@@ -947,14 +938,14 @@ export default function ContractCreationPage() {
     } catch (err: unknown) {
       setIsProgressModalOpen(false);
       const msg = err instanceof Error ? err.message : "계약서 생성 중 오류가 발생했습니다.";
-      showFloatingError(autoRegisteredClientId ? `${msg} 방금 자동 등록된 고객이 남아 있습니다.` : msg);
+      showErrorToast(autoRegisteredClientId ? `${msg} 방금 자동 등록된 고객이 남아 있어요` : msg);
       if (autoRegisteredClientId && (await requestConfirmation("방금 자동 등록된 고객이 남아 있습니다. 고객을 삭제할까요?"))) {
         try {
           await deleteClientMutation.mutateAsync(autoRegisteredClientId);
           setClientId(null);
         } catch (deleteError) {
           if (isAxiosError<{ message?: string }>(deleteError)) {
-            showFloatingError(deleteError.response?.data.message || "고객 삭제에 실패했습니다.");
+            showErrorToast(deleteError.response?.data.message || "고객을 삭제하지 못했어요");
           }
         }
       }
@@ -975,23 +966,6 @@ export default function ContractCreationPage() {
 
   return (
     <>
-      <AnimatePresence>
-        {floatingError && (
-          <motion.div
-            data-component="mobile_contracts-new_feedback_toast"
-            className="fixed right-4 top-[calc(env(safe-area-inset-top)+4.75rem)] z-[1001] max-w-[320px] overflow-hidden rounded-2xl bg-v3-burgundy-light px-4 py-3 text-[0.8rem] font-semibold text-v3-burgundy shadow-[0_8px_24px_hsla(349,50%,45%,0.2)] md:top-4"
-            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.92, y: -6 }}
-            animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
-            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95, y: -4 }}
-            transition={{ duration: prefersReducedMotion ? 0.16 : 0.28, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <span className="relative z-[1]" data-component="mobile_contracts-new_feedback_toast_toast-message">
-              {floatingError}
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <div
         className={styles.pageRoot}
         data-component="mobile_contracts-new_screen_root"

@@ -112,7 +112,7 @@ function ClientServiceRecordsTabContent({
                 scheduleId: assignment.scheduleId,
                 clientId: clientId ?? undefined,
             });
-            toast({ description: "제공기록지 링크를 발송했습니다." });
+            toast({ variant: "success", description: "제공기록지 링크를 보냈어요" });
             return true;
         } catch (error) {
             toast({
@@ -1079,5 +1079,5 @@ function getErrorDescription(error: unknown): string {
         }
     }
 
-    return "제공기록지 링크 발송에 실패했습니다.";
+    return "제공기록지 링크를 보내지 못했어요";
 }

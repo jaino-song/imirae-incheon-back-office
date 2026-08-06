@@ -50,11 +50,11 @@ export function useClientRegistrationPolicy(): UseClientRegistrationPolicyResult
     },
     onError: (_error, _patch, context) => {
       if (context?.previous) queryClient.setQueryData(QUERY_KEY, context.previous);
-      toast({ variant: "destructive", description: "고객 자동 등록 설정 저장 중 오류가 발생했습니다." });
+      toast({ variant: "destructive", description: "고객 자동 등록 설정을 저장하지 못했어요" });
     },
     onSuccess: (saved) => {
       queryClient.setQueryData(QUERY_KEY, saved);
-      toast({ description: "고객 자동 등록 설정이 저장되었습니다." });
+      toast({ variant: "success", description: "고객 자동 등록 설정을 저장했어요" });
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
   });

@@ -1358,14 +1358,14 @@ function MessageHistorySection() {
       const retriedRecord = await retryHistory(selectedRecord.id);
 
       if (retriedRecord.status === "failed") {
-        throw new Error(retriedRecord.errorMessage || "메시지 재발송에 실패했습니다.");
+        throw new Error(retriedRecord.errorMessage || "메시지를 재발송하지 못했어요");
       }
 
-      toast({ description: "재발송 요청을 등록했습니다." });
+      toast({ variant: "success", description: "재발송 요청을 접수했어요" });
     } catch (error) {
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "재발송 요청 중 오류가 발생했습니다.",
+        description: error instanceof Error ? error.message : "재발송을 요청하지 못했어요",
       });
     }
   }, [retryHistory, selectedRecord, toast]);

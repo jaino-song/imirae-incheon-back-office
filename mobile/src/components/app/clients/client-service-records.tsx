@@ -285,7 +285,7 @@ function LinkCard({
                 scheduleId: assignment.scheduleId,
                 clientId,
             });
-            toast({ description: "제공기록지 링크를 발송했습니다." });
+            toast({ variant: "success", description: "제공기록지 링크를 보냈어요" });
         } catch (error) {
             toast({
                 description: getErrorDescription(error),
@@ -828,7 +828,7 @@ function getErrorDescription(error: unknown): string {
         }
     }
 
-    return "제공기록지 링크 발송 중 오류가 발생했습니다.";
+    return "제공기록지 링크를 보내지 못했어요";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

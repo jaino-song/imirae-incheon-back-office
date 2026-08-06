@@ -242,6 +242,7 @@ export default function DashboardPage() {
       if (selectedClient?.id === deleteTargetClientId) setSelectedClient(null);
       setDeleteTargetClientId(null);
       toast({
+        variant: "success",
         title: t(locale, "clients.delete-success"),
         description: t(locale, "clients.delete-success-description"),
       });

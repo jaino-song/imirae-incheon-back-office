@@ -496,8 +496,8 @@ export default function ContractsPage() {
     if (registerClientDocumentId !== null && registerCandidateQuery.isError) {
       toast({
         variant: "destructive",
-        title: "계약 정보 불러오기 실패",
-        description: "고객 정보를 직접 입력해 주세요.",
+        title: "계약 정보를 불러오지 못했어요",
+        description: "고객 정보를 직접 입력해 주세요",
       });
     }
   }, [registerCandidateQuery.isError, registerClientDocumentId, toast]);
@@ -688,17 +688,18 @@ export default function ContractsPage() {
       setRegisterClientDocumentId(null);
       setDeleteTargetDocumentId(null);
       toast({
-        title: "문서 삭제 완료",
-        description: "선택한 문서를 삭제했습니다.",
+        variant: "success",
+        title: "문서를 삭제했어요",
+        description: "선택한 문서를 목록에서 지웠어요",
       });
     } catch (deleteError) {
       console.error("Failed to delete contract document:", deleteError);
       toast({
-        title: "문서 삭제 실패",
+        title: "문서를 삭제하지 못했어요",
         description:
           deleteError instanceof Error
             ? deleteError.message
-            : "문서 삭제 중 오류가 발생했습니다. 다시 시도해주세요.",
+            : "잠시 후 다시 시도해 주세요",
         variant: "destructive",
       });
     }
@@ -1385,8 +1386,9 @@ function ContractDetail({
 
   const handleFinalizeSuccess = () => {
     toast({
-      title: "최종 확인 완료",
-      description: `${reviewDocumentLabel}가 완료 처리되었습니다.`,
+      variant: "success",
+      title: "최종 확인을 마쳤어요",
+      description: `${reviewDocumentLabel}를 완료 처리했어요`,
     });
     resetFinalizeState();
     queryClient.invalidateQueries({ queryKey: ["eformsign-documents"] });
@@ -1412,13 +1414,14 @@ function ContractDetail({
       handleReRequestDialogChange(false);
       queryClient.invalidateQueries({ queryKey: ["eformsign-documents"] });
       toast({
-        description: `${customerName}님에게 전자문서 작성을 재요청했습니다.`,
+        variant: "success",
+        description: `${customerName}님에게 전자문서 작성을 재요청했어요`,
       });
     },
     onError: (error) => {
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "재요청 중 오류가 발생했습니다.",
+        description: error instanceof Error ? error.message : "재요청하지 못했어요",
       });
     },
   });
@@ -1455,8 +1458,9 @@ function ContractDetail({
         setIsFinalizeOpen(false);
         setFinalizeEndDate("");
         toast({
-          title: "최종 확인 완료",
-          description: `${reviewDocumentLabel}가 완료 처리되었습니다.`,
+          variant: "success",
+          title: "최종 확인을 마쳤어요",
+          description: `${reviewDocumentLabel}를 완료 처리했어요`,
         });
         // Headless finalize completes within ~1s of the SDK success callback,
         // but eformsign's status field (060 → 070) and the matching webhook
@@ -1485,8 +1489,8 @@ function ContractDetail({
       setFinalizeProgress(INITIAL_FINALIZE_PROGRESS);
       toast({
         variant: "destructive",
-        title: "최종 확인 실패",
-        description: error instanceof Error ? error.message : "최종 확인 준비 중 오류가 발생했습니다.",
+        title: "최종 확인을 마치지 못했어요",
+        description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요",
       });
     },
   });
@@ -1514,7 +1518,7 @@ function ContractDetail({
   const handleStaffCompletionError = (message: string) => {
     toast({
       variant: "destructive",
-      title: "최종 확인 실패",
+      title: "최종 확인을 마치지 못했어요",
       description: message,
     });
     closeStaffCompletionModal();
@@ -1522,8 +1526,8 @@ function ContractDetail({
 
   const handleStaffCompletionCancel = () => {
     toast({
-      title: "최종 확인 취소",
-      description: "최종 확인이 취소되었습니다.",
+      title: "최종 확인을 취소했어요",
+      description: "필요하면 다시 최종 확인을 진행할 수 있어요",
     });
     closeStaffCompletionModal();
   };

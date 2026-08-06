@@ -111,7 +111,7 @@ export function SenderApprovalDetail({
     onSuccess: (approval: MessageSenderApprovalResponse) => {
       queryClient.setQueryData(MESSAGE_SENDER_APPROVAL_QUERY_KEY, approval);
       setErrorMessage(null);
-      toast({ description: "신청이 완료되었습니다." });
+      toast({ variant: "success", description: "신청을 접수했어요" });
       startNavigation();
       router.replace("/all");
     },
