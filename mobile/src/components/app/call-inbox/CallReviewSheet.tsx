@@ -18,7 +18,8 @@ import {
   useDiscardDraft,
   usePatchDraft,
 } from "@/hooks/useCallInbox";
-import { formatCallTime, formatDateInput, formatPhoneNumber } from "@/lib/call-inbox/format";
+import { formatCallTime, formatPhoneNumber } from "@/lib/call-inbox/format";
+import { formatIsoDateInput } from "@/lib/contracts/date-input";
 import type {
   ClientDraftDetail,
   ClientDraftListItem,
@@ -108,7 +109,7 @@ const FIELD_KIND: Record<string, (typeof TEXT_FIELDS)[number]["kind"]> = Object.
 function formatFieldValue(field: string, value: string): string {
   const kind = FIELD_KIND[field];
   if (kind === "phone") return formatPhoneNumber(value);
-  if (kind === "date") return formatDateInput(value);
+  if (kind === "date") return formatIsoDateInput(value);
   return value;
 }
 

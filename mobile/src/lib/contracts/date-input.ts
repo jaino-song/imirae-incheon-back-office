@@ -37,6 +37,24 @@ export function normalizeIsoDate(value: string | null | undefined): string {
   return isStrictIsoDate(isoDate) ? isoDate : "";
 }
 
+/**
+ * Types out to YYYY-MM-DD, inserting the dashes as the digits arrive, so a date
+ * can be keyed straight in instead of going through the native picker. Shapes
+ * the text only — use isStrictIsoDate to find out whether it is a real date.
+ */
+export function formatIsoDateInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+
+  if (digits.length <= 4) {
+    return digits;
+  }
+  if (digits.length <= 6) {
+    return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  }
+
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+}
+
 export function yymmddToIso(value: string): string {
   const trimmed = value.trim();
 
