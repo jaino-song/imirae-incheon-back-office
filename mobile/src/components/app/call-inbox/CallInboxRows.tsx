@@ -92,7 +92,9 @@ export function DraftRow({
       name={
         <>
           <CallerName>{callerLine(draft.callerName, draft.callerPhone)}</CallerName>
-          {draft.client && <RowFlag label={`고객 #${draft.client.id} 일치`} tone="muted" />}
+          {/* Just the id — that this chip is here at all is the "matched" part,
+              and the spare width goes back to the caller's phone number. */}
+          {draft.client && <RowFlag label={`고객 #${draft.client.id}`} tone="muted" />}
           {draft.hasLowConfidence && <RowFlag label="⚠ 확신도 낮음" />}
           {draft.possibleDuplicate && <RowFlag label="중복 가능" />}
           {needsClientLink && <RowFlag label="고객 연결 필요" />}
@@ -151,12 +153,17 @@ export function RecordRow({
           )}
         </>
       }
+      // undefined rather than an empty fragment: ListItemRow renders the meta
+      // line for anything that is not undefined, and a call with no summary
+      // would otherwise carry a blank one.
       meta={
-        <>
-          {record.summaryLine}
-          {record.summaryLine && draftSuffix ? " · " : null}
-          {draftSuffix}
-        </>
+        record.summaryLine || draftSuffix ? (
+          <>
+            {record.summaryLine}
+            {record.summaryLine && draftSuffix ? " · " : null}
+            {draftSuffix}
+          </>
+        ) : undefined
       }
       right={
         <>
