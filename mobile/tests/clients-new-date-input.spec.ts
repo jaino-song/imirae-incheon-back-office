@@ -23,6 +23,7 @@ const CLIENT = {
   dueDate: "2026-09-15",
   startDate: "2026-09-20",
   endDate: "2026-10-17",
+  birthDate: "2026-08-05",
   address: "인천 부평구",
   type: "A통합1형",
   duration: "20",
@@ -49,6 +50,8 @@ const dueDate = (page: Page) =>
   page.locator('[data-component$="due-date-field_due-date-input"]');
 const birthday = (page: Page) =>
   page.locator('[data-component$="birthday-field_birthday-input"]');
+const birthDate = (page: Page) =>
+  page.locator('[data-component$="birth-date-field_birth-date-input"]');
 
 test.describe("Client registration date inputs", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -77,6 +80,20 @@ test.describe("Client registration date inputs", () => {
     await expect(birthday(page)).toHaveValue("990315");
   });
 
+  test("offers 출산일 alongside 출산 예정일", async ({ page }) => {
+    // The client table has both: dueDate is what was expected, birthDate is
+    // what happened. Only the desktop form used to let anyone enter the latter.
+    await mockApi(page);
+    await page.goto("/clients/new");
+    await expect(birthDate(page)).toBeVisible();
+
+    await birthDate(page).pressSequentially("20260805");
+    await dueDate(page).pressSequentially("20260915");
+
+    await expect(birthDate(page)).toHaveValue("2026-08-05");
+    await expect(dueDate(page)).toHaveValue("2026-09-15");
+  });
+
   test("fills an existing client's dates back in as ISO", async ({ page }) => {
     await mockApi(page);
     await page.goto("/clients/new?clientId=7");
@@ -84,5 +101,6 @@ test.describe("Client registration date inputs", () => {
     // Hydration used to convert down to YYMMDD; the store holds ISO now.
     await expect(dueDate(page)).toHaveValue("2026-09-15", { timeout: 10_000 });
     await expect(birthday(page)).toHaveValue("990315");
+    await expect(birthDate(page)).toHaveValue("2026-08-05");
   });
 });

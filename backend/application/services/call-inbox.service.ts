@@ -335,6 +335,7 @@ export class CallInboxService {
                 voucherClient: Boolean(fields["voucherClient"]),
                 birthday: (fields["birthday"] as string | null | undefined) ?? null,
                 dueDate: (fields["dueDate"] as string | null | undefined) ?? null,
+                birthDate: (fields["birthDate"] as string | null | undefined) ?? null,
                 serviceStatus: (fields["serviceStatus"] as string | null | undefined) ?? null,
                 breastPump: Boolean(fields["breastPump"]),
                 areaId: (fields["areaId"] as string | null | undefined) ?? null,

@@ -175,6 +175,39 @@ describe("CallReviewSheet — NEW_CLIENT PENDING", () => {
       expect(phone).toHaveValue("010-9999-8888");
     });
 
+    it("keeps 출산일 separate from 출산예정일", async () => {
+      // A "아기 낳았어요" call fills in the actual delivery date; the due date
+      // it replaces stays put. They are different columns on the client.
+      mockUseClientDraft.mockReturnValue({
+        data: {
+          ...baseDetail,
+          proposals: [
+            { field: "dueDate", value: "20260915", evidence: "예정일", confidence: "high" as const },
+            { field: "birthDate", value: "20260805", evidence: "지난주에 낳았어요", confidence: "high" as const },
+          ],
+        },
+        isLoading: false,
+      });
+      render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+      expect(screen.getByLabelText(/출산일/i)).toHaveValue("2026-08-05");
+      expect(screen.getByLabelText(/출산예정일/i)).toHaveValue("2026-09-15");
+    });
+
+    it("sends 출산일 through on confirm", async () => {
+      const user = userEvent.setup();
+      render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
+
+      await user.type(screen.getByLabelText(/출산일/i), "20260806");
+      await user.click(screen.getByRole("button", { name: "고객 등록" }));
+
+      expect(mockConfirmMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fields: expect.objectContaining({ birthDate: "2026-08-06" }),
+        }),
+      );
+    });
+
     it("names the service fields the way the registration wizard does", () => {
       render(<CallReviewSheet draftId="draft-1" onClose={jest.fn()} />);
 

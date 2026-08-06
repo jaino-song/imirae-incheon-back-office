@@ -11,6 +11,7 @@ const baseClient: Client = {
   name: "김정인",
   birthday: "960101",
   dueDate: "2026-05-30T00:00:00.000Z",
+  birthDate: null,
   address: "인천광역시 남동구 구월동",
   phone: "010-1234-5678",
   primaryEmployee: { id: 7, name: "이관리" },

@@ -9,6 +9,7 @@ const BASE_CLIENT: Client = {
   updatedAt: null,
   birthday: null,
   dueDate: null,
+  birthDate: null,
   address: null,
   phone: null,
   primaryEmployee: { id: 1, name: "김정인" },

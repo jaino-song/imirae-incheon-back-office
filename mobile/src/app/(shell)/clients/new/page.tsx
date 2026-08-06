@@ -347,6 +347,7 @@ export default function NewClientPage() {
     setField("name", editingClient.name);
     setField("birthday", editingClient.birthday ?? "");
     setField("dueDate", normalizeIsoDate(editingClient.dueDate));
+    setField("birthDate", normalizeIsoDate(editingClient.birthDate));
     setField("address", editingClient.address ?? "");
     setField("phone", editingClient.phone ?? "");
     setField("primaryEmployeeId", editingClient.primaryEmployee?.id ?? null);
@@ -733,6 +734,7 @@ export default function NewClientPage() {
         name: store.name,
         birthday: store.birthday || null,
         dueDate: isoOrNull(store.dueDate),
+        birthDate: isoOrNull(store.birthDate),
         address: store.address || null,
         phone: store.phone || null,
         primaryEmployeeId: store.primaryEmployeeId,
@@ -885,6 +887,16 @@ export default function NewClientPage() {
                         data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_due-date-field_due-date-input"
                         value={store.dueDate}
                         onChange={(e) => setField("dueDate", formatIsoDateInput(e.target.value))}
+                        inputMode="numeric"
+                        maxLength={10}
+                        placeholder="YYYY-MM-DD"
+                      />
+                    </Field>
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birth-date-field" label="출산일">
+                      <Input
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birth-date-field_birth-date-input"
+                        value={store.birthDate}
+                        onChange={(e) => setField("birthDate", formatIsoDateInput(e.target.value))}
                         inputMode="numeric"
                         maxLength={10}
                         placeholder="YYYY-MM-DD"

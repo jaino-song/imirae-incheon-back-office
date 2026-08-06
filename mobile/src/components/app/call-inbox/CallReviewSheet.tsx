@@ -54,6 +54,7 @@ const FIELD_LABELS: Record<string, string> = {
   phone: "연락처",
   address: "주소",
   dueDate: "출산예정일",
+  birthDate: "출산일",
   birthday: "생년월일",
   startDate: "시작일",
   endDate: "종료일",
@@ -80,6 +81,9 @@ const TEXT_FIELDS = [
   { field: "phone", type: "tel", kind: "phone" },
   { field: "address", type: "text", kind: "plain" },
   { field: "dueDate", type: "text", kind: "date" },
+  // The actual delivery date, distinct from the due date above — a
+  // "아기 낳았어요" call is what fills it in.
+  { field: "birthDate", type: "text", kind: "date" },
   { field: "birthday", type: "text", kind: "plain" },
   { field: "startDate", type: "text", kind: "date" },
   { field: "endDate", type: "text", kind: "date" },
@@ -326,6 +330,7 @@ function NewClientReview({
           phone: fields.phone?.trim() || null,
           address: fields.address?.trim() || null,
           dueDate: fields.dueDate?.trim() || null,
+          birthDate: fields.birthDate?.trim() || null,
           birthday: fields.birthday?.trim() || null,
           startDate: fields.startDate?.trim() || null,
           endDate: fields.endDate?.trim() || null,
