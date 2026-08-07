@@ -40,12 +40,16 @@ export const infiniteContractsQueryKeys = {
   documents: (
     status: DocumentFilterType,
     templateFilter?: DocumentTemplateFilter,
+    search?: string,
   ) => [
     ...eformsignQueryKeys.documents(),
     "infinite",
     status ?? "all",
     templateFilter?.templateMatch ?? "all-templates",
     templateFilter?.templateId ?? null,
+    // Search is part of the key so a new term never reuses another term's
+    // cached pages (which would render as the search silently not applying).
+    search || "",
   ] as const,
 };
 
@@ -60,6 +64,15 @@ interface UseInfiniteContractsOptions {
   /** Names to exclude from the results */
   excludedNames?: readonly string[];
   templateFilter?: DocumentTemplateFilter;
+  /**
+   * Server-side search term (chosung-aware on the backend). Trimmed here;
+   * an empty/whitespace value means "no search" and sends no param, so the
+   * unsearched list behaves exactly as before. With the search applied on the
+   * server, `total_rows`/`hasNextPage` describe the *filtered* set — the list
+   * stops paginating when the matches run out instead of walking the whole
+   * table client-side.
+   */
+  search?: string;
 }
 
 /**
@@ -91,16 +104,19 @@ export function useInfiniteContracts({
   filterType = null,
   excludedNames = EMPTY_EXCLUDED_NAMES,
   templateFilter,
+  search,
 }: UseInfiniteContractsOptions = {}) {
   const queryClient = useQueryClient();
   const templateId = templateFilter?.templateId;
   const templateMatch = templateFilter?.templateMatch;
+  const normalizedSearch = search?.trim() ?? "";
   const queryKey = useMemo(
     () => infiniteContractsQueryKeys.documents(
       filterType,
       templateId && templateMatch ? { templateId, templateMatch } : undefined,
+      normalizedSearch,
     ),
-    [filterType, templateId, templateMatch],
+    [filterType, templateId, templateMatch, normalizedSearch],
   );
   const query = useInfiniteQuery<EformsignDocumentsResponse>({
     queryKey,
@@ -111,6 +127,7 @@ export function useInfiniteContracts({
         limit: PAGE_SIZE,
         skip,
         ...(templateFilter ?? {}),
+        ...(normalizedSearch ? { search: normalizedSearch } : {}),
       };
       switch (filterType) {
         case "in-progress":
