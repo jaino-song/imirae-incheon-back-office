@@ -6,11 +6,9 @@ import { eformsignApi } from "@/services/api";
 import { EformsignDocument, EformsignDocumentsResponse } from "@/lib/eformsign/types";
 import { eformsignQueryKeys } from "@/hooks/useEformsignDocuments";
 import { getStatusCategory, DocumentFilterType } from "@/lib/eformsign/status-codes";
-import { UNKNOWN_CUSTOMER_NAME, customerName } from "@/lib/eformsign/display-name";
 
 const PAGE_SIZE = 20;
 const EMPTY_DOCUMENTS: EformsignDocument[] = [];
-const EMPTY_EXCLUDED_NAMES: readonly string[] = [];
 const UNVERSIONED_SNAPSHOT_GENERATION = "<unversioned>";
 
 // Filter documents by actual status code. Used as a safety net for the merged
@@ -61,8 +59,6 @@ export interface DocumentTemplateFilter {
 interface UseInfiniteContractsOptions {
   enabled?: boolean;
   filterType?: DocumentFilterType;
-  /** Names to exclude from the results */
-  excludedNames?: readonly string[];
   templateFilter?: DocumentTemplateFilter;
   /**
    * Server-side search term (chosung-aware on the backend). Trimmed here;
@@ -102,7 +98,6 @@ export function getNextContractsPageParam(
 export function useInfiniteContracts({
   enabled = true,
   filterType = null,
-  excludedNames = EMPTY_EXCLUDED_NAMES,
   templateFilter,
   search,
 }: UseInfiniteContractsOptions = {}) {
@@ -214,25 +209,21 @@ export function useInfiniteContracts({
     return deduped;
   }, [query.data]);
 
-  const excludedNameSet = useMemo(() => new Set(excludedNames), [excludedNames]);
-
   const documents = useMemo(() => {
     if (fetchedDocuments.length === 0) return EMPTY_DOCUMENTS;
 
     // Server filters by status for per-status endpoints; this is a safety net
     // for the merged "전체" endpoint (which returns all statuses) and a no-op
     // for other tabs.
-    let docs = filterByActualStatus(fetchedDocuments, filterType);
-
-    if (excludedNameSet.size > 0) {
-      docs = docs.filter((doc) => {
-        const name = customerName(doc);
-        return name !== UNKNOWN_CUSTOMER_NAME && !excludedNameSet.has(name);
-      });
-    }
-
-    return sortByCreatedDate(docs);
-  }, [excludedNameSet, filterType, fetchedDocuments]);
+    //
+    // Nothing else may be filtered here. Dropping rows after the server has
+    // paginated leaves has_more describing a larger set than what renders, so
+    // the list keeps asking for pages that vanish on arrival and never settles
+    // — the same loop the client-side search caused. A customer-name exclusion
+    // list used to sit here; it was always empty, and if one is ever needed it
+    // belongs in the query, not after it.
+    return sortByCreatedDate(filterByActualStatus(fetchedDocuments, filterType));
+  }, [filterType, fetchedDocuments]);
 
   // Total reported by upstream eformsign for per-status tabs. Not meaningful
   // for the 전체 tab (it is the first page's deduped batch size).

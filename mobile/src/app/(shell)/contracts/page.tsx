@@ -161,7 +161,6 @@ type ContractStageItem = {
   time: string;
 };
 
-const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 const CONTRACT_ROUTE_BODY_CLASS = "mobile-contracts-route";
 const FILTER_LABELS: FilterKey[] = ["전체", "서명 대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "알 수 없음"];
 const CONTRACT_SECTIONS = [
@@ -2107,19 +2106,20 @@ export default function ContractsPage() {
     return undefined;
   }, [documentClientSummaryById, selectedDetailDoc?.id, selectedDoc?.id, selectedListDoc?.id]);
 
-  // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다. 클라이언트에는
-  // 고객명 제외 목록(현재 비어 있음)만 안전망으로 남긴다.
+  // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다.
+  //
+  // 서버가 페이지를 나눈 뒤에 행을 더 걷어내면 total_rows가 화면에 그려지는 수보다
+  // 커진 채로 남아, 목록이 도착하자마자 사라지는 페이지를 계속 요청하게 된다.
+  // 비어 있던 고객명 제외 목록을 여기서 걷어낸 이유다 — 제외가 필요해지면
+  // 조회 이후가 아니라 조회 조건에 넣어야 한다.
   const filteredDocuments = useMemo(() => {
-    const nameFiltered = displayDocuments.filter(
-      (doc) => !EXCLUDED_CUSTOMER_NAMES.includes(customerName(doc)),
-    );
     // 서명 완료/검토 필요 pills share the server's provider-review scope
     // ("in-progress"); the review-window split happens here on the client.
     if (activeFilter === "서명 완료" || activeFilter === "검토 필요") {
       const wantedCategory: ContractCategory = activeFilter === "서명 완료" ? "signed" : "in-progress";
-      return nameFiltered.filter((doc) => categorize(doc) === wantedCategory);
+      return displayDocuments.filter((doc) => categorize(doc) === wantedCategory);
     }
-    return nameFiltered;
+    return displayDocuments;
   }, [activeFilter, displayDocuments]);
 
   const filterItems = useMemo(() => {

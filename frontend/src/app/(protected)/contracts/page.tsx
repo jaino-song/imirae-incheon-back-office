@@ -162,7 +162,6 @@ const ContractDocumentPreviewModal = dynamic(
   { ssr: false }
 );
 
-const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 
 const TAB_ITEMS = [
   { label: "전체", value: "all" },
@@ -553,7 +552,6 @@ export default function ContractsPage() {
   } = useInfiniteContracts({
     enabled: canFetchDocuments,
     filterType,
-    excludedNames: EXCLUDED_CUSTOMER_NAMES,
     templateFilter,
     search: activeSearchQuery,
   });
