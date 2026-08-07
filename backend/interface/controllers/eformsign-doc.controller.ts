@@ -286,12 +286,14 @@ export class EformsignDocController {
             progressId: dto.progressId,
         });
         if (!result.ok) {
-            this.logger.warn(`[finalize-headless] failed: ${result.reason}`);
+            this.logger.warn(
+                `[finalize-headless] failed: ${result.reason} (fallback: ${result.fallbackHint})`,
+            );
             return {
                 ok: false,
                 durationMs: result.durationMs,
                 reason: result.reason,
-                fallbackHint: "iframe",
+                fallbackHint: result.fallbackHint,
             };
         }
         return { ok: true, durationMs: result.durationMs };

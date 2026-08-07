@@ -11,8 +11,11 @@ import { runEformsignCreationGates } from "./eformsign-creation-gates";
 import { runEformsignFinalizeGates } from "./eformsign-finalize-gates";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import {
+    EFORMSIGN_SDK_COMPLETION_CODE,
     formatEformsignCallbackPayload,
+    formatObservedSuccessCallbacks,
     readEformsignCallbackState,
+    readObservedSuccessCallbacks,
 } from "./eformsign-gate-utils";
 import { areE2EVendorStubsEnabled } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 
@@ -174,7 +177,8 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         await this.waitForEformsignIframe(page, "eformsign_iframe");
         params.onProgress?.("client-started");
 
-        await runEformsignCreationGates(page, eformsignFrame, this.logger, params.onProgress);
+        const gateOutcome = await runEformsignCreationGates(page, eformsignFrame, this.logger, params.onProgress);
+        this.logger.log(`[creation] gate sequence ended: ${gateOutcome}`);
 
         // The gate runner only confirms the click sequence completed; the
         // actual dispatch is acknowledged by the SDK success callback
@@ -202,7 +206,8 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         await this.waitForEformsignIframe(page, "eformsign_finalize_iframe");
         params.onProgress?.("client-started");
 
-        await runEformsignFinalizeGates(page, eformsignFrame, this.logger, params.onProgress);
+        const gateOutcome = await runEformsignFinalizeGates(page, eformsignFrame, this.logger, params.onProgress);
+        this.logger.log(`[finalize] gate sequence ended: ${gateOutcome}`);
 
         const documentId = await this.waitForTerminalSdkCallback(page, 30_000);
         params.onProgress?.("sent");
@@ -215,25 +220,42 @@ export class EformsignHeadlessService implements OnModuleDestroy {
     }
 
     private async waitForTerminalSdkCallback(page: Page, timeoutMs: number): Promise<string | undefined> {
-        await page.waitForFunction(
-            () => {
-                const w = window as unknown as {
-                    __eformsignSuccess?: unknown;
-                    __eformsignError?: unknown;
-                };
-                return w.__eformsignSuccess !== undefined || w.__eformsignError !== undefined;
-            },
-            { timeout: timeoutMs },
-        );
+        try {
+            await page.waitForFunction(
+                () => {
+                    const w = window as unknown as {
+                        __eformsignSuccess?: unknown;
+                        __eformsignError?: unknown;
+                    };
+                    return w.__eformsignSuccess !== undefined || w.__eformsignError !== undefined;
+                },
+                { timeout: timeoutMs },
+            );
+        } catch {
+            // Non-terminal success callbacks are the expected shape of this
+            // timeout, and they are the only record of how far the SDK got —
+            // a bare Playwright timeout here left past incidents unexplainable.
+            throw new Error(
+                `eformsign SDK reported no terminal callback within ${timeoutMs}ms. ` +
+                    `Observed success callbacks: ${await this.describeObservedCallbacks(page)}`,
+            );
+        }
 
         const state = await readEformsignCallbackState(page);
         if (state.hasError) {
             throw new Error(`eformsign SDK error: ${formatEformsignCallbackPayload(state.error)}`);
         }
         if (!state.hasSuccess) {
-            throw new Error("eformsign SDK completed without a success callback");
+            throw new Error(
+                "eformsign SDK completed without a success callback. " +
+                    `Observed success callbacks: ${await this.describeObservedCallbacks(page)}`,
+            );
         }
         return this.readDocumentIdFromCallback(state.success);
+    }
+
+    private async describeObservedCallbacks(page: Page): Promise<string> {
+        return formatObservedSuccessCallbacks(await readObservedSuccessCallbacks(page));
     }
 
     private readDocumentIdFromCallback(payload: unknown): string | undefined {
@@ -323,7 +345,12 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         sdk.document(
             option,
             "${iframeId}",
-            function (resp) { window.__eformsignSuccess = resp; },
+            function (resp) {
+                (window.__eformsignSuccessLog = window.__eformsignSuccessLog || []).push(resp);
+                if (resp && String(resp.code) === "${EFORMSIGN_SDK_COMPLETION_CODE}") {
+                    window.__eformsignSuccess = resp;
+                }
+            },
             function (resp) { window.__eformsignError = resp; },
             function (resp) { window.__eformsignAction = resp; }
         );

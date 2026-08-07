@@ -169,5 +169,5 @@ export interface FinalizeHeadlessResponseDto {
     ok: boolean;
     durationMs: number;
     reason?: string;
-    fallbackHint?: "iframe";
+    fallbackHint?: "iframe" | "manual_check";
 }
