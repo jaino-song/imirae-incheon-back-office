@@ -2112,15 +2112,13 @@ export default function ContractsPage() {
   // 커진 채로 남아, 목록이 도착하자마자 사라지는 페이지를 계속 요청하게 된다.
   // 비어 있던 고객명 제외 목록을 여기서 걷어낸 이유다 — 제외가 필요해지면
   // 조회 이후가 아니라 조회 조건에 넣어야 한다.
-  const filteredDocuments = useMemo(() => {
-    // 서명 완료/검토 필요 pills share the server's provider-review scope
-    // ("in-progress"); the review-window split happens here on the client.
-    if (activeFilter === "서명 완료" || activeFilter === "검토 필요") {
-      const wantedCategory: ContractCategory = activeFilter === "서명 완료" ? "signed" : "in-progress";
-      return displayDocuments.filter((doc) => categorize(doc) === wantedCategory);
-    }
-    return displayDocuments;
-  }, [activeFilter, displayDocuments]);
+  // 서명 완료/검토 필요는 서버의 provider-review 스코프를 공유하지만, 가르는 일은
+  // 서버가 이미 한다: displayStatus를 페이지 slice 전에 적용하므로(mirror-list
+  // service) 돌아온 행은 전부 해당 카테고리다. 여기서 한 번 더 거르면 행을 뺄 수만
+  // 있고 더할 수는 없어서, 서버가 센 total_rows보다 화면이 적어지는 쪽으로만
+  // 어긋난다. 특히 display_status가 없어 categorize가 폴백으로 검토 창을
+  // 브라우저 시계로 다시 계산할 때 서버 판정과 갈릴 수 있다.
+  const filteredDocuments = displayDocuments;
 
   const filterItems = useMemo(() => {
     if (isContractsLoading) {
