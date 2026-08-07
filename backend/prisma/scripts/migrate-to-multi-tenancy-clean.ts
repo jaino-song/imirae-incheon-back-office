@@ -254,17 +254,18 @@ async function migrate() {
     }
     console.log(`[Migration] Assigned ${categoriesUpdated} document_categories`);
 
-    const docCount = await prisma.document.count({
-      where: { orgId: null },
-    });
-    console.log(`[Migration] Found ${docCount} documents with null orgId`);
+    // Backfill every document, exactly like every other entity in this script.
+    // The old code filtered on the legacy orgId column while writing branchId, so
+    // any document that already carried a non-null orgId was silently skipped and
+    // kept branch_id = NULL — invisible to every branch forever.
+    const docCount = await prisma.document.count();
+    console.log(`[Migration] Found ${docCount} documents`);
     let docsUpdated = 0;
     skip = 0;
 
     while (skip < docCount) {
       const docs = await prisma.document.findMany({
         select: { id: true },
-        where: { orgId: null },
         skip: skip,
         take: batchSize,
       });

@@ -1,4 +1,5 @@
-import { ExecutionContext, ForbiddenException, INestApplication, ValidationPipe } from "@nestjs/common";
+import { ExecutionContext, ForbiddenException, INestApplication, Logger } from "@nestjs/common";
+import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 import { Test, TestingModule } from "@nestjs/testing";
 import { DocumentService } from "application/services/document.service";
 import { DocumentEntity } from "domain/entities/document.entity";
@@ -20,14 +21,15 @@ describe("DocumentController (Integration)", () => {
     function createDocumentEntity(
         orgId: string,
         storageUrl: string | null = "https://example.test/contract.pdf",
+        overrides: { name?: string; mimetype?: string } = {},
     ): DocumentEntity {
         return DocumentEntity.reconstitute(
             "doc-1",
-            "Contract",
+            overrides.name ?? "Contract",
             null,
             "contract",
             ["signed"],
-            "application/pdf",
+            overrides.mimetype ?? "application/pdf",
             100,
             "documents/contract.pdf",
             storageUrl,
@@ -71,6 +73,7 @@ describe("DocumentController (Integration)", () => {
                         findAll: jest.fn(),
                         update: jest.fn(),
                         delete: jest.fn(),
+                        deleteStoragePath: jest.fn(),
                     },
                 },
                 {
@@ -91,7 +94,13 @@ describe("DocumentController (Integration)", () => {
             .compile();
 
         app = moduleFixture.createNestApplication();
-        app.useGlobalPipes(new ValidationPipe({ transform: true }));
+        // Matches main.ts. The bare pipe this used to install silently stripped
+        // undeclared body fields, so a test could not tell "the handler ignores
+        // this" from "the request is refused" — and mass-assignment hardening is
+        // exactly the difference between those two.
+        app.useGlobalPipes(
+            new GlobalValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+        );
         await app.init();
 
         documentService = moduleFixture.get(DocumentService);
@@ -131,7 +140,6 @@ describe("DocumentController (Integration)", () => {
                 storagepath: "documents/contract.pdf",
                 storageurl: "https://example.test/contract.pdf",
                 branchid: "branch-2",
-                uploadedby: "user-1",
             });
 
         expect(response.status).toBe(201);
@@ -159,7 +167,6 @@ describe("DocumentController (Integration)", () => {
                 mimetype: "application/pdf",
                 filesize: 100,
                 storagepath: "documents/shared.pdf",
-                uploadedby: "user-1",
             });
 
         expect(response.status).toBe(403);
@@ -192,7 +199,12 @@ describe("DocumentController (Integration)", () => {
         expect(fileStorage.createSignedUrl).not.toHaveBeenCalled();
     });
 
-    it("should use tenant user as document uploader when uploading documents", async () => {
+    // This used to assert that a spoofed uploader was silently ignored (201).
+    // That was an artefact of the permissive pipe this suite used to install:
+    // production runs forbidNonWhitelisted, so the request never reaches the
+    // handler at all. Asserting the weaker behaviour meant the suite would have
+    // stayed green if mass-assignment hardening were switched off.
+    it("should refuse an upload that tries to name its own uploader", async () => {
         fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
         documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
 
@@ -205,12 +217,26 @@ describe("DocumentController (Integration)", () => {
             .field("uploadedBy", "camel-attacker-user")
             .attach("file", Buffer.from("fake-file"), "contract.pdf");
 
+        expect(response.status).toBe(400);
+        expect(fileStorage.upload).not.toHaveBeenCalled();
+        expect(documentService.create).not.toHaveBeenCalled();
+    });
+
+    it("should stamp the uploader from the tenant on a clean upload", async () => {
+        fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "contract")
+            .field("tags", JSON.stringify(["signed"]))
+            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+
         expect(response.status).toBe(201);
         expect(documentService.create).toHaveBeenCalledWith(
             "branch-1",
-            expect.objectContaining({
-                uploadedby: "user-1",
-            }),
+            expect.objectContaining({ uploadedby: "user-1" }),
         );
     });
 
@@ -267,5 +293,214 @@ describe("DocumentController (Integration)", () => {
 
         expect(response.status).toBe(404);
         expect(response.body.message).toBe("Document file not found");
+    });
+
+    it("should reject uploads whose MIME type is not allowlisted before touching storage", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Payload")
+            .field("categoryId", "contract")
+            .field("tags", JSON.stringify([]))
+            .attach("file", Buffer.from("<script>alert(1)</script>"), {
+                filename: "payload.html",
+                contentType: "text/html",
+            });
+
+        expect(response.status).toBe(400);
+        expect(response.body.message).toBe("unsupported file type: text/html");
+        expect(fileStorage.upload).not.toHaveBeenCalled();
+        expect(documentService.create).not.toHaveBeenCalled();
+    });
+
+    it("should reject parameterised MIME variants that normalize to a forbidden type", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Payload")
+            .field("categoryId", "contract")
+            .attach("file", Buffer.from("<svg onload=alert(1)></svg>"), {
+                filename: "payload.svg",
+                contentType: "IMAGE/SVG+XML; charset=utf-8",
+            });
+
+        expect(response.status).toBe(400);
+        expect(response.body.message).toBe("unsupported file type: image/svg+xml");
+        expect(fileStorage.upload).not.toHaveBeenCalled();
+    });
+
+    it("should serve stored non-previewable MIME types as an opaque attachment, never inline", async () => {
+        documentService.findById.mockResolvedValue(
+            createDocumentEntity("branch-1", null, { name: "payload.html", mimetype: "text/html" }),
+        );
+        fileStorage.download.mockResolvedValue(Buffer.from("<script>alert(1)</script>"));
+
+        const response = await request(app.getHttpServer()).get("/documents/doc-1/download");
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toBe("application/octet-stream");
+        expect(response.headers["content-disposition"]).toMatch(/^attachment; /);
+        expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    });
+
+    it("should not serve image/svg+xml inline even though it is an image type", async () => {
+        documentService.findById.mockResolvedValue(
+            createDocumentEntity("branch-1", null, { name: "diagram.svg", mimetype: "image/svg+xml" }),
+        );
+        fileStorage.download.mockResolvedValue(Buffer.from('<svg onload="alert(1)"></svg>'));
+
+        const response = await request(app.getHttpServer()).get("/documents/doc-1/download");
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toBe("application/octet-stream");
+        expect(response.headers["content-disposition"]).toMatch(/^attachment; /);
+    });
+
+    it("should keep serving PDF documents inline with nosniff protection", async () => {
+        documentService.findById.mockResolvedValue(createDocumentEntity("branch-1", null));
+        fileStorage.download.mockResolvedValue(Buffer.from("%PDF-1.4"));
+
+        const response = await request(app.getHttpServer()).get("/documents/doc-1/download");
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toBe("application/pdf");
+        expect(response.headers["content-disposition"]).toBe(
+            "inline; filename=\"Contract.pdf\"; filename*=UTF-8''Contract.pdf",
+        );
+        expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    });
+
+    it("should delete the just-uploaded storage object when document creation fails", async () => {
+        fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
+        documentService.create.mockRejectedValue(new ForbiddenException("storage path unavailable"));
+        documentService.deleteStoragePath.mockResolvedValue(undefined);
+
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "contract")
+            .field("tags", JSON.stringify(["signed"]))
+            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+
+        expect(response.status).toBe(403);
+        expect(response.body.message).toBe("storage path unavailable");
+        const uploadedPath = fileStorage.upload.mock.calls[0]?.[1];
+        expect(uploadedPath).toBeDefined();
+        expect(documentService.deleteStoragePath).toHaveBeenCalledWith(uploadedPath);
+    });
+
+    it("should rethrow the original creation error when orphan cleanup also fails", async () => {
+        const errorLogSpy = jest.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+        try {
+            fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
+            documentService.create.mockRejectedValue(new ForbiddenException("storage path unavailable"));
+            documentService.deleteStoragePath.mockRejectedValue(new Error("storage unavailable"));
+
+            const response = await request(app.getHttpServer())
+                .post("/documents/upload")
+                .field("name", "Contract")
+                .field("categoryId", "contract")
+                .attach("file", Buffer.from("fake-file"), "contract.pdf");
+
+            expect(response.status).toBe(403);
+            expect(response.body.message).toBe("storage path unavailable");
+            expect(documentService.deleteStoragePath).toHaveBeenCalled();
+        } finally {
+            errorLogSpy.mockRestore();
+        }
+    });
+
+    it("should emit an RFC 5987 filename* so Korean document names download intact", async () => {
+        documentService.findById.mockResolvedValue(
+            createDocumentEntity("branch-1", null, { name: "서류.pdf" }),
+        );
+        fileStorage.download.mockResolvedValue(Buffer.from("%PDF-1.4"));
+
+        const response = await request(app.getHttpServer())
+            .get("/documents/doc-1/download")
+            .query({ attachment: "true" });
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-disposition"]).toBe(
+            "attachment; filename=\"__.pdf\"; filename*=UTF-8''%EC%84%9C%EB%A5%98.pdf",
+        );
+    });
+
+    it("should sanitize quotes and newlines so document names cannot break the download header", async () => {
+        documentService.findById.mockResolvedValue(
+            createDocumentEntity("branch-1", null, { name: 'Con"tract\r\n.pdf' }),
+        );
+        fileStorage.download.mockResolvedValue(Buffer.from("%PDF-1.4"));
+
+        const response = await request(app.getHttpServer())
+            .get("/documents/doc-1/download")
+            .query({ attachment: "true" });
+
+        expect(response.status).toBe(200);
+        const disposition = response.headers["content-disposition"];
+        expect(disposition).toBe(
+            "attachment; filename=\"Con_tract__.pdf\"; filename*=UTF-8''Con%22tract%0D%0A.pdf",
+        );
+        expect(disposition).not.toMatch(/[\r\n]/);
+    });
+
+    // POST /documents registers a row against an object that is already in
+    // storage. No client calls it, but a token is enough to reach it, so it must
+    // not take the caller's word for who uploaded the file or what it is.
+    it("should stamp POST /documents with the tenant's user, not the body's", async () => {
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents")
+            .send({
+                name: "Contract",
+                categoryId: "contract",
+                tags: [],
+                mimetype: "application/pdf",
+                filesize: 1024,
+                storagepath: "already-there.pdf",
+                uploadedby: "somebody-else",
+            });
+
+        // uploadedby is no longer part of the DTO, so forbidNonWhitelisted
+        // rejects it outright rather than accepting a value with no effect.
+        expect(response.status).toBe(400);
+        expect(documentService.create).not.toHaveBeenCalled();
+    });
+
+    it("should derive uploadedby from the tenant on POST /documents", async () => {
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents")
+            .send({
+                name: "Contract",
+                categoryId: "contract",
+                tags: [],
+                mimetype: "application/pdf",
+                filesize: 1024,
+                storagepath: "already-there.pdf",
+            });
+
+        expect(response.status).toBe(201);
+        expect(documentService.create).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ uploadedby: "user-1" }),
+        );
+    });
+
+    it("should apply the upload allowlist to POST /documents too", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/documents")
+            .send({
+                name: "Payload",
+                categoryId: "contract",
+                tags: [],
+                mimetype: "text/html",
+                filesize: 10,
+                storagepath: "already-there.html",
+            });
+
+        expect(response.status).toBe(400);
+        expect(response.body.message).toBe("unsupported file type: text/html");
+        expect(documentService.create).not.toHaveBeenCalled();
     });
 });
