@@ -215,6 +215,33 @@ describe("file-storage API routes", () => {
     expect(mockGet).not.toHaveBeenCalled();
   });
 
+  // The backend allowlists which stored types may render inline; nosniff is what
+  // stops a browser second-guessing that Content-Type. Dropping it at the proxy
+  // silently removes the guarantee for every mobile download.
+  it("passes the backend's download headers through, nosniff included", async () => {
+    mockGet.mockResolvedValueOnce({
+      status: 200,
+      data: new ArrayBuffer(8),
+      headers: {
+        "content-type": "application/pdf",
+        "content-disposition": "inline; filename=\"contract.pdf\"",
+        "x-content-type-options": "nosniff",
+      },
+    });
+
+    const response = await downloadFile(
+      createGetRequest("/api/file-storage/files/file_123/download"),
+      { params: Promise.resolve({ fileId: "file_123" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toBe(
+      "inline; filename=\"contract.pdf\"",
+    );
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
   describe("auth rejection", () => {
     function noAuthRequest(path: string, method = "GET"): NextRequest {
       return new NextRequest(`http://localhost${path}`, { method });
