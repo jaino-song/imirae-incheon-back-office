@@ -1,4 +1,5 @@
-import { ExecutionContext, ForbiddenException, INestApplication, Logger, ValidationPipe } from "@nestjs/common";
+import { ExecutionContext, ForbiddenException, INestApplication, Logger } from "@nestjs/common";
+import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 import { Test, TestingModule } from "@nestjs/testing";
 import { DocumentService } from "application/services/document.service";
 import { DocumentEntity } from "domain/entities/document.entity";
@@ -93,7 +94,13 @@ describe("DocumentController (Integration)", () => {
             .compile();
 
         app = moduleFixture.createNestApplication();
-        app.useGlobalPipes(new ValidationPipe({ transform: true }));
+        // Matches main.ts. The bare pipe this used to install silently stripped
+        // undeclared body fields, so a test could not tell "the handler ignores
+        // this" from "the request is refused" — and mass-assignment hardening is
+        // exactly the difference between those two.
+        app.useGlobalPipes(
+            new GlobalValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+        );
         await app.init();
 
         documentService = moduleFixture.get(DocumentService);
@@ -133,7 +140,6 @@ describe("DocumentController (Integration)", () => {
                 storagepath: "documents/contract.pdf",
                 storageurl: "https://example.test/contract.pdf",
                 branchid: "branch-2",
-                uploadedby: "user-1",
             });
 
         expect(response.status).toBe(201);
@@ -161,7 +167,6 @@ describe("DocumentController (Integration)", () => {
                 mimetype: "application/pdf",
                 filesize: 100,
                 storagepath: "documents/shared.pdf",
-                uploadedby: "user-1",
             });
 
         expect(response.status).toBe(403);
@@ -194,7 +199,12 @@ describe("DocumentController (Integration)", () => {
         expect(fileStorage.createSignedUrl).not.toHaveBeenCalled();
     });
 
-    it("should use tenant user as document uploader when uploading documents", async () => {
+    // This used to assert that a spoofed uploader was silently ignored (201).
+    // That was an artefact of the permissive pipe this suite used to install:
+    // production runs forbidNonWhitelisted, so the request never reaches the
+    // handler at all. Asserting the weaker behaviour meant the suite would have
+    // stayed green if mass-assignment hardening were switched off.
+    it("should refuse an upload that tries to name its own uploader", async () => {
         fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
         documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
 
@@ -207,12 +217,26 @@ describe("DocumentController (Integration)", () => {
             .field("uploadedBy", "camel-attacker-user")
             .attach("file", Buffer.from("fake-file"), "contract.pdf");
 
+        expect(response.status).toBe(400);
+        expect(fileStorage.upload).not.toHaveBeenCalled();
+        expect(documentService.create).not.toHaveBeenCalled();
+    });
+
+    it("should stamp the uploader from the tenant on a clean upload", async () => {
+        fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "contract")
+            .field("tags", JSON.stringify(["signed"]))
+            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+
         expect(response.status).toBe(201);
         expect(documentService.create).toHaveBeenCalledWith(
             "branch-1",
-            expect.objectContaining({
-                uploadedby: "user-1",
-            }),
+            expect.objectContaining({ uploadedby: "user-1" }),
         );
     });
 
@@ -416,5 +440,67 @@ describe("DocumentController (Integration)", () => {
             "attachment; filename=\"Con_tract__.pdf\"; filename*=UTF-8''Con%22tract%0D%0A.pdf",
         );
         expect(disposition).not.toMatch(/[\r\n]/);
+    });
+
+    // POST /documents registers a row against an object that is already in
+    // storage. No client calls it, but a token is enough to reach it, so it must
+    // not take the caller's word for who uploaded the file or what it is.
+    it("should stamp POST /documents with the tenant's user, not the body's", async () => {
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents")
+            .send({
+                name: "Contract",
+                categoryId: "contract",
+                tags: [],
+                mimetype: "application/pdf",
+                filesize: 1024,
+                storagepath: "already-there.pdf",
+                uploadedby: "somebody-else",
+            });
+
+        // uploadedby is no longer part of the DTO, so forbidNonWhitelisted
+        // rejects it outright rather than accepting a value with no effect.
+        expect(response.status).toBe(400);
+        expect(documentService.create).not.toHaveBeenCalled();
+    });
+
+    it("should derive uploadedby from the tenant on POST /documents", async () => {
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents")
+            .send({
+                name: "Contract",
+                categoryId: "contract",
+                tags: [],
+                mimetype: "application/pdf",
+                filesize: 1024,
+                storagepath: "already-there.pdf",
+            });
+
+        expect(response.status).toBe(201);
+        expect(documentService.create).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ uploadedby: "user-1" }),
+        );
+    });
+
+    it("should apply the upload allowlist to POST /documents too", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/documents")
+            .send({
+                name: "Payload",
+                categoryId: "contract",
+                tags: [],
+                mimetype: "text/html",
+                filesize: 10,
+                storagepath: "already-there.html",
+            });
+
+        expect(response.status).toBe(400);
+        expect(response.body.message).toBe("unsupported file type: text/html");
+        expect(documentService.create).not.toHaveBeenCalled();
     });
 });

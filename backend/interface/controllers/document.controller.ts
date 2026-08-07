@@ -264,20 +264,39 @@ export class DocumentController {
         return this.toResponse(entity, storageUrl);
     }
 
+    /**
+     * Registers a row against a storage object that is already there. No client
+     * calls it — both apps upload through POST /upload — but it is reachable by
+     * anyone holding a token, so it derives what it can rather than believing
+     * the body. The storage path is still the caller's claim; that is safe
+     * because DocumentService.create refuses a path another branch owns.
+     */
     @Post()
-    async create(@CurrentTenant() tenant: { branchId?: string }, @Body() dto: CreateDocumentDto) {
+    async create(
+        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @Body() dto: CreateDocumentDto,
+    ) {
         const branchId = tenant.branchId ?? "";
+        // Same gate as the upload route: this row's mimetype decides how the
+        // download serves it, so an unfiltered one would be the way around the
+        // inline allowlist.
+        const mimeType = normalizeMimeType(dto.mimetype) || "application/octet-stream";
+        if (!UPLOAD_ALLOWED_MIME_TYPES.has(mimeType)) {
+            throw new BadRequestException(`unsupported file type: ${mimeType}`);
+        }
 
         const entity = await this.documentService.create(branchId, {
             name: dto.name,
             description: dto.description,
             categoryId: dto.categoryId,
             tags: dto.tags,
-            mimetype: dto.mimetype,
+            mimetype: mimeType,
             filesize: dto.filesize,
             storagepath: dto.storagepath,
             branchid: branchId,
-            uploadedby: dto.uploadedby,
+            // Taken from the verified tenant, never the body — otherwise the
+            // audit trail is whatever the caller typed.
+            uploadedby: tenant.userId || "system",
         });
         return this.toResponse(entity);
     }
