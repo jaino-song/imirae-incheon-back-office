@@ -23,8 +23,15 @@ import { areE2EVendorStubsEnabled } from "infrastructure/vendor-stubs/e2e-vendor
  * Result envelope returned by the headless service. The frontend uses
  * `ok: false` + `reason` to fall back to the iframe path automatically.
  */
+/**
+ * How the gate loop ended. "request-send-clicked" means it clicked the popup
+ * 전송 that submits the document; "success-latched" means it stopped on the SDK
+ * callback instead, without necessarily having submitted anything.
+ */
+export type EformsignGateOutcome = "success-latched" | "request-send-clicked";
+
 export type HeadlessDispatchResult =
-    | { ok: true; durationMs: number; documentId?: string }
+    | { ok: true; durationMs: number; documentId?: string; gateOutcome?: EformsignGateOutcome }
     | { ok: false; reason: string; durationMs: number; documentId?: string };
 
 export interface DispatchCreationParams {
@@ -191,6 +198,7 @@ export class EformsignHeadlessService implements OnModuleDestroy {
             ok: true,
             durationMs: Date.now() - start,
             documentId: documentId ?? params.documentId,
+            gateOutcome,
         };
     }
 
@@ -216,6 +224,7 @@ export class EformsignHeadlessService implements OnModuleDestroy {
             ok: true,
             durationMs: Date.now() - start,
             documentId: documentId ?? params.documentId,
+            gateOutcome,
         };
     }
 

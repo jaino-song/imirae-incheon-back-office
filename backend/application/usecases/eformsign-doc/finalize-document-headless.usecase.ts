@@ -101,6 +101,29 @@ export class FinalizeDocumentHeadlessUsecase {
                 };
             }
 
+            // A run that ended on the success latch stopped at the SDK callback
+            // without necessarily having clicked the popup 전송 that submits —
+            // exactly how a finalize once reported a completion eformsign never
+            // performed. The SDK's completion code is inferred, not documented,
+            // so this one path is settled by the vendor rather than by us.
+            if (result.gateOutcome === "success-latched") {
+                const settled = await this.readVendorOutcome(params.documentId, accessToken);
+                if (settled !== "completed") {
+                    const reason = "eformsign reported success without submitting the document";
+                    this.logger.warn(
+                        `Headless finalize for ${params.documentId}: ${reason} (vendor status: ${settled}).`,
+                    );
+                    this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
+                    return {
+                        ok: false,
+                        reason,
+                        fallbackHint: settled === "pending" ? "iframe" : "manual_check",
+                        durationMs: result.durationMs,
+                        failedStep: latestProgressStep,
+                    };
+                }
+            }
+
             return { ok: true, durationMs: result.durationMs };
         } catch (error) {
             const reason = error instanceof Error ? error.message : "unknown headless finalize error";
