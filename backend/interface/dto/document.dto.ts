@@ -40,8 +40,10 @@ export class CreateDocumentDto {
     @IsString()
     branchid?: string;
 
-    @IsString()
-    uploadedby!: string;
+    // No uploadedby: the controller takes it from the verified tenant. Leaving
+    // it declared would make it a required field the handler then discards, and
+    // forbidNonWhitelisted now rejects it outright rather than accepting a
+    // value that has no effect.
 }
 
 export class UpdateDocumentDto {

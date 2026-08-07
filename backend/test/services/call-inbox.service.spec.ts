@@ -57,6 +57,26 @@ describe("CallInboxService", () => {
         }));
     });
 
+    it("confirmNewClient: passes 출산일 to ClientService.create", async () => {
+        // The create call maps fields one by one, so a column left out of that
+        // mapping is silently dropped even when the reviewer filled it in.
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.create.mockResolvedValue({ id: 77 });
+
+        await service.confirmNewClient("branch-1", "user-1", "draft-1", {
+            fields: {
+                name: "김서연", careCenter: false, voucherClient: true, breastPump: false,
+                dueDate: "2026-09-15", birthDate: "2026-08-05",
+            },
+        });
+
+        expect(clientService.create).toHaveBeenCalledWith("branch-1", expect.objectContaining({
+            dueDate: "2026-09-15",
+            birthDate: "2026-08-05",
+        }));
+    });
+
     it("confirmNewClient: 409 when draft loses the PENDING->CONFIRMING race", async () => {
         prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
         prisma.client_draft.updateMany.mockResolvedValue({ count: 0 });
@@ -143,6 +163,24 @@ describe("CallInboxService", () => {
             where: { id: "draft-1" },
             data: expect.objectContaining({ status: "CONFIRMED", reviewedById: "user-1" }),
         }));
+    });
+
+    it("confirmClientUpdate: carries 출산일 through the allowlist", async () => {
+        // A "아기 낳았어요" call is the one that fills birthDate in. It reaches
+        // the client only if PROPOSAL_FIELDS lists it — that set is both what
+        // the extraction may propose and what a confirm is filtered against.
+        prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.update.mockResolvedValue({});
+        prisma.client_draft.update.mockResolvedValue({});
+
+        await service.confirm("branch-1", "user-1", "draft-1", {
+            changes: { birthDate: "2026-08-05" },
+        });
+
+        expect(clientService.update).toHaveBeenCalledWith("branch-1", 142, {
+            birthDate: "2026-08-05",
+        });
     });
 
     it("confirmClientUpdate: 409 when no client linked — clientId check happens BEFORE lock", async () => {

@@ -78,6 +78,7 @@ const client: Client = {
   name: "고객",
   birthday: null,
   dueDate: null,
+  birthDate: null,
   address: null,
   phone: null,
   primaryEmployee: {

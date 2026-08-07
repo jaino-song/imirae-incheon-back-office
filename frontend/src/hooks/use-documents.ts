@@ -25,14 +25,15 @@ export interface Document {
     updatedAt: string;
 }
 
+// orgId/uploadedBy are deliberately absent: the backend derives both from the
+// JWT (@CurrentTenant), and the proxy strips them — sending them would only
+// earn a 400 from the backend's forbidNonWhitelisted pipe.
 export interface UploadDocumentParams {
     file: File;
     name?: string;
     description?: string;
     categoryId: string;
     tags?: string[];
-    orgId?: string;
-    uploadedBy?: string;
     onProgress?: (progress: number) => void;
 }
 
@@ -91,8 +92,6 @@ export function useUploadDocument() {
             description,
             categoryId,
             tags,
-            orgId,
-            uploadedBy,
             onProgress,
         }: UploadDocumentParams) => {
             const formData = new FormData();
@@ -101,8 +100,6 @@ export function useUploadDocument() {
             if (description) formData.append("description", description);
             formData.append("categoryId", categoryId);
             if (tags) formData.append("tags", JSON.stringify(tags));
-            if (orgId) formData.append("orgId", orgId);
-            if (uploadedBy) formData.append("uploadedBy", uploadedBy);
 
             const { data } = await api.post<Document>("/file-storage/files", formData, {
                 onUploadProgress: (progressEvent) => {

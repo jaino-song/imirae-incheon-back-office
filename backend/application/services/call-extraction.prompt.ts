@@ -1,8 +1,15 @@
-export const CALL_EXTRACTION_PROMPT_VERSION = "v2";
+// v3: birthDate joined the proposal fields, so drafts extracted before this
+// could not carry an actual delivery date.
+export const CALL_EXTRACTION_PROMPT_VERSION = "v3";
 
-/** client fields a proposal may target (spec §6) */
+/**
+ * client fields a proposal may target (spec §6).
+ *
+ * Doubles as the allowlist `prepareClientUpdateChanges` filters a CLIENT_UPDATE
+ * confirm through, so a field missing here cannot be proposed OR applied.
+ */
 export const PROPOSAL_FIELDS = [
-    "name", "phone", "address", "dueDate", "birthday",
+    "name", "phone", "address", "dueDate", "birthDate", "birthday",
     "startDate", "endDate", "duration", "type",
     "careCenter", "voucherClient", "breastPump",
     "serviceStatus", "fullPrice", "grant", "actualPrice",
@@ -40,10 +47,13 @@ export function buildCallExtractionPrompt(input: {
 - proposals: category별로 다음 필드만 사용 (그 외 필드명 금지):
   ${PROPOSAL_FIELDS.join(", ")}
   - NEW_CONSULTATION: 파악된 모든 고객 정보 (name, phone, address, dueDate,
+    birthDate(이미 출산한 경우에만),
     duration(일수, 숫자), careCenter(조리원 이용, boolean), voucherClient(정부지원, boolean),
     startDate(희망 시작일), type 등)
   - CLIENT_SERVICE: 변경 요청된 필드만. 관리사 교체 요청 → field "serviceStatus",
     value "replacement_requested". 서비스 종료 요청 → "serviceStatus", "terminated".
+    출산했다는 알림("어제 낳았어요", "8월 5일에 출산했어요") → field "birthDate".
+    아직 낳지 않은 예정일은 "birthDate"가 아니라 "dueDate"입니다.
   - OTHER: proposals는 [].
 - 각 proposal: value(날짜는 YYYY-MM-DD, 기간은 일수 숫자, boolean은 true/false),
   evidence(근거가 된 발화 인용, 원문 그대로), confidence("high" | "low").

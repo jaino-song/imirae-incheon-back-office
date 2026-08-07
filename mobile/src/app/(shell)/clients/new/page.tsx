@@ -33,6 +33,12 @@ import { t } from "@/lib/i18n/translations";
 import { getErrorMessage } from "@/lib/errors/api-error-mapper";
 import voucherOptions from "@/components/app/messages/templates/json/voucher.json";
 import { calcEndDateBusinessDays } from "@/lib/date/business-days";
+import {
+  formatIsoDateInput,
+  isStrictIsoDate,
+  normalizeIsoDate,
+  toIsoDate,
+} from "@/lib/contracts/date-input";
 import { parsePositiveIntQueryParam } from "@/lib/query-params";
 import { buildClientEditPrefillFromEformsignDocument } from "@/lib/eformsign/client-prefill";
 import { eformsignApi } from "@/services/api";
@@ -126,20 +132,12 @@ const parsePrice = (value: string | null | undefined): string => {
   return value.replace(/,/g, "");
 };
 
-const yymmddToIso = (value: string | null | undefined): string | null => {
-  if (!value) return null;
-  const v = value.trim();
-  if (!/^\d{6}$/.test(v)) return v;
-  return `20${v.slice(0, 2)}-${v.slice(2, 4)}-${v.slice(4, 6)}`;
+/** The wizard holds these as YYYY-MM-DD; an incomplete one is sent as null. */
+const isoOrNull = (value: string | null | undefined): string | null => {
+  const normalized = normalizeIsoDate(value);
+  return normalized || null;
 };
 
-// ISO "2026-05-30" → "260530" — 편집 모드에서 client 데이터를 wizard store(YYMMDD)에 하이드레이트.
-const isoToYymmdd = (iso: string | null | undefined): string => {
-  if (!iso) return "";
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return "";
-  return `${m[1].slice(2)}${m[2]}${m[3]}`;
-};
 
 const normalizeOptionToken = (value: string): string => value.replace(/[\s_-]+/g, "").toLowerCase();
 
@@ -314,7 +312,7 @@ export default function NewClientPage() {
 
     if (prefillClient.name !== undefined) setField("name", prefillClient.name);
     if (prefillClient.birthday !== undefined) setField("birthday", prefillClient.birthday);
-    if (prefillClient.dueDate !== undefined) setField("dueDate", prefillClient.dueDate);
+    if (prefillClient.dueDate !== undefined) setField("dueDate", toIsoDate(prefillClient.dueDate));
     if (prefillClient.address !== undefined) setField("address", prefillClient.address);
     if (prefillClient.phone !== undefined) setField("phone", prefillClient.phone);
     if (prefillClient.type !== undefined) setField("type", prefillClient.type);
@@ -322,8 +320,8 @@ export default function NewClientPage() {
     if (prefillClient.fullPrice !== undefined) setField("fullPrice", prefillClient.fullPrice);
     if (prefillClient.grant !== undefined) setField("grant", prefillClient.grant);
     if (prefillClient.actualPrice !== undefined) setField("actualPrice", prefillClient.actualPrice);
-    if (prefillClient.startDate !== undefined) setField("startDate", prefillClient.startDate);
-    if (prefillClient.endDate !== undefined) setField("endDate", prefillClient.endDate);
+    if (prefillClient.startDate !== undefined) setField("startDate", toIsoDate(prefillClient.startDate));
+    if (prefillClient.endDate !== undefined) setField("endDate", toIsoDate(prefillClient.endDate));
     if (prefillClient.careCenter !== undefined) setField("careCenter", prefillClient.careCenter);
     if (prefillClient.voucherClient !== undefined) setField("voucherClient", prefillClient.voucherClient);
     if (prefillClient.breastPump !== undefined) setField("breastPump", prefillClient.breastPump);
@@ -350,7 +348,8 @@ export default function NewClientPage() {
 
     setField("name", editingClient.name);
     setField("birthday", editingClient.birthday ?? "");
-    setField("dueDate", isoToYymmdd(editingClient.dueDate));
+    setField("dueDate", normalizeIsoDate(editingClient.dueDate));
+    setField("birthDate", normalizeIsoDate(editingClient.birthDate));
     setField("address", editingClient.address ?? "");
     setField("phone", editingClient.phone ?? "");
     setField("primaryEmployeeId", editingClient.primaryEmployee?.id ?? null);
@@ -360,8 +359,8 @@ export default function NewClientPage() {
     setField("fullPrice", editingClient.fullPrice ?? "");
     setField("grant", editingClient.grant ?? "");
     setField("actualPrice", editingClient.actualPrice ?? "");
-    setField("startDate", isoToYymmdd(editingClient.startDate));
-    setField("endDate", isoToYymmdd(editingClient.endDate));
+    setField("startDate", normalizeIsoDate(editingClient.startDate));
+    setField("endDate", normalizeIsoDate(editingClient.endDate));
     setField("careCenter", editingClient.careCenter);
     setField("voucherClient", editingClient.voucherClient);
     setField("breastPump", editingClient.breastPump);
@@ -409,7 +408,7 @@ export default function NewClientPage() {
     );
 
     if (!store.birthday && prefill.birthday) setField("birthday", prefill.birthday);
-    if (!store.dueDate && prefill.dueDate) setField("dueDate", prefill.dueDate);
+    if (!store.dueDate && prefill.dueDate) setField("dueDate", toIsoDate(prefill.dueDate));
     if (!store.address && prefill.address) setField("address", prefill.address);
     if (!store.phone && prefill.phone) setField("phone", prefill.phone);
     if (!store.type && voucherType) setField("type", voucherType);
@@ -417,8 +416,8 @@ export default function NewClientPage() {
     if (!store.fullPrice && prefill.fullPrice) setField("fullPrice", prefill.fullPrice);
     if (!store.grant && prefill.grant) setField("grant", prefill.grant);
     if (!store.actualPrice && prefill.actualPrice) setField("actualPrice", prefill.actualPrice);
-    if (!store.startDate && prefill.startDate) setField("startDate", prefill.startDate);
-    if (!store.endDate && prefill.endDate) setField("endDate", prefill.endDate);
+    if (!store.startDate && prefill.startDate) setField("startDate", toIsoDate(prefill.startDate));
+    if (!store.endDate && prefill.endDate) setField("endDate", toIsoDate(prefill.endDate));
     if (store.primaryEmployeeId == null && primaryEmployee) setField("primaryEmployeeId", primaryEmployee.id);
     if (store.secondaryEmployeeId == null && secondaryEmployee) setField("secondaryEmployeeId", secondaryEmployee.id);
 
@@ -630,16 +629,16 @@ export default function NewClientPage() {
     voucherPriceInfos,
   ]);
 
-  // 시작일(YYMMDD) + 바우처 기간이 정해지면 평일(주말+한국 공휴일 제외) 기준으로 종료일 자동 계산.
+  // 시작일(YYYY-MM-DD) + 바우처 기간이 정해지면 평일(주말+한국 공휴일 제외) 기준으로 종료일 자동 계산.
   // 사용자가 종료일을 수동 편집해도 startDate/duration이 다시 바뀌어야만 덮어쓴다.
   useEffect(() => {
     if (!store.startDate || !effectiveDuration) return;
-    if (!/^\d{6}$/.test(store.startDate)) return;
-    const startIso = `20${store.startDate.slice(0, 2)}-${store.startDate.slice(2, 4)}-${store.startDate.slice(4, 6)}`;
-    const endIso = calcEndDateBusinessDays(startIso, effectiveDuration);
+    // Only once the whole date has been typed — a half-entered one would
+    // otherwise keep recomputing the end date under the user's cursor.
+    if (!isStrictIsoDate(store.startDate)) return;
+    const endIso = calcEndDateBusinessDays(store.startDate, effectiveDuration);
     if (!endIso) return;
-    const endYymmdd = `${endIso.slice(2, 4)}${endIso.slice(5, 7)}${endIso.slice(8, 10)}`;
-    setField("endDate", endYymmdd);
+    setField("endDate", endIso);
   }, [effectiveDuration, store.startDate, setField]);
 
   const handleTypeChange = (newType: string) => {
@@ -736,7 +735,8 @@ export default function NewClientPage() {
       const dto: CreateClientDto = {
         name: store.name,
         birthday: store.birthday || null,
-        dueDate: yymmddToIso(store.dueDate),
+        dueDate: isoOrNull(store.dueDate),
+        birthDate: isoOrNull(store.birthDate),
         address: store.address || null,
         phone: store.phone || null,
         primaryEmployeeId: store.primaryEmployeeId,
@@ -746,8 +746,8 @@ export default function NewClientPage() {
         fullPrice: store.fullPrice || null,
         grant: store.voucherClient ? store.grant || null : "0",
         actualPrice: store.voucherClient ? store.actualPrice || null : store.fullPrice || null,
-        startDate: yymmddToIso(store.startDate),
-        endDate: yymmddToIso(store.endDate),
+        startDate: isoOrNull(store.startDate),
+        endDate: isoOrNull(store.endDate),
         careCenter: store.careCenter,
         voucherClient: store.voucherClient,
         breastPump: store.breastPump,
@@ -888,10 +888,20 @@ export default function NewClientPage() {
                       <Input
                         data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_due-date-field_due-date-input"
                         value={store.dueDate}
-                        onChange={(e) => setField("dueDate", e.target.value)}
+                        onChange={(e) => setField("dueDate", formatIsoDateInput(e.target.value))}
                         inputMode="numeric"
-                        maxLength={6}
-                        placeholder="YYMMDD"
+                        maxLength={10}
+                        placeholder="YYYY-MM-DD"
+                      />
+                    </Field>
+                    <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birth-date-field" label="출산일">
+                      <Input
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birth-date-field_birth-date-input"
+                        value={store.birthDate}
+                        onChange={(e) => setField("birthDate", formatIsoDateInput(e.target.value))}
+                        inputMode="numeric"
+                        maxLength={10}
+                        placeholder="YYYY-MM-DD"
                       />
                     </Field>
                     <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_address-field" label="주소">
@@ -1094,20 +1104,20 @@ export default function NewClientPage() {
                       <Input
                         data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_start-date-field_start-date-input"
                         value={store.startDate}
-                        onChange={(e) => setField("startDate", e.target.value)}
+                        onChange={(e) => setField("startDate", formatIsoDateInput(e.target.value))}
                         inputMode="numeric"
-                        maxLength={6}
-                        placeholder="YYMMDD"
+                        maxLength={10}
+                        placeholder="YYYY-MM-DD"
                       />
                     </Field>
                     <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_end-date-field" label="종료일">
                       <Input
                         data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_end-date-field_end-date-input"
                         value={store.endDate}
-                        onChange={(e) => setField("endDate", e.target.value)}
+                        onChange={(e) => setField("endDate", formatIsoDateInput(e.target.value))}
                         inputMode="numeric"
-                        maxLength={6}
-                        placeholder="YYMMDD"
+                        maxLength={10}
+                        placeholder="YYYY-MM-DD"
                       />
                     </Field>
                   </div>

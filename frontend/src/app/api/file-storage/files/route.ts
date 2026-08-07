@@ -1,34 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serverAPIClient } from "@/lib/api/server";
+import { z } from "zod";
 
-function getAuthToken(request: NextRequest): string | null {
-    return request.cookies.get("auth_token")?.value || null;
-}
+import { serverAPIClient } from "@/lib/api/server";
+import {
+    backendJsonResponse,
+    getAuthHeaders,
+    getAuthToken,
+    unauthorizedResponse,
+} from "@/lib/api/route-utils";
+// Deliberately the shared sanitizing errorResponse: the local
+// "@/lib/api/route-utils" binds errorResponse to legacy-message mode, which
+// forwards upstream error text (e.g. class-validator messages) to the
+// browser. File-storage mirrors mobile's sanitized error behaviour.
+import { errorResponse } from "@babyjamjam/shared/api";
+
+// Identity fields (orgId/uploadedBy) are deliberately NOT part of this
+// whitelist: the backend derives branch + uploader from the JWT
+// (@CurrentTenant), so client-supplied identity is spoofable noise and is
+// never forwarded. Only validated metadata crosses the proxy.
+const uploadMetadataSchema = z.object({
+    name: z.string().trim().min(1).max(255).optional(),
+    description: z.string().max(2000).optional(),
+    categoryId: z.string().trim().min(1).max(100).optional(),
+    tags: z.string().max(2000).optional(),
+});
 
 export async function GET(request: NextRequest) {
     try {
         const token = getAuthToken(request);
         if (!token) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return unauthorizedResponse("Unauthorized");
         }
 
         const { searchParams } = new URL(request.url);
         const categoryId = searchParams.get("categoryId");
-        
+
         const params: Record<string, string> = {};
         if (categoryId) params.categoryId = categoryId;
 
         const response = await serverAPIClient.get("/documents", {
             params,
-            headers: { Authorization: `Bearer ${token}` },
+            headers: getAuthHeaders(token),
         });
-        return NextResponse.json(response.data);
+        return backendJsonResponse(response);
     } catch (error) {
-        console.error("[file-storage/documents] GET error:", error);
-        return NextResponse.json(
-            { error: "Failed to fetch documents" },
-            { status: 500 }
-        );
+        return errorResponse(error, "fetch documents");
     }
 }
 
@@ -36,7 +52,7 @@ export async function POST(request: NextRequest) {
     try {
         const token = getAuthToken(request);
         if (!token) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return unauthorizedResponse("Unauthorized");
         }
 
         const formData = await request.formData();
@@ -55,43 +71,35 @@ export async function POST(request: NextRequest) {
         const blob = new Blob([buffer], { type: file.type });
         backendFormData.append("file", blob, file.name);
 
-        const name = formData.get("name");
-        const description = formData.get("description");
-        const categoryId = formData.get("categoryId");
-        const tags = formData.get("tags");
-        const orgId = formData.get("orgId");
-        const uploadedBy = formData.get("uploadedBy");
+        const metadataResult = uploadMetadataSchema.safeParse({
+            name: formData.get("name") ?? undefined,
+            description: formData.get("description") ?? undefined,
+            categoryId: formData.get("categoryId") ?? undefined,
+            tags: formData.get("tags") ?? undefined,
+        });
+        if (!metadataResult.success) {
+            return NextResponse.json(
+                { error: "Invalid upload metadata" },
+                { status: 400 }
+            );
+        }
 
-        if (name) backendFormData.append("name", name as string);
-        if (description) backendFormData.append("description", description as string);
-        if (categoryId) backendFormData.append("categoryId", categoryId as string);
-        if (tags) backendFormData.append("tags", tags as string);
-        if (orgId) backendFormData.append("orgId", orgId as string);
-        if (uploadedBy) backendFormData.append("uploadedBy", uploadedBy as string);
+        const { name, description, categoryId, tags } = metadataResult.data;
+        if (name) backendFormData.append("name", name);
+        if (description) backendFormData.append("description", description);
+        if (categoryId) backendFormData.append("categoryId", categoryId);
+        if (tags) backendFormData.append("tags", tags);
 
         const response = await serverAPIClient.post("/documents/upload", backendFormData, {
             timeout: 120000,
             headers: {
                 "Content-Type": undefined,
-                Authorization: `Bearer ${token}`,
+                ...getAuthHeaders(token),
             },
         });
 
-        return NextResponse.json(response.data, { status: 201 });
+        return backendJsonResponse(response);
     } catch (error) {
-        console.error("[file-storage/documents] POST error:", error);
-        if (error && typeof error === "object" && "response" in error) {
-            const axiosError = error as { response?: { status: number; data: unknown } };
-            if (axiosError.response) {
-                return NextResponse.json(
-                    axiosError.response.data || { error: "Upload failed" },
-                    { status: axiosError.response.status }
-                );
-            }
-        }
-        return NextResponse.json(
-            { error: "Failed to upload document" },
-            { status: 500 }
-        );
+        return errorResponse(error, "upload document");
     }
 }

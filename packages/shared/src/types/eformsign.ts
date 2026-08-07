@@ -320,7 +320,12 @@ export interface HeadlessFinalizeResponse {
   ok: boolean;
   durationMs: number;
   reason?: string;
-  fallbackHint?: "iframe";
+  /**
+   * "iframe" means the step is genuinely unfinished and reopening the editor is
+   * the recovery. "manual_check" means the vendor could not be asked, so the
+   * document must be verified in eformsign before anyone acts on it.
+   */
+  fallbackHint?: "iframe" | "manual_check";
 }
 
 export type FinalizeHeadlessResponse = HeadlessFinalizeResponse;

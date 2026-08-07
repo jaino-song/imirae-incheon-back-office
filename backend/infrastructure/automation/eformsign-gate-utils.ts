@@ -16,6 +16,13 @@ export const EFORMSIGN_READY_TEXT = "필수 입력 항목을 모두 작성했습
 // the loop fall back to the (now-blocked) top-level 전송.
 export const REQUEST_SEND_DIALOG_SELECTOR = "#requestWithInputCommentPopup";
 export const FINALIZE_REQUEST_SEND_DIALOG_SELECTOR = "#inputCommentPopup";
+// The only `code` an eformsign SDK success callback carries when the document
+// actually finished. The SDK fires that same callback for non-terminal events —
+// a top-level 전송 that merely opens the confirm popup is one — so latching on
+// the callback's arrival alone reports success for a send that never happened.
+// `frontend/src/hooks/useEformsign.ts` filters on the same value; the backend
+// keeps its own copy because it does not depend on @babyjamjam/shared.
+export const EFORMSIGN_SDK_COMPLETION_CODE = "-1";
 
 /**
  * Returns the first visible match in `locator`, or null if none are visible.
@@ -100,6 +107,26 @@ export async function readEformsignCallbackState(page: Page): Promise<EformsignC
     });
 }
 
+/**
+ * Every payload the SDK handed to its success callback, terminal or not. Only a
+ * completion-coded one latches `__eformsignSuccess`, so when a run ends without
+ * a terminal callback these are the only evidence of what the SDK did report.
+ */
+export async function readObservedSuccessCallbacks(page: Page): Promise<unknown[]> {
+    const observed = await page
+        .evaluate(() => {
+            const w = window as unknown as { __eformsignSuccessLog?: unknown[] };
+            return w.__eformsignSuccessLog ?? [];
+        })
+        .catch(() => []);
+    return Array.isArray(observed) ? observed : [];
+}
+
+export function formatObservedSuccessCallbacks(observed: readonly unknown[]): string {
+    if (!observed.length) return "none";
+    return observed.map((payload) => formatEformsignCallbackPayload(payload)).join(", ");
+}
+
 export async function throwIfEformsignErrorLatched(page: Page): Promise<void> {
     const state = await readEformsignCallbackState(page).catch(() => null);
     if (!state?.hasError) return;
@@ -173,9 +200,11 @@ export async function createGateErrorWithSnapshot(
 }
 
 /**
- * Watches `window.__eformsignSuccess`, set by the SDK success callback wired
- * in `buildEmbeddedSdkHtml`. Returns true once the dispatch is confirmed,
- * false if the timeout elapsed first.
+ * Watches `window.__eformsignSuccess`, which `buildEmbeddedSdkHtml` sets only
+ * for a success callback carrying `EFORMSIGN_SDK_COMPLETION_CODE`. A gate loop
+ * exits on this, so it must stay the *terminal* signal: latching on any success
+ * callback would let the loop stop before it clicked the popup 전송 that
+ * actually submits the document.
  */
 export async function isSuccessLatched(page: Page): Promise<boolean> {
     return page

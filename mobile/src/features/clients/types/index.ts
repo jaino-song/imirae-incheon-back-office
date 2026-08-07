@@ -48,6 +48,8 @@ export interface Client {
     updatedAt?: string | null;
     birthday: string | null;           // YYMMDD format
     dueDate: string | null;
+    birthDate: string | null;          // actual delivery date, ISO
+
     address: string | null;
     phone: string | null;
     primaryEmployee: EmployeeSummary | null;  // Primary employee info from active schedule
@@ -77,6 +79,7 @@ export interface CreateClientDto {
     name: string;
     birthday?: string | null;
     dueDate?: string | null;
+    birthDate?: string | null;
     address?: string | null;
     phone?: string | null;
     primaryEmployeeId: number | null;  // Employee ID (backend converts to schedule)
@@ -103,6 +106,7 @@ export interface UpdateClientDto {
     name?: string;
     birthday?: string | null;
     dueDate?: string | null;
+    birthDate?: string | null;
     address?: string | null;
     phone?: string | null;
     primaryEmployeeId?: number | null;  // Employee ID (backend converts to schedule)

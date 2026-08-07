@@ -5,6 +5,8 @@ interface ClientWizardFormData {
   name: string;
   birthday: string;
   dueDate: string;
+  /** Actual delivery date, set once the baby has arrived. */
+  birthDate: string;
   address: string;
   phone: string;
   primaryEmployeeId: number | null;
@@ -37,6 +39,7 @@ const INITIAL_FORM: ClientWizardFormData = {
   name: "",
   birthday: "",
   dueDate: "",
+  birthDate: "",
   address: "",
   phone: "",
   primaryEmployeeId: null,
