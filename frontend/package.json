@@ -76,7 +76,7 @@
   "devDependencies": {
     "@openai/agents": "^0.5.4",
     "@openai/codex-sdk": "^0.111.0",
-    "@playwright/test": "^1.56.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
