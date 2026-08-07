@@ -18,20 +18,33 @@ async function seedCategories(): Promise<Map<string, string>> {
     const categoryMap = new Map<string, string>();
 
     for (const category of DEFAULT_CATEGORIES) {
-        const result = await (prisma as any).document_category.upsert({
-            where: { value: category.value },
-            update: {
-                label: category.label,
-                color: category.color,
-                isCustom: category.isCustom,
-            },
-            create: {
-                value: category.value,
-                label: category.label,
-                color: category.color,
-                isCustom: category.isCustom,
-            },
+        // Seed rows are global (branchId: null). `value` is no longer globally
+        // unique — uniqueness is (branchId, value) plus a partial unique index on
+        // value WHERE branch_id IS NULL — and Prisma cannot address a composite
+        // unique containing NULL, so upsert-by-value is replaced with an explicit
+        // find-then-update/create against the global scope.
+        const existing = await prisma.document_category.findFirst({
+            where: { value: category.value, branchId: null },
+            select: { id: true },
         });
+        const result = existing
+            ? await prisma.document_category.update({
+                  where: { id: existing.id },
+                  data: {
+                      label: category.label,
+                      color: category.color,
+                      isCustom: category.isCustom,
+                  },
+              })
+            : await prisma.document_category.create({
+                  data: {
+                      value: category.value,
+                      label: category.label,
+                      color: category.color,
+                      isCustom: category.isCustom,
+                      branchId: null,
+                  },
+              });
         categoryMap.set(category.value, result.id);
         console.log(`  ✓ ${category.value} (${category.label}) -> ${result.id}`);
     }

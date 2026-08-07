@@ -40,13 +40,24 @@ export async function GET(
             responseType: "arraybuffer",
         });
 
+        // The backend decides Content-Type / Content-Disposition /
+        // X-Content-Type-Options; the proxy only copies them through and never
+        // invents its own values beyond the octet-stream/inline fallbacks.
+        // Dropping nosniff here would let a browser re-sniff a type the backend
+        // deliberately allowlisted for inline display.
+        const headers: Record<string, string> = {
+            "Content-Type": String(response.headers["content-type"] ?? "application/octet-stream"),
+            "Content-Disposition": String(response.headers["content-disposition"] ?? "inline"),
+            "Content-Length": String(response.data.byteLength),
+        };
+        const nosniff = response.headers["x-content-type-options"];
+        if (nosniff) {
+            headers["X-Content-Type-Options"] = String(nosniff);
+        }
+
         return new NextResponse(response.data, {
             status: response.status,
-            headers: {
-                "Content-Type": String(response.headers["content-type"] ?? "application/octet-stream"),
-                "Content-Disposition": String(response.headers["content-disposition"] ?? "inline"),
-                "Content-Length": String(response.data.byteLength),
-            },
+            headers,
         });
     } catch (error) {
         if (error && typeof error === "object" && "response" in error) {

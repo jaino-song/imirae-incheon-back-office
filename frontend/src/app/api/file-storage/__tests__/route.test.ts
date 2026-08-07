@@ -4,7 +4,7 @@
 import { NextRequest } from "next/server";
 
 import { serverAPIClient } from "@/lib/api/server";
-import { GET as downloadFile } from "../files/[fileId]/download/route";
+import { GET as downloadFile, HEAD as headFile } from "../files/[fileId]/download/route";
 import {
   DELETE as deleteFile,
   GET as getFile,
@@ -113,6 +113,24 @@ describe("file-storage API routes", () => {
     expect(forwardedFormData.get("name")).toBe("Document");
   });
 
+  it("sanitizes an upstream validation error body instead of passing it through", async () => {
+    mockPost.mockRejectedValue({
+      response: {
+        status: 400,
+        data: {
+          statusCode: 400,
+          message: ["property orgId should not exist"],
+          error: "Bad Request",
+        },
+      },
+    });
+
+    const response = await uploadFile(createUploadRequest());
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Failed to upload document" });
+  });
+
   it("rejects non-string upload metadata before proxying", async () => {
     const response = await uploadFile(
       createUploadRequest({
@@ -134,6 +152,32 @@ describe("file-storage API routes", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "Invalid file id" });
     expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe update IDs before proxying", async () => {
+    const response = await updateFile(
+      createJsonRequest(
+        "/api/file-storage/files/bad%2Fid",
+        "PUT",
+        JSON.stringify({ name: "Renamed" }),
+      ),
+      { params: Promise.resolve({ fileId: "bad%2Fid" }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid file id" });
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe delete IDs before proxying", async () => {
+    const response = await deleteFile(
+      createGetRequest("/api/file-storage/files/bad%2Fid"),
+      { params: Promise.resolve({ fileId: "bad%2Fid" }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid file id" });
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("forwards a validated document update to the backend path", async () => {
@@ -204,42 +248,153 @@ describe("file-storage API routes", () => {
     await expect(response.json()).resolves.toEqual({ error: "Failed to delete document" });
   });
 
-  it("rejects unsafe download IDs before proxying", async () => {
-    const response = await downloadFile(
-      createGetRequest("/api/file-storage/files/bad%2Fid/download"),
-      { params: Promise.resolve({ fileId: "bad%2Fid" }) },
-    );
+  describe("download", () => {
+    it("rejects unsafe download IDs before proxying", async () => {
+      const response = await downloadFile(
+        createGetRequest("/api/file-storage/files/bad%2Fid/download"),
+        { params: Promise.resolve({ fileId: "bad%2Fid" }) },
+      );
 
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "Invalid file id" });
-    expect(mockGet).not.toHaveBeenCalled();
-  });
-
-  // The backend allowlists which stored types may render inline; nosniff is what
-  // stops a browser second-guessing that Content-Type. Dropping it at the proxy
-  // silently removes the guarantee for every mobile download.
-  it("passes the backend's download headers through, nosniff included", async () => {
-    mockGet.mockResolvedValueOnce({
-      status: 200,
-      data: new ArrayBuffer(8),
-      headers: {
-        "content-type": "application/pdf",
-        "content-disposition": "inline; filename=\"contract.pdf\"",
-        "x-content-type-options": "nosniff",
-      },
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "Invalid file id" });
+      expect(mockGet).not.toHaveBeenCalled();
     });
 
-    const response = await downloadFile(
-      createGetRequest("/api/file-storage/files/file_123/download"),
-      { params: Promise.resolve({ fileId: "file_123" }) },
-    );
+    it("passes upstream download headers through, including x-content-type-options", async () => {
+      const body = new TextEncoder().encode("PDF!").buffer;
+      mockGet.mockResolvedValue({
+        status: 200,
+        data: body,
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": 'attachment; filename="a.pdf"',
+          "x-content-type-options": "nosniff",
+          // Deliberately wrong: the proxy must size the body it actually
+          // sends, not echo a stale upstream transfer header.
+          "content-length": "999",
+        },
+      });
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("application/pdf");
-    expect(response.headers.get("content-disposition")).toBe(
-      "inline; filename=\"contract.pdf\"",
-    );
-    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      const response = await downloadFile(
+        createGetRequest("/api/file-storage/files/file_123/download"),
+        { params: Promise.resolve({ fileId: "file_123" }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("application/pdf");
+      expect(response.headers.get("content-disposition")).toBe('attachment; filename="a.pdf"');
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("content-length")).toBe("4");
+      expect(mockGet).toHaveBeenCalledWith("/documents/file_123/download", {
+        headers: { Authorization: "Bearer auth-token" },
+        responseType: "arraybuffer",
+      });
+      await expect(response.arrayBuffer()).resolves.toEqual(body);
+    });
+
+    it("propagates attachment=true to the upstream download URL", async () => {
+      mockGet.mockResolvedValue({
+        status: 200,
+        data: new ArrayBuffer(1),
+        headers: {},
+      });
+
+      await downloadFile(
+        createGetRequest("/api/file-storage/files/file_123/download?attachment=true"),
+        { params: Promise.resolve({ fileId: "file_123" }) },
+      );
+
+      expect(mockGet).toHaveBeenCalledWith(
+        "/documents/file_123/download?attachment=true",
+        expect.anything(),
+      );
+    });
+
+    it("preserves non-404 upstream download error status and sanitizes the payload", async () => {
+      mockGet.mockRejectedValue({
+        response: {
+          status: 403,
+          data: { error: "branch mismatch for tenant t_999" },
+        },
+      });
+
+      const response = await downloadFile(
+        createGetRequest("/api/file-storage/files/file_123/download"),
+        { params: Promise.resolve({ fileId: "file_123" }) },
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({ error: "Failed to download document" });
+    });
+
+    it("sanitizes upstream download errors while keeping the 404 mapping", async () => {
+      mockGet.mockRejectedValue({
+        response: {
+          status: 404,
+          data: { message: "Document not found in bucket s3://internal" },
+        },
+      });
+
+      const response = await downloadFile(
+        createGetRequest("/api/file-storage/files/file_123/download"),
+        { params: Promise.resolve({ fileId: "file_123" }) },
+      );
+
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ error: "Document not found" });
+    });
+  });
+
+  describe("HEAD download preflight", () => {
+    it("keeps the HEAD metadata preflight working without fetching the body", async () => {
+      mockGet.mockResolvedValue({
+        status: 200,
+        data: { mimeType: "application/pdf", fileSize: 123 },
+        headers: {},
+      });
+
+      const response = await headFile(
+        createGetRequest("/api/file-storage/files/file_123/download"),
+        { params: Promise.resolve({ fileId: "file_123" }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("application/pdf");
+      expect(response.headers.get("content-disposition")).toBe("inline");
+      expect(response.headers.get("content-length")).toBe("123");
+      expect(response.body).toBeNull();
+      // Metadata endpoint, not the download endpoint: HEAD must never
+      // transfer the file body upstream just to answer a preflight.
+      expect(mockGet).toHaveBeenCalledWith("/documents/file_123", {
+        headers: { Authorization: "Bearer auth-token" },
+      });
+    });
+
+    it("passes x-content-type-options through on HEAD when upstream provides it", async () => {
+      mockGet.mockResolvedValue({
+        status: 200,
+        data: { mimeType: "application/pdf", fileSize: 123 },
+        headers: { "x-content-type-options": "nosniff" },
+      });
+
+      const response = await headFile(
+        createGetRequest("/api/file-storage/files/file_123/download"),
+        { params: Promise.resolve({ fileId: "file_123" }) },
+      );
+
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    });
+
+    it("rejects unsafe HEAD IDs before proxying, without a body", async () => {
+      const response = await headFile(
+        createGetRequest("/api/file-storage/files/bad%2Fid/download"),
+        { params: Promise.resolve({ fileId: "bad%2Fid" }) },
+      );
+
+      expect(response.status).toBe(400);
+      expect(response.body).toBeNull();
+      expect(mockGet).not.toHaveBeenCalled();
+    });
   });
 
   describe("auth rejection", () => {
@@ -289,6 +444,16 @@ describe("file-storage API routes", () => {
         { params: Promise.resolve({ fileId: "file_123" }) },
       );
       expect(response.status).toBe(401);
+      expect(mockGet).not.toHaveBeenCalled();
+    });
+
+    it("rejects HEAD download without auth_token, without a body", async () => {
+      const response = await headFile(
+        noAuthRequest("/api/file-storage/files/file_123/download", "HEAD"),
+        { params: Promise.resolve({ fileId: "file_123" }) },
+      );
+      expect(response.status).toBe(401);
+      expect(response.body).toBeNull();
       expect(mockGet).not.toHaveBeenCalled();
     });
   });
