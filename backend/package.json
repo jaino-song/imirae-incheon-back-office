@@ -55,7 +55,7 @@
     "@nestjs/schedule": "^6.1.0",
     "@prisma/client": "6.19.1",
     "@sentry/nestjs": "10.67.0",
-    "@supabase/supabase-js": "^2.93.2",
+    "@supabase/supabase-js": "^2.112.0",
     "@types/uuid": "^10.0.0",
     "ai": "6.0.116",
     "bcrypt": "^6.0.0",
