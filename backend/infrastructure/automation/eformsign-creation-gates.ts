@@ -78,6 +78,10 @@ export async function runEformsignCreationGates(
             await throwIfEformsignErrorLatched(page);
 
             if (await isSuccessLatched(page)) {
+                (logger as NestLogger).log?.(
+                    `[creation-gate] terminal success latched after ${Date.now() - startedAt}ms; ` +
+                        `lastAction: ${lastAction}`,
+                ) ?? console.log("[creation-gate] terminal success latched");
                 return "success-latched";
             }
 

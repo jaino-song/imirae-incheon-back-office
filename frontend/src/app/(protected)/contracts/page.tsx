@@ -1412,15 +1412,33 @@ function ContractDetail({
     mutationFn: async (endDate?: string): Promise<{ kind: "headless" } | { kind: "iframe"; option: EformsignDocumentOption }> => {
       // BJJ-90: try the backend-driven finalize first when the flag is on.
       if (isFeatureEnabled("headlessDispatch")) {
+        // Raised inside the try but acted on outside it: the catch below exists
+        // to turn transport failures into an iframe retry, and it would swallow
+        // this signal just as readily.
+        let manualCheckRequired = false;
         try {
           const progressId = finalizeProgressIdRef.current ?? undefined;
           const headless = await eformsignApi.finalizeHeadless(doc.id, endDate, progressId);
           if (headless.ok) {
             return { kind: "headless" };
           }
-          console.warn("[finalize] headless finalize ok=false, falling back to iframe", headless.reason);
+          manualCheckRequired = headless.fallbackHint === "manual_check";
+          console.warn(
+            "[finalize] headless finalize ok=false",
+            headless.reason,
+            headless.fallbackHint,
+          );
         } catch (headlessError) {
           console.warn("[finalize] headless finalize threw, falling back to iframe", headlessError);
+        }
+        // The backend asks for the iframe only once it has confirmed with
+        // eformsign that the step is still unfinished. When it could not
+        // confirm, reopening the editor would invite re-approval of a step that
+        // may already be done.
+        if (manualCheckRequired) {
+          throw new Error(
+            "완료 처리 결과를 확인하지 못했어요. eformsign에서 문서 상태를 확인한 뒤 다시 시도해 주세요.",
+          );
         }
       }
 
