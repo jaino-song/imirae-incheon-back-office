@@ -107,7 +107,10 @@ export function ExpandableSearch({
           className={cn(
             "expandable-search-overlay-surface absolute right-0 top-0 flex h-[calc(40px*var(--glint-ui-scale,1))] items-start justify-start overflow-hidden rounded-[12px]",
             expanded
-              ? "bg-white shadow-sm"
+              // No border and no shadow: the expanded field sits on the panel
+              // header, and an outlined, raised box there reads as a separate
+              // surface floating over the list rather than part of the header.
+              ? "border-0 bg-white shadow-none"
               : "w-[calc(32px*var(--glint-ui-scale,1))] bg-transparent"
           )}
         >
