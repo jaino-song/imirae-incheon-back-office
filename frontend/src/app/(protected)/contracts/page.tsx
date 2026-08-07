@@ -34,7 +34,7 @@ import { useInfiniteContracts } from "@/hooks/useInfiniteContracts";
 import { ServiceRecordHeaderCard } from "@/features/service-records/components/ServiceRecordHeaderCard";
 import { useClientServiceRecords } from "@/features/service-records/hooks/use-service-records";
 import type { EformsignDocument, EformsignDocumentOption } from "@/lib/eformsign/types";
-import { matchesDocumentSearch } from "@/lib/eformsign/contract-search";
+import { useDebounce } from "use-debounce";
 import {
   DocumentFilterType,
   contractStatusBadgeType,
@@ -162,7 +162,6 @@ const ContractDocumentPreviewModal = dynamic(
   { ssr: false }
 );
 
-const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 
 const TAB_ITEMS = [
   { label: "전체", value: "all" },
@@ -520,6 +519,14 @@ export default function ContractsPage() {
   );
   const activeListTab = activeSection === "service-records" ? serviceRecordActiveTab : activeTab;
   const filterType: DocumentFilterType = activeListTab === "all" ? null : (activeListTab as DocumentFilterType);
+  // Search is applied server-side (chosung-aware), so each keystroke would be a
+  // request — debounce to one request per pause, matching mobile's
+  // useDebouncedValue(searchQuery.trim(), 300). Each surface debounces its own
+  // term so a section switch immediately uses that section's settled term.
+  const [debouncedSearchQuery] = useDebounce(searchQuery.trim(), 300);
+  const [debouncedServiceRecordSearchQuery] = useDebounce(serviceRecordSearchQuery.trim(), 300);
+  const activeSearchQuery =
+    activeSection === "service-records" ? debouncedServiceRecordSearchQuery : debouncedSearchQuery;
   const templateFilter = useMemo(
     () => serviceRecordTemplateIds.length > 0
       ? {
@@ -545,8 +552,8 @@ export default function ContractsPage() {
   } = useInfiniteContracts({
     enabled: canFetchDocuments,
     filterType,
-    excludedNames: EXCLUDED_CUSTOMER_NAMES,
     templateFilter,
+    search: activeSearchQuery,
   });
   // 전체 탭 StatsBar 카운터: 서버가 지점(인천=회사 전체) 상태 신호를 한 번 모아 내려주고
   // foldContractStats로 접는다. 무한 스크롤 목록과 분리되어, 스크롤하지 않아도 정확하다.
@@ -567,27 +574,20 @@ export default function ContractsPage() {
   const isStatsLoading = isBootstrappingAuth || isCountsLoading;
   const isServiceRecordListLoading = isInitialLoading;
 
-  // Use infinite scroll documents, with optional local search filter
-  const documents = useMemo(
-    () => infiniteDocuments.filter(
-      (doc) => matchesDocumentSearch(doc, searchQuery, resolveCustomerName(doc)),
-    ),
-    [infiniteDocuments, resolveCustomerName, searchQuery],
-  );
+  // Search happens server-side (it is part of the query key), so what the
+  // server returns is what renders — total_rows/hasNextPage describe the
+  // searched set and pagination stops when the matches run out.
+  const documents = infiniteDocuments;
 
   const serviceRecordDocuments = useMemo(() => {
     if (serviceRecordTemplateIds.length === 0) return [];
     return infiniteDocuments.filter(
-      (doc) =>
-        matchesDocumentStatusTab(doc, serviceRecordActiveTab) &&
-        matchesDocumentSearch(doc, serviceRecordSearchQuery, resolveCustomerName(doc)),
+      (doc) => matchesDocumentStatusTab(doc, serviceRecordActiveTab),
     );
   }, [
     serviceRecordTemplateIds,
     infiniteDocuments,
-    resolveCustomerName,
     serviceRecordActiveTab,
-    serviceRecordSearchQuery,
   ]);
 
   const stats = useMemo(

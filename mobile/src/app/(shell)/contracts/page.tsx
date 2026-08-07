@@ -161,7 +161,6 @@ type ContractStageItem = {
   time: string;
 };
 
-const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 const CONTRACT_ROUTE_BODY_CLASS = "mobile-contracts-route";
 const FILTER_LABELS: FilterKey[] = ["전체", "서명 대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "알 수 없음"];
 const CONTRACT_SECTIONS = [
@@ -2107,20 +2106,19 @@ export default function ContractsPage() {
     return undefined;
   }, [documentClientSummaryById, selectedDetailDoc?.id, selectedDoc?.id, selectedListDoc?.id]);
 
-  // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다. 클라이언트에는
-  // 고객명 제외 목록(현재 비어 있음)만 안전망으로 남긴다.
-  const filteredDocuments = useMemo(() => {
-    const nameFiltered = displayDocuments.filter(
-      (doc) => !EXCLUDED_CUSTOMER_NAMES.includes(customerName(doc)),
-    );
-    // 서명 완료/검토 필요 pills share the server's provider-review scope
-    // ("in-progress"); the review-window split happens here on the client.
-    if (activeFilter === "서명 완료" || activeFilter === "검토 필요") {
-      const wantedCategory: ContractCategory = activeFilter === "서명 완료" ? "signed" : "in-progress";
-      return nameFiltered.filter((doc) => categorize(doc) === wantedCategory);
-    }
-    return nameFiltered;
-  }, [activeFilter, displayDocuments]);
+  // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다.
+  //
+  // 서버가 페이지를 나눈 뒤에 행을 더 걷어내면 total_rows가 화면에 그려지는 수보다
+  // 커진 채로 남아, 목록이 도착하자마자 사라지는 페이지를 계속 요청하게 된다.
+  // 비어 있던 고객명 제외 목록을 여기서 걷어낸 이유다 — 제외가 필요해지면
+  // 조회 이후가 아니라 조회 조건에 넣어야 한다.
+  // 서명 완료/검토 필요는 서버의 provider-review 스코프를 공유하지만, 가르는 일은
+  // 서버가 이미 한다: displayStatus를 페이지 slice 전에 적용하므로(mirror-list
+  // service) 돌아온 행은 전부 해당 카테고리다. 여기서 한 번 더 거르면 행을 뺄 수만
+  // 있고 더할 수는 없어서, 서버가 센 total_rows보다 화면이 적어지는 쪽으로만
+  // 어긋난다. 특히 display_status가 없어 categorize가 폴백으로 검토 창을
+  // 브라우저 시계로 다시 계산할 때 서버 판정과 갈릴 수 있다.
+  const filteredDocuments = displayDocuments;
 
   const filterItems = useMemo(() => {
     if (isContractsLoading) {
