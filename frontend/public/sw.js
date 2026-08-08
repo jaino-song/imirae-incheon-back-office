@@ -145,7 +145,7 @@ self.addEventListener('push', (event) => {
     } catch (e) {
         console.error('[SW] Failed to parse push payload:', e);
         payload = {
-            title: 'New Notification',
+            title: '새 알림',
             body: event.data.text(),
         };
     }
@@ -163,7 +163,7 @@ self.addEventListener('push', (event) => {
     };
 
     event.waitUntil(
-        self.registration.showNotification(payload.title || 'Notification', options)
+        self.registration.showNotification(payload.title || '알림', options)
     );
 });
 
