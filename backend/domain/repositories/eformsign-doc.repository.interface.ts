@@ -108,6 +108,22 @@ export interface UpsertEformsignDocByDocumentIdOptions {
     preserveExistingMirrorProjection?: boolean;
 }
 
+/**
+ * A maternity contract sitting at the provider-review stage (070), with the
+ * auto-finalize bookkeeping the nightly scheduler and the dashboard both read.
+ * `contractEndDate` is parsed from the mirrored detail payload (YYYY-MM-DD) and
+ * null when the stored detail carries no recoverable end date.
+ */
+export interface ReviewStageContract {
+    documentId: string;
+    branchId: string | null;
+    customerName: string | null;
+    contractEndDate: string | null;
+    autoFinalizeAttempts: number;
+    autoFinalizeLastAttemptAt: Date | null;
+    autoFinalizeLastError: string | null;
+}
+
 export interface IEformsignDocRepository {
     findById(branchid: string, id: number): Promise<EformsignDocEntity | null>;
     findByDocumentId(branchid: string, documentId: string): Promise<EformsignDocEntity | null>;
@@ -152,6 +168,13 @@ export interface IEformsignDocRepository {
      * simply absent from the map.
      */
     findContractEndDatesByDocumentIds(documentIds: string[]): Promise<Map<string, string>>;
+    /** All provider-review-stage (070) contracts, unscoped — the nightly auto-finalize pool and the dashboard card share this. */
+    findReviewStageContracts(): Promise<ReviewStageContract[]>;
+    /**
+     * Records one failed auto-finalize attempt and returns the new attempt count,
+     * so the caller can tell exactly when the retry budget was exhausted.
+     */
+    recordAutoFinalizeFailure(documentId: string, error: string): Promise<number>;
     create(branchid: string, doc: EformsignDocEntity): Promise<EformsignDocEntity>;
     update(
         branchid: string,
