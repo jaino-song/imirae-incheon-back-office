@@ -329,3 +329,17 @@ export interface HeadlessFinalizeResponse {
 }
 
 export type FinalizeHeadlessResponse = HeadlessFinalizeResponse;
+
+/**
+ * A provider-review-stage (070) contract as served by
+ * GET /eformsign-docs/review-needed-contracts for the dashboard card, carrying
+ * the nightly auto-finalize bookkeeping (attempts of 3, last error/attempt).
+ */
+export interface ReviewNeededContract {
+  documentId: string;
+  customerName: string | null;
+  contractEndDate: string | null;
+  autoFinalizeAttempts: number;
+  autoFinalizeLastError: string | null;
+  autoFinalizeLastAttemptAt: string | null;
+}

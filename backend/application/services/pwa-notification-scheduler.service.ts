@@ -1,10 +1,10 @@
 import { Injectable, Inject, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { NotificationService } from "./notification.service";
+import { DailyDigestSection, NotificationService } from "./notification.service";
+import { ClientEntity } from "domain/entities/client.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { BRANCH_REPOSITORY, IBranchRepository } from "domain/repositories/branch.repository.interface";
 
-const TARGET_ROLES = ['admin', 'manager', 'user'];
 const DAYS_THRESHOLD = 7;
 
 // Resolve the login URL from the same per-env vars auth.controller's resolveFrontendURL uses,
@@ -44,121 +44,115 @@ export class PwaNotificationSchedulerService {
 
         for (const org of branches) {
             this.logger.log(`[PWA Scheduler] Processing org: ${org.name} (${org.id})`);
-            await Promise.allSettled([
-                this.notifyUpcomingServices(org.id),
-                this.notifyEndingServices(org.id),
-                this.notifyIncompleteContracts(org.id),
-                this.notifyContractsNotSent(org.id),
-            ]);
+            await this.sendBranchDigest(org.id, org.name);
         }
 
         this.logger.log("[PWA Scheduler] Daily summary notifications completed");
     }
 
-    private async notifyUpcomingServices(branchId: string): Promise<void> {
+    /**
+     * Collect every condition for one branch first, then hand the whole set to the
+     * notification service as a single digest — one in-app row, one push and one email
+     * per branch user, rather than one send per condition (or per client).
+     */
+    private async sendBranchDigest(branchId: string, branchName: string): Promise<void> {
+        const [upcoming, ending, incompleteContracts, contractsNotSent] = await Promise.all([
+            this.collect(branchId, "upcoming services", () =>
+                this.clientRepository.findStartingWithinDays(branchId, DAYS_THRESHOLD)),
+            this.collect(branchId, "ending services", () =>
+                this.clientRepository.findEndingWithinDays(branchId, DAYS_THRESHOLD)),
+            this.collect(branchId, "incomplete contracts", () =>
+                this.clientRepository.findWithIncompleteContractsStartingWithinDays(branchId, DAYS_THRESHOLD)),
+            this.collect(branchId, "contracts not sent", () =>
+                this.clientRepository.findWithoutContractSentStartingWithinDays(branchId, DAYS_THRESHOLD)),
+        ]);
+
+        const sections: DailyDigestSection[] = [];
+
+        if (upcoming.length > 0) {
+            sections.push({
+                key: "upcoming",
+                label: "서비스 시작 예정",
+                description: `7일 내에 시작 예정인 서비스가 ${upcoming.length}건 있어요.`,
+                count: upcoming.length,
+                unit: "건",
+                url: "/clients/filtered?filter=starting-soon",
+            });
+        }
+
+        if (ending.length > 0) {
+            sections.push({
+                key: "ending",
+                label: "서비스 종료 예정",
+                description: `7일 내에 종료 예정인 서비스가 ${ending.length}건 있어요.`,
+                count: ending.length,
+                unit: "건",
+                url: "/clients/filtered?filter=ending-soon",
+            });
+        }
+
+        if (incompleteContracts.length > 0) {
+            sections.push({
+                key: "incompleteContracts",
+                label: "계약서 미완료",
+                description: `서비스 시작 전인데 아직 완료되지 않은 계약서가 ${incompleteContracts.length}건 있어요.`,
+                count: incompleteContracts.length,
+                unit: "건",
+                url: "/clients/filtered?filter=incomplete-contracts",
+            });
+        }
+
+        if (contractsNotSent.length > 0) {
+            sections.push({
+                key: "contractsNotSent",
+                label: "계약서 미발송",
+                description: `아직 계약서가 발송되지 않은 고객이 ${contractsNotSent.length}명 있어요.`,
+                count: contractsNotSent.length,
+                unit: "명",
+                url: "/clients/filtered?filter=no-contract",
+                clientNames: contractsNotSent.map((client) => client.name),
+            });
+        }
+
+        if (sections.length === 0) {
+            this.logger.log(`[PWA Scheduler] Nothing to report for branch ${branchId}`);
+            return;
+        }
+
         try {
-            const clients = await this.clientRepository.findStartingWithinDays(
+            const result = await this.notificationService.sendDailyDigestToBranchUsers(
                 branchId,
-                DAYS_THRESHOLD
-            );
-
-            if (clients.length === 0) {
-                this.logger.log("[PWA Scheduler] No upcoming services within 7 days");
-                return;
-            }
-
-            const result = await this.notificationService.sendToRoles(
-                TARGET_ROLES,
-                "서비스 시작 예정",
-                `현재 7일 내로 시작이 예정된 서비스가 ${clients.length}건 있어요. 로그인해서 확인해 보세요.`,
-                { url: "/clients/filtered?filter=starting-soon" },
+                branchName,
+                sections,
                 NOTIFICATION_EMAIL_CONTEXT,
             );
-
-            this.logger.log(`[PWA Scheduler] Upcoming services notification: ${result.sent} sent, ${result.failed} failed`);
+            this.logger.log(
+                `[PWA Scheduler] Daily digest for branch ${branchId}: ${sections.length} sections, ${result.sent} sent, ${result.failed} failed`,
+            );
         } catch (error) {
-            this.logger.error("[PWA Scheduler] Failed to send upcoming services notification", error);
+            this.logger.error(
+                `[PWA Scheduler] Failed to send daily digest for branch ${branchId}`,
+                error instanceof Error ? error.stack : String(error),
+            );
         }
     }
 
-    private async notifyEndingServices(branchId: string): Promise<void> {
+    /**
+     * A failing query drops its own section only — the rest of the digest still goes out.
+     */
+    private async collect(
+        branchId: string,
+        label: string,
+        query: () => Promise<ClientEntity[]>,
+    ): Promise<ClientEntity[]> {
         try {
-            const clients = await this.clientRepository.findEndingWithinDays(
-                branchId,
-                DAYS_THRESHOLD
-            );
-
-            if (clients.length === 0) {
-                this.logger.log("[PWA Scheduler] No ending services within 7 days");
-                return;
-            }
-
-            const result = await this.notificationService.sendToRoles(
-                TARGET_ROLES,
-                "서비스 종료 예정",
-                `현재 7일 내로 종료가 예정된 서비스가 ${clients.length}건 있어요. 필요한 후속 조치가 있는지 로그인해서 확인해 보세요.`,
-                { url: "/clients/filtered?filter=ending-soon" },
-                NOTIFICATION_EMAIL_CONTEXT,
-            );
-
-            this.logger.log(`[PWA Scheduler] Ending services notification: ${result.sent} sent, ${result.failed} failed`);
+            return await query();
         } catch (error) {
-            this.logger.error("[PWA Scheduler] Failed to send ending services notification", error);
+            this.logger.error(
+                `[PWA Scheduler] Failed to load ${label} for branch ${branchId}`,
+                error instanceof Error ? error.stack : String(error),
+            );
+            return [];
         }
     }
-
-    private async notifyIncompleteContracts(branchId: string): Promise<void> {
-        try {
-            const clients = await this.clientRepository.findWithIncompleteContractsStartingWithinDays(
-                branchId,
-                DAYS_THRESHOLD
-            );
-
-            if (clients.length === 0) {
-                this.logger.log("[PWA Scheduler] No incomplete contracts for upcoming services");
-                return;
-            }
-
-            const result = await this.notificationService.sendToRoles(
-                TARGET_ROLES,
-                "⚠️ 계약서 미완료",
-                `서비스 시작이 예정되어 있지만 아직 완료되지 않은 계약서가 ${clients.length}건 있어요. 고객 응대 전에 계약서 상태를 로그인해서 확인해 보세요.`,
-                { url: "/clients/filtered?filter=incomplete-contracts" },
-                NOTIFICATION_EMAIL_CONTEXT,
-            );
-
-            this.logger.log(`[PWA Scheduler] Incomplete contracts notification: ${result.sent} sent, ${result.failed} failed`);
-        } catch (error) {
-            this.logger.error("[PWA Scheduler] Failed to send incomplete contracts notification", error);
-        }
-    }
-
-    private async notifyContractsNotSent(branchId: string): Promise<void> {
-        try {
-            const clients = await this.clientRepository.findWithoutContractSentStartingWithinDays(
-                branchId,
-                DAYS_THRESHOLD
-            );
-
-            if (clients.length === 0) {
-                this.logger.log("[PWA Scheduler] No clients without contracts sent");
-                return;
-            }
-
-            for (const client of clients) {
-                await this.notificationService.sendToRoles(
-                    TARGET_ROLES,
-                    "📄 계약서 미발송",
-                    `${client.name} 님에게 아직 계약서가 발송되지 않았어요. 서비스 일정 전에 계약서를 발송할 수 있도록 로그인해서 확인해 보세요.`,
-                    { url: `/clients?id=${client.id}` },
-                    NOTIFICATION_EMAIL_CONTEXT,
-                );
-            }
-
-            this.logger.log(`[PWA Scheduler] Contracts not sent notification: ${clients.length} clients notified`);
-        } catch (error) {
-            this.logger.error("[PWA Scheduler] Failed to send contracts not sent notification", error);
-        }
-    }
-
 }

@@ -52,7 +52,6 @@ describe("AuthService - Multi-Tenancy Enhancement", () => {
         send: jest.fn().mockResolvedValue("mock-message-id"),
         sendVerificationEmail: jest.fn().mockResolvedValue("mock-verification-id"),
         sendPasswordResetEmail: jest.fn().mockResolvedValue("mock-reset-id"),
-        sendNotificationEmail: jest.fn().mockResolvedValue("mock-notification-id"),
     });
 
     const createMockAuthTokenRepository = () => ({

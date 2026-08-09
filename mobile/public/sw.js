@@ -145,7 +145,7 @@ self.addEventListener('push', (event) => {
     } catch (e) {
         console.error('[SW] Failed to parse push payload:', e);
         payload = {
-            title: 'New Notification',
+            title: '새 알림',
             body: event.data.text(),
         };
     }
@@ -163,7 +163,7 @@ self.addEventListener('push', (event) => {
     };
 
     event.waitUntil(
-        self.registration.showNotification(payload.title || 'Notification', options)
+        self.registration.showNotification(payload.title || '알림', options)
     );
 });
 
@@ -172,12 +172,28 @@ self.addEventListener('push', (event) => {
  *
  * Opens the URL specified in notification data, or focuses existing window.
  */
+function resolveNotificationUrl(url) {
+    if (!url) return '/';
+
+    try {
+        const parsedUrl = new URL(url, self.location.origin);
+        if (parsedUrl.origin === self.location.origin && parsedUrl.pathname === '/clients/filtered') {
+            parsedUrl.pathname = '/clients';
+            return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+        }
+    } catch {
+        // Preserve the original URL when notification data is not a valid URL.
+    }
+
+    return url;
+}
+
 self.addEventListener('notificationclick', (event) => {
     console.log('[SW] Notification clicked');
 
     event.notification.close();
 
-    const urlToOpen = event.notification.data?.url || '/';
+    const urlToOpen = resolveNotificationUrl(event.notification.data?.url);
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

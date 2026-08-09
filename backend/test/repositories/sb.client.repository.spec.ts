@@ -766,7 +766,7 @@ describe("SbClientRepository", () => {
     // ============================================
     describe("findStartingWithinDays", () => {
         describe("given clients with start dates within the specified days", () => {
-            it("should query with gt (not gte) to exclude clients starting today", async () => {
+            it("should query with gte (not gt) so clients starting today are included", async () => {
                 // Arrange
                 const rows = [createClientRow({ id: 1, name: "Future Client" })];
                 clientModel.findMany.mockResolvedValue(rows);
@@ -776,8 +776,8 @@ describe("SbClientRepository", () => {
 
                 // Assert
                 const callArgs = clientModel.findMany.mock.calls[0][0];
-                expect(callArgs.where.startDate.gt).toBeDefined();
-                expect(callArgs.where.startDate.gte).toBeUndefined();
+                expect(callArgs.where.startDate.gte).toBeDefined();
+                expect(callArgs.where.startDate.gt).toBeUndefined();
                 expect(callArgs.where.startDate.lte).toBeDefined();
             });
 
@@ -818,7 +818,7 @@ describe("SbClientRepository", () => {
     // ============================================
     describe("findWithIncompleteContractsStartingWithinDays", () => {
         describe("given clients with incomplete contracts starting soon", () => {
-            it("should query with gt (not gte) to exclude clients starting today", async () => {
+            it("should query with gte (not gt) so clients starting today are included", async () => {
                 // Arrange
                 clientModel.findMany.mockResolvedValue([]);
 
@@ -827,8 +827,8 @@ describe("SbClientRepository", () => {
 
                 // Assert
                 const callArgs = clientModel.findMany.mock.calls[0][0];
-                expect(callArgs.where.startDate.gt).toBeDefined();
-                expect(callArgs.where.startDate.gte).toBeUndefined();
+                expect(callArgs.where.startDate.gte).toBeDefined();
+                expect(callArgs.where.startDate.gt).toBeUndefined();
             });
 
             it("should filter by eDocId not null and statusType not 050", async () => {
@@ -851,7 +851,7 @@ describe("SbClientRepository", () => {
     // ============================================
     describe("findWithoutContractSentStartingWithinDays", () => {
         describe("given clients without contracts sent starting soon", () => {
-            it("should query with gt (not gte) to exclude clients starting today", async () => {
+            it("should query with gte (not gt) so clients starting today are included", async () => {
                 // Arrange
                 clientModel.findMany.mockResolvedValue([]);
 
@@ -860,8 +860,8 @@ describe("SbClientRepository", () => {
 
                 // Assert
                 const callArgs = clientModel.findMany.mock.calls[0][0];
-                expect(callArgs.where.startDate.gt).toBeDefined();
-                expect(callArgs.where.startDate.gte).toBeUndefined();
+                expect(callArgs.where.startDate.gte).toBeDefined();
+                expect(callArgs.where.startDate.gt).toBeUndefined();
             });
 
             it("should filter by eDocId being null", async () => {

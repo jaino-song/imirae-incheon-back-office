@@ -234,7 +234,7 @@ describe("ConsultationInquiryService", () => {
             "branch-1",
             "user-1",
             "새 상담 문의",
-            "김지은님 상담 문의가 접수되었습니다.",
+            "김지은님의 상담 문의가 접수되었습니다.",
             expect.objectContaining({
                 url: "/consultations",
                 type: "consultation-inquiry",

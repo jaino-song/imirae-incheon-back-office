@@ -24,7 +24,7 @@ describe("AuthService approval and token hardening", () => {
         rotateRefreshToken: jest.fn(),
     };
     const email: EmailPort = {
-        send: jest.fn(), sendVerificationEmail: jest.fn(), sendPasswordResetEmail: jest.fn(), sendNotificationEmail: jest.fn(),
+        send: jest.fn(), sendVerificationEmail: jest.fn(), sendPasswordResetEmail: jest.fn(),
     };
     const tokens: jest.Mocked<IAuthTokenRepository> = {
         findByToken: jest.fn(), findByUserIdAndType: jest.fn(), create: jest.fn(), update: jest.fn(),
