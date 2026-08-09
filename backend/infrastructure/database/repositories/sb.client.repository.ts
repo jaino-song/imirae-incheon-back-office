@@ -366,7 +366,7 @@ export class SbClientRepository implements IClientRepository {
             where: {
                 branchId: branchid,
                 startDate: {
-                    gt: today,
+                    gte: today,
                     lte: endDate,
                 },
             },
@@ -413,7 +413,7 @@ export class SbClientRepository implements IClientRepository {
             where: {
                 branchId: branchid,
                 startDate: {
-                    gt: today,
+                    gte: today,
                     lte: endDate,
                 },
                 eDocId: { not: null },
@@ -450,7 +450,7 @@ export class SbClientRepository implements IClientRepository {
             where: {
                 branchId: branchid,
                 startDate: {
-                    gt: today,
+                    gte: today,
                     lte: endDate,
                 },
                 eDocId: null,

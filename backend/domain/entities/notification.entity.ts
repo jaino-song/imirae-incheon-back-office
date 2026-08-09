@@ -93,8 +93,8 @@ export class NotificationEntity {
         return JSON.stringify({
             title: this.title,
             body: this.body,
-            icon: '/icon-192.png',
-            badge: '/badge-72.png',
+            icon: '/assets/icon-192.png',
+            badge: '/assets/badge-72.png',
             data: this.data,
         });
     }

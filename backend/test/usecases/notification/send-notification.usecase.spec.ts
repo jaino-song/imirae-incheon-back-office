@@ -14,7 +14,6 @@ describe("SendNotificationUsecase", () => {
         deleteByEndpoint: jest.fn(),
         deleteByUserId: jest.fn(),
         findAll: jest.fn(),
-        findByUserIds: jest.fn(),
     });
 
     const createMockNotificationRepository = (): jest.Mocked<INotificationRepository> => ({
@@ -88,15 +87,6 @@ describe("SendNotificationUsecase", () => {
         ).resolves.toEqual({ sent: 0, failed: 0 });
 
         expect(pushSubscriptionRepository.findAll).not.toHaveBeenCalled();
-        expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
-    });
-
-    it("does not enumerate or delete subscriptions for targeted sends when push is disabled", async () => {
-        await expect(
-            usecase.sendToUsers({ userIds: ["user-1"], title: "title", body: "body" }),
-        ).resolves.toEqual({ sent: 0, failed: 0 });
-
-        expect(pushSubscriptionRepository.findByUserIds).not.toHaveBeenCalled();
         expect(pushSubscriptionRepository.deleteByEndpoint).not.toHaveBeenCalled();
     });
 

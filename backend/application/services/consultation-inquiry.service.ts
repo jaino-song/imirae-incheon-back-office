@@ -180,7 +180,7 @@ export class ConsultationInquiryService {
                 inquiry.branchId,
                 userId,
                 "새 상담 문의",
-                `${inquiry.motherName}님 상담 문의가 접수되었습니다.`,
+                `${inquiry.motherName}님의 상담 문의가 접수되었습니다.`,
                 {
                     url: "/consultations",
                     type: "consultation-inquiry",
