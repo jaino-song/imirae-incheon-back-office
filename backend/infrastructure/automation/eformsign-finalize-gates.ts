@@ -74,6 +74,12 @@ export async function runEformsignFinalizeGates(
             await throwIfEformsignErrorLatched(page);
 
             if (await isSuccessLatched(page)) {
+                // The one exit that used to leave no trace, which is why an
+                // incident here could only be reconstructed from log silence.
+                (logger as NestLogger).log?.(
+                    `[finalize-gate] terminal success latched after ${Date.now() - startedAt}ms; ` +
+                        `lastAction: ${lastAction}`,
+                ) ?? console.log("[finalize-gate] terminal success latched");
                 return "success-latched";
             }
 

@@ -140,7 +140,7 @@ test.describe("Contracts delete flow", () => {
     await page.locator('[data-component="mobile_contracts_delete-confirmation_modal_actions"]').getByRole("button", { name: "삭제" }).click();
 
     await expect.poll(() => deleteRequestCount).toBe(1);
-    await expect(page.locator('[data-component="mobile_shell_toaster_toast"]')).toContainText("삭제대상 고객 계약서를 삭제했습니다.");
+    await expect(page.locator('[data-component="mobile_shell_toaster_toast"]')).toContainText("삭제대상 고객 계약서를 삭제했어요");
     await expect(page.getByText("삭제대상 고객")).not.toBeVisible();
     await expect(page.locator('[data-component="mobile_contracts_detail-sheet_stack_detail-page"]')).toHaveAttribute("aria-hidden", "true");
   });

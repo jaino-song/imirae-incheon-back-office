@@ -24,6 +24,7 @@ import {
     EformsignApiError,
     extractEformsignVendorCode,
 } from "infrastructure/api/eformsign-api.error";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 
 export interface EformsignTokenResponse {
     oauth_token: {
@@ -174,7 +175,11 @@ export class EformsignService {
 
         if (!response.ok) {
             const errorData = await response.text();
-            throw new Error(`Failed to get access token: ${response.status} - ${errorData}`);
+            throw new EformsignApiError(
+                `Failed to get access token: ${response.status} - ${errorData}`,
+                response.status,
+                extractEformsignVendorCode(errorData),
+            );
         }
 
         return await response.json();
@@ -203,7 +208,11 @@ export class EformsignService {
 
         if (!response.ok) {
             const errorData = await response.text();
-            throw new Error(`Failed to refresh token: ${response.status} - ${errorData}`);
+            throw new EformsignApiError(
+                `Failed to refresh token: ${response.status} - ${errorData}`,
+                response.status,
+                extractEformsignVendorCode(errorData),
+            );
         }
 
         return await response.json();
@@ -887,6 +896,25 @@ export class EformsignService {
                 }
             }),
         );
+    }
+
+    /**
+     * The document's current status at the vendor, normalized to a canonical
+     * code. When a headless run ends without a terminal SDK callback, eformsign
+     * — not the automation — is the authority on whether the step finished.
+     * Returns undefined when the response carries no recognizable status.
+     */
+    async fetchDocumentStatusCode(documentId: string, accessToken: string): Promise<string | undefined> {
+        const doc = await this.fetchStaffCompletionDocument(documentId, accessToken);
+        const rawStatus =
+            doc?.document?.document_status ??
+            doc?.document_status ??
+            doc?.status_type ??
+            doc?.status;
+        if (rawStatus === null || rawStatus === undefined || rawStatus === "") {
+            return undefined;
+        }
+        return normalizeEformsignStatusCode(rawStatus);
     }
 
     private async fetchStaffCompletionDocument(documentId: string, accessToken: string): Promise<any> {

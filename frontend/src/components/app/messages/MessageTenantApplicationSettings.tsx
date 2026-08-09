@@ -217,7 +217,10 @@ export function MessageTenantApplicationSettings() {
     queryKey: ["settings", "message-sender-approval"],
     queryFn: settingsApi.getMessageSenderApproval,
   });
-  const { data: messageAutomationPolicies } = useQuery({
+  const {
+    data: messageAutomationPolicies,
+    isLoading: isMessageAutomationPoliciesLoading,
+  } = useQuery({
     queryKey: ["settings", "message-automation-policies"],
     queryFn: settingsApi.getMessageAutomationPolicies,
   });
@@ -238,9 +241,11 @@ export function MessageTenantApplicationSettings() {
   const allAgreed = ALIGO_POLICY_ITEMS.every((item) => agreements[item.id]);
   const canSubmit = allAgreed;
   const isMessageSenderApproved = messageSenderApproval?.isApproved === true;
+  const isMessageSettingsListLoading =
+    isMessageSenderApprovalLoading || isMessageAutomationPoliciesLoading;
   const listItems = useMemo<TenantApplicationListItem[]>(
     () => {
-      if (isMessageSenderApprovalLoading) {
+      if (isMessageSettingsListLoading) {
         return [];
       }
 
@@ -290,7 +295,7 @@ export function MessageTenantApplicationSettings() {
     },
     [
       canSubmit,
-      isMessageSenderApprovalLoading,
+      isMessageSettingsListLoading,
       isMessageSenderApproved,
       messageAutomationPolicies?.policies,
       clientRegistrationPolicy?.clientAutoRegistration,
@@ -356,12 +361,12 @@ export function MessageTenantApplicationSettings() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings", "message-sender-approval"] });
       setRequestedAt(formatRequestedAt(new Date()));
-      toast({ description: `${tenantName} 메시지 발송 신청이 접수되었습니다.` });
+      toast({ variant: "success", description: `${tenantName} 메시지 발송 신청을 접수했어요` });
     },
     onError: () => {
       toast({
         variant: "destructive",
-        description: "메시지 발송 신청 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+        description: "메시지 발송을 신청하지 못했어요. 잠시 후 다시 시도해 주세요",
       });
     },
   });
@@ -375,12 +380,12 @@ export function MessageTenantApplicationSettings() {
       );
       setDraftRetroactiveRuleOrderIds(null);
       setDraftRetroactiveSendIntervalMinutes(null);
-      toast({ description: "지난 자동 전송 설정이 저장되었습니다." });
+      toast({ variant: "success", description: "지난 자동 전송 설정을 저장했어요" });
     },
     onError: () => {
       toast({
         variant: "destructive",
-        description: "지난 자동 전송 설정 저장 중 오류가 발생했습니다.",
+        description: "지난 자동 전송 설정을 저장하지 못했어요",
       });
     },
   });
@@ -403,11 +408,11 @@ export function MessageTenantApplicationSettings() {
       if (context?.previous) {
         queryClient.setQueryData(["settings", "client-registration-policy"], context.previous);
       }
-      toast({ variant: "destructive", description: "고객 자동 등록 설정 저장 중 오류가 발생했습니다." });
+      toast({ variant: "destructive", description: "고객 자동 등록 설정을 저장하지 못했어요" });
     },
     onSuccess: (savedPolicy) => {
       queryClient.setQueryData(["settings", "client-registration-policy"], savedPolicy);
-      toast({ description: "고객 자동 등록 설정이 저장되었습니다." });
+      toast({ variant: "success", description: "고객 자동 등록 설정을 저장했어요" });
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] });
@@ -416,7 +421,7 @@ export function MessageTenantApplicationSettings() {
 
   const handleSubmit = () => {
     if (!allAgreed) {
-      toast({ variant: "destructive", description: "알리고 정책 동의 항목을 모두 확인해 주세요." });
+      toast({ variant: "destructive", description: "알리고 정책 동의 항목을 모두 확인해 주세요" });
       return;
     }
 
@@ -425,7 +430,7 @@ export function MessageTenantApplicationSettings() {
   const handleSavePastTriggerConfig = () => {
     const sendIntervalMinutes = Number(retroactiveSendIntervalMinutes);
     if (!Number.isInteger(sendIntervalMinutes) || sendIntervalMinutes < 1) {
-      toast({ variant: "destructive", description: "전송 간격은 1분 이상이어야 합니다." });
+      toast({ variant: "destructive", description: "전송 간격은 1분 이상이어야 해요" });
       return;
     }
 
@@ -437,14 +442,14 @@ export function MessageTenantApplicationSettings() {
       ),
     });
   };
-  const emptyListMessage = isMessageSenderApprovalLoading
+  const emptyListMessage = isMessageSettingsListLoading
     ? "설정 정보를 불러오는 중입니다."
     : "표시할 설정 항목이 없습니다.";
-  const emptyDetailMessage = isMessageSenderApprovalLoading
+  const emptyDetailMessage = isMessageSettingsListLoading
     ? "설정 정보를 불러오는 중입니다."
     : "설정 항목을 선택해 주세요.";
 
-  if (isMessageSenderApprovalLoading) {
+  if (isMessageSettingsListLoading) {
     return (
       <div
         data-component="desktop_messages_sections_settings-layout"

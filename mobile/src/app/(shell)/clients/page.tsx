@@ -320,6 +320,7 @@ export default function ClientsPage() {
       }
       setDeleteTargetClientId(null);
       toast({
+        variant: "success",
         title: t(locale, "clients.delete-success"),
         description: t(locale, "clients.delete-success-description"),
       });

@@ -1347,6 +1347,14 @@ export class ClientService {
         await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
         const startDateUpdate = params.startDate === undefined ? undefined : parseClientDate(params.startDate);
         const endDateUpdate = params.endDate === undefined ? undefined : parseClientDate(params.endDate);
+        // Parsed the same way as the service period above and as create() does,
+        // rather than with a raw `new Date`: that reads "2026-08" as 1 August
+        // and hands anything it cannot parse to Prisma as an Invalid Date. Both
+        // become a 400 here instead, and before the transaction opens.
+        const dueDateUpdate = params.dueDate ? parseClientDate(params.dueDate) : undefined;
+        const birthDateUpdate = params.birthDate === undefined
+            ? undefined
+            : (params.birthDate ? parseClientDate(params.birthDate) : null);
         await this.serviceRecordLifecycleService?.validatePeriodChange({
             clientId: id,
             startDate: startDateUpdate,
@@ -1442,10 +1450,8 @@ export class ClientService {
                     careCenter: params.careCenter ?? undefined,
                     voucherClient: params.voucherClient,
                     birthday: params.birthday ?? undefined,
-                    dueDate: params.dueDate ? new Date(params.dueDate) : undefined,
-                    birthDate: params.birthDate === undefined
-                        ? undefined
-                        : (params.birthDate ? new Date(params.birthDate) : null),
+                    dueDate: dueDateUpdate,
+                    birthDate: birthDateUpdate,
                     serviceStatus: params.serviceStatus === undefined ? undefined : params.serviceStatus,
                     breastPump: params.breastPump,
                     eDocId: params.eDocId ?? undefined,

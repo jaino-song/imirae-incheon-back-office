@@ -340,7 +340,7 @@ describe("PastTriggerPolicyDetail", () => {
     expect(intervalInput).toHaveValue("5");
     expect(mockToast).toHaveBeenCalledWith({
       variant: "destructive",
-      description: "지난 자동 전송 설정 저장 중 오류가 발생했습니다.",
+      description: "지난 자동 전송 설정을 저장하지 못했어요",
     });
   });
 

@@ -161,7 +161,6 @@ type ContractStageItem = {
   time: string;
 };
 
-const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 const CONTRACT_ROUTE_BODY_CLASS = "mobile-contracts-route";
 const FILTER_LABELS: FilterKey[] = ["전체", "서명 대기", "서명 완료", "검토 필요", "계약 완료", "기간 만료", "알 수 없음"];
 const CONTRACT_SECTIONS = [
@@ -1259,7 +1258,7 @@ function ContractDetailContent({
     if (!stepSeq || stepType !== "05") {
       toast({
         variant: "destructive",
-        description: "현재 단계에서는 재알림을 보낼 수 없습니다.",
+        description: "지금 단계에서는 재알림을 보낼 수 없어요",
       });
       return;
     }
@@ -1279,12 +1278,13 @@ function ContractDetailContent({
         queryClient.invalidateQueries({ queryKey: ["messages", "logs", "all"] }),
       ]);
       toast({
-        description: `${customerName(doc)}님에게 전자문서 작성을 재요청했습니다.`,
+        variant: "success",
+        description: `${customerName(doc)}님에게 전자문서 작성을 재요청했어요`,
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        description: requestErrorMessage(error, "재알림 전송 중 오류가 발생했습니다."),
+        description: requestErrorMessage(error, "재알림을 보내지 못했어요"),
       });
     } finally {
       setIsReRequesting(false);
@@ -1612,7 +1612,6 @@ export default function ContractsPage() {
   const [finalizeErrorHint, setFinalizeErrorHint] = useState<string | null>(null);
   const [isStaffIframeOpen, setIsStaffIframeOpen] = useState(false);
   const [staffDocumentOption, setStaffDocumentOption] = useState<EformsignDocumentOption | null>(null);
-  const [finalizeFeedback, setFinalizeFeedback] = useState<string | null>(null);
   const finalizeProgressSourceRef = useRef<EventSource | null>(null);
   const isDeleteDocumentBusy = isDeletingDocument || deleteDocument.isPending;
 
@@ -1635,7 +1634,7 @@ export default function ContractsPage() {
           setStaffDocumentOption(null);
           setFinalizeDoc(null);
           setFinalizeEndDateInput("");
-          setFinalizeFeedback("계약서가 완료 처리되었습니다.");
+          toast({ variant: "success", description: "계약서를 완료 처리했어요" });
           queryClient.invalidateQueries({ queryKey: eformsignQueryKeys.documents() });
           [2000, 5000].forEach((delay) => {
             setTimeout(() => {
@@ -1646,7 +1645,11 @@ export default function ContractsPage() {
         onError: (response) => {
           closeStaffIframe();
           setStaffDocumentOption(null);
-          setFinalizeFeedback(`최종 확인 실패: ${response.message ?? "알 수 없는 오류"}`);
+          toast({
+            variant: "destructive",
+            title: "최종 확인을 마치지 못했어요",
+            description: response.message ?? "알 수 없는 오류예요",
+          });
         },
         onAction: (response) => {
           const t = response.type?.toLowerCase() ?? "";
@@ -1722,16 +1725,17 @@ export default function ContractsPage() {
       setSelectedDoc(null);
       setDeleteTargetDoc(null);
       toast({
+        variant: "success",
         description: `${contractDisplayName(
           deleteTargetDoc,
           documentClientSummaryById.get(deleteTargetDoc.id),
           true,
-        )}를 삭제했습니다.`,
+        )}를 삭제했어요`,
       });
     } catch (error) {
       toast({
         variant: "destructive",
-        description: requestErrorMessage(error, "계약서 삭제 중 오류가 발생했습니다."),
+        description: requestErrorMessage(error, "계약서를 삭제하지 못했어요"),
       });
     } finally {
       setIsDeletingDocument(false);
@@ -1813,9 +1817,10 @@ export default function ContractsPage() {
         setTimeout(() => {
           setIsFinalizeProgressOpen(false);
           setIsFinalizeSubmitting(false);
-          setFinalizeFeedback(
-            `${isServiceRecordFinalize ? "제공기록지" : "계약서"}가 완료 처리되었습니다.`,
-          );
+          toast({
+            variant: "success",
+            description: `${isServiceRecordFinalize ? "제공기록지" : "계약서"}를 완료 처리했어요`,
+          });
           setFinalizeDoc(null);
           setFinalizeEndDateInput("");
         }, 800);
@@ -1859,14 +1864,14 @@ export default function ContractsPage() {
       setIsFinalizeProgressOpen(false);
       try {
         const authResult = await eformsignApi.authenticate(Date.now(), undefined, { force: true });
-        if (!authResult.success) throw new Error("eformsign 인증에 실패했습니다.");
+        if (!authResult.success) throw new Error("eformsign 인증에 실패했어요");
         const option = await eformsignApi.generateStaffDocument(documentId, undefined, undefined, endDateIso);
         setStaffDocumentOption(option as EformsignDocumentOption);
         setIsStaffIframeOpen(true);
         keepFinalizeSubmittingUntilIframeCloses = true;
       } catch (fallbackErr) {
-        const msg = fallbackErr instanceof Error ? fallbackErr.message : "최종 확인 준비 중 오류가 발생했습니다.";
-        setFinalizeFeedback(msg);
+        const msg = fallbackErr instanceof Error ? fallbackErr.message : "최종 확인을 준비하지 못했어요";
+        toast({ variant: "destructive", description: msg });
       }
     }
 
@@ -1874,13 +1879,6 @@ export default function ContractsPage() {
       setIsFinalizeSubmitting(false);
     }
   };
-
-  // Auto-clear finalize feedback after 4s
-  useEffect(() => {
-    if (!finalizeFeedback) return;
-    const handle = setTimeout(() => setFinalizeFeedback(null), 4000);
-    return () => clearTimeout(handle);
-  }, [finalizeFeedback]);
 
   useEffect(() => {
     document.body.classList.add(CONTRACT_ROUTE_BODY_CLASS);
@@ -2108,20 +2106,19 @@ export default function ContractsPage() {
     return undefined;
   }, [documentClientSummaryById, selectedDetailDoc?.id, selectedDoc?.id, selectedListDoc?.id]);
 
-  // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다. 클라이언트에는
-  // 고객명 제외 목록(현재 비어 있음)만 안전망으로 남긴다.
-  const filteredDocuments = useMemo(() => {
-    const nameFiltered = displayDocuments.filter(
-      (doc) => !EXCLUDED_CUSTOMER_NAMES.includes(customerName(doc)),
-    );
-    // 서명 완료/검토 필요 pills share the server's provider-review scope
-    // ("in-progress"); the review-window split happens here on the client.
-    if (activeFilter === "서명 완료" || activeFilter === "검토 필요") {
-      const wantedCategory: ContractCategory = activeFilter === "서명 완료" ? "signed" : "in-progress";
-      return nameFiltered.filter((doc) => categorize(doc) === wantedCategory);
-    }
-    return nameFiltered;
-  }, [activeFilter, displayDocuments]);
+  // 섹션·검색·삭제 필터는 서버가 페이지 slice 이전에 적용한다.
+  //
+  // 서버가 페이지를 나눈 뒤에 행을 더 걷어내면 total_rows가 화면에 그려지는 수보다
+  // 커진 채로 남아, 목록이 도착하자마자 사라지는 페이지를 계속 요청하게 된다.
+  // 비어 있던 고객명 제외 목록을 여기서 걷어낸 이유다 — 제외가 필요해지면
+  // 조회 이후가 아니라 조회 조건에 넣어야 한다.
+  // 서명 완료/검토 필요는 서버의 provider-review 스코프를 공유하지만, 가르는 일은
+  // 서버가 이미 한다: displayStatus를 페이지 slice 전에 적용하므로(mirror-list
+  // service) 돌아온 행은 전부 해당 카테고리다. 여기서 한 번 더 거르면 행을 뺄 수만
+  // 있고 더할 수는 없어서, 서버가 센 total_rows보다 화면이 적어지는 쪽으로만
+  // 어긋난다. 특히 display_status가 없어 categorize가 폴백으로 검토 창을
+  // 브라우저 시계로 다시 계산할 때 서버 판정과 갈릴 수 있다.
+  const filteredDocuments = displayDocuments;
 
   const filterItems = useMemo(() => {
     if (isContractsLoading) {
@@ -2545,15 +2542,6 @@ export default function ContractsPage() {
         </div>
       ) : null}
 
-      {finalizeFeedback ? (
-        <div
-          className="fixed right-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[1001] max-w-[320px] overflow-hidden rounded-2xl bg-v3-primary px-4 py-3 text-[0.8rem] font-semibold text-white shadow-[0_8px_24px_rgba(20,50,100,0.25)]"
-          role="status"
-          data-component="mobile_contracts_finalize-feedback"
-        >
-          {finalizeFeedback}
-        </div>
-      ) : null}
     </>
   );
 }

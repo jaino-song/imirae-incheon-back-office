@@ -320,7 +320,26 @@ export interface HeadlessFinalizeResponse {
   ok: boolean;
   durationMs: number;
   reason?: string;
-  fallbackHint?: "iframe";
+  /**
+   * "iframe" means the step is genuinely unfinished and reopening the editor is
+   * the recovery. "manual_check" means the vendor could not be asked, so the
+   * document must be verified in eformsign before anyone acts on it.
+   */
+  fallbackHint?: "iframe" | "manual_check";
 }
 
 export type FinalizeHeadlessResponse = HeadlessFinalizeResponse;
+
+/**
+ * A provider-review-stage (070) contract as served by
+ * GET /eformsign-docs/review-needed-contracts for the dashboard card, carrying
+ * the nightly auto-finalize bookkeeping (attempts of 3, last error/attempt).
+ */
+export interface ReviewNeededContract {
+  documentId: string;
+  customerName: string | null;
+  contractEndDate: string | null;
+  autoFinalizeAttempts: number;
+  autoFinalizeLastError: string | null;
+  autoFinalizeLastAttemptAt: string | null;
+}

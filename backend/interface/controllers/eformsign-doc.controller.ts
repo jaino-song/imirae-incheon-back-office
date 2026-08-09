@@ -5,6 +5,7 @@ import { EformsignDocService } from "application/services/eformsign-doc.service"
 import { EformsignDocsEventBus } from "application/services/eformsign-docs-event-bus.service";
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
 import { ListClientNamesByBranchUsecase } from "application/usecases/eformsign-doc/list-client-names-by-branch.usecase";
+import { ListReviewStageContractsUsecase } from "application/usecases/eformsign-doc/list-review-stage-contracts.usecase";
 import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/dispatch-document-headless.usecase";
 import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
 import { AdoptEformsignDocUsecase } from "application/usecases/eformsign-doc/adopt-eformsign-doc.usecase";
@@ -19,6 +20,7 @@ import {
     FinalizeHeadlessRequestDto,
     FinalizeHeadlessResponseDto,
     AdoptEformsignDocDto,
+    ReviewNeededContractDto,
 } from "interface/dto/eformsign-doc.dto";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
@@ -32,6 +34,7 @@ export class EformsignDocController {
     constructor(
         private readonly eformsignDocService: EformsignDocService,
         private readonly listClientNamesByBranchUsecase: ListClientNamesByBranchUsecase,
+        private readonly listReviewStageContractsUsecase: ListReviewStageContractsUsecase,
         private readonly dispatchHeadlessUsecase: DispatchDocumentHeadlessUsecase,
         private readonly finalizeHeadlessUsecase: FinalizeDocumentHeadlessUsecase,
         private readonly adoptEformsignDocUsecase: AdoptEformsignDocUsecase,
@@ -55,6 +58,33 @@ export class EformsignDocController {
             .map(({ envKey }) => this.configService.get<string>(envKey)?.trim())
             .filter((id): id is string => Boolean(id));
         return { templateId: templateId || null, templateIds };
+    }
+
+    /**
+     * GET /eformsign-docs/review-needed-contracts
+     * Provider-review-stage (070) contracts for the dashboard card: the branch's
+     * own plus unclaimed ones (documents often reach the review stage before any
+     * branch adopts them), with the nightly auto-finalize bookkeeping so the UI
+     * can badge 대기 / 재시도 / 수동 확인 필요.
+     */
+    @Get("review-needed-contracts")
+    async getReviewNeededContracts(
+        @CurrentTenant() tenant: { branchId?: string },
+    ): Promise<ReviewNeededContractDto[]> {
+        const branchId = tenant.branchId ?? "";
+        const contracts = await this.listReviewStageContractsUsecase.execute();
+        return contracts
+            .filter((contract) => contract.branchId === branchId || contract.branchId === null)
+            .sort((a, b) => (a.contractEndDate ?? "9999-99-99").localeCompare(b.contractEndDate ?? "9999-99-99"))
+            .map((contract) => ({
+                documentId: contract.documentId,
+                customerName: contract.customerName,
+                contractEndDate: contract.contractEndDate,
+                autoFinalizeAttempts: contract.autoFinalizeAttempts,
+                autoFinalizeLastError: contract.autoFinalizeLastError,
+                autoFinalizeLastAttemptAt:
+                    contract.autoFinalizeLastAttemptAt?.toISOString() ?? null,
+            }));
     }
 
     /**
@@ -286,12 +316,14 @@ export class EformsignDocController {
             progressId: dto.progressId,
         });
         if (!result.ok) {
-            this.logger.warn(`[finalize-headless] failed: ${result.reason}`);
+            this.logger.warn(
+                `[finalize-headless] failed: ${result.reason} (fallback: ${result.fallbackHint})`,
+            );
             return {
                 ok: false,
                 durationMs: result.durationMs,
                 reason: result.reason,
-                fallbackHint: "iframe",
+                fallbackHint: result.fallbackHint,
             };
         }
         return { ok: true, durationMs: result.durationMs };

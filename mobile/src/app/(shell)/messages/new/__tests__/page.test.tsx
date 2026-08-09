@@ -49,6 +49,7 @@ const mockClients: Client[] = [
     updatedAt: null,
     birthday: null,
     dueDate: null,
+    birthDate: null,
     address: "인천 연수구",
     phone: "01077778888",
     primaryEmployee: null,

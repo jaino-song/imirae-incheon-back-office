@@ -205,6 +205,18 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
 
+      - name: Apply document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
+
+      - name: Verify document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
+
+      - name: Apply eformsign doc auto-finalize tracking patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
+
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -536,6 +548,18 @@ jobs:
         working-directory: backend
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
 
+      - name: Apply document category branch scope patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
+
+      - name: Verify document category branch scope patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
+
+      - name: Apply eformsign doc auto-finalize tracking patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
+
   apply-production:
     name: apply production database patches
     needs: [apply-preview]
@@ -846,3 +870,15 @@ jobs:
       - name: Verify agent copilot tables patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
+
+      - name: Apply document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
+
+      - name: Verify document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
+
+      - name: Apply eformsign doc auto-finalize tracking patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql

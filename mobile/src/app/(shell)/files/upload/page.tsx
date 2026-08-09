@@ -221,11 +221,11 @@ export default function FileUploadPage() {
         tags,
         onProgress: setUploadProgress,
       });
-      toast({ title: "성공", description: "문서가 업로드되었습니다.", variant: "default" });
+      toast({ description: "문서를 업로드했어요", variant: "success" });
       startNavigation();
       router.push("/files");
     } catch {
-      toast({ title: "오류", description: "문서 업로드에 실패했습니다.", variant: "destructive" });
+      toast({ description: "문서를 업로드하지 못했어요", variant: "destructive" });
     }
   };
 

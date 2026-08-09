@@ -282,9 +282,14 @@ model document {
   @@index([branchId], map: "idx_document_branch")
 }
 
+/// Database note: partial unique index `document_category_value_global_key` on
+/// (value) WHERE branch_id IS NULL exists in the database but cannot be expressed
+/// in Prisma (created via migration/patch SQL). It keeps global (branch-null) seed
+/// category values unique; the composite unique below only covers branch-owned rows
+/// because Postgres never treats two NULL branch_id values as equal.
 model document_category {
   id        String     @id @default(dbgenerated("(gen_random_uuid())::text"))
-  value     String     @unique
+  value     String
   label     String
   color     String
   isCustom  Boolean    @default(true) @map("is_custom")
@@ -293,6 +298,7 @@ model document_category {
   documents document[]
   branch    branch?    @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([branchId, value], map: "document_category_branch_id_value_key")
   @@index([branchId], map: "idx_document_category_branch")
 }
 
@@ -334,6 +340,9 @@ model eformsign_doc {
   syncError                  String?                        @map("sync_error")
   syncErrorAt                DateTime?                      @map("sync_error_at") @db.Timestamptz(6)
   permanentPurgeRequestedAt  DateTime?                      @map("permanent_purge_requested_at") @db.Timestamptz(6)
+  autoFinalizeAttempts       Int                            @default(0) @map("auto_finalize_attempts")
+  autoFinalizeLastAttemptAt  DateTime?                      @map("auto_finalize_last_attempt_at") @db.Timestamptz(6)
+  autoFinalizeLastError      String?                        @map("auto_finalize_last_error")
   clientByEDocId             client?                        @relation("client_e_doc_idToeformsign_doc")
   client                     client?                        @relation("eformsign_doc_client_idToclient", fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   employeeSchedule           employee_schedule?             @relation(fields: [employeeScheduleId], references: [id], onDelete: SetNull, onUpdate: NoAction)

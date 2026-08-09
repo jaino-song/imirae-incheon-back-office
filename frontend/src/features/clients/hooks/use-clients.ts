@@ -3,6 +3,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { messageTriggerKeys } from '@/features/message-triggers/hooks/keys';
 import { serviceRecordKeys } from '@/features/service-records/hooks/keys';
+import {
+  removeById,
+  restoreQueries,
+  snapshotAndTransformQueries,
+  type QuerySnapshot,
+} from '@/lib/query/optimistic-list-cache';
 
 import { clientsApi } from '../api/clients.api';
 import { clientKeys } from './keys';
@@ -135,12 +141,53 @@ export function useUpdateClient() {
 /**
  * Delete client mutation
  */
+// Removes a client from a cached list, adjusting the count only when the client
+// was actually present. Detail records and unknown shapes pass through unchanged.
+const removeClientFromCacheData = (currentData: unknown, id: number): unknown => {
+  if (!currentData) return currentData;
+
+  if (Array.isArray(currentData)) {
+    return removeById(currentData as Client[], id);
+  }
+
+  if (isPaginatedClientResponse(currentData)) {
+    const data = removeById(currentData.data, id);
+    if (data === currentData.data) return currentData;
+
+    const total = Math.max(0, currentData.total - 1);
+    return {
+      ...currentData,
+      data,
+      total,
+      totalPages:
+        currentData.limit > 0 ? Math.ceil(total / currentData.limit) : currentData.totalPages,
+    };
+  }
+
+  return currentData;
+};
+
 export function useDeleteClient() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<unknown, Error, number, { previous: QuerySnapshot }>({
     mutationFn: (id: number) => clientsApi.delete(id),
-    onSuccess: async () => {
+    onMutate: async (id) => {
+      // Scoped to list representations so detail caches are left untouched.
+      const previous = await snapshotAndTransformQueries(
+        queryClient,
+        {
+          queryKey: clientKeys.all,
+          predicate: (query) => query.queryKey[1] !== 'detail',
+        },
+        (current) => removeClientFromCacheData(current, id),
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) restoreQueries(queryClient, context.previous);
+    },
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: clientKeys.all });
       await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
     },

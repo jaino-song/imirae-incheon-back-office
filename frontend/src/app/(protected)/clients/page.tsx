@@ -171,7 +171,7 @@ function ClientAutomationSection() {
         },
         onError: (_error, _variables, context) => {
             if (context?.previous) queryClient.setQueryData(["settings", "client-registration-policy"], context.previous);
-            toast({ variant: "destructive", description: "고객 자동 등록 설정 저장 중 오류가 발생했습니다." });
+            toast({ variant: "destructive", description: "고객 자동 등록 설정을 저장하지 못했어요" });
         },
         onSuccess: (saved) => queryClient.setQueryData(["settings", "client-registration-policy"], saved),
         onSettled: async () => { await queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] }); },
@@ -446,7 +446,7 @@ export default function ClientsPage() {
                 ?? null;
             if (!activeAssignment) {
                 toast({
-                    description: "관리사 배정이 없어 링크를 재설정할 수 없습니다.",
+                    description: "관리사 배정이 없어 링크를 재설정할 수 없어요",
                     variant: "destructive",
                 });
                 return;
@@ -457,7 +457,7 @@ export default function ClientsPage() {
             setResetServiceRecordUrl(reset.data.serviceRecordUrl);
         } catch {
             toast({
-                description: "제공기록지 링크 재설정에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+                description: "제공기록지 링크를 재설정하지 못했어요. 잠시 후 다시 시도해 주세요",
                 variant: "destructive",
             });
         } finally {
@@ -475,7 +475,7 @@ export default function ClientsPage() {
                 ?? null;
             if (!activeAssignment) {
                 toast({
-                    description: "관리사 배정이 없어 서비스 일정을 변경할 수 없습니다.",
+                    description: "관리사 배정이 없어 서비스 일정을 변경할 수 없어요",
                     variant: "destructive",
                 });
                 return;
@@ -495,7 +495,7 @@ export default function ClientsPage() {
             });
         } catch {
             toast({
-                description: "변경할 수 있는 다음 서비스 일정을 불러오지 못했습니다.",
+                description: "변경할 수 있는 다음 서비스 일정을 불러오지 못했어요",
                 variant: "destructive",
             });
         } finally {
@@ -523,7 +523,8 @@ export default function ClientsPage() {
             setSelectedScheduleChangeDate("");
             await queryClient.invalidateQueries({ queryKey: ["clients"] });
             toast({
-                description: `서비스 일정과 종료일(${changed.data.newEndDate})이 변경되었습니다.`,
+              variant: "success",
+                description: `서비스 일정과 종료일(${changed.data.newEndDate})을 변경했어요`,
             });
         } catch (error) {
             toast({
@@ -538,10 +539,10 @@ export default function ClientsPage() {
     const handleCopyResetServiceRecordLink = async (serviceRecordUrl: string) => {
         try {
             await navigator.clipboard.writeText(serviceRecordUrl);
-            toast({ description: "제공기록지 링크를 복사했습니다." });
+            toast({ variant: "success", description: "제공기록지 링크를 복사했어요" });
         } catch {
             toast({
-                description: "링크 복사에 실패했습니다. 링크를 직접 선택해 복사해 주세요.",
+                description: "링크를 복사하지 못했어요. 링크를 직접 선택해 복사해 주세요",
                 variant: "destructive",
             });
         }
