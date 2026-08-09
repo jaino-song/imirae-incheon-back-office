@@ -7,6 +7,8 @@ import {
   fetchDashboardClientPage,
   useDashboardOverview,
 } from "@/hooks/useDashboardStats";
+import { useReviewNeededContracts } from "@/hooks/useReviewNeededContracts";
+import { ReviewNeededContractsCard } from "@/components/app/dashboard/ReviewNeededContractsCard";
 import { Client } from "@/lib/client/types";
 import { useInitialUser } from "@/providers/UserProvider";
 import {
@@ -59,6 +61,7 @@ export default function DashboardPage() {
     refetch: refetchOverview,
   } = useDashboardOverview(50);
   const user = useInitialUser();
+  const { data: reviewNeededContracts } = useReviewNeededContracts();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [extraClientPages, setExtraClientPages] = useState<Client[][]>([]);
   const [isFetchingNextClients, setIsFetchingNextClients] = useState(false);
@@ -259,6 +262,12 @@ export default function DashboardPage() {
           }))}
         />
       </Block>
+
+      {reviewNeededContracts && reviewNeededContracts.length > 0 && (
+        <Block name="desktop_dashboard_review-needed" className="shrink-0">
+          <ReviewNeededContractsCard contracts={reviewNeededContracts} />
+        </Block>
+      )}
 
       <Block
         name="desktop_dashboard_split"

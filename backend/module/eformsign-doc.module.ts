@@ -16,6 +16,7 @@ import {
     CreateEformsignDocUsecase,
     CreateAndSendContractUsecase,
     ListClientNamesByBranchUsecase,
+    ListReviewStageContractsUsecase,
     SyncClientEndDateUsecase,
     DispatchDocumentHeadlessUsecase,
     FinalizeDocumentHeadlessUsecase,
@@ -45,6 +46,8 @@ import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
+import { ContractAutoFinalizeSchedulerService } from "application/services/contract-auto-finalize-scheduler.service";
+import { NotificationModule } from "module/notification.module";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import { SbEformsignDocumentMirrorRepository } from "infrastructure/database/repositories/sb.eformsign-document-mirror.repository";
@@ -66,6 +69,7 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         AreaTemplateModule,
         MessageModule,
         SystemSettingModule,
+        NotificationModule,
     ],
     controllers: [EformsignDocController],
     providers: [
@@ -80,6 +84,7 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         UpdateEformsignDocStatusUsecase,
         LinkDocumentToClientUsecase,
         ListClientNamesByBranchUsecase,
+        ListReviewStageContractsUsecase,
         FindClientByIdUsecase,
         SyncClientEndDateUsecase,
         // Use cases - External API
@@ -110,6 +115,7 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         EformsignDocumentSnapshotService,
         EformsignBackfillLockService,
         EformsignDocReconcileSchedulerService,
+        ContractAutoFinalizeSchedulerService,
         EformsignDocumentMirrorService,
         ServiceRecordLifecycleService,
         EformsignMirrorReadinessService,

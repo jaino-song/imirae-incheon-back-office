@@ -629,6 +629,19 @@ export default function ContractsPage() {
     router.replace("/contracts", { scroll: false });
   }, [handleStartContractCreation, router, searchParams]);
 
+  // Deep link used by notifications and the dashboard 검토 필요 card
+  // (/contracts?documentId=…): select the document and clear the param.
+  // Selection survives the replace — selectedDocument resolves reactively once
+  // the list page containing the document loads.
+  useEffect(() => {
+    const documentIdParam = searchParams.get("documentId");
+    if (!documentIdParam) return;
+
+    setActiveSection("maternity");
+    setSelectedDocId(documentIdParam);
+    router.replace("/contracts", { scroll: false });
+  }, [router, searchParams]);
+
   const handleCloseContractCreation = useCallback(() => {
     setIsCreating(false);
     setHasContractCreationSession(false);
