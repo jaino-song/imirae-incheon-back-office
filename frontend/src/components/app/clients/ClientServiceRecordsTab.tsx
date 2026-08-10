@@ -47,6 +47,7 @@ interface ClientServiceRecordsTabProps {
 }
 
 const ClientServiceRecordsDataComponentContext = createContext<string | null>(null);
+const SEND_LINK_FAILURE_DESCRIPTION = "제공기록지 링크 발송에 실패했어요";
 
 function useClientServiceRecordsDataComponent(...parts: string[]): string {
     const root = useContext(ClientServiceRecordsDataComponentContext);
@@ -108,10 +109,17 @@ function ClientServiceRecordsTabContent({
     const sendLink = async (assignment: ServiceRecordAssignment): Promise<boolean> => {
         setSendingScheduleId(assignment.scheduleId);
         try {
-            await sendLinkMutation.mutateAsync({
+            const result = await sendLinkMutation.mutateAsync({
                 scheduleId: assignment.scheduleId,
                 clientId: clientId ?? undefined,
             });
+            if (!result.ok || result.status !== "sent") {
+                toast({
+                    variant: "destructive",
+                    description: SEND_LINK_FAILURE_DESCRIPTION,
+                });
+                return false;
+            }
             toast({ variant: "success", description: "제공기록지 링크를 보냈어요" });
             return true;
         } catch (error) {
@@ -1075,9 +1083,11 @@ function getErrorDescription(error: unknown): string {
         if (data && typeof data === "object") {
             const message = (data as { message?: unknown; error?: unknown }).message
                 ?? (data as { message?: unknown; error?: unknown }).error;
-            if (typeof message === "string") return message;
+            if (typeof message === "string") {
+                return `${SEND_LINK_FAILURE_DESCRIPTION}: ${message}`;
+            }
         }
     }
 
-    return "제공기록지 링크를 보내지 못했어요";
+    return SEND_LINK_FAILURE_DESCRIPTION;
 }
