@@ -263,6 +263,28 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(queryRaw).toHaveBeenCalledTimes(2);
     });
 
+    it("claims a branch job through a global rule without widening the job branch fence", async () => {
+        queryRaw
+            .mockResolvedValueOnce([{
+                rule_id: "system:service_record_link",
+                branch_id: "branch-1",
+            }])
+            .mockResolvedValueOnce([{
+                id: "system:service_record_link",
+                jobs_stale: false,
+                branch_id: null,
+            }])
+            .mockResolvedValueOnce([{ id: "job-1" }]);
+
+        await expect(repository.claimPendingWithRuleFence("job-1", "branch-1")).resolves.toBe(true);
+
+        const ruleFenceSql = getSqlText(queryRaw.mock.calls[1][0]);
+        const jobClaimSql = getSqlText(queryRaw.mock.calls[2][0]);
+        expect(ruleFenceSql).toContain("OR branch_id IS NULL");
+        expect(jobClaimSql).toContain("branch_id = ");
+        expect(jobClaimSql).not.toContain("OR branch_id IS NULL");
+    });
+
     it("hasActiveJobsBefore uses updatedAt as the generation fence when a dedupe row is reactivated", async () => {
         messageTriggerJobModel.findFirst.mockResolvedValueOnce({ id: "job-1" }).mockResolvedValueOnce(null);
 
