@@ -25,6 +25,7 @@ import { EformsignDocModule } from "./eformsign-doc.module";
 import { ClientAgentCapabilitiesProvider } from "application/usecases/client/client-agent-capabilities.provider";
 import { DashboardAgentCapabilitiesProvider } from "application/usecases/client/dashboard-agent-capabilities.provider";
 import { ClientWriteAgentCapabilitiesProvider } from "application/usecases/client/client-write-agent-capabilities.provider";
+import { VoucherPriceInfoModule } from "./voucher-price-info.module";
 
 @Module({
     imports: [
@@ -35,6 +36,7 @@ import { ClientWriteAgentCapabilitiesProvider } from "application/usecases/clien
         SystemTemplateModule,
         ServiceRecordEntryModule,
         EformsignDocModule,
+        VoucherPriceInfoModule,
     ],
     controllers: [ClientController],
     providers: [

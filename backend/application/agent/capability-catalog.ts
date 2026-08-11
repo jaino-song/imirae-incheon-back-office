@@ -47,7 +47,7 @@ const reads: CapabilityCatalogEntry[] = ([
 
 type WriteTuple = [string, string, string, CapabilityCatalogEntry["risk"], "structured" | "strong", "action-id" | "provider-key", string[]];
 const writes: CapabilityCatalogEntry[] = ([
-    ["clients.create", "clients", "Create a client after explicit approval", "reversible-write", "structured", "action-id", ["owner", "admin", "manager"]],
+    ["clients.create", "clients", "Create a client: ask only for missing facts, complete read-only lookups first, then invoke the write tool immediately once required facts are resolved. Never ask the user for conversational confirmation; the structured proposal card is the sole mandatory approval.", "reversible-write", "structured", "action-id", ["owner", "admin", "manager"]],
     ["clients.update", "clients", "Update an existing client after explicit approval", "reversible-write", "structured", "action-id", ["owner", "admin", "manager"]],
     ["employees.create", "employees", "Create an employee after explicit approval", "reversible-write", "structured", "action-id", ["owner", "admin", "manager"]],
     ["employees.update", "employees", "Update an employee after explicit approval", "reversible-write", "structured", "action-id", ["owner", "admin", "manager"]],

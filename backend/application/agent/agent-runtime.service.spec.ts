@@ -324,6 +324,44 @@ describe("AgentRuntimeService", () => {
         expect(schema.safeParse({ scheduledDate: "not-a-date" }).success).toBe(false);
     });
 
+    it("instructs the model to gather missing facts and use the write tool without conversational confirmation", async () => {
+        const capability = buildEntityCapability("clients.search", "clients", jest.fn().mockResolvedValue({
+            kind: "entity",
+            entity: { id: 1, name: "Synthetic" },
+        }));
+        const sessions = {
+            create: jest.fn().mockResolvedValue({ id: "session-prompt", selectedEntities: {}, messages: [] }),
+            appendMessages: jest.fn().mockResolvedValue(undefined),
+        };
+        const model = new DeterministicAgentLanguageModel([{ type: "text", text: "완료" }]);
+        const modelStream = jest.spyOn(model, "doStream");
+        const runtime = new AgentRuntimeService(
+            {} as never,
+            { isCapabilityEnabled: jest.fn().mockResolvedValue(true) } as never,
+            sessions as never,
+            { modelId: "deterministic-agent-v1", create: () => model } as never,
+            { route: jest.fn().mockResolvedValue({ domains: ["clients"], capabilities: [capability] }) } as never,
+            { start: jest.fn().mockResolvedValue({ id: "trace-prompt" }), finish: jest.fn().mockResolvedValue(undefined) } as never,
+        );
+
+        const result = await runtime.stream({
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            locale: "ko",
+            messages: [{ id: "message-prompt", role: "user", parts: [{ type: "text", text: "고객 등록" }] }] as never,
+        });
+        const reader = result.stream.getReader();
+        while (!(await reader.read()).done) {
+            // Drain the stream so the prompt call and completion persistence settle.
+        }
+
+        const systemPrompt = (modelStream.mock.calls[0]?.[0] as { prompt?: Array<{ role: string; content: string }> }).prompt?.[0]?.content ?? "";
+        expect(systemPrompt).toContain("missing facts");
+        expect(systemPrompt).toContain("read-only lookups");
+        expect(systemPrompt).toContain("write tool immediately");
+        expect(systemPrompt).toContain("structured proposal card");
+        expect(systemPrompt).toContain("Never ask the user for conversational confirmation");
+    });
+
     it("executes a routed capability through streamText and persists the completed UI parts", async () => {
         const execute = jest.fn().mockResolvedValue({
             kind: "entity",
@@ -755,6 +793,7 @@ describe("AgentRuntimeService", () => {
         }
 
         expect(actions.propose).toHaveBeenCalledWith(expect.objectContaining({ input: { name: "홍길동" } }));
+        expect(capability.execute).not.toHaveBeenCalled();
         expect(chunks).toEqual(expect.arrayContaining([
             expect.objectContaining({
                 type: "data-action-proposal",

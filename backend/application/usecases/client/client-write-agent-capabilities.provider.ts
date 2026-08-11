@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -23,6 +23,10 @@ import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client
 import { SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
+import {
+    isVoucherServiceLabel,
+    ResolveVoucherServiceSelectionUsecase,
+} from "application/usecases/voucher-price-info/resolve-voucher-service-selection.usecase";
 
 const DateOnlyInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
     const parsed = new Date(`${value}T00:00:00Z`);
@@ -237,6 +241,7 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
         private readonly clientRepository: IClientRepository,
         private readonly prisma: PrismaService,
         private readonly serviceRecordLifecycleService: ServiceRecordLifecycleService,
+        @Optional() private readonly voucherServiceSelection?: ResolveVoucherServiceSelectionUsecase,
     ) {}
 
     getCapabilities(): CapabilityDefinition[] {
@@ -252,11 +257,38 @@ export class ClientWriteAgentCapabilitiesProvider implements AgentCapabilityProv
         };
         return [
             {
-                meta: { ...common, name: "clients.create", description: "Create a client after explicit approval", flagKey: "agent.capability.clients.create" },
+                meta: {
+                    ...common,
+                    name: "clients.create",
+                    description: "Create a client: ask only for missing facts, complete read-only lookups first, then invoke the write tool immediately once required facts are resolved. Never ask the user for conversational confirmation; the structured proposal card is the sole mandatory approval.",
+                    flagKey: "agent.capability.clients.create",
+                },
                 inputSchema: CreateClientSchema,
                 outputSchema: ClientWriteOutputSchema,
                 formFields: CLIENT_FORM_FIELDS,
                 canonicalizeInput: (_context, input: CreateClientInput) => {
+                    if (isVoucherServiceLabel(input.type)) {
+                        if (input.voucherClient === false) {
+                            return Promise.reject(new AgentActionCertainFailureError("voucherClient=false conflicts with a voucher type; remove the contradiction or provide a non-voucher type"));
+                        }
+                        if (!this.voucherServiceSelection) {
+                            return Promise.reject(new AgentActionCertainFailureError("Voucher price lookup is unavailable; provide an exact non-voucher type or try again"));
+                        }
+                        return this.voucherServiceSelection.execute({
+                            type: input.type,
+                            startDate: input.startDate,
+                            duration: input.duration,
+                        }).then((selection) => ({
+                            ...input,
+                            voucherClient: true,
+                            type: selection.type,
+                            duration: selection.duration,
+                            fullPrice: selection.fullPrice,
+                            grant: selection.grant,
+                            actualPrice: selection.actualPrice,
+                        }));
+                    }
+
                     const voucherClient = input.voucherClient ?? false;
                     return {
                         ...input,
