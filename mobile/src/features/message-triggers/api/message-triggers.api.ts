@@ -33,4 +33,6 @@ export const messageTriggersApi = {
         api.get<MessageLogRecord[]>("/message-logs", {
             params: { limit },
         }),
+    cancelJob: (id: string) =>
+        api.post<{ id: string; status: "canceled" }>(`/message-trigger-jobs/${id}/cancel`, {}),
 };

@@ -1,11 +1,28 @@
 import { Injectable, Inject, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { DailyDigestSection, NotificationService } from "./notification.service";
-import { ClientEntity } from "domain/entities/client.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { BRANCH_REPOSITORY, IBranchRepository } from "domain/repositories/branch.repository.interface";
+import {
+    IMessageTriggerJobRepository,
+    MESSAGE_TRIGGER_JOB_REPOSITORY,
+} from "domain/repositories/message-trigger-job.repository.interface";
+import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
+import { MESSAGE_TRIGGER_TEMPLATE_CATALOG } from "domain/constants/message-trigger-catalog";
 
 const DAYS_THRESHOLD = 7;
+
+// Rolling 24-hour lookback for the "자동 전송 실패·취소" section, not a calendar day: both the
+// digest and the automated send run at 09:00 KST, so a calendar-day cut would report the prior
+// batch's failures a day late. A rolling window from one digest to the next covers exactly the
+// previous batch, with no gap and no double-report — which requires every branch in a run to
+// share one boundary; it is computed once, before the per-branch loop, rather than per branch.
+const UNDELIVERED_MESSAGES_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// Sane upper bound on how many undelivered-message lines the digest email lists — matches the
+// magnitude findHistoryByBranch already uses as its default for a similarly-shaped branch-scoped
+// job query, rather than leaving this unbounded.
+const UNDELIVERED_MESSAGES_LIMIT = 50;
 
 // Resolve the login URL from the same per-env vars auth.controller's resolveFrontendURL uses,
 // so the email CTA stays in sync with the deployed frontend domain. Fallback covers test/dev
@@ -34,17 +51,27 @@ export class PwaNotificationSchedulerService {
         private readonly clientRepository: IClientRepository,
         @Inject(BRANCH_REPOSITORY)
         private readonly branchRepository: IBranchRepository,
+        @Inject(MESSAGE_TRIGGER_JOB_REPOSITORY)
+        private readonly messageTriggerJobRepository: IMessageTriggerJobRepository,
     ) {}
 
     @Cron("0 9 * * *", { timeZone: "Asia/Seoul" })
     async sendDailySummaryNotifications(): Promise<void> {
         this.logger.log("[PWA Scheduler] Starting daily summary notifications...");
 
+        const undeliveredSince = new Date(Date.now() - UNDELIVERED_MESSAGES_WINDOW_MS);
         const branches = await this.branchRepository.findAllActive();
 
         for (const org of branches) {
             this.logger.log(`[PWA Scheduler] Processing org: ${org.name} (${org.id})`);
-            await this.sendBranchDigest(org.id, org.name);
+            try {
+                await this.sendBranchDigest(org.id, org.name, undeliveredSince);
+            } catch (error) {
+                this.logger.error(
+                    `[PWA Scheduler] Failed to process branch ${org.id}`,
+                    error instanceof Error ? error.stack : String(error),
+                );
+            }
         }
 
         this.logger.log("[PWA Scheduler] Daily summary notifications completed");
@@ -55,8 +82,8 @@ export class PwaNotificationSchedulerService {
      * notification service as a single digest — one in-app row, one push and one email
      * per branch user, rather than one send per condition (or per client).
      */
-    private async sendBranchDigest(branchId: string, branchName: string): Promise<void> {
-        const [upcoming, ending, incompleteContracts, contractsNotSent] = await Promise.all([
+    private async sendBranchDigest(branchId: string, branchName: string, undeliveredSince: Date): Promise<void> {
+        const [upcoming, ending, incompleteContracts, contractsNotSent, undeliveredMessages] = await Promise.all([
             this.collect(branchId, "upcoming services", () =>
                 this.clientRepository.findStartingWithinDays(branchId, DAYS_THRESHOLD)),
             this.collect(branchId, "ending services", () =>
@@ -65,6 +92,12 @@ export class PwaNotificationSchedulerService {
                 this.clientRepository.findWithIncompleteContractsStartingWithinDays(branchId, DAYS_THRESHOLD)),
             this.collect(branchId, "contracts not sent", () =>
                 this.clientRepository.findWithoutContractSentStartingWithinDays(branchId, DAYS_THRESHOLD)),
+            this.collect(branchId, "undelivered messages", () =>
+                this.messageTriggerJobRepository.findRecentUndeliveredByBranch(
+                    branchId,
+                    undeliveredSince,
+                    UNDELIVERED_MESSAGES_LIMIT,
+                )),
         ]);
 
         const sections: DailyDigestSection[] = [];
@@ -110,7 +143,19 @@ export class PwaNotificationSchedulerService {
                 count: contractsNotSent.length,
                 unit: "명",
                 url: "/clients/filtered?filter=no-contract",
-                clientNames: contractsNotSent.map((client) => client.name),
+                details: contractsNotSent.map((client) => client.name),
+            });
+        }
+
+        if (undeliveredMessages.length > 0) {
+            sections.push({
+                key: "undeliveredMessages",
+                label: "자동 전송 실패·취소",
+                description: `어제 자동 전송 중 발송되지 못한 메시지가 ${undeliveredMessages.length}건 있어요. 필요하면 수동으로 발송해 주세요.`,
+                count: undeliveredMessages.length,
+                unit: "건",
+                url: "/messages",
+                details: undeliveredMessages.map((job) => this.formatUndeliveredMessageDetail(job)),
             });
         }
 
@@ -138,13 +183,29 @@ export class PwaNotificationSchedulerService {
     }
 
     /**
+     * One digest line per undelivered message: recipient · template label — reason. The
+     * template label reuses the existing Korean catalog names; the reason is whatever
+     * markFailed()/cancel() recorded in cancelReason (failure and cancellation share that
+     * field). A missing recipient name falls back the same way the rest of this service does.
+     * template_key is a free-form string column, not a DB enum, so a row can carry a key the
+     * catalog doesn't recognize — fall back to a generic label instead of throwing, so one
+     * bad row cannot take down this branch's digest (or the branches processed after it).
+     */
+    private formatUndeliveredMessageDetail(job: MessageTriggerJobEntity): string {
+        const recipientName = job.payload.recipientName || "사용자";
+        const templateLabel = MESSAGE_TRIGGER_TEMPLATE_CATALOG[job.templateKey]?.name ?? "메시지";
+        const reason = job.cancelReason ?? "사유 미상";
+        return `${recipientName} · ${templateLabel} — ${reason}`;
+    }
+
+    /**
      * A failing query drops its own section only — the rest of the digest still goes out.
      */
-    private async collect(
+    private async collect<T>(
         branchId: string,
         label: string,
-        query: () => Promise<ClientEntity[]>,
-    ): Promise<ClientEntity[]> {
+        query: () => Promise<T[]>,
+    ): Promise<T[]> {
         try {
             return await query();
         } catch (error) {

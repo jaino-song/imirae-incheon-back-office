@@ -1,6 +1,8 @@
 import {
   MESSAGE_HISTORY_STATUS_LABELS,
+  MESSAGE_JOB_STATUS_BADGE_VARIANT,
   MESSAGE_JOB_STATUS_LABELS,
+  MESSAGE_LOG_STATUS_BADGE_VARIANT,
   MESSAGE_SECTION_DEFINITIONS,
   formatMessageFailureReason,
   getMessageChannelLabel,
@@ -109,10 +111,25 @@ describe("shared message presentation contract", () => {
       failed: "발송 실패",
       canceled: "발송 취소",
     });
+    expect(MESSAGE_LOG_STATUS_BADGE_VARIANT).toEqual({
+      sent: "success",
+      failed: "danger",
+      pending: "warning",
+      canceled: "neutral",
+    });
+    expect(MESSAGE_JOB_STATUS_BADGE_VARIANT).toEqual({
+      pending: "warning",
+      processing: "info",
+      sent: "success",
+      failed: "danger",
+      canceled: "neutral",
+    });
+    // "scheduled" (발송 예정) is intentionally absent: its content is folding
+    // into 발송 기록 via a follow-up task, so it's dropped from navigation in
+    // both apps while the MessageSectionId union still carries the member.
     expect(MESSAGE_SECTION_DEFINITIONS.map(({ id, label, mobilePath }) => [id, label, mobilePath]))
       .toEqual([
         ["send", "전송하기", "/messages/new"],
-        ["scheduled", "발송 예정", "/messages/scheduled"],
         ["history", "발송 기록", "/messages/history"],
         ["templates", "템플릿", "/messages/templates"],
         ["triggers", "자동 전송", "/messages/automation"],

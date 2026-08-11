@@ -249,6 +249,34 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         return rows.map((row) => this.toDomain(row));
     }
 
+    /**
+     * Terminal jobs for a branch whose terminal transition landed at or
+     * after `since` — `canceledAt` for a canceled row, `updatedAt` for a
+     * failed row (there is no dedicated failedAt column; markFailed()
+     * always bumps updatedAt at the moment of failure). A row the user
+     * canceled themselves (canceledByUser = true) is excluded: that cancel
+     * is a deliberate user decision, never a problem to report back to them.
+     */
+    async findRecentUndeliveredByBranch(
+        branchId: string,
+        since: Date,
+        limit: number,
+    ): Promise<MessageTriggerJobEntity[]> {
+        const rows = await this.prisma.message_trigger_job.findMany({
+            where: {
+                branchId,
+                canceledByUser: false,
+                OR: [
+                    { status: "canceled", canceledAt: { gte: since } },
+                    { status: "failed", updatedAt: { gte: since } },
+                ],
+            },
+            orderBy: { updatedAt: "desc" },
+            take: limit,
+        });
+        return rows.map((row) => this.toDomain(row));
+    }
+
     async findHistoryByBranch(
         branchId: string,
         limit = 50,
@@ -446,6 +474,20 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         return result.count;
     }
 
+    async cancelPendingByUser(id: string, branchId: string, reason: string): Promise<boolean> {
+        const result = await this.prisma.message_trigger_job.updateMany({
+            where: { id, branchId, status: "pending" },
+            data: {
+                status: "canceled",
+                canceledAt: new Date(),
+                cancelReason: reason,
+                canceledByUser: true,
+                nextAttemptAt: null,
+            },
+        });
+        return result.count === 1;
+    }
+
     async cancelPendingForRuleGeneration(
         branchId: string,
         ruleId: string,
@@ -609,7 +651,17 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 attempts = 0,
                 next_attempt_at = NULL,
                 updated_at = date_trunc('milliseconds', clock_timestamp())
+            -- 'sent' and 'processing' rows are excluded so an in-flight or
+            -- already-delivered message is never rewritten by a re-sync. A
+            -- row the user explicitly canceled (canceled_by_user = true)
+            -- must be just as immutable here: that cancel is a deliberate
+            -- user decision, not stale state to reconcile away, so this
+            -- upsert must never resurrect it back to pending. An
+            -- internally-canceled or failed row always has
+            -- canceled_by_user = false, so it is unaffected by this extra
+            -- clause and keeps resurrecting exactly as before.
             WHERE "message_trigger_job"."status" NOT IN ('sent', 'processing')
+              AND NOT ("message_trigger_job"."status" = 'canceled' AND "message_trigger_job"."canceled_by_user" = true)
             RETURNING *;
         `);
 

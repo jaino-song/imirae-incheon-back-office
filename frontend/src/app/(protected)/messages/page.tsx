@@ -12,12 +12,19 @@ import {
 import {
   MESSAGE_EVENT_LABELS,
   MESSAGE_HISTORY_STATUS_LABELS,
+  MESSAGE_JOB_CANCEL_COPY,
+  MESSAGE_JOB_STATUS_BADGE_VARIANT,
   MESSAGE_JOB_STATUS_LABELS,
+  MESSAGE_LOG_STATUS_BADGE_VARIANT,
   MESSAGE_RECIPIENT_LABELS,
+  MESSAGE_RECORD_REASON_LABEL,
+  MESSAGE_RECORD_STATUS_FILTER_LABELS,
+  MESSAGE_RECORD_ZONE_LABELS,
   MESSAGE_SECTION_DEFINITIONS,
   formatMessageDateTimeCompact,
   formatMessageDateTimeDetail,
   getMessageTemplateLabel,
+  type MessageRecordStatusFilter,
   type MessageSectionId as SharedMessageSectionId,
 } from "@babyjamjam/shared";
 import { t } from "@/lib/i18n/translations";
@@ -28,6 +35,7 @@ import { useMessageTemplates } from "@/features/message-templates/hooks/use-mess
 import { useSystemTemplate } from "@/features/system-templates/hooks";
 import type { SystemTemplateKey } from "@/features/system-templates/types";
 import {
+  useCancelUpcomingMessageTriggerJob,
   useMessageHistory,
   useRetryMessageHistory,
   useUpcomingMessageTriggerJobs,
@@ -48,10 +56,9 @@ import { CustomTemplateForm } from "@/components/app/messages/forms/custom-templ
 import {
   getMessageHistoryEmptyStateCopy,
   getMessageHistoryTemplateLabel as getHistoryTemplateLabel,
+  getScheduledRecipientBadge,
   matchesMessageHistoryQuery as matchesHistoryQuery,
   MessageHistoryDetailPanel,
-  MESSAGE_HISTORY_FILTER_META,
-  MESSAGE_HISTORY_TABS,
   normalizeMessageHistoryRecord as normalizeHistoryRecord,
   formatMessageHistoryDate as formatHistoryDate,
   type MessageHistoryFilter,
@@ -91,11 +98,13 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/app/ui/status-badge";
+import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { matchesSearchQuery } from "@/lib/search/korean-search";
 import { findMessageHistoryClient } from "@/lib/message-history/client-match";
 import { renderTemplate } from "@/lib/template-utils";
 import { cn } from "@/lib/utils";
 import {
+  Ban,
   Bell,
   Briefcase,
   CalendarClock,
@@ -113,7 +122,6 @@ import {
   RotateCcw,
   Send,
   Settings2,
-  Users,
   Workflow,
 } from "lucide-react";
 import { GreetingMessageForm } from "@/components/app/messages/forms/GreetingMessageForm";
@@ -138,7 +146,6 @@ import { TriggerRulesManager } from "@/components/app/messages/TriggerRulesManag
 import { Button } from "@/components/ui/button";
 import {
   APP_CONTENT_BODY_CARD_CLASS_NAME,
-  APP_CONTENT_BODY_CARD_OUTLINED_CLASS_NAME,
   AppContentCard,
 } from "@/components/ui/app-surface";
 
@@ -196,23 +203,33 @@ const TEMPLATE_FILTERS: Array<{ value: TemplateFilter; label: string }> = [
   { value: "branch", label: "지점 템플릿" },
 ];
 
-const MESSAGE_SECTIONS = [
-  { ...MESSAGE_SECTION_DEFINITIONS[0], icon: Send },
-  { ...MESSAGE_SECTION_DEFINITIONS[1], icon: Clock3 },
-  { ...MESSAGE_SECTION_DEFINITIONS[2], icon: History },
-  { ...MESSAGE_SECTION_DEFINITIONS[3], icon: FileText },
-  { ...MESSAGE_SECTION_DEFINITIONS[4], icon: Workflow },
-  { ...MESSAGE_SECTION_DEFINITIONS[5], icon: Settings2 },
-] as const;
+const ICON_BY_SECTION_ID: Record<SharedMessageSectionId, typeof Send> = {
+  send: Send,
+  scheduled: Clock3,
+  history: History,
+  templates: FileText,
+  triggers: Workflow,
+  settings: Settings2,
+};
+
+const MESSAGE_SECTIONS = MESSAGE_SECTION_DEFINITIONS.map((section) => ({
+  ...section,
+  icon: ICON_BY_SECTION_ID[section.id],
+}));
 
 type MessageSectionId = SharedMessageSectionId;
-type PlaceholderSectionId = Exclude<MessageSectionId, "send" | "templates" | "triggers" | "history">;
+// "scheduled" stays out of this union on purpose: MessageSectionId keeps the member
+// for shared-package compatibility (see MESSAGE_SECTION_DEFINITIONS), but the nav
+// never offers it and MessageSectionPlaceholder no longer has scheduled-specific
+// copy to render for it — see the render dispatch below for how that's kept safe.
+type PlaceholderSectionId = Exclude<MessageSectionId, "send" | "templates" | "triggers" | "history" | "scheduled">;
 
 // Sections that are still 출시 예정. The owner gets early access to them; everyone
-// else sees them disabled until the features ship.
+// else sees them disabled until the features ship. "scheduled" and "history" are
+// merged into one always-available section once SMS sending is approved for the
+// branch (see SENDER_APPROVAL_EXEMPT_SECTION_IDS below), so neither is unreleased
+// anymore.
 const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([
-  "scheduled",
-  "history",
   "templates",
   "triggers",
 ]);
@@ -221,10 +238,10 @@ const SENDER_APPROVAL_EXEMPT_SECTION_IDS = new Set<MessageSectionId>(["send", "s
 const TEMPLATE_SEND_FORM_ID = "messages-template-send-form-active";
 
 function getMessageHistoryListStatusMeta(status: MessageHistoryRecord["status"]) {
-  if (status === "sent") return { label: MESSAGE_HISTORY_STATUS_LABELS.sent, variant: "success" as const };
-  if (status === "pending") return { label: MESSAGE_HISTORY_STATUS_LABELS.pending, variant: "warning" as const };
-  if (status === "canceled") return { label: MESSAGE_HISTORY_STATUS_LABELS.canceled, variant: "neutral" as const };
-  return { label: MESSAGE_HISTORY_STATUS_LABELS.failed, variant: "danger" as const };
+  return {
+    label: MESSAGE_HISTORY_STATUS_LABELS[status],
+    variant: MESSAGE_LOG_STATUS_BADGE_VARIANT[status],
+  };
 }
 
 function getMessageHistoryAvatarClassName(status: MessageHistoryRecord["status"]): string {
@@ -241,23 +258,23 @@ function getMessageHistoryAvatarClassName(status: MessageHistoryRecord["status"]
 }
 
 function getScheduledJobStatusMeta(status: UpcomingMessageTriggerJob["status"]) {
-  return status === "processing"
-    ? {
-        label: MESSAGE_JOB_STATUS_LABELS[status],
-        className: "bg-sky-100 text-sky-700",
-      }
-    : {
-        label: MESSAGE_JOB_STATUS_LABELS[status],
-        className: status === "failed" || status === "canceled"
-          ? "bg-red-100 text-red-700"
-          : status === "sent"
-            ? "bg-emerald-100 text-emerald-700"
-            : "bg-amber-100 text-amber-700",
-      };
+  return {
+    label: MESSAGE_JOB_STATUS_LABELS[status],
+    variant: MESSAGE_JOB_STATUS_BADGE_VARIANT[status],
+  };
+}
+
+// Manual scheduled sends ride along in the /upcoming response as message_log rows
+// coerced into the UpcomingMessageTriggerJob shape (see backend
+// MessageTriggerService.listManualScheduledSmsLogs). They carry a synthetic
+// `manual-sms:<logId>` ruleId instead of a real message_trigger_rule id, which is
+// the only signal that distinguishes them from a real trigger job. Only real
+// trigger jobs can be canceled through /message-trigger-jobs/:id/cancel.
+function isManualScheduledJob(job: UpcomingMessageTriggerJob): boolean {
+  return job.ruleId.startsWith("manual-sms:");
 }
 
 type MessageHistoryRelativeDateFilter = "all" | "1d" | "7d" | "30d";
-type ScheduledPreviewFilter = "all" | "customer" | "staff";
 type ScheduledDetailTab = "info" | "message";
 type TemplateDetailTab = "details" | "preview";
 
@@ -265,75 +282,6 @@ const PLACEHOLDER_COPY: Record<
   PlaceholderSectionId,
   { description: string; helper: string; items: PlaceholderPreviewItem[] }
 > = {
-  scheduled: {
-    description: "발송이 예정된 메시지를 확인할 수 있어요.",
-    helper: "예정 발송 목록 컴포넌트를 연결하면 이 섹션에서 예약 현황을 확인할 수 있습니다.",
-    items: [
-      {
-        id: "scheduled-queue",
-        label: "김서연",
-        summary: "인사 메시지 · 3월 11일 09:00",
-        badge: "고객",
-        detailTitle: "김서연 예약 발송",
-        detailDescription: "고객 김서연님에게 발송될 인사 메시지 예약 건으로, 템플릿 제목과 발송 예정 시각을 함께 확인하는 상세 영역입니다.",
-        checklist: ["받는 사람: 고객", "템플릿: 인사 메시지", "발송 예정: 3월 11일 09:00"],
-        recipientName: "김서연",
-        recipientType: "고객",
-        recipientPhone: "010-2481-9032",
-        templateTitle: "인사 메시지",
-        scheduledAt: "3월 11일 09:00",
-        messageBody:
-          "김서연님, 안녕하세요.\n아가잼잼 산후도우미 서비스 등록이 완료되었어요.\n담당 매니저는 한지민 매니저로 배정될 예정이며, 확정되면 다시 안내드릴게요.\n문의사항은 언제든 편하게 연락 주세요.",
-        variableAssignments: [
-          { token: "#{고객명}", label: "수신자 이름", value: "김서연" },
-          { token: "#{서비스명}", label: "예약된 서비스", value: "산후도우미 서비스" },
-          { token: "#{담당자명}", label: "배정 예정 매니저", value: "한지민 매니저" },
-        ],
-      },
-      {
-        id: "scheduled-today",
-        label: "박지민",
-        summary: "리마인더 · 3월 11일 14:30",
-        badge: "직원",
-        detailTitle: "박지민 예약 발송",
-        detailDescription: "직원 박지민님에게 발송될 리마인더 예약 건으로, 발송 대상과 예약 시간을 빠르게 점검할 수 있는 상세 영역입니다.",
-        checklist: ["받는 사람: 직원", "템플릿: 리마인더", "발송 예정: 3월 11일 14:30"],
-        recipientName: "박지민",
-        recipientType: "직원",
-        recipientPhone: "010-5538-1120",
-        templateTitle: "리마인더",
-        scheduledAt: "3월 11일 14:30",
-        messageBody:
-          "박지민님, 오늘 오후 2시 30분 보호자 상담 일정이 예정되어 있어요.\n상담 시작 10분 전까지 회의실 2번으로 입장해 주세요.\n변동이 필요하면 운영팀에 바로 알려주세요.",
-        variableAssignments: [
-          { token: "#{수신자명}", label: "수신자 이름", value: "박지민" },
-          { token: "#{상담시간}", label: "예약된 상담 시간", value: "오후 2시 30분" },
-          { token: "#{상담장소}", label: "안내된 장소", value: "회의실 2번" },
-        ],
-      },
-      {
-        id: "scheduled-trigger",
-        label: "이하은",
-        summary: "요금 안내 · 3월 12일 10:00",
-        badge: "고객",
-        detailTitle: "이하은 예약 발송",
-        detailDescription: "고객 이하은님에게 발송될 요금 안내 예약 건으로, 템플릿 제목과 예정 발송 시간을 확인할 수 있는 상세 영역입니다.",
-        checklist: ["받는 사람: 고객", "템플릿: 요금 안내", "발송 예정: 3월 12일 10:00"],
-        recipientName: "이하은",
-        recipientType: "고객",
-        recipientPhone: "010-8804-6621",
-        templateTitle: "요금 안내",
-        scheduledAt: "3월 12일 10:00",
-        messageBody:
-          "이하은님, 정부지원 바우처 서비스 비용을 안내드려요.\n4주 과정 기준 총 이용금액은 1,280,000원이며, 정부 지원금은 980,000원입니다.\n본인 부담금은 300,000원이고, 예약금 입금 후 일정이 최종 확정됩니다.",
-        variableAssignments: [
-          { token: "#{고객명}", label: "수신자 이름", value: "이하은" },
-          { token: "#{서비스기간}", label: "이용 예정 기간", value: "4주 과정" },
-          { token: "#{본인부담금}", label: "안내된 본인 부담금", value: "300,000원" },
-        ],
-      },
-    ],
-  },
   settings: {
     description: "메시지 발송 정책과 기본 옵션을 관리하는 영역입니다.",
     helper: "채널 설정이나 발신 정책 관련 UI를 연결하면 이곳에서 공통 설정을 다룰 수 있습니다.",
@@ -384,14 +332,16 @@ const MESSAGE_HISTORY_MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => {
   return { value, label: `${index + 1}월` };
 });
 
-const SCHEDULED_PREVIEW_TABS: {
-  value: ScheduledPreviewFilter;
-  label: string;
-}[] = [
-  { value: "all", label: "전체" },
-  { value: "customer", label: "고객" },
-  { value: "staff", label: "직원" },
-];
+// Top-level status tabs for the merged 발송 기록 list. "all" shows both zones;
+// "upcoming" shows only the upcoming zone; the rest filter zone 2 (past sends) to
+// that status. There's deliberately no dedicated tab for the old scheduled
+// section's 고객/직원 recipient-type filter — see matchesScheduledJobQuery and
+// matchesHistoryQuery, which both fold the recipient badge into the free-text
+// search, so a second row of tabs isn't needed on top of these (ListPanel only
+// supports one tab row anyway).
+const MESSAGE_RECORD_STATUS_FILTER_TABS: { value: MessageRecordStatusFilter; label: string }[] = (
+  ["all", "upcoming", "sent", "failed", "canceled"] as const
+).map((value) => ({ value, label: MESSAGE_RECORD_STATUS_FILTER_LABELS[value] }));
 
 const SCHEDULED_DETAIL_TABS = [
   { key: "info", label: "발송 정보" },
@@ -470,10 +420,6 @@ const SCHEDULED_VARIABLE_LABELS: Record<string, string> = {
   serviceType: "서비스 유형",
   timingText: "발송 문구",
 };
-
-function getScheduledRecipientBadge(recipientType: TriggerRecipientType) {
-  return recipientType === "CLIENT" ? MESSAGE_RECIPIENT_LABELS.CLIENT : "직원";
-}
 
 function getScheduledRecipientLabel(recipientType: TriggerRecipientType) {
   return MESSAGE_RECIPIENT_LABELS[recipientType];
@@ -566,408 +512,21 @@ const FormComponents: Record<
   info: InfoMessageForm,
 };
 
-function MessageScheduledSection() {
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [scheduledFilter, setScheduledFilter] = useState<ScheduledPreviewFilter>("all");
-  const [scheduledDetailTab, setScheduledDetailTab] = useState<ScheduledDetailTab>("info");
-  const [scheduledSearchValue, setScheduledSearchValue] = useState("");
-  const deferredScheduledSearchValue = useDeferredValue(scheduledSearchValue);
-  const { data: upcomingJobs = [], isLoading } = useUpcomingMessageTriggerJobs();
-  const smsUpcomingJobs = useMemo(
-    () => upcomingJobs.filter((job) => isUpcomingJobInChannel(job, "sms")),
-    [upcomingJobs],
-  );
-
-  const filteredJobs = useMemo(() => {
-    return smsUpcomingJobs
-      .filter((job) => {
-        const matchesRecipientType =
-          scheduledFilter === "all" ||
-          (scheduledFilter === "customer"
-            ? job.recipientType === "CLIENT"
-            : job.recipientType === "PRIMARY_EMPLOYEE" || job.recipientType === "SECONDARY_EMPLOYEE");
-
-        if (!matchesRecipientType) {
-          return false;
-        }
-
-        return matchesScheduledJobQuery(job, deferredScheduledSearchValue);
-      })
-      .sort((left, right) => new Date(left.scheduledFor).getTime() - new Date(right.scheduledFor).getTime());
-  }, [deferredScheduledSearchValue, scheduledFilter, smsUpcomingJobs]);
-
-  const selectedJob = useMemo(() => {
-    if (!selectedJobId) return null;
-    return filteredJobs.find((job) => job.id === selectedJobId) ?? null;
-  }, [filteredJobs, selectedJobId]);
-
-  const hasScheduledSearchQuery = deferredScheduledSearchValue.trim().length > 0;
-  const hasScheduledFilters = scheduledFilter !== "all" || hasScheduledSearchQuery;
-  const selectedJobPhone = selectedJob?.recipientPhone ?? selectedJob?.payload.recipientPhone ?? "-";
-  const selectedJobVariables = selectedJob ? Object.entries(selectedJob.payload.templateVariables) : [];
-  const selectedJobSystemTemplateKey = selectedJob ? SMS_TRIGGER_TO_SYSTEM_TEMPLATE[selectedJob.templateKey] ?? "" : "";
-  const { data: selectedJobSystemTemplate } = useSystemTemplate(selectedJobSystemTemplateKey);
-  const selectedJobMessageBody = buildScheduledJobMessageBody(selectedJob, selectedJobSystemTemplate?.content);
-  const handleScheduledDetailTabChange = useCallback((key: string) => {
-    if (key === "info" || key === "message") {
-      setScheduledDetailTab(key);
-    }
-  }, []);
-
-  return (
-    <div data-component="desktop_messages_sections_scheduled-layout" className="flex min-h-[560px] flex-1 flex-col">
-      <SplitLayout data-component="desktop_messages_sections_split-layout"
-        hasSelection={!!selectedJob}
-        onBack={() => {
-          setSelectedJobId(null);
-          setScheduledDetailTab("info");
-        }}
-      >
-        <ListPanel data-component="desktop_messages_sections_split-layout_list-panel"
-          title="발송 예정"
-          subtitle="발송이 예정된 메시지를 확인할 수 있어요."
-          tabs={SCHEDULED_PREVIEW_TABS}
-          activeTab={scheduledFilter}
-          onTabChange={(value) => {
-            setScheduledFilter(value as ScheduledPreviewFilter);
-            setSelectedJobId(null);
-            setScheduledDetailTab("info");
-          }}
-          searchValue={scheduledSearchValue}
-          onSearchChange={(value) => {
-            setScheduledSearchValue(value);
-            setSelectedJobId(null);
-            setScheduledDetailTab("info");
-          }}
-          searchPlaceholder="이름, 연락처, 템플릿 검색…"
-          headerActions={
-            <span
-              data-component="desktop_messages_sections_scheduled-list-badge"
-              className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
-            >
-              {(hasScheduledFilters ? filteredJobs.length : smsUpcomingJobs.length)}개
-            </span>
-          }
-          emptyState={!(isLoading || filteredJobs.length > 0) ? (
-            <ListEmptyState
-              message={
-                hasScheduledFilters ? "조건에 맞는 예약 발송 항목이 없습니다." : "발송 예정 항목이 없습니다."
-              }
-            />
-          ) : undefined}
-        >
-          <div data-component="desktop_messages_sections_split-layout_list-panel_scheduled-list" className="space-y-3 pb-2">
-            <AnimatedSlotList<UpcomingMessageTriggerJob>
-                items={filteredJobs}
-                isLoading={isLoading}
-                loadingCount={5}
-                className="space-y-2"
-                itemDataComponent="desktop_messages_sections_scheduled-layout_split-layout_list-panel_scheduled-list_item"
-                getSlotState={({ item, isLoading: slotLoading }) => ({
-                  isActive: !slotLoading && item?.id === selectedJobId,
-                  isInteractive: !slotLoading && Boolean(item),
-                })}
-                onSlotClick={(item) => {
-                  setSelectedJobId(item.id);
-                  setScheduledDetailTab("info");
-                }}
-                render={({ item }) => {
-                  if (!item) return null;
-                  const statusMeta = getScheduledJobStatusMeta(item.status);
-
-                  return (
-                    <AnimatedSlotListItemContent
-                      dataComponent="desktop_messages_sections_scheduled-list-item"
-                      icon={Clock3}
-                      iconContainerClassName="text-v3-primary"
-                      title={item.payload.recipientName || "-"}
-                      subtitle={`${getHistoryTemplateLabel(item.templateKey)} · ${formatScheduledPreviewDate(item.scheduledFor)}`}
-                      status={
-                        <div
-                          data-component="desktop_messages_sections_split-layout_list-panel_scheduled-list_scheduled-list-item-badges"
-                          className="flex shrink-0 flex-col items-end gap-1"
-                        >
-                          <span
-                            data-component="desktop_messages_sections_scheduled-list-item-status"
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.66rem] font-semibold",
-                              statusMeta.className,
-                            )}
-                          >
-                            {item.status === "processing" ? (
-                              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                            ) : null}
-                            {statusMeta.label}
-                          </span>
-                          <span
-                            data-component="desktop_messages_sections_scheduled-list-item-recipient"
-                            className="text-[0.64rem] font-medium text-v3-text-muted"
-                          >
-                            {getScheduledRecipientBadge(item.recipientType)}
-                          </span>
-                        </div>
-                      }
-                    />
-                  );
-                }}
-              />
-            </div>
-        </ListPanel>
-
-        <DetailPanel data-component="desktop_messages_sections_scheduled_split-layout_detail-panel"
-          avatar={selectedJob ? (
-            <div
-              data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-avatar"
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"
-            >
-              <Clock3 className="h-5 w-5" />
-            </div>
-          ) : undefined}
-          title={selectedJob ? `${selectedJob.payload.recipientName || "수신자"} 예약 발송` : undefined}
-          subtitle={
-            selectedJob
-              ? `${getHistoryTemplateLabel(selectedJob.templateKey)} · ${selectedJobPhone}`
-              : undefined
-          }
-          badges={
-            selectedJob ? (
-              <span
-                data-component="desktop_messages_sections_scheduled-detail-status"
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[0.7rem] font-semibold",
-                  getScheduledJobStatusMeta(selectedJob.status).className,
-                )}
-              >
-                {selectedJob.status === "processing" ? (
-                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                ) : null}
-                {getScheduledJobStatusMeta(selectedJob.status).label}
-              </span>
-            ) : null
-          }
-          trailing={
-            selectedJob ? (
-              <div
-                data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-scheduled-at"
-                className="inline-flex items-center gap-1 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
-              >
-                <CalendarClock className="h-3.5 w-3.5" />
-                {formatScheduledPreviewDate(selectedJob.scheduledFor)}
-              </div>
-            ) : null
-          }
-          tabs={
-            selectedJob ? (
-              <DetailTabs
-                tabs={SCHEDULED_DETAIL_TABS}
-                activeTab={scheduledDetailTab}
-                onTabChange={handleScheduledDetailTabChange}
-              />
-            ) : undefined
-          }
-          emptyState={
-            !isLoading && !selectedJob ? (
-              <DetailEmptyState
-                icon={Users}
-                message={
-                  filteredJobs.length === 0 && hasScheduledFilters
-                    ? "조건에 맞는 예약 발송 항목이 없습니다."
-                    : "발송 예정 메시지를 선택하면 상세 정보가 표시됩니다."
-                }
-                className="flex-none min-h-0"
-              />
-            ) : undefined
-          }
-        >
-          {isLoading ? (
-            <div data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-skeleton" className="space-y-4">
-              {[0, 1, 2].map((index) => (
-                <div
-                  key={index}
-                  data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-skeleton_scheduled-detail-skeleton-card"
-                  className="rounded-[18px] bg-v3-dim-white p-4"
-                >
-                  <Skeleton className="h-4 w-24 bg-white/80" />
-                  <div data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail-skeleton_scheduled-detail-skeleton-card_scheduled-detail-skeleton-lines" className="mt-4 space-y-3">
-                    <Skeleton className="h-4 w-full bg-white/80" />
-                    <Skeleton className="h-4 w-5/6 bg-white/80" />
-                    <Skeleton className="h-4 w-2/3 bg-white/80" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : selectedJob ? (
-            <DetailTabPanels
-              activeTab={scheduledDetailTab}
-              dataComponent="desktop_messages_sections_scheduled-detail-tab-panels"
-              panelDataComponent="desktop_messages_sections_scheduled-detail-tab-panel"
-              panels={[
-                {
-                  key: "info",
-                  children: (
-                    <div data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail" className="space-y-4">
-                      <InfoCard title="예약 개요" data-component="desktop_messages_sections_scheduled-detail-overview">
-                        <InfoRow
-                          data-component="desktop_messages_sections_scheduled-detail-overview-rule"
-                          label="발송 규칙"
-                          value={selectedJob.ruleName}
-                        />
-                        <InfoRow
-                          data-component="desktop_messages_sections_scheduled-detail-overview-recipient"
-                          label="수신자"
-                          value={selectedJob.payload.recipientName || "-"}
-                        />
-                        <InfoRow
-                          data-component="desktop_messages_sections_scheduled-detail-overview-scheduled-time"
-                          label="발신 예정 시간"
-                          value={formatScheduledDetailDate(selectedJob.scheduledFor)}
-                        />
-                        <InfoRow
-                          data-component="desktop_messages_sections_scheduled-detail-overview-template"
-                          label="템플릿"
-                          value={getHistoryTemplateLabel(selectedJob.templateKey)}
-                        />
-                      </InfoCard>
-
-                      <div
-                        data-component="desktop_messages_sections_scheduled_split-layout_detail-panel_scheduled-detail_scheduled-detail-grid"
-                        className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-                      >
-                        <InfoCard title="메시지 정보" data-component="desktop_messages_sections_scheduled-detail-meta">
-                          <InfoRow
-                            data-component="desktop_messages_sections_scheduled-detail-meta-recipient"
-                            label="수신자 이름"
-                            value={selectedJob.payload.recipientName || "-"}
-                          />
-                          <InfoRow
-                            data-component="desktop_messages_sections_scheduled-detail-meta-phone"
-                            label="전화번호"
-                            value={selectedJobPhone}
-                          />
-                          <InfoRow
-                            data-component="desktop_messages_sections_scheduled-detail-meta-scheduled-time"
-                            label="발신 예정 시간"
-                            value={formatScheduledDetailDate(selectedJob.scheduledFor)}
-                          />
-                          <InfoRow
-                            data-component="desktop_messages_sections_scheduled-detail-meta-template"
-                            label="메시지 템플릿 이름"
-                            value={getHistoryTemplateLabel(selectedJob.templateKey)}
-                          />
-                          <InfoRow
-                            data-component="desktop_messages_sections_scheduled-detail-meta-rule"
-                            label="발송 규칙명"
-                            value={selectedJob.ruleName}
-                          />
-                          <InfoRow
-                            data-component="desktop_messages_sections_scheduled-detail-meta-recipient-type"
-                            label="수신 유형"
-                            value={getScheduledRecipientLabel(selectedJob.recipientType)}
-                          />
-                          <InfoRow
-                            data-component="desktop_messages_sections_scheduled-detail-meta-event"
-                            label="이벤트 기준"
-                            value={getScheduledEventLabel(selectedJob.eventType)}
-                          />
-                        </InfoCard>
-
-                        <InfoCard title="변수" data-component="desktop_messages_sections_scheduled-detail-variables">
-                          {selectedJobVariables.length > 0 ? (
-                            selectedJobVariables.map(([key, value], index) => (
-                              <InfoRow
-                                key={`${selectedJob.id}-${key}`}
-                                data-component={`desktop_messages_sections_scheduled-detail-variable-${index + 1}`}
-                                label={SCHEDULED_VARIABLE_LABELS[key] ?? key}
-                                value={value || "-"}
-                              />
-                            ))
-                          ) : (
-                            <InfoRow
-                              data-component="desktop_messages_sections_scheduled-detail-variable-empty"
-                              label="변수"
-                              value={<span className="font-normal text-v3-text-muted">변수 정보가 없습니다.</span>}
-                            />
-                          )}
-                        </InfoCard>
-                      </div>
-                    </div>
-                  ),
-                },
-                {
-                  key: "message",
-                  children: (
-                    <InfoCard
-                      title="메시지 내용"
-                      data-component="desktop_messages_sections_scheduled-detail-message"
-                      className="flex min-h-[420px] flex-col"
-                      contentClassName="flex flex-1"
-                    >
-                      <div
-                        data-component="desktop_messages_sections_scheduled-detail-message_generated-msg-detail-content-body"
-                        className={cn(
-                          "flex min-h-[320px] flex-1",
-                          APP_CONTENT_BODY_CARD_CLASS_NAME,
-                        )}
-                      >
-                        <MsgField label="메시지 내용" value={selectedJobMessageBody} />
-                      </div>
-                    </InfoCard>
-                  ),
-                },
-              ]}
-            />
-          ) : null}
-        </DetailPanel>
-      </SplitLayout>
-    </div>
-  );
-}
-
+// The only reachable PlaceholderSectionId today is "settings" (see the render
+// dispatch in MessagesPage) — this generic list/detail preview stands in until a
+// real settings UI section is built. It no longer special-cases "scheduled":
+// that content merged into MessageHistorySection below.
 function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectionId }) {
   const section = MESSAGE_SECTIONS.find((item) => item.id === sectionId);
   const copy = PLACEHOLDER_COPY[sectionId];
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
-  const [scheduledFilter, setScheduledFilter] = useState<ScheduledPreviewFilter>("all");
-  const [scheduledSearchValue, setScheduledSearchValue] = useState("");
-  const isScheduledSection = sectionId === "scheduled";
-  const deferredScheduledSearchValue = useDeferredValue(scheduledSearchValue);
-  const filteredPreviewItems = useMemo(() => {
-    if (!isScheduledSection) return copy.items;
-
-    return copy.items.filter((item) => {
-      const matchesRecipientType =
-        scheduledFilter === "all" ||
-        (scheduledFilter === "customer" ? item.recipientType === "고객" : item.recipientType === "직원");
-
-      if (!matchesRecipientType) {
-        return false;
-      }
-
-      return matchesSearchQuery(deferredScheduledSearchValue, [
-        item.recipientName ?? item.label,
-        item.recipientType ?? item.badge,
-        item.recipientPhone ?? "",
-        item.templateTitle ?? "",
-        item.scheduledAt ?? "",
-        item.summary,
-        item.detailTitle,
-        item.detailDescription,
-        item.messageBody ?? "",
-      ]);
-    });
-  }, [copy.items, deferredScheduledSearchValue, isScheduledSection, scheduledFilter]);
-  const selectedPreview = filteredPreviewItems.find((item) => item.id === selectedPreviewId) ?? null;
-  const hasScheduledSearchQuery = deferredScheduledSearchValue.trim().length > 0;
-  const hasScheduledFilters = scheduledFilter !== "all" || hasScheduledSearchQuery;
+  const selectedPreview = copy.items.find((item) => item.id === selectedPreviewId) ?? null;
 
   if (!section) return null;
 
   const Icon = section.icon;
-  const detailSubtitle = isScheduledSection
-    ? selectedPreview
-      ? `${selectedPreview.templateTitle ?? "메시지"} · ${selectedPreview.recipientPhone ?? "연락처 미정"}`
-      : "왼쪽 목록에서 발송 예정 메시지를 선택해 주세요."
-    : selectedPreview?.detailDescription ?? "왼쪽 목록에서 미리보기 항목을 선택하면 이 영역에 상세 구성 가이드가 표시됩니다.";
+  const detailSubtitle =
+    selectedPreview?.detailDescription ?? "왼쪽 목록에서 미리보기 항목을 선택하면 이 영역에 상세 구성 가이드가 표시됩니다.";
 
   return (
     <div data-component="desktop_messages_sections_section-placeholder-layout" className="flex min-h-[560px] flex-1 flex-col">
@@ -975,45 +534,21 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
         <ListPanel data-component="desktop_messages_sections_split-layout_list-panel-2"
           title={section.label}
           subtitle={copy.description}
-          tabs={isScheduledSection ? SCHEDULED_PREVIEW_TABS : undefined}
-          activeTab={isScheduledSection ? scheduledFilter : undefined}
-          onTabChange={
-            isScheduledSection
-              ? (value) => {
-                  setScheduledFilter(value as ScheduledPreviewFilter);
-                  setSelectedPreviewId(null);
-                }
-              : undefined
-          }
-          searchValue={isScheduledSection ? scheduledSearchValue : undefined}
-          onSearchChange={
-            isScheduledSection
-              ? (value) => {
-                  setScheduledSearchValue(value);
-                  setSelectedPreviewId(null);
-                }
-              : undefined
-          }
-          searchPlaceholder={isScheduledSection ? "이름, 연락처, 템플릿 검색…" : undefined}
           headerActions={
             <span
               data-component="desktop_messages_sections_section-placeholder-list-badge"
               className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
             >
-              {(isScheduledSection ? filteredPreviewItems.length : copy.items.length)}개
+              {copy.items.length}개
             </span>
           }
-          emptyState={!(filteredPreviewItems.length > 0) ? (
-            <ListEmptyState
-              message={
-                hasScheduledFilters ? "조건에 맞는 예약 발송 항목이 없습니다." : "발송 예정 항목이 없습니다."
-              }
-            />
+          emptyState={!(copy.items.length > 0) ? (
+            <ListEmptyState message="표시할 항목이 없습니다." />
           ) : undefined}
         >
           <div data-component="desktop_messages_sections_split-layout_list-panel-2_section-placeholder-list" className="space-y-3 pb-2">
             <AnimatedSlotList<PlaceholderPreviewItem>
-                items={filteredPreviewItems}
+                items={copy.items}
                 isLoading={false}
                 className="space-y-2"
                 itemDataComponent="desktop_messages_sections_section-placeholder-layout_split-layout_list-panel_list_item"
@@ -1027,25 +562,19 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
                 render={({ item }) => {
                   if (!item) return null;
 
-                  const title = item.recipientName ?? item.label;
-                  const badge = item.recipientType ?? item.badge;
-                  const summary = item.templateTitle && item.scheduledAt
-                    ? `${item.templateTitle} · ${item.scheduledAt}`
-                    : item.summary;
-
                   return (
                     <AnimatedSlotListItemContent
                       dataComponent="desktop_messages_sections_section-placeholder-list-item"
                       icon={Icon}
                       iconContainerClassName="text-v3-primary"
-                      title={title}
-                      subtitle={summary}
+                      title={item.label}
+                      subtitle={item.summary}
                       status={
                         <span
                           data-component="desktop_messages_sections_section-placeholder-list-item-badge"
                           className="inline-flex shrink-0 items-center rounded-full bg-white/85 px-2 py-0.5 text-[0.66rem] font-semibold text-v3-primary"
                         >
-                          {badge}
+                          {item.badge}
                         </span>
                       }
                     />
@@ -1056,169 +585,56 @@ function MessageSectionPlaceholder({ sectionId }: { sectionId: PlaceholderSectio
         </ListPanel>
 
         <DetailPanel data-component="desktop_messages_sections_section_split-layout_detail-panel"
-          avatar={!isScheduledSection || selectedPreview ? (
+          avatar={
             <div
               data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail-avatar"
               className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"
             >
               <Icon className="h-5 w-5" />
             </div>
-          ) : undefined}
-          title={selectedPreview?.detailTitle ?? (isScheduledSection ? undefined : `${section.label} 상세`)}
-          subtitle={isScheduledSection && !selectedPreview ? undefined : detailSubtitle}
-          badges={
-            isScheduledSection && selectedPreview ? (
-              <span
-                data-component="desktop_messages_sections_section-placeholder-detail-status"
-                className="rounded-full bg-emerald-500/10 px-3 py-1 text-[0.7rem] font-semibold text-emerald-600"
-              >
-                발송 예정
-              </span>
-            ) : null
           }
-          trailing={
-            isScheduledSection && selectedPreview?.scheduledAt ? (
-              <div
-                data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail-scheduled-at"
-                className="inline-flex items-center gap-1 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
-              >
-                <CalendarClock className="h-3.5 w-3.5" />
-                {selectedPreview.scheduledAt}
-              </div>
-            ) : null
-          }
-          emptyState={
-            isScheduledSection && !selectedPreview ? (
-              <DetailEmptyState
-                icon={Users}
-                message={
-                  filteredPreviewItems.length === 0 && hasScheduledFilters
-                    ? "조건에 맞는 예약 발송 항목이 없습니다."
-                    : "발송 예정 메시지를 선택하면 상세 정보가 표시됩니다."
-                }
-                className="flex-none min-h-0"
-              />
-            ) : undefined
-          }
+          title={selectedPreview?.detailTitle ?? `${section.label} 상세`}
+          subtitle={detailSubtitle}
         >
           {selectedPreview ? (
-            isScheduledSection ? (
-              <div data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail" className="space-y-4">
-                <div
-                  data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail_section-placeholder-scheduled-detail-grid"
-                  className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]"
-                >
-                  <InfoCard
-                    title="메시지 본문"
-                    data-component="desktop_messages_sections_section-placeholder-scheduled-detail-content"
-                    className="flex flex-col xl:row-span-2"
-                    contentClassName="flex flex-1"
-                  >
+            <div data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail" className="space-y-4">
+              <AppContentCard
+                data-component="desktop_messages_sections_section-placeholder-detail-overview"
+                variant="muted"
+                title="연결 예정 콘텐츠"
+                titleVariant="eyebrow"
+              >
+                <p className="text-sm font-semibold text-v3-dark">{selectedPreview.detailTitle}</p>
+                <p className="text-[0.82rem] leading-6 text-v3-text-muted">
+                  {selectedPreview.detailDescription}
+                </p>
+              </AppContentCard>
+
+              <AppContentCard
+                data-component="desktop_messages_sections_section-placeholder-detail-checklist"
+                variant="muted"
+                title="구성 제안"
+                titleVariant="eyebrow"
+                contentClassName="space-y-3"
+              >
+                <div data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items" className="space-y-3">
+                  {selectedPreview.checklist.map((item) => (
                     <div
-                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-content_section-placeholder-scheduled-detail-content-body"
-                      className={cn(
-                        "flex min-h-[240px] flex-1",
-                        APP_CONTENT_BODY_CARD_OUTLINED_CLASS_NAME,
-                      )}
+                      key={item}
+                      data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items_section-placeholder-detail-checklist-item"
+                      className="flex items-center gap-3 rounded-[16px] bg-white px-4 py-3"
                     >
-                      <pre
-                        data-component="desktop_messages_sections_section-placeholder-scheduled-detail-content-text"
-                        className="whitespace-pre-wrap font-sans text-[0.78rem] leading-relaxed text-v3-dark"
-                      >
-                        {selectedPreview.messageBody ?? selectedPreview.detailDescription}
-                      </pre>
-                    </div>
-                  </InfoCard>
-
-                  <InfoCard
-                    title="메시지 정보"
-                    data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta"
-                  >
-                    <InfoRow
-                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-recipient"
-                      label="수신자 이름"
-                      value={selectedPreview.recipientName ?? "-"}
-                    />
-                    <InfoRow
-                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-phone"
-                      label="전화번호"
-                      value={selectedPreview.recipientPhone ?? "-"}
-                    />
-                    <InfoRow
-                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-scheduled-time"
-                      label="발신 예정 시간"
-                      value={selectedPreview.scheduledAt ?? "-"}
-                    />
-                    <InfoRow
-                      data-component="desktop_messages_sections_section-placeholder-scheduled-detail-meta-template"
-                      label="메시지 템플릿 이름"
-                      value={selectedPreview.templateTitle ?? "-"}
-                    />
-                  </InfoCard>
-
-                  <InfoCard
-                    title="변수"
-                    data-component="desktop_messages_sections_section-placeholder-scheduled-detail-variables"
-                  >
-                    {selectedPreview.variableAssignments?.length ? (
-                      selectedPreview.variableAssignments.map((variable) => (
-                        <InfoRow
-                          key={`${selectedPreview.id}-${variable.token}`}
-                          data-component={`desktop_messages_sections_section-placeholder-scheduled-detail-variable-${variable.token}`}
-                          label={variable.label}
-                          value={variable.value}
-                        />
-                      ))
-                    ) : (
-                      <InfoRow
-                        data-component="desktop_messages_sections_section-placeholder-scheduled-detail-variable-empty"
-                        label="변수"
-                        value={<span className="font-normal text-v3-text-muted">변수 정보가 없습니다.</span>}
-                      />
-                    )}
-                  </InfoCard>
-                </div>
-              </div>
-            ) : (
-              <div data-component="desktop_messages_sections_section_split-layout_detail-panel_section-placeholder-detail" className="space-y-4">
-                <AppContentCard
-                  data-component="desktop_messages_sections_section-placeholder-detail-overview"
-                  variant="muted"
-                  title="연결 예정 콘텐츠"
-                  titleVariant="eyebrow"
-                >
-                  <p className="text-sm font-semibold text-v3-dark">{selectedPreview.detailTitle}</p>
-                  <p className="text-[0.82rem] leading-6 text-v3-text-muted">
-                    {selectedPreview.detailDescription}
-                  </p>
-                </AppContentCard>
-
-                <AppContentCard
-                  data-component="desktop_messages_sections_section-placeholder-detail-checklist"
-                  variant="muted"
-                  title="구성 제안"
-                  titleVariant="eyebrow"
-                  contentClassName="space-y-3"
-                >
-                  <div data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items" className="space-y-3">
-                    {selectedPreview.checklist.map((item) => (
                       <div
-                        key={item}
-                        data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items_section-placeholder-detail-checklist-item"
-                        className="flex items-center gap-3 rounded-[16px] bg-white px-4 py-3"
-                      >
-                        <div
-                          data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items_section-placeholder-detail-checklist-item_section-placeholder-detail-checklist-marker"
-                          className="h-2.5 w-2.5 rounded-full bg-v3-primary"
-                        />
-                        <p className="text-[0.78rem] text-v3-dark">{item}</p>
-                      </div>
-                    ))}
-                  </div>
-                </AppContentCard>
-              </div>
-            )
-          ) : isScheduledSection ? null : (
+                        data-component="desktop_messages_sections_section-placeholder-detail-checklist_section-placeholder-detail-checklist-items_section-placeholder-detail-checklist-item_section-placeholder-detail-checklist-marker"
+                        className="h-2.5 w-2.5 rounded-full bg-v3-primary"
+                      />
+                      <p className="text-[0.78rem] text-v3-dark">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              </AppContentCard>
+            </div>
+          ) : (
             <DetailEmptyState
               message={detailSubtitle}
             />
@@ -1259,39 +675,72 @@ function matchesHistoryRelativeDate(sentAt: string, relativeDateFilter: MessageH
   return targetDate >= threshold;
 }
 
+// Copy for the merged list's overall empty state (both zones empty under the
+// active filter). Reuses the existing per-status history copy where the shared
+// MessageRecordStatusFilter value overlaps MessageHistoryFilter (sent/failed/
+// canceled); "upcoming" and "all" need their own wording since neither existed
+// as a concept on the old history-only empty state.
+function getMergedRecordEmptyStateMessage(filter: MessageRecordStatusFilter, hasSearchQuery: boolean): string {
+  if (filter === "upcoming") {
+    return hasSearchQuery ? "조건에 맞는 예정된 발송이 없습니다." : "예정된 발송이 없습니다.";
+  }
+  if (filter === "sent" || filter === "failed" || filter === "canceled") {
+    return getMessageHistoryEmptyStateCopy(filter, hasSearchQuery).title;
+  }
+  return hasSearchQuery ? "조건에 맞는 메시지가 없습니다." : "표시할 메시지가 없습니다.";
+}
+
 function MessageHistorySection() {
   const [searchValue, setSearchValue] = useState("");
-  const [statusFilter, setStatusFilter] = useState<MessageHistoryFilter>("all");
+  const [recordStatusFilter, setRecordStatusFilter] = useState<MessageRecordStatusFilter>("all");
   const [relativeDateFilter, setRelativeDateFilter] = useState<MessageHistoryRelativeDateFilter>("all");
   const [dateYear, setDateYear] = useState("");
   const [dateMonth, setDateMonth] = useState("");
+  const [scheduledDetailTab, setScheduledDetailTab] = useState<ScheduledDetailTab>("info");
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const deferredSearchValue = useDeferredValue(searchValue);
   const { data: historyData = [], isLoading, isError } = useMessageHistory();
+  const { data: upcomingJobs = [], isLoading: isLoadingUpcoming } = useUpcomingMessageTriggerJobs();
   const { mutateAsync: retryHistory, isPending: isRetrying } = useRetryMessageHistory();
+  const cancelMutation = useCancelUpcomingMessageTriggerJob();
   const { data: clients = [] } = useAllClients();
   const { toast } = useToast();
   const smsHistoryData = useMemo(
     () => historyData.filter((record) => isHistoryRecordInChannel(record, "sms")),
     [historyData],
   );
+  const smsUpcomingJobs = useMemo(
+    () => upcomingJobs.filter((job) => isUpcomingJobInChannel(job, "sms")),
+    [upcomingJobs],
+  );
   const historyRecords = useMemo(
     () =>
-      smsHistoryData.map((record) => {
-        const matchedClient = findMessageHistoryClient(record, clients);
-        const matchedClientName = matchedClient?.name.trim() ?? "";
-        const normalizedRecord = normalizeHistoryRecord(record, {
-          recipientNameFallback: matchedClientName,
-          recipientListLabelFallback: matchedClientName,
-        });
+      // Sorted explicitly here (not left to the backend's createdAt-desc order)
+      // so a retried record's most recent attempt sorts to the top — same key
+      // and direction as mobile's MessagesDataPages historyRecords sort
+      // (lastAttemptAt || createdAt, descending), so the two apps agree.
+      [...smsHistoryData]
+        .sort(
+          (left, right) =>
+            new Date(right.lastAttemptAt || right.createdAt).getTime()
+            - new Date(left.lastAttemptAt || left.createdAt).getTime(),
+        )
+        .map((record) => {
+          const matchedClient = findMessageHistoryClient(record, clients);
+          const matchedClientName = matchedClient?.name.trim() ?? "";
+          const normalizedRecord = normalizeHistoryRecord(record, {
+            recipientNameFallback: matchedClientName,
+            recipientListLabelFallback: matchedClientName,
+          });
 
-        if (!matchedClientName) return normalizedRecord;
+          if (!matchedClientName) return normalizedRecord;
 
-        return {
-          ...normalizedRecord,
-          recipientName: matchedClientName,
-          recipientListLabel: matchedClientName,
-        };
-      }),
+          return {
+            ...normalizedRecord,
+            recipientName: matchedClientName,
+            recipientListLabel: matchedClientName,
+          };
+        }),
     [clients, smsHistoryData]
   );
   const hasDatePartFilter = Boolean(dateYear || dateMonth);
@@ -1319,33 +768,73 @@ function MessageHistorySection() {
     setDateMonth(normalizeDatePart(value, "month"));
   }, []);
 
-  const filteredRecords = useMemo(
-    () =>
-      historyRecords.filter((record) => {
-        const matchesStatus = statusFilter === "all" || record.status === statusFilter;
+  // "all" and "upcoming" both show every zone-1 row; the remaining three values
+  // show only zone 1 (upcoming shows nothing from zone 2 at all).
+  const showUpcomingZone = recordStatusFilter === "all" || recordStatusFilter === "upcoming";
+  const showPastZone = recordStatusFilter !== "upcoming";
+  const pastStatusFilter: MessageHistoryFilter =
+    recordStatusFilter === "sent" || recordStatusFilter === "failed" || recordStatusFilter === "canceled"
+      ? recordStatusFilter
+      : "all";
+
+  // Soonest-first, matching the old scheduled section. No date-range filter here
+  // on purpose — upcoming sends are always in the future, so the "지난 발송" date
+  // filter below only ever applies to zone 2.
+  const filteredUpcomingJobs = useMemo(() => {
+    if (!showUpcomingZone) return [];
+    return smsUpcomingJobs
+      .filter((job) => matchesScheduledJobQuery(job, deferredSearchValue))
+      .sort((left, right) => new Date(left.scheduledFor).getTime() - new Date(right.scheduledFor).getTime());
+  }, [deferredSearchValue, showUpcomingZone, smsUpcomingJobs]);
+
+  const filteredHistoryRecords = useMemo(
+    () => {
+      if (!showPastZone) return [];
+      return historyRecords.filter((record) => {
+        const matchesStatus = pastStatusFilter === "all" || record.status === pastStatusFilter;
         const matchesRelativeDate = matchesHistoryRelativeDate(record.sentAt, relativeDateFilter);
         const matchesDate = matchesHistoryDateParts(record.sentAt, dateYear, dateMonth);
         return matchesStatus && matchesRelativeDate && matchesDate && matchesHistoryQuery(record, deferredSearchValue);
-      }),
-    [dateMonth, dateYear, deferredSearchValue, historyRecords, relativeDateFilter, statusFilter]
+      });
+    },
+    [dateMonth, dateYear, deferredSearchValue, historyRecords, pastStatusFilter, relativeDateFilter, showPastZone]
   );
-  const historyRecordIds = useMemo(() => filteredRecords.map((record) => record.id), [filteredRecords]);
+
+  const combinedRecordIds = useMemo(
+    () => [
+      ...filteredUpcomingJobs.map((job) => job.id),
+      ...filteredHistoryRecords.map((record) => record.id),
+    ],
+    [filteredHistoryRecords, filteredUpcomingJobs],
+  );
   const {
     selectedId: selectedRecordId,
     setSelectedId: setSelectedRecordId,
     setSplitLayoutMode,
-  } = useSplitLayoutSelection(historyRecordIds);
+  } = useSplitLayoutSelection(combinedRecordIds);
 
-  const emptyStateCopy = getMessageHistoryEmptyStateCopy(
-    statusFilter,
-    deferredSearchValue.trim().length > 0
+  const totalVisibleCount = filteredUpcomingJobs.length + filteredHistoryRecords.length;
+  const isOverallEmpty = !isError && !isLoading && !isLoadingUpcoming && totalVisibleCount === 0;
+
+  const selectedJob = useMemo(
+    () => filteredUpcomingJobs.find((job) => job.id === selectedRecordId) ?? null,
+    [filteredUpcomingJobs, selectedRecordId],
   );
-  const activeFilterMeta = MESSAGE_HISTORY_FILTER_META[statusFilter];
+  const selectedRecord = useMemo(
+    () => filteredHistoryRecords.find((record) => record.id === selectedRecordId) ?? null,
+    [filteredHistoryRecords, selectedRecordId],
+  );
 
-  const selectedRecord = useMemo(() => {
-    if (selectedRecordId === null) return null;
-    return filteredRecords.find((record) => record.id === selectedRecordId) ?? null;
-  }, [filteredRecords, selectedRecordId]);
+  const selectedJobPhone = selectedJob?.recipientPhone ?? selectedJob?.payload.recipientPhone ?? "-";
+  const selectedJobVariables = selectedJob ? Object.entries(selectedJob.payload.templateVariables) : [];
+  const selectedJobSystemTemplateKey = selectedJob ? SMS_TRIGGER_TO_SYSTEM_TEMPLATE[selectedJob.templateKey] ?? "" : "";
+  const { data: selectedJobSystemTemplate } = useSystemTemplate(selectedJobSystemTemplateKey);
+  const selectedJobMessageBody = buildScheduledJobMessageBody(selectedJob, selectedJobSystemTemplate?.content);
+  const handleScheduledDetailTabChange = useCallback((key: string) => {
+    if (key === "info" || key === "message") {
+      setScheduledDetailTab(key);
+    }
+  }, []);
 
   const canRetry = !!selectedRecord
     && typeof selectedRecord.id === "number"
@@ -1370,19 +859,46 @@ function MessageHistorySection() {
     }
   }, [retryHistory, selectedRecord, toast]);
 
+  // Only a pending trigger job can be canceled (POST /message-trigger-jobs/:id/cancel
+  // refuses processing/sent/canceled/missing jobs), and manual scheduled entries
+  // are never cancellable at all.
+  const canCancelSelectedJob = !!selectedJob
+    && selectedJob.status === "pending"
+    && !isManualScheduledJob(selectedJob);
+
+  // Awaited (not mutate's per-call callbacks): invalidating the upcoming/history
+  // queries can unmount this detail panel before a per-call onError would fire.
+  const handleCancelJob = useCallback(async () => {
+    if (!selectedJob) return;
+
+    try {
+      await cancelMutation.mutateAsync(selectedJob.id);
+      toast({ variant: "success", description: MESSAGE_JOB_CANCEL_COPY.success });
+    } catch {
+      // A 409 (already sent/processing/canceled) means the confirm button in
+      // this dialog would just 409 again — the failure toast is the feedback,
+      // the modal has nothing left to offer, so close it here too instead of
+      // trapping the user behind a confirm button that can only fail.
+      toast({ variant: "destructive", description: MESSAGE_JOB_CANCEL_COPY.failure });
+    } finally {
+      setCancelDialogOpen(false);
+    }
+  }, [cancelMutation, selectedJob, toast]);
+
   return (
+    <>
     <SplitLayout data-component="desktop_messages_sections_split-layout-3"
-      hasSelection={!!selectedRecord}
+      hasSelection={!!selectedJob || !!selectedRecord}
       onBack={() => setSelectedRecordId(null)}
       onModeChange={setSplitLayoutMode}
     >
       <ListPanel data-component="desktop_messages_sections_split-layout_list-panel-3"
         title="발송 기록"
-        subtitle="발송된 메시지 기록을 볼 수 있어요."
-        tabs={MESSAGE_HISTORY_TABS}
-        activeTab={statusFilter}
+        subtitle="예정된 발송과 지난 발송 기록을 함께 확인할 수 있어요."
+        tabs={MESSAGE_RECORD_STATUS_FILTER_TABS}
+        activeTab={recordStatusFilter}
         onTabChange={(value) => {
-          setStatusFilter(value as MessageHistoryFilter);
+          setRecordStatusFilter(value as MessageRecordStatusFilter);
           setSelectedRecordId(null);
         }}
         searchValue={searchValue}
@@ -1391,20 +907,16 @@ function MessageHistorySection() {
         headerActions={
           <span
             data-component="desktop_messages_sections_history-list-count"
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.72rem] font-semibold",
-              activeFilterMeta.badgeTone
-            )}
+            className="inline-flex items-center gap-1.5 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
           >
-            <activeFilterMeta.icon className="h-3.5 w-3.5" />
-            {filteredRecords.length}건
+            {totalVisibleCount}건
           </span>
         }
-        emptyState={!isError && !isLoading && filteredRecords.length === 0 ? (
-          <ListEmptyState message={emptyStateCopy.title} />
+        emptyState={isOverallEmpty ? (
+          <ListEmptyState message={getMergedRecordEmptyStateMessage(recordStatusFilter, deferredSearchValue.trim().length > 0)} />
         ) : undefined}
         subHeader={
-          !isError ? (
+          showPastZone && !isError ? (
             <div data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-filters" className="flex items-center justify-between gap-2">
               <div data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-filters_history-list-filter-relative" className="w-[110px] shrink-0">
                 <Select value={relativeDateFilter} onValueChange={(value) => setRelativeDateFilter(value as MessageHistoryRelativeDateFilter)}>
@@ -1488,84 +1000,357 @@ function MessageHistorySection() {
           </div>
         ) : (
           <>
-            <AnimatedSlotList<MessageHistoryRecord>
-              items={filteredRecords}
-              isLoading={isLoading}
-              loadingCount={4}
-              className="space-y-2"
-              getSlotState={({ item, isLoading: slotLoading }) => {
-                const isActive = !slotLoading && item && item.id === selectedRecord?.id;
-                return {
-                  isActive: Boolean(isActive),
-                  isInteractive: !slotLoading && Boolean(item),
-                };
-              }}
-              onSlotClick={(record) => setSelectedRecordId(record.id)}
-              render={({ item: record, isLoading: slotLoading }) => {
-                if (slotLoading) {
-                  return (
-                    <>
-                      <div
-                        data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-skeleton-icon"
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-v3-dim-white"
-                      >
-                        <Skeleton className="h-4 w-4 rounded-md bg-white/80" />
-                      </div>
-                      <div data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-skeleton-copy" className="min-w-0 flex-1 space-y-1.5">
-                        <Skeleton className="h-4 w-36 bg-v3-dim-white" />
-                        <Skeleton className="h-3 w-44 bg-v3-dim-white" />
-                      </div>
-                    </>
-                  );
-                }
+            {showUpcomingZone && (isLoadingUpcoming || filteredUpcomingJobs.length > 0) ? (
+              <div data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming">
+                <div
+                  data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_label"
+                  className="flex items-center gap-2 px-1 pb-2 pt-1 text-[0.72rem] font-semibold text-v3-text-muted"
+                >
+                  <span>{MESSAGE_RECORD_ZONE_LABELS.upcoming}</span>
+                  <span
+                    data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_count"
+                    className="inline-flex items-center rounded-full bg-v3-primary-light px-2 py-0.5 text-[0.66rem] font-semibold text-v3-primary"
+                  >
+                    {filteredUpcomingJobs.length}
+                  </span>
+                </div>
+                <AnimatedSlotList<UpcomingMessageTriggerJob>
+                  items={filteredUpcomingJobs}
+                  isLoading={isLoadingUpcoming}
+                  loadingCount={3}
+                  className="space-y-2 pb-3"
+                  itemDataComponent="desktop_messages_sections_split-layout_list-panel-3_upcoming-list_item"
+                  getSlotState={({ item, isLoading: slotLoading }) => ({
+                    isActive: !slotLoading && item?.id === selectedRecordId,
+                    isInteractive: !slotLoading && Boolean(item),
+                  })}
+                  onSlotClick={(item) => {
+                    setSelectedRecordId(item.id);
+                    setScheduledDetailTab("info");
+                  }}
+                  render={({ item }) => {
+                    if (!item) return null;
+                    const statusMeta = getScheduledJobStatusMeta(item.status);
 
-                if (!record) return null;
-                const statusMeta = getMessageHistoryListStatusMeta(record.status);
-                const ItemIcon = record.icon;
+                    return (
+                      <AnimatedSlotListItemContent
+                        dataComponent="desktop_messages_sections_upcoming-list-item"
+                        icon={Clock3}
+                        iconContainerClassName="text-v3-primary"
+                        title={item.payload.recipientName || "-"}
+                        subtitle={`${getHistoryTemplateLabel(item.templateKey)} · ${formatScheduledPreviewDate(item.scheduledFor)}`}
+                        status={
+                          <div
+                            data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_upcoming-list-item-badges"
+                            className="flex shrink-0 flex-col items-end gap-1"
+                          >
+                            <StatusBadge
+                              data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_upcoming-list-item-badges_status"
+                              variant={statusMeta.variant}
+                              size="sm"
+                            >
+                              {item.status === "processing" ? (
+                                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                              ) : null}
+                              {statusMeta.label}
+                            </StatusBadge>
+                            <span
+                              data-component="desktop_messages_sections_split-layout_list-panel-3_zone-upcoming_upcoming-list-item-badges_recipient"
+                              className="text-[0.64rem] font-medium text-v3-text-muted"
+                            >
+                              {getScheduledRecipientBadge(item.recipientType)}
+                            </span>
+                          </div>
+                        }
+                      />
+                    );
+                  }}
+                />
+              </div>
+            ) : null}
 
-                return (
-                  <AnimatedSlotListItemContent
-                    dataComponent="desktop_messages_sections_history-list-item"
-                    icon={ItemIcon}
-                    iconContainerClassName={getMessageHistoryAvatarClassName(record.status)}
-                    title={record.title}
-                    subtitle={record.recipientListLabel}
-                    status={
-                      <div
-                        data-component="desktop_messages_sections_split-layout_list-panel-3_history-list-item-meta"
-                        className="flex shrink-0 flex-col items-end justify-end gap-1 text-right"
-                      >
-                        <StatusBadge
-                          data-component="desktop_messages_sections_history-list-item-status"
-                          variant={statusMeta.variant}
-                          size="sm"
-                        >
-                          {statusMeta.label}
-                        </StatusBadge>
-                        <span
-                          data-component="desktop_messages_sections_history-list-item-date"
-                          className="whitespace-nowrap text-[0.68rem] text-v3-text-muted"
-                        >
-                          {formatHistoryDate(record.sentAt)}
-                        </span>
-                      </div>
-                    }
-                  />
-                );
-              }}
-            />
+            {showPastZone && (isLoading || filteredHistoryRecords.length > 0) ? (
+              <div data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past">
+                <div
+                  data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_label"
+                  className="flex items-center gap-2 px-1 pb-2 pt-1 text-[0.72rem] font-semibold text-v3-text-muted"
+                >
+                  <span>{MESSAGE_RECORD_ZONE_LABELS.past}</span>
+                  <span
+                    data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_count"
+                    className="inline-flex items-center rounded-full bg-v3-dim-white px-2 py-0.5 text-[0.66rem] font-semibold text-v3-text-muted"
+                  >
+                    {filteredHistoryRecords.length}
+                  </span>
+                </div>
+                <AnimatedSlotList<MessageHistoryRecord>
+                  items={filteredHistoryRecords}
+                  isLoading={isLoading}
+                  loadingCount={4}
+                  className="space-y-2"
+                  itemDataComponent="desktop_messages_sections_split-layout_list-panel-3_history-list_item"
+                  getSlotState={({ item, isLoading: slotLoading }) => ({
+                    isActive: !slotLoading && item?.id === selectedRecordId,
+                    isInteractive: !slotLoading && Boolean(item),
+                  })}
+                  onSlotClick={(record) => setSelectedRecordId(record.id)}
+                  render={({ item: record }) => {
+                    if (!record) return null;
+                    const statusMeta = getMessageHistoryListStatusMeta(record.status);
+                    const ItemIcon = record.icon;
+                    const inlineReason = record.status === "failed"
+                      ? record.failureReason
+                      : record.status === "canceled"
+                        ? record.cancelReason
+                        : undefined;
+
+                    return (
+                      <AnimatedSlotListItemContent
+                        dataComponent="desktop_messages_sections_history-list-item"
+                        icon={ItemIcon}
+                        iconContainerClassName={getMessageHistoryAvatarClassName(record.status)}
+                        title={record.title}
+                        subtitle={record.recipientListLabel}
+                        meta={inlineReason ? (
+                          <span
+                            data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_history-list-item-reason"
+                            className="block max-w-full truncate"
+                          >
+                            {MESSAGE_RECORD_REASON_LABEL}: {inlineReason}
+                          </span>
+                        ) : undefined}
+                        status={
+                          <div
+                            data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_history-list-item-meta"
+                            className="flex shrink-0 flex-col items-end justify-end gap-1 text-right"
+                          >
+                            <StatusBadge
+                              data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_history-list-item-meta_status"
+                              variant={statusMeta.variant}
+                              size="sm"
+                            >
+                              {statusMeta.label}
+                            </StatusBadge>
+                            <span
+                              data-component="desktop_messages_sections_split-layout_list-panel-3_zone-past_history-list-item-meta_date"
+                              className="whitespace-nowrap text-[0.68rem] text-v3-text-muted"
+                            >
+                              {formatHistoryDate(record.sentAt)}
+                            </span>
+                          </div>
+                        }
+                      />
+                    );
+                  }}
+                />
+              </div>
+            ) : null}
           </>
         )}
       </ListPanel>
 
-      <MessageHistoryDetailPanel
-        dataComponentPrefix="desktop_messages_sections_section-content_history-section_split-layout_detail-panel"
-        selectedRecord={selectedRecord}
-        canRetry={canRetry}
-        isRetrying={isRetrying}
-        onRetry={handleRetry}
-      />
+      {selectedJob ? (
+        <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel"
+          avatar={
+            <div
+              data-component="desktop_messages_sections_split-layout_detail-panel_upcoming-detail-avatar"
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-v3-primary-light text-v3-primary"
+            >
+              <Clock3 className="h-5 w-5" />
+            </div>
+          }
+          title={`${selectedJob.payload.recipientName || "수신자"} 예약 발송`}
+          subtitle={`${getHistoryTemplateLabel(selectedJob.templateKey)} · ${selectedJobPhone}`}
+          badges={
+            <StatusBadge
+              data-component="desktop_messages_sections_upcoming-detail-status"
+              variant={getScheduledJobStatusMeta(selectedJob.status).variant}
+              size="sm"
+            >
+              {selectedJob.status === "processing" ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              ) : null}
+              {getScheduledJobStatusMeta(selectedJob.status).label}
+            </StatusBadge>
+          }
+          trailing={
+            <div data-component="desktop_messages_sections_split-layout_detail-panel_upcoming-detail-trailing" className="flex items-center gap-2">
+              <div
+                data-component="desktop_messages_sections_split-layout_detail-panel_upcoming-detail-trailing_scheduled-at"
+                className="inline-flex items-center gap-1 rounded-full bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary"
+              >
+                <CalendarClock className="h-3.5 w-3.5" />
+                {formatScheduledPreviewDate(selectedJob.scheduledFor)}
+              </div>
+              {canCancelSelectedJob ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCancelDialogOpen(true)}
+                  disabled={cancelMutation.isPending}
+                  data-component="desktop_messages_sections_split-layout_detail-panel_upcoming-detail-trailing_cancel-trigger"
+                  className="rounded-full"
+                >
+                  <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+                  {MESSAGE_JOB_CANCEL_COPY.action}
+                </Button>
+              ) : null}
+            </div>
+          }
+          tabs={
+            <DetailTabs
+              tabs={SCHEDULED_DETAIL_TABS}
+              activeTab={scheduledDetailTab}
+              onTabChange={handleScheduledDetailTabChange}
+            />
+          }
+        >
+          <DetailTabPanels
+            activeTab={scheduledDetailTab}
+            dataComponent="desktop_messages_sections_upcoming-detail-tab-panels"
+            panelDataComponent="desktop_messages_sections_upcoming-detail-tab-panel"
+            panels={[
+              {
+                key: "info",
+                children: (
+                  <div data-component="desktop_messages_sections_split-layout_detail-panel_upcoming-detail" className="space-y-4">
+                    <InfoCard title="예약 개요" data-component="desktop_messages_sections_upcoming-detail-overview">
+                      <InfoRow
+                        data-component="desktop_messages_sections_upcoming-detail-overview-rule"
+                        label="발송 규칙"
+                        value={selectedJob.ruleName}
+                      />
+                      <InfoRow
+                        data-component="desktop_messages_sections_upcoming-detail-overview-recipient"
+                        label="수신자"
+                        value={selectedJob.payload.recipientName || "-"}
+                      />
+                      <InfoRow
+                        data-component="desktop_messages_sections_upcoming-detail-overview-scheduled-time"
+                        label="발신 예정 시간"
+                        value={formatScheduledDetailDate(selectedJob.scheduledFor)}
+                      />
+                      <InfoRow
+                        data-component="desktop_messages_sections_upcoming-detail-overview-template"
+                        label="템플릿"
+                        value={getHistoryTemplateLabel(selectedJob.templateKey)}
+                      />
+                    </InfoCard>
+
+                    <div
+                      data-component="desktop_messages_sections_split-layout_detail-panel_upcoming-detail_upcoming-detail-grid"
+                      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+                    >
+                      <InfoCard title="메시지 정보" data-component="desktop_messages_sections_upcoming-detail-meta">
+                        <InfoRow
+                          data-component="desktop_messages_sections_upcoming-detail-meta-recipient"
+                          label="수신자 이름"
+                          value={selectedJob.payload.recipientName || "-"}
+                        />
+                        <InfoRow
+                          data-component="desktop_messages_sections_upcoming-detail-meta-phone"
+                          label="전화번호"
+                          value={selectedJobPhone}
+                        />
+                        <InfoRow
+                          data-component="desktop_messages_sections_upcoming-detail-meta-scheduled-time"
+                          label="발신 예정 시간"
+                          value={formatScheduledDetailDate(selectedJob.scheduledFor)}
+                        />
+                        <InfoRow
+                          data-component="desktop_messages_sections_upcoming-detail-meta-template"
+                          label="메시지 템플릿 이름"
+                          value={getHistoryTemplateLabel(selectedJob.templateKey)}
+                        />
+                        <InfoRow
+                          data-component="desktop_messages_sections_upcoming-detail-meta-rule"
+                          label="발송 규칙명"
+                          value={selectedJob.ruleName}
+                        />
+                        <InfoRow
+                          data-component="desktop_messages_sections_upcoming-detail-meta-recipient-type"
+                          label="수신 유형"
+                          value={getScheduledRecipientLabel(selectedJob.recipientType)}
+                        />
+                        <InfoRow
+                          data-component="desktop_messages_sections_upcoming-detail-meta-event"
+                          label="이벤트 기준"
+                          value={getScheduledEventLabel(selectedJob.eventType)}
+                        />
+                      </InfoCard>
+
+                      <InfoCard title="변수" data-component="desktop_messages_sections_upcoming-detail-variables">
+                        {selectedJobVariables.length > 0 ? (
+                          selectedJobVariables.map(([key, value], index) => (
+                            <InfoRow
+                              key={`${selectedJob.id}-${key}`}
+                              data-component={`desktop_messages_sections_upcoming-detail-variable-${index + 1}`}
+                              label={SCHEDULED_VARIABLE_LABELS[key] ?? key}
+                              value={value || "-"}
+                            />
+                          ))
+                        ) : (
+                          <InfoRow
+                            data-component="desktop_messages_sections_upcoming-detail-variable-empty"
+                            label="변수"
+                            value={<span className="font-normal text-v3-text-muted">변수 정보가 없습니다.</span>}
+                          />
+                        )}
+                      </InfoCard>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: "message",
+                children: (
+                  <InfoCard
+                    title="메시지 내용"
+                    data-component="desktop_messages_sections_upcoming-detail-message"
+                    className="flex min-h-[420px] flex-col"
+                    contentClassName="flex flex-1"
+                  >
+                    <div
+                      data-component="desktop_messages_sections_upcoming-detail-message_generated-msg-detail-content-body"
+                      className={cn(
+                        "flex min-h-[320px] flex-1",
+                        APP_CONTENT_BODY_CARD_CLASS_NAME,
+                      )}
+                    >
+                      <MsgField label="메시지 내용" value={selectedJobMessageBody} />
+                    </div>
+                  </InfoCard>
+                ),
+              },
+            ]}
+          />
+        </DetailPanel>
+      ) : (
+        <MessageHistoryDetailPanel
+          dataComponentPrefix="desktop_messages_sections_section-content_history-section_split-layout_detail-panel"
+          selectedRecord={selectedRecord}
+          canRetry={canRetry}
+          isRetrying={isRetrying}
+          onRetry={handleRetry}
+        />
+      )}
     </SplitLayout>
+
+    <TwoButtonModal
+      open={cancelDialogOpen}
+      onOpenChange={setCancelDialogOpen}
+      title={MESSAGE_JOB_CANCEL_COPY.confirmTitle}
+      description={MESSAGE_JOB_CANCEL_COPY.confirmBody}
+      cancelLabel={MESSAGE_JOB_CANCEL_COPY.dismiss}
+      approvalLabel={MESSAGE_JOB_CANCEL_COPY.confirmAction}
+      approvalVariant="destructive"
+      isPending={cancelMutation.isPending}
+      isDescriptionVisuallyHidden={false}
+      onApprove={() => void handleCancelJob()}
+      data-component="desktop_messages_sections_upcoming-cancel-confirmation"
+    />
+    </>
   );
 }
 
@@ -1824,11 +1609,16 @@ export default function MessagesPage() {
         />
 
         <div data-component="desktop_messages_sections_section-content" className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {activeSection === "scheduled" ? (
-            <section data-component="desktop_messages_sections_section-content_scheduled-section" className="flex min-h-0 flex-1 flex-col">
-              <MessageScheduledSection />
-            </section>
-          ) : activeSection === "send" || activeSection === "templates" ? (
+          {/*
+            "scheduled" is unreachable: MESSAGE_SECTION_DEFINITIONS no longer has a
+            scheduled entry, so SectionNav can never set activeSection to it — its
+            content now lives inside the "history" branch below. This branch stays
+            only so activeSection is fully narrowed (to `never`) by the time it
+            reaches the generic MessageSectionPlaceholder fallback at the end of
+            this chain, keeping that fallback's PlaceholderSectionId prop type-safe
+            now that PlaceholderSectionId itself excludes "scheduled".
+          */}
+          {activeSection === "scheduled" ? null : activeSection === "send" || activeSection === "templates" ? (
             <MessageApprovalGate dataComponent="desktop_messages_sections_section-content_templates-section_approval-gate">
             <section
               data-component={
@@ -2022,9 +1812,11 @@ export default function MessagesPage() {
             </section>
             </MessageApprovalGate>
           ) : activeSection === "history" ? (
-            <section data-component="desktop_messages_sections_section-content_history-section" className="flex min-h-0 flex-1 flex-col">
-              <MessageHistorySection />
-            </section>
+            <MessageApprovalGate dataComponent="desktop_messages_sections_section-content_history-section_approval-gate">
+              <section data-component="desktop_messages_sections_section-content_history-section" className="flex min-h-0 flex-1 flex-col">
+                <MessageHistorySection />
+              </section>
+            </MessageApprovalGate>
           ) : activeSection === "triggers" ? (
             <MessageApprovalGate dataComponent="desktop_messages_sections_section-content_triggers-section_approval-gate">
               <section

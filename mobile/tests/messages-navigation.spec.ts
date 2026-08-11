@@ -54,9 +54,10 @@ test.describe("mobile messages navigation", () => {
   test("exposes the currently available message sections as mobile destinations", async ({ page }) => {
     await enableOwnerE2EUser(page);
 
+    // 발송 예정 no longer has its own destination — upcoming sends are a zone
+    // inside the merged 발송 기록 screen.
     const expectedDestinations = [
       ["전송하기", "/messages/new"],
-      ["발송 예정", "/messages/scheduled"],
       ["발송 기록", "/messages/history"],
       ["템플릿", "/messages/templates"],
       ["자동 전송", "/messages/automation"],
@@ -137,7 +138,7 @@ test.describe("mobile messages navigation", () => {
     await expect(page.getByText("01012345678")).not.toBeVisible();
   });
 
-  test("shows upcoming SMS jobs on the dedicated scheduled route", async ({ page }) => {
+  test("shows upcoming SMS jobs in the merged record screen's upcoming zone", async ({ page }) => {
     await page.route("**/api/message-trigger-jobs/upcoming**", async (route: Route) => {
       await route.fulfill({
         status: 200,
@@ -173,10 +174,10 @@ test.describe("mobile messages navigation", () => {
       });
     });
 
-    await page.goto("/messages/scheduled");
+    await page.goto("/messages/history");
 
-    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 예정");
+    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
+    await expect(page.getByText("예정", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("예정 고객")).toBeVisible();
-    await expect(page.getByText("1건")).toBeVisible();
   });
 });

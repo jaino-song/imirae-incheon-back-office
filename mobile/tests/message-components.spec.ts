@@ -13,7 +13,8 @@ async function enableE2EAuth(page: Page) {
   });
 }
 
-async function mockReadOnlyMessages(page: Page) {
+async function mockReadOnlyMessages(page: Page, options: { isApproved?: boolean } = {}) {
+  const isApproved = options.isApproved ?? false;
   await page.route("**/api/**", async (route: Route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === "/api/auth/me") {
@@ -27,11 +28,11 @@ async function mockReadOnlyMessages(page: Page) {
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          approvalStatus: "not_requested",
-          isApproved: false,
-          canRequest: true,
-        }),
+        body: JSON.stringify(
+          isApproved
+            ? { approvalStatus: "approved", isApproved: true, canRequest: false }
+            : { approvalStatus: "not_requested", isApproved: false, canRequest: true },
+        ),
       });
     }
     if (pathname === "/api/message-trigger-jobs/upcoming") {
@@ -119,27 +120,44 @@ async function mockReadOnlyMessages(page: Page) {
   });
 }
 
-test.describe("Mobile message read-only status surfaces", () => {
+// 발송 예정 and 발송 기록 used to be two screens, and both were exempt from the
+// sending-approval gate — the earlier version of these tests asserted that the
+// content showed up *before* approval, which is the hole that got closed. The
+// merged screen now surfaces upcoming sends and a cancel action, so it is
+// gated like every other message screen.
+test.describe("Mobile merged message record screen", () => {
   test.beforeEach(async ({ page }) => {
     await enableE2EAuth(page);
+  });
+
+  test("stays gated until the branch can send messages", async ({ page }) => {
     await mockReadOnlyMessages(page);
+    await page.goto("/messages/history");
+
+    await expect(page.getByText("메시지 전송 권한이 필요합니다.")).toBeVisible();
+    await expect(page.getByText("대기 고객")).not.toBeVisible();
+    await expect(page.getByText("취소 고객")).not.toBeVisible();
   });
 
-  test("shows scheduled jobs before sender approval", async ({ page }) => {
-    await page.goto("/messages/scheduled");
-
-    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 예정");
-    await expect(page.getByText("대기 고객")).toBeVisible();
-    await expect(page.getByText("발송 대기")).toBeVisible();
-    await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
-  });
-
-  test("shows canceled history before sender approval", async ({ page }) => {
+  test("shows upcoming and past sends together once approved", async ({ page }) => {
+    await mockReadOnlyMessages(page, { isApproved: true });
     await page.goto("/messages/history");
 
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
+    await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
+
+    // Upcoming zone
+    await expect(page.getByText("대기 고객")).toBeVisible();
+    await expect(page.getByText("발송 대기")).toBeVisible();
+    // Past zone
     await expect(page.getByText("취소 고객")).toBeVisible();
     await expect(page.getByText("발송 취소")).toBeVisible();
-    await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
+  });
+
+  test("keeps the old scheduled URL working by redirecting", async ({ page }) => {
+    await mockReadOnlyMessages(page, { isApproved: true });
+    await page.goto("/messages/scheduled");
+
+    await expect(page).toHaveURL(/\/messages\/history$/);
   });
 });

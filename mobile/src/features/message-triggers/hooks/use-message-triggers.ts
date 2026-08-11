@@ -166,3 +166,18 @@ export function useDeleteMessageTriggerRule() {
         },
     });
 }
+
+// Cancels a still-pending trigger job. On success the job drops out of the
+// upcoming list and a canceled entry appears in history, so both queries need
+// a refetch for the row to visibly move from one zone to the other.
+export function useCancelMessageTriggerJob() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => messageTriggersApi.cancelJob(id).then((response) => response.data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
+        },
+    });
+}

@@ -1,0 +1,11 @@
+-- Marks a message_trigger_job as canceled by a user pressing cancel, as
+-- opposed to an internal cancel (rule deactivated, schedule deleted, or a
+-- client/rule re-sync). The re-sync upsert in
+-- sb.message-trigger-job.repository.ts only skips rows whose status is
+-- 'sent' or 'processing', so without this flag a user-canceled job would
+-- silently return to 'pending' the next time its client or rule is edited.
+-- A follow-up change uses this column to guard the re-sync upsert.
+--
+-- IF NOT EXISTS: the database-patches workflow re-runs every step on each
+-- push to dev/preview/main, so every patch must be idempotent.
+ALTER TABLE "message_trigger_job" ADD COLUMN IF NOT EXISTS "canceled_by_user" BOOLEAN NOT NULL DEFAULT false;

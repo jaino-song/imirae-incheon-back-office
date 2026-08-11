@@ -113,6 +113,7 @@ describe("SbMessageTriggerJobRepository", () => {
         payload: MessageTriggerJobPayload;
         createdAt: Date;
         updatedAt: Date;
+        canceledByUser: boolean;
     };
 
     const createMockPrismaMessageTriggerJob = () => ({
@@ -149,6 +150,7 @@ describe("SbMessageTriggerJobRepository", () => {
         },
         createdAt: new Date("2026-07-08T00:00:00.000Z"),
         updatedAt: new Date("2026-07-08T00:00:00.000Z"),
+        canceledByUser: false,
     });
 
     const createRow = (overrides: Partial<MockMessageTriggerJobRow> = {}): MockMessageTriggerJobRow => ({
@@ -328,6 +330,63 @@ describe("SbMessageTriggerJobRepository", () => {
         });
     });
 
+    it("findRecentUndeliveredByBranch scopes to branch and the failed/canceled since-window, newest first", async () => {
+        const since = new Date("2026-07-08T00:00:00.000Z");
+        messageTriggerJobModel.findMany.mockResolvedValue([
+            createRow({
+                id: "job-canceled",
+                status: "canceled",
+                canceledAt: new Date("2026-07-08T12:00:00.000Z"),
+                cancelReason: "사용자가 발송을 취소함",
+                updatedAt: new Date("2026-07-08T12:00:00.000Z"),
+            }),
+            createRow({
+                id: "job-failed",
+                status: "failed",
+                cancelReason: "provider rejected",
+                updatedAt: new Date("2026-07-08T13:00:00.000Z"),
+            }),
+        ]);
+
+        const result = await repository.findRecentUndeliveredByBranch("branch-1", since, 25);
+
+        // Deliberately scoped with objectContaining (not a canceledByUser
+        // guard test — see the dedicated guard test below): branch scoping,
+        // the failed/canceled status split, and the per-status since-window
+        // (canceledAt for canceled rows, updatedAt for failed rows, since
+        // there is no dedicated failedAt column) are what this test covers.
+        expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
+            where: expect.objectContaining({
+                branchId: "branch-1",
+                OR: [
+                    { status: "canceled", canceledAt: { gte: since } },
+                    { status: "failed", updatedAt: { gte: since } },
+                ],
+            }),
+            orderBy: { updatedAt: "desc" },
+            take: 25,
+        });
+        expect(result.map((job) => job.status)).toEqual(["canceled", "failed"]);
+        expect(result[0]?.cancelReason).toBe("사용자가 발송을 취소함");
+        expect(result[1]?.cancelReason).toBe("provider rejected");
+    });
+
+    it("findRecentUndeliveredByBranch's guarded WHERE clause excludes a user-canceled row from the digest (canceledByUser guard)", async () => {
+        const since = new Date("2026-07-08T00:00:00.000Z");
+        messageTriggerJobModel.findMany.mockResolvedValue([]);
+
+        await repository.findRecentUndeliveredByBranch("branch-1", since, 25);
+
+        // Mutation-sensitive assertion, isolated from the shape test above:
+        // a cancel the user pressed themselves must never be reported back
+        // to them as a problem, so canceledByUser: false must always be
+        // part of the WHERE clause. Deleting or weakening this line in the
+        // implementation fails this test (and only this test — the shape
+        // test above uses objectContaining and does not assert on this key).
+        const [{ where }] = messageTriggerJobModel.findMany.mock.calls[0];
+        expect(where.canceledByUser).toBe(false);
+    });
+
     it("upsertPending falls back to findUnique when the guarded update matches no row (sent row stays immutable)", async () => {
         queryRaw.mockResolvedValue([]);
         messageTriggerJobModel.findUnique.mockResolvedValue(createRow({
@@ -392,6 +451,33 @@ describe("SbMessageTriggerJobRepository", () => {
         const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
         expect(sqlText).toContain("date_trunc('milliseconds', clock_timestamp())");
         expect(sqlText).toContain('WHERE "message_trigger_job"."status" NOT IN (\'sent\', \'processing\')');
+    });
+
+    it("upsertPending's guarded WHERE clause excludes a user-canceled row from resurrection (resurrection guard)", async () => {
+        queryRaw.mockResolvedValueOnce([]);
+        messageTriggerJobModel.findUnique.mockResolvedValueOnce(createRow({
+            status: "canceled",
+            canceledAt: new Date("2026-07-08T12:00:00.000Z"),
+            cancelReason: "사용자가 발송을 취소함",
+        }));
+
+        const result = await repository.upsertPending(createJob());
+
+        // The guarded UPDATE matches nothing, so the repository falls back to
+        // reading the row as-is: it is still canceled, not resurrected to pending.
+        expect(result.status).toBe("canceled");
+
+        // Mutation-sensitive assertion: pins the guard's exact text so reverting or
+        // weakening the clause fails this test. Verified by hand (truth table) that
+        // this text blocks a status='canceled' AND canceled_by_user=true row (this
+        // guard) while still allowing status='canceled' AND canceled_by_user=false
+        // (internal cancel — see the "reactivates" test above) and status='failed'
+        // rows through, and continues blocking 'sent'/'processing' exactly as before.
+        const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
+        expect(sqlText).toContain(
+            "WHERE \"message_trigger_job\".\"status\" NOT IN ('sent', 'processing') "
+            + "AND NOT (\"message_trigger_job\".\"status\" = 'canceled' AND \"message_trigger_job\".\"canceled_by_user\" = true)",
+        );
     });
 
     it("upsertPendingForRuleGeneration locks and verifies the rule before writing the pending job", async () => {
@@ -776,6 +862,34 @@ describe("SbMessageTriggerJobRepository", () => {
                 status: "canceled",
                 canceledAt: now,
                 cancelReason: "승인 전 예정 시각 경과",
+            },
+        });
+    });
+
+    it("cancelPendingByUser conditionally cancels a job scoped to id, branch, and pending status", async () => {
+        messageTriggerJobModel.updateMany
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 });
+
+        await expect(
+            repository.cancelPendingByUser("job-1", "branch-1", "사용자가 발송을 취소함"),
+        ).resolves.toBe(true);
+        // A second call simulates the job no longer being pending (already sent,
+        // currently processing, or already canceled) or belonging to another
+        // branch: the conditional where clause matches nothing, so the method
+        // reports failure instead of pretending success.
+        await expect(
+            repository.cancelPendingByUser("job-1", "branch-1", "사용자가 발송을 취소함"),
+        ).resolves.toBe(false);
+
+        expect(messageTriggerJobModel.updateMany).toHaveBeenCalledWith({
+            where: { id: "job-1", branchId: "branch-1", status: "pending" },
+            data: {
+                status: "canceled",
+                canceledAt: now,
+                cancelReason: "사용자가 발송을 취소함",
+                canceledByUser: true,
+                nextAttemptAt: null,
             },
         });
     });
