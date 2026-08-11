@@ -59,6 +59,7 @@ export const SERVICE_RECORD_REQUIRED_SLOT_FIELD_BASES = ["결제 확인", "산�
 
 /** Header fields (filled once per document, no slot suffix). */
 export const SERVICE_RECORD_HEADER_FIELD_IDS = {
+    providerName: "제공기관 이름",
     momName: "산모 이름",
     momBirth: "산모 생년월일", // date_yyyy-MM-dd
     deliveryNatural: "자연분만", // checkbox mark

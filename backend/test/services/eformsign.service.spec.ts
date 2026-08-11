@@ -196,6 +196,47 @@ describe("EformsignService", () => {
             .rejects.toMatchObject({ status: 401, vendorCode: "4010002" });
     });
 
+    it("reads the normalized status from the vendor detail current_status shape", async () => {
+        const service = new EformsignService(createConfigService());
+        const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                id: "doc-1",
+                current_status: { status_type: "doc_accept_reviewer" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.fetchDocumentStatusCode("doc-1", "access-token"))
+            .resolves.toBe("072");
+        expect(fetchMock).toHaveBeenCalledWith(
+            expect.stringContaining("/v2.0/api/documents/doc-1?"),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+    });
+
+    it("reads the normalized workflow step used to reconcile a non-terminal finalize", async () => {
+        const service = new EformsignService(createConfigService());
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                current_status: {
+                    status_type: "doc_request_reviewer",
+                    step_type: 6,
+                    step_index: 4,
+                    step_name: "제공기관 검토",
+                },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.fetchDocumentWorkflowState("doc-1", "access-token"))
+            .resolves.toEqual({
+                statusCode: "070",
+                stepType: "6",
+                stepIndex: "4",
+                stepName: "제공기관 검토",
+            });
+    });
+
     it("aborts and cancels a mirrored PDF body that stops streaming before the deadline", async () => {
         jest.useFakeTimers();
         const service = new EformsignService(createConfigService());
@@ -364,6 +405,27 @@ describe("EformsignService", () => {
                 }),
             ]),
         );
+    });
+
+    it("uses a two-digit year when finalizing templates with a fixed century prefix", async () => {
+        const service = new EformsignService(createConfigService());
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ detail_template_info: { id: "template-seogu" } }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        const options = await service.generateStaffCompletionOptions(
+            "document-1",
+            "access-token",
+            "refresh-token",
+            "2026-11-30",
+        );
+
+        expect(options.prefill?.fields).toEqual(expect.arrayContaining([
+            { id: "계약 종료 년도", value: "26", enabled: true, required: false },
+            { id: "계약 종료 월", value: "11", enabled: true, required: false },
+            { id: "계약 종료 일", value: "30", enabled: true, required: false },
+        ]));
     });
 
     it("uses e2e vendor stubs for token fetches and document listing without network access", async () => {

@@ -75,6 +75,12 @@ export interface SyncEformsignDocumentOptions {
      * have converged. Background and regular syncs stay best-effort.
      */
     strictCompletionReconciliation?: boolean;
+    /**
+     * Webhooks defer service-record lifecycle mutation until their completion
+     * claim is fenced. Direct/manual completion has no later claim phase and
+     * must apply lifecycle effects during the strict mirror sync itself.
+     */
+    deferServiceRecordLifecycle?: boolean;
 }
 
 export interface SyncEformsignDocumentResult {
@@ -579,7 +585,9 @@ export class EformsignDocumentMirrorService {
                 ...(options.strictCompletionReconciliation
                     ? {
                         throwOnCompletionReconciliationError: true,
-                        deferServiceRecordLifecycle: true,
+                        ...(options.deferServiceRecordLifecycle
+                            ? { deferServiceRecordLifecycle: true }
+                            : {}),
                     }
                     : {}),
             })

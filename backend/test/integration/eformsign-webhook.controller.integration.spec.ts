@@ -139,6 +139,7 @@ describe("EformsignWebhookController (Integration)", () => {
                 force: true,
                 skipBranchOwnedProjection: true,
                 strictCompletionReconciliation: true,
+                deferServiceRecordLifecycle: true,
             },
         );
         expect(webhookService.processWebhook).toHaveBeenCalledWith(payload, {
@@ -297,6 +298,7 @@ describe("EformsignWebhookController (Integration)", () => {
                 force: true,
                 skipBranchOwnedProjection: true,
                 strictCompletionReconciliation: true,
+                deferServiceRecordLifecycle: true,
             },
         );
 
@@ -415,6 +417,7 @@ describe("EformsignWebhookController (Integration)", () => {
                 force: true,
                 skipBranchOwnedProjection: true,
                 strictCompletionReconciliation: true,
+                deferServiceRecordLifecycle: true,
             },
         );
         expect(webhookService.publishCompletionEvent).not.toHaveBeenCalled();
@@ -438,6 +441,7 @@ describe("EformsignWebhookController (Integration)", () => {
                 force: true,
                 skipBranchOwnedProjection: true,
                 strictCompletionReconciliation: true,
+                deferServiceRecordLifecycle: true,
             },
         );
         expect(documentMirrorService.fetchCurrentDetail).not.toHaveBeenCalled();
