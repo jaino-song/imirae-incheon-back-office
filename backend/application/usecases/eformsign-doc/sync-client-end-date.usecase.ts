@@ -69,20 +69,26 @@ export class SyncClientEndDateUsecase {
             const dayStr = findValue(EFORMSIGN_END_DATE_FIELD_IDS.day);
 
             if (!yearStr || !monthStr || !dayStr) {
-                this.logger.warn(
-                    `End date fields missing or empty on document ${documentId}; skipping client.endDate sync.`
-                );
+                const message = `End date fields missing or empty on document ${documentId}; skipping client.endDate sync.`;
+                this.logger.warn(message);
+                if (options.throwOnError) throw new Error(message);
                 return;
             }
 
-            const year = Number(yearStr);
+            const rawYear = Number(yearStr);
+            // Regional contract templates print `20` outside the input field and
+            // therefore persist a two-digit year (some vendor responses pad it as
+            // `026`). Treat any 0-99 numeric value as 2000-2099.
+            const year = Number.isInteger(rawYear) && rawYear >= 0 && rawYear <= 99
+                ? 2000 + rawYear
+                : rawYear;
             const month = Number(monthStr);
             const day = Number(dayStr);
 
             if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-                this.logger.warn(
-                    `Could not parse end date numeric values on document ${documentId}; skipping client.endDate sync.`
-                );
+                const message = `Could not parse end date numeric values on document ${documentId}; skipping client.endDate sync.`;
+                this.logger.warn(message);
+                if (options.throwOnError) throw new Error(message);
                 return;
             }
 
@@ -93,13 +99,17 @@ export class SyncClientEndDateUsecase {
                 endDate.getUTCDate() === day;
 
             if (!isSameDate) {
-                this.logger.warn(`Invalid end date values on document ${documentId}; skipping client.endDate sync.`);
+                const message = `Invalid end date values on document ${documentId}; skipping client.endDate sync.`;
+                this.logger.warn(message);
+                if (options.throwOnError) throw new Error(message);
                 return;
             }
 
             const doc = await this.eformsignDocRepository.findByDocumentId(branchId, documentId);
             if (!doc) {
-                this.logger.warn(`eformsign_doc not found for ${documentId}; cannot sync client.endDate.`);
+                const message = `eformsign_doc not found for ${documentId}; cannot sync client.endDate.`;
+                this.logger.warn(message);
+                if (options.throwOnError) throw new Error(message);
                 return;
             }
             if (doc.clientId === null) {
@@ -109,7 +119,9 @@ export class SyncClientEndDateUsecase {
 
             const client = await this.clientRepository.findById(branchId, doc.clientId);
             if (!client) {
-                this.logger.warn(`Client ${doc.clientId} not found for document ${documentId}; cannot sync endDate.`);
+                const message = `Client ${doc.clientId} not found for document ${documentId}; cannot sync endDate.`;
+                this.logger.warn(message);
+                if (options.throwOnError) throw new Error(message);
                 return;
             }
 

@@ -121,6 +121,12 @@ export class ServiceRecordFinalizationService {
             where: {
                 status: SERVICE_RECORD_CASE_STATUS.FINALIZING,
                 finalizationStartedAt: { lte: staleBefore },
+                snapshotChunks: {
+                    none: {
+                        status: "CREATE_REQUESTED",
+                        createAttemptedAt: { gt: staleBefore },
+                    },
+                },
             },
             data: {
                 status: SERVICE_RECORD_CASE_STATUS.FINALIZATION_FAILED,

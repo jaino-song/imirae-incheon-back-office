@@ -190,6 +190,12 @@ describe("ServiceRecordFinalizationService", () => {
             where: {
                 status: SERVICE_RECORD_CASE_STATUS.FINALIZING,
                 finalizationStartedAt: { lte: new Date("2026-07-12T23:40:00.000Z") },
+                snapshotChunks: {
+                    none: {
+                        status: "CREATE_REQUESTED",
+                        createAttemptedAt: { gt: new Date("2026-07-12T23:40:00.000Z") },
+                    },
+                },
             },
             data: {
                 status: SERVICE_RECORD_CASE_STATUS.FINALIZATION_FAILED,

@@ -4,6 +4,7 @@ import {
     SERVICE_RECORD_FINALIZE_PROGRESS_STEPS,
     resolveFailedHeadlessProgress,
     resolveNextHeadlessProgress,
+    shouldOpenFinalizeIframe,
 } from "../headless-progress";
 
 describe("headless progress transitions", () => {
@@ -100,5 +101,12 @@ describe("headless progress transitions", () => {
             completed: false,
             failed: true,
         });
+    });
+
+    it("opens the finalize iframe only for an explicit safe backend verdict", () => {
+        expect(shouldOpenFinalizeIframe("iframe", false)).toBe(true);
+        expect(shouldOpenFinalizeIframe("manual_check", false)).toBe(false);
+        expect(shouldOpenFinalizeIframe(undefined, false)).toBe(false);
+        expect(shouldOpenFinalizeIframe("iframe", true)).toBe(false);
     });
 });

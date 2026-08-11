@@ -33,9 +33,17 @@ export interface EformsignTokenResponse {
     };
 }
 
+export interface EformsignDocumentWorkflowState {
+    statusCode?: string;
+    stepType?: string;
+    stepIndex?: string;
+    stepName?: string;
+}
+
 const ISO_END_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 export const EFORMSIGN_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 export const EFORMSIGN_DOWNLOAD_TIMEOUT_MS = 30_000;
+export const EFORMSIGN_STATUS_READ_TIMEOUT_MS = 2_000;
 // Deletion is non-idempotent, so one bounded attempt is safer than retries.
 // Keep the same total request-and-body budget used by the API client.
 export const EFORMSIGN_DELETE_TIMEOUT_MS = 30_000;
@@ -356,7 +364,10 @@ export class EformsignService {
 
         return {
             fields: [
-                { id: EFORMSIGN_END_DATE_FIELD_IDS.year, value: year, enabled: true, required: false },
+                // The live regional templates print the century prefix (`20`)
+                // outside this field, matching the two-digit values sent during
+                // contract creation. Supplying `2026` renders as `20 2026`.
+                { id: EFORMSIGN_END_DATE_FIELD_IDS.year, value: year!.slice(-2), enabled: true, required: false },
                 { id: EFORMSIGN_END_DATE_FIELD_IDS.month, value: month, enabled: true, required: false },
                 { id: EFORMSIGN_END_DATE_FIELD_IDS.day, value: day, enabled: true, required: false },
             ],
@@ -904,23 +915,51 @@ export class EformsignService {
      * — not the automation — is the authority on whether the step finished.
      * Returns undefined when the response carries no recognizable status.
      */
-    async fetchDocumentStatusCode(documentId: string, accessToken: string): Promise<string | undefined> {
-        const doc = await this.fetchStaffCompletionDocument(documentId, accessToken);
+    async fetchDocumentWorkflowState(
+        documentId: string,
+        accessToken: string,
+    ): Promise<EformsignDocumentWorkflowState> {
+        const doc = await this.fetchStaffCompletionDocument(
+            documentId,
+            accessToken,
+            AbortSignal.timeout(EFORMSIGN_STATUS_READ_TIMEOUT_MS),
+        );
+        const currentStatus = doc?.document?.current_status ?? doc?.current_status;
         const rawStatus =
+            currentStatus?.status_type ??
             doc?.document?.document_status ??
             doc?.document_status ??
             doc?.status_type ??
             doc?.status;
-        if (rawStatus === null || rawStatus === undefined || rawStatus === "") {
-            return undefined;
-        }
-        return normalizeEformsignStatusCode(rawStatus);
+        const asOptionalString = (value: unknown): string | undefined => {
+            if (value === null || value === undefined) return undefined;
+            const normalized = String(value).trim();
+            return normalized || undefined;
+        };
+
+        return {
+            statusCode: rawStatus === null || rawStatus === undefined || rawStatus === ""
+                ? undefined
+                : normalizeEformsignStatusCode(rawStatus),
+            stepType: asOptionalString(currentStatus?.step_type),
+            stepIndex: asOptionalString(currentStatus?.step_index),
+            stepName: asOptionalString(currentStatus?.step_name),
+        };
     }
 
-    private async fetchStaffCompletionDocument(documentId: string, accessToken: string): Promise<any> {
+    async fetchDocumentStatusCode(documentId: string, accessToken: string): Promise<string | undefined> {
+        return (await this.fetchDocumentWorkflowState(documentId, accessToken)).statusCode;
+    }
+
+    private async fetchStaffCompletionDocument(
+        documentId: string,
+        accessToken: string,
+        signal?: AbortSignal,
+    ): Promise<any> {
         const params = new URLSearchParams({ include_detail_template_info: "true" });
         const docRes = await fetch(`${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/${documentId}?${params}`, {
             headers: { Authorization: `Bearer ${accessToken}` },
+            ...(signal ? { signal } : {}),
         });
 
         if (!docRes.ok) {

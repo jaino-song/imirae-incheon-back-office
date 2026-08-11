@@ -172,15 +172,16 @@ describe("buildServiceRecordDocumentFields", () => {
         expect(map.get("제왕절개")).toBe(UNCHECKED);
     });
 
-    it.each([5, 10, 15, 20])("omits the removed 제공기관 field from the %i-session template payload", (slotCount) => {
+    it.each([5, 10, 15, 20])("emits the required 제공기관 field for the %i-session template", (slotCount) => {
         const map = toMap(buildServiceRecordDocumentFields({
             header,
+            providerName: "인천 아이미래로",
             employeeName: "박제공",
             days: [day()],
             slotCount,
         }));
 
-        expect(map.has("제공기관 이름")).toBe(false);
+        expect(map.get("제공기관 이름")).toBe("인천 아이미래로");
     });
 
     it("maps 제왕절개 and sends empty header fields (required at creation)", () => {

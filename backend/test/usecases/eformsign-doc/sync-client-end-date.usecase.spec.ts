@@ -148,6 +148,21 @@ describe("SyncClientEndDateUsecase", () => {
         });
     });
 
+    it.each(["26", "026"])("normalizes template year %s to 2026", async (year) => {
+        eformsignClient.getDocument.mockResolvedValue(
+            createDocumentResponse([
+                { id: "계약 종료 년도", value: year, type: "text" },
+                { id: "계약 종료 월", value: "11", type: "text" },
+                { id: "계약 종료 일", value: "30", type: "text" },
+            ]),
+        );
+
+        await expect(usecase.execute(branchId, documentId, accessToken)).resolves.toEqual({
+            clientId: 7,
+            endDate: new Date("2026-11-30T00:00:00.000Z"),
+        });
+    });
+
     it("should delegate persistence when an atomic lifecycle writer is provided", async () => {
         eformsignClient.getDocument.mockResolvedValue(
             createDocumentResponse([
@@ -204,6 +219,20 @@ describe("SyncClientEndDateUsecase", () => {
 
         expect(clientRepository.update).not.toHaveBeenCalled();
         expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it("fails closed on missing end-date fields during strict reconciliation", async () => {
+        const document = createDocumentResponse([
+            { id: "계약 종료 년도", value: "26", type: "text" },
+            { id: "계약 종료 월", value: "", type: "text" },
+        ]);
+
+        await expect(usecase.executeFromDocument(
+            branchId,
+            documentId,
+            document,
+            { throwOnError: true },
+        )).rejects.toThrow(/end date fields missing/i);
     });
 
     it("should skip client sync when the document belongs to a deleted client", async () => {

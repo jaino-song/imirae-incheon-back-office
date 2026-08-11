@@ -34,6 +34,7 @@ import {
 const SNAPSHOT_FALLBACK_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
 
 const CASE_SNAPSHOT_INCLUDE = {
+    branch: { select: { name: true } },
     client: { select: { name: true } },
     assignments: {
         select: {
@@ -367,6 +368,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 .update(this.stableStringify({
                     formVersion: record.formVersion,
                     header: {
+                        providerName: record.branch.name,
                         momName: record.momName,
                         momBirth: record.momBirth,
                         babyName: record.babyName,
@@ -468,6 +470,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 .update(this.stableStringify({
                     formVersion: record.formVersion,
                     header: {
+                        providerName: record.branch.name,
                         momName: record.momName,
                         momBirth: record.momBirth,
                         babyName: record.babyName,
@@ -644,6 +647,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         try {
             const prefillFields = buildServiceRecordDocumentFields({
                 header: params.record,
+                providerName: params.record.branch.name,
                 employeeName: params.chunk.employeeName,
                 days: params.chunk.days,
                 slotCount: params.chunk.tier,

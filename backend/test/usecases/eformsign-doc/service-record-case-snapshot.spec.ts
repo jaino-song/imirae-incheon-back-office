@@ -350,6 +350,14 @@ describe("client-owned service record snapshot", () => {
 
         await expect(processor.processChunk({ ...common, chunkStatus: "PENDING" }))
             .rejects.toThrow("fetch failed");
+        expect(eformsignClient.createDocument).toHaveBeenCalledWith(
+            "access-token",
+            expect.objectContaining({
+                prefillFields: expect.arrayContaining([
+                    { id: "제공기관 이름", value: "인천 아이미래로" },
+                ]),
+            }),
+        );
         expect(prisma.service_record_snapshot_chunk.update).toHaveBeenLastCalledWith(expect.objectContaining({
             data: expect.objectContaining({ status: "RECONCILING" }),
         }));
