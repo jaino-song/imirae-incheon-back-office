@@ -51,13 +51,13 @@ describe("shared message presentation contract", () => {
   it("uses the same Korean labels for trigger, system, and delivery-log keys", () => {
     expect(getMessageTemplateLabel("SERVICE_RECORD_LINK")).toBe("제공기록지 작성 링크");
     expect(getMessageTemplateLabel("service_record_link_sms")).toBe("제공기록지 작성 링크");
-    expect(getMessageTemplateLabel("PRICE_INFO")).toBe("요금 안내");
+    expect(getMessageTemplateLabel("PRICE_INFO")).toBe("비용 안내");
     expect(getMessageTemplateLabel("client_greeting_sms")).toBe("인사 메시지");
     expect(getMessageTemplateLabel("unknown_internal_key")).toBe("메시지");
   });
 
   it("resolves variable metadata before falling back to a generic label", () => {
-    expect(getMessageTemplateLabel("unknown", { systemTemplateKey: "SURVEY" })).toBe("설문");
+    expect(getMessageTemplateLabel("unknown", { systemTemplateKey: "SURVEY" })).toBe("모니터링 설문");
     expect(getMessageTemplateLabel("unknown", { title: "인사(소개)" })).toBe("인사 메시지");
     expect(getMessageHistoryTitle({
       templateKey: "CLIENT_WELCOME",
