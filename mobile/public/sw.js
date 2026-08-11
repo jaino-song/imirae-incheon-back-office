@@ -8,7 +8,7 @@
  */
 
 // Cache version - increment to force update
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v7';
 const CACHE_NAME = `babyjamjam-admin-mobile-${CACHE_VERSION}`;
 
 // Assets to precache during install
@@ -18,23 +18,23 @@ const PRECACHE_ASSETS = [
     '/assets/icon-512.png',
     '/assets/badge-72.png',
     '/apple-touch-icon.png',
-    '/splash/splash-640x1136.png',
-    '/splash/splash-750x1334.png',
-    '/splash/splash-828x1792.png',
-    '/splash/splash-1080x2340.png',
-    '/splash/splash-1125x2436.png',
-    '/splash/splash-1170x2532.png',
-    '/splash/splash-1179x2556.png',
-    '/splash/splash-1206x2622.png',
-    '/splash/splash-1242x2208.png',
-    '/splash/splash-1242x2688.png',
-    '/splash/splash-1284x2778.png',
-    '/splash/splash-1290x2796.png',
-    '/splash/splash-1320x2868.png',
-    '/splash/splash-1536x2048.png',
-    '/splash/splash-1668x2224.png',
-    '/splash/splash-1668x2388.png',
-    '/splash/splash-2048x2732.png',
+    '/splash/splash-640x1136.png?v=20260812-logo-v2',
+    '/splash/splash-750x1334.png?v=20260812-logo-v2',
+    '/splash/splash-828x1792.png?v=20260812-logo-v2',
+    '/splash/splash-1080x2340.png?v=20260812-logo-v2',
+    '/splash/splash-1125x2436.png?v=20260812-logo-v2',
+    '/splash/splash-1170x2532.png?v=20260812-logo-v2',
+    '/splash/splash-1179x2556.png?v=20260812-logo-v2',
+    '/splash/splash-1206x2622.png?v=20260812-logo-v2',
+    '/splash/splash-1242x2208.png?v=20260812-logo-v2',
+    '/splash/splash-1242x2688.png?v=20260812-logo-v2',
+    '/splash/splash-1284x2778.png?v=20260812-logo-v2',
+    '/splash/splash-1290x2796.png?v=20260812-logo-v2',
+    '/splash/splash-1320x2868.png?v=20260812-logo-v2',
+    '/splash/splash-1536x2048.png?v=20260812-logo-v2',
+    '/splash/splash-1668x2224.png?v=20260812-logo-v2',
+    '/splash/splash-1668x2388.png?v=20260812-logo-v2',
+    '/splash/splash-2048x2732.png?v=20260812-logo-v2',
 ];
 
 // Install event - precache static assets
