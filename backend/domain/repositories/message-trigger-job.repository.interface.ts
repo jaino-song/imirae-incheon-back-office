@@ -25,7 +25,7 @@ export interface IMessageTriggerJobRepository {
     ): Promise<MessageTriggerJobEntity[]>;
     /**
      * Terminal (failed or canceled) jobs for a branch whose terminal
-     * transition landed at or after `since` — `canceledAt` for a canceled
+     * transition landed in `[since, until)` — `canceledAt` for a canceled
      * row, `updatedAt` for a failed row (there is no dedicated failedAt
      * column; markFailed() always bumps updatedAt at the moment of
      * failure). Excludes rows the user canceled themselves
@@ -35,8 +35,14 @@ export interface IMessageTriggerJobRepository {
     findRecentUndeliveredByBranch(
         branchId: string,
         since: Date,
+        until: Date,
         limit: number,
     ): Promise<MessageTriggerJobEntity[]>;
+    countRecentUndeliveredByBranch(
+        branchId: string,
+        since: Date,
+        until: Date,
+    ): Promise<number>;
     findHistoryByBranch(
         branchId: string,
         limit?: number,

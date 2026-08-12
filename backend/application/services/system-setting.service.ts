@@ -32,6 +32,10 @@ export class SystemSettingService {
         return `branch:${branchId}:greeting_on_auto_registration`;
     }
 
+    private getPwaUndeliveredDigestWatermarkKey(branchId: string): string {
+        return `branch:${branchId}:pwa_undelivered_digest_watermark`;
+    }
+
     async getUserEmailNotificationsEnabled(userId: string): Promise<boolean> {
         const value = await this.getSettingUsecase.executeWithDefault(
             this.getUserEmailNotificationPreferenceKey(userId),
@@ -131,6 +135,25 @@ export class SystemSettingService {
         return this.updateSettingUsecase.execute(
             this.getGreetingOnAutoRegistrationKey(branchId),
             enabled ? "true" : "false"
+        );
+    }
+
+    async getPwaUndeliveredDigestWatermark(branchId: string): Promise<Date | null> {
+        const value = await this.getSettingUsecase.execute(
+            this.getPwaUndeliveredDigestWatermarkKey(branchId),
+        );
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    async setPwaUndeliveredDigestWatermark(
+        branchId: string,
+        watermark: Date,
+    ): Promise<SystemSettingEntity> {
+        return this.updateSettingUsecase.execute(
+            this.getPwaUndeliveredDigestWatermarkKey(branchId),
+            watermark.toISOString(),
         );
     }
 

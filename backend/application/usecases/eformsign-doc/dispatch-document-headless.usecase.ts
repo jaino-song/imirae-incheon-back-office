@@ -198,10 +198,10 @@ export class DispatchDocumentHeadlessUsecase {
                 },
             });
 
-            // The gate runner emits "creating" only when it clicks (or ambiguously
-            // attempts) the confirmation popup's 전송. The first top-level 전송 only
-            // opens that popup and is safe to retry/fall back from. A failure at or
-            // after "creating" means eformsign may already hold the
+            // The gate runner emits "creating" whenever either top-level or popup
+            // 전송 may have submitted. Some templates submit directly from the
+            // top-level button, so neither send action is safe to retry. A failure
+            // at or after "creating" means eformsign may already hold the
             // document and only the SDK callback went missing. Those runs must not
             // report fallbackHint:"iframe" — that reopens the editor and a second
             // contract goes out. Only a failure that never reached the send button

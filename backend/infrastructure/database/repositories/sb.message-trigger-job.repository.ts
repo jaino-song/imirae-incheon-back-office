@@ -254,7 +254,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
 
     /**
      * Terminal jobs for a branch whose terminal transition landed at or
-     * after `since` — `canceledAt` for a canceled row, `updatedAt` for a
+     * in `[since, until)` — `canceledAt` for a canceled row, `updatedAt` for a
      * failed row (there is no dedicated failedAt column; markFailed()
      * always bumps updatedAt at the moment of failure). A row the user
      * canceled themselves (canceledByUser = true) is excluded: that cancel
@@ -263,6 +263,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
     async findRecentUndeliveredByBranch(
         branchId: string,
         since: Date,
+        until: Date,
         limit: number,
     ): Promise<MessageTriggerJobEntity[]> {
         const rows = await this.prisma.message_trigger_job.findMany({
@@ -270,14 +271,31 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 branchId,
                 canceledByUser: false,
                 OR: [
-                    { status: "canceled", canceledAt: { gte: since } },
-                    { status: "failed", updatedAt: { gte: since } },
+                    { status: "canceled", canceledAt: { gte: since, lt: until } },
+                    { status: "failed", updatedAt: { gte: since, lt: until } },
                 ],
             },
             orderBy: { updatedAt: "desc" },
             take: limit,
         });
         return rows.map((row) => this.toDomain(row));
+    }
+
+    async countRecentUndeliveredByBranch(
+        branchId: string,
+        since: Date,
+        until: Date,
+    ): Promise<number> {
+        return this.prisma.message_trigger_job.count({
+            where: {
+                branchId,
+                canceledByUser: false,
+                OR: [
+                    { status: "canceled", canceledAt: { gte: since, lt: until } },
+                    { status: "failed", updatedAt: { gte: since, lt: until } },
+                ],
+            },
+        });
     }
 
     async findHistoryByBranch(

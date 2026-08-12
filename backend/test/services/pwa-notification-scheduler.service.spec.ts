@@ -3,6 +3,7 @@ import { DailyDigestSection, NotificationService } from "application/services/no
 import { IBranchRepository } from "domain/repositories/branch.repository.interface";
 import { IClientRepository } from "domain/repositories/client.repository.interface";
 import { IMessageTriggerJobRepository } from "domain/repositories/message-trigger-job.repository.interface";
+import { SystemSettingService } from "application/services/system-setting.service";
 import {
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
     MessageTriggerTemplateKey,
@@ -27,6 +28,11 @@ describe("PwaNotificationSchedulerService", () => {
     };
     const messageTriggerJobRepository = {
         findRecentUndeliveredByBranch: jest.fn(),
+        countRecentUndeliveredByBranch: jest.fn(),
+    };
+    const systemSettingService = {
+        getPwaUndeliveredDigestWatermark: jest.fn(),
+        setPwaUndeliveredDigestWatermark: jest.fn(),
     };
     let service: PwaNotificationSchedulerService;
 
@@ -42,6 +48,7 @@ describe("PwaNotificationSchedulerService", () => {
             clientRepository as unknown as IClientRepository,
             branchRepository as unknown as IBranchRepository,
             messageTriggerJobRepository as unknown as IMessageTriggerJobRepository,
+            systemSettingService as unknown as SystemSettingService,
         );
 
         branchRepository.findAllActive.mockResolvedValue([{ id: "branch-1", name: "인천점" }]);
@@ -67,6 +74,9 @@ describe("PwaNotificationSchedulerService", () => {
                 cancelReason: "24시간 경과로 취소",
             },
         ]);
+        messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(1);
+        systemSettingService.getPwaUndeliveredDigestWatermark.mockResolvedValue(null);
+        systemSettingService.setPwaUndeliveredDigestWatermark.mockResolvedValue(undefined);
         notificationService.sendDailyDigestToBranchUsers.mockResolvedValue({ sent: 2, failed: 0 });
     });
 
@@ -124,7 +134,7 @@ describe("PwaNotificationSchedulerService", () => {
             {
                 key: "undeliveredMessages",
                 label: "자동 전송 실패·취소",
-                description: "어제 자동 전송 중 발송되지 못한 메시지가 1건 있어요. 필요하면 수동으로 발송해 주세요.",
+                description: "이전 알림 이후 자동 전송 중 발송되지 못한 메시지가 1건 있어요. 필요하면 수동으로 발송해 주세요.",
                 count: 1,
                 unit: "건",
                 url: "/messages",
@@ -139,6 +149,7 @@ describe("PwaNotificationSchedulerService", () => {
         clientRepository.findWithIncompleteContractsStartingWithinDays.mockResolvedValue([]);
         clientRepository.findWithoutContractSentStartingWithinDays.mockResolvedValue([]);
         messageTriggerJobRepository.findRecentUndeliveredByBranch.mockResolvedValue([]);
+        messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(0);
 
         await service.sendDailySummaryNotifications();
 
@@ -207,8 +218,20 @@ describe("PwaNotificationSchedulerService", () => {
         await expect(service.sendDailySummaryNotifications()).resolves.toBeUndefined();
 
         expect(sendBranchDigestSpy).toHaveBeenCalledTimes(2);
-        expect(sendBranchDigestSpy).toHaveBeenNthCalledWith(1, "branch-1", "인천점", expect.any(Date));
-        expect(sendBranchDigestSpy).toHaveBeenNthCalledWith(2, "branch-2", "부천점", expect.any(Date));
+        expect(sendBranchDigestSpy).toHaveBeenNthCalledWith(
+            1,
+            "branch-1",
+            "인천점",
+            expect.any(Date),
+            expect.any(Date),
+        );
+        expect(sendBranchDigestSpy).toHaveBeenNthCalledWith(
+            2,
+            "branch-2",
+            "부천점",
+            expect.any(Date),
+            expect.any(Date),
+        );
     });
 
     describe("undelivered-messages section (자동 전송 실패·취소)", () => {
@@ -225,6 +248,7 @@ describe("PwaNotificationSchedulerService", () => {
                     cancelReason: "Provider disabled or delivery failed",
                 },
             ]);
+            messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(2);
 
             await service.sendDailySummaryNotifications();
 
@@ -233,7 +257,7 @@ describe("PwaNotificationSchedulerService", () => {
             expect(section).toEqual({
                 key: "undeliveredMessages",
                 label: "자동 전송 실패·취소",
-                description: "어제 자동 전송 중 발송되지 못한 메시지가 2건 있어요. 필요하면 수동으로 발송해 주세요.",
+                description: "이전 알림 이후 자동 전송 중 발송되지 못한 메시지가 2건 있어요. 필요하면 수동으로 발송해 주세요.",
                 count: 2,
                 unit: "건",
                 url: "/messages",
@@ -242,6 +266,25 @@ describe("PwaNotificationSchedulerService", () => {
                     `박민수 · ${undeliveredMessageLabel(MessageTriggerTemplateKey.CLIENT_WELCOME)} — Provider disabled or delivery failed`,
                 ],
             });
+        });
+
+        it("should preserve the total count while capping rendered details at 50", async () => {
+            messageTriggerJobRepository.findRecentUndeliveredByBranch.mockResolvedValue(
+                Array.from({ length: 50 }, (_, index) => ({
+                    payload: { recipientName: `이용자 ${index + 1}` },
+                    templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
+                    cancelReason: "발송 실패",
+                })),
+            );
+            messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(73);
+
+            await service.sendDailySummaryNotifications();
+
+            const [, , sections] = digestCall();
+            const section = sections.find((candidate) => candidate.key === "undeliveredMessages");
+            expect(section?.count).toBe(73);
+            expect(section?.description).toContain("73건");
+            expect(section?.details).toHaveLength(50);
         });
 
         it("should fall back to 사용자 when a job's payload is missing a recipient name", async () => {
@@ -281,6 +324,7 @@ describe("PwaNotificationSchedulerService", () => {
 
         it("should omit the section when the query returns no rows, without inflating the digest section count", async () => {
             messageTriggerJobRepository.findRecentUndeliveredByBranch.mockResolvedValue([]);
+            messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(0);
 
             await service.sendDailySummaryNotifications();
 
@@ -295,14 +339,59 @@ describe("PwaNotificationSchedulerService", () => {
             const after = Date.now();
 
             expect(messageTriggerJobRepository.findRecentUndeliveredByBranch).toHaveBeenCalledTimes(1);
-            const [branchId, since, limit] = messageTriggerJobRepository.findRecentUndeliveredByBranch.mock
-                .calls[0] as [string, Date, number];
+            const [branchId, since, , limit] = messageTriggerJobRepository.findRecentUndeliveredByBranch.mock
+                .calls[0] as [string, Date, Date, number];
             expect(branchId).toBe("branch-1");
             expect(limit).toBe(50);
 
             const windowMs = 24 * 60 * 60 * 1000;
             expect(since.getTime()).toBeGreaterThanOrEqual(before - windowMs);
             expect(since.getTime()).toBeLessThanOrEqual(after - windowMs);
+        });
+
+        it("should resume from the persisted branch watermark and advance it only after a successful digest", async () => {
+            const previousWatermark = new Date("2026-08-09T00:00:00.000Z");
+            const runStartedAt = new Date("2026-08-12T00:00:00.000Z");
+            jest.spyOn(Date, "now").mockReturnValue(runStartedAt.getTime());
+            systemSettingService.getPwaUndeliveredDigestWatermark.mockResolvedValue(previousWatermark);
+
+            await service.sendDailySummaryNotifications();
+
+            expect(messageTriggerJobRepository.findRecentUndeliveredByBranch).toHaveBeenCalledWith(
+                "branch-1",
+                previousWatermark,
+                runStartedAt,
+                50,
+            );
+            expect(messageTriggerJobRepository.countRecentUndeliveredByBranch).toHaveBeenCalledWith(
+                "branch-1",
+                previousWatermark,
+                runStartedAt,
+            );
+            expect(systemSettingService.setPwaUndeliveredDigestWatermark).toHaveBeenCalledWith(
+                "branch-1",
+                runStartedAt,
+            );
+        });
+
+        it("should retain the previous watermark when digest delivery fails", async () => {
+            notificationService.sendDailyDigestToBranchUsers.mockRejectedValue(new Error("smtp down"));
+
+            await service.sendDailySummaryNotifications();
+
+            expect(systemSettingService.setPwaUndeliveredDigestWatermark).not.toHaveBeenCalled();
+        });
+
+        it("should retain the previous watermark when digest delivery is only partially successful", async () => {
+            notificationService.sendDailyDigestToBranchUsers.mockResolvedValue({
+                sent: 1,
+                skipped: 0,
+                failed: 1,
+            });
+
+            await service.sendDailySummaryNotifications();
+
+            expect(systemSettingService.setPwaUndeliveredDigestWatermark).not.toHaveBeenCalled();
         });
 
         it("should use the exact same since boundary for every branch in one run, not a fresh one per branch", async () => {
@@ -326,8 +415,8 @@ describe("PwaNotificationSchedulerService", () => {
 
             const calls = messageTriggerJobRepository.findRecentUndeliveredByBranch.mock.calls;
             expect(calls).toHaveLength(2);
-            const [, sinceBranch1] = calls[0] as [string, Date, number];
-            const [, sinceBranch2] = calls[1] as [string, Date, number];
+            const [, sinceBranch1] = calls[0] as [string, Date, Date, number];
+            const [, sinceBranch2] = calls[1] as [string, Date, Date, number];
             expect(sinceBranch1.getTime()).toBe(sinceBranch2.getTime());
         });
 
@@ -344,6 +433,7 @@ describe("PwaNotificationSchedulerService", () => {
                 "incompleteContracts",
                 "contractsNotSent",
             ]);
+            expect(systemSettingService.setPwaUndeliveredDigestWatermark).not.toHaveBeenCalled();
         });
     });
 });
