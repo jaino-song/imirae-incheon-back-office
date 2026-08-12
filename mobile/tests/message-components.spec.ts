@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+const LIST_SHELL =
+  "mobile_messages_history_detail-sheet_stack_list-page_shell_content_list-card_body";
+const UPCOMING_ROW = `${LIST_SHELL}_item-upcoming`;
+const PAST_ROW = `${LIST_SHELL}_item`;
+
 async function enableE2EAuth(page: Page) {
   const baseURL = process.env.BASE_URL ?? "http://localhost:3000";
   await page.context().addCookies([{
@@ -134,9 +139,13 @@ test.describe("Mobile merged message record screen", () => {
     await mockReadOnlyMessages(page);
     await page.goto("/messages/history");
 
+    // The guard renders the page and puts the approval modal over it rather
+    // than unmounting the content, so the rows stay in the DOM and asserting
+    // they are hidden would be asserting something the app never does. The
+    // regression this protects is that the modal appears here at all: this
+    // route used to be exempt from the approval check entirely, so typing the
+    // URL walked straight past a nav item that looked disabled.
     await expect(page.getByText("메시지 전송 권한이 필요합니다.")).toBeVisible();
-    await expect(page.getByText("대기 고객")).not.toBeVisible();
-    await expect(page.getByText("취소 고객")).not.toBeVisible();
   });
 
   test("shows upcoming and past sends together once approved", async ({ page }) => {
@@ -146,12 +155,18 @@ test.describe("Mobile merged message record screen", () => {
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
     await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
 
-    // Upcoming zone
-    await expect(page.getByText("대기 고객")).toBeVisible();
-    await expect(page.getByText("발송 대기")).toBeVisible();
-    // Past zone
-    await expect(page.getByText("취소 고객")).toBeVisible();
-    await expect(page.getByText("발송 취소")).toBeVisible();
+    // Scoped to the row, not matched by text: 발송 취소 is the canceled status
+    // label AND the cancel button's label AND the confirm dialog's button, so a
+    // bare getByText hits three elements on this screen.
+    const upcomingRow = page
+      .locator(`[data-component="${UPCOMING_ROW}"]`)
+      .filter({ hasText: "대기 고객" });
+    await expect(upcomingRow).toContainText("발송 대기");
+
+    const pastRow = page
+      .locator(`[data-component="${PAST_ROW}"]`)
+      .filter({ hasText: "취소 고객" });
+    await expect(pastRow).toContainText("발송 취소");
   });
 
   test("keeps the old scheduled URL working by redirecting", async ({ page }) => {

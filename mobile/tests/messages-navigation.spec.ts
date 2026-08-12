@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+const LIST_SHELL =
+  "mobile_messages_history_detail-sheet_stack_list-page_shell_content_list-card_body";
+const UPCOMING_ZONE_HEADER = `${LIST_SHELL}_zone-upcoming_header`;
+const PAST_ZONE_HEADER = `${LIST_SHELL}_zone-past_header`;
+
 async function mockMessagesApproval(page: Page) {
   await page.route("**/api/settings/message-sender-approval", async (route: Route) => {
     await route.fulfill({
@@ -119,7 +124,9 @@ test.describe("mobile messages navigation", () => {
 
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
     await expect(page.getByText("문자 고객")).toBeVisible();
-    await expect(page.getByText("1건")).toBeVisible();
+    // The merged screen prints a count in the card title and again in each zone
+    // header, so "1건" is no longer unique — assert the past zone's own header.
+    await expect(page.locator(`[data-component="${PAST_ZONE_HEADER}"]`)).toContainText("1건");
 
     await page.getByRole("button", { name: /인사 메시지/ }).click();
 
@@ -177,7 +184,9 @@ test.describe("mobile messages navigation", () => {
     await page.goto("/messages/history");
 
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
-    await expect(page.getByText("예정", { exact: true }).first()).toBeVisible();
+    // The zone header is one text node ("예정 1건"), so an exact-text match on
+    // 예정 finds nothing — select the header itself.
+    await expect(page.locator(`[data-component="${UPCOMING_ZONE_HEADER}"]`)).toContainText("예정");
     await expect(page.getByText("예정 고객")).toBeVisible();
   });
 });
