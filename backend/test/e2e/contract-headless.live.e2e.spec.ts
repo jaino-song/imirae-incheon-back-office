@@ -375,17 +375,9 @@ const buildContract = (
         );
 
         const fixtureStartedAt = Date.now();
-        let documentId: string | undefined;
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
-            const fixtureResult = await headlessService.dispatchCreation({ documentOption });
-            documentId = fixtureResult.documentId
-                ?? await findRemoteByCustomer(customerName, fixtureStartedAt - 5_000);
-            if (documentId) break;
-            expect(fixtureResult).toEqual(expect.objectContaining({
-                ok: false,
-                reason: expect.stringContaining("confirmation popup timed out twice"),
-            }));
-        }
+        const fixtureResult = await headlessService.dispatchCreation({ documentOption });
+        const documentId = fixtureResult.documentId
+            ?? await findRemoteByCustomer(customerName, fixtureStartedAt - 5_000);
         expect(documentId).toBeTruthy();
         remoteDocumentIds.add(documentId!);
 

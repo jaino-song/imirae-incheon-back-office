@@ -59,7 +59,7 @@ describe("runEformsignCreationGates", () => {
         expect(startButton.click).toHaveBeenCalledTimes(2);
     });
 
-    it("retries a missing confirmation popup once, then opens the iframe fallback", async () => {
+    it("treats a missing confirmation popup as an ambiguous direct send without clicking twice", async () => {
         const topLevelSendButton = visibleLocator();
         const requestSendDialog = visibleLocator({
             isVisible: jest.fn().mockResolvedValue(false),
@@ -83,11 +83,9 @@ describe("runEformsignCreationGates", () => {
 
         await expect(
             runEformsignCreationGates(page, eformsignFrame, console, onProgress),
-        ).rejects.toThrow(
-            "Pre-send eformsign creation confirmation popup timed out twice; opening iframe fallback",
-        );
-        expect(topLevelSendButton.click).toHaveBeenCalledTimes(2);
-        expect(onProgress).not.toHaveBeenCalledWith("creating");
+        ).resolves.toBe("request-send-attempted");
+        expect(topLevelSendButton.click).toHaveBeenCalledTimes(1);
+        expect(onProgress.mock.calls.map(([step]) => step)).toEqual(["creating"]);
     });
 
     it("treats a timed-out popup send click as attempted without clicking twice", async () => {

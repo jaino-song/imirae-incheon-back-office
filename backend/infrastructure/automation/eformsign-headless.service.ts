@@ -224,8 +224,9 @@ export class EformsignHeadlessService implements OnModuleDestroy {
 
         // The gate runner only confirms the click sequence completed; the
         // actual dispatch is acknowledged by the SDK success callback
-        // (`__eformsignSuccess`). If that never fires, the document was not
-        // sent — surface that as ok=false so the frontend falls back.
+        // (`__eformsignSuccess`). If that never fires, surface ok=false; the
+        // caller uses the emitted creating progress to reconcile remotely
+        // instead of reopening mode:01.
         const documentId = await this.waitForTerminalSdkCallback(page, 30_000);
         params.onProgress?.("sent");
 

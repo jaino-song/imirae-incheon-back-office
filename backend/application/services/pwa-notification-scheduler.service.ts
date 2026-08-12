@@ -9,14 +9,12 @@ import {
 } from "domain/repositories/message-trigger-job.repository.interface";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { MESSAGE_TRIGGER_TEMPLATE_CATALOG } from "domain/constants/message-trigger-catalog";
+import { SystemSettingService } from "./system-setting.service";
 
 const DAYS_THRESHOLD = 7;
 
-// Rolling 24-hour lookback for the "자동 전송 실패·취소" section, not a calendar day: both the
-// digest and the automated send run at 09:00 KST, so a calendar-day cut would report the prior
-// batch's failures a day late. A rolling window from one digest to the next covers exactly the
-// previous batch, with no gap and no double-report — which requires every branch in a run to
-// share one boundary; it is computed once, before the per-branch loop, rather than per branch.
+// Initial lookback for branches that do not have a successful digest watermark yet.
+// After the first successful run, each branch resumes from its persisted boundary.
 const UNDELIVERED_MESSAGES_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // Sane upper bound on how many undelivered-message lines the digest email lists — matches the
@@ -53,19 +51,24 @@ export class PwaNotificationSchedulerService {
         private readonly branchRepository: IBranchRepository,
         @Inject(MESSAGE_TRIGGER_JOB_REPOSITORY)
         private readonly messageTriggerJobRepository: IMessageTriggerJobRepository,
+        private readonly systemSettingService: SystemSettingService,
     ) {}
 
     @Cron("0 9 * * *", { timeZone: "Asia/Seoul" })
     async sendDailySummaryNotifications(): Promise<void> {
         this.logger.log("[PWA Scheduler] Starting daily summary notifications...");
 
-        const undeliveredSince = new Date(Date.now() - UNDELIVERED_MESSAGES_WINDOW_MS);
+        const runStartedAt = new Date(Date.now());
         const branches = await this.branchRepository.findAllActive();
 
         for (const org of branches) {
             this.logger.log(`[PWA Scheduler] Processing org: ${org.name} (${org.id})`);
             try {
-                await this.sendBranchDigest(org.id, org.name, undeliveredSince);
+                const persistedWatermark = await this.systemSettingService
+                    .getPwaUndeliveredDigestWatermark(org.id);
+                const undeliveredSince = persistedWatermark
+                    ?? new Date(runStartedAt.getTime() - UNDELIVERED_MESSAGES_WINDOW_MS);
+                await this.sendBranchDigest(org.id, org.name, undeliveredSince, runStartedAt);
             } catch (error) {
                 this.logger.error(
                     `[PWA Scheduler] Failed to process branch ${org.id}`,
@@ -82,8 +85,13 @@ export class PwaNotificationSchedulerService {
      * notification service as a single digest — one in-app row, one push and one email
      * per branch user, rather than one send per condition (or per client).
      */
-    private async sendBranchDigest(branchId: string, branchName: string, undeliveredSince: Date): Promise<void> {
-        const [upcoming, ending, incompleteContracts, contractsNotSent, undeliveredMessages] = await Promise.all([
+    private async sendBranchDigest(
+        branchId: string,
+        branchName: string,
+        undeliveredSince: Date,
+        runStartedAt: Date,
+    ): Promise<void> {
+        const [upcoming, ending, incompleteContracts, contractsNotSent, undelivered] = await Promise.all([
             this.collect(branchId, "upcoming services", () =>
                 this.clientRepository.findStartingWithinDays(branchId, DAYS_THRESHOLD)),
             this.collect(branchId, "ending services", () =>
@@ -92,12 +100,7 @@ export class PwaNotificationSchedulerService {
                 this.clientRepository.findWithIncompleteContractsStartingWithinDays(branchId, DAYS_THRESHOLD)),
             this.collect(branchId, "contracts not sent", () =>
                 this.clientRepository.findWithoutContractSentStartingWithinDays(branchId, DAYS_THRESHOLD)),
-            this.collect(branchId, "undelivered messages", () =>
-                this.messageTriggerJobRepository.findRecentUndeliveredByBranch(
-                    branchId,
-                    undeliveredSince,
-                    UNDELIVERED_MESSAGES_LIMIT,
-                )),
+            this.collectUndeliveredMessages(branchId, undeliveredSince, runStartedAt),
         ]);
 
         const sections: DailyDigestSection[] = [];
@@ -147,20 +150,23 @@ export class PwaNotificationSchedulerService {
             });
         }
 
-        if (undeliveredMessages.length > 0) {
+        if (undelivered.total > 0) {
             sections.push({
                 key: "undeliveredMessages",
                 label: "자동 전송 실패·취소",
-                description: `어제 자동 전송 중 발송되지 못한 메시지가 ${undeliveredMessages.length}건 있어요. 필요하면 수동으로 발송해 주세요.`,
-                count: undeliveredMessages.length,
+                description: `이전 알림 이후 자동 전송 중 발송되지 못한 메시지가 ${undelivered.total}건 있어요. 필요하면 수동으로 발송해 주세요.`,
+                count: undelivered.total,
                 unit: "건",
                 url: "/messages",
-                details: undeliveredMessages.map((job) => this.formatUndeliveredMessageDetail(job)),
+                details: undelivered.items.map((job) => this.formatUndeliveredMessageDetail(job)),
             });
         }
 
         if (sections.length === 0) {
             this.logger.log(`[PWA Scheduler] Nothing to report for branch ${branchId}`);
+            if (undelivered.loaded) {
+                await this.systemSettingService.setPwaUndeliveredDigestWatermark(branchId, runStartedAt);
+            }
             return;
         }
 
@@ -174,11 +180,43 @@ export class PwaNotificationSchedulerService {
             this.logger.log(
                 `[PWA Scheduler] Daily digest for branch ${branchId}: ${sections.length} sections, ${result.sent} sent, ${result.failed} failed`,
             );
+            if (undelivered.loaded && result.sent > 0 && result.failed === 0) {
+                await this.systemSettingService.setPwaUndeliveredDigestWatermark(branchId, runStartedAt);
+            }
         } catch (error) {
             this.logger.error(
                 `[PWA Scheduler] Failed to send daily digest for branch ${branchId}`,
                 error instanceof Error ? error.stack : String(error),
             );
+        }
+    }
+
+    private async collectUndeliveredMessages(
+        branchId: string,
+        since: Date,
+        until: Date,
+    ): Promise<{ items: MessageTriggerJobEntity[]; total: number; loaded: boolean }> {
+        try {
+            const [items, total] = await Promise.all([
+                this.messageTriggerJobRepository.findRecentUndeliveredByBranch(
+                    branchId,
+                    since,
+                    until,
+                    UNDELIVERED_MESSAGES_LIMIT,
+                ),
+                this.messageTriggerJobRepository.countRecentUndeliveredByBranch(
+                    branchId,
+                    since,
+                    until,
+                ),
+            ]);
+            return { items, total, loaded: true };
+        } catch (error) {
+            this.logger.error(
+                `[PWA Scheduler] Failed to load undelivered messages for branch ${branchId}`,
+                error instanceof Error ? error.stack : String(error),
+            );
+            return { items: [], total: 0, loaded: false };
         }
     }
 

@@ -121,6 +121,7 @@ describe("SbMessageTriggerJobRepository", () => {
         update: jest.fn(),
         findUnique: jest.fn(),
         findMany: jest.fn(),
+        count: jest.fn(),
         findFirst: jest.fn(),
         updateMany: jest.fn(),
     });
@@ -354,6 +355,7 @@ describe("SbMessageTriggerJobRepository", () => {
 
     it("findRecentUndeliveredByBranch scopes to branch and the failed/canceled since-window, newest first", async () => {
         const since = new Date("2026-07-08T00:00:00.000Z");
+        const until = new Date("2026-07-09T00:00:00.000Z");
         messageTriggerJobModel.findMany.mockResolvedValue([
             createRow({
                 id: "job-canceled",
@@ -370,7 +372,7 @@ describe("SbMessageTriggerJobRepository", () => {
             }),
         ]);
 
-        const result = await repository.findRecentUndeliveredByBranch("branch-1", since, 25);
+        const result = await repository.findRecentUndeliveredByBranch("branch-1", since, until, 25);
 
         // Deliberately scoped with objectContaining (not a canceledByUser
         // guard test — see the dedicated guard test below): branch scoping,
@@ -381,8 +383,8 @@ describe("SbMessageTriggerJobRepository", () => {
             where: expect.objectContaining({
                 branchId: "branch-1",
                 OR: [
-                    { status: "canceled", canceledAt: { gte: since } },
-                    { status: "failed", updatedAt: { gte: since } },
+                    { status: "canceled", canceledAt: { gte: since, lt: until } },
+                    { status: "failed", updatedAt: { gte: since, lt: until } },
                 ],
             }),
             orderBy: { updatedAt: "desc" },
@@ -395,9 +397,10 @@ describe("SbMessageTriggerJobRepository", () => {
 
     it("findRecentUndeliveredByBranch's guarded WHERE clause excludes a user-canceled row from the digest (canceledByUser guard)", async () => {
         const since = new Date("2026-07-08T00:00:00.000Z");
+        const until = new Date("2026-07-09T00:00:00.000Z");
         messageTriggerJobModel.findMany.mockResolvedValue([]);
 
-        await repository.findRecentUndeliveredByBranch("branch-1", since, 25);
+        await repository.findRecentUndeliveredByBranch("branch-1", since, until, 25);
 
         // Mutation-sensitive assertion, isolated from the shape test above:
         // a cancel the user pressed themselves must never be reported back
@@ -407,6 +410,26 @@ describe("SbMessageTriggerJobRepository", () => {
         // test above uses objectContaining and does not assert on this key).
         const [{ where }] = messageTriggerJobModel.findMany.mock.calls[0];
         expect(where.canceledByUser).toBe(false);
+    });
+
+    it("countRecentUndeliveredByBranch uses the same guarded half-open window", async () => {
+        const since = new Date("2026-07-08T00:00:00.000Z");
+        const until = new Date("2026-07-09T00:00:00.000Z");
+        messageTriggerJobModel.count.mockResolvedValue(73);
+
+        await expect(
+            repository.countRecentUndeliveredByBranch("branch-1", since, until),
+        ).resolves.toBe(73);
+        expect(messageTriggerJobModel.count).toHaveBeenCalledWith({
+            where: {
+                branchId: "branch-1",
+                canceledByUser: false,
+                OR: [
+                    { status: "canceled", canceledAt: { gte: since, lt: until } },
+                    { status: "failed", updatedAt: { gte: since, lt: until } },
+                ],
+            },
+        });
     });
 
     it("upsertPending falls back to findUnique when the guarded update matches no row (sent row stays immutable)", async () => {

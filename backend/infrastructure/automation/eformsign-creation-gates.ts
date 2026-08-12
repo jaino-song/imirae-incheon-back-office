@@ -27,9 +27,9 @@ const EFORMSIGN_CREATION_GATE_WAIT_TIMEOUT_MS = 70_000;
 // click. Kept separate from the wait budget on purpose: sharing one deadline let
 // a slow editor render starve the sequence, which needs only ~2s in practice.
 const EFORMSIGN_CREATION_GATE_ACTION_TIMEOUT_MS = 30_000;
-// The first top-level 전송 only opens a confirmation popup; it does not submit
-// the document. Give the popup 2 seconds, retry that safe pre-send click once,
-// then hand control to the visible iframe instead of idling for the full gate budget.
+// Older templates open a confirmation popup from top-level 전송, while newer
+// direct-send templates can submit immediately. Wait briefly for the popup,
+// but never click the same top-level action twice when its outcome is ambiguous.
 const EFORMSIGN_TOP_LEVEL_SEND_POPUP_WAIT_POLLS = 4;
 
 /**
@@ -52,10 +52,10 @@ export async function runEformsignCreationGates(
     let lastDiagnosticAt = startedAt;
     let firstActionAt: number | null = null;
     let topLevelSendAttempted = false;
-    let topLevelSendClickCount = 0;
     let topLevelSendPopupWaitPolls = 0;
     let ignoredPostTopLevelSuccessLogged = false;
     let preSendClickTimeoutCount = 0;
+    let sendAttemptedEmitted = false;
 
     const logMessage = (message: string): void => {
         const log = (logger as NestLogger).log;
@@ -89,6 +89,12 @@ export async function runEformsignCreationGates(
         if (infoInsertedEmitted) return;
         infoInsertedEmitted = true;
         onProgress?.("info-inserted");
+    };
+
+    const emitSendAttempted = () => {
+        if (sendAttemptedEmitted) return;
+        sendAttemptedEmitted = true;
+        onProgress?.("creating");
     };
 
     const tryPreSendClick = async (locator: Locator, action: string): Promise<boolean> => {
@@ -177,12 +183,12 @@ export async function runEformsignCreationGates(
                         "[creation-gate] popup 전송 click outcome is ambiguous; reconciling without retry";
                     logMessage(message);
                     emitInfoInserted();
-                    onProgress?.("creating");
+                    emitSendAttempted();
                     return "request-send-attempted";
                 }
                 logMessage("[creation-gate] clicked popup 전송");
                 emitInfoInserted();
-                onProgress?.("creating");
+                emitSendAttempted();
                 return "request-send-clicked";
             }
 
@@ -192,13 +198,13 @@ export async function runEformsignCreationGates(
             }
             const popupWaitExpired =
                 topLevelSendPopupWaitPolls >= EFORMSIGN_TOP_LEVEL_SEND_POPUP_WAIT_POLLS;
-            if (
-                popupWaitExpired
-                && topLevelSendClickCount >= EFORMSIGN_PRE_SEND_CLICK_TIMEOUT_LIMIT
-            ) {
-                throw new Error(
-                    "Pre-send eformsign creation confirmation popup timed out twice; opening iframe fallback",
+            if (popupWaitExpired) {
+                lastAction = "top-level 전송 may have submitted directly; reconciling";
+                logMessage(
+                    "[creation-gate] confirmation popup did not appear after top-level 전송; " +
+                        "reconciling without retry",
                 );
+                return "request-send-attempted";
             }
 
             const topLevelSendButton = requestSendDialogVisible
@@ -208,22 +214,19 @@ export async function runEformsignCreationGates(
             if (topLevelSendButton) {
                 const isFinalTopLevelSend = stampConfirmCount >= 3 || infoInsertedEmitted;
                 topLevelSendAttempted = true;
-                topLevelSendClickCount += 1;
                 topLevelSendPopupWaitPolls = 0;
+                if (isFinalTopLevelSend) {
+                    emitInfoInserted();
+                }
+                emitSendAttempted();
 
                 if (!(await tryClickGateLocator(topLevelSendButton))) {
                     lastAction = "top-level 전송 click outcome ambiguous; waiting for popup";
-                    if (isFinalTopLevelSend) {
-                        emitInfoInserted();
-                    }
                     noteAction(lastAction);
                     await page.waitForTimeout(EFORMSIGN_GATE_POLL_MS);
                     continue;
                 }
                 logMessage("[creation-gate] clicked top-level 전송");
-                if (isFinalTopLevelSend) {
-                    emitInfoInserted();
-                }
                 noteAction("clicked top-level 전송");
                 await page.waitForTimeout(250);
                 continue;
