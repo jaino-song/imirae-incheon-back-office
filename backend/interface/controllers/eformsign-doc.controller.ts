@@ -326,6 +326,10 @@ export class EformsignDocController {
                 fallbackHint: result.fallbackHint,
             };
         }
-        return { ok: true, durationMs: result.durationMs };
+        return {
+            ok: true,
+            completed: result.completed,
+            durationMs: result.durationMs,
+        };
     }
 }

@@ -66,6 +66,29 @@ describe("headless dispatch timeout ordering", () => {
         expect(timeout).toBeGreaterThanOrEqual(180_000);
     });
 
+    it("continues an advanced provider step until the document is completed", async () => {
+        mockPost
+            .mockResolvedValueOnce({ data: { ok: true, completed: false, durationMs: 700 } })
+            .mockResolvedValueOnce({ data: { ok: true, completed: true, durationMs: 900 } });
+
+        await expect(eformsignApi.finalizeHeadless("doc-1"))
+            .resolves.toEqual({ ok: true, completed: true, durationMs: 1_600 });
+        expect(mockPost).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails closed when the provider keeps advancing beyond the bounded workflow", async () => {
+        mockPost.mockResolvedValue({ data: { ok: true, completed: false, durationMs: 700 } });
+
+        await expect(eformsignApi.finalizeHeadless("doc-1"))
+            .resolves.toEqual({
+                ok: false,
+                reason: "provider_workflow_incomplete",
+                fallbackHint: "manual_check",
+                durationMs: 2_100,
+            });
+        expect(mockPost).toHaveBeenCalledTimes(3);
+    });
+
     it.each([
         ["dispatch-headless", () => eformsignApi.dispatchHeadless({}, 1, "p-1")],
         ["finalize-headless", () => eformsignApi.finalizeHeadless("doc-1", undefined, "p-1")],

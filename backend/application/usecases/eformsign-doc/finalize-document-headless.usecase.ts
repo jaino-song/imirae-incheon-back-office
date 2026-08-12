@@ -8,7 +8,10 @@ import { EformsignHeadlessProgressService } from "application/services/eformsign
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { GetEformsignAccessTokenUsecase } from "./get-eformsign-access-token.usecase";
-import { EFORMSIGN_COMPLETED_STATUS_CODES } from "domain/constants/eformsign-doc-status.constants";
+import {
+    EFORMSIGN_COMPLETED_STATUS_CODES,
+    TERMINAL_STATUS_CODES,
+} from "domain/constants/eformsign-doc-status.constants";
 import {
     EformsignOperationAlreadyRunningError,
     EformsignOperationLease,
@@ -24,6 +27,13 @@ export interface FinalizeHeadlessParams {
 
 export interface FinalizeHeadlessSuccess {
     ok: true;
+    completed: true;
+    durationMs: number;
+}
+
+export interface FinalizeHeadlessAdvanced {
+    ok: true;
+    completed: false;
     durationMs: number;
 }
 
@@ -40,7 +50,10 @@ export interface FinalizeHeadlessFailure {
     failedStep?: EformsignHeadlessProgressStep;
 }
 
-export type FinalizeHeadlessResult = FinalizeHeadlessSuccess | FinalizeHeadlessFailure;
+export type FinalizeHeadlessResult =
+    | FinalizeHeadlessSuccess
+    | FinalizeHeadlessAdvanced
+    | FinalizeHeadlessFailure;
 
 // The embedded SDK callback and the document-detail API are not atomic. Keep
 // this bounded below the frontend proxy timeout while giving the vendor enough
@@ -48,7 +61,7 @@ export type FinalizeHeadlessResult = FinalizeHeadlessSuccess | FinalizeHeadlessF
 const VENDOR_OUTCOME_RETRY_DELAYS_MS = [0, 500, 1_000, 2_000, 4_000, 8_000] as const;
 const POST_FINALIZE_MIRROR_RETRY_DELAYS_MS = [0, 1_000, 3_000, 8_000] as const;
 
-type VendorOutcome = "completed" | "advanced" | "pending" | "unknown";
+type VendorOutcome = "completed" | "advanced" | "failed" | "pending" | "unknown";
 
 function workflowStateAdvanced(
     initial: EformsignDocumentWorkflowState,
@@ -131,16 +144,13 @@ export class FinalizeDocumentHeadlessUsecase {
             const accessToken = tokenResponse.oauth_token.access_token;
             const refreshToken = tokenResponse.oauth_token.refresh_token;
 
-            // Some contract templates have two consecutive provider-owned steps
-            // (제공기관 확인 -> 제공기관 검토). A successful submit can therefore
-            // advance the workflow without completing the whole document. Capture
-            // the exact starting step so callback-loss reconciliation does not
-            // report that legitimate transition as a failure.
+            // A contract can contain consecutive provider-owned steps
+            // (제공기관 확인 -> 제공기관 검토). Each HTTP request handles one
+            // step so even a slow valid step remains below the 170s proxy limit.
             const initialWorkflowState = await this.readInitialWorkflowState(
                 params.documentId,
                 accessToken,
             );
-
             const documentOption = (await this.eformsignService.generateStaffCompletionOptions(
                 params.documentId,
                 accessToken,
@@ -162,72 +172,75 @@ export class FinalizeDocumentHeadlessUsecase {
                 documentId: params.documentId,
                 onProgress: (step) => {
                     latestProgressStep = step;
-                    this.progressService.emit(params.progressId, step);
+                    // The SDK's sent callback confirms this step's submission,
+                    // not whole-document completion. Hold it until the vendor
+                    // status read proves that no provider step remains.
+                    if (step !== "sent") {
+                        this.progressService.emit(params.progressId, step);
+                    }
                 },
             });
-
-            if (!result.ok) {
-                // The gate emits "creating" only for the confirmation popup's 전송,
-                // never the safe top-level click that merely opens that popup. A
-                // failure at or after that step sits on an unknown side of the submit.
-                // Reopening the editor then can ask a human to re-approve a step
-                // eformsign already completed, so ask the vendor before guessing.
-                const sendWasAttempted =
-                    latestProgressStep === "creating" || latestProgressStep === "sent";
-                const settled = sendWasAttempted
-                    ? await this.waitForVendorOutcome(
-                        params.documentId,
-                        accessToken,
-                        initialWorkflowState,
-                    )
-                    : "pending";
-
-                if (settled === "completed" || settled === "advanced") {
-                    this.logger.log(
-                        `Headless finalize for ${params.documentId} reported "${result.reason}" but eformsign shows the workflow ${settled}; treating as success.`,
-                    );
-                    this.progressService.emit(params.progressId, "sent");
-                    return this.buildSuccessfulResult(params.documentId, result.durationMs);
-                }
-
+            const sendWasAttempted =
+                latestProgressStep === "creating" || latestProgressStep === "sent";
+            if (!result.ok && !sendWasAttempted) {
                 this.progressService.emit(params.progressId, "failed", result.reason, latestProgressStep);
                 return {
                     ok: false,
                     reason: result.reason,
-                    fallbackHint: settled === "pending" ? "iframe" : "manual_check",
+                    fallbackHint: "iframe",
                     durationMs: result.durationMs,
                     failedStep: latestProgressStep,
                 };
             }
 
-            // A run that ended on the success latch stopped at the SDK callback
-            // without necessarily having clicked the popup 전송 that submits —
-            // exactly how a finalize once reported a completion eformsign never
-            // performed. The SDK's completion code is inferred, not documented,
-            // so this one path is settled by the vendor rather than by us.
-            if (result.gateOutcome === "success-latched") {
-                const settled = await this.waitForVendorOutcome(
-                    params.documentId,
-                    accessToken,
-                    initialWorkflowState,
-                );
-                if (settled !== "completed" && settled !== "advanced") {
-                    const reason = "eformsign reported success without submitting the document";
-                    this.logger.warn(
-                        `Headless finalize for ${params.documentId}: ${reason} (vendor status: ${settled}).`,
-                    );
-                    this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
-                    return {
-                        ok: false,
-                        reason,
-                        fallbackHint: settled === "pending" ? "iframe" : "manual_check",
-                        durationMs: result.durationMs,
-                        failedStep: latestProgressStep,
-                    };
-                }
+            // Production adapters expose the workflow reader. Older adapters
+            // and narrow unit stubs may not, so preserve the documented gate
+            // result there except for the ambiguous success-latch path.
+            const workflowReaderAvailable = typeof this.eformsignService.fetchDocumentWorkflowState === "function";
+            const mustConfirmWithVendor = workflowReaderAvailable
+                || !result.ok
+                || result.gateOutcome === "success-latched";
+            if (!mustConfirmWithVendor) {
+                return this.buildSuccessfulResult(params.documentId, result.durationMs);
             }
 
-            return this.buildSuccessfulResult(params.documentId, result.durationMs);
+            const settled = await this.waitForVendorOutcome(
+                params.documentId,
+                accessToken,
+                initialWorkflowState,
+            );
+            if (settled === "completed") {
+                if (!result.ok) {
+                    this.logger.log(
+                        `Headless finalize for ${params.documentId} reported "${result.reason}" but eformsign completed the document.`,
+                    );
+                }
+                this.progressService.emit(params.progressId, "sent");
+                return this.buildSuccessfulResult(params.documentId, result.durationMs);
+            }
+            if (settled === "advanced") {
+                this.logger.log(
+                    `Headless finalize advanced ${params.documentId} to the next provider step.`,
+                );
+                return { ok: true, completed: false, durationMs: result.durationMs };
+            }
+
+            const reason = settled === "failed"
+                ? "eformsign_terminal_failure"
+                : result.ok
+                    ? "eformsign reported success without submitting the document"
+                    : result.reason;
+            this.logger.warn(
+                `Headless finalize for ${params.documentId}: ${reason} (vendor status: ${settled}).`,
+            );
+            this.progressService.emit(params.progressId, "failed", reason, latestProgressStep);
+            return {
+                ok: false,
+                reason,
+                fallbackHint: settled === "pending" ? "iframe" : "manual_check",
+                durationMs: result.durationMs,
+                failedStep: latestProgressStep,
+            };
         } catch (error) {
             const reason = error instanceof Error ? error.message : "unknown headless finalize error";
             this.logger.error(`FinalizeDocumentHeadlessUsecase failed: ${reason}`);
@@ -255,7 +268,7 @@ export class FinalizeDocumentHeadlessUsecase {
             this.queueMirrorSync(documentId);
         }
 
-        return { ok: true, durationMs };
+        return { ok: true, completed: true, durationMs };
     }
 
     private queueMirrorSync(documentId: string): void {
@@ -315,6 +328,9 @@ export class FinalizeDocumentHeadlessUsecase {
                 if (current.statusCode && EFORMSIGN_COMPLETED_STATUS_CODES.has(current.statusCode)) {
                     return "completed";
                 }
+                if (current.statusCode && TERMINAL_STATUS_CODES.has(current.statusCode)) {
+                    return "failed";
+                }
                 if (workflowStateAdvanced(initialWorkflowState, current)) {
                     return "advanced";
                 }
@@ -329,7 +345,8 @@ export class FinalizeDocumentHeadlessUsecase {
                 this.logger.warn(`eformsign returned no status while confirming finalize for ${documentId}.`);
                 return "unknown";
             }
-            return EFORMSIGN_COMPLETED_STATUS_CODES.has(statusCode) ? "completed" : "pending";
+            if (EFORMSIGN_COMPLETED_STATUS_CODES.has(statusCode)) return "completed";
+            return TERMINAL_STATUS_CODES.has(statusCode) ? "failed" : "pending";
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             this.logger.warn(`Could not read eformsign status for ${documentId}: ${reason}`);
@@ -354,7 +371,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 accessToken,
                 initialWorkflowState,
             );
-            if (outcome === "completed" || outcome === "advanced") {
+            if (outcome === "completed" || outcome === "advanced" || outcome === "failed") {
                 return outcome;
             }
             latest = outcome;

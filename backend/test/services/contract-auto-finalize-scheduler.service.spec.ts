@@ -36,7 +36,9 @@ describe("ContractAutoFinalizeSchedulerService", () => {
             findReviewStageContracts: jest.fn().mockResolvedValue([]),
             recordAutoFinalizeFailure: jest.fn().mockResolvedValue(1),
         };
-        finalizeUsecase = { execute: jest.fn().mockResolvedValue({ ok: true, durationMs: 900 }) };
+        finalizeUsecase = {
+            execute: jest.fn().mockResolvedValue({ ok: true, completed: true, durationMs: 900 }),
+        };
         notificationService = { sendToBranchUsers: jest.fn().mockResolvedValue({ sent: 1, failed: 0 }) };
         service = new ContractAutoFinalizeSchedulerService(
             { get: (key: string) => configValues[key] } as never,
@@ -94,13 +96,27 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         ]);
         finalizeUsecase.execute
             .mockResolvedValueOnce({ ok: false, reason: "gate timeout", fallbackHint: "iframe", durationMs: 31_000 })
-            .mockResolvedValueOnce({ ok: true, durationMs: 900 });
+            .mockResolvedValueOnce({ ok: true, completed: true, durationMs: 900 });
 
         await service.autoFinalizeDueContracts();
 
         expect(repository.recordAutoFinalizeFailure).toHaveBeenCalledWith("fails", "gate timeout");
         expect(finalizeUsecase.execute).toHaveBeenCalledTimes(2);
         expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
+    });
+
+    it("continues an advanced provider step before recording final success", async () => {
+        repository.findReviewStageContracts.mockResolvedValue([
+            contract({ documentId: "multi-step" }),
+        ]);
+        finalizeUsecase.execute
+            .mockResolvedValueOnce({ ok: true, completed: false, durationMs: 700 })
+            .mockResolvedValueOnce({ ok: true, completed: true, durationMs: 900 });
+
+        await service.autoFinalizeDueContracts();
+
+        expect(finalizeUsecase.execute).toHaveBeenCalledTimes(2);
+        expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
     });
 
     it("notifies the branch exactly when the retry budget is exhausted", async () => {

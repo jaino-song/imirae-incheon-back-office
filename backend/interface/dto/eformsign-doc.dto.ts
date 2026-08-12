@@ -174,9 +174,13 @@ export interface ReviewNeededContractDto {
     autoFinalizeLastAttemptAt: string | null;
 }
 
-export interface FinalizeHeadlessResponseDto {
-    ok: boolean;
+export type FinalizeHeadlessResponseDto = {
+    ok: true;
+    completed: boolean;
+    durationMs: number;
+} | {
+    ok: false;
     durationMs: number;
     reason?: string;
     fallbackHint?: "iframe" | "manual_check";
-}
+};

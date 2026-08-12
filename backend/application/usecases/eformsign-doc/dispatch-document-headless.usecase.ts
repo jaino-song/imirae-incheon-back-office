@@ -27,6 +27,12 @@ const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045",
 const TERMINAL_STATUS_CODES = new Set([...COMPLETED_STATUS_CODES, ...REJECTED_STATUS_CODES, "090", "099"]);
 const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
 const CREATED_DOCUMENT_RETRY_DELAYS_MS = [0, 500, 1_000, 2_000, 4_000, 8_000] as const;
+// Leave 40s beneath the 170s proxy ceiling for the final status read and local
+// persistence after a remote document has been identified.
+const HEADLESS_CREATE_RECONCILIATION_DEADLINE_MS = 130_000;
+const CREATED_DOCUMENT_DETAIL_READ_TIMEOUT_MS = 5_000;
+
+class CreatedDocumentReconciliationDeadlineError extends Error {}
 
 export interface DispatchHeadlessParams {
     contractData: ContractDataDto;
@@ -226,6 +232,7 @@ export class DispatchDocumentHeadlessUsecase {
                 params.contractData.customerName,
                 templateId,
                 start,
+                start + HEADLESS_CREATE_RECONCILIATION_DEADLINE_MS,
             );
             const documentId = result.documentId ?? reconciliation?.documentId;
             if (!documentId) {
@@ -309,15 +316,21 @@ export class DispatchDocumentHeadlessUsecase {
         customerName: string,
         templateId: string | undefined,
         startedAt: number,
+        deadlineAt: number,
     ): Promise<{ available: boolean; documentId?: string }> {
         let completedRemoteRead = false;
         const normalizedCustomerName = customerName.trim();
         for (const delayMs of CREATED_DOCUMENT_RETRY_DELAYS_MS) {
+            if (Date.now() >= deadlineAt) break;
             if (delayMs > 0) {
+                if (Date.now() + delayMs >= deadlineAt) break;
                 await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
             }
             try {
-                const candidates = (await this.fetchAllEformsignDocsFromApiUsecase.execute(accessToken))
+                const candidates = (await this.withDeadline(
+                    () => this.fetchAllEformsignDocsFromApiUsecase.execute(accessToken),
+                    deadlineAt,
+                ))
                     .filter((document) => document.created_date >= startedAt - 5_000)
                     .filter((document) => !templateId || document.template?.id === templateId)
                     .sort((left, right) => right.created_date - left.created_date);
@@ -351,10 +364,14 @@ export class DispatchDocumentHeadlessUsecase {
                 const fieldMatches: string[] = [];
                 let detailReadFailed = false;
                 for (const candidate of candidates.slice(0, 10)) {
+                    if (Date.now() >= deadlineAt) break;
                     try {
-                        const detail = await this.fetchEformsignDocFromApiUsecase.execute(
-                            accessToken,
-                            candidate.id,
+                        const detail = await this.withDeadline(
+                            () => this.fetchEformsignDocFromApiUsecase.execute(accessToken, candidate.id),
+                            Math.min(
+                                deadlineAt,
+                                Date.now() + CREATED_DOCUMENT_DETAIL_READ_TIMEOUT_MS,
+                            ),
                         );
                         const customerField = detail.fields?.find((field) => field.id === "이용자 성명");
                         if (customerField?.value?.trim() === normalizedCustomerName) {
@@ -373,11 +390,37 @@ export class DispatchDocumentHeadlessUsecase {
                     return { available: true };
                 }
             } catch (error) {
+                if (error instanceof CreatedDocumentReconciliationDeadlineError) {
+                    this.logger.warn("Remote creation reconciliation reached its operation deadline.");
+                    break;
+                }
                 const reason = error instanceof Error ? error.message : String(error);
                 this.logger.warn(`Remote reconciliation is unavailable: ${reason}`);
             }
         }
         return { available: completedRemoteRead };
+    }
+
+    private async withDeadline<T>(operation: () => Promise<T>, deadlineAt: number): Promise<T> {
+        const remainingMs = deadlineAt - Date.now();
+        if (remainingMs <= 0) {
+            throw new CreatedDocumentReconciliationDeadlineError();
+        }
+
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+            return await Promise.race([
+                operation(),
+                new Promise<T>((_resolve, reject) => {
+                    timeout = setTimeout(
+                        () => reject(new CreatedDocumentReconciliationDeadlineError()),
+                        remainingMs,
+                    );
+                }),
+            ]);
+        } finally {
+            if (timeout) clearTimeout(timeout);
+        }
     }
 
     private async resolveCreatedDocumentStatus(

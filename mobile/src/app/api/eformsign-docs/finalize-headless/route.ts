@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
         const response = await serverAPIClient.post("/eformsign-docs/finalize-headless", data, {
             headers: getAuthHeaders(token),
-            timeout: 60_000,
+            timeout: 170_000,
         });
 
         return backendJsonResponse(response);

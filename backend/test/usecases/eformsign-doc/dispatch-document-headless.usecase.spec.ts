@@ -445,6 +445,35 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 jest.useRealTimers();
             }
         });
+
+        it("stops remote reconciliation before the proxy timeout when detail reads stall", async () => {
+            jest.useFakeTimers();
+            try {
+                const dispatchCreation = jest.fn().mockImplementation(async ({ onProgress }) => {
+                    onProgress?.("creating");
+                    return { ok: false, reason: "missing callback", durationMs: 1_000 };
+                });
+                const fetchAll = jest.fn().mockResolvedValue(
+                    Array.from({ length: 10 }, (_, index) => ({
+                        id: `candidate-${index + 1}`,
+                        created_date: Date.now(),
+                        document_name: "산모신생아건강관리서비스 계약서",
+                    })),
+                );
+                const fetchOne = jest.fn().mockImplementation(() => new Promise(() => undefined));
+                let settled = false;
+
+                void buildUsecase({ dispatchCreation, fetchAll, fetchOne })
+                    .execute("branch-1", params)
+                    .then(() => { settled = true; });
+                await jest.advanceTimersByTimeAsync(160_000);
+                await Promise.resolve();
+
+                expect(settled).toBe(true);
+            } finally {
+                jest.useRealTimers();
+            }
+        });
     });
 
     it("rejects a recent pending duplicate and allows force", async () => {
