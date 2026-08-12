@@ -56,6 +56,7 @@ import {
     EFORMSIGN_BACKFILL_REDIS_CLIENT,
     EformsignBackfillLockService,
 } from "infrastructure/locking/eformsign-backfill-lock.service";
+import { EformsignOperationLockService } from "infrastructure/locking/eformsign-operation-lock.service";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { EformsignMirrorReadinessService } from "application/services/eformsign-mirror-readiness.service";
 import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/usecases/eformsign-doc/reconcile-completed-mirrored-eformsign-doc.usecase";
@@ -114,6 +115,7 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         ContractClientAssignmentGuardService,
         EformsignDocumentSnapshotService,
         EformsignBackfillLockService,
+        EformsignOperationLockService,
         EformsignDocReconcileSchedulerService,
         ContractAutoFinalizeSchedulerService,
         EformsignDocumentMirrorService,

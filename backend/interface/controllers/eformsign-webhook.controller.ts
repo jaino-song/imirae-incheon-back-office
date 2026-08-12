@@ -135,7 +135,10 @@ export class EformsignWebhookController {
                     ? {}
                     : { skipHealthySameVersionFileRepair: true }),
                 ...(options.requireCompletionReady
-                    ? { strictCompletionReconciliation: true }
+                    ? {
+                        strictCompletionReconciliation: true,
+                        deferServiceRecordLifecycle: true,
+                    }
                     : {}),
             });
             if (options.requireCompletionReady) {

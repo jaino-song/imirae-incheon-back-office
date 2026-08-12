@@ -1048,16 +1048,14 @@ export const ContractCreationForm = ({
               headlessError,
             );
             // The backend's verdict never reached us, so whether the document was
-            // sent is genuinely unknown. The editor still opens so staff are never
-            // stranded, but the warning has to stay: finishing here on top of a run
-            // that actually succeeded is how a contract gets sent twice.
-            setAllowIframeFallback(true);
+            // sent is genuinely unknown. Reopening the editor here can send a second
+            // contract; require a list check before any explicit retry.
+            setAllowIframeFallback(false);
             setUnverifiedDispatchNotice(
               "자동 생성 결과를 확인하지 못했습니다. 전자문서 목록에서 생성 여부를 먼저 확인하시고, "
-              + "이미 생성되어 있다면 중복 생성하지 말고 이 창을 닫아 주세요.",
+              + "확인 전에는 새 계약서를 만들지 마세요.",
             );
             markCreationProgressFailed();
-            openIframeFallback();
             return;
           } finally {
             progressSource?.close();

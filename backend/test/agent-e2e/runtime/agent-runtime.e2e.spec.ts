@@ -27,6 +27,28 @@ const OTHER_USER_ID = "10000000-0000-4000-8000-000000000004";
 const OTHER_BRANCH_ID = "20000000-0000-4000-8000-000000000002";
 const describeAgentE2E = process.env["AGENT_E2E"] === "1" ? describe : describe.skip;
 
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * UTC midnight of the KST calendar date `days` away from today; negative is
+ * the past. 09:00 KST is the scheduler's send hour and 09:00 KST is 00:00 UTC,
+ * so this is exactly the instant the scheduler computes for that date.
+ *
+ * The stale-rule rebuild tests below used fixed August 2026 dates. A rebuild
+ * only regenerates occurrences still ahead of now, so the moment real time
+ * passed those dates the rebuilt job stopped being produced and three tests
+ * went red on an unchanged tree. Anchoring to the run date keeps the original
+ * day-to-day spacing without the expiry.
+ */
+function kstDay(days: number): Date {
+    const kstNow = new Date(Date.now() + KST_OFFSET_MS);
+    return new Date(Date.UTC(
+        kstNow.getUTCFullYear(),
+        kstNow.getUTCMonth(),
+        kstNow.getUTCDate() + days,
+    ));
+}
+
 describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic provider", () => {
     let app: INestApplication;
     let prisma: PrismaService;
@@ -468,8 +490,8 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
         const suffix = Date.now();
         const ruleId = `agent-e2e-rebuild-rule-${suffix}`;
         const clientPhone = `010${String(suffix).slice(-8)}`;
-        const scheduledFor = new Date("2026-08-09T00:00:00.000Z");
-        const oldGenerationAt = new Date("2026-08-01T00:00:00.000Z");
+        const scheduledFor = kstDay(7);
+        const oldGenerationAt = kstDay(-1);
         const triggerService = app.get(MessageTriggerService);
         const delivery = app.get(MessageTriggerDeliveryService);
         const sendSpy = jest.spyOn(delivery, "sendJob").mockResolvedValue(true);
@@ -499,7 +521,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                     phone: clientPhone,
                     voucherClient: false,
                     branchId: BRANCH_ID,
-                    startDate: new Date("2026-08-10T00:00:00.000Z"),
+                    startDate: kstDay(8),
                 },
             });
             clientId = client.id;
@@ -604,8 +626,8 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
         const suffix = Date.now();
         const ruleId = `agent-e2e-generation-rule-${suffix}`;
         const clientPhone = `010${String(suffix).slice(-8)}`;
-        const scheduledFor = new Date("2026-08-09T00:00:00.000Z");
-        const oldGenerationAt = new Date("2026-08-01T00:00:00.000Z");
+        const scheduledFor = kstDay(7);
+        const oldGenerationAt = kstDay(-1);
         const triggerService = app.get(MessageTriggerService);
         const ruleRepository = app.get<IMessageTriggerRuleRepository>(MESSAGE_TRIGGER_RULE_REPOSITORY);
         const jobRepository = app.get<IMessageTriggerJobRepository>(MESSAGE_TRIGGER_JOB_REPOSITORY);
@@ -637,7 +659,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                     phone: clientPhone,
                     voucherClient: false,
                     branchId: BRANCH_ID,
-                    startDate: new Date("2026-08-10T00:00:00.000Z"),
+                    startDate: kstDay(8),
                 },
             });
             clientId = client.id;
@@ -815,8 +837,8 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
         const suffix = Date.now();
         const ruleId = `agent-e2e-stale-worker-rule-${suffix}`;
         const clientPhone = `010${String(suffix).slice(-8)}`;
-        const scheduledFor = new Date("2026-08-09T00:00:00.000Z");
-        const oldGenerationAt = new Date("2026-08-01T00:00:00.000Z");
+        const scheduledFor = kstDay(7);
+        const oldGenerationAt = kstDay(-1);
         const triggerService = app.get(MessageTriggerService);
         const ruleRepository = app.get<IMessageTriggerRuleRepository>(MESSAGE_TRIGGER_RULE_REPOSITORY);
         const jobRepository = app.get<IMessageTriggerJobRepository>(MESSAGE_TRIGGER_JOB_REPOSITORY);
@@ -846,7 +868,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                     phone: clientPhone,
                     voucherClient: false,
                     branchId: BRANCH_ID,
-                    startDate: new Date("2026-08-10T00:00:00.000Z"),
+                    startDate: kstDay(8),
                 },
             });
             clientId = client.id;
@@ -955,9 +977,9 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
         const clientRuleId = `agent-e2e-client-cancel-rule-${suffix}`;
         const employeeRuleId = `agent-e2e-employee-cancel-rule-${suffix}`;
         const clientPhone = `010${String(suffix).slice(-8)}`;
-        const oldGenerationAt = new Date("2026-08-01T00:00:00.000Z");
-        const clientScheduledFor = new Date("2026-08-09T00:00:00.000Z");
-        const employeeScheduledFor = new Date("2026-08-04T00:00:00.000Z");
+        const oldGenerationAt = kstDay(-1);
+        const clientScheduledFor = kstDay(7);
+        const employeeScheduledFor = kstDay(2);
         const triggerService = app.get(MessageTriggerService);
         const ruleRepository = app.get<IMessageTriggerRuleRepository>(MESSAGE_TRIGGER_RULE_REPOSITORY);
         const jobRepository = app.get<IMessageTriggerJobRepository>(MESSAGE_TRIGGER_JOB_REPOSITORY);
@@ -989,7 +1011,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                     phone: clientPhone,
                     voucherClient: false,
                     branchId: BRANCH_ID,
-                    startDate: new Date("2026-08-10T00:00:00.000Z"),
+                    startDate: kstDay(8),
                 },
             });
             clientId = client.id;
@@ -1007,8 +1029,8 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 data: {
                     primaryEmployeeId: employee.id,
                     workAddress: "E2E address",
-                    startDate: new Date("2026-08-10T00:00:00.000Z"),
-                    endDate: new Date("2026-08-20T00:00:00.000Z"),
+                    startDate: kstDay(8),
+                    endDate: kstDay(18),
                     clientId: client.id,
                     branchId: BRANCH_ID,
                 },

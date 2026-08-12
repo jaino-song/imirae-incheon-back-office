@@ -88,14 +88,14 @@ export class CreateAndSendContractUsecase {
                 if (!date) {
                     const now = new Date(fallbackInstant);
                     return {
-                        year: now.getUTCFullYear().toString(),
+                        year: now.getUTCFullYear().toString().slice(-2),
                         month: (now.getUTCMonth() + 1).toString().padStart(2, '0'),
                         day: now.getUTCDate().toString().padStart(2, '0'),
                     };
                 }
                 const instant = typeof date === "string" ? new Date(date) : date;
                 return {
-                    year: instant.getUTCFullYear().toString(),
+                    year: instant.getUTCFullYear().toString().slice(-2),
                     month: (instant.getUTCMonth() + 1).toString().padStart(2, '0'),
                     day: instant.getUTCDate().toString().padStart(2, '0'),
                 };

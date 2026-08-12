@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { ContractDataDto } from "application/dto/contract.dto";
 import { EformsignService } from "application/services/eformsign.service";
 import { EformsignHeadlessService } from "infrastructure/automation/eformsign-headless.service";
@@ -14,12 +14,19 @@ import { EformsignHeadlessProgressService } from "application/services/eformsign
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { eformsignExpiryDateFromRemainingDays } from "domain/utils/eformsign-expiry-date";
+import {
+    EformsignOperationAlreadyRunningError,
+    EformsignOperationLease,
+    EformsignOperationLockService,
+    EformsignOperationLockUnavailableError,
+} from "infrastructure/locking/eformsign-operation-lock.service";
 
 const DEFAULT_DOCUMENT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 const COMPLETED_STATUS_CODES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_STATUS_CODES = new Set(["011", "021", "031", "040", "042", "045", "047", "049", "061", "071", "080"]);
 const TERMINAL_STATUS_CODES = new Set([...COMPLETED_STATUS_CODES, ...REJECTED_STATUS_CODES, "090", "099"]);
 const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+const CREATED_DOCUMENT_RETRY_DELAYS_MS = [0, 500, 1_000, 2_000, 4_000, 8_000] as const;
 
 export interface DispatchHeadlessParams {
     contractData: ContractDataDto;
@@ -80,9 +87,46 @@ export class DispatchDocumentHeadlessUsecase {
         private readonly assignmentGuard: ContractClientAssignmentGuardService,
         @Inject(EFORMSIGN_DOC_REPOSITORY) private readonly eformsignDocRepository: IEformsignDocRepository,
         private readonly fetchAllEformsignDocsFromApiUsecase: FetchAllEformsignDocsFromApiUsecase,
+        @Optional() private readonly operationLock?: EformsignOperationLockService,
     ) {}
 
     async execute(branchId: string, params: DispatchHeadlessParams): Promise<DispatchHeadlessResult> {
+        if (!this.operationLock) {
+            return this.executeUnlocked(branchId, params);
+        }
+        const start = Date.now();
+        try {
+            return await this.operationLock.runExclusive(
+                `create:${branchId}:${params.clientId}`,
+                (lease) => this.executeUnlocked(branchId, params, lease),
+            );
+        } catch (error) {
+            if (error instanceof EformsignOperationAlreadyRunningError) {
+                return {
+                    ok: false,
+                    reason: "operation_in_progress",
+                    fallbackHint: "manual_check",
+                    durationMs: Date.now() - start,
+                };
+            }
+            if (error instanceof EformsignOperationLockUnavailableError) {
+                this.logger.error(error.message);
+                return {
+                    ok: false,
+                    reason: "operation_lock_unavailable",
+                    fallbackHint: "manual_check",
+                    durationMs: Date.now() - start,
+                };
+            }
+            throw error;
+        }
+    }
+
+    private async executeUnlocked(
+        branchId: string,
+        params: DispatchHeadlessParams,
+        lease?: EformsignOperationLease,
+    ): Promise<DispatchHeadlessResult> {
         const start = Date.now();
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
         try {
@@ -131,6 +175,15 @@ export class DispatchDocumentHeadlessUsecase {
                 documentOption["prefill"] as { document_name?: unknown } | undefined
             )?.document_name;
 
+            if (lease && !lease.isHeld()) {
+                return {
+                    ok: false,
+                    reason: "operation_lock_lost",
+                    fallbackHint: "manual_check",
+                    durationMs: Date.now() - start,
+                };
+            }
+
             const result = await this.headlessService.dispatchCreation({
                 documentOption,
                 onProgress: (step) => {
@@ -139,8 +192,10 @@ export class DispatchDocumentHeadlessUsecase {
                 },
             });
 
-            // The gate runner emits "creating" at the moment it clicks 전송, so a
-            // failure at or after that step means eformsign may already hold the
+            // The gate runner emits "creating" only when it clicks (or ambiguously
+            // attempts) the confirmation popup's 전송. The first top-level 전송 only
+            // opens that popup and is safe to retry/fall back from. A failure at or
+            // after "creating" means eformsign may already hold the
             // document and only the SDK callback went missing. Those runs must not
             // report fallbackHint:"iframe" — that reopens the editor and a second
             // contract goes out. Only a failure that never reached the send button
@@ -163,9 +218,9 @@ export class DispatchDocumentHeadlessUsecase {
             // instead of silently reopening the editor.
 
             // The SDK success callback (`__eformsignSuccess.document_id`) is
-            // the only authoritative source of the new document id — mode:"01"
-            // payloads don't carry one. If it's missing we treat the run as a
-            // soft failure and fall back to the iframe so the user can retry.
+            // the primary source of the new document id — mode:"01" payloads
+            // don't carry one. If it is missing, reconcile against the vendor
+            // list before deciding whether any retry is safe.
             const reconciliation = result.documentId ? undefined : await this.reconcileCreatedDocument(
                 accessToken,
                 params.contractData.customerName,
@@ -255,19 +310,74 @@ export class DispatchDocumentHeadlessUsecase {
         templateId: string | undefined,
         startedAt: number,
     ): Promise<{ available: boolean; documentId?: string }> {
-        try {
-            const candidates = (await this.fetchAllEformsignDocsFromApiUsecase.execute(accessToken))
-                .filter((document) => document.created_date >= startedAt - 5_000)
-                .filter((document) => !templateId || document.template?.id === templateId)
-                .filter((document) => !customerName || document.document_name?.includes(customerName))
-                .sort((left, right) => right.created_date - left.created_date);
-            const candidate = candidates.length === 1 ? candidates[0] : undefined;
-            return { available: true, documentId: candidate?.id };
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Remote reconciliation is unavailable: ${reason}`);
-            return { available: false };
+        let completedRemoteRead = false;
+        const normalizedCustomerName = customerName.trim();
+        for (const delayMs of CREATED_DOCUMENT_RETRY_DELAYS_MS) {
+            if (delayMs > 0) {
+                await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+            }
+            try {
+                const candidates = (await this.fetchAllEformsignDocsFromApiUsecase.execute(accessToken))
+                    .filter((document) => document.created_date >= startedAt - 5_000)
+                    .filter((document) => !templateId || document.template?.id === templateId)
+                    .sort((left, right) => right.created_date - left.created_date);
+                completedRemoteRead = true;
+
+                if (!normalizedCustomerName) {
+                    const candidate = candidates[0];
+                    if (candidates.length === 1 && candidate) {
+                        return { available: true, documentId: candidate.id };
+                    }
+                    if (candidates.length > 1) {
+                        return { available: true };
+                    }
+                    continue;
+                }
+
+                // Some templates generate a fixed title and reject the caller's document_name,
+                // so the customer name is not necessarily present in list_document. Keep the
+                // cheap title match for templates that do include it, then disambiguate fixed-
+                // title candidates by the actual `이용자 성명` field from document detail.
+                const titleMatches = candidates.filter((document) =>
+                    document.document_name?.includes(normalizedCustomerName),
+                );
+                if (titleMatches.length === 1) {
+                    return { available: true, documentId: titleMatches[0]!.id };
+                }
+                if (titleMatches.length > 1) {
+                    return { available: true };
+                }
+
+                const fieldMatches: string[] = [];
+                let detailReadFailed = false;
+                for (const candidate of candidates.slice(0, 10)) {
+                    try {
+                        const detail = await this.fetchEformsignDocFromApiUsecase.execute(
+                            accessToken,
+                            candidate.id,
+                        );
+                        const customerField = detail.fields?.find((field) => field.id === "이용자 성명");
+                        if (customerField?.value?.trim() === normalizedCustomerName) {
+                            fieldMatches.push(candidate.id);
+                        }
+                    } catch (error) {
+                        detailReadFailed = true;
+                        const reason = error instanceof Error ? error.message : String(error);
+                        this.logger.warn(`Remote creation candidate ${candidate.id} could not be inspected: ${reason}`);
+                    }
+                }
+                if (fieldMatches.length === 1) {
+                    return { available: true, documentId: fieldMatches[0] };
+                }
+                if (fieldMatches.length > 1 || (candidates.length > 0 && !detailReadFailed)) {
+                    return { available: true };
+                }
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                this.logger.warn(`Remote reconciliation is unavailable: ${reason}`);
+            }
         }
+        return { available: completedRemoteRead };
     }
 
     private async resolveCreatedDocumentStatus(

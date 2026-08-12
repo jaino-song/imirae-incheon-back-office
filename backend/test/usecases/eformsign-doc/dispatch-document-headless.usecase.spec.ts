@@ -1,4 +1,5 @@
 import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/dispatch-document-headless.usecase";
+import { EformsignOperationAlreadyRunningError } from "infrastructure/locking/eformsign-operation-lock.service";
 
 describe("DispatchDocumentHeadlessUsecase", () => {
     it("persists the current eformsign status after headless creation", async () => {
@@ -255,6 +256,8 @@ describe("DispatchDocumentHeadlessUsecase", () => {
         const buildUsecase = (overrides: {
             dispatchCreation: jest.Mock;
             remoteDocuments?: unknown[];
+            fetchAll?: jest.Mock;
+            fetchOne?: jest.Mock;
             createDoc?: jest.Mock;
         }) => new DispatchDocumentHeadlessUsecase(
             { generateDocumentOptions: jest.fn().mockReturnValue({}) } as never,
@@ -262,12 +265,20 @@ describe("DispatchDocumentHeadlessUsecase", () => {
             { findByArea: jest.fn().mockResolvedValue(null) } as never,
             { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "a", refresh_token: "r" } }) } as never,
             { execute: overrides.createDoc ?? jest.fn().mockResolvedValue(undefined) } as never,
-            { execute: jest.fn().mockRejectedValue(new Error("not found")) } as never,
+            {
+                execute: overrides.fetchOne ?? jest.fn().mockRejectedValue(new Error("not found")),
+            } as never,
             { emit: jest.fn() } as never,
             { findById: jest.fn().mockResolvedValue(null) } as never,
             { assertAssignedProvider: jest.fn().mockResolvedValue({ scheduleId: 1 }) } as never,
             { findByClientId: jest.fn().mockResolvedValue([]) } as never,
-            { execute: jest.fn().mockResolvedValue(overrides.remoteDocuments ?? []) } as never,
+            {
+                execute: overrides.fetchAll ?? (
+                    overrides.remoteDocuments
+                        ? jest.fn().mockResolvedValue(overrides.remoteDocuments)
+                        : jest.fn().mockRejectedValue(new Error("remote list unavailable"))
+                ),
+            } as never,
         );
 
         const params = {
@@ -297,7 +308,21 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 return { ok: false, reason: "eformsign SDK completed without a success callback", durationMs: 90_000 };
             });
 
-            const result = await buildUsecase({ dispatchCreation }).execute("branch-1", params);
+            const result = await buildUsecase({
+                dispatchCreation,
+                remoteDocuments: [
+                    {
+                        id: "ambiguous-1",
+                        created_date: Date.now(),
+                        document_name: "김고객 산모신생아건강관리서비스 계약서",
+                    },
+                    {
+                        id: "ambiguous-2",
+                        created_date: Date.now(),
+                        document_name: "김고객 산모신생아건강관리서비스 계약서",
+                    },
+                ],
+            }).execute("branch-1", params);
 
             // Reopening the editor here is what duplicates a contract that may
             // already have gone out, so this hint must never be "iframe".
@@ -331,6 +356,95 @@ describe("DispatchDocumentHeadlessUsecase", () => {
                 clientId: 7,
             }));
         });
+
+        it("adopts a fixed-title contract by matching its customer field", async () => {
+            const dispatchCreation = jest.fn().mockImplementation(async ({ onProgress }) => {
+                onProgress?.("creating");
+                return { ok: false, reason: "missing callback", durationMs: 90_000 };
+            });
+            const fetchOne = jest.fn().mockResolvedValue({
+                id: "fixed-title-1",
+                current_status: {
+                    status_type: "060",
+                    step_type: "05",
+                    step_index: "2",
+                    step_name: "이용자 서명",
+                },
+                fields: [{ id: "이용자 성명", value: "김고객" }],
+            });
+
+            await expect(buildUsecase({
+                dispatchCreation,
+                fetchOne,
+                remoteDocuments: [{
+                    id: "fixed-title-1",
+                    created_date: Date.now(),
+                    document_name: "산모신생아건강관리서비스 계약서",
+                }],
+            }).execute("branch-1", params)).resolves.toEqual(expect.objectContaining({
+                ok: true,
+                documentId: "fixed-title-1",
+            }));
+            expect(fetchOne).toHaveBeenCalledWith("a", "fixed-title-1");
+        });
+
+        it("waits for a newly created document to become visible before reporting failure", async () => {
+            jest.useFakeTimers();
+            try {
+                const dispatchCreation = jest.fn().mockImplementation(async ({ onProgress }) => {
+                    onProgress?.("creating");
+                    return { ok: false, reason: "missing callback", durationMs: 1_000 };
+                });
+                const fetchAll = jest.fn()
+                    .mockResolvedValueOnce([])
+                    .mockResolvedValueOnce([{
+                        id: "delayed-1",
+                        created_date: Date.now(),
+                        document_name: "김고객 산모신생아건강관리서비스 계약서",
+                    }]);
+
+                const resultPromise = buildUsecase({ dispatchCreation, fetchAll })
+                    .execute("branch-1", params);
+                await jest.advanceTimersByTimeAsync(500);
+
+                await expect(resultPromise).resolves.toEqual(expect.objectContaining({
+                    ok: true,
+                    documentId: "delayed-1",
+                }));
+                expect(fetchAll).toHaveBeenCalledTimes(2);
+            } finally {
+                jest.useRealTimers();
+            }
+        });
+
+        it("retries a transient remote-list failure before reporting an unknown outcome", async () => {
+            jest.useFakeTimers();
+            try {
+                const dispatchCreation = jest.fn().mockImplementation(async ({ onProgress }) => {
+                    onProgress?.("creating");
+                    return { ok: false, reason: "missing callback", durationMs: 1_000 };
+                });
+                const fetchAll = jest.fn()
+                    .mockRejectedValueOnce(new Error("temporary 502"))
+                    .mockResolvedValueOnce([{
+                        id: "recovered-after-502",
+                        created_date: Date.now(),
+                        document_name: "김고객 산모신생아건강관리서비스 계약서",
+                    }]);
+
+                const resultPromise = buildUsecase({ dispatchCreation, fetchAll })
+                    .execute("branch-1", params);
+                await jest.advanceTimersByTimeAsync(500);
+
+                await expect(resultPromise).resolves.toEqual(expect.objectContaining({
+                    ok: true,
+                    documentId: "recovered-after-502",
+                }));
+                expect(fetchAll).toHaveBeenCalledTimes(2);
+            } finally {
+                jest.useRealTimers();
+            }
+        });
     });
 
     it("rejects a recent pending duplicate and allows force", async () => {
@@ -362,5 +476,38 @@ describe("DispatchDocumentHeadlessUsecase", () => {
         }));
         await usecase.execute("branch-1", { ...params, force: true });
         expect(dispatchCreation).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not start a second creation while the same client operation is in progress", async () => {
+        const headlessService = { dispatchCreation: jest.fn() };
+        const getAccessTokenUsecase = { execute: jest.fn() };
+        const operationLock = {
+            runExclusive: jest.fn().mockRejectedValue(new EformsignOperationAlreadyRunningError()),
+        };
+        const usecase = new DispatchDocumentHeadlessUsecase(
+            { generateDocumentOptions: jest.fn() } as never,
+            headlessService as never,
+            { findByArea: jest.fn() } as never,
+            getAccessTokenUsecase as never,
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            { emit: jest.fn() } as never,
+            { findById: jest.fn() } as never,
+            { assertAssignedProvider: jest.fn() } as never,
+            { findByClientId: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+            operationLock as never,
+        );
+
+        await expect(usecase.execute("branch-1", {
+            clientId: 7,
+            contractData: {} as never,
+        })).resolves.toEqual(expect.objectContaining({
+            ok: false,
+            reason: "operation_in_progress",
+            fallbackHint: "manual_check",
+        }));
+        expect(getAccessTokenUsecase.execute).not.toHaveBeenCalled();
+        expect(headlessService.dispatchCreation).not.toHaveBeenCalled();
     });
 });

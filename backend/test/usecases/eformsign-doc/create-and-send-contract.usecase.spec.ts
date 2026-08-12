@@ -216,9 +216,9 @@ describe("CreateAndSendContractUsecase", () => {
             prefillFields: expect.arrayContaining([
                 { id: "이용자 생년월일", value: "900101" },
                 { id: "이용자 주소", value: "승인 당시 주소" },
-                { id: "계약 시작 년도", value: "2026" },
+                { id: "계약 시작 년도", value: "26" },
                 { id: "계약 종료 일", value: "17" },
-                { id: "본인부담금 수령 년도", value: "2026" },
+                { id: "본인부담금 수령 년도", value: "26" },
                 { id: "본인부담금 수령 월", value: "08" },
                 { id: "본인부담금 수령 일", value: "04" },
             ]),

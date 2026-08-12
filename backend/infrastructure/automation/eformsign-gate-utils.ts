@@ -2,6 +2,7 @@ import type { FrameLocator, Locator, Page } from "playwright-core";
 
 export const EFORMSIGN_GATE_POLL_MS = 500;
 export const EFORMSIGN_CLICK_TIMEOUT_MS = 2_000;
+export const EFORMSIGN_PRE_SEND_CLICK_TIMEOUT_LIMIT = 2;
 // The gate loop only logs when it clicks something, so a run that stalls waiting
 // for the editor to expose its first actionable button leaves no trace at all.
 // Emit a snapshot on this cadence while the loop is idle so a timeout report
@@ -58,13 +59,22 @@ export async function findVisibleEnabledLocator(locator: Locator): Promise<Locat
     return null;
 }
 
-export async function tryClickGateLocator(locator: Locator): Promise<boolean> {
+export type EformsignGateClickOutcome = "clicked" | "timed-out" | "failed";
+
+export async function getGateClickOutcome(locator: Locator): Promise<EformsignGateClickOutcome> {
     try {
         await locator.click({ timeout: EFORMSIGN_CLICK_TIMEOUT_MS });
-        return true;
-    } catch {
-        return false;
+        return "clicked";
+    } catch (error) {
+        const reason = error instanceof Error
+            ? `${error.name}: ${error.message}`
+            : String(error);
+        return /(?:timeout|timed out)/i.test(reason) ? "timed-out" : "failed";
     }
+}
+
+export async function tryClickGateLocator(locator: Locator): Promise<boolean> {
+    return (await getGateClickOutcome(locator)) === "clicked";
 }
 
 export interface GateSnapshot {

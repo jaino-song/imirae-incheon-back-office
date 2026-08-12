@@ -151,9 +151,12 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
     }
 
     async claimPendingWithRuleFence(id: string, branchId: string | null): Promise<boolean> {
-        const branchPredicate = branchId === null
+        const jobBranchPredicate = branchId === null
             ? Prisma.sql`branch_id IS NULL`
             : Prisma.sql`branch_id = ${branchId}::uuid`;
+        const ruleBranchPredicate = branchId === null
+            ? Prisma.sql`branch_id IS NULL`
+            : Prisma.sql`(branch_id = ${branchId}::uuid OR branch_id IS NULL)`;
 
         return this.prisma.$transaction(async (transaction) => {
             // This read intentionally does not lock the job. Every lock that
@@ -171,7 +174,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 SELECT id, jobs_stale
                 FROM "message_trigger_rule"
                 WHERE id = ${job.rule_id}
-                  AND ${branchPredicate}
+                  AND ${ruleBranchPredicate}
                 FOR UPDATE
             `);
             const rule = rules[0];
@@ -182,7 +185,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 SET status = 'processing', updated_at = now()
                 WHERE id = ${id}
                   AND rule_id = ${job.rule_id}
-                  AND ${branchPredicate}
+                  AND ${jobBranchPredicate}
                   AND status = 'pending'
                 RETURNING id
             `);

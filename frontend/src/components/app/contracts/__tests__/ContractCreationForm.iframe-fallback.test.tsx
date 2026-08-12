@@ -7,7 +7,8 @@
  * Both failure shapes are covered, because they reach the fallback through
  * different branches:
  *   - backend answered `ok:false` + `fallbackHint:"iframe"`  (verdict known)
- *   - the request itself threw, e.g. a client-side timeout   (verdict unknown)
+ * A transport failure is different: the verdict is unknown, so automatically
+ * reopening the editor could create a second contract and is forbidden.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -165,15 +166,17 @@ describe("ContractCreationForm — eformsign iframe fallback on headless failure
         expect(mockGenerateDocument).toHaveBeenCalled();
     });
 
-    it("opens the embedded iframe when the dispatch request itself fails", async () => {
+    it("does not open the embedded iframe when the dispatch request itself fails", async () => {
         mockDispatchHeadless.mockRejectedValue(new Error("timeout of 180000ms exceeded"));
 
         renderForm();
-        await submitAndExpectIframeOpens();
+        fireEvent.click(screen.getByTestId("contract-creation-submit"));
 
-        // Outcome is unknown on this path, so staff must still be warned about
-        // duplicating a contract that may already have been sent.
-        expect(screen.getByText(/전자문서 목록에서 생성 여부를 먼저 확인/)).toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.getByText(/전자문서 목록에서 생성 여부를 먼저 확인/)).toBeInTheDocument();
+        });
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        expect(mockOpenDocument).not.toHaveBeenCalled();
     });
 
     it("marks an unfinished run failed when the embedded editor is closed", async () => {
