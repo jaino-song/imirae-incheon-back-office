@@ -316,8 +316,12 @@ export interface HeadlessDispatchResponse {
   fallbackHint?: "iframe";
 }
 
-export interface HeadlessFinalizeResponse {
-  ok: boolean;
+export type HeadlessFinalizeResponse = {
+  ok: true;
+  completed: boolean;
+  durationMs: number;
+} | {
+  ok: false;
   durationMs: number;
   reason?: string;
   /**
@@ -326,7 +330,7 @@ export interface HeadlessFinalizeResponse {
    * document must be verified in eformsign before anyone acts on it.
    */
   fallbackHint?: "iframe" | "manual_check";
-}
+};
 
 export type FinalizeHeadlessResponse = HeadlessFinalizeResponse;
 

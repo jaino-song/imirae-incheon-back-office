@@ -34,6 +34,7 @@ import {
 const SNAPSHOT_FALLBACK_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
 
 const CASE_SNAPSHOT_INCLUDE = {
+    branch: { select: { name: true } },
     client: { select: { name: true } },
     assignments: {
         select: {
@@ -78,6 +79,7 @@ interface PreparedSnapshotChunk {
     firstSessionIndex: number;
     lastSessionIndex: number;
     sourceHash: string;
+    compatibleSourceHashes: string[];
     documentName: string;
     days: ServiceRecordDayInput[];
     tier: number;
@@ -363,21 +365,11 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 chunkIndex,
                 chunkCount,
             );
-            const sourceHash = createHash("sha256")
-                .update(this.stableStringify({
-                    formVersion: record.formVersion,
-                    header: {
-                        momName: record.momName,
-                        momBirth: record.momBirth,
-                        babyName: record.babyName,
-                        babyBirth: record.babyBirth,
-                        deliveryType: record.deliveryType,
-                        babyWeight: record.babyWeight,
-                    },
-                    employeeName: chunk.employeeName,
-                    days: chunk.days,
-                }))
-                .digest("hex");
+            const { sourceHash, compatibleSourceHashes } = this.buildSourceHashes(
+                record,
+                chunk.employeeName,
+                chunk.days,
+            );
             const templateId = templateIdByTier.get(chunk.tier);
             if (!templateId) throw new Error(`No 제공기록지 template configured for tier ${chunk.tier}`);
             return {
@@ -389,6 +381,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 firstSessionIndex,
                 lastSessionIndex,
                 sourceHash,
+                compatibleSourceHashes,
                 documentName,
                 days: chunk.days,
                 tier: chunk.tier,
@@ -464,21 +457,11 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 layout.chunkIndex,
                 chunkCount,
             );
-            const sourceHash = createHash("sha256")
-                .update(this.stableStringify({
-                    formVersion: record.formVersion,
-                    header: {
-                        momName: record.momName,
-                        momBirth: record.momBirth,
-                        babyName: record.babyName,
-                        babyBirth: record.babyBirth,
-                        deliveryType: record.deliveryType,
-                        babyWeight: record.babyWeight,
-                    },
-                    employeeName,
-                    days,
-                }))
-                .digest("hex");
+            const { sourceHash, compatibleSourceHashes } = this.buildSourceHashes(
+                record,
+                employeeName,
+                days,
+            );
 
             expectedFirstSessionIndex = layout.lastSessionIndex + 1;
             return {
@@ -490,6 +473,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 firstSessionIndex: layout.firstSessionIndex,
                 lastSessionIndex: layout.lastSessionIndex,
                 sourceHash,
+                compatibleSourceHashes,
                 documentName,
                 days,
                 tier,
@@ -561,6 +545,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
                 if (
                     existing.status === "CREATED"
                     && existing.sourceHash !== chunk.sourceHash
+                    && !chunk.compatibleSourceHashes.includes(existing.sourceHash)
                     && !existing.sourceHash.startsWith("legacy:")
                 ) {
                     throw new ConflictException({ code: "SERVICE_RECORD_SNAPSHOT_SOURCE_CHANGED" });
@@ -644,6 +629,7 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
         try {
             const prefillFields = buildServiceRecordDocumentFields({
                 header: params.record,
+                providerName: params.record.branch.name,
                 employeeName: params.chunk.employeeName,
                 days: params.chunk.days,
                 slotCount: params.chunk.tier,
@@ -915,6 +901,38 @@ export class CreateAndSendServiceRecordSnapshotUsecase {
             return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${this.stableStringify(item)}`).join(",")}}`;
         }
         return JSON.stringify(value) ?? "null";
+    }
+
+    private buildSourceHashes(
+        record: ServiceRecordCaseForSnapshot,
+        employeeName: string,
+        days: ServiceRecordDayInput[],
+    ): { sourceHash: string; compatibleSourceHashes: string[] } {
+        const commonHeader = {
+            momName: record.momName,
+            momBirth: record.momBirth,
+            babyName: record.babyName,
+            babyBirth: record.babyBirth,
+            deliveryType: record.deliveryType,
+            babyWeight: record.babyWeight,
+        };
+        const hash = (header: Record<string, unknown>) => createHash("sha256")
+            .update(this.stableStringify({
+                formVersion: record.formVersion,
+                header,
+                employeeName,
+                days,
+            }))
+            .digest("hex");
+
+        return {
+            sourceHash: hash({ providerName: record.branch.name, ...commonHeader }),
+            // providerName entered the immutable source hash after snapshots were
+            // already in production. Keep accepting that immediately previous
+            // representation for CREATED rows so retries adopt the existing
+            // document instead of failing or creating a duplicate.
+            compatibleSourceHashes: [hash(commonHeader)],
+        };
     }
 
     private errorMessage(error: unknown): string {

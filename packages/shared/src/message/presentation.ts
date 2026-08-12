@@ -16,9 +16,12 @@ export type MessageSectionId =
   | "triggers"
   | "settings";
 
+// "scheduled" (발송 예정) is intentionally omitted here — its content is being
+// folded into 발송 기록 by a follow-up task. MessageSectionId keeps the
+// "scheduled" member so existing UNRELEASED_SECTION_IDS sets and route-path
+// checks in both apps keep compiling; only the nav entry is gone for now.
 export const MESSAGE_SECTION_DEFINITIONS = [
   { id: "send", label: "전송하기", mobilePath: "/messages/new" },
-  { id: "scheduled", label: "발송 예정", mobilePath: "/messages/scheduled" },
   { id: "history", label: "발송 기록", mobilePath: "/messages/history" },
   { id: "templates", label: "템플릿", mobilePath: "/messages/templates" },
   { id: "triggers", label: "자동 전송", mobilePath: "/messages/automation" },
@@ -31,26 +34,22 @@ export const MESSAGE_SECTION_DEFINITIONS = [
 
 export const MESSAGE_TEMPLATE_LABELS: Readonly<Record<string, string>> = {
   CLIENT_WELCOME: "고객 등록 안내",
-  SERVICE_START_REMINDER: "서비스 시작 리마인드",
+  SERVICE_START_REMINDER: "서비스 시작 알림",
   SERVICE_INFO: "서비스 안내",
-  SERVICE_END_REMINDER: "서비스 종료 안내",
-  EMPLOYEE_ASSIGNED: "직원 배정 완료",
+  SERVICE_END_REMINDER: "서비스 종료 알림",
+  EMPLOYEE_ASSIGNED: "직원 배정 알림",
   SERVICE_RECORD_LINK: "제공기록지 작성 링크",
   CLIENT_GREETING: "인사 메시지",
-  PRICE_INFO: "요금 안내",
-  REMINDER: "리마인더",
-  THANKS: "감사 메시지",
-  SURVEY: "설문",
-  INFO: "안내 메시지",
+  PRICE_INFO: "비용 안내",
+  REMINDER: "리마인드",
+  THANKS: "예약 완료(입금 확인)",
+  SURVEY: "모니터링 설문",
+  INFO: "정보 요청",
   GREETING: "인사 메시지",
   service_record_link_sms: "제공기록지 작성 링크",
   client_greeting_sms: "인사 메시지",
   manual_sms: "수동 메시지",
   "인사(소개)": "인사 메시지",
-  "비용 안내": "요금 안내",
-  "예약 완료(입금 확인)": "감사 메시지",
-  "모니터링 설문": "설문",
-  "정보 요청": "안내 메시지",
 };
 
 export const MESSAGE_HISTORY_STATUS_LABELS: Readonly<Record<MessageLogStatus, string>> = {
@@ -67,6 +66,62 @@ export const MESSAGE_JOB_STATUS_LABELS: Readonly<Record<MessageTriggerJobStatus,
   failed: "발송 실패",
   canceled: "발송 취소",
 };
+
+// Single source of truth for message-status -> StatusBadge variant. Both
+// apps' StatusBadge already wires these variants to the shared `--status-*`
+// design tokens, so consumers should read these maps instead of hand-rolling
+// Tailwind palette classes (e.g. `bg-emerald-50`, `bg-slate-100`) per status.
+export type MessageStatusBadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
+
+export const MESSAGE_LOG_STATUS_BADGE_VARIANT: Readonly<Record<MessageLogStatus, MessageStatusBadgeVariant>> = {
+  sent: "success",
+  failed: "danger",
+  pending: "warning",
+  canceled: "neutral",
+};
+
+export const MESSAGE_JOB_STATUS_BADGE_VARIANT: Readonly<Record<MessageTriggerJobStatus, MessageStatusBadgeVariant>> = {
+  pending: "warning",
+  processing: "info",
+  sent: "success",
+  failed: "danger",
+  canceled: "neutral",
+};
+
+// Copy for the merged 발송 기록 screen, which shows upcoming sends and past
+// sends as two zones of one list. Both apps read these so the two screens
+// cannot drift apart in wording — the split copy in the old separate screens
+// is exactly how they diverged before.
+export const MESSAGE_RECORD_ZONE_LABELS = {
+  upcoming: "예정",
+  past: "지난 발송",
+} as const;
+
+export type MessageRecordStatusFilter = "all" | "upcoming" | "sent" | "failed" | "canceled";
+
+export const MESSAGE_RECORD_STATUS_FILTER_LABELS: Readonly<Record<MessageRecordStatusFilter, string>> = {
+  all: "전체",
+  upcoming: "예정",
+  sent: "발송",
+  failed: "실패",
+  canceled: "취소",
+};
+
+// A user-pressed cancel is permanent: the backend marks it so the re-sync that
+// runs on any client or rule edit will not put the message back on the
+// schedule. The confirm copy says so, because "취소" alone reads as reversible.
+export const MESSAGE_JOB_CANCEL_COPY = {
+  action: "발송 취소",
+  confirmTitle: "예정된 발송을 취소할까요?",
+  confirmBody:
+    "취소하면 이 메시지는 자동으로 발송되지 않습니다. 고객 정보를 수정해도 다시 예약되지 않습니다.",
+  confirmAction: "발송 취소",
+  dismiss: "닫기",
+  success: "예정된 발송을 취소했습니다.",
+  failure: "이미 발송되었거나 취소할 수 없는 상태입니다.",
+} as const;
+
+export const MESSAGE_RECORD_REASON_LABEL = "사유";
 
 export const MESSAGE_EVENT_LABELS: Readonly<Record<MessageTriggerEventType, string>> = {
   CLIENT_CREATED: "고객 등록",

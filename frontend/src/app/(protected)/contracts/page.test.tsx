@@ -34,3 +34,12 @@ describe("ContractsPage server-side search", () => {
     expect(source).not.toContain("matchesDocumentSearch");
   });
 });
+
+describe("ContractsPage headless finalization fallback", () => {
+  it("does not reopen the reviewer iframe when the backend verdict is unknown", () => {
+    expect(source).toContain("let transportOutcomeUnknown = false");
+    expect(source).toContain("transportOutcomeUnknown = true");
+    expect(source).toContain("if (manualCheckRequired || transportOutcomeUnknown)");
+    expect(source).not.toContain("headless finalize threw, falling back to iframe");
+  });
+});

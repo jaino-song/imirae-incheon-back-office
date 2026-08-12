@@ -35,7 +35,12 @@ export interface DailyDigestSection {
     /** Korean counter suffix used in the push/notification summary line ("건" / "명"). */
     unit: string;
     url: string;
-    clientNames?: string[];
+    /**
+     * Optional per-item detail lines rendered under the section — e.g. a list of client names,
+     * or a composite line like "recipient · template — reason". Each entry renders on its own
+     * line and is HTML-escaped the same way the rest of the digest is.
+     */
+    details?: string[];
 }
 
 @Injectable()
@@ -334,14 +339,14 @@ export class NotificationService {
             const safeCtaLabel = this.escapeHtml(emailTemplateContext.ctaLabel);
 
             const sectionsHtml = sections.map((section) => {
-                const namesHtml = section.clientNames && section.clientNames.length > 0
-                    ? `<p style="margin: 4px 0 0; color: #4a6382;">${section.clientNames.map((name) => this.escapeHtml(name)).join(", ")}</p>`
+                const detailsHtml = section.details && section.details.length > 0
+                    ? `<p style="margin: 4px 0 0; color: #4a6382;">${section.details.map((detail) => this.escapeHtml(detail)).join("<br />")}</p>`
                     : "";
                 return `
                         <div style="margin: 0 0 20px;">
                           <h2 style="margin: 0 0 4px; font-size: 16px; color: #12366a;">${this.escapeHtml(section.label)}</h2>
                           <p style="margin: 0;">${this.escapeHtml(section.description)}</p>
-                          ${namesHtml}
+                          ${detailsHtml}
                         </div>`;
             }).join("");
 
@@ -360,8 +365,8 @@ export class NotificationService {
             ];
             for (const section of sections) {
                 textLines.push(`[${section.label}] ${section.description}`);
-                if (section.clientNames && section.clientNames.length > 0) {
-                    textLines.push(section.clientNames.join(", "));
+                if (section.details && section.details.length > 0) {
+                    textLines.push(section.details.join("\n"));
                 }
                 textLines.push("");
             }

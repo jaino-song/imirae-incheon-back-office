@@ -211,4 +211,41 @@ describe("SystemSettingService", () => {
             expect(getResult).toBe(true);
         });
     });
+
+    describe("PWA undelivered digest watermark", () => {
+        it("should read a valid branch-scoped ISO timestamp", async () => {
+            getSettingUsecase.execute.mockResolvedValue("2026-08-11T00:00:00.000Z");
+
+            await expect(service.getPwaUndeliveredDigestWatermark("branch-1")).resolves.toEqual(
+                new Date("2026-08-11T00:00:00.000Z"),
+            );
+            expect(getSettingUsecase.execute).toHaveBeenCalledWith(
+                "branch:branch-1:pwa_undelivered_digest_watermark",
+            );
+        });
+
+        it("should fail open to the initial window when the stored timestamp is invalid", async () => {
+            getSettingUsecase.execute.mockResolvedValue("not-a-date");
+
+            await expect(service.getPwaUndeliveredDigestWatermark("branch-1")).resolves.toBeNull();
+        });
+
+        it("should persist the watermark as an ISO timestamp", async () => {
+            const watermark = new Date("2026-08-12T00:00:00.000Z");
+            const entity = new SystemSettingEntity(
+                "branch:branch-1:pwa_undelivered_digest_watermark",
+                watermark.toISOString(),
+                watermark,
+            );
+            updateSettingUsecase.execute.mockResolvedValue(entity);
+
+            await expect(
+                service.setPwaUndeliveredDigestWatermark("branch-1", watermark),
+            ).resolves.toBe(entity);
+            expect(updateSettingUsecase.execute).toHaveBeenCalledWith(
+                "branch:branch-1:pwa_undelivered_digest_watermark",
+                watermark.toISOString(),
+            );
+        });
+    });
 });

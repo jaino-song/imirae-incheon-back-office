@@ -191,7 +191,7 @@ export const MESSAGE_TRIGGER_TEMPLATE_CATALOG: Record<
     },
     [MessageTriggerTemplateKey.CLIENT_GREETING]: {
         key: MessageTriggerTemplateKey.CLIENT_GREETING,
-        name: "인사(소개)",
+        name: "인사 메시지",
         description: "신규 고객 등록 직후 발송하는 인사 메시지 (SMS)",
         allowedEventTypes: CLIENT_EVENT_TYPES,
         allowedRecipientTypes: [MessageTriggerRecipientType.CLIENT],

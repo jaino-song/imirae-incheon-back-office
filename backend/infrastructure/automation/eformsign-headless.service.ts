@@ -28,7 +28,10 @@ import { areE2EVendorStubsEnabled } from "infrastructure/vendor-stubs/e2e-vendor
  * 전송 that submits the document; "success-latched" means it stopped on the SDK
  * callback instead, without necessarily having submitted anything.
  */
-export type EformsignGateOutcome = "success-latched" | "request-send-clicked";
+export type EformsignGateOutcome =
+    | "success-latched"
+    | "request-send-clicked"
+    | "request-send-attempted";
 
 export type HeadlessDispatchResult =
     | { ok: true; durationMs: number; documentId?: string; gateOutcome?: EformsignGateOutcome }
@@ -184,13 +187,46 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         await this.waitForEformsignIframe(page, "eformsign_iframe");
         params.onProgress?.("client-started");
 
-        const gateOutcome = await runEformsignCreationGates(page, eformsignFrame, this.logger, params.onProgress);
+        let gateOutcome: EformsignGateOutcome;
+        try {
+            gateOutcome = await runEformsignCreationGates(
+                page,
+                eformsignFrame,
+                this.logger,
+                params.onProgress,
+            );
+        } catch (gateError) {
+            // Multi-step templates can submit directly from the top-level 전송
+            // and never render the confirmation popup used by older templates.
+            // The terminal SDK callback includes the newly created document id;
+            // once that durable vendor identity exists, opening a fresh mode:01
+            // iframe would risk sending a duplicate contract.
+            const callbackState = await readEformsignCallbackState(page);
+            const callbackDocumentId = callbackState.hasSuccess
+                ? this.readDocumentIdFromCallback(callbackState.success)
+                : undefined;
+            if (!callbackState.hasError && callbackDocumentId) {
+                const reason = gateError instanceof Error ? gateError.message : String(gateError);
+                this.logger.warn(
+                    `[creation] gate ended with "${reason}" after eformsign returned document ${callbackDocumentId}; treating the vendor-confirmed creation as success.`,
+                );
+                params.onProgress?.("sent");
+                return {
+                    ok: true,
+                    durationMs: Date.now() - start,
+                    documentId: callbackDocumentId,
+                    gateOutcome: "success-latched",
+                };
+            }
+            throw gateError;
+        }
         this.logger.log(`[creation] gate sequence ended: ${gateOutcome}`);
 
         // The gate runner only confirms the click sequence completed; the
         // actual dispatch is acknowledged by the SDK success callback
-        // (`__eformsignSuccess`). If that never fires, the document was not
-        // sent — surface that as ok=false so the frontend falls back.
+        // (`__eformsignSuccess`). If that never fires, surface ok=false; the
+        // caller uses the emitted creating progress to reconcile remotely
+        // instead of reopening mode:01.
         const documentId = await this.waitForTerminalSdkCallback(page, 30_000);
         params.onProgress?.("sent");
 

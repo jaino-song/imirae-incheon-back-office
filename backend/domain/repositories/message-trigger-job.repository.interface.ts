@@ -23,6 +23,26 @@ export interface IMessageTriggerJobRepository {
         branchId: string,
         limit?: number,
     ): Promise<MessageTriggerJobEntity[]>;
+    /**
+     * Terminal (failed or canceled) jobs for a branch whose terminal
+     * transition landed in `[since, until)` — `canceledAt` for a canceled
+     * row, `updatedAt` for a failed row (there is no dedicated failedAt
+     * column; markFailed() always bumps updatedAt at the moment of
+     * failure). Excludes rows the user canceled themselves
+     * (canceledByUser = true): a cancel the user pressed must never be
+     * reported back to them as a problem. Feeds the daily digest.
+     */
+    findRecentUndeliveredByBranch(
+        branchId: string,
+        since: Date,
+        until: Date,
+        limit: number,
+    ): Promise<MessageTriggerJobEntity[]>;
+    countRecentUndeliveredByBranch(
+        branchId: string,
+        since: Date,
+        until: Date,
+    ): Promise<number>;
     findHistoryByBranch(
         branchId: string,
         limit?: number,
@@ -46,6 +66,14 @@ export interface IMessageTriggerJobRepository {
     markOrphanedJobsReconciled(jobIds: string[], replacementClientId: number): Promise<number>;
     cancelPendingByRuleId(ruleId: string, reason: string): Promise<number>;
     cancelPendingOlderThan(ruleId: string, cutoff: Date, reason: string): Promise<number>;
+    /**
+     * Cancel a single job on the user's behalf. Only a `pending` job scoped
+     * to the given branch is canceled — a `processing` job is left alone
+     * since it may already be in flight at the SMS provider. The canceled
+     * row is marked so the re-sync upsert below never resurrects it. Returns
+     * whether the cancel matched a row.
+     */
+    cancelPendingByUser(id: string, branchId: string, reason: string): Promise<boolean>;
     /**
      * Cancel mutable pending jobs only while the branch-scoped rule is at the
      * inspected generation and stale state. Null means the producer lost the

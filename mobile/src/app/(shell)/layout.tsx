@@ -1,19 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "../globals.css";
-import { QueryProvider } from "@/providers/QueryProvider";
 import localFont from "next/font/local";
-import { LocaleProvider } from "@/providers/LocaleProvider";
 import { getLocale } from "../actions/locale";
 import { getCurrentUser } from "@/lib/auth/cookies";
-import { UserProvider } from "@/providers/UserProvider";
-import { NotificationPermissionPrompt } from "@/components/app/notification-permission-prompt";
-import { Toaster } from "@/components/ui/toaster";
-import { ContractsPrefetchCoordinator } from "@/components/app/root/contracts-prefetch-coordinator";
-import { MobileBottomNav } from "@/components/app/root/mobile-bottom-nav";
-import { V3Sidebar } from "@/components/app/v3/V3Sidebar";
-import { V3MobileHeader } from "@/components/app/v3/V3MobileHeader";
-import { V3MainContent } from "@/components/app/v3/V3MainContent";
-import { FloatingQuickActions } from "@/components/app/v3/FloatingQuickActions";
+import { MobileShellProviders } from "@/components/app/root/mobile-shell-providers";
+import { PwaLaunchScreen } from "@/components/app/root/pwa-launch-screen";
+import { IOS_STARTUP_IMAGES } from "@/lib/pwa/ios-startup-images";
 
 const Pretendard = localFont({
   src: "../fonts/Pretendard.woff2",
@@ -28,6 +21,7 @@ export const metadata: Metadata = {
   icons: {
     icon: "/icon.svg",
     apple: "/apple-touch-icon.png",
+    other: [...IOS_STARTUP_IMAGES],
   },
   appleWebApp: {
     capable: true,
@@ -50,7 +44,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const locale = await getLocale();
-  const user = await getCurrentUser();
+  const userPromise = getCurrentUser();
 
   return (
     <html lang={locale}>
@@ -70,28 +64,13 @@ export default async function RootLayout({
             data-slot="app-shell"
             className="relative h-full min-h-0 w-full overflow-hidden"
           >
-            <QueryProvider>
-              <LocaleProvider locale={locale}>
-                <UserProvider user={user}>
-                  <div
-                    data-component="mobile_shell_root_app-shell_providers"
-                    data-slot="app-content"
-                    className="relative h-full min-h-0 w-full overflow-hidden"
-                  >
-                    <ContractsPrefetchCoordinator />
-                    <NotificationPermissionPrompt />
-                    <V3Sidebar data-component="mobile_shell_sidebar" />
-                    <V3MobileHeader data-component="mobile_shell_header" />
-                    <V3MainContent data-component="mobile_shell_main-content">
-                      {children}
-                    </V3MainContent>
-                    <FloatingQuickActions />
-                    <Toaster />
-                    <MobileBottomNav />
-                  </div>
-                </UserProvider>
-              </LocaleProvider>
-            </QueryProvider>
+            <Suspense
+              fallback={<PwaLaunchScreen data-component="mobile_shell_root_auth-loading" />}
+            >
+              <MobileShellProviders locale={locale} userPromise={userPromise}>
+                {children}
+              </MobileShellProviders>
+            </Suspense>
           </div>
         </div>
       </body>

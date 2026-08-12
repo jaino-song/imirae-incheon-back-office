@@ -104,7 +104,6 @@ describe("EformsignHeadlessService", () => {
             }
         }
         const source = html.slice(start, end);
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
         return new Function("window", `return (${source});`) as (
             win: Record<string, unknown>,
         ) => (resp: unknown) => void;
@@ -232,6 +231,14 @@ describe("EformsignHeadlessService", () => {
     });
 
     it("dispatchCreation falls back to ok=false when the gate runner throws", async () => {
+        pageMock.evaluate = jest.fn().mockImplementation((fn: unknown) => {
+            const source = String(fn);
+            if (source.includes("__eformsignSuccess") && source.includes("__eformsignError")) {
+                return Promise.resolve({ hasSuccess: false, hasError: false });
+            }
+            if (source.includes("__eformsignSuccess")) return Promise.resolve(false);
+            return Promise.resolve(undefined);
+        });
         (runEformsignCreationGates as jest.Mock).mockRejectedValueOnce(new Error("selector miss"));
 
         const result = await service.dispatchCreation({ documentOption: { mode: { type: "01" } } });
@@ -240,6 +247,23 @@ describe("EformsignHeadlessService", () => {
         if (!result.ok) {
             expect(result.reason).toContain("selector miss");
         }
+    });
+
+    it("recovers a creation when a no-popup template returns a terminal document id", async () => {
+        (runEformsignCreationGates as jest.Mock).mockRejectedValueOnce(
+            new Error("confirmation popup timed out twice"),
+        );
+        const onProgress = jest.fn();
+
+        await expect(service.dispatchCreation({
+            documentOption: { mode: { type: "01" } },
+            onProgress,
+        })).resolves.toEqual(expect.objectContaining({
+            ok: true,
+            documentId: "doc-from-callback",
+            gateOutcome: "success-latched",
+        }));
+        expect(onProgress).toHaveBeenCalledWith("sent");
     });
 
     it("dispatchFinalize calls the finalize gate runner", async () => {

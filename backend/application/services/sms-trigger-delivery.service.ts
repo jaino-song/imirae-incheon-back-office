@@ -64,6 +64,20 @@ export interface SmsTriggerDeliverySnapshot {
     readonly systemTemplateKey?: SystemTemplateKey;
 }
 
+/**
+ * `title` here is NOT the in-app template label. It is sent to Aligo and shown
+ * to the recipient as the LMS subject line, so it is outgoing message content.
+ *
+ * Ten of these match the in-app label; THANKS ("예약 완료" vs "예약 완료(입금 확인)")
+ * and INFO ("정보 안내" vs "정보 요청") deliberately do not. They were reviewed and
+ * left alone on 2026-08-12: "정보 요청" in a recipient's inbox reads as a request
+ * *for* their information, which is not what the message does. Do not "fix" these
+ * to match the label map — the divergence is the decision.
+ *
+ * Editing any title also invalidates every persisted approval snapshot (the value
+ * feeds configHash and snapshotHash), so a change needs SMS_DELIVERY_CONFIG_VERSION
+ * bumped and every pending approval re-approved.
+ */
 export const SMS_TEMPLATE_DELIVERY: Partial<Record<MessageTriggerTemplateKey, SmsTemplateDeliveryConfig>> = {
     [MessageTriggerTemplateKey.CLIENT_WELCOME]: {
         smsLogTemplateKey: "client_welcome_sms",

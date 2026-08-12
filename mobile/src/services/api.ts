@@ -56,7 +56,8 @@ export interface ServiceRecordTemplateIdResponse {
 }
 
 const HEADLESS_DISPATCH_TIMEOUT_MS = 180_000;
-const HEADLESS_FINALIZE_TIMEOUT_MS = 60_000;
+const HEADLESS_FINALIZE_TIMEOUT_MS = 180_000;
+const MAX_PROVIDER_FINALIZE_STEPS = 3;
 const DEFAULT_EFORMSIGN_LIMIT = 100;
 const DEFAULT_EFORMSIGN_SKIP = 0;
 const MAX_EFORMSIGN_AUTH_5XX_ATTEMPTS = 3;
@@ -380,14 +381,27 @@ export const eformsignApi = {
         prefillEndDate?: string,
         progressId?: string,
     ): Promise<FinalizeHeadlessResponse> => {
-        const { data } = await api.post('/eformsign-docs/finalize-headless', {
-            documentId,
-            prefillEndDate,
-            progressId,
-        }, {
-            timeout: HEADLESS_FINALIZE_TIMEOUT_MS,
-        });
-        return data;
+        let totalDurationMs = 0;
+        for (let attempt = 1; attempt <= MAX_PROVIDER_FINALIZE_STEPS; attempt += 1) {
+            const { data } = await api.post('/eformsign-docs/finalize-headless', {
+                documentId,
+                prefillEndDate,
+                progressId,
+            }, {
+                timeout: HEADLESS_FINALIZE_TIMEOUT_MS,
+            });
+            const result = data as FinalizeHeadlessResponse;
+            totalDurationMs += result.durationMs ?? 0;
+            if (!result.ok || result.completed !== false) {
+                return { ...result, durationMs: totalDurationMs };
+            }
+        }
+        return {
+            ok: false,
+            reason: "provider_workflow_incomplete",
+            fallbackHint: "manual_check",
+            durationMs: totalDurationMs,
+        };
     },
     // Create eformsign doc record to track document in local DB
     createDocRecord: async (params: CreateEformsignDocRecordRequest) => {

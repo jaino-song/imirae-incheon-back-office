@@ -205,7 +205,7 @@ describe("NotificationService", () => {
                 count: 1,
                 unit: "명",
                 url: "/clients/filtered?filter=no-contract",
-                clientNames: ["김지혜"],
+                details: ["김지혜"],
             },
         ];
 
@@ -265,19 +265,44 @@ describe("NotificationService", () => {
             expect(options.text).toContain(`로그인해서 확인하기: ${digestContext.ctaUrl}`);
         });
 
-        it("should escape client names supplied by users", async () => {
+        it("should escape section details supplied by users", async () => {
             userRepository.findNotificationRecipientsByBranchId.mockResolvedValue([createUser("user-1")]);
 
             await service.sendDailyDigestToBranchUsers(
                 branchId,
                 branchName,
-                [{ ...sections[1]!, clientNames: ['<script>alert("x")</script>'] }],
+                [{ ...sections[1]!, details: ['<script>alert("x")</script>'] }],
                 digestContext,
             );
 
             const [options] = emailPort.send.mock.calls[0] as [{ html: string }];
             expect(options.html).not.toContain("<script>");
             expect(options.html).toContain("&lt;script&gt;");
+        });
+
+        it("should render one line per undelivered-message detail, with an HTML-bearing name escaped", async () => {
+            userRepository.findNotificationRecipientsByBranchId.mockResolvedValue([createUser("user-1")]);
+
+            const undeliveredSection: DailyDigestSection = {
+                key: "undeliveredMessages",
+                label: "자동 전송 실패·취소",
+                description: "어제 자동 전송 중 발송되지 못한 메시지가 2건 있어요. 필요하면 수동으로 발송해 주세요.",
+                count: 2,
+                unit: "건",
+                url: "/messages",
+                details: [
+                    '<script>alert("x")</script> · 서비스 안내 — 24시간 경과로 취소',
+                    "박민수 · 계약서 안내 — 발송 실패",
+                ],
+            };
+
+            await service.sendDailyDigestToBranchUsers(branchId, branchName, [undeliveredSection], digestContext);
+
+            const [options] = emailPort.send.mock.calls[0] as [{ html: string }];
+            expect(options.html).not.toContain("<script>");
+            expect(options.html).toContain(
+                '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; · 서비스 안내 — 24시간 경과로 취소<br />박민수 · 계약서 안내 — 발송 실패',
+            );
         });
 
         it("should prefix the digest body with the branch name and escape it in HTML", async () => {

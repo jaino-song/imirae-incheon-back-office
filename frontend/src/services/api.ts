@@ -8,6 +8,7 @@ import { api } from "@/lib/api/client";
  * `fallbackHint`) instead of aborting first on an outcome it can't classify.
  */
 const HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS = 180_000;
+const MAX_PROVIDER_FINALIZE_STEPS = 3;
 import { safeStorageSetItem } from "@/lib/safe-storage";
 import type { RegisterRequest } from "@babyjamjam/shared";
 import { ContractDataDto } from '@/backend/application/dto/contract.dto';
@@ -298,12 +299,25 @@ export const eformsignApi = {
         prefillEndDate?: string,
         progressId?: string,
     ): Promise<HeadlessFinalizeResponse> => {
-        const { data } = await api.post('/eformsign-docs/finalize-headless', {
-            documentId,
-            prefillEndDate,
-            progressId,
-        }, { timeout: HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS });
-        return data;
+        let totalDurationMs = 0;
+        for (let attempt = 1; attempt <= MAX_PROVIDER_FINALIZE_STEPS; attempt += 1) {
+            const { data } = await api.post('/eformsign-docs/finalize-headless', {
+                documentId,
+                prefillEndDate,
+                progressId,
+            }, { timeout: HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS });
+            const result = data as HeadlessFinalizeResponse;
+            totalDurationMs += result.durationMs ?? 0;
+            if (!result.ok || result.completed !== false) {
+                return { ...result, durationMs: totalDurationMs };
+            }
+        }
+        return {
+            ok: false,
+            reason: "provider_workflow_incomplete",
+            fallbackHint: "manual_check",
+            durationMs: totalDurationMs,
+        };
     },
     getDocumentClientNames: async (): Promise<EformsignDocClientSummary[]> => {
         const { data } = await api.get('/eformsign-docs/client-names');

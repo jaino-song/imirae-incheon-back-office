@@ -20,4 +20,12 @@ describe("mobile contracts action lifecycle", () => {
     expect(source).toContain("if (!keepFinalizeSubmittingUntilIframeCloses)");
     expect(source).toContain("setIsFinalizeSubmitting(false)");
   });
+
+  it("does not open the iframe when finalization needs a manual status check", () => {
+    expect(source).toContain("let transportOutcomeUnknown = false");
+    expect(source).toContain("transportOutcomeUnknown = true");
+    expect(source).toContain(
+      "shouldOpenFinalizeIframe(fallbackHint, transportOutcomeUnknown)",
+    );
+  });
 });
