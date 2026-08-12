@@ -71,7 +71,7 @@ export const SurveyMessageForm = ({
       message={generatedMessage}
       bodyDescription={systemTemplate?.description || "설문 안내 문구를 검토하고 수신자별 안내를 조정할 수 있습니다."}
       metaItems={[
-        { label: "템플릿 유형", value: "설문" },
+        { label: "템플릿 유형", value: "모니터링 설문" },
         { label: t(locale, "survey-msg.name-label"), value: name.trim() || "-" },
       ]}
       variableItems={variableItems}

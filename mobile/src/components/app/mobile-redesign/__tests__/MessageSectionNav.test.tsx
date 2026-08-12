@@ -19,8 +19,13 @@ jest.mock("@/app/(shell)/messages/MessagesPermissionGuard", () => ({
 const mockUseInitialUser = useInitialUser as jest.Mock;
 const mockUseMessagesPermissionGuard = useMessagesPermissionGuard as jest.Mock;
 
-const UNRELEASED_LABELS = ["발송 예정", "발송 기록", "템플릿", "자동 전송"];
+const UNRELEASED_LABELS = ["템플릿", "자동 전송"];
 const RELEASED_LABELS = ["전송하기", "설정"];
+// 발송 기록 (the merged screen) is gated only by sender approval, not by
+// owner status, so it behaves differently from both groups above: unlike
+// UNRELEASED_LABELS it is never owner-gated, but unlike RELEASED_LABELS it
+// is not exempt from the sender-approval check either.
+const APPROVAL_GATED_LABEL = "발송 기록";
 
 function renderNav() {
   render(<MessageSectionNav data-component="mobile_tests_message-section-nav" activeId="send" />);
@@ -47,6 +52,9 @@ describe("MessageSectionNav", () => {
     for (const label of RELEASED_LABELS) {
       expect(screen.getByRole("button", { name: label })).toBeEnabled();
     }
+    // Not owner-gated: a non-owner with sender approval already sorted
+    // (needsSenderApproval: false, this suite's default mock) sees it enabled.
+    expect(screen.getByRole("button", { name: APPROVAL_GATED_LABEL })).toBeEnabled();
   });
 
   it("gives the owner early access to the unreleased sections", () => {
@@ -54,7 +62,7 @@ describe("MessageSectionNav", () => {
 
     renderNav();
 
-    for (const label of [...UNRELEASED_LABELS, ...RELEASED_LABELS]) {
+    for (const label of [...UNRELEASED_LABELS, ...RELEASED_LABELS, APPROVAL_GATED_LABEL]) {
       expect(screen.getByRole("button", { name: label })).toBeEnabled();
     }
   });
@@ -67,6 +75,9 @@ describe("MessageSectionNav", () => {
     for (const label of UNRELEASED_LABELS) {
       expect(screen.getByRole("button", { name: label })).toBeDisabled();
     }
+    // Still not owner-gated even without a resolved user (isOwner is false
+    // either way), so it stays enabled here too.
+    expect(screen.getByRole("button", { name: APPROVAL_GATED_LABEL })).toBeEnabled();
   });
 
   it("disables every section except send and settings while sender approval is pending", () => {
@@ -78,7 +89,7 @@ describe("MessageSectionNav", () => {
 
     renderNav();
 
-    for (const label of [...UNRELEASED_LABELS, "발송 기록"]) {
+    for (const label of [...UNRELEASED_LABELS, APPROVAL_GATED_LABEL]) {
       expect(screen.getByRole("button", { name: label })).toBeDisabled();
     }
     for (const label of RELEASED_LABELS) {

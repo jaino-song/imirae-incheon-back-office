@@ -121,6 +121,22 @@ export function useRetryMessageHistory() {
     });
 }
 
+// Cancels a pending trigger job (POST /message-trigger-jobs/:id/cancel). The
+// backend refuses anything but a still-pending job. Invalidates both upcoming
+// and history so the canceled row moves from the 예정 zone into 지난 발송.
+export function useCancelUpcomingMessageTriggerJob() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) =>
+            messageTriggersApi.cancelUpcomingJob(id).then((response) => response.data),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
+        },
+    });
+}
+
 export function useCreateMessageTriggerRule() {
     const queryClient = useQueryClient();
 

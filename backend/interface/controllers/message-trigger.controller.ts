@@ -37,6 +37,14 @@ export class MessageTriggerController {
         );
     }
 
+    @Post("message-trigger-jobs/:id/cancel")
+    cancelJob(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Param("id") id: string,
+    ) {
+        return this.triggerService.cancelJobByUser(tenant.branchId ?? "", id);
+    }
+
     @Get("message-logs")
     listHistory(
         @CurrentTenant() tenant: { branchId?: string },

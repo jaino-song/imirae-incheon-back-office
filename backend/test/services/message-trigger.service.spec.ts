@@ -1,3 +1,4 @@
+import { ConflictException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import {
@@ -197,6 +198,7 @@ describe("MessageTriggerService", () => {
             findTerminalByBranch: jest.fn().mockResolvedValue([]),
             hasActiveJobsBefore: jest.fn().mockResolvedValue(false),
             upsertPending: jest.fn().mockResolvedValue(undefined),
+            cancelPendingByUser: jest.fn().mockResolvedValue(true),
             upsertPendingForRuleGeneration: jest.fn().mockImplementation(async (job: MessageTriggerJobEntity) => {
                 await jobRepository.upsertPending(job);
                 return job;
@@ -866,6 +868,45 @@ describe("MessageTriggerService", () => {
         await (service as unknown as ServiceInternals).rebuildJobsForRule(branchId, greetingRule, false);
 
         expect(jobRepository.upsertPending).not.toHaveBeenCalled();
+    });
+
+    it("cancelJobByUser cancels a pending job scoped to the caller's branch and returns the canceled status", async () => {
+        const { service, jobRepository } = createService();
+
+        await expect(service.cancelJobByUser(branchId, "job-1")).resolves.toEqual({
+            id: "job-1",
+            status: "canceled",
+        });
+        expect(jobRepository.cancelPendingByUser).toHaveBeenCalledWith(
+            "job-1",
+            branchId,
+            "사용자가 발송을 취소함",
+        );
+    });
+
+    it("cancelJobByUser rejects with a conflict when the repository finds no cancelable pending job (already sent, processing, already canceled, or missing)", async () => {
+        const { service, jobRepository } = createService();
+        jobRepository.cancelPendingByUser.mockResolvedValue(false);
+
+        const failure: ConflictException = await service
+            .cancelJobByUser(branchId, "job-1")
+            .catch((error) => error);
+
+        expect(failure).toBeInstanceOf(ConflictException);
+        expect(failure.message).toBe("이미 발송되었거나 취소할 수 없는 상태입니다");
+        expect(failure.getStatus()).toBe(409);
+    });
+
+    it("cancelJobByUser scopes the cancel to the caller's branch, so a job from another branch is refused", async () => {
+        const { service, jobRepository } = createService();
+        jobRepository.cancelPendingByUser.mockResolvedValueOnce(false);
+
+        await expect(service.cancelJobByUser("other-branch", "job-1")).rejects.toBeInstanceOf(ConflictException);
+        expect(jobRepository.cancelPendingByUser).toHaveBeenCalledWith(
+            "job-1",
+            "other-branch",
+            "사용자가 발송을 취소함",
+        );
     });
 
     it("skips a job whose claim was lost to another instance", async () => {

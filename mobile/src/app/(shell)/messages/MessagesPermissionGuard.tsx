@@ -29,10 +29,14 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
   const isSettingsRoute = pathname?.startsWith("/messages/settings") ?? false;
   const isLegacySenderApprovalRoute =
     pathname?.startsWith("/messages/sender-approval") ?? false;
-  const isReadOnlyRoute = pathname === "/messages/scheduled" || pathname === "/messages/history";
   const isNewMessageRoute = pathname === "/messages/new";
+  // /messages/history (the merged 발송 예정/발송 기록 screen) is intentionally NOT
+  // exempt: it requires the same sending approval as every other message
+  // screen. It used to be read-only-exempt back when it only showed past
+  // sends; now it also surfaces upcoming sends and a cancel action, so it
+  // needs the same gate as send/templates/triggers.
   const isPermissionExemptRoute =
-    isSettingsRoute || isLegacySenderApprovalRoute || isReadOnlyRoute;
+    isSettingsRoute || isLegacySenderApprovalRoute;
 
   const { data: senderApproval, isLoading } = useQuery({
     queryKey: MESSAGE_SENDER_APPROVAL_QUERY_KEY,
