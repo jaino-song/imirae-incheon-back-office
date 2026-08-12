@@ -119,17 +119,24 @@ export class ContractAutoFinalizeSchedulerService {
     private async finalizeContract(contract: ReviewStageContract): Promise<void> {
         const { documentId } = contract;
         try {
-            const result = await this.finalizeUsecase.execute({
-                documentId,
-                prefillEndDate: contract.contractEndDate ?? undefined,
-            });
-            if (result.ok) {
-                this.logger.log(
-                    `[Contract Auto Finalize] Finalized ${documentId} (end date ${contract.contractEndDate}) in ${result.durationMs}ms`,
-                );
+            let totalDurationMs = 0;
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+                const result = await this.finalizeUsecase.execute({
+                    documentId,
+                    prefillEndDate: contract.contractEndDate ?? undefined,
+                });
+                totalDurationMs += result.durationMs;
+                if (result.ok && result.completed === false) continue;
+                if (result.ok) {
+                    this.logger.log(
+                        `[Contract Auto Finalize] Finalized ${documentId} (end date ${contract.contractEndDate}) in ${totalDurationMs}ms`,
+                    );
+                    return;
+                }
+                await this.recordFailure(contract, result.reason);
                 return;
             }
-            await this.recordFailure(contract, result.reason);
+            await this.recordFailure(contract, "provider_workflow_incomplete");
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             await this.recordFailure(contract, reason);

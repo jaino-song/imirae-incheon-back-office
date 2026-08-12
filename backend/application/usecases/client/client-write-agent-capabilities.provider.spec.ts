@@ -32,6 +32,15 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             validatePeriodChange: jest.fn().mockResolvedValue(undefined),
             ensureForClient: jest.fn().mockResolvedValue(undefined),
         };
+        const voucherServiceSelection = {
+            execute: jest.fn().mockResolvedValue({
+                type: "A통합1형",
+                duration: 35,
+                fullPrice: "3500000",
+                grant: "2400000",
+                actualPrice: "1100000",
+            }),
+        };
         const prisma = {
             $transaction: jest.fn(async (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)),
             agent_action: transaction.agent_action,
@@ -44,6 +53,7 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             clientRepository as never,
             prisma as never,
             serviceRecordLifecycle as never,
+            voucherServiceSelection as never,
         );
         return {
             createClient,
@@ -54,9 +64,96 @@ describe("ClientWriteAgentCapabilitiesProvider", () => {
             prisma,
             transaction,
             serviceRecordLifecycle,
+            voucherServiceSelection,
             capabilities: provider.getCapabilities(),
         };
     }
+
+    it("infers a voucher client and replaces model pricing from the canonical service row before hashing", async () => {
+        const { capabilities, voucherServiceSelection } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+
+        await expect(capability.canonicalizeInput!(context, {
+            name: "synthetic client",
+            phone: "01000000000",
+            type: "A 통합 1형 연장형",
+            startDate: "2026-04-01",
+            fullPrice: "model-price",
+            grant: "model-grant",
+            actualPrice: "model-actual",
+        })).resolves.toEqual(expect.objectContaining({
+            voucherClient: true,
+            type: "A통합1형",
+            duration: 35,
+            fullPrice: "3500000",
+            grant: "2400000",
+            actualPrice: "1100000",
+        }));
+        expect(voucherServiceSelection.execute).toHaveBeenCalledWith(expect.objectContaining({
+            type: "A 통합 1형 연장형",
+            startDate: "2026-04-01",
+        }));
+    });
+
+    it("rejects explicit non-voucher intent that contradicts a voucher label", async () => {
+        const { capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko",
+        } as const;
+
+        await expect(capability.canonicalizeInput!(context, {
+            name: "synthetic client",
+            phone: "01000000000",
+            voucherClient: false,
+            type: "A통합1형 연장형",
+            startDate: "2026-04-01",
+        })).rejects.toThrow("voucherClient=false");
+    });
+
+    it("executes the same canonical voucher pricing that canonicalization returns", async () => {
+        const { capabilities, createClient, transaction } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+        const context = {
+            principal: { userId: "user-a", branchId: "branch-a", globalRole: "admin", branchRole: "admin" },
+            sessionId: "session-a", traceId: "trace-a", locale: "ko", actionId: "action-a",
+        } as const;
+
+        const canonical = await capability.canonicalizeInput!(context, {
+            name: "synthetic client",
+            phone: "01000000000",
+            type: "A통합1형 연장형",
+            startDate: "2026-04-01",
+            fullPrice: "model-price",
+            grant: "model-grant",
+            actualPrice: "model-actual",
+        });
+        await capability.execute(context, canonical);
+
+        expect(createClient.execute).toHaveBeenCalledWith("branch-a", expect.objectContaining({
+            voucherClient: true,
+            type: "A통합1형",
+            duration: 35,
+            fullPrice: "3500000",
+            grant: "2400000",
+            actualPrice: "1100000",
+        }), transaction);
+    });
+
+    it("keeps the updated capability description focused on facts, lookups, and one approval proposal", () => {
+        const { capabilities } = setup();
+        const capability = capabilities.find((entry) => entry.meta.name === "clients.create")!;
+
+        expect(capability.meta.description).toContain("missing facts");
+        expect(capability.meta.description).toContain("read-only lookups");
+        expect(capability.meta.description).toContain("structured proposal");
+        expect(capability.meta.description).toContain("Never ask the user for conversational confirmation");
+    });
 
     it("accepts date-only values emitted by date form controls", async () => {
         const { createClient, capabilities } = setup();

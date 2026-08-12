@@ -1,5 +1,6 @@
 import {
     BadRequestException,
+    ConflictException,
     Inject,
     Injectable,
     Logger,
@@ -92,6 +93,8 @@ const MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON = "메시지 발송 승인 
 const ORPHANED_TRIGGER_JOB_CANCEL_REASON = "Related client or schedule deleted";
 const EXPIRED_PENDING_JOB_CANCEL_REASON = "기존 발송 예정 24시간 경과";
 const MISSING_CATCH_UP_PREDECESSOR_CANCEL_REASON = "보충 발송 이전 순위 job 없음";
+const USER_REQUESTED_CANCEL_REASON = "사용자가 발송을 취소함";
+const CANCEL_JOB_CONFLICT_MESSAGE = "이미 발송되었거나 취소할 수 없는 상태입니다";
 const MS_PER_MINUTE = 60 * 1000;
 
 function normalizeMessageTriggerOffsetDays(
@@ -680,6 +683,28 @@ export class MessageTriggerService {
         await this.dispatchClaimedJob(job, sentIds, approvedBranchIds);
 
         return await this.jobRepository.findById(jobId) ?? job;
+    }
+
+    /**
+     * Cancel a scheduled trigger job on the user's behalf. Only a `pending`
+     * job scoped to the caller's branch can be canceled; the repository call
+     * is a single atomic conditional update, so there is no separate
+     * existence/branch pre-check to race against it. Every other outcome
+     * (already sent, currently processing, already canceled, or no such job)
+     * collapses to the same conflict-style failure — the caller does not
+     * need to know which.
+     */
+    async cancelJobByUser(branchId: string, id: string): Promise<{ id: string; status: "canceled" }> {
+        await this.ensureTriggerSchemaReady();
+        const canceled = await this.jobRepository.cancelPendingByUser(
+            id,
+            branchId,
+            USER_REQUESTED_CANCEL_REASON,
+        );
+        if (!canceled) {
+            throw new ConflictException(CANCEL_JOB_CONFLICT_MESSAGE);
+        }
+        return { id, status: "canceled" };
     }
 
     async syncClientRulesForClient(

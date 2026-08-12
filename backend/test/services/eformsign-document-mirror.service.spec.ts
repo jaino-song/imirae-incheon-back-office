@@ -1302,6 +1302,7 @@ describe("EformsignDocumentMirrorService", () => {
         await expect(service.syncDocumentWithToken("token", "doc-1", {
             force: true,
             strictCompletionReconciliation: true,
+            deferServiceRecordLifecycle: true,
         })).rejects.toThrow(lifecycleError);
 
         expect(repository.markSyncFinished).toHaveBeenCalledWith(

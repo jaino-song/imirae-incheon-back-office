@@ -71,7 +71,7 @@ export const ReminderMessageForm = ({
       message={generatedMessage}
       bodyDescription={systemTemplate?.description || "리마인더 메시지를 검토하고 개인화된 문구를 조정할 수 있습니다."}
       metaItems={[
-        { label: "템플릿 유형", value: "리마인더" },
+        { label: "템플릿 유형", value: "리마인드" },
         { label: t(locale, "reminder-msg.name-label"), value: name.trim() || "-" },
       ]}
       variableItems={variableItems}

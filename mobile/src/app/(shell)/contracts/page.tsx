@@ -66,6 +66,7 @@ import {
   isHeadlessProgressStepKey,
   resolveFailedHeadlessProgress,
   resolveNextHeadlessProgress,
+  shouldOpenFinalizeIframe,
   type HeadlessProgressEvent,
   type HeadlessProgressState,
 } from "@/lib/eformsign/headless-progress";
@@ -1770,6 +1771,8 @@ export default function ContractsPage() {
     const progressId = createHeadlessProgressId("finalize");
     let progressSource: EventSource | null = null;
     let headlessOk = false;
+    let fallbackHint: "iframe" | "manual_check" | undefined;
+    let transportOutcomeUnknown = false;
     let keepFinalizeSubmittingUntilIframeCloses = false;
 
     try {
@@ -1828,6 +1831,7 @@ export default function ContractsPage() {
       }
 
       console.warn("[finalize] headless ok=false", headless.reason);
+      fallbackHint = headless.fallbackHint;
       const errorHint = getSafeHeadlessFailureMessage(headless.reason);
       setFinalizeProgress((current) => {
         const next = resolveFailedHeadlessProgress(
@@ -1841,6 +1845,7 @@ export default function ContractsPage() {
         return next;
       });
     } catch (err) {
+      transportOutcomeUnknown = true;
       console.warn("[finalize] headless threw", err);
       const errorHint = getSafeHeadlessFailureMessage(err instanceof Error ? err.message : undefined);
       setFinalizeProgress((current) => {
@@ -1859,7 +1864,7 @@ export default function ContractsPage() {
       finalizeProgressSourceRef.current = null;
     }
 
-    if (!headlessOk) {
+    if (!headlessOk && shouldOpenFinalizeIframe(fallbackHint, transportOutcomeUnknown)) {
       // Fallback to iframe via generateStaffDocument
       setIsFinalizeProgressOpen(false);
       try {

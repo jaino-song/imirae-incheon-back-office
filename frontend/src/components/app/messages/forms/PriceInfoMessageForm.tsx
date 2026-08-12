@@ -308,7 +308,7 @@ export const PriceInfoMessageForm = ({
   };
 
   const priceMetaItems = [
-    { label: "템플릿 유형", value: "요금 안내" },
+    { label: "템플릿 유형", value: "비용 안내" },
     { label: t(locale, "price-info-msg.name-label"), value: formData.name || "-" },
     { label: t(locale, "price-info-msg.voucher-type-label"), value: formData.type || "-" },
     { label: t(locale, "price-info-msg.duration-label"), value: formData.duration ? `${formData.duration}일` : "-" },

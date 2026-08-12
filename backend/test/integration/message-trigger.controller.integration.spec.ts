@@ -1,5 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/common";
+import { ConflictException, ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/common";
 import request from "supertest";
 import { MessageTriggerController } from "interface/controllers/message-trigger.controller";
 import {
@@ -39,6 +39,7 @@ describe("MessageTriggerController (Integration)", () => {
         listRules: jest.Mock;
         listUpcomingJobs: jest.Mock;
         listHistory: jest.Mock;
+        cancelJobByUser: jest.Mock;
         createRule: jest.Mock;
         getRule: jest.Mock;
         updateRule: jest.Mock;
@@ -150,6 +151,7 @@ describe("MessageTriggerController (Integration)", () => {
             listRules: jest.fn(),
             listUpcomingJobs: jest.fn(),
             listHistory: jest.fn(),
+            cancelJobByUser: jest.fn(),
             createRule: jest.fn(),
             getRule: jest.fn(),
             updateRule: jest.fn(),
@@ -238,6 +240,31 @@ describe("MessageTriggerController (Integration)", () => {
 
             expect(response.status).toBe(400);
             expect(triggerService.listUpcomingJobs).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("POST /message-trigger-jobs/:id/cancel", () => {
+        it("cancels a pending job for the authenticated tenant", async () => {
+            triggerService.cancelJobByUser.mockResolvedValue({ id: "job-1", status: "canceled" });
+
+            const response = await request(app.getHttpServer())
+                .post("/message-trigger-jobs/job-1/cancel");
+
+            expect(response.status).toBe(201);
+            expect(response.body).toEqual({ id: "job-1", status: "canceled" });
+            expect(triggerService.cancelJobByUser).toHaveBeenCalledWith(branchId, "job-1");
+        });
+
+        it("surfaces a 409 conflict when the job can no longer be canceled", async () => {
+            triggerService.cancelJobByUser.mockRejectedValue(
+                new ConflictException("이미 발송되었거나 취소할 수 없는 상태입니다"),
+            );
+
+            const response = await request(app.getHttpServer())
+                .post("/message-trigger-jobs/job-1/cancel");
+
+            expect(response.status).toBe(409);
+            expect(response.body.message).toBe("이미 발송되었거나 취소할 수 없는 상태입니다");
         });
     });
 

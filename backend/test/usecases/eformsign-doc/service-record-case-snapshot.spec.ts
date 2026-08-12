@@ -8,6 +8,7 @@ type PreparedChunk = {
     tier: number;
     templateId: string;
     sourceHash: string;
+    compatibleSourceHashes: string[];
     documentName: string;
     chunkIndex: number;
     chunkCount: number;
@@ -125,6 +126,9 @@ function makeRecord() {
 
 function setup() {
     const snapshotChunk = {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         update: jest.fn().mockResolvedValue({}),
     };
@@ -326,6 +330,39 @@ describe("client-owned service record snapshot", () => {
         expect(hashWithSignature).not.toBe(hashWithoutSignature);
     });
 
+    it("accepts the pre-provider-name source hash for an already-created chunk", async () => {
+        const { usecase, prisma } = setup();
+        const record = makeRecord();
+        record.requiredSessionCount = 1;
+        record.days = [record.days[0]!];
+        record.assignments = [record.assignments[0]!];
+        const chunk = callBuildCaseChunks(
+            usecase,
+            record,
+            BASE_ONLY_TIERS,
+            BASE_ONLY_TEMPLATE_BY_TIER,
+        )[0]!;
+        const previousHash = chunk.compatibleSourceHashes[0];
+
+        expect(previousHash).toBeDefined();
+        expect(previousHash).not.toBe(chunk.sourceHash);
+        prisma.service_record_snapshot_chunk.findMany.mockResolvedValueOnce([{
+            id: "chunk-1",
+            chunkIndex: 1,
+            status: "CREATED",
+            sourceHash: previousHash,
+        }]);
+
+        const prepareChunkRows = usecase as unknown as {
+            prepareChunkRows(
+                value: ReturnType<typeof makeRecord>,
+                chunks: PreparedChunk[],
+            ): Promise<unknown>;
+        };
+        await expect(prepareChunkRows.prepareChunkRows(record, [chunk])).resolves.toBeDefined();
+        expect(prisma.service_record_snapshot_chunk.update).not.toHaveBeenCalled();
+    });
+
     it("reconciles an ambiguous create attempt by title without creating a second document", async () => {
         const { usecase, prisma, eformsignClient, remoteDocument } = setup();
         const record = makeRecord();
@@ -350,6 +387,14 @@ describe("client-owned service record snapshot", () => {
 
         await expect(processor.processChunk({ ...common, chunkStatus: "PENDING" }))
             .rejects.toThrow("fetch failed");
+        expect(eformsignClient.createDocument).toHaveBeenCalledWith(
+            "access-token",
+            expect.objectContaining({
+                prefillFields: expect.arrayContaining([
+                    { id: "제공기관 이름", value: "인천 아이미래로" },
+                ]),
+            }),
+        );
         expect(prisma.service_record_snapshot_chunk.update).toHaveBeenLastCalledWith(expect.objectContaining({
             data: expect.objectContaining({ status: "RECONCILING" }),
         }));

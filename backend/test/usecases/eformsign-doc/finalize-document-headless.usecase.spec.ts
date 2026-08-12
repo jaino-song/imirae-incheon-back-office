@@ -1,6 +1,33 @@
 import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
+import { EformsignOperationAlreadyRunningError } from "infrastructure/locking/eformsign-operation-lock.service";
 
 describe("FinalizeDocumentHeadlessUsecase", () => {
+    it("does not start a second finalization for the same document", async () => {
+        const headlessService = { dispatchFinalize: jest.fn() };
+        const getAccessTokenUsecase = { execute: jest.fn() };
+        const operationLock = {
+            runExclusive: jest.fn().mockRejectedValue(new EformsignOperationAlreadyRunningError()),
+        };
+        const usecase = new FinalizeDocumentHeadlessUsecase(
+            { generateStaffDocumentOptions: jest.fn(), fetchDocumentStatusCode: jest.fn() } as never,
+            headlessService as never,
+            getAccessTokenUsecase as never,
+            { emit: jest.fn() } as never,
+            operationLock as never,
+        );
+
+        await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual(expect.objectContaining({
+            ok: false,
+            reason: "operation_in_progress",
+            fallbackHint: "manual_check",
+        }));
+        expect(getAccessTokenUsecase.execute).not.toHaveBeenCalled();
+        expect(headlessService.dispatchFinalize).not.toHaveBeenCalled();
+    });
+    afterEach(() => {
+        jest.useRealTimers();
+    });
+
     it("finalizes a service record without requiring an end-date prefill", async () => {
         const eformsignService = {
             generateStaffCompletionOptions: jest.fn().mockResolvedValue({ mode: { type: "02" } }),
@@ -22,12 +49,17 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
         const progressService = {
             emit: jest.fn(),
         };
+        const documentMirrorService = {
+            syncDocument: jest.fn().mockResolvedValue({ status: "synced" }),
+        };
 
         const usecase = new FinalizeDocumentHeadlessUsecase(
             eformsignService as never,
             headlessService as never,
             getAccessTokenUsecase as never,
             progressService as never,
+            undefined,
+            documentMirrorService as never,
         );
 
         await expect(usecase.execute({
@@ -35,6 +67,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             progressId: "progress-1",
         })).resolves.toEqual({
             ok: true,
+            completed: true,
             durationMs: 640,
         });
 
@@ -49,6 +82,52 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             documentId: "service-record-1",
             onProgress: expect.any(Function),
         });
+        expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
+            "service-record-1",
+            {
+                force: true,
+                suppressOutboundAutomation: true,
+                strictCompletionReconciliation: true,
+            },
+        );
+    });
+
+    it("retries a post-finalize mirror failure without changing the confirmed vendor result", async () => {
+        jest.useFakeTimers();
+        const documentMirrorService = {
+            syncDocument: jest.fn()
+                .mockRejectedValueOnce(new Error("PDF not ready"))
+                .mockResolvedValueOnce({ status: "synced" }),
+        };
+        const usecase = new FinalizeDocumentHeadlessUsecase(
+            {
+                generateStaffCompletionOptions: jest.fn().mockResolvedValue({ mode: { type: "02" } }),
+            } as never,
+            {
+                dispatchFinalize: jest.fn().mockResolvedValue({
+                    ok: true,
+                    durationMs: 640,
+                    gateOutcome: "request-send-clicked",
+                }),
+            } as never,
+            {
+                execute: jest.fn().mockResolvedValue({
+                    oauth_token: { access_token: "access-token", refresh_token: "refresh-token" },
+                }),
+            } as never,
+            { emit: jest.fn() } as never,
+            undefined,
+            documentMirrorService as never,
+        );
+
+        await expect(usecase.execute({ documentId: "doc-retry" })).resolves.toEqual({
+            ok: true,
+            completed: true,
+            durationMs: 640,
+        });
+        await jest.runAllTimersAsync();
+
+        expect(documentMirrorService.syncDocument).toHaveBeenCalledTimes(2);
     });
 
     describe("when the run succeeds on the success latch", () => {
@@ -87,9 +166,13 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
         it("rejects the run when eformsign has not actually completed the document", async () => {
             // The incident shape: the SDK said success, the popup 전송 was never
             // clicked, and the document sat at 070 (제공기관 검토) untouched.
+            jest.useFakeTimers();
             const usecase = buildUsecase("success-latched", jest.fn().mockResolvedValue("070"));
 
-            await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual(
+            const result = usecase.execute({ documentId: "doc-1" });
+            await jest.runAllTimersAsync();
+
+            await expect(result).resolves.toEqual(
                 expect.objectContaining({
                     ok: false,
                     reason: "eformsign reported success without submitting the document",
@@ -103,14 +186,55 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
 
             await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual({
                 ok: true,
+                completed: true,
                 durationMs: 900,
             });
         });
 
+        it("waits for a delayed vendor completion before rejecting a latched success", async () => {
+            jest.useFakeTimers();
+            const fetchDocumentStatusCode = jest.fn()
+                .mockResolvedValueOnce("070")
+                .mockResolvedValueOnce("072");
+            const usecase = buildUsecase("success-latched", fetchDocumentStatusCode);
+
+            const result = usecase.execute({ documentId: "doc-1" });
+            await jest.runAllTimersAsync();
+
+            await expect(result).resolves.toEqual({
+                ok: true,
+                completed: true,
+                durationMs: 900,
+            });
+            expect(fetchDocumentStatusCode).toHaveBeenCalledTimes(2);
+        });
+
+        it("retries an unreadable vendor response before requiring a manual check", async () => {
+            jest.useFakeTimers();
+            const fetchDocumentStatusCode = jest.fn()
+                .mockResolvedValueOnce(undefined)
+                .mockResolvedValueOnce("072");
+            const usecase = buildUsecase("success-latched", fetchDocumentStatusCode);
+
+            const result = usecase.execute({ documentId: "doc-1" });
+            await jest.runAllTimersAsync();
+
+            await expect(result).resolves.toEqual({
+                ok: true,
+                completed: true,
+                durationMs: 900,
+            });
+            expect(fetchDocumentStatusCode).toHaveBeenCalledTimes(2);
+        });
+
         it("asks for a manual check when the vendor status cannot be read", async () => {
+            jest.useFakeTimers();
             const usecase = buildUsecase("success-latched", jest.fn().mockResolvedValue(undefined));
 
-            await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual(
+            const result = usecase.execute({ documentId: "doc-1" });
+            await jest.runAllTimersAsync();
+
+            await expect(result).resolves.toEqual(
                 expect.objectContaining({ ok: false, fallbackHint: "manual_check" }),
             );
         });
@@ -121,6 +245,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
 
             await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual({
                 ok: true,
+                completed: true,
                 durationMs: 900,
             });
             expect(fetchDocumentStatusCode).not.toHaveBeenCalled();
@@ -133,15 +258,22 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
          * unknown side of the submit. Which fallback they earn depends entirely
          * on what eformsign says the document's status actually is.
          */
-        function buildUsecase(fetchDocumentStatusCode: jest.Mock, reachedSend = true) {
+        function buildUsecase(
+            fetchDocumentStatusCode: jest.Mock,
+            reachedSend = true,
+            fetchDocumentWorkflowState?: jest.Mock,
+            sdkReportedSent = false,
+        ) {
             const eformsignService = {
                 generateStaffCompletionOptions: jest.fn().mockResolvedValue({ mode: { type: "02" } }),
                 fetchDocumentStatusCode,
+                ...(fetchDocumentWorkflowState ? { fetchDocumentWorkflowState } : {}),
             };
             const headlessService = {
                 dispatchFinalize: jest.fn().mockImplementation(async ({ onProgress }) => {
                     onProgress?.("client-started");
                     if (reachedSend) onProgress?.("creating");
+                    if (sdkReportedSent) onProgress?.("sent");
                     return { ok: false, reason: "gate timeout", durationMs: 31_000 };
                 }),
             };
@@ -170,24 +302,91 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
 
             await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" })).resolves.toEqual({
                 ok: true,
+                completed: true,
                 durationMs: 31_000,
             });
             expect(progressService.emit).toHaveBeenCalledWith("p-1", "sent");
         });
 
+        it("reports an advanced-but-incomplete provider step distinctly", async () => {
+            const fetchDocumentStatusCode = jest.fn();
+            const fetchDocumentWorkflowState = jest.fn()
+                .mockResolvedValueOnce({
+                    statusCode: "060",
+                    stepType: "05",
+                    stepIndex: "3",
+                    stepName: "제공기관 확인",
+                })
+                .mockResolvedValueOnce({
+                    statusCode: "070",
+                    stepType: "06",
+                    stepIndex: "4",
+                    stepName: "제공기관 검토",
+                });
+            const { usecase, progressService } = buildUsecase(
+                fetchDocumentStatusCode,
+                true,
+                fetchDocumentWorkflowState,
+                true,
+            );
+
+            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" }))
+                .resolves.toEqual({ ok: true, completed: false, durationMs: 31_000 });
+            expect(fetchDocumentStatusCode).not.toHaveBeenCalled();
+            expect(fetchDocumentWorkflowState).toHaveBeenCalledTimes(2);
+            expect(progressService.emit).not.toHaveBeenCalledWith("p-1", "sent");
+        });
+
+        it("treats a terminal rejection as failure instead of workflow advancement", async () => {
+            const fetchDocumentWorkflowState = jest.fn()
+                .mockResolvedValueOnce({
+                    statusCode: "070",
+                    stepType: "06",
+                    stepIndex: "4",
+                    stepName: "제공기관 검토",
+                })
+                .mockResolvedValueOnce({
+                    statusCode: "071",
+                    stepType: "06",
+                    stepIndex: "4",
+                    stepName: "검토 반려",
+                });
+            const { usecase, progressService } = buildUsecase(
+                jest.fn(),
+                true,
+                fetchDocumentWorkflowState,
+            );
+
+            await expect(usecase.execute({ documentId: "doc-1", progressId: "p-1" }))
+                .resolves.toEqual(expect.objectContaining({
+                    ok: false,
+                    reason: "eformsign_terminal_failure",
+                    fallbackHint: "manual_check",
+                }));
+            expect(progressService.emit).not.toHaveBeenCalledWith("p-1", "sent");
+        });
+
         it("asks for the iframe only when eformsign confirms the step is unfinished", async () => {
             // 070 = doc_request_reviewer: still awaiting provider review.
+            jest.useFakeTimers();
             const { usecase } = buildUsecase(jest.fn().mockResolvedValue("070"));
 
-            await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual(
+            const result = usecase.execute({ documentId: "doc-1" });
+            await jest.runAllTimersAsync();
+
+            await expect(result).resolves.toEqual(
                 expect.objectContaining({ ok: false, fallbackHint: "iframe" }),
             );
         });
 
         it("asks for a manual check when the vendor status cannot be read", async () => {
+            jest.useFakeTimers();
             const { usecase } = buildUsecase(jest.fn().mockRejectedValue(new Error("502 Bad Gateway")));
 
-            await expect(usecase.execute({ documentId: "doc-1" })).resolves.toEqual(
+            const result = usecase.execute({ documentId: "doc-1" });
+            await jest.runAllTimersAsync();
+
+            await expect(result).resolves.toEqual(
                 expect.objectContaining({ ok: false, fallbackHint: "manual_check" }),
             );
         });

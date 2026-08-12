@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { ClientServiceRecordsTab } from "../ClientServiceRecordsTab";
 import type {
@@ -156,6 +156,63 @@ describe("ClientServiceRecordsTab", () => {
         expect(screen.getByText("발송 예약")).toBeInTheDocument();
         expect(screen.getByText("발송됨")).toBeInTheDocument();
         expect(screen.getAllByText("제공기록지 작성 링크")).toHaveLength(3);
+    });
+
+    it("shows a failure toast when manual sending resolves without a sent job", async () => {
+        mutateAsync.mockResolvedValue({
+            ok: false,
+            jobId: "job-manual",
+            status: "pending",
+            scheduledFor: "2026-07-01T15:00:00+09:00",
+        });
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [createAssignment(1, "none")] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "링크 수동 전송" }));
+
+        await waitFor(() => {
+            expect(toast).toHaveBeenCalledWith({
+                variant: "destructive",
+                description: "제공기록지 링크 발송에 실패했어요",
+            });
+        });
+        expect(toast).not.toHaveBeenCalledWith({
+            variant: "success",
+            description: "제공기록지 링크를 보냈어요",
+        });
+    });
+
+    it("labels rejected manual sends as failures while preserving the server detail", async () => {
+        mutateAsync.mockRejectedValue({
+            response: {
+                data: { message: "수신자 전화번호가 없습니다" },
+            },
+        });
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [createAssignment(1, "none")] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "링크 수동 전송" }));
+
+        await waitFor(() => {
+            expect(toast).toHaveBeenCalledWith({
+                variant: "destructive",
+                description: "제공기록지 링크 발송에 실패했어요: 수신자 전화번호가 없습니다",
+            });
+        });
     });
 
     it("normalizes uppercase completed document statuses", () => {

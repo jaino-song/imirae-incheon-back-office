@@ -48,9 +48,10 @@ export const MESSAGE_NAVIGATION_ITEMS: MessageNavigationItem[] =
 
 // Sections that are still 출시 예정. The owner gets early access to them; everyone
 // else sees them disabled until the features ship.
+// "scheduled" no longer has a nav entry (folded into the merged 발송 기록
+// screen) and "history" is gated only by sending approval below, so neither
+// belongs in this set anymore.
 const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([
-  "scheduled",
-  "history",
   "templates",
   "triggers",
 ]);

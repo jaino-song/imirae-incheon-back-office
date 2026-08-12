@@ -105,3 +105,10 @@ export function getSafeHeadlessFailureMessage(reason: string | undefined): strin
     if (/missing document_id/i.test(reason)) return "전자문서 전송 응답에서 문서 ID를 받지 못했어요";
     return "백엔드 자동 처리에 실패했어요";
 }
+
+export function shouldOpenFinalizeIframe(
+    fallbackHint: "iframe" | "manual_check" | undefined,
+    transportOutcomeUnknown: boolean,
+): boolean {
+    return !transportOutcomeUnknown && fallbackHint === "iframe";
+}

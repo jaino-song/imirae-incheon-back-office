@@ -188,18 +188,35 @@ describe("MessagesPermissionGuard", () => {
     },
   );
 
-  it.each(["/messages/scheduled", "/messages/history"])(
-    "allows the read-only route %s before sender approval",
-    async (pathname) => {
-      mockPathname = pathname;
+  it("gates /messages/history behind sender approval, just like other protected routes", async () => {
+    // /messages/history is the merged 발송 예정/발송 기록 screen. It used to be
+    // read-only-exempt; that exemption was the bug this test now guards
+    // against — the nav already disabled it for unapproved senders, but a
+    // direct URL visit skipped the check entirely.
+    mockPathname = "/messages/history";
 
-      renderGuard();
+    renderGuard();
 
-      expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
-      await waitFor(() => {
-        expect(mockGetMessageSenderApproval).not.toHaveBeenCalled();
-      });
-      expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
-    },
-  );
+    expect(await screen.findByText("메시지 전송 권한이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByText("문자 발신번호 승인 신청을 완료해야 메시지를 발송할 수 있습니다.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetMessageSenderApproval).toHaveBeenCalled();
+    });
+  });
+
+  it("shows /messages/history once sender approval is granted", async () => {
+    mockPathname = "/messages/history";
+    mockGetMessageSenderApproval.mockResolvedValue({
+      approvalStatus: "approved",
+      isApproved: true,
+      canRequest: true,
+      requestedAt: "2026-06-01T00:00:00.000Z",
+      approvedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    renderGuard();
+
+    expect(await screen.findByTestId("messages-route-child")).toBeInTheDocument();
+    expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
+  });
 });
