@@ -551,15 +551,16 @@ export default function ClientsPage() {
     const handleDeleteConfirm = async () => {
         if (deleteTargetClientId === null) return;
 
+        const clientId = deleteTargetClientId;
+        setDeleteTargetClientId(null);
+
         try {
-            await deleteClient.mutateAsync(deleteTargetClientId);
-            if (activeSelectedClient?.id === deleteTargetClientId) {
+            await deleteClient.mutateAsync(clientId);
+            if (activeSelectedClient?.id === clientId) {
                 setSelectedClient(null);
             }
-            setDeleteTargetClientId(null);
         } catch (err) {
             console.error("Failed to delete client:", err);
-            setDeleteTargetClientId(null);
             setDeleteErrorMessage(
                 getApiErrorMessage(
                     err,
