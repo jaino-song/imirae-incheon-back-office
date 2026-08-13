@@ -172,4 +172,18 @@ CREATE INDEX IF NOT EXISTS "idx_eformsign_document_job_document_id"
 CREATE INDEX IF NOT EXISTS "idx_eformsign_document_job_client_id"
     ON "eformsign_document_job" ("client_id");
 
+-- The patch workflow may replay this migration. Reject partially converged
+-- rows before restoring the required-column contract.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM "eformsign_document_job"
+        WHERE branch_id IS NULL OR job_type IS NULL OR source IS NULL
+           OR status IS NULL OR request_key IS NULL OR attempts IS NULL
+           OR next_attempt_at IS NULL OR created_at IS NULL OR updated_at IS NULL
+    ) THEN
+        RAISE EXCEPTION 'eformsign_document_job contains rows missing required values';
+    END IF;
+END $$;
+
 COMMIT;

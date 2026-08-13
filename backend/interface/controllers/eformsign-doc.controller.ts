@@ -9,6 +9,7 @@ import {
     Post,
     Query,
     Req,
+    ServiceUnavailableException,
     Sse,
     UseGuards,
 } from "@nestjs/common";
@@ -367,6 +368,7 @@ export class EformsignDocController {
         @Req() request: { user?: { userId?: string } },
         @Body() dto: CreateEformsignDocumentJobDto,
     ): Promise<EnqueueEformsignDocumentJobResponseDto> {
+        this.assertDocumentJobsAccepting();
         const result = await this.documentJobService.enqueueCreateDocument({
             branchId: tenant.branchId ?? "",
             createdByUserId: tenant.userId ?? request.user?.userId,
@@ -393,6 +395,7 @@ export class EformsignDocController {
         @Req() request: { user?: { userId?: string } },
         @Body() dto: FinalizeEformsignDocumentJobDto,
     ): Promise<EnqueueEformsignDocumentJobResponseDto> {
+        this.assertDocumentJobsAccepting();
         const result = await this.documentJobService.enqueueFinalizeDocument({
             branchId: tenant.branchId ?? "",
             createdByUserId: tenant.userId ?? request.user?.userId,
@@ -438,5 +441,16 @@ export class EformsignDocController {
             requiresAttention: result.requiresAttention.map(toEformsignDocumentJobResponse),
             recent: result.recent.map(toEformsignDocumentJobResponse),
         };
+    }
+
+    private assertDocumentJobsAccepting(): void {
+        if (
+            this.configService
+                .get<string>("EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED")
+                ?.trim()
+                .toLowerCase() !== "true"
+        ) {
+            throw new ServiceUnavailableException("Eformsign document jobs are not accepting new work");
+        }
     }
 }

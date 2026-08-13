@@ -153,7 +153,7 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         const notifyExhausted = (service as unknown as {
             notifyExhausted: (contract: ReviewStageContract, reason: string) => Promise<void>;
         }).notifyExhausted;
-        await notifyExhausted(contract({ documentId: "doc-1" }), "vendor 500");
+        await notifyExhausted.call(service, contract({ documentId: "doc-1" }), "vendor 500");
 
         expect(notificationService.sendToBranchUsers).toHaveBeenCalledTimes(1);
         const [branchId, , , data, options] = notificationService.sendToBranchUsers.mock.calls[0];

@@ -110,7 +110,14 @@ describe("EformsignDocumentJobController (Integration)", () => {
                 { provide: AdoptEformsignDocUsecase, useValue: {} },
                 { provide: EformsignDocsEventBus, useValue: {} },
                 { provide: EformsignHeadlessProgressService, useValue: {} },
-                { provide: ConfigService, useValue: {} },
+                {
+                    provide: ConfigService,
+                    useValue: {
+                        get: jest.fn((key: string) =>
+                            key === "EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED" ? "true" : undefined,
+                        ),
+                    },
+                },
                 { provide: EformsignDocumentJobService, useValue: documentJobService },
             ],
         })
