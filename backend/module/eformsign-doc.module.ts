@@ -63,6 +63,11 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
 import { EformsignAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/eformsign-agent-capabilities.provider";
 import { ContractExternalAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
+import { EformsignDocumentJobService } from "application/services/eformsign-document-job.service";
+import { EformsignDocumentJobWorkerService } from "application/services/eformsign-document-job-worker.service";
+import { EformsignDocumentJobReconciliationService } from "application/services/eformsign-document-job-reconciliation.service";
+import { EFORMSIGN_DOCUMENT_JOB_REPOSITORY } from "domain/repositories/eformsign-document-job.repository.interface";
+import { SbEformsignDocumentJobRepository } from "infrastructure/database/repositories/sb.eformsign-document-job.repository";
 
 @Module({
     imports: [
@@ -123,6 +128,9 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         EformsignMirrorReadinessService,
         EformsignAgentCapabilitiesProvider,
         ContractExternalAgentCapabilitiesProvider,
+        EformsignDocumentJobService,
+        EformsignDocumentJobWorkerService,
+        EformsignDocumentJobReconciliationService,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
@@ -140,6 +148,10 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         {
             provide: CLIENT_REPOSITORY,
             useClass: SbClientRepository,
+        },
+        {
+            provide: EFORMSIGN_DOCUMENT_JOB_REPOSITORY,
+            useClass: SbEformsignDocumentJobRepository,
         },
         {
             provide: EFORMSIGN_BACKFILL_REDIS_CLIENT,
@@ -164,6 +176,7 @@ import { FindClientByIdUsecase } from "application/usecases/client/find-client-b
         ReconcileCompletedMirroredEformsignDocUsecase,
         LinkMirroredEformsignDocByPhoneUsecase,
         GetContractClientCandidateUsecase,
+        EformsignDocumentJobService,
     ],
 })
 export class EformsignDocModule {}

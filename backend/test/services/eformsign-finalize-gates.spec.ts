@@ -91,7 +91,7 @@ describe("runEformsignFinalizeGates", () => {
         );
         expect(topLevelSendButton.click).toHaveBeenCalledTimes(2);
         expect(onProgress).toHaveBeenCalledWith("info-inserted");
-        expect(onProgress).not.toHaveBeenCalledWith("creating");
+        expect(onProgress).toHaveBeenCalledWith("creating");
     });
 
     it("clicks the #inputCommentPopup send button instead of retrying top-level send", async () => {

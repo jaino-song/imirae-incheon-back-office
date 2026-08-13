@@ -1184,6 +1184,38 @@
         ]
       },
       {
+        "name": "ContractStatsBar",
+        "layer": "organism",
+        "import": "@/components/app/contracts/ContractStatsBar",
+        "file": "frontend/src/components/app/contracts/ContractStatsBar.tsx",
+        "exports": [
+          "ContractStatsBar"
+        ],
+        "replaces": [
+          "contract page-local stats rows",
+          "contract document job status tiles"
+        ],
+        "requiredFor": [
+          "contracts dashboard statistics with document jobs"
+        ]
+      },
+      {
+        "name": "ContractDocumentJobsPopover",
+        "layer": "organism",
+        "import": "@/components/app/contracts/ContractDocumentJobsPopover",
+        "file": "frontend/src/components/app/contracts/ContractDocumentJobsPopover.tsx",
+        "exports": [
+          "ContractDocumentJobsPopover"
+        ],
+        "replaces": [
+          "contract page-local document job popovers",
+          "custom document job status panels"
+        ],
+        "requiredFor": [
+          "read-only eformsign document job status"
+        ]
+      },
+      {
         "name": "StatusBadge",
         "layer": "molecule",
         "import": "@/components/app/v3",

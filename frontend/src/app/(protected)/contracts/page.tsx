@@ -43,7 +43,6 @@ import {
   foldContractStats,
 } from "@/lib/eformsign/status-codes";
 import {
-  StatsBar,
   SplitLayout,
   ListPanel,
   DetailPanel,
@@ -64,6 +63,7 @@ import {
   DetailEmptyState,
   SectionNav,
 } from "@/components/app/v3";
+import { ContractStatsBar } from "@/components/app/contracts/ContractStatsBar";
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
@@ -121,6 +121,10 @@ import {
   type HeadlessProgressStepKey,
 } from "@/components/app/eformsign/HeadlessProgressStepper";
 import { isFeatureEnabled } from "@/lib/feature-flags";
+import {
+  useEformsignDocumentJobs,
+  useEnqueueEformsignDocumentFinalization,
+} from "@/hooks/useEformsignDocumentJobs";
 
 const FINALIZE_PROGRESS_STEPS: readonly HeadlessProgressStep[] = [
   { key: "client-started", label: "전자문서 클라이언트 시작", errorLabel: "전자문서 클라이언트 시작 실패" },
@@ -454,6 +458,8 @@ export default function ContractsPage() {
   const [serviceRecordActiveTab, setServiceRecordActiveTab] = useState("all");
   const [serviceRecordSearchQuery, setServiceRecordSearchQuery] = useState("");
   const [selectedServiceRecordDocId, setSelectedServiceRecordDocId] = useState<string | null>(null);
+  const [isDocumentJobsPopoverOpen, setIsDocumentJobsPopoverOpen] = useState(false);
+  const documentJobsEnabled = isFeatureEnabled("eformsignDocumentJobs");
 
   const { isAuthenticated, isLoading: isLoadingAuth, error: authError } = useEformsignAuth({
     requireAccessToken: false,
@@ -462,6 +468,10 @@ export default function ContractsPage() {
   useEformsignDocsLiveStream(isAuthenticated);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const documentJobsQuery = useEformsignDocumentJobs({
+    isAuthenticated: isAuthenticated && documentJobsEnabled,
+    isPopoverOpen: isDocumentJobsPopoverOpen,
+  });
   const deleteDocument = useDeleteEformsignDocument();
   const registerCandidateQuery = useContractClientCandidate(registerClientDocumentId);
   const registerClientPrefill = useMemo(
@@ -715,8 +725,9 @@ export default function ContractsPage() {
   return (
     <PageSection name="contracts">
       {/* TODO: 통계 카운트는 아직 제공기록지 문서를 포함한다. 후속 작업에서 통계 엔드포인트를 분리한다. */}
-      <StatsBar
+      <ContractStatsBar
         name="contracts"
+        showDocumentJobs={documentJobsEnabled}
         isLoading={isStatsLoading}
         items={[
           { icon: CheckCircle2, value: stats.reviewNeeded, label: "검토 필요", counter: "건", colorIndex: 0 },
@@ -725,6 +736,14 @@ export default function ContractsPage() {
           { icon: FileText, value: stats.drafting, label: "작성 대기중", counter: "건" },
           { icon: AlertTriangle, value: stats.expired, label: "기간 만료", counter: "건", colorIndex: 3 },
         ]}
+        summary={documentJobsEnabled ? documentJobsQuery.summary : null}
+        documentJobs={documentJobsEnabled ? (documentJobsQuery.data ?? null) : null}
+        isJobsLoading={documentJobsEnabled && (
+          documentJobsQuery.summaryQuery.isLoading || documentJobsQuery.isLoading
+        )}
+        jobsError={documentJobsEnabled ? documentJobsQuery.error : null}
+        onRetryJobs={documentJobsEnabled ? () => void documentJobsQuery.refetch() : undefined}
+        onJobsPopoverOpenChange={setIsDocumentJobsPopoverOpen}
       />
 
       <div
@@ -1136,6 +1155,8 @@ function ContractDetail({
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const documentJobsEnabled = isFeatureEnabled("eformsignDocumentJobs");
+  const enqueueFinalizationMutation = useEnqueueEformsignDocumentFinalization();
   const detailQuery = useQuery<EformsignDocument>({
     queryKey: ["eformsign-documents", "detail", doc.id],
     queryFn: async () => eformsignApi.getDocument(doc.id),
@@ -1422,7 +1443,20 @@ function ContractDetail({
   });
 
   const openStaffCompletionMutation = useMutation({
-    mutationFn: async (endDate?: string): Promise<{ kind: "headless" } | { kind: "iframe"; option: EformsignDocumentOption }> => {
+    mutationFn: async (endDate?: string): Promise<
+      | { kind: "queued" }
+      | { kind: "headless" }
+      | { kind: "iframe"; option: EformsignDocumentOption }
+    > => {
+      if (documentJobsEnabled) {
+        await enqueueFinalizationMutation.mutateAsync({
+          requestKey: createFinalizeProgressId(),
+          documentId: doc.id,
+          prefillEndDate: endDate,
+        });
+        return { kind: "queued" };
+      }
+
       // BJJ-90: try the backend-driven finalize first when the flag is on.
       if (isFeatureEnabled("headlessDispatch")) {
         // Raised inside the try but acted on outside it: the catch below exists
@@ -1468,6 +1502,14 @@ function ContractDetail({
     onSuccess: (result) => {
       closeFinalizeProgressStream();
       setFinalizeProgress(INITIAL_FINALIZE_PROGRESS);
+      if (result.kind === "queued") {
+        setIsPreviewOpen(false);
+        setIsFinalizeOpen(false);
+        setIsServiceRecordFinalizeConfirmOpen(false);
+        setFinalizeEndDate("");
+        toast({ description: "전자문서 작업을 시작했어요" });
+        return;
+      }
       if (result.kind === "headless") {
         setIsPreviewOpen(false);
         setIsFinalizeOpen(false);
@@ -1598,6 +1640,11 @@ function ContractDetail({
   };
 
   const handleFinalizeSubmit = () => {
+    if (documentJobsEnabled) {
+      if (!isFinalizeEndDateValid) return;
+      openStaffCompletionMutation.mutate(finalizeEndDate);
+      return;
+    }
     startFinalizeFlow(finalizeEndDate);
   };
 
@@ -1608,6 +1655,10 @@ function ContractDetail({
 
   const handleServiceRecordFinalizeApprove = () => {
     setIsServiceRecordFinalizeConfirmOpen(false);
+    if (documentJobsEnabled) {
+      openStaffCompletionMutation.mutate(undefined);
+      return;
+    }
     setIsFinalizeOpen(true);
     startFinalizeFlow();
   };

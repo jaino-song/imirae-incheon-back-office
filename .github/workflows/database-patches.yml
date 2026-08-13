@@ -217,6 +217,14 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
+      - name: Apply eformsign document jobs patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260813000000_add_eformsign_document_jobs/migration.sql
+
+      - name: Verify eformsign document jobs patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
+
       - name: Apply message trigger job canceled-by-user patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
@@ -564,6 +572,14 @@ jobs:
         working-directory: backend
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
+      - name: Apply eformsign document jobs patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260813000000_add_eformsign_document_jobs/migration.sql
+
+      - name: Verify eformsign document jobs patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
+
       - name: Apply message trigger job canceled-by-user patch
         working-directory: backend
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
@@ -890,6 +906,14 @@ jobs:
       - name: Apply eformsign doc auto-finalize tracking patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
+
+      - name: Apply eformsign document jobs patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260813000000_add_eformsign_document_jobs/migration.sql
+
+      - name: Verify eformsign document jobs patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
 
       - name: Apply message trigger job canceled-by-user patch
         working-directory: backend

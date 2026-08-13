@@ -236,6 +236,7 @@ model client {
   branch                 branch?                   @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   area                   area?                     @relation(fields: [areaId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   eformsignDocs          eformsign_doc[]           @relation("eformsign_doc_client_idToclient")
+  eformsignDocumentJobs  eformsign_document_job[]
   employeeSchedules      employee_schedule[]
   callRecords            call_record[]
   clientDrafts           client_draft[]
@@ -359,6 +360,45 @@ model eformsign_doc {
   @@index([templateId], map: "idx_eformsign_doc_template_id")
   @@index([serviceRecordCaseId], map: "idx_eformsign_doc_service_record_case_id")
   @@index([permanentPurgeRequestedAt], map: "idx_eformsign_doc_permanent_purge_requested_at")
+}
+
+/// Durable provider-operation state. PostgreSQL permits multiple NULL values in
+/// a unique index, so activeKey releases terminal jobs while still matching the
+/// Prisma unique definition. Value checks are authoritative in the SQL patch.
+model eformsign_document_job {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId           String    @map("branch_id") @db.Uuid
+  clientId           Int?      @map("client_id")
+  documentId         String?   @map("document_id")
+  jobType            String    @map("job_type") @db.VarChar(32)
+  source             String    @db.VarChar(20)
+  status             String    @default("queued") @db.VarChar(24)
+  requestKey         String    @map("request_key") @db.VarChar(255)
+  activeKey          String?   @map("active_key") @db.VarChar(255)
+  payload            Json?     @db.JsonB
+  payloadFingerprint String?   @map("payload_fingerprint") @db.Char(64)
+  progressStep       String?   @map("progress_step") @db.VarChar(80)
+  attempts           Int       @default(0)
+  nextAttemptAt      DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  heartbeatAt        DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+  leaseToken         String?   @map("lease_token") @db.Uuid
+  autoFinalizeOutcomeRecordedAt DateTime? @map("auto_finalize_outcome_recorded_at") @db.Timestamptz(6)
+  startedAt          DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
+  lastErrorCode      String?   @map("last_error_code") @db.VarChar(80)
+  createdByUserId    String?   @map("created_by_user_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  branch             branch    @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  client             client?   @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  createdByUser      user?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([requestKey], map: "eformsign_document_job_request_key_key")
+  @@unique([activeKey], map: "eformsign_document_job_active_key_key")
+  @@index([status, nextAttemptAt, createdAt], map: "idx_eformsign_document_job_status_next_attempt_created")
+  @@index([branchId, status, updatedAt], map: "idx_eformsign_document_job_branch_status_updated")
+  @@index([documentId], map: "idx_eformsign_document_job_document_id")
+  @@index([clientId], map: "idx_eformsign_document_job_client_id")
 }
 
 model eformsign_doc_file {
@@ -503,6 +543,7 @@ model branch {
   messageTriggerRules          message_trigger_rule[]
   messageTriggerJobs           message_trigger_job[]
   notifications                notification[]
+  eformsignDocumentJobs        eformsign_document_job[]
   consultationInquiries        consultation_inquiry[]
   callIngestTokens             call_ingest_token[]
   callRecords                  call_record[]
@@ -604,6 +645,7 @@ model user {
   authSessions         auth_session[]
   authEmailOutbox      auth_email_outbox[]
   reviewedClientDrafts client_draft[]
+  eformsignDocumentJobs eformsign_document_job[]
 }
 
 model auth_rate_limit {
