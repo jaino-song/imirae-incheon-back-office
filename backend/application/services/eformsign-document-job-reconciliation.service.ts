@@ -55,9 +55,9 @@ export class EformsignDocumentJobReconciliationService {
         try {
             const token = await this.getAccessTokenUsecase.execute(Date.now());
             if (job.jobType === "create_document") {
-                return this.reconcileCreation(job, token.oauth_token.access_token);
+                return await this.reconcileCreation(job, token.oauth_token.access_token);
             }
-            return this.reconcileFinalization(job, token.oauth_token.access_token);
+            return await this.reconcileFinalization(job, token.oauth_token.access_token);
         } catch (error) {
             const reason = error instanceof Error ? error.message : "provider state unavailable";
             this.logger.warn(`Eformsign job reconciliation could not read provider state: ${reason}`);
@@ -120,7 +120,7 @@ export class EformsignDocumentJobReconciliationService {
                     : "AMBIGUOUS_PROVIDER_STATE",
             );
         }
-        if (!job.clientId) {
+        if (job.clientId === null) {
             return this.requiresAttention(job, "MISSING_CLIENT_FOR_ADOPTION");
         }
 

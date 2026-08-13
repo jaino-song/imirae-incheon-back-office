@@ -87,6 +87,29 @@ describe("EformsignDocumentJobReconciliationService", () => {
         );
     });
 
+    it("requires attention when provider creation lookup fails", async () => {
+        const repository = {
+            markCompleted: jest.fn(),
+            markRequiresAttention: jest.fn().mockResolvedValue(null),
+        };
+        const service = new EformsignDocumentJobReconciliationService(
+            repository as never,
+            { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
+            { execute: jest.fn().mockRejectedValue(new Error("provider unavailable")) } as never,
+            { execute: jest.fn() } as never,
+            { execute: jest.fn() } as never,
+        );
+
+        await expect(service.reconcile(job())).resolves.toEqual({
+            status: "requires_attention",
+            reason: "PROVIDER_STATE_UNAVAILABLE",
+        });
+        expect(repository.markRequiresAttention).toHaveBeenCalledWith(
+            job().id,
+            "PROVIDER_STATE_UNAVAILABLE",
+        );
+    });
+
     it("completes finalization only after a completed provider status and mirror sync", async () => {
         const repository = {
             markCompleted: jest.fn().mockResolvedValue(null),

@@ -218,7 +218,15 @@ export class EformsignDocumentJobWorkerService {
         progressStep?: string,
     ): Promise<void> {
         const reconciling = await this.repository.markReconciling(job.id, progressStep ?? "reconciling");
-        await this.reconcile(reconciling ?? job);
+        if (!reconciling) return;
+        // markReconciling intentionally clears the persisted payload so a
+        // reconciling row cannot retain customer data. Keep the claimed copy
+        // in memory for this immediate provider lookup, otherwise creation
+        // matching loses its customer/template hints on the first pass.
+        const reconciliationJob = reconciling && !reconciling.payload
+            ? new EformsignDocumentJobEntity({ ...reconciling, payload: job.payload })
+            : reconciling ?? job;
+        await this.reconcile(reconciliationJob);
     }
 
     private async reconcile(job: EformsignDocumentJobEntity): Promise<void> {
@@ -240,7 +248,12 @@ export class EformsignDocumentJobWorkerService {
     }
 
     private async recordProgress(jobId: string, step: EformsignHeadlessProgressStep): Promise<void> {
-        await this.repository.updateProgress(jobId, step, new Date());
+        try {
+            await this.repository.updateProgress(jobId, step, new Date());
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.logger.warn(`Eformsign document job progress update failed: ${reason}`);
+        }
     }
 
     private isEnabled(): boolean {

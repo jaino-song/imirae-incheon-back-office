@@ -155,7 +155,9 @@ describe("EformsignDocumentJobWorkerService", () => {
 
         expect(repository.scheduleRetry).not.toHaveBeenCalled();
         expect(repository.markReconciling).toHaveBeenCalledWith(claimed.id, "creating");
-        expect(reconciliation.reconcile).toHaveBeenCalled();
+        expect(reconciliation.reconcile).toHaveBeenCalledWith(
+            expect.objectContaining({ payload: claimed.payload }),
+        );
     });
 
     it("persists progress and sends a heartbeat while a provider operation is running", async () => {
