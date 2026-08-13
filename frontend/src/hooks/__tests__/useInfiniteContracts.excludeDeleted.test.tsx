@@ -98,7 +98,7 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
       .mockResolvedValueOnce(firstPage as never)
       .mockResolvedValueOnce(conflictingPage as never)
       .mockResolvedValue(firstPage as never);
-    const resetQueries = jest.spyOn(queryClient, "resetQueries");
+    const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries");
     const { result } = renderHook(
       () => useInfiniteContracts({ filterType: null }),
       { wrapper: wrapperFor(queryClient) },
@@ -109,11 +109,62 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
       await result.current.fetchNextPage();
     });
 
-    await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(1));
-    expect(resetQueries).toHaveBeenCalledWith({
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(1));
+    expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: expect.arrayContaining(["infinite", "all"]),
       exact: true,
     });
+  });
+
+  it("keeps the first page visible while restarting a changed snapshot", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    const documents = Array.from({ length: 20 }, (_, index) => ({
+      id: `document-${index + 1}`,
+      created_date: 100 - index,
+      current_status: { status_type: "060" },
+    }));
+    const firstPage = {
+      documents,
+      total_rows: 21,
+      limit: 20,
+      skip: 0,
+      has_more: true,
+      snapshot_version: "1:100",
+    };
+    const conflictingPage = {
+      documents: [{
+        id: "document-21",
+        created_date: 79,
+        current_status: { status_type: "060" },
+      }],
+      total_rows: 21,
+      limit: 20,
+      skip: 20,
+      has_more: false,
+      snapshot_version: "2:200",
+    };
+    const pendingRestart = new Promise<never>(() => undefined);
+    mockedApi.getAllDocuments
+      .mockResolvedValueOnce(firstPage as never)
+      .mockResolvedValueOnce(conflictingPage as never)
+      .mockReturnValue(pendingRestart);
+    const resetQueries = jest.spyOn(queryClient, "resetQueries");
+    const { result } = renderHook(
+      () => useInfiniteContracts({ filterType: null }),
+      { wrapper: wrapperFor(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.hasNextPage).toBe(true));
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(mockedApi.getAllDocuments).toHaveBeenCalledTimes(3));
+
+    expect(resetQueries).not.toHaveBeenCalled();
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.documents).toEqual(documents);
   });
 
   it("re-arms the desktop drift guard after pagination becomes coherent", async () => {
@@ -150,7 +201,7 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
       .mockResolvedValueOnce(firstPage as never)
       .mockResolvedValueOnce(conflictingPage as never)
       .mockResolvedValue(firstPage as never);
-    const resetQueries = jest.spyOn(queryClient, "resetQueries");
+    const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries");
     const { result } = renderHook(
       () => useInfiniteContracts({ filterType: null }),
       { wrapper: wrapperFor(queryClient) },
@@ -160,7 +211,7 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
     await act(async () => {
       await result.current.fetchNextPage();
     });
-    await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockedApi.getAllDocuments).toHaveBeenCalledTimes(3));
 
     await waitFor(() => expect(result.current.hasNextPage).toBe(true));
@@ -168,7 +219,7 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
       await result.current.fetchNextPage();
     });
 
-    await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(2));
   });
 
   it.each([
@@ -213,7 +264,7 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
         .mockResolvedValueOnce(firstPage as never)
         .mockResolvedValueOnce(laterPage as never)
         .mockResolvedValue(firstPage as never);
-      const resetQueries = jest.spyOn(queryClient, "resetQueries");
+      const invalidateQueries = jest.spyOn(queryClient, "invalidateQueries");
       const { result } = renderHook(
         () => useInfiniteContracts({ filterType: null }),
         { wrapper: wrapperFor(queryClient) },
@@ -224,7 +275,7 @@ describe("useInfiniteContracts — the All tab and deletion tombstones", () => {
         await result.current.fetchNextPage();
       });
 
-      await waitFor(() => expect(resetQueries).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(1));
     },
   );
 });
