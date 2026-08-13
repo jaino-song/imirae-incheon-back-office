@@ -23,7 +23,7 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         findReviewStageContracts: jest.Mock;
         recordAutoFinalizeFailure: jest.Mock;
     };
-    let finalizeUsecase: { execute: jest.Mock };
+    let documentJobService: { enqueueFinalizeDocument: jest.Mock };
     let notificationService: { sendToBranchUsers: jest.Mock };
     let service: ContractAutoFinalizeSchedulerService;
 
@@ -36,14 +36,17 @@ describe("ContractAutoFinalizeSchedulerService", () => {
             findReviewStageContracts: jest.fn().mockResolvedValue([]),
             recordAutoFinalizeFailure: jest.fn().mockResolvedValue(1),
         };
-        finalizeUsecase = {
-            execute: jest.fn().mockResolvedValue({ ok: true, completed: true, durationMs: 900 }),
+        documentJobService = {
+            enqueueFinalizeDocument: jest.fn().mockResolvedValue({
+                job: { id: "job-1", status: "queued" },
+                existing: false,
+            }),
         };
         notificationService = { sendToBranchUsers: jest.fn().mockResolvedValue({ sent: 1, failed: 0 }) };
         service = new ContractAutoFinalizeSchedulerService(
             { get: (key: string) => configValues[key] } as never,
             repository as never,
-            finalizeUsecase as never,
+            documentJobService as never,
             notificationService as never,
         );
     });
@@ -64,16 +67,35 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         expect(repository.findReviewStageContracts).not.toHaveBeenCalled();
     });
 
-    it("finalizes a due contract with its stored end date prefilled", async () => {
+    it("enqueues a due contract with its stored end date prefilled", async () => {
         const due = contract();
         repository.findReviewStageContracts.mockResolvedValue([due]);
 
         await service.autoFinalizeDueContracts();
 
-        expect(finalizeUsecase.execute).toHaveBeenCalledWith({
+        expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledTimes(1);
+        expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledWith({
+            branchId: "branch-1",
+            requestKey: `auto_finalize:doc-1:${isoDateInKorea()}`,
             documentId: "doc-1",
             prefillEndDate: due.contractEndDate,
+            source: "auto_finalize",
+            createdByUserId: null,
         });
+        expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
+    });
+
+    it("enqueues exactly once per eligible document without calling the browser finalizer", async () => {
+        repository.findReviewStageContracts.mockResolvedValue([
+            contract({ documentId: "doc-1" }),
+            contract({ documentId: "doc-2" }),
+        ]);
+
+        await service.autoFinalizeDueContracts();
+
+        expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledTimes(2);
+        expect(documentJobService.enqueueFinalizeDocument.mock.calls.map(([input]) => input.documentId))
+            .toEqual(["doc-1", "doc-2"]);
         expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
     });
 
@@ -86,47 +108,52 @@ describe("ContractAutoFinalizeSchedulerService", () => {
 
         await service.autoFinalizeDueContracts();
 
-        expect(finalizeUsecase.execute).not.toHaveBeenCalled();
+        expect(documentJobService.enqueueFinalizeDocument).not.toHaveBeenCalled();
     });
 
-    it("records a failed attempt and keeps processing the rest of the batch", async () => {
+    it("keeps processing the rest of the batch when queue production fails", async () => {
         repository.findReviewStageContracts.mockResolvedValue([
             contract({ documentId: "fails" }),
             contract({ documentId: "succeeds" }),
         ]);
-        finalizeUsecase.execute
-            .mockResolvedValueOnce({ ok: false, reason: "gate timeout", fallbackHint: "iframe", durationMs: 31_000 })
-            .mockResolvedValueOnce({ ok: true, completed: true, durationMs: 900 });
+        documentJobService.enqueueFinalizeDocument
+            .mockRejectedValueOnce(new Error("queue unavailable"))
+            .mockResolvedValueOnce({ job: { id: "job-2", status: "queued" }, existing: false });
 
         await service.autoFinalizeDueContracts();
 
-        expect(repository.recordAutoFinalizeFailure).toHaveBeenCalledWith("fails", "gate timeout");
-        expect(finalizeUsecase.execute).toHaveBeenCalledTimes(2);
+        expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledTimes(2);
+        expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
         expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
     });
 
-    it("continues an advanced provider step before recording final success", async () => {
-        repository.findReviewStageContracts.mockResolvedValue([
-            contract({ documentId: "multi-step" }),
-        ]);
-        finalizeUsecase.execute
-            .mockResolvedValueOnce({ ok: true, completed: false, durationMs: 700 })
-            .mockResolvedValueOnce({ ok: true, completed: true, durationMs: 900 });
+    it("does not increment attempts when an active staff or auto job already exists", async () => {
+        const due = contract({ documentId: "already-active" });
+        repository.findReviewStageContracts.mockResolvedValue([due]);
+        documentJobService.enqueueFinalizeDocument.mockResolvedValue({
+            job: { id: "staff-job", status: "processing" },
+            existing: true,
+        });
 
         await service.autoFinalizeDueContracts();
 
-        expect(finalizeUsecase.execute).toHaveBeenCalledTimes(2);
+        expect(documentJobService.enqueueFinalizeDocument).toHaveBeenCalledWith({
+            branchId: "branch-1",
+            requestKey: `auto_finalize:already-active:${isoDateInKorea()}`,
+            documentId: "already-active",
+            prefillEndDate: due.contractEndDate,
+            source: "auto_finalize",
+            createdByUserId: null,
+        });
         expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
+        expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
     });
 
-    it("notifies the branch exactly when the retry budget is exhausted", async () => {
-        repository.findReviewStageContracts.mockResolvedValue([
-            contract({ documentId: "doc-1", autoFinalizeAttempts: 2 }),
-        ]);
-        finalizeUsecase.execute.mockResolvedValue({ ok: false, reason: "vendor 500", fallbackHint: "manual_check", durationMs: 5_000 });
-        repository.recordAutoFinalizeFailure.mockResolvedValue(3);
-
-        await service.autoFinalizeDueContracts();
+    it("keeps the existing branch exhaustion notification callable for terminal worker handling", async () => {
+        const notifyExhausted = (service as unknown as {
+            notifyExhausted: (contract: ReviewStageContract, reason: string) => Promise<void>;
+        }).notifyExhausted;
+        await notifyExhausted(contract({ documentId: "doc-1" }), "vendor 500");
 
         expect(notificationService.sendToBranchUsers).toHaveBeenCalledTimes(1);
         const [branchId, , , data, options] = notificationService.sendToBranchUsers.mock.calls[0];
@@ -141,24 +168,13 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         });
     });
 
-    it("treats a thrown finalize like a failed attempt", async () => {
-        repository.findReviewStageContracts.mockResolvedValue([contract()]);
-        finalizeUsecase.execute.mockRejectedValue(new Error("browser crashed"));
+    it("fails closed when an eligible document has no authoritative branch", async () => {
+        repository.findReviewStageContracts.mockResolvedValue([contract({ branchId: null })]);
 
         await service.autoFinalizeDueContracts();
 
-        expect(repository.recordAutoFinalizeFailure).toHaveBeenCalledWith("doc-1", "browser crashed");
-    });
-
-    it("cannot notify without a branch and says so instead of throwing", async () => {
-        repository.findReviewStageContracts.mockResolvedValue([
-            contract({ branchId: null, autoFinalizeAttempts: 2 }),
-        ]);
-        finalizeUsecase.execute.mockResolvedValue({ ok: false, reason: "gate timeout", fallbackHint: "iframe", durationMs: 1_000 });
-        repository.recordAutoFinalizeFailure.mockResolvedValue(3);
-
-        await service.autoFinalizeDueContracts();
-
+        expect(documentJobService.enqueueFinalizeDocument).not.toHaveBeenCalled();
+        expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
         expect(notificationService.sendToBranchUsers).not.toHaveBeenCalled();
     });
 });
