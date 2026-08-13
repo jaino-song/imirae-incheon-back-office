@@ -299,6 +299,7 @@ export class FinalizeDocumentHeadlessUsecase {
                     // service-record lifecycle effects must also converge. Strict
                     // failures are retried by this bounded queue.
                     strictCompletionReconciliation: true,
+                    publishChangeReason: "mirror:finalize",
                 });
                 return;
             } catch (error) {
