@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
 
 test.beforeEach(async ({ page, baseURL }) => {
   const appUrl = baseURL ?? "http://localhost:3000";
@@ -30,7 +31,8 @@ const REVIEW_DOC = {
   current_status: {
     status_type: "060",
     step_index: "3",
-    step_type: "05",
+    step_type: "06",
+    step_name: "제공기관 검토",
     step_recipients: [{ recipient_type: "01", name: "Staff" }],
     expired_date: Date.now() + 7 * 86400000,
   },
@@ -105,6 +107,25 @@ async function installCommonRoutes(page: Page) {
 
     if (url.pathname === "/api/eformsign/webhook/stream") {
       return route.fulfill({ status: 200, contentType: "text/event-stream", body: ":ok\n\n" });
+    }
+
+    if (url.pathname === "/api/eformsign-docs/feedback-template-id") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ templateId: null }),
+      });
+    }
+
+    if (
+      url.pathname === "/api/out-of-pocket-price-infos"
+      || url.pathname === "/api/voucher-price-infos/years"
+    ) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
     }
 
     return route.fallback();
@@ -201,14 +222,79 @@ async function gotoContractsPage(page: Page) {
   await page.goto("/contracts");
 }
 
+async function createTestPdf(): Promise<Buffer> {
+  const document = await PDFDocument.create();
+  document.addPage([200, 200]);
+  return Buffer.from(await document.save());
+}
+
 test.describe("Staff finalize iframe + prefill flow", () => {
   test.describe.configure({ mode: "serial" });
+
+  test("previews a review-needed maternity document without starting finalization", async ({ page }) => {
+    await installCommonRoutes(page);
+
+    const previewPdf = await createTestPdf();
+    let generateStaffDocumentRequests = 0;
+    let finalizeHeadlessRequests = 0;
+
+    await page.route(`**/api/eformsign/documents/${REVIEW_DOC_ID}/preview**`, async (route) => {
+      if (route.request().method() === "HEAD") {
+        return route.fulfill({
+          status: 200,
+          headers: {
+            "content-length": String(previewPdf.byteLength),
+            "content-type": "application/pdf",
+          },
+        });
+      }
+
+      return route.fulfill({
+        status: 200,
+        contentType: "application/pdf",
+        body: previewPdf,
+      });
+    });
+    await page.route("**/api/generate-staff-document", async (route) => {
+      generateStaffDocumentRequests += 1;
+      return route.fulfill({ status: 500 });
+    });
+    await page.route("**/api/eformsign-docs/finalize-headless", async (route) => {
+      finalizeHeadlessRequests += 1;
+      return route.fulfill({ status: 500 });
+    });
+
+    await gotoContractsPage(page);
+
+    const reviewItem = page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_list-panel_list_item"]').filter({ hasText: "검토 필요" }).first();
+    await expect(reviewItem).toBeVisible();
+    await reviewItem.click();
+
+    const previewTrigger = page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_header_preview-trigger"]');
+    await expect(previewTrigger).toHaveRole("button", { name: "문서 보기" });
+    await previewTrigger.click();
+
+    const previewDialog = page.locator('[data-component="desktop_contracts_sections_section-content_maternity-section_split-layout_detail-panel-document_dialogs_document-preview"]');
+    await expect(previewDialog).toBeVisible();
+    await expect(previewDialog.getByRole("heading", { name: REVIEW_DOC.document_name })).toBeVisible();
+    await expect(previewDialog.getByLabel("PDF 미리보기 확대/축소")).toBeVisible();
+    expect(generateStaffDocumentRequests).toBe(0);
+    expect(finalizeHeadlessRequests).toBe(0);
+    await expect(page.getByPlaceholder("YYYY-MM-DD")).not.toBeVisible();
+  });
 
   test("opens dialog, sends prefillEndDate, mounts iframe modal, fires success", async ({ page }) => {
     await stubEformsignSdk(page);
     let capturedGenerateBody: Record<string, unknown> | null = null;
 
     await installCommonRoutes(page);
+    await page.route("**/api/eformsign-docs/finalize-headless", async (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "force iframe fallback" }),
+      })
+    );
     await page.route("**/api/generate-staff-document", async (route) => {
       capturedGenerateBody = route.request().postDataJSON();
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SDK_OPTIONS) });
