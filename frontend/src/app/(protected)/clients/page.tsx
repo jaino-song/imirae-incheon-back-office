@@ -556,9 +556,9 @@ export default function ClientsPage() {
 
         try {
             await deleteClient.mutateAsync(clientId);
-            if (activeSelectedClient?.id === clientId) {
-                setSelectedClient(null);
-            }
+            setSelectedClient((currentClient) => (
+                currentClient?.id === clientId ? null : currentClient
+            ));
         } catch (err) {
             console.error("Failed to delete client:", err);
             setDeleteErrorMessage(
@@ -832,7 +832,8 @@ export default function ClientsPage() {
                             compactBackLabel="고객 목록으로 돌아가기"
                             onScheduleChangeDecided={clearSelectedClientScheduleChange}
                             trailing={
-                                <DropdownMenu>
+                                // Avoid overlapping Radix modal layers when an action opens a dialog.
+                                <DropdownMenu modal={false}>
                                     <DropdownMenuTrigger asChild>
                                         <button
                                             type="button"
