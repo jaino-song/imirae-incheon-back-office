@@ -16,6 +16,7 @@ import {
     CreateEformsignDocUsecase,
     CreateAndSendContractUsecase,
     ListClientNamesByBranchUsecase,
+    ListReviewStageContractsUsecase,
     SyncClientEndDateUsecase,
     DispatchDocumentHeadlessUsecase,
     FinalizeDocumentHeadlessUsecase,
@@ -23,6 +24,7 @@ import {
     MirrorUnassignedEformsignDocUsecase,
     BackfillEformsignDocsUsecase,
     LinkMirroredEformsignDocByPhoneUsecase,
+    GetContractClientCandidateUsecase,
 } from "application/usecases/eformsign-doc";
 import { EFORMSIGN_DOC_REPOSITORY } from "domain/repositories/eformsign-doc.repository.interface";
 import { EFORMSIGN_CLIENT_REPOSITORY } from "domain/repositories/eformsign.client.interface";
@@ -44,6 +46,8 @@ import { CreateAndSendServiceRecordSnapshotUsecase } from "application/usecases/
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import { EformsignDocReconcileSchedulerService } from "application/services/eformsign-doc-reconcile-scheduler.service";
+import { ContractAutoFinalizeSchedulerService } from "application/services/contract-auto-finalize-scheduler.service";
+import { NotificationModule } from "module/notification.module";
 import { EformsignDocumentMirrorService } from "application/services/eformsign-document-mirror.service";
 import { EFORMSIGN_DOCUMENT_MIRROR_REPOSITORY } from "domain/repositories/eformsign-document-mirror.repository.interface";
 import { SbEformsignDocumentMirrorRepository } from "infrastructure/database/repositories/sb.eformsign-document-mirror.repository";
@@ -52,9 +56,13 @@ import {
     EFORMSIGN_BACKFILL_REDIS_CLIENT,
     EformsignBackfillLockService,
 } from "infrastructure/locking/eformsign-backfill-lock.service";
+import { EformsignOperationLockService } from "infrastructure/locking/eformsign-operation-lock.service";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { EformsignMirrorReadinessService } from "application/services/eformsign-mirror-readiness.service";
 import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/usecases/eformsign-doc/reconcile-completed-mirrored-eformsign-doc.usecase";
+import { EformsignAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/eformsign-agent-capabilities.provider";
+import { ContractExternalAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider";
+import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
 
 @Module({
     imports: [
@@ -62,6 +70,7 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         AreaTemplateModule,
         MessageModule,
         SystemSettingModule,
+        NotificationModule,
     ],
     controllers: [EformsignDocController],
     providers: [
@@ -76,6 +85,8 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         UpdateEformsignDocStatusUsecase,
         LinkDocumentToClientUsecase,
         ListClientNamesByBranchUsecase,
+        ListReviewStageContractsUsecase,
+        FindClientByIdUsecase,
         SyncClientEndDateUsecase,
         // Use cases - External API
         GetEformsignAccessTokenUsecase,
@@ -92,6 +103,7 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         AdoptEformsignDocUsecase,
         MirrorUnassignedEformsignDocUsecase,
         LinkMirroredEformsignDocByPhoneUsecase,
+        GetContractClientCandidateUsecase,
         ReconcileCompletedMirroredEformsignDocUsecase,
         BackfillEformsignDocsUsecase,
         // Services
@@ -103,10 +115,14 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         ContractClientAssignmentGuardService,
         EformsignDocumentSnapshotService,
         EformsignBackfillLockService,
+        EformsignOperationLockService,
         EformsignDocReconcileSchedulerService,
+        ContractAutoFinalizeSchedulerService,
         EformsignDocumentMirrorService,
         ServiceRecordLifecycleService,
         EformsignMirrorReadinessService,
+        EformsignAgentCapabilitiesProvider,
+        ContractExternalAgentCapabilitiesProvider,
         // Repository bindings
         {
             provide: EFORMSIGN_DOC_REPOSITORY,
@@ -146,6 +162,8 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
         EformsignDocumentMirrorService,
         EformsignMirrorReadinessService,
         ReconcileCompletedMirroredEformsignDocUsecase,
+        LinkMirroredEformsignDocByPhoneUsecase,
+        GetContractClientCandidateUsecase,
     ],
 })
 export class EformsignDocModule {}

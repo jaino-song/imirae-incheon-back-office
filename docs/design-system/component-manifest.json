@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-08",
+  "updated": "2026-08-12",
   "purpose": "Machine-readable inventory of BabyJamJam design-system components. Agents MUST consult this before any UI work and compose ONLY these components in pages. See docs/design-system/AGENT_UI_RULES.md.",
   "docs": {
     "rules": "docs/design-system/AGENT_UI_RULES.md",
@@ -501,6 +501,52 @@
         ]
       },
       {
+        "name": "AgentActionApprovalCard",
+        "layer": "organism",
+        "import": "@/components/app/ui/AgentActionApprovalCard",
+        "file": "frontend/src/components/app/ui/AgentActionApprovalCard.tsx",
+        "exports": [
+          "AgentActionApprovalCard",
+          "AgentActionApprovalCardProps"
+        ],
+        "replaces": [
+          "chat-local action approval card markup"
+        ],
+        "requiredFor": [
+          "agent action approval"
+        ]
+      },
+      {
+        "name": "AgentShell",
+        "layer": "organism",
+        "import": "@/components/app/chat/AgentShell",
+        "file": "frontend/src/components/app/chat/AgentShell.tsx",
+        "exports": [
+          "AgentShell"
+        ],
+        "replaces": [
+          "chat page-local agent shell markup"
+        ],
+        "requiredFor": [
+          "chat route agent flag state"
+        ]
+      },
+      {
+        "name": "AgentShellLoading",
+        "layer": "organism",
+        "import": "@/components/app/chat/AgentShell",
+        "file": "frontend/src/components/app/chat/AgentShell.tsx",
+        "exports": [
+          "AgentShellLoading"
+        ],
+        "replaces": [
+          "chat page-local loading markup"
+        ],
+        "requiredFor": [
+          "chat route flag resolution"
+        ]
+      },
+      {
         "name": "FormDialogShell",
         "layer": "organism",
         "import": "@/components/app/ui/FormDialogShell",
@@ -948,6 +994,21 @@
         ]
       },
       {
+        "name": "LegacyChatPage",
+        "layer": "organism",
+        "import": "@/components/app/chat/LegacyChatPage",
+        "file": "frontend/src/components/app/chat/LegacyChatPage.tsx",
+        "exports": [
+          "LegacyChatPage"
+        ],
+        "replaces": [
+          "chat page-local legacy implementation"
+        ],
+        "requiredFor": [
+          "chat route legacy flag state"
+        ]
+      },
+      {
         "name": "PageHeader",
         "layer": "organism",
         "import": "@/components/app/v3",
@@ -1234,6 +1295,34 @@
     ],
     "mobile": [
       {
+        "name": "AgentActionApprovalCard",
+        "layer": "organism",
+        "import": "@/components/app/ui/AgentActionApprovalCard",
+        "file": "mobile/src/components/app/ui/AgentActionApprovalCard.tsx",
+        "exports": [
+          "AgentActionApprovalCard",
+          "AgentActionApprovalCardProps"
+        ],
+        "replaces": [
+          "chat-local action approval card markup"
+        ],
+        "requiredFor": [
+          "agent action approval"
+        ]
+      },
+      {
+        "name": "AgentMobileShell",
+        "layer": "organism",
+        "import": "@/components/app/chat/AgentMobileShell",
+        "file": "mobile/src/components/app/chat/AgentMobileShell.tsx",
+        "exports": [
+          "AgentMobileShell"
+        ],
+        "requiredFor": [
+          "chat route agent flag state"
+        ]
+      },
+      {
         "name": "Autocomplete",
         "layer": "molecule",
         "import": "@/components/app/ui/Autocomplete",
@@ -1243,6 +1332,21 @@
         ],
         "replaces": [
           "page-local autocomplete inputs"
+        ]
+      },
+      {
+        "name": "ChatPageLoading",
+        "layer": "organism",
+        "import": "@/components/app/chat/ChatPageLoading",
+        "file": "mobile/src/components/app/chat/ChatPageLoading.tsx",
+        "exports": [
+          "ChatPageLoading"
+        ],
+        "replaces": [
+          "chat page-local loading markup"
+        ],
+        "requiredFor": [
+          "chat route flag resolution"
         ]
       },
       {
@@ -1617,6 +1721,21 @@
         ]
       },
       {
+        "name": "LegacyChatPage",
+        "layer": "organism",
+        "import": "@/components/app/chat/LegacyChatPage",
+        "file": "mobile/src/components/app/chat/LegacyChatPage.tsx",
+        "exports": [
+          "LegacyChatPage"
+        ],
+        "replaces": [
+          "chat page-local legacy implementation"
+        ],
+        "requiredFor": [
+          "chat route legacy flag state"
+        ]
+      },
+      {
         "name": "PageSection",
         "layer": "organism",
         "import": "@/components/app/v3",
@@ -1696,6 +1815,45 @@
         "file": "mobile/src/components/app/v3/ShortcutGrid.tsx",
         "exports": [
           "ShortcutGrid"
+        ]
+      },
+      {
+        "name": "MobileShellProviders",
+        "layer": "template",
+        "import": "@/components/app/root/mobile-shell-providers",
+        "file": "mobile/src/components/app/root/mobile-shell-providers.tsx",
+        "exports": [
+          "MobileShellProviders"
+        ],
+        "requiredFor": [
+          "mobile shell auth and provider resolution"
+        ]
+      },
+      {
+        "name": "PwaLaunchScreen",
+        "layer": "template",
+        "import": "@/components/app/root/pwa-launch-screen",
+        "file": "mobile/src/components/app/root/pwa-launch-screen.tsx",
+        "exports": [
+          "PwaLaunchScreen"
+        ],
+        "replaces": [
+          "page-local PWA launch and auth loading markup"
+        ],
+        "requiredFor": [
+          "mobile PWA launch continuity"
+        ]
+      },
+      {
+        "name": "Spinner",
+        "layer": "atom",
+        "import": "@/components/ui/spinner",
+        "file": "mobile/src/components/ui/spinner.tsx",
+        "exports": [
+          "Spinner"
+        ],
+        "replaces": [
+          "custom mobile loaders"
         ]
       },
       {

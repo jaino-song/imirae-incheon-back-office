@@ -356,7 +356,7 @@ test.describe("Staff finalize iframe + prefill flow", () => {
     });
 
     // Toast confirms completion (success path closes the iframe modal too).
-    await expect(page.getByText("최종 확인 완료")).toBeVisible();
+    await expect(page.getByText("최종 확인을 마쳤어요")).toBeVisible();
   });
 
   test("invalid (incomplete) date keeps 완료 disabled", async ({ page }) => {

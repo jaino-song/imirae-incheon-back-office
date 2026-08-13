@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import { PWA_NOTIFICATIONS_ENABLED } from "@/lib/notification-config";
 
 // Types
 export interface PushNotificationState {
@@ -152,8 +153,8 @@ export function useMarkAsRead() {
 
     return useMutation({
         mutationFn: markAsReadApi,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
         },
     });
 }
@@ -166,8 +167,8 @@ export function useMarkAllAsRead() {
 
     return useMutation({
         mutationFn: markAllAsReadApi,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEYS.all });
         },
     });
 }
@@ -186,14 +187,25 @@ export function usePushNotification() {
         isSupported: false,
         isSubscribed: false,
         permission: 'default',
-        isLoading: true,
+        isLoading: PWA_NOTIFICATIONS_ENABLED,
         error: null,
     });
 
-    const { data: vapidKey } = useVapidKey();
+    const { data: vapidKey } = useVapidKey(PWA_NOTIFICATIONS_ENABLED);
 
     // Check if push notifications are supported
     useEffect(() => {
+        if (!PWA_NOTIFICATIONS_ENABLED) {
+            setState({
+                isSupported: false,
+                isSubscribed: false,
+                permission: 'denied',
+                isLoading: false,
+                error: null,
+            });
+            return;
+        }
+
         const isSupported =
             typeof window !== 'undefined' &&
             'serviceWorker' in navigator &&
@@ -238,7 +250,7 @@ export function usePushNotification() {
 
     // Register Service Worker
     const registerServiceWorker = useCallback(async () => {
-        if (!state.isSupported) return null;
+        if (!PWA_NOTIFICATIONS_ENABLED || !state.isSupported) return null;
 
         try {
             const registration = await navigator.serviceWorker.register('/sw.js', {
@@ -253,6 +265,8 @@ export function usePushNotification() {
 
     // Subscribe to push notifications
     const subscribe = useCallback(async () => {
+        if (!PWA_NOTIFICATIONS_ENABLED) return false;
+
         if (!state.isSupported || !vapidKey) {
             setState((prev) => ({ ...prev, error: 'Push notifications not supported' }));
             return false;
@@ -306,6 +320,8 @@ export function usePushNotification() {
 
     // Unsubscribe from push notifications
     const unsubscribe = useCallback(async () => {
+        if (!PWA_NOTIFICATIONS_ENABLED) return false;
+
         if (!state.isSupported) return false;
 
         setState((prev) => ({ ...prev, isLoading: true, error: null }));

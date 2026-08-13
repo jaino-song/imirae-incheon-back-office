@@ -39,7 +39,6 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     let releaseEmployees: () => void = () => {};
     let releaseUnreadCount: () => void = () => {};
     let releaseMessageTemplates: () => void = () => {};
-    let releaseAlimtalkRules: () => void = () => {};
     const clientsReady = new Promise<void>((resolve) => {
       releaseClients = resolve;
     });
@@ -51,9 +50,6 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     });
     const messageTemplatesReady = new Promise<void>((resolve) => {
       releaseMessageTemplates = resolve;
-    });
-    const alimtalkRulesReady = new Promise<void>((resolve) => {
-      releaseAlimtalkRules = resolve;
     });
 
     await page.route("**/api/clients**", async (route) => {
@@ -88,27 +84,13 @@ test.describe("Mobile nav: center chat + /all menu", () => {
         body: JSON.stringify([{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4" }, { id: "m5" }]),
       });
     });
-    await page.route("**/api/message-trigger-rules**", async (route) => {
-      await alimtalkRulesReady;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([{ id: "a1" }, { id: "a2" }, { id: "a3" }, { id: "a4" }]),
-      });
-    });
-
     await page.goto("/all");
     await expect(page.locator('[data-component="mobile_all_page"]')).toBeVisible();
-    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(4);
+    await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(3);
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(1);
     await expect(
       page
         .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "메시지" })
-        .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
-    ).toBeVisible();
-    await expect(
-      page
-        .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "발송 자동화" })
         .locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')
     ).toBeVisible();
 
@@ -133,12 +115,15 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     releaseEmployees();
     releaseUnreadCount();
     releaseMessageTemplates();
-    releaseAlimtalkRules();
 
     await expect(page.locator(".menu-value", { hasText: "2명" })).toBeVisible();
     await expect(page.locator(".menu-value", { hasText: "1명" })).toBeVisible();
     await expect(page.locator(".menu-value", { hasText: "5건" })).toBeVisible();
-    await expect(page.locator(".menu-value", { hasText: "4개" })).toBeVisible();
+    await expect(
+      page
+        .locator('[data-component="mobile_all_page_menu_group_row"]', { hasText: "발송 자동화" })
+        .locator(".menu-status-pill", { hasText: "출시 예정" })
+    ).toBeVisible();
     await expect(page.locator(".menu-badge", { hasText: "3" })).toBeVisible();
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_value-skeleton"]')).toHaveCount(0);
     await expect(page.locator('[data-component="mobile_all_page_menu_group_row_badge-skeleton"]')).toHaveCount(0);
@@ -204,8 +189,8 @@ test.describe("Mobile nav: center chat + /all menu", () => {
     const nav = page.locator('[data-slot="mobile-bottom-nav"]');
     await expect(nav).toBeVisible();
 
-    // Center chat button.
-    await expect(page.locator('[data-slot="mobile-bottom-nav-chat"]')).toBeVisible();
+    // Center messages button.
+    await expect(page.locator('[data-slot="mobile-bottom-nav-messages"]')).toBeVisible();
 
     // "전체" button should exist.
     const allNav = page.locator('[data-slot="mobile-bottom-nav-all"]');

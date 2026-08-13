@@ -1,6 +1,11 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+    formatSignatureStatus,
+    getServiceRecordStatusMeta,
+    getSignatureStatusVariant,
+} from "@babyjamjam/shared/constants/service-record-display";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
 
@@ -42,6 +47,7 @@ interface ClientServiceRecordsTabProps {
 }
 
 const ClientServiceRecordsDataComponentContext = createContext<string | null>(null);
+const SEND_LINK_FAILURE_DESCRIPTION = "제공기록지 링크 발송에 실패했어요";
 
 function useClientServiceRecordsDataComponent(...parts: string[]): string {
     const root = useContext(ClientServiceRecordsDataComponentContext);
@@ -98,14 +104,23 @@ function ClientServiceRecordsTabContent({
         ?? assignments[0]
         ?? null;
     const [pendingResendAssignment, setPendingResendAssignment] = useState<ServiceRecordAssignment | null>(null);
+    const [sendingScheduleId, setSendingScheduleId] = useState<number | null>(null);
 
     const sendLink = async (assignment: ServiceRecordAssignment): Promise<boolean> => {
+        setSendingScheduleId(assignment.scheduleId);
         try {
-            await sendLinkMutation.mutateAsync({
+            const result = await sendLinkMutation.mutateAsync({
                 scheduleId: assignment.scheduleId,
                 clientId: clientId ?? undefined,
             });
-            toast({ description: "제공기록지 링크를 발송했습니다." });
+            if (!result.ok || result.status !== "sent") {
+                toast({
+                    variant: "destructive",
+                    description: SEND_LINK_FAILURE_DESCRIPTION,
+                });
+                return false;
+            }
+            toast({ variant: "success", description: "제공기록지 링크를 보냈어요" });
             return true;
         } catch (error) {
             toast({
@@ -113,6 +128,8 @@ function ClientServiceRecordsTabContent({
                 variant: "destructive",
             });
             return false;
+        } finally {
+            setSendingScheduleId(null);
         }
     };
 
@@ -184,8 +201,9 @@ function ClientServiceRecordsTabContent({
                             {activeAssignment ? (
                                 <LinkStatusCard
                                     assignment={activeAssignment}
-                                    isPending={sendLinkMutation.isPending
-                                        && sendLinkMutation.variables?.scheduleId === activeAssignment.scheduleId}
+                                    isPending={sendingScheduleId === activeAssignment.scheduleId
+                                        || (sendLinkMutation.isPending
+                                            && sendLinkMutation.variables?.scheduleId === activeAssignment.scheduleId)}
                                     onSendLink={() => void handleSendLink(activeAssignment)}
                                     showStatusBadge={false}
                                 />
@@ -202,6 +220,7 @@ function ClientServiceRecordsTabContent({
                         {assignments.length > 1 && <AssignmentHistoryCard assignments={assignments} />}
                         <ServiceSessionsCard
                             startDate={record.startDate}
+                            endDate={record.endDate}
                             totalSessions={record.totalSessions}
                             sessions={record.sessions}
                             isRefreshing={isRefreshing}
@@ -229,8 +248,9 @@ function ClientServiceRecordsTabContent({
                         )}
                         <LinkStatusCard
                             assignment={assignment}
-                            isPending={sendLinkMutation.isPending
-                                && sendLinkMutation.variables?.scheduleId === assignment.scheduleId}
+                            isPending={sendingScheduleId === assignment.scheduleId
+                                || (sendLinkMutation.isPending
+                                    && sendLinkMutation.variables?.scheduleId === assignment.scheduleId)}
                             onSendLink={() => void handleSendLink(assignment)}
                         />
                         <ServiceRecordHeaderCard
@@ -239,6 +259,7 @@ function ClientServiceRecordsTabContent({
                         />
                         <ServiceSessionsCard
                             startDate={assignment.startDate}
+                            endDate={assignment.endDate}
                             totalSessions={assignment.totalSessions}
                             sessions={assignment.sessions}
                             isRefreshing={isRefreshing}
@@ -374,7 +395,13 @@ function ServiceRecordInfoRow({ label, value }: { label: string; value: ReactNod
 function RecordStatusCard({ record }: { record: ServiceRecordCase }) {
     const dataComponent = useClientServiceRecordsDataComponent("overview-grid", "status-card");
     const status = getRecordStatusMeta(record.status);
-    const submitted = record.sessions.filter((session) => session.locked).length;
+    const { activeSessions } = partitionSessionsByPeriod(
+        record.startDate,
+        record.endDate,
+        record.totalSessions,
+        record.sessions,
+    );
+    const submitted = activeSessions.filter((session) => session.locked).length;
 
     return (
         <InfoCard
@@ -432,22 +459,8 @@ function getRecordStatusMeta(status: string): {
     label: string;
     variant: "neutral" | "primary" | "success" | "warning" | "danger";
 } {
-    switch (status) {
-        case "WAITING_FOR_DETAILS": return { label: "정보 대기", variant: "neutral" };
-        case "WAITING_FOR_ASSIGNMENT": return { label: "배정 대기", variant: "warning" };
-        case "SCHEDULED": return { label: "시작 전", variant: "primary" };
-        case "IN_PROGRESS": return { label: "작성 중", variant: "primary" };
-        case "WAITING_FOR_END": return { label: "종료 대기", variant: "success" };
-        case "AWAITING_COMPLETION": return { label: "기록 미완료", variant: "warning" };
-        case "READY_TO_FINALIZE": return { label: "문서 생성 대기", variant: "primary" };
-        case "FINALIZING": return { label: "문서 생성 중", variant: "primary" };
-        case "DOCUMENTS_CREATED": return { label: "기관 검토 중", variant: "success" };
-        case "COMPLETED": return { label: "완료", variant: "success" };
-        case "FINALIZATION_FAILED": return { label: "문서 생성 실패", variant: "danger" };
-        case "TERMINATED_REVIEW_REQUIRED": return { label: "중단 확인 필요", variant: "warning" };
-        case "MIGRATION_REVIEW_REQUIRED": return { label: "데이터 확인 필요", variant: "warning" };
-        default: return { label: "상태 확인", variant: "neutral" };
-    }
+    const meta = getServiceRecordStatusMeta(status);
+    return { label: meta.label, variant: meta.variant === "info" ? "primary" : meta.variant };
 }
 
 function LinkStatusCard({
@@ -511,64 +524,106 @@ function TokenVerificationValue({ assignment }: { assignment: ServiceRecordAssig
 
 function ServiceSessionsCard({
     startDate,
+    endDate,
     totalSessions: configuredSessions,
     sessions,
     isRefreshing,
     onRefresh,
 }: {
     startDate: string | null;
+    endDate: string | null;
     totalSessions: number;
     sessions: ServiceRecordSession[];
     isRefreshing: boolean;
     onRefresh?: () => void;
 }) {
     const dataComponent = useClientServiceRecordsDataComponent("sessions");
-    const slots = useMemo(
-        () => buildSessionSlots(startDate, configuredSessions, sessions),
-        [configuredSessions, sessions, startDate],
+    const { activeSessions, outsideSessions } = useMemo(
+        () => partitionSessionsByPeriod(
+            startDate,
+            endDate,
+            configuredSessions,
+            sessions,
+        ),
+        [configuredSessions, endDate, sessions, startDate],
     );
-    const lockedCount = sessions.filter((session) => session.locked).length;
-    const draftCount = sessions.filter((session) => !session.locked).length;
+    const slots = useMemo(
+        () => buildSessionSlots(startDate, configuredSessions, activeSessions),
+        [activeSessions, configuredSessions, startDate],
+    );
+    const lockedCount = activeSessions.filter((session) => session.locked).length;
+    const draftCount = activeSessions.filter((session) => !session.locked).length;
     const totalSessions = slots.length;
 
     return (
+        <>
+            <InfoCard
+                data-component={dataComponent}
+                title="회차별 제공기록"
+                titleTrailing={
+                    <div className="ml-auto flex shrink-0 items-center gap-[calc(4px*var(--glint-ui-scale,1))]">
+                        {onRefresh ? (
+                            <button
+                                type="button"
+                                data-component={`${dataComponent}_head_refresh`}
+                                className="inline-flex h-[calc(24px*var(--glint-ui-scale,1))] w-[calc(24px*var(--glint-ui-scale,1))] cursor-pointer items-center justify-center rounded-full text-v3-text-muted transition-colors hover:bg-white/70 hover:text-v3-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-v3-primary/30 disabled:cursor-wait disabled:opacity-70"
+                                aria-label={isRefreshing ? "제공기록 새로고침 중" : "제공기록 새로고침"}
+                                aria-busy={isRefreshing}
+                                disabled={isRefreshing}
+                                onClick={onRefresh}
+                            >
+                                <RefreshCw
+                                    aria-hidden="true"
+                                    className={cn(
+                                        "h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(14px*var(--glint-ui-scale,1))]",
+                                        isRefreshing && "service-record-refresh-icon--spinning",
+                                    )}
+                                />
+                            </button>
+                        ) : null}
+                        <span className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted">
+                            <b className="text-v3-primary">{lockedCount}</b>/{totalSessions} 제출완료
+                            {draftCount > 0 ? ` · 임시저장 ${draftCount}` : ""}
+                        </span>
+                    </div>
+                }
+            >
+                <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
+                    {slots.map((slot, index) => (
+                        <SessionRow
+                            key={slot.sessionIndex}
+                            slot={slot}
+                            defaultOpen={Boolean(slot.record && index === 0)}
+                        />
+                    ))}
+                </div>
+            </InfoCard>
+            {outsideSessions.length > 0 ? (
+                <OutOfPeriodSessionsCard sessions={outsideSessions} />
+            ) : null}
+        </>
+    );
+}
+
+function OutOfPeriodSessionsCard({ sessions }: { sessions: ServiceRecordSession[] }) {
+    const dataComponent = useClientServiceRecordsDataComponent("out-of-period-sessions");
+    return (
         <InfoCard
             data-component={dataComponent}
-            title="회차별 제공기록"
-            titleTrailing={
-                <div className="ml-auto flex shrink-0 items-center gap-[calc(4px*var(--glint-ui-scale,1))]">
-                    {onRefresh ? (
-                        <button
-                            type="button"
-                            data-component={`${dataComponent}_head_refresh`}
-                            className="inline-flex h-[calc(24px*var(--glint-ui-scale,1))] w-[calc(24px*var(--glint-ui-scale,1))] cursor-pointer items-center justify-center rounded-full text-v3-text-muted transition-colors hover:bg-white/70 hover:text-v3-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-v3-primary/30 disabled:cursor-wait disabled:opacity-70"
-                            aria-label={isRefreshing ? "제공기록 새로고침 중" : "제공기록 새로고침"}
-                            aria-busy={isRefreshing}
-                            disabled={isRefreshing}
-                            onClick={onRefresh}
-                        >
-                            <RefreshCw
-                                aria-hidden="true"
-                                className={cn(
-                                    "h-[calc(14px*var(--glint-ui-scale,1))] w-[calc(14px*var(--glint-ui-scale,1))]",
-                                    isRefreshing && "service-record-refresh-icon--spinning",
-                                )}
-                            />
-                        </button>
-                    ) : null}
-                    <span className="text-[calc(12px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted">
-                        <b className="text-v3-primary">{lockedCount}</b>/{totalSessions} 제출완료
-                        {draftCount > 0 ? ` · 임시저장 ${draftCount}` : ""}
-                    </span>
-                </div>
-            }
+            title="기간 외 기록"
+            description="변경된 서비스 기간 밖에 저장된 기록입니다. 삭제되지 않습니다."
         >
             <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
-                {slots.map((slot, index) => (
+                {sessions.map((record, index) => (
                     <SessionRow
-                        key={slot.sessionIndex}
-                        slot={slot}
-                        defaultOpen={Boolean(slot.record && index === 0)}
+                        key={`${record.sessionIndex}-${record.serviceDate}`}
+                        slot={{
+                            sessionIndex: record.sessionIndex,
+                            record,
+                            expectedDate: null,
+                        }}
+                        defaultOpen={index === 0}
+                        outsidePeriod
                     />
                 ))}
             </div>
@@ -576,8 +631,20 @@ function ServiceSessionsCard({
     );
 }
 
-function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boolean }) {
-    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row");
+function SessionRow({
+    slot,
+    defaultOpen,
+    outsidePeriod = false,
+}: {
+    slot: SessionSlot;
+    defaultOpen: boolean;
+    outsidePeriod?: boolean;
+}) {
+    const dataComponent = useClientServiceRecordsDataComponent(
+        outsidePeriod ? "out-of-period-sessions" : "sessions",
+        "list",
+        "row",
+    );
     const { record } = slot;
     if (!record) {
         return (
@@ -635,6 +702,14 @@ function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boo
                         </div>
                     </div>
                     <div className="ml-auto flex shrink-0 items-center gap-[calc(10px*var(--glint-ui-scale,1))] text-right">
+                        {outsidePeriod ? (
+                            <StatusPill
+                                data-component={`${dataComponent}_outside-period-status`}
+                                variant="danger"
+                            >
+                                기간 외 기록
+                            </StatusPill>
+                        ) : null}
                         <StatusPill variant={record.locked ? "success" : "warning"}>
                             {record.locked ? "제출완료" : "임시저장"}
                         </StatusPill>
@@ -643,7 +718,10 @@ function SessionRow({ slot, defaultOpen }: { slot: SessionSlot; defaultOpen: boo
                 </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-                <SessionRecordDetail record={record} />
+                <SessionRecordDetail
+                    dataComponent={`${dataComponent}_detail`}
+                    record={record}
+                />
             </CollapsibleContent>
         </Collapsible>
     );
@@ -664,8 +742,13 @@ function SessionNumber({ index, state }: { index: number; state: "done" | "draft
     );
 }
 
-function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
-    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row", "detail");
+function SessionRecordDetail({
+    dataComponent,
+    record,
+}: {
+    dataComponent: string;
+    record: ServiceRecordSession;
+}) {
     const answers = getAnswerObject(record.answers);
     const unknownEntries = Object.entries(answers)
         .filter(([key, value]) => !SERVICE_RECORD_LAYOUT_ANSWER_KEYS.has(key) && hasDisplayValue(value));
@@ -690,7 +773,13 @@ function SessionRecordDetail({ record }: { record: ServiceRecordSession }) {
                     </div>
                     <div className="grid grid-cols-2 gap-x-[calc(28px*var(--glint-ui-scale,1))] max-sm:grid-cols-1">
                         {section.fields.map((field) => (
-                            <RecordFieldRow key={field.key} field={field} answers={answers} record={record} />
+                            <RecordFieldRow
+                                key={field.key}
+                                dataComponent={`${dataComponent}_field`}
+                                field={field}
+                                answers={answers}
+                                record={record}
+                            />
                         ))}
                     </div>
                 </div>
@@ -761,15 +850,16 @@ function EmptySessionRecordDetail() {
 }
 
 function RecordFieldRow({
+    dataComponent,
     field,
     answers,
     record,
 }: {
+    dataComponent: string;
     field: ServiceRecordFieldDescriptor;
     answers: Record<string, unknown>;
     record: ServiceRecordSession;
 }) {
-    const dataComponent = useClientServiceRecordsDataComponent("sessions", "list", "row", "detail", "field");
     const isWide = field.kind === "text";
     return (
         <div
@@ -895,10 +985,7 @@ function buildSessionSlots(
     configuredSessions: number,
     sessions: ServiceRecordSession[],
 ): SessionSlot[] {
-    const total = Math.max(
-        configuredSessions,
-        sessions.reduce((max, session) => Math.max(max, session.sessionIndex), 0),
-    );
+    const total = Math.max(0, configuredSessions);
     const sessionsByIndex = new Map(sessions.map((session) => [session.sessionIndex, session]));
     return Array.from({ length: total }, (_, index) => {
         const sessionIndex = index + 1;
@@ -908,6 +995,39 @@ function buildSessionSlots(
             expectedDate: getExpectedSessionDate(startDate, sessionIndex),
         };
     });
+}
+
+function partitionSessionsByPeriod(
+    startDate: string | null,
+    endDate: string | null,
+    configuredSessions: number,
+    sessions: ServiceRecordSession[],
+): { activeSessions: ServiceRecordSession[]; outsideSessions: ServiceRecordSession[] } {
+    const startDatePart = datePartOf(startDate);
+    const endDatePart = datePartOf(endDate);
+    if (!startDatePart || !endDatePart) {
+        return {
+            activeSessions: sessions.filter((session) => session.sessionIndex <= configuredSessions),
+            outsideSessions: sessions.filter((session) => session.sessionIndex > configuredSessions),
+        };
+    }
+
+    const activeSessions: ServiceRecordSession[] = [];
+    const outsideSessions: ServiceRecordSession[] = [];
+    for (const session of sessions) {
+        const serviceDate = datePartOf(session.serviceDate);
+        const isWithinDates = Boolean(
+            serviceDate
+            && serviceDate >= startDatePart
+            && serviceDate <= endDatePart,
+        );
+        if (isWithinDates && session.sessionIndex <= configuredSessions) {
+            activeSessions.push(session);
+        } else {
+            outsideSessions.push(session);
+        }
+    }
+    return { activeSessions, outsideSessions };
 }
 
 function getExpectedSessionDate(startDate: string | null, sessionIndex: number): string | null {
@@ -954,20 +1074,7 @@ function formatUnknownValue(value: unknown): string {
     return String(value);
 }
 
-function formatSignatureStatus(statusDetail: string): string {
-    const normalized = statusDetail.trim().toLowerCase();
-    if (normalized.includes("complete")) return "서명 완료";
-    if (normalized.includes("created")) return "발송됨";
-    return statusDetail.trim() || "상태 확인";
-}
-
-function getSignatureVariant(statusDetail: string): "neutral" | "primary" | "success" | "warning" | "danger" {
-    const normalized = statusDetail.trim().toLowerCase();
-    if (normalized.includes("complete")) return "success";
-    if (normalized.includes("reject") || normalized.includes("fail")) return "danger";
-    if (normalized.includes("created")) return "primary";
-    return "neutral";
-}
+const getSignatureVariant = getSignatureStatusVariant;
 
 function getErrorDescription(error: unknown): string {
     if (error && typeof error === "object" && "response" in error) {
@@ -976,9 +1083,11 @@ function getErrorDescription(error: unknown): string {
         if (data && typeof data === "object") {
             const message = (data as { message?: unknown; error?: unknown }).message
                 ?? (data as { message?: unknown; error?: unknown }).error;
-            if (typeof message === "string") return message;
+            if (typeof message === "string") {
+                return `${SEND_LINK_FAILURE_DESCRIPTION}: ${message}`;
+            }
         }
     }
 
-    return "제공기록지 링크 발송에 실패했습니다.";
+    return SEND_LINK_FAILURE_DESCRIPTION;
 }

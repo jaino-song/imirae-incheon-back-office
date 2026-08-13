@@ -13,7 +13,7 @@ describe("foldContractStats", () => {
         // doc_revoke -> expired category but not 080
         { status_type: "042", step_type: null, step_name: null, step_recipient_types: [] },
       ]),
-    ).toEqual({ reviewNeeded: 0, sendRequired: 0, drafting: 0, expired: 0 });
+    ).toEqual({ reviewNeeded: 0, signed: 0, sendRequired: 0, drafting: 0, expired: 0 });
   });
 
   it("counts only doc_expired (080) as expired", () => {
@@ -31,7 +31,22 @@ describe("foldContractStats", () => {
   it("counts draft (001) as drafting, before the reviewNeeded split", () => {
     expect(
       foldContractStats([{ status_type: "001", step_type: "05", step_name: "이용자", step_recipient_types: ["01"] }]),
-    ).toEqual({ reviewNeeded: 0, sendRequired: 0, drafting: 1, expired: 0 });
+    ).toEqual({ reviewNeeded: 0, signed: 0, sendRequired: 0, drafting: 1, expired: 0 });
+  });
+
+  it("splits provider-review docs into signed while the end date is far, reviewNeeded when due", () => {
+    // End date far in the future → the review window has not opened yet.
+    expect(
+      foldContractStats([
+        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: "2099-12-31" },
+      ]),
+    ).toEqual({ reviewNeeded: 0, signed: 1, sendRequired: 0, drafting: 0, expired: 0 });
+    // End date already passed → review is due.
+    expect(
+      foldContractStats([
+        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: "2000-01-01" },
+      ]),
+    ).toEqual({ reviewNeeded: 1, signed: 0, sendRequired: 0, drafting: 0, expired: 0 });
   });
 
   it("splits in-progress into reviewNeeded only for provider review workflow steps", () => {
@@ -61,7 +76,7 @@ describe("foldContractStats", () => {
       foldContractStats([
         { status_type: "doc_complete", step_type: null, step_name: null, step_recipient_types: [] },
       ]),
-    ).toEqual({ reviewNeeded: 0, sendRequired: 0, drafting: 0, expired: 0 });
+    ).toEqual({ reviewNeeded: 0, signed: 0, sendRequired: 0, drafting: 0, expired: 0 });
     expect(
       foldContractStats([
         { status_type: "doc_request_participant", step_type: "05", step_name: "이용자", step_recipient_types: ["02"] },
@@ -76,8 +91,9 @@ describe("foldContractStats", () => {
         { status_type: "080", step_type: null, step_name: null, step_recipient_types: [] },
         { status_type: "001", step_type: "05", step_name: "이용자", step_recipient_types: ["01"] },
         { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"] },
+        { status_type: "060", step_type: "06", step_name: "제공기관 검토", step_recipient_types: ["01"], contract_end_date: "2099-12-31" },
         { status_type: "060", step_type: "05", step_name: "이용자", step_recipient_types: ["01"] },
       ]),
-    ).toEqual({ reviewNeeded: 1, sendRequired: 1, drafting: 1, expired: 1 });
+    ).toEqual({ reviewNeeded: 1, signed: 1, sendRequired: 1, drafting: 1, expired: 1 });
   });
 });

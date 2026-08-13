@@ -71,7 +71,7 @@ export const ThanksMessageForm = ({
       message={generatedMessage}
       bodyDescription={systemTemplate?.description || "감사 메시지를 검토하고 수신자 기준으로 다듬을 수 있습니다."}
       metaItems={[
-        { label: "템플릿 유형", value: "감사 메시지" },
+        { label: "템플릿 유형", value: "예약 완료(입금 확인)" },
         { label: t(locale, "thanks-msg.name-label"), value: name.trim() || "-" },
       ]}
       variableItems={variableItems}

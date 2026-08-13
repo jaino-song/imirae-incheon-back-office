@@ -12,6 +12,7 @@ describe("SystemSettingService", () => {
 
     const createMockUpdateSettingUsecase = () => ({
         execute: jest.fn(),
+        executeIfVersion: jest.fn(),
     });
 
     let service: SystemSettingService;
@@ -98,6 +99,45 @@ describe("SystemSettingService", () => {
         });
     });
 
+    describe("ribbon compare-and-set", () => {
+        it("persists only when the approved ribbon version still matches", async () => {
+            const entity = new SystemSettingEntity("ribbon_config", "{}", new Date());
+            updateSettingUsecase.executeIfVersion.mockResolvedValue(entity);
+
+            await expect(service.setRibbonConfigIfVersion("approved-version", {
+                enabled: false,
+                message: "",
+                backgroundColor: "#004AAD",
+                textColor: "#FFFFFF",
+                linkText: "",
+                linkHref: "",
+                linkColor: "#FFB27B",
+            })).resolves.toBe(entity);
+
+            expect(updateSettingUsecase.executeIfVersion).toHaveBeenCalledWith(
+                "ribbon_config",
+                expect.any(String),
+                "approved-version",
+                expect.any(Function),
+            );
+        });
+
+        it("rejects a stale ribbon version without invoking a second unconditional write", async () => {
+            updateSettingUsecase.executeIfVersion.mockResolvedValue(null);
+
+            await expect(service.setRibbonConfigIfVersion("stale-version", {
+                enabled: true,
+                message: "점검",
+                backgroundColor: "#004AAD",
+                textColor: "#FFFFFF",
+                linkText: "",
+                linkHref: "",
+                linkColor: "#FFB27B",
+            })).rejects.toThrow("Ribbon configuration changed");
+            expect(updateSettingUsecase.execute).not.toHaveBeenCalled();
+        });
+    });
+
     describe("client auto-registration policy", () => {
         it("should default to enabled when no setting is stored", async () => {
             getSettingUsecase.executeWithDefault.mockResolvedValue("true");
@@ -169,6 +209,43 @@ describe("SystemSettingService", () => {
             const getResult = await service.getGreetingOnAutoRegistrationEnabled("branch-1");
 
             expect(getResult).toBe(true);
+        });
+    });
+
+    describe("PWA undelivered digest watermark", () => {
+        it("should read a valid branch-scoped ISO timestamp", async () => {
+            getSettingUsecase.execute.mockResolvedValue("2026-08-11T00:00:00.000Z");
+
+            await expect(service.getPwaUndeliveredDigestWatermark("branch-1")).resolves.toEqual(
+                new Date("2026-08-11T00:00:00.000Z"),
+            );
+            expect(getSettingUsecase.execute).toHaveBeenCalledWith(
+                "branch:branch-1:pwa_undelivered_digest_watermark",
+            );
+        });
+
+        it("should fail open to the initial window when the stored timestamp is invalid", async () => {
+            getSettingUsecase.execute.mockResolvedValue("not-a-date");
+
+            await expect(service.getPwaUndeliveredDigestWatermark("branch-1")).resolves.toBeNull();
+        });
+
+        it("should persist the watermark as an ISO timestamp", async () => {
+            const watermark = new Date("2026-08-12T00:00:00.000Z");
+            const entity = new SystemSettingEntity(
+                "branch:branch-1:pwa_undelivered_digest_watermark",
+                watermark.toISOString(),
+                watermark,
+            );
+            updateSettingUsecase.execute.mockResolvedValue(entity);
+
+            await expect(
+                service.setPwaUndeliveredDigestWatermark("branch-1", watermark),
+            ).resolves.toBe(entity);
+            expect(updateSettingUsecase.execute).toHaveBeenCalledWith(
+                "branch:branch-1:pwa_undelivered_digest_watermark",
+                watermark.toISOString(),
+            );
         });
     });
 });

@@ -368,7 +368,7 @@ describe("recipient phone input layout", () => {
     expect(mockedSendSms).not.toHaveBeenCalled();
     expect(
       document.querySelector('[data-component="desktop_messages_sections_template-send-form_feedback"]'),
-    ).toHaveTextContent("제공기록지 링크 즉시 발송이 완료되었습니다.");
+    ).toHaveTextContent("제공기록지 링크를 바로 보냈어요");
     const queryClient = mockedUseQueryClient.mock.results[0]?.value;
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
       queryKey: messageTriggerKeys.upcoming(),
@@ -378,7 +378,8 @@ describe("recipient phone input layout", () => {
     });
     const toast = mockedUseToast.mock.results[0]?.value.toast;
     expect(toast).toHaveBeenCalledWith({
-      description: "제공기록지 링크 즉시 발송이 완료되었습니다.",
+      variant: "success",
+      description: "제공기록지 링크를 바로 보냈어요",
     });
   });
 
@@ -441,7 +442,7 @@ describe("recipient phone input layout", () => {
       expect(
         document.querySelector('[data-component="desktop_messages_sections_template-send-form_feedback"]'),
       ).toHaveTextContent(
-        "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 발송하지 못했습니다.",
+        "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 보내지 못했어요",
       );
     });
     const feedback = document.querySelector(
@@ -452,7 +453,7 @@ describe("recipient phone input layout", () => {
     const toast = mockedUseToast.mock.results[0]?.value.toast;
     expect(toast).toHaveBeenCalledWith({
       variant: "destructive",
-      description: "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 발송하지 못했습니다.",
+      description: "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 보내지 못했어요",
     });
   });
 });

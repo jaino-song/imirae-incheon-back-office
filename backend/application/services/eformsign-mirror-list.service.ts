@@ -6,12 +6,18 @@ import {
     filterDocumentsByStatusCategory,
     filterDocumentsByTemplate,
     filterOutDeletedDocuments,
+    getDocumentStatusCategory,
+    isProviderReviewStep,
     matchesKoreanSearch,
     sortDocumentsByCreatedDate,
     type DocumentStatusCategory,
     type EformsignListDoc,
     type TemplateMatch,
 } from "application/utils/eformsign-document-list";
+import {
+    resolveEformsignDocDisplayStatus,
+    type EformsignDocDisplayStatus,
+} from "application/utils/eformsign-doc-display-status";
 import {
     eformsignListDocFromMirror,
     MIRROR_CUSTOMER_NAME_KEY,
@@ -34,6 +40,7 @@ export interface MirrorListQuery {
     statusCategory?: DocumentStatusCategory;
     search?: string;
     excludeDeleted?: boolean;
+    displayStatus?: EformsignDocDisplayStatus;
 }
 
 export interface MirrorListResult {
@@ -91,12 +98,42 @@ export class EformsignMirrorListService {
                 document.stepRecipientName,
             ] as const),
         );
-        return mirrored.map((document) => {
+        const listDocs = mirrored.map((document) => {
             const listDoc = eformsignListDocFromMirror(document);
             const recipientName = recipientNameById.get(document.documentId);
             return recipientName
                 ? { ...listDoc, [MIRROR_RECIPIENT_NAME_KEY]: recipientName }
                 : listDoc;
+        });
+        return this.attachContractEndDates(listDocs);
+    }
+
+    /**
+     * Carries the contract end date on the documents whose display status depends on it:
+     * in-progress rows sitting in the provider-review step, which the UIs split into
+     * 서명 완료 vs 검토 필요 by how close the end date is. Only that subset is read —
+     * parsing every mirrored detail payload would tax the whole list for a handful of
+     * rows. Documents whose detail payload holds no recoverable end date stay bare, and
+     * the UIs fall back to showing them as 검토 필요.
+     */
+    private async attachContractEndDates(
+        documents: EformsignListDoc[],
+    ): Promise<EformsignListDoc[]> {
+        const reviewStepIds = documents
+            .filter((document) =>
+                getDocumentStatusCategory(document) === "in-progress"
+                && isProviderReviewStep(document))
+            .map((document) => document.id);
+        if (reviewStepIds.length === 0) return documents;
+
+        const endDates = await this.eformsignDocRepository.findContractEndDatesByDocumentIds(
+            reviewStepIds,
+        );
+        if (endDates.size === 0) return documents;
+
+        return documents.map((document) => {
+            const endDate = endDates.get(document.id);
+            return endDate ? { ...document, contract_end_date: endDate } : document;
         });
     }
 
@@ -119,7 +156,11 @@ export class EformsignMirrorListService {
             scopeFiltered,
             query.statusCategory,
         );
-        const searchFiltered = filterBySearch(statusFiltered, query.search);
+        const displayStatusFiltered = query.displayStatus === undefined
+            ? statusFiltered
+            : statusFiltered.filter((document) =>
+                resolveEformsignDocDisplayStatus(document) === query.displayStatus);
+        const searchFiltered = filterBySearch(displayStatusFiltered, query.search);
 
         return { documents: sortDocumentsByCreatedDate(searchFiltered) };
     }

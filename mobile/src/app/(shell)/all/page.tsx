@@ -20,29 +20,35 @@ import { useMessageTemplates } from "@/hooks/use-message-templates";
 import { useUnreadCount, usePushNotification } from "@/hooks/usePushNotification";
 import { AllSettingsRedesign } from "@/components/app/mobile-redesign/AllSettingsRedesign";
 import type { MenuGroup } from "@/components/app/mobile-redesign/mockup-data";
-import { useMessageTriggerRules } from "@/features/message-triggers/hooks/use-message-triggers";
 
 /** Canonical data-component base for the /all route. */
 const ALL_PAGE_BASE = "mobile_all_page";
+
+function safeArrayPayload<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === "object") {
+    const data = (payload as Record<string, unknown>).data;
+    if (Array.isArray(data)) return data as T[];
+    const items = (payload as Record<string, unknown>).items;
+    if (Array.isArray(items)) return items as T[];
+  }
+  return [];
+}
 
 export default function AllMenuPage() {
   const clientsQuery = useAllClients();
   const employeesQuery = useEmployees();
   const messageTemplatesQuery = useMessageTemplates();
-  const messageTriggerRulesQuery = useMessageTriggerRules();
   const pushNotification = usePushNotification();
   const unreadCountQuery = useUnreadCount(true);
 
-  const clients = clientsQuery.data ?? [];
-  const employees = employeesQuery.data ?? [];
-  const messageTemplates = messageTemplatesQuery.data ?? [];
-  const messageTriggerRules = messageTriggerRulesQuery.data ?? [];
-  const automationTriggerCount = messageTriggerRules.length;
-  const unreadNotifCount = unreadCountQuery.data ?? 0;
+  const clients = safeArrayPayload(clientsQuery.data);
+  const employees = safeArrayPayload(employeesQuery.data);
+  const messageTemplates = safeArrayPayload(messageTemplatesQuery.data);
+  const unreadNotifCount = typeof unreadCountQuery.data === "number" ? unreadCountQuery.data : 0;
   const isClientsInitialLoading = clientsQuery.isLoading && !clientsQuery.data;
   const isEmployeesInitialLoading = employeesQuery.isLoading && !employeesQuery.data;
   const isMessageTemplatesInitialLoading = messageTemplatesQuery.isLoading && !messageTemplatesQuery.data;
-  const isMessageRulesInitialLoading = messageTriggerRulesQuery.isLoading && !messageTriggerRulesQuery.data;
   const isUnreadInitialLoading = unreadCountQuery.isLoading && unreadCountQuery.data === undefined;
 
   const menuGroups = useMemo<MenuGroup[]>(() => {
@@ -119,9 +125,8 @@ export default function AllMenuPage() {
             href: "/messages/automation",
             icon: Send,
             tone: "gold",
-            value: isMessageRulesInitialLoading ? undefined : `${automationTriggerCount}개`,
-            valueLoading: isMessageRulesInitialLoading,
-            valueSkeletonWidth: "28px",
+            disabled: true,
+            statusLabel: "출시 예정",
           },
         ],
       },
@@ -144,12 +149,10 @@ export default function AllMenuPage() {
     clients.length,
     employees.length,
     messageTemplates.length,
-    automationTriggerCount,
     unreadNotifCount,
     isClientsInitialLoading,
     isEmployeesInitialLoading,
     isMessageTemplatesInitialLoading,
-    isMessageRulesInitialLoading,
     isUnreadInitialLoading,
     pushNotification.isLoading,
     pushNotification.isSubscribed,

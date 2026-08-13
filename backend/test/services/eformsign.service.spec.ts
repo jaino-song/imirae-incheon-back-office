@@ -1,4 +1,5 @@
 import { ConfigService } from "@nestjs/config";
+import * as crypto from "crypto";
 
 import { ContractDataDto } from "application/dto/contract.dto";
 import {
@@ -7,6 +8,11 @@ import {
     EFORMSIGN_MAX_DOWNLOAD_BYTES,
     EformsignService,
 } from "application/services/eformsign.service";
+
+function generateEformsignPrivateKeyHex(): string {
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    return (privateKey.export({ format: "der", type: "pkcs8" }) as Buffer).toString("hex");
+}
 
 function createConfigService(overrides: Record<string, string | undefined> = {}): ConfigService {
     return {
@@ -129,6 +135,106 @@ describe("EformsignService", () => {
             status: 400,
             vendorCode: "4000006",
         });
+    });
+
+    it("posts a cancellation to the vendor's cancel endpoint", async () => {
+        const service = new EformsignService(createConfigService());
+        const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ result: { success_result: ["doc-1"], fail_result: [] } }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.cancelDocuments("access-token", ["doc-1"], "관리자 삭제"))
+            .resolves.toEqual({ result: { success_result: ["doc-1"], fail_result: [] } });
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            "https://doc.eformsign.example/v2.0/api/documents/cancel",
+            expect.objectContaining({
+                method: "POST",
+                // The vendor nests the payload under `input`; a flat body is rejected.
+                body: JSON.stringify({
+                    input: { document_ids: ["doc-1"], comment: "관리자 삭제" },
+                }),
+            }),
+        );
+    });
+
+    it("surfaces a vendor rejection of a cancellation as an api error", async () => {
+        const service = new EformsignService(createConfigService());
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ code: "4000164", ErrorMessage: "not authorized" }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.cancelDocuments("access-token", ["doc-1"]))
+            .rejects.toMatchObject({ status: 400, vendorCode: "4000164" });
+    });
+
+    it("surfaces a vendor rejection of an access-token request as an api error", async () => {
+        const service = new EformsignService(createConfigService({
+            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
+        }));
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ code: "4010001", ErrorMessage: "unauthorized" }),
+            { status: 401, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.getAccessToken(Date.now()))
+            .rejects.toMatchObject({ status: 401, vendorCode: "4010001" });
+    });
+
+    it("surfaces a vendor rejection of a refresh-token request as an api error", async () => {
+        const service = new EformsignService(createConfigService({
+            EFORMSIGN_PRIVATE_KEY: generateEformsignPrivateKeyHex(),
+        }));
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ code: "4010002", ErrorMessage: "expired refresh token" }),
+            { status: 401, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.refreshAccessToken(Date.now(), "stale-refresh-token"))
+            .rejects.toMatchObject({ status: 401, vendorCode: "4010002" });
+    });
+
+    it("reads the normalized status from the vendor detail current_status shape", async () => {
+        const service = new EformsignService(createConfigService());
+        const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                id: "doc-1",
+                current_status: { status_type: "doc_accept_reviewer" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.fetchDocumentStatusCode("doc-1", "access-token"))
+            .resolves.toBe("072");
+        expect(fetchMock).toHaveBeenCalledWith(
+            expect.stringContaining("/v2.0/api/documents/doc-1?"),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+    });
+
+    it("reads the normalized workflow step used to reconcile a non-terminal finalize", async () => {
+        const service = new EformsignService(createConfigService());
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({
+                current_status: {
+                    status_type: "doc_request_reviewer",
+                    step_type: 6,
+                    step_index: 4,
+                    step_name: "제공기관 검토",
+                },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        await expect(service.fetchDocumentWorkflowState("doc-1", "access-token"))
+            .resolves.toEqual({
+                statusCode: "070",
+                stepType: "6",
+                stepIndex: "4",
+                stepName: "제공기관 검토",
+            });
     });
 
     it("aborts and cancels a mirrored PDF body that stops streaming before the deadline", async () => {
@@ -299,6 +405,27 @@ describe("EformsignService", () => {
                 }),
             ]),
         );
+    });
+
+    it("uses a two-digit year when finalizing templates with a fixed century prefix", async () => {
+        const service = new EformsignService(createConfigService());
+        jest.spyOn(global, "fetch").mockResolvedValue(new Response(
+            JSON.stringify({ detail_template_info: { id: "template-seogu" } }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+
+        const options = await service.generateStaffCompletionOptions(
+            "document-1",
+            "access-token",
+            "refresh-token",
+            "2026-11-30",
+        );
+
+        expect(options.prefill?.fields).toEqual(expect.arrayContaining([
+            { id: "계약 종료 년도", value: "26", enabled: true, required: false },
+            { id: "계약 종료 월", value: "11", enabled: true, required: false },
+            { id: "계약 종료 일", value: "30", enabled: true, required: false },
+        ]));
     });
 
     it("uses e2e vendor stubs for token fetches and document listing without network access", async () => {

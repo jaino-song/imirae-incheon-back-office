@@ -177,6 +177,50 @@ jobs:
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
 
+      - name: Apply client birth date patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
+
+      - name: Verify client birth date patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
+
+      - name: Apply agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
+
+      - name: Apply agent action identity hardening patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
+
+      - name: Apply agent action result delivery patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
+
+      - name: Apply agent action effect receipt patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
+
+      - name: Verify agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
+
+      - name: Apply document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
+
+      - name: Verify document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
+
+      - name: Apply eformsign doc auto-finalize tracking patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
+
+      - name: Apply message trigger job canceled-by-user patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -480,6 +524,50 @@ jobs:
         working-directory: backend
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
 
+      - name: Apply client birth date patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
+
+      - name: Verify client birth date patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
+
+      - name: Apply agent copilot tables patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
+
+      - name: Apply agent action identity hardening patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
+
+      - name: Apply agent action result delivery patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
+
+      - name: Apply agent action effect receipt patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
+
+      - name: Verify agent copilot tables patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
+
+      - name: Apply document category branch scope patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
+
+      - name: Verify document category branch scope patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
+
+      - name: Apply eformsign doc auto-finalize tracking patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
+
+      - name: Apply message trigger job canceled-by-user patch
+        working-directory: backend
+        run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
+
   apply-production:
     name: apply production database patches
     needs: [apply-preview]
@@ -762,3 +850,47 @@ jobs:
       - name: Verify eformsign local source-of-truth patch
         working-directory: backend
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
+
+      - name: Apply client birth date patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
+
+      - name: Verify client birth date patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
+
+      - name: Apply agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
+
+      - name: Apply agent action identity hardening patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
+
+      - name: Apply agent action result delivery patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
+
+      - name: Apply agent action effect receipt patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
+
+      - name: Verify agent copilot tables patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
+
+      - name: Apply document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
+
+      - name: Verify document category branch scope patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
+
+      - name: Apply eformsign doc auto-finalize tracking patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
+
+      - name: Apply message trigger job canceled-by-user patch
+        working-directory: backend
+        run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql

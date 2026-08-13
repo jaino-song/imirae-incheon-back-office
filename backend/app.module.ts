@@ -35,6 +35,7 @@ import { SystemAdminModule } from "module/system-admin.module";
 import { ServiceRecordEntryModule } from "module/service-record-entry.module";
 import { getJwtSecret } from "./infrastructure/auth/jwt-secret";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
+import { AgentModule } from "module/agent.module";
 
 const ENV_FILE_PATHS = [
     resolve(process.cwd(), "backend/.env.local"),
@@ -78,6 +79,7 @@ const ENV_FILE_PATHS = [
         TenantModule,
         NotificationModule,
         AIChatModule,
+        AgentModule,
         MessageDeliveryModule,
         CallInboxModule,
         ConsultationInquiryModule,

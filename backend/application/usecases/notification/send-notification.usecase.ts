@@ -23,12 +23,14 @@ export interface SendBroadcastParams {
     data?: Record<string, unknown>;
 }
 
-export interface SendToUsersParams {
-    userIds: string[];
-    title: string;
-    body: string;
-    data?: Record<string, unknown>;
-}
+export type NotificationDeliveryStatus = "disabled" | "no-subscriptions" | "delivered" | "partial" | "failed" | "uncertain";
+export type SendNotificationOutcome = {
+    notification: NotificationEntity;
+    status: NotificationDeliveryStatus;
+    subscriptions: number;
+    delivered: number;
+    failed: number;
+};
 
 /**
  * Send Notification Use Case
@@ -56,6 +58,13 @@ export class SendNotificationUsecase {
         branchid: string,
         params: SendNotificationParams
     ): Promise<NotificationEntity> {
+        return (await this.executeWithOutcome(branchid, params)).notification;
+    }
+
+    async executeWithOutcome(
+        branchid: string,
+        params: SendNotificationParams,
+    ): Promise<SendNotificationOutcome> {
         const { userId, title, body, data } = params;
 
         // 알림 이력 저장
@@ -65,27 +74,56 @@ export class SendNotificationUsecase {
             notification
         );
 
+        if (!this.webPushPort.isEnabled()) {
+            return this.persistOutcome(branchid, savedNotification, { status: "disabled", subscriptions: 0, delivered: 0, failed: 0 });
+        }
+
         // 사용자의 모든 구독 가져오기
         const subscriptions = await this.pushSubscriptionRepository.findByUserId(userId);
 
         if (subscriptions.length === 0) {
             this.logger.warn(`No push subscriptions found for user: ${userId}`);
-            return savedNotification;
+            return this.persistOutcome(branchid, savedNotification, { status: "no-subscriptions", subscriptions: 0, delivered: 0, failed: 0 });
         }
 
         // Push 알림 전송
         const payload = savedNotification.toWebPushPayload();
-        const results = await this.webPushPort.sendNotificationToMany(subscriptions, payload);
+        let results: Map<string, boolean>;
+        try {
+            results = await this.webPushPort.sendNotificationToMany(subscriptions, payload);
+        } catch {
+            return this.persistOutcome(branchid, savedNotification, { status: "uncertain", subscriptions: subscriptions.length, delivered: 0, failed: 0 });
+        }
 
         // 실패한 구독 정리 (expired/invalid)
+        let delivered = 0;
+        let failed = 0;
         for (const [endpoint, success] of results) {
+            if (success) delivered += 1;
             if (!success) {
+                failed += 1;
                 await this.pushSubscriptionRepository.deleteByEndpoint(endpoint);
                 this.logger.log(`Removed invalid subscription: ${endpoint.substring(0, 50)}...`);
             }
         }
+        const status: NotificationDeliveryStatus = delivered > 0 && failed === 0
+            ? "delivered"
+            : delivered > 0
+                ? "partial"
+                : "failed";
+        return this.persistOutcome(branchid, savedNotification, { status, subscriptions: subscriptions.length, delivered, failed });
+    }
 
-        return savedNotification;
+    private async persistOutcome(
+        branchId: string,
+        notification: NotificationEntity,
+        outcome: Omit<SendNotificationOutcome, "notification">,
+    ): Promise<SendNotificationOutcome> {
+        const updated = await this.notificationRepository.updateData(branchId, notification.id, {
+            ...(notification.data ?? {}),
+            providerOutcome: outcome,
+        });
+        return { notification: updated, ...outcome };
     }
 
     /**
@@ -93,6 +131,10 @@ export class SendNotificationUsecase {
      */
     async broadcast(params: SendBroadcastParams): Promise<{ sent: number; failed: number }> {
         const { title, body, data } = params;
+
+        if (!this.webPushPort.isEnabled()) {
+            return { sent: 0, failed: 0 };
+        }
 
         // 모든 구독 가져오기
         const subscriptions = await this.pushSubscriptionRepository.findAll();
@@ -106,8 +148,8 @@ export class SendNotificationUsecase {
         const payload = JSON.stringify({
             title,
             body,
-            icon: '/icon-192.png',
-            badge: '/badge-72.png',
+            icon: '/assets/icon-192.png',
+            badge: '/assets/badge-72.png',
             data,
         });
 
@@ -129,43 +171,4 @@ export class SendNotificationUsecase {
         return { sent, failed };
     }
 
-    async sendToUsers(params: SendToUsersParams): Promise<{ sent: number; failed: number }> {
-        const { userIds, title, body, data } = params;
-
-        if (userIds.length === 0) {
-            this.logger.warn('No user IDs provided for notification');
-            return { sent: 0, failed: 0 };
-        }
-
-        const subscriptions = await this.pushSubscriptionRepository.findByUserIds(userIds);
-
-        if (subscriptions.length === 0) {
-            this.logger.warn(`No push subscriptions found for users: ${userIds.join(', ')}`);
-            return { sent: 0, failed: 0 };
-        }
-
-        const payload = JSON.stringify({
-            title,
-            body,
-            icon: '/icon-192.png',
-            badge: '/badge-72.png',
-            data,
-        });
-
-        const results = await this.webPushPort.sendNotificationToMany(subscriptions, payload);
-
-        let sent = 0;
-        let failed = 0;
-        for (const [endpoint, success] of results) {
-            if (success) {
-                sent++;
-            } else {
-                failed++;
-                await this.pushSubscriptionRepository.deleteByEndpoint(endpoint);
-            }
-        }
-
-        this.logger.log(`Sent notifications to ${sent} subscriptions (${failed} failed) for ${userIds.length} users`);
-        return { sent, failed };
-    }
 }

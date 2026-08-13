@@ -163,6 +163,17 @@ export interface EformsignDocument {
   last_editor: EformsignCreator;
   updated_date: number;
   current_status: EformsignCurrentStatus;
+  /**
+   * YYYY-MM-DD, attached by the backend mirror list to in-progress documents in
+   * the provider-review step; the UIs split 서명 완료 vs 검토 필요 on it.
+   */
+  contract_end_date?: string | null;
+  /**
+   * Authoritative display status stamped by the backend at serve time
+   * (ContractDocDisplayStatus). Clients map it to a label/variant; the shared
+   * resolver is only the fallback for payloads that predate the field.
+   */
+  display_status?: string | null;
   fields: unknown[];
   next_status: unknown[];
   previous_status: unknown[];
@@ -214,6 +225,32 @@ export interface EformsignDocClientSummary {
   clientName: string;
   clientPhone: string | null;
   providerName: string | null;
+}
+
+/**
+ * 계약서 detail payload에서 추출한 고객 등록 후보.
+ * extracted=false 폴백은 이름을 채우지 않는다 (문서 컬럼 이름은 관리사/직원명일 수
+ * 있어 신뢰 불가); phone만 폴백된다.
+ * 날짜는 모두 YYYY-MM-DD, phone은 대시 포함 표기(예: 010-1234-5678).
+ */
+export interface EformsignContractClientCandidateResponse {
+  documentId: string;
+  extracted: boolean;
+  name: string | null;
+  phone: string | null;
+  address: string | null;
+  birthday: string | null;
+  dueDate: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  type: string | null;
+  duration: number | null;
+  fullPrice: string | null;
+  grant: string | null;
+  actualPrice: string | null;
+  careCenter: boolean | null;
+  voucherClient: boolean;
+  breastPump: boolean;
 }
 
 export type EformsignDocumentKind = "contract" | "service_record_snapshot";
@@ -279,11 +316,34 @@ export interface HeadlessDispatchResponse {
   fallbackHint?: "iframe";
 }
 
-export interface HeadlessFinalizeResponse {
-  ok: boolean;
+export type HeadlessFinalizeResponse = {
+  ok: true;
+  completed: boolean;
+  durationMs: number;
+} | {
+  ok: false;
   durationMs: number;
   reason?: string;
-  fallbackHint?: "iframe";
-}
+  /**
+   * "iframe" means the step is genuinely unfinished and reopening the editor is
+   * the recovery. "manual_check" means the vendor could not be asked, so the
+   * document must be verified in eformsign before anyone acts on it.
+   */
+  fallbackHint?: "iframe" | "manual_check";
+};
 
 export type FinalizeHeadlessResponse = HeadlessFinalizeResponse;
+
+/**
+ * A provider-review-stage (070) contract as served by
+ * GET /eformsign-docs/review-needed-contracts for the dashboard card, carrying
+ * the nightly auto-finalize bookkeeping (attempts of 3, last error/attempt).
+ */
+export interface ReviewNeededContract {
+  documentId: string;
+  customerName: string | null;
+  contractEndDate: string | null;
+  autoFinalizeAttempts: number;
+  autoFinalizeLastError: string | null;
+  autoFinalizeLastAttemptAt: string | null;
+}

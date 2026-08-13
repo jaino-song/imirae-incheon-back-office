@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { messageTriggerKeys } from "@/features/message-triggers/hooks/keys";
+import { serviceRecordKeys } from "@/features/service-records/hooks/keys";
 import { useCreateClient, useDeleteClient, useUpdateClient } from "./use-clients";
 
 jest.mock("@tanstack/react-query", () => ({
@@ -23,32 +24,37 @@ describe("client mutation message job invalidation", () => {
     });
   });
 
-  it("invalidates upcoming jobs after creating a client", () => {
-    const mutation = useCreateClient() as unknown as { onSuccess: () => void };
+  it("invalidates upcoming jobs after creating a client", async () => {
+    const mutation = useCreateClient() as unknown as { onSuccess: () => Promise<void> };
 
-    mutation.onSuccess();
+    await mutation.onSuccess();
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: messageTriggerKeys.upcoming(),
     });
   });
 
-  it("invalidates upcoming jobs after updating a client", () => {
+  it("invalidates upcoming jobs after updating a client", async () => {
     const mutation = useUpdateClient() as unknown as {
-      onSuccess: (client: { id: number }, variables: { id: number }) => void;
+      onSuccess: (client: { id: number }, variables: { id: number }) => Promise<void>;
     };
 
-    mutation.onSuccess({ id: 42 }, { id: 42 });
+    await mutation.onSuccess({ id: 42 }, { id: 42 });
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: messageTriggerKeys.upcoming(),
     });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: serviceRecordKeys.clientOverview(42),
+    });
   });
 
-  it("invalidates upcoming jobs after deleting a client", () => {
-    const mutation = useDeleteClient() as unknown as { onSuccess: () => void };
+  // Deletion invalidates from `onSettled` rather than `onSuccess` so the cache is
+  // reconciled after a failed optimistic removal too.
+  it("invalidates upcoming jobs after deleting a client", async () => {
+    const mutation = useDeleteClient() as unknown as { onSettled: () => Promise<void> };
 
-    mutation.onSuccess();
+    await mutation.onSettled();
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: messageTriggerKeys.upcoming(),

@@ -45,7 +45,7 @@ import {
 } from "@/components/app/v3";
 import { formatKoreanPhoneNumber, normalizeKoreanPhoneLookupKey } from "@/lib/phone";
 import { matchesMessageHistoryClient } from "@/lib/message-history/client-match";
-import { mapStatusToLabel, type DocumentStatusLabel } from "@/lib/eformsign/status-codes";
+import { mapDocStatusLabel, type DocumentStatusLabel } from "@/lib/eformsign/status-codes";
 import { eformsignApi, type LocalEformsignDocRecord } from "@/services/api";
 import { Users } from "lucide-react";
 
@@ -90,9 +90,11 @@ const formatDateTime = (dateStr: string | null): string => {
 };
 
 const DOCUMENT_STATUS_BADGE_STATUS = {
-    "대기": "pending",
+    "서명 대기": "pending",
+    "알 수 없음": "pending",
+    "서명 완료": "signed",
     "검토 필요": "review",
-    "완료": "signed",
+    "계약 완료": "completed",
     "기간 만료": "expired",
 } satisfies Record<DocumentStatusLabel, Parameters<typeof StatusBadge>[0]["status"]>;
 
@@ -329,9 +331,18 @@ function ClientContractsList({
     return (
         <div data-component={`${dataComponentPrefix}-contracts-list`} className="space-y-3">
             {docs.map((doc) => {
-                const statusLabel = doc.statusDetail === "검토 필요"
-                    ? "검토 필요"
-                    : mapStatusToLabel(doc.statusType);
+                // The backend stamps displayStatus at serve time; the local derivation
+                // (including the legacy statusDetail-string nudge for stale step fields)
+                // only backstops payloads that predate the field.
+                const statusLabel = mapDocStatusLabel(
+                    {
+                        status_type: doc.statusType,
+                        step_type: doc.statusDetail === "검토 필요" ? "06" : doc.stepType,
+                        step_name: doc.stepName,
+                    },
+                    doc.contractEndDate ?? null,
+                    doc.displayStatus,
+                );
                 return (
                     <InfoCard
                         key={doc.documentId}
@@ -544,6 +555,7 @@ function ClientDetailPanelBody({
                 return {
                     ...document,
                     ...fallbackDocument,
+                    ...(fallbackDocument ? { displayStatus: null } : {}),
                 };
             });
         },
@@ -651,7 +663,7 @@ function ClientDetailPanelBody({
         toast({
             variant: "destructive",
             description: getScheduleChangeErrorCode(error) === "REQUEST_STALE"
-                ? "요청이 최신 상태와 달라 만료되었습니다"
+                ? "요청이 최신 상태와 달라 만료됐어요"
                 : fallbackMessage,
         });
     };
@@ -671,9 +683,9 @@ function ClientDetailPanelBody({
             void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overviewAll() });
             onScheduleChangeDecided?.(client.id);
             setActiveDetailTab("basic");
-            toast({ description: "일정 변경 요청을 승인했습니다." });
+            toast({ variant: "success", description: "일정 변경 요청을 승인했어요" });
         } catch (error) {
-            showScheduleChangeErrorToast(error, "일정 변경 요청 승인 중 오류가 발생했습니다.");
+            showScheduleChangeErrorToast(error, "일정 변경 요청을 승인하지 못했어요");
         }
     };
 
@@ -689,9 +701,9 @@ function ClientDetailPanelBody({
             void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.overviewAll() });
             onScheduleChangeDecided?.(client.id);
             setActiveDetailTab("basic");
-            toast({ description: "일정 변경 요청을 거부했습니다." });
+            toast({ variant: "success", description: "일정 변경 요청을 거부했어요" });
         } catch (error) {
-            showScheduleChangeErrorToast(error, "일정 변경 요청 거부 중 오류가 발생했습니다.");
+            showScheduleChangeErrorToast(error, "일정 변경 요청을 거부하지 못했어요");
         }
     };
 
@@ -841,6 +853,10 @@ function ClientDetailPanelBody({
                                         <InfoRow
                                             label={t(locale, "clients.form.due-date")}
                                             value={formatDate(client.dueDate)}
+                                        />
+                                        <InfoRow
+                                            label={t(locale, "clients.form.birth-date")}
+                                            value={formatDate(client.birthDate)}
                                         />
                                         <InfoRow
                                             label={t(locale, "clients.form.phone")}

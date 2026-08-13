@@ -80,6 +80,23 @@ function createUnauthorizedError(config: RetryableRequestConfig): AxiosError {
     } as AxiosError;
 }
 
+function createUnauthorizedErrorWithMessage(
+    config: RetryableRequestConfig,
+    errorMessage: string,
+): AxiosError {
+    return {
+        name: "AxiosError",
+        message: "Request failed with status code 401",
+        config,
+        response: {
+            status: 401,
+            data: { error: errorMessage },
+        },
+        isAxiosError: true,
+        toJSON: () => ({}),
+    } as AxiosError;
+}
+
 describe("api client network retry", () => {
     beforeEach(() => {
         mockAxios.mockClear();
@@ -186,5 +203,47 @@ describe("api client app-session refresh", () => {
 
         expect(mockAxios.__mockApi.barePost).not.toHaveBeenCalled();
         expect(mockAxios).not.toHaveBeenCalled();
+    });
+});
+
+describe("api client eformsign refresh failure classification", () => {
+    beforeEach(() => {
+        mockAxios.mockClear();
+        mockAxios.__mockApi.barePost.mockReset();
+        window.history.replaceState({}, "", "/login");
+    });
+
+    it("rejects a vendor-flavored refresh failure without starting an app-session refresh", async () => {
+        const originalRequest: RetryableRequestConfig = {
+            method: "POST",
+            url: "/refresh-access-token",
+        };
+        const error = createUnauthorizedErrorWithMessage(
+            originalRequest,
+            "Failed to refresh token: 401 - Authentication required by upstream gateway",
+        );
+
+        await expect(getResponseRejectedHandler()(error)).rejects.toBe(error);
+
+        expect(mockAxios.__mockApi.barePost).not.toHaveBeenCalled();
+        expect(mockAxios).not.toHaveBeenCalled();
+    });
+
+    it("falls back to app-session refresh when the app's own auth check rejects the refresh request", async () => {
+        mockAxios.__mockApi.barePost.mockResolvedValue({ data: { success: true } });
+        const originalRequest: RetryableRequestConfig = {
+            method: "POST",
+            url: "/refresh-access-token",
+        };
+        const error = createUnauthorizedErrorWithMessage(
+            originalRequest,
+            "Authentication required. Please log in.",
+        );
+
+        await getResponseRejectedHandler()(error);
+
+        expect(originalRequest._appAuthRetry).toBe(true);
+        expect(mockAxios.__mockApi.barePost).toHaveBeenCalledTimes(1);
+        expect(mockAxios).toHaveBeenCalledWith(originalRequest);
     });
 });

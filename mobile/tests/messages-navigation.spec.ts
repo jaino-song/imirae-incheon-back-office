@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+const LIST_SHELL =
+  "mobile_messages_history_detail-sheet_stack_list-page_shell_content_list-card_body";
+const UPCOMING_ZONE_HEADER = `${LIST_SHELL}_zone-upcoming_header`;
+const PAST_ZONE_HEADER = `${LIST_SHELL}_zone-past_header`;
+
 async function mockMessagesApproval(page: Page) {
   await page.route("**/api/settings/message-sender-approval", async (route: Route) => {
     await route.fulfill({
@@ -16,29 +21,62 @@ async function mockMessagesApproval(page: Page) {
   });
 }
 
+// The 출시 예정 sections are owner-only, so the navigation test runs as the owner.
+async function mockOwnerUser(page: Page) {
+  const body = JSON.stringify({
+    id: "e2e-owner",
+    name: "E2E Owner",
+    role: "owner",
+    branchName: "테스트 지점",
+  });
+
+  await page.route("**/api/auth/me", async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body });
+  });
+  await page.route("**/auth/me", async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body });
+  });
+}
+
+async function enableOwnerE2EUser(page: Page) {
+  await page.goto("/messages");
+  await page.context().addCookies([
+    {
+      name: "e2e_role",
+      value: "owner",
+      url: new URL(page.url()).origin,
+    },
+  ]);
+  await page.reload();
+}
+
 test.describe("mobile messages navigation", () => {
   test.beforeEach(async ({ page }) => {
     await mockMessagesApproval(page);
+    await mockOwnerUser(page);
   });
 
   test("exposes the currently available message sections as mobile destinations", async ({ page }) => {
-    await page.goto("/messages");
+    await enableOwnerE2EUser(page);
 
+    // 발송 예정 no longer has its own destination — upcoming sends are a zone
+    // inside the merged 발송 기록 screen.
     const expectedDestinations = [
       ["전송하기", "/messages/new"],
-      ["발송 예정", "/messages/scheduled"],
       ["발송 기록", "/messages/history"],
+      ["템플릿", "/messages/templates"],
       ["자동 전송", "/messages/automation"],
-      ["설정", "/messages/sender-approval"],
+      ["설정", "/messages/settings"],
     ] as const;
 
     const sectionNavigation = page.getByRole("navigation", { name: "메시지 기능" });
     await expect(sectionNavigation).toBeVisible();
-    await expect(page.getByRole("button", { name: "템플릿" })).toBeDisabled();
 
     for (const [label, href] of expectedDestinations) {
       await page.goto("/messages");
-      await page.getByRole("button", { name: label }).click();
+      const destinationButton = page.getByRole("button", { name: label });
+      await expect(destinationButton).toBeEnabled({ timeout: 15000 });
+      await destinationButton.click();
       await expect(page).toHaveURL(new RegExp(`${href}$`));
     }
   });
@@ -86,7 +124,9 @@ test.describe("mobile messages navigation", () => {
 
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
     await expect(page.getByText("문자 고객")).toBeVisible();
-    await expect(page.getByText("1건")).toBeVisible();
+    // The merged screen prints a count in the card title and again in each zone
+    // header, so "1건" is no longer unique — assert the past zone's own header.
+    await expect(page.locator(`[data-component="${PAST_ZONE_HEADER}"]`)).toContainText("1건");
 
     await page.getByRole("button", { name: /인사 메시지/ }).click();
 
@@ -105,7 +145,7 @@ test.describe("mobile messages navigation", () => {
     await expect(page.getByText("01012345678")).not.toBeVisible();
   });
 
-  test("shows upcoming SMS jobs on the dedicated scheduled route", async ({ page }) => {
+  test("shows upcoming SMS jobs in the merged record screen's upcoming zone", async ({ page }) => {
     await page.route("**/api/message-trigger-jobs/upcoming**", async (route: Route) => {
       await route.fulfill({
         status: 200,
@@ -141,10 +181,12 @@ test.describe("mobile messages navigation", () => {
       });
     });
 
-    await page.goto("/messages/scheduled");
+    await page.goto("/messages/history");
 
-    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 예정");
+    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
+    // The zone header is one text node ("예정 1건"), so an exact-text match on
+    // 예정 finds nothing — select the header itself.
+    await expect(page.locator(`[data-component="${UPCOMING_ZONE_HEADER}"]`)).toContainText("예정");
     await expect(page.getByText("예정 고객")).toBeVisible();
-    await expect(page.getByText("1건")).toBeVisible();
   });
 });

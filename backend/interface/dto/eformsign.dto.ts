@@ -88,20 +88,19 @@ class ContractDataRequestDto {
     @IsNotEmpty()
     startDate!: string;
 
+    // 계약 종료일은 이용자 서명 후 직원이 사후 입력하므로 발급 시점에는 비어 있는 것이
+    // 정상이다. @IsNotEmpty()를 걸어두면 종료일 미정 계약은 generate-document가
+    // 400으로 막혀 embedded iframe이 아예 열리지 않는다.
     @IsString()
-    @IsNotEmpty()
     endYear!: string;
 
     @IsString()
-    @IsNotEmpty()
     endMonth!: string;
 
     @IsString()
-    @IsNotEmpty()
     endDay!: string;
 
     @IsString()
-    @IsNotEmpty()
     endDate!: string;
 
     @IsString()
@@ -131,6 +130,21 @@ class ContractDataRequestDto {
     @IsOptional()
     @IsString()
     issuerPhone?: string;
+
+    // 접수일. generateDocumentOptions는 사용하지 않지만 계약 생성 폼이 항상 함께
+    // 보내므로 선언해 둬야 한다. 전역 파이프가 forbidNonWhitelisted이라 미선언
+    // 속성 하나만 있어도 요청 전체가 400이 된다.
+    @IsOptional()
+    @IsString()
+    receiptYear?: string;
+
+    @IsOptional()
+    @IsString()
+    receiptMonth?: string;
+
+    @IsOptional()
+    @IsString()
+    receiptDay?: string;
 }
 
 export class GenerateDocumentRequestDto {

@@ -79,7 +79,7 @@ function formatWon(amount: number): string {
 }
 
 export default function PricesPage() {
-  const { data: authUser } = useGetAuthUser();
+  const { data: authUser, isLoading: isAuthUserLoading } = useGetAuthUser();
   const isOwner = authUser?.role === "owner";
   const { data: years = [], isLoading: isYearsLoading } = useVoucherYears();
   const sortedYears = useMemo(() => [...years].sort((a, b) => a - b), [years]);
@@ -220,6 +220,7 @@ export default function PricesPage() {
                 )
               }
               actionLabel={isOwner ? "업데이트" : undefined}
+              actionLoading={isAuthUserLoading}
               actionIcon={isOwner ? <Upload size={12} strokeWidth={3} aria-hidden="true" /> : undefined}
               onActionClick={
                 isOwner
@@ -243,7 +244,7 @@ export default function PricesPage() {
                         <button
                           key={`year-skeleton-${index}`}
                           type="button"
-                          className="filter-pill filter-pill-skeleton"
+                          className="filter-pill filter-pill-skeleton skeleton-base"
                           data-component="mobile_prices_page_detail-sheet_stack_list-page_content_list-card_year-filter_pill"
                           data-loading="true"
                           aria-hidden="true"

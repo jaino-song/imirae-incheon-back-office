@@ -14,12 +14,12 @@ describe("pre-booking client badge", () => {
   it("uses the neutral gray badge and avatar treatment", () => {
     render(<StatusBadge status="preBooking" />);
 
-    expect(screen.getByText("예약 전")).toHaveClass("bg-[hsl(220,20%,97%)]");
+    expect(screen.getByText("예약 전")).toHaveClass("bg-status-neutral");
     expect(getClientBadgeAvatarClassName({
       key: "service_status",
       status: "preBooking",
       tone: "neutral",
-    })).toContain("bg-[hsl(220,20%,97%)]");
+    })).toContain("bg-status-neutral");
   });
 });
 

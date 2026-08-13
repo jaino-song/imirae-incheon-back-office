@@ -372,10 +372,17 @@ export class EformsignApiClient implements IEformsignClientRepository {
     async createDocument(accessToken: string, payload: CreateDocumentPayload): Promise<CreateDocumentResponse> {
         this.assertConfigured();
 
-        // Two dispatch shapes (verified live):
-        // - reviewer: new-format recipient mirroring the template's pre-specified reviewer step;
-        //   any mismatch (or the legacy flat shape) is rejected with 4000012/500.
-        // - recipient: legacy flat participant shape used by the contract flow (step 2 SMS signer).
+        // Both dispatch shapes are new-format ("신형 워크플로우"): the recipient goes inside a
+        // `member` object, and step_type selects the workflow step — "06" reviewer, "05" participant.
+        // The reviewer shape must MIRROR the template's pre-specified step; any mismatch is
+        // rejected with 4000012.
+        //
+        // The participant shape previously used the legacy flat form (step_idx + top-level
+        // name/sms). The contract template is a new-format workflow (write → participant →
+        // complete), which rejects that form outright with 4000012 "The next_steps set by the
+        // user is inconsistent with the template's workflow settings" — verified live. The bug
+        // stayed hidden because the UI dispatches contracts through headless automation; only
+        // the AI chat tool reaches this path.
         let recipients: unknown[] = [];
         if (payload.reviewer) {
             recipients = [
@@ -395,20 +402,30 @@ export class EformsignApiClient implements IEformsignClientRepository {
         } else if (payload.recipient) {
             recipients = [
                 {
-                    step_idx: "2",
                     step_type: "05",
-                    name: payload.recipient.name,
-                    id: "",
-                    sms: payload.recipient.sms,
                     use_sms: true,
+                    use_mail: false,
+                    member: {
+                        // member.id is an email and is optional — verified live. `client` has no
+                        // email column, so a contract recipient is identified by phone alone.
+                        name: payload.recipient.name,
+                        // An empty country_code is normalized to +82 by eformsign — verified live.
+                        sms: { country_code: "", phone_number: payload.recipient.sms },
+                    },
                 },
             ];
         }
 
+        // A template may forbid renaming its documents (title_change=false), in which case the
+        // title comes from its doc_default_title pattern and sending document_name is rejected
+        // with 4000010 "This document's title cannot be changed" — verified live against the
+        // contract template. Callers that dispatch to such a template omit documentName and take
+        // the generated title from the response. Deciding here would mean an extra vendor call
+        // inside a deliberately single-shot, non-retryable operation.
         const requestBody = {
             template_id: payload.templateId,
             document: {
-                document_name: payload.documentName,
+                ...(payload.documentName === undefined ? {} : { document_name: payload.documentName }),
                 fields: payload.prefillFields.map(f => ({
                     id: f.id,
                     value: f.value,
@@ -429,6 +446,7 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${accessToken}`,
+                    ...(payload.idempotencyKey ? { "Idempotency-Key": payload.idempotencyKey } : {}),
                 },
                 body: JSON.stringify(requestBody),
             },
@@ -437,6 +455,9 @@ export class EformsignApiClient implements IEformsignClientRepository {
                 // Creating a document also sends it to the customer. A 5xx, timeout, or network
                 // error has an ambiguous outcome and retrying could create/send a duplicate.
                 // A 429 is safe because the server explicitly rejected the request before work.
+                // The header correlates an agent action, but eformsign's contract does not
+                // provide a verified exactly-once guarantee for this endpoint. Keep document
+                // creation single-shot; timeouts are reconciled or left uncertain, never replayed.
                 idempotent: false,
                 timeoutMs: EFORMSIGN_CREATE_DOCUMENT_TIMEOUT_MS,
             },
@@ -450,6 +471,9 @@ export class EformsignApiClient implements IEformsignClientRepository {
         return {
             documentId,
             status: data.document?.document_status || data.status || "created",
+            // Templates that forbid renaming generate the title themselves; surface it so the
+            // caller records what eformsign actually named the document.
+            documentName: data.document?.document_name ?? undefined,
         };
     }
 

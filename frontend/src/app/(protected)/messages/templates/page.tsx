@@ -98,23 +98,24 @@ function BranchTemplateDetail({
     updateMutation.mutate(
       { id: template.id, request: { name, content, variables: template.variables } },
       {
-        onSuccess: () => toast({ description: "지점 템플릿이 저장되었습니다." }),
-        onError: () => toast({ variant: "destructive", description: "저장 중 오류가 발생했습니다." }),
+        onSuccess: () => toast({ variant: "success", description: "지점 템플릿을 저장했어요" }),
+        onError: () => toast({ variant: "destructive", description: "지점 템플릿을 저장하지 못했어요" }),
       },
     );
   };
 
-  const handleDelete = () => {
-    deleteMutation.mutate(template.id, {
-      onSuccess: () => {
-        setDeleteDialogOpen(false);
-        onDeleted();
-        toast({ description: "지점 템플릿이 삭제되었습니다." });
-      },
-      onError: () => {
-        toast({ variant: "destructive", description: "삭제 중 오류가 발생했습니다." });
-      },
-    });
+  // Awaited rather than using mutate's per-call callbacks: the optimistic removal
+  // unmounts this detail panel, and TanStack drops those callbacks once the
+  // observer is gone — the failure toast would never fire.
+  const handleDelete = async () => {
+    try {
+      await deleteMutation.mutateAsync(template.id);
+      setDeleteDialogOpen(false);
+      onDeleted();
+      toast({ variant: "success", description: "지점 템플릿을 삭제했어요" });
+    } catch {
+      toast({ variant: "destructive", description: "지점 템플릿을 삭제하지 못했어요" });
+    }
   };
 
   return (
@@ -182,7 +183,7 @@ function BranchTemplateDetail({
         approvalVariant="destructive"
         isPending={deleteMutation.isPending}
         isDescriptionVisuallyHidden={false}
-        onApprove={handleDelete}
+        onApprove={() => void handleDelete()}
         data-component="desktop_messages_sections_templates_delete-confirmation"
       />
     </div>

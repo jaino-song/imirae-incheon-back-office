@@ -18,6 +18,6 @@ import { PublicSettingsController } from "interface/controllers/public-settings.
         SystemSettingService,
         MessageSenderApprovalService,
     ],
-    exports: [SystemSettingService, MessageSenderApprovalService],
+    exports: [GetSettingUsecase, UpdateSettingUsecase, SystemSettingService, MessageSenderApprovalService],
 })
 export class SystemSettingModule {}

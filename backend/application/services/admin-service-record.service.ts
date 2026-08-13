@@ -6,6 +6,7 @@ import {
     SERVICE_RECORD_LINK_SMS_LOG_TEMPLATE_KEY,
 } from "domain/constants/service-record-link-message";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
+import { countBusinessDaysKr } from "domain/utils/business-days";
 import { ServiceRecordLinkService } from "./service-record-link.service";
 import { MessageTriggerService } from "./message-trigger.service";
 import {
@@ -50,6 +51,21 @@ type SignatureDocRow = Prisma.eformsign_docGetPayload<{
         snapshotChunkIndex: true;
     };
 }>;
+
+function isoDate(date: Date | null | undefined): string | null {
+    return date ? date.toISOString().slice(0, 10) : null;
+}
+
+function servicePeriodSessionCount(
+    startDate: Date | null | undefined,
+    endDate: Date | null | undefined,
+    fallback: number | null,
+): number {
+    const startDateIso = isoDate(startDate);
+    const endDateIso = isoDate(endDate);
+    if (!startDateIso || !endDateIso) return fallback ?? 0;
+    return countBusinessDaysKr(startDateIso, endDateIso) ?? fallback ?? 0;
+}
 
 @Injectable()
 export class AdminServiceRecordService {
@@ -147,7 +163,11 @@ export class AdminServiceRecordService {
             status: record.status,
             startDate: record.startDate,
             endDate: record.endDate,
-            totalSessions: record.requiredSessionCount ?? 0,
+            totalSessions: servicePeriodSessionCount(
+                record.startDate,
+                record.endDate,
+                record.requiredSessionCount,
+            ),
             completedAt: record.completedAt,
             finalizationDueAt: record.finalizationDueAt,
             finalizedAt: record.finalizedAt,
@@ -232,7 +252,11 @@ export class AdminServiceRecordService {
             },
             link: this.deriveLink(jobs, logs, schedule.serviceRecordTokens[0] ?? null),
             header: schedule.serviceRecord ? this.mapHeader(schedule.serviceRecord) : null,
-            totalSessions: schedule.client.duration ?? 0,
+            totalSessions: servicePeriodSessionCount(
+                schedule.client.startDate ?? schedule.startDate,
+                schedule.client.endDate ?? schedule.endDate,
+                schedule.client.duration,
+            ),
             sessions: schedule.serviceRecordDays.map((session) => this.mapSession(session)),
             signatureDoc,
         };

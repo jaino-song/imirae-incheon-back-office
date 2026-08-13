@@ -24,7 +24,7 @@ describe("mapDocStatusLabel", () => {
         step_name: "이용자",
         step_recipients: [{ recipient_type: "01" }],
       }),
-    ).toBe("대기");
+    ).toBe("서명 대기");
   });
 
   it("treats explicit provider review steps as review needed", () => {

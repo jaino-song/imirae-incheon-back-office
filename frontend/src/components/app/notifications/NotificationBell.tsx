@@ -28,6 +28,7 @@ import { FilteredClientsDialog } from "./FilteredClientsDialog";
 import { cn } from "@/lib/utils";
 import { useScrollActivity } from "@/components/app/v3/useScrollActivity";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
+import { PWA_NOTIFICATIONS_ENABLED } from "@/lib/notification-config";
 
 type FilterType = "starting-soon" | "ending-soon" | "incomplete-contracts" | "no-contract";
 
@@ -113,9 +114,10 @@ export function NotificationBell({ className }: { className?: string }) {
         subscribe,
     } = usePushNotification();
 
-    // Notification data (only fetch when subscribed)
-    const { data: unreadCount = 0 } = useUnreadCount(isSubscribed);
-    const { data: notificationsData, isLoading: notificationsLoading } = useNotifications(10, 0, isSubscribed);
+    // Keep the in-app notification history available when PWA delivery is disabled.
+    const notificationDataEnabled = !PWA_NOTIFICATIONS_ENABLED || isSubscribed;
+    const { data: unreadCount = 0 } = useUnreadCount(notificationDataEnabled);
+    const { data: notificationsData, isLoading: notificationsLoading } = useNotifications(10, 0, notificationDataEnabled);
     const notifications = Array.isArray(notificationsData) ? notificationsData : [];
 
     // Lock body scroll when modal is open
@@ -133,7 +135,7 @@ export function NotificationBell({ className }: { className?: string }) {
     const markAllAsRead = useMarkAllAsRead();
 
     const handleClick = async () => {
-        if (!isSubscribed) {
+        if (PWA_NOTIFICATIONS_ENABLED && !isSubscribed) {
             // Not subscribed - try to subscribe
             setSubscribeLoading(true);
             const success = await subscribe();
@@ -188,7 +190,7 @@ export function NotificationBell({ className }: { className?: string }) {
     // Render error/warning content in popover
     const renderPopoverContent = () => {
         // Not supported
-        if (!isSupported) {
+        if (PWA_NOTIFICATIONS_ENABLED && !isSupported) {
             return (
                 <div className="p-4">
                     <Alert variant="warning">
@@ -207,7 +209,7 @@ export function NotificationBell({ className }: { className?: string }) {
         const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
         const isPWA = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches;
 
-        if (isIOS && !isPWA && !isSubscribed) {
+        if (PWA_NOTIFICATIONS_ENABLED && isIOS && !isPWA && !isSubscribed) {
             return (
                 <div className="p-4">
                     <Alert>
@@ -225,7 +227,7 @@ export function NotificationBell({ className }: { className?: string }) {
         }
 
         // Permission denied
-        if (permission === 'denied') {
+        if (PWA_NOTIFICATIONS_ENABLED && permission === 'denied') {
             return (
                 <div className="p-4">
                     <Alert variant="destructive">
@@ -241,7 +243,7 @@ export function NotificationBell({ className }: { className?: string }) {
         }
 
         // Subscription error
-        if (subscriptionError && !isSubscribed) {
+        if (PWA_NOTIFICATIONS_ENABLED && subscriptionError && !isSubscribed) {
             return (
                 <div className="p-4">
                     <Alert variant="destructive">
@@ -353,7 +355,7 @@ export function NotificationBell({ className }: { className?: string }) {
                     >
                         {isLoading ? (
                             <Spinner size="sm" />
-                        ) : isSubscribed ? (
+                        ) : !PWA_NOTIFICATIONS_ENABLED || isSubscribed ? (
                             <>
                                 <Bell className="!h-5 !w-5" />
                                 {unreadCount > 0 && (

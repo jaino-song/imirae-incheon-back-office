@@ -787,7 +787,7 @@ export function useContractCreationFlow(): ContractCreationFlow {
     expiry: dayjs.Dayjs,
   ) => {
     if (!isEformsignLoaded) {
-      showErrorToast("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
+      showErrorToast("eformsign SDK를 아직 불러오는 중이에요. 잠시 후 다시 시도해 주세요");
       return;
     }
     const documentOption: EformsignDocumentOption = await eformsignApi.generateDocument(
@@ -819,7 +819,7 @@ export function useContractCreationFlow(): ContractCreationFlow {
           }, SUCCESS_REDIRECT_DELAY_MS);
         },
         onError: (response) => {
-          showErrorToast(`문서 생성 실패: ${response.message}`);
+          showErrorToast(`문서를 만들지 못했어요. ${response.message}`);
           setIsEformsignModalOpen(false);
         },
         onAction: () => { /* noop */ },
@@ -985,7 +985,7 @@ export function useContractCreationFlow(): ContractCreationFlow {
       }
     } catch (err: unknown) {
       setIsProgressModalOpen(false);
-      const msg = err instanceof Error ? err.message : "계약서 생성 중 오류가 발생했습니다.";
+      const msg = err instanceof Error ? err.message : "계약서를 만들지 못했어요";
       showErrorToast(msg);
     } finally {
       setIsSubmitting(false);

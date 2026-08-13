@@ -1,5 +1,10 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+const LIST_SHELL =
+  "mobile_messages_history_detail-sheet_stack_list-page_shell_content_list-card_body";
+const UPCOMING_ROW = `${LIST_SHELL}_item-upcoming`;
+const PAST_ROW = `${LIST_SHELL}_item`;
+
 async function enableE2EAuth(page: Page) {
   const baseURL = process.env.BASE_URL ?? "http://localhost:3000";
   await page.context().addCookies([{
@@ -13,7 +18,8 @@ async function enableE2EAuth(page: Page) {
   });
 }
 
-async function mockReadOnlyMessages(page: Page) {
+async function mockReadOnlyMessages(page: Page, options: { isApproved?: boolean } = {}) {
+  const isApproved = options.isApproved ?? false;
   await page.route("**/api/**", async (route: Route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === "/api/auth/me") {
@@ -27,11 +33,11 @@ async function mockReadOnlyMessages(page: Page) {
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          approvalStatus: "not_requested",
-          isApproved: false,
-          canRequest: true,
-        }),
+        body: JSON.stringify(
+          isApproved
+            ? { approvalStatus: "approved", isApproved: true, canRequest: false }
+            : { approvalStatus: "not_requested", isApproved: false, canRequest: true },
+        ),
       });
     }
     if (pathname === "/api/message-trigger-jobs/upcoming") {
@@ -119,27 +125,54 @@ async function mockReadOnlyMessages(page: Page) {
   });
 }
 
-test.describe("Mobile message read-only status surfaces", () => {
+// 발송 예정 and 발송 기록 used to be two screens, and both were exempt from the
+// sending-approval gate — the earlier version of these tests asserted that the
+// content showed up *before* approval, which is the hole that got closed. The
+// merged screen now surfaces upcoming sends and a cancel action, so it is
+// gated like every other message screen.
+test.describe("Mobile merged message record screen", () => {
   test.beforeEach(async ({ page }) => {
     await enableE2EAuth(page);
+  });
+
+  test("stays gated until the branch can send messages", async ({ page }) => {
     await mockReadOnlyMessages(page);
+    await page.goto("/messages/history");
+
+    // The guard renders the page and puts the approval modal over it rather
+    // than unmounting the content, so the rows stay in the DOM and asserting
+    // they are hidden would be asserting something the app never does. The
+    // regression this protects is that the modal appears here at all: this
+    // route used to be exempt from the approval check entirely, so typing the
+    // URL walked straight past a nav item that looked disabled.
+    await expect(page.getByText("메시지 전송 권한이 필요합니다.")).toBeVisible();
   });
 
-  test("shows scheduled jobs before sender approval", async ({ page }) => {
-    await page.goto("/messages/scheduled");
-
-    await expect(page.locator(".list-card .list-title-text")).toContainText("발송 예정");
-    await expect(page.getByText("대기 고객")).toBeVisible();
-    await expect(page.getByText("발송 대기")).toBeVisible();
-    await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
-  });
-
-  test("shows canceled history before sender approval", async ({ page }) => {
+  test("shows upcoming and past sends together once approved", async ({ page }) => {
+    await mockReadOnlyMessages(page, { isApproved: true });
     await page.goto("/messages/history");
 
     await expect(page.locator(".list-card .list-title-text")).toContainText("발송 기록");
-    await expect(page.getByText("취소 고객")).toBeVisible();
-    await expect(page.getByText("발송 취소")).toBeVisible();
     await expect(page.getByText("메시지 전송 권한이 필요합니다.")).not.toBeVisible();
+
+    // Scoped to the row, not matched by text: 발송 취소 is the canceled status
+    // label AND the cancel button's label AND the confirm dialog's button, so a
+    // bare getByText hits three elements on this screen.
+    const upcomingRow = page
+      .locator(`[data-component="${UPCOMING_ROW}"]`)
+      .filter({ hasText: "대기 고객" });
+    await expect(upcomingRow).toContainText("발송 대기");
+
+    const pastRow = page
+      .locator(`[data-component="${PAST_ROW}"]`)
+      .filter({ hasText: "취소 고객" });
+    await expect(pastRow).toContainText("발송 취소");
+  });
+
+  test("keeps the old scheduled URL working by redirecting", async ({ page }) => {
+    await mockReadOnlyMessages(page, { isApproved: true });
+    await page.goto("/messages/scheduled");
+
+    await expect(page).toHaveURL(/\/messages\/history$/);
   });
 });

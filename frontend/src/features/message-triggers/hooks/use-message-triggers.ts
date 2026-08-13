@@ -1,6 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
 import { messageTriggersApi } from "../api/message-triggers.api";
 import { messageTriggerKeys } from "./keys";
 import type {
@@ -109,8 +115,24 @@ export function useRetryMessageHistory() {
     return useMutation({
         mutationFn: (id: number) =>
             messageTriggersApi.retryHistory(id).then((response) => response.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
+        },
+    });
+}
+
+// Cancels a pending trigger job (POST /message-trigger-jobs/:id/cancel). The
+// backend refuses anything but a still-pending job. Invalidates both upcoming
+// and history so the canceled row moves from the 예정 zone into 지난 발송.
+export function useCancelUpcomingMessageTriggerJob() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) =>
+            messageTriggersApi.cancelUpcomingJob(id).then((response) => response.data),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
         },
     });
 }
@@ -121,9 +143,9 @@ export function useCreateMessageTriggerRule() {
     return useMutation({
         mutationFn: (dto: CreateMessageTriggerRuleDto) =>
             messageTriggersApi.create(dto).then((response) => response.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
         },
     });
 }
@@ -134,20 +156,40 @@ export function useUpdateMessageTriggerRule() {
     return useMutation({
         mutationFn: ({ id, dto }: { id: string; dto: UpdateMessageTriggerRuleDto }) =>
             messageTriggersApi.update(id, dto).then((response) => response.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
         },
     });
+}
+
+// Removes a rule from the cached rule list. Non-array shapes pass through unchanged.
+function removeTriggerRuleFromCacheData(current: unknown, id: string): unknown {
+    if (!Array.isArray(current)) return current;
+    return removeById(current as MessageTriggerRule[], id);
 }
 
 export function useDeleteMessageTriggerRule() {
     const queryClient = useQueryClient();
 
-    return useMutation({
+    return useMutation<unknown, Error, string, { previous: QuerySnapshot }>({
         mutationFn: (id: string) => messageTriggersApi.delete(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+        onMutate: async (id) => {
+            // Must target the exact rule-list key, never `messageTriggerKeys.all`:
+            // that broad prefix also matches upcoming jobs, history, templates and
+            // detail caches, whose differently-shaped rows can carry the same `id`.
+            const previous = await snapshotAndTransformQueries(
+                queryClient,
+                { queryKey: messageTriggerKeys.list() },
+                (current) => removeTriggerRuleFromCacheData(current, id),
+            );
+            return { previous };
+        },
+        onError: (_error, _id, context) => {
+            if (context?.previous) restoreQueries(queryClient, context.previous);
+        },
+        onSettled: async () => {
+            await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
         },
     });
 }

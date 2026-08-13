@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
     findOutOfPocketPriceInfo,
@@ -9,6 +9,7 @@ import {
 import { useCreateClient, useUpdateClient } from "@/hooks/useClients";
 import { useClientPhoneDuplicateCheck } from "@/hooks/useClientPhoneDuplicateCheck";
 import { useOutOfPocketPriceInfos, useVoucherPriceInfos, useVoucherYears } from "@/hooks/useVoucherData";
+import type { ClientFormData } from "@/features/clients/types";
 import { EmployeeAutocomplete } from "./EmployeeAutocomplete";
 import { EmployeeFormDialog } from "@/components/app/employees/EmployeeFormDialog";
 import { useClientDialogStore } from "@/stores/client-dialog-store";
@@ -24,6 +25,7 @@ import { t } from "@/lib/i18n/translations";
 import { getErrorMessage } from "@/lib/errors/prisma-error-mapper";
 import { cn } from "@/lib/utils";
 import { calcEndDateBusinessDays } from "@/lib/date/business-days";
+import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import voucherOptions from "../messages/templates/json/voucher.json";
 
 import {
@@ -58,17 +60,21 @@ export interface ClientFormDialogProps {
     open: boolean;
     onClose: () => void;
     client?: Client | null; // null/undefined for create mode, Client for edit mode
+    /** 생성 모드에서 다이얼로그가 open 상태로 전환될 때 적용된다. 열린 뒤 참조가 바뀌어도 반영되지 않으며, client가 있으면(수정 모드) 무시된다. */
+    prefill?: Partial<ClientFormData>;
+    /** 다이얼로그 상단에 표시할 안내 문구 (예: 계약서 연동 주의사항). */
+    notice?: string;
     onSuccess?: (client: Client) => void; // Optional callback when client is created/updated
 }
 
-export interface ClientFormPanelProps extends Omit<ClientFormDialogProps, "open"> {
+export interface ClientFormPanelProps extends Omit<ClientFormDialogProps, "open" | "notice"> {
     open?: boolean;
     activeStep?: number;
     onActiveStepChange?: (step: number) => void;
     renderLayout?: (parts: { content: ReactNode; footer: ReactNode }) => ReactNode;
 }
 
-type ClientFormData = Omit<CreateClientDto, "primaryEmployeeId"> & { primaryEmployeeId: number | null };
+export type { ClientFormData };
 
 const PANEL_STEP_CONTENT_CLASS_NAME =
     "grid w-full grid-cols-1 gap-[calc(16px*var(--glint-ui-scale,1))] pb-[calc(24px*var(--glint-ui-scale,1))] md:grid-cols-2";
@@ -197,11 +203,37 @@ const isValidCompactDateInput = (value: string): boolean => {
     );
 };
 
+const isValidIsoDateInput = (value: string): boolean => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+    const date = new Date(`${value}T00:00:00`);
+    return (
+        !Number.isNaN(date.getTime()) &&
+        date.getFullYear() === Number(value.slice(0, 4)) &&
+        date.getMonth() + 1 === Number(value.slice(5, 7)) &&
+        date.getDate() === Number(value.slice(8, 10))
+    );
+};
+
+const formatCompactDateForIsoInput = (value: string | null | undefined): string => {
+    if (!value) return "";
+    if (/^\d{6}$/.test(value)) return normalizeCompactDateForSubmit(value);
+    return value;
+};
+
+const parseIsoDateInputToCompactState = (value: string): string => {
+    const formattedValue = formatIsoDateInput(value);
+    return formattedValue.length === 10 && isValidIsoDateInput(formattedValue)
+        ? normalizeDateForCompactState(formattedValue)
+        : formattedValue;
+};
+
 export function ClientFormPanel({
     "data-component": dataComponent,
     open = true,
     onClose,
     client,
+    prefill,
     onSuccess,
     activeStep,
     onActiveStepChange,
@@ -214,6 +246,7 @@ export function ClientFormPanel({
             open={open}
             onClose={onClose}
             client={client}
+            prefill={prefill}
             onSuccess={onSuccess}
             activeStep={activeStep}
             onActiveStepChange={onActiveStepChange}
@@ -222,7 +255,15 @@ export function ClientFormPanel({
     );
 }
 
-export function ClientFormDialog({ "data-component": dataComponent, open, onClose, client, onSuccess }: ClientFormDialogProps) {
+export function ClientFormDialog({
+    "data-component": dataComponent,
+    open,
+    onClose,
+    client,
+    prefill,
+    notice,
+    onSuccess,
+}: ClientFormDialogProps) {
     return (
         <ClientFormContent
             surface="dialog"
@@ -230,6 +271,8 @@ export function ClientFormDialog({ "data-component": dataComponent, open, onClos
             open={open}
             onClose={onClose}
             client={client}
+            prefill={prefill}
+            notice={notice}
             onSuccess={onSuccess}
         />
     );
@@ -241,6 +284,8 @@ function ClientFormContent({
     open,
     onClose,
     client,
+    prefill,
+    notice,
     onSuccess,
     activeStep: controlledActiveStep,
     onActiveStepChange,
@@ -252,6 +297,10 @@ function ClientFormContent({
     const searchParams = useSearchParams();
     const locale = useLocale();
     const isEditMode = !!client;
+    const prefillRef = useRef(prefill);
+    useEffect(() => {
+        prefillRef.current = prefill;
+    }, [prefill]);
 
     // Read pre-filled name from Zustand store (when opened from ClientAutocomplete)
     const prefillName = useClientDialogStore((state) => state.prefillName);
@@ -265,6 +314,7 @@ function ClientFormContent({
         name: "",
         birthday: "",
         dueDate: "",
+        birthDate: "",
         address: "",
         phone: "",
         primaryEmployeeId: null, // null means "not selected yet"
@@ -536,7 +586,8 @@ function ClientFormContent({
                 nextFormData = {
                     name: client.name,
                     birthday: client.birthday || "",
-                    dueDate: normalizeDateForCompactState(client.dueDate),
+                    dueDate: formatDateForInput(client.dueDate),
+                    birthDate: formatDateForInput(client.birthDate),
                     address: client.address || "",
                     phone: client.phone || "",
                     primaryEmployeeId: client.primaryEmployee?.id ?? null,
@@ -562,6 +613,7 @@ function ClientFormContent({
                     name: prefillName || "",
                     birthday: "",
                     dueDate: "",
+                    birthDate: "",
                     address: "",
                     phone: "",
                     primaryEmployeeId: null,
@@ -578,16 +630,24 @@ function ClientFormContent({
                     breastPump: false,
                     serviceStatus: "pre_booking",
                     applyMessageAutomation: true,
+                    ...Object.fromEntries(
+                        Object.entries(prefillRef.current ?? {}).filter(([, value]) => value !== undefined),
+                    ),
                 };
+                nextPricesManuallyEdited = Boolean(
+                    prefillRef.current?.fullPrice || prefillRef.current?.grant || prefillRef.current?.actualPrice,
+                );
                 clearPrefillName();
             }
 
             nextFormData = {
                 ...nextFormData,
-                dueDate: normalizeDateForCompactState(nextFormData.dueDate),
                 startDate: normalizeDateForCompactState(nextFormData.startDate),
                 endDate: normalizeDateForCompactState(nextFormData.endDate),
             };
+            if (!client && !nextFormData.endDate && nextFormData.startDate && nextFormData.duration) {
+                skipNextEndDateRecalculationRef.current = false;
+            }
             queueMicrotask(() => {
                 setFormData(nextFormData);
                 setInitializedEditClientId(client?.id ?? null);
@@ -686,15 +746,13 @@ function ClientFormContent({
             setErrorAndScroll(t(locale, "clients.form.error-birthday-required"));
             return;
         }
-        if (!isLegacyNoopEdit) {
-            if (!formData.dueDate?.trim()) {
-                setErrorAndScroll(t(locale, "clients.form.error-due-date-required"));
-                return;
-            }
-            if (!isValidCompactDateInput(formData.dueDate)) {
-                setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
-                return;
-            }
+        if (formData.dueDate?.trim() && !isValidIsoDateInput(formData.dueDate)) {
+            setErrorAndScroll(t(locale, "clients.form.error-due-date-invalid"));
+            return;
+        }
+        if (formData.birthDate?.trim() && !isValidIsoDateInput(formData.birthDate)) {
+            setErrorAndScroll(t(locale, "clients.form.error-birth-date-invalid"));
+            return;
         }
         if (!formData.address?.trim()) {
             setErrorAndScroll(t(locale, "clients.form.error-address-required"));
@@ -723,7 +781,8 @@ function ClientFormContent({
             }
         }
         try {
-            const normalizedDueDate = normalizeCompactDateForSubmit(formData.dueDate ?? "");
+            const normalizedDueDate = formData.dueDate ?? "";
+            const normalizedBirthDate = formData.birthDate ?? "";
             const normalizedStartDate = normalizeCompactDateForSubmit(formData.startDate ?? "");
             const normalizedEndDate = normalizeCompactDateForSubmit(formData.endDate ?? "");
 
@@ -734,6 +793,7 @@ function ClientFormContent({
                     name: formData.name,
                     birthday: formData.birthday,
                     dueDate: normalizedDueDate || null,
+                    birthDate: normalizedBirthDate || null,
                     address: formData.address,
                     phone: formData.phone,
                     // Only include employee IDs if explicitly selected (not null)
@@ -757,7 +817,8 @@ function ClientFormContent({
                 const createDto: CreateClientDto = {
                     name: formData.name,
                     birthday: formData.birthday || null,
-                    dueDate: normalizedDueDate,
+                    dueDate: normalizedDueDate || null,
+                    birthDate: normalizedBirthDate || null,
                     address: formData.address || null,
                     phone: formData.phone || null,
                     primaryEmployeeId: formData.primaryEmployeeId,
@@ -790,7 +851,7 @@ function ClientFormContent({
     const isBasicStepValid = isLegacyNoopEdit || Boolean(
         formData.name.trim()
         && formData.birthday?.trim()
-        && isValidCompactDateInput(formData.dueDate ?? "")
+        && (!formData.dueDate?.trim() || isValidIsoDateInput(formData.dueDate))
         && formData.address?.trim()
         && isPhoneCheckReady
     );
@@ -805,11 +866,10 @@ function ClientFormContent({
     ] as const;
     const isCurrentStepValid = stepValidation[activeStep] ?? true;
     const isFormComplete = isBasicStepValid;
-    const requiredFieldProgressText = `필수 항목 5개 중 ${
+    const requiredFieldProgressText = `필수 항목 4개 중 ${
         [
             Boolean(formData.name.trim()),
             isValidCompactDateInput(formData.birthday ?? ""),
-            isValidCompactDateInput(formData.dueDate ?? ""),
             Boolean(formData.address?.trim()),
             Boolean(formData.phone?.trim()),
         ].filter(Boolean).length
@@ -964,10 +1024,26 @@ function ClientFormContent({
                         id="dueDate"
                         type="text"
                         inputMode="numeric"
-                        maxLength={6}
-                        placeholder="YYMMDD"
+                        maxLength={10}
+                        placeholder="YYYY-MM-DD"
                         value={formData.dueDate || ""}
-                        onChange={(e) => handleChange("dueDate", parseCompactDateInput(e.target.value))}
+                        onChange={(e) => handleChange("dueDate", formatIsoDateInput(e.target.value))}
+                    />
+                </FormField>
+
+                <FormField
+                    data-component={`${base}_basic-grid_field-birth-date`}
+                    htmlFor="birthDate"
+                    label={t(locale, "clients.form.birth-date")}
+                >
+                    <FormTextInput
+                        id="birthDate"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={10}
+                        placeholder="YYYY-MM-DD"
+                        value={formData.birthDate || ""}
+                        onChange={(e) => handleChange("birthDate", formatIsoDateInput(e.target.value))}
                     />
                 </FormField>
 
@@ -1270,8 +1346,7 @@ function ClientFormContent({
                             maxLength={6}
                             placeholder="YYMMDD"
                             value={formData.endDate || ""}
-                            readOnly
-                            aria-readonly="true"
+                            onChange={(e) => handleChange("endDate", parseCompactDateInput(e.target.value))}
                         />
                     </FormField>
                 </FormGrid>
@@ -1351,11 +1426,26 @@ function ClientFormContent({
             >
                 <FormTextInput
                     id="dueDate"
-                    placeholder="YYMMDD"
+                    placeholder="YYYY-MM-DD"
                     inputMode="numeric"
                     value={formData.dueDate || ""}
-                    onChange={(event) => handleChange("dueDate", parseCompactDateInput(event.target.value))}
-                    maxLength={6}
+                    onChange={(event) => handleChange("dueDate", formatIsoDateInput(event.target.value))}
+                    maxLength={10}
+                />
+            </FormField>
+
+            <FormField
+                data-component={`${base}_birth-date-input`}
+                htmlFor="birthDate"
+                label={t(locale, "clients.form.birth-date")}
+            >
+                <FormTextInput
+                    id="birthDate"
+                    placeholder="YYYY-MM-DD"
+                    inputMode="numeric"
+                    value={formData.birthDate || ""}
+                    onChange={(event) => handleChange("birthDate", formatIsoDateInput(event.target.value))}
+                    maxLength={10}
                 />
             </FormField>
 
@@ -1592,11 +1682,11 @@ function ClientFormContent({
             >
                 <FormTextInput
                     id="startDate"
-                    placeholder="YYMMDD"
+                    placeholder="YYYY-MM-DD"
                     inputMode="numeric"
-                    value={formData.startDate || ""}
-                    onChange={(event) => handleChange("startDate", parseCompactDateInput(event.target.value))}
-                    maxLength={6}
+                    value={formatCompactDateForIsoInput(formData.startDate)}
+                    onChange={(event) => handleChange("startDate", parseIsoDateInputToCompactState(event.target.value))}
+                    maxLength={10}
                 />
             </FormField>
 
@@ -1607,12 +1697,11 @@ function ClientFormContent({
             >
                 <FormTextInput
                     id="endDate"
-                    placeholder="YYMMDD"
+                    placeholder="YYYY-MM-DD"
                     inputMode="numeric"
-                    value={formData.endDate || ""}
-                    maxLength={6}
-                    readOnly
-                    aria-readonly="true"
+                    value={formatCompactDateForIsoInput(formData.endDate)}
+                    onChange={(event) => handleChange("endDate", parseIsoDateInputToCompactState(event.target.value))}
+                    maxLength={10}
                 />
             </FormField>
 
@@ -1652,10 +1741,10 @@ function ClientFormContent({
     );
 
     const dialogFormSteps = [
-        basicInfoSection,
-        employeeSection,
-        voucherInfoSections,
-        contractInfoSections,
+        <Fragment key="basic-info">{basicInfoSection}</Fragment>,
+        <Fragment key="employee">{employeeSection}</Fragment>,
+        <Fragment key="voucher-info">{voucherInfoSections}</Fragment>,
+        <Fragment key="contract-info">{contractInfoSections}</Fragment>,
     ] as const;
     const panelFormSteps = [
         panelBasicInfoStep,
@@ -1730,6 +1819,11 @@ function ClientFormContent({
                     contentClassName="space-y-5"
                     footer={dialogFormActions}
                 >
+                    {notice && (
+                        <p data-component={`${base}_notice`} className="text-sm text-v3-text-muted" role="note">
+                            {notice}
+                        </p>
+                    )}
                     {formContent}
                 </FormDialogShell>
             </Dialog>

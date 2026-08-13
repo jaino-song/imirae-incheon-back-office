@@ -485,9 +485,9 @@ export function TriggerRulesManager({
       if (effectiveSelectedRuleId === rule.id) {
         setFormState((current) => ({ ...current, isActive: checked }));
       }
-      toast({ description: checked ? "발송 규칙이 활성화되었습니다." : "발송 규칙이 비활성화되었습니다." });
+      toast({ variant: "success", description: checked ? "발송 규칙을 켰어요" : "발송 규칙을 껐어요" });
     } catch {
-      toast({ variant: "destructive", description: "규칙 상태 변경 중 오류가 발생했습니다." });
+      toast({ variant: "destructive", description: "규칙 상태를 바꾸지 못했어요" });
     }
   };
 
@@ -501,12 +501,12 @@ export function TriggerRulesManager({
     const dto = normalizeDto(formState);
 
     if (!dto.name.trim()) {
-      toast({ variant: "destructive", description: "규칙 이름을 입력해 주세요." });
+      toast({ variant: "destructive", description: "규칙 이름을 입력해 주세요" });
       return;
     }
 
     if ((dto.offsetType === "BEFORE_DAYS" || dto.offsetType === "AFTER_DAYS") && (!dto.offsetDays || dto.offsetDays < 1)) {
-      toast({ variant: "destructive", description: "일수는 1 이상이어야 합니다." });
+      toast({ variant: "destructive", description: "일수는 1 이상이어야 해요" });
       return;
     }
 
@@ -514,13 +514,13 @@ export function TriggerRulesManager({
       if (selectedRuleId === "new" || !selectedRule) {
         const created = await createMutation.mutateAsync(dto);
         setSelectedRuleId(created.id);
-        toast({ description: "발송 규칙이 생성되었습니다." });
+        toast({ variant: "success", description: "발송 규칙을 만들었어요" });
       } else {
         await updateMutation.mutateAsync({ id: selectedRule.id, dto });
-        toast({ description: "발송 규칙이 저장되었습니다." });
+        toast({ variant: "success", description: "발송 규칙을 저장했어요" });
       }
     } catch {
-      toast({ variant: "destructive", description: "규칙 저장 중 오류가 발생했습니다." });
+      toast({ variant: "destructive", description: "발송 규칙을 저장하지 못했어요" });
     }
   };
 
@@ -530,9 +530,9 @@ export function TriggerRulesManager({
     try {
       await deleteMutation.mutateAsync(selectedRule.id);
       setSelectedRuleId(null);
-      toast({ description: "발송 규칙이 삭제되었습니다." });
+      toast({ variant: "success", description: "발송 규칙을 삭제했어요" });
     } catch {
-      toast({ variant: "destructive", description: "규칙 삭제 중 오류가 발생했습니다." });
+      toast({ variant: "destructive", description: "발송 규칙을 삭제하지 못했어요" });
     }
   };
   return (

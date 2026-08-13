@@ -160,10 +160,12 @@ describe("ListPanel", () => {
     );
     expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).toHaveClass(
       "bg-white",
-      "shadow-sm",
+      "border-0",
+      "shadow-none",
     );
     expect(container.querySelector('[data-component="desktop_v3_expandable-search_overlay"]')).not.toHaveClass(
       "border",
+      "shadow-sm",
       "focus-within:ring-[3px]",
       "focus-within:ring-inset",
     );

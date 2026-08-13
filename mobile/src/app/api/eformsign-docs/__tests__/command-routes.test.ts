@@ -175,7 +175,10 @@ describe("eformsign-docs command API routes", () => {
     expect(mockPost).toHaveBeenCalledWith(
       "/eformsign-docs/finalize-headless",
       finalizeBody,
-      expect.objectContaining({ headers: { Authorization: "Bearer auth-token" } }),
+      {
+        headers: { Authorization: "Bearer auth-token" },
+        timeout: 170_000,
+      },
     );
   });
 

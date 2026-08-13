@@ -180,9 +180,10 @@ function mockSettingsQueries(
   isApproved: boolean,
   automationPolicies: MessageAutomationPoliciesResponse = DEFAULT_AUTOMATION_POLICIES,
   triggerRules: MessageTriggerRule[] = DEFAULT_TRIGGER_RULES,
+  options: { automationPoliciesLoading?: boolean } = {},
 ) {
-  mockedUseQuery.mockImplementation(((options: unknown) => {
-    const queryKey = getQueryKey(options);
+  mockedUseQuery.mockImplementation(((queryOptions: unknown) => {
+    const queryKey = getQueryKey(queryOptions);
 
     if (queryKey?.[0] === "settings" && queryKey[1] === "message-sender-approval") {
       return {
@@ -199,8 +200,8 @@ function mockSettingsQueries(
 
     if (queryKey?.[0] === "settings" && queryKey[1] === "message-automation-policies") {
       return {
-        data: automationPolicies,
-        isLoading: false,
+        data: options.automationPoliciesLoading ? undefined : automationPolicies,
+        isLoading: options.automationPoliciesLoading ?? false,
       } as unknown as ReturnType<typeof useQuery>;
     }
 
@@ -406,7 +407,7 @@ describe("MessageTenantApplicationSettings", () => {
     expect(screen.queryByText("최대 2회")).not.toBeInTheDocument();
   });
 
-  it("excludes inactive trigger rules from the retroactive order settings and save payload", async () => {
+  it("hides inactive rules from the list but preserves their saved positions in the payload", async () => {
     const inactiveReminder = {
       ...DEFAULT_TRIGGER_RULES[2],
       isActive: false,
@@ -444,7 +445,48 @@ describe("MessageTenantApplicationSettings", () => {
         ruleOrder: [
           DEFAULT_TRIGGER_RULES[0].id,
           DEFAULT_TRIGGER_RULES[1].id,
+          inactiveReminder.id,
           DEFAULT_TRIGGER_RULES[3].id,
+        ],
+      });
+    });
+  });
+
+  it("preserves an inactive rule position when displayed rules are reordered", async () => {
+    const inactiveReminder = {
+      ...DEFAULT_TRIGGER_RULES[2],
+      isActive: false,
+    };
+    const triggerRules = [
+      DEFAULT_TRIGGER_RULES[0],
+      DEFAULT_TRIGGER_RULES[1],
+      inactiveReminder,
+      DEFAULT_TRIGGER_RULES[3],
+    ];
+    mockSettingsQueries(true, {
+      ...DEFAULT_AUTOMATION_POLICIES,
+      pastTriggerConfig: {
+        sendIntervalMinutes: 1,
+        ruleOrder: triggerRules.map((rule) => rule.id),
+      },
+    }, triggerRules);
+
+    render(<MessageTenantApplicationSettings />);
+
+    fireEvent.click(screen.getByText("지난 자동 전송 처리 규칙"));
+    fireEvent.click(screen.getByRole("button", {
+      name: `${DEFAULT_TRIGGER_RULES[1].name} 아래로 이동`,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.updateMessageAutomationPastTriggerConfig).toHaveBeenCalledWith({
+        sendIntervalMinutes: 1,
+        ruleOrder: [
+          DEFAULT_TRIGGER_RULES[0].id,
+          DEFAULT_TRIGGER_RULES[3].id,
+          inactiveReminder.id,
+          DEFAULT_TRIGGER_RULES[1].id,
         ],
       });
     });
@@ -462,6 +504,23 @@ describe("MessageTenantApplicationSettings", () => {
     expect(screen.getByText("중복 전송 확인")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "제공기록지 전송 자동화 규칙 활성화" })).toBeInTheDocument();
     expect(container.querySelector('[data-component="desktop_messages_sections_settings-tenant-application"]')).toBeInTheDocument();
+  });
+
+  it("waits for automation policies before rendering the settings list", () => {
+    mockSettingsQueries(true, DEFAULT_AUTOMATION_POLICIES, DEFAULT_TRIGGER_RULES, {
+      automationPoliciesLoading: true,
+    });
+
+    const view = render(<MessageTenantApplicationSettings />);
+
+    expect(screen.getAllByText("설정 정보를 불러오는 중입니다.")).toHaveLength(2);
+    expect(screen.queryByText("제공기록지 전송 자동화 규칙")).not.toBeInTheDocument();
+
+    mockSettingsQueries(true);
+    view.rerender(<MessageTenantApplicationSettings />);
+
+    expect(screen.getAllByText("제공기록지 전송 자동화 규칙").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("지난 자동 전송 처리 규칙").length).toBeGreaterThan(0);
   });
 
   it("policy switches stay disabled while unapproved and only approval-gated active policies render off", () => {

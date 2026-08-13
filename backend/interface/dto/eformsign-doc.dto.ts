@@ -165,9 +165,22 @@ export class FinalizeHeadlessRequestDto {
     progressId?: string;
 }
 
-export interface FinalizeHeadlessResponseDto {
-    ok: boolean;
+export interface ReviewNeededContractDto {
+    documentId: string;
+    customerName: string | null;
+    contractEndDate: string | null;
+    autoFinalizeAttempts: number;
+    autoFinalizeLastError: string | null;
+    autoFinalizeLastAttemptAt: string | null;
+}
+
+export type FinalizeHeadlessResponseDto = {
+    ok: true;
+    completed: boolean;
+    durationMs: number;
+} | {
+    ok: false;
     durationMs: number;
     reason?: string;
-    fallbackHint?: "iframe";
-}
+    fallbackHint?: "iframe" | "manual_check";
+};

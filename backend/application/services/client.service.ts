@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, Inject, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
-import { eformsignCustomerPhone } from "application/utils/eformsign-contract-client-candidate";
+import { eformsignCustomerPhone, extractEformsignContractEndDate } from "application/utils/eformsign-contract-client-candidate";
+import { resolveEformsignDocDisplayStatus } from "application/utils/eformsign-doc-display-status";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import {
     configuredServiceRecordTemplateIds,
@@ -16,23 +17,32 @@ import {
     ListClientsPaginatedUsecase,
     UpdateClientUsecase,
 } from "application/usecases/client";
+import { LinkMirroredEformsignDocByPhoneUsecase } from "application/usecases/eformsign-doc";
+import {
+    assertAllowedClientArea,
+    assertAllowedServiceStatus,
+    findClientByNormalizedPhone,
+    mergeAndValidateClientServicePeriod,
+    parseClientDate,
+} from "application/usecases/client/client-write-validation";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 import { normalizeClientPricing } from "domain/services/client-pricing";
-import { diffBusinessDaysKr } from "domain/utils/business-days";
+import { addBusinessDaysKr, diffBusinessDaysKr, isoDateInKorea } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { computeServiceStatus, isServiceStatus, SERVICE_STATUS, SERVICE_STATUS_VALUES, ServiceStatusType } from "domain/value-objects/service-status.vo";
+import { computeServiceStatus, SERVICE_STATUS, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { MessageTriggerService } from "./message-trigger.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import { SystemSettingService } from "./system-setting.service";
 
 const FILTER_DAYS_THRESHOLD = 7;
-const CONTRACT_REQUIRED_BUSINESS_DAYS_THRESHOLD = 3;
-const ACTION_REQUIRED_SIGNATURE_THRESHOLD_DAYS = 2;
-const ACTION_REQUIRED_SEND_THRESHOLD_DAYS = 6;
+// Contract attention window, in KR business days before service start, within
+// which a client with no active contract document is flagged as needing one sent.
+// The badge and the action-required feeds all read this number.
+const CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD = 6;
 const COMPLETED_DOCUMENT_STATUS_TYPES = new Set(["003", "012", "022", "032", "050", "062", "072", "092"]);
 const REJECTED_DOCUMENT_STATUS_TYPES = new Set(["011", "021", "031", "061", "071", "080"]);
 const REVOKED_DOCUMENT_STATUS_TYPES = new Set(["040", "042", "045", "090"]);
@@ -54,6 +64,11 @@ const PHONE_LOOKUP_SUFFIX_LENGTH = 4;
 // - 090: revoked (철회됨)
 // - 099: deleted (삭제됨)
 export type DocumentStatusType = 'created' | 'opened' | 'completed' | 'requested' | 'rejected' | 'revoked' | 'deleted' | null;
+// A document in one of these states is still "alive" — the client already has
+// a contract in flight (or finished), so the "계약서 필요" signal must not fire
+// even if it is unsigned. Everything else (rejected/revoked/deleted/no document
+// at all) is a dead document and falls back to the "발송 필요" check.
+const ACTIVE_DOCUMENT_STATUSES = new Set<DocumentStatusType>(["created", "requested", "opened", "completed"]);
 export type ClientBadgeKey = "contract_required" | "breast_pump" | "service_status" | "care_center";
 export type ClientBadgeTone = "danger" | "success" | "primary" | "warning" | "neutral";
 export type ClientBadgeStatus =
@@ -103,6 +118,7 @@ export interface ClientWithEmployees {
     voucherClient: boolean;
     birthday: string | null;
     dueDate: Date | null;
+    birthDate: Date | null;
     serviceStatus: string | null;
     breastPump: boolean;
     eDocId: string | null;
@@ -110,6 +126,7 @@ export interface ClientWithEmployees {
     hasSigned: boolean;
     documentStatus: DocumentStatusType;
     badges: ClientBadge[];
+    actionRequired: ClientActionRequired | null;
     primaryEmployee: { id: number; name: string; phone: string | null } | null;
     secondaryEmployee: { id: number; name: string; phone: string | null } | null;
     pendingScheduleChange?: PendingScheduleChange | null;
@@ -125,12 +142,25 @@ export interface PaginatedClientWithEmployees {
 
 export type ActionRequiredReason = "교체 요청" | "서명 필요" | "발송 필요";
 
-export interface ClientActionRequiredAlert {
+export interface ClientActionRequired {
+    reason: ActionRequiredReason;
+    priority: 1 | 2 | 3;
+}
+
+/** The latest contract signal the document-status/active-document checks read. */
+interface LatestContractSignal {
+    statusType: string;
+    permanentPurgeRequestedAt: Date | null;
+    documentId: string;
+    stepType: string | null;
+    stepName: string | null;
+    detailPayload: unknown;
+}
+
+export interface ClientActionRequiredAlert extends ClientActionRequired {
     id: number;
     name: string;
     createdAt: Date | null;
-    reason: ActionRequiredReason;
-    priority: 1 | 2 | 3;
 }
 
 export interface DashboardOverview {
@@ -164,6 +194,7 @@ export class ClientService {
         @Optional() private readonly serviceRecordLinkService?: ServiceRecordLinkService,
         @Optional() private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
         @Optional() private readonly configService?: ConfigService,
+        @Optional() private readonly linkMirroredDocumentByPhoneUsecase?: LinkMirroredEformsignDocByPhoneUsecase,
     ) {}
 
     private async revokeServiceRecordLinkAfterCommit(clientId: number, scheduleId: number): Promise<void> {
@@ -173,16 +204,6 @@ export class ClientService {
             this.logger.error(
                 `[SERVICE_RECORD_LINK_REVOKE_FAILED] 제공기록지 링크 폐기 실패 — 고객 ${clientId}, ` +
                 `스케줄 ${scheduleId} 수동 확인 필요: ${error}`,
-            );
-        }
-    }
-
-    private assertAllowedServiceStatus(status: string | null | undefined): void {
-        if (status == null) return;
-
-        if (!isServiceStatus(status)) {
-            throw new BadRequestException(
-                `serviceStatus must be one of: ${SERVICE_STATUS_VALUES.join(", ")}`
             );
         }
     }
@@ -284,6 +305,12 @@ export class ClientService {
                 && client.eDocId !== latestContract.documentId;
 
             if (documentIdsToReassign.length === 0 && !shouldUpdateClientDocument) {
+                await this.linkNotReadyContractDocumentsByPhone(
+                    branchid,
+                    client,
+                    normalizedPhone,
+                    phoneLookupSuffix,
+                );
                 return;
             }
 
@@ -420,12 +447,91 @@ export class ClientService {
                     matchingDocs.some((doc) => doc.branchId === null),
                 );
             }
+            await this.linkNotReadyContractDocumentsByPhone(
+                branchid,
+                client,
+                normalizedPhone,
+                phoneLookupSuffix,
+            );
         } catch (error) {
             const errorType = error instanceof Error ? error.name : "UnknownError";
             this.logger.error(
                 `[CLIENT_CONTRACT_PHONE_LINK_FAILED] 고객 ${client.id} 계약서 자동 연결 실패 (${errorType})`,
             );
         }
+    }
+
+    private async linkNotReadyContractDocumentsByPhone(
+        branchId: string,
+        client: ClientEntity,
+        normalizedPhone: string,
+        phoneLookupSuffix: string,
+    ): Promise<void> {
+        if (!this.linkMirroredDocumentByPhoneUsecase) return;
+
+        const candidates = await this.prismaService.eformsign_doc.findMany({
+            where: {
+                serviceRecordCaseId: null,
+                permanentPurgeRequestedAt: null,
+                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
+                syncStatus: { not: "ready" },
+                OR: [
+                    { customerPhone: normalizedPhone },
+                    {
+                        customerPhone: null,
+                        stepRecipientSms: { contains: phoneLookupSuffix },
+                    },
+                ],
+                AND: [
+                    {
+                        OR: [
+                            { branchId },
+                            { branchId: null, clientId: null },
+                        ],
+                    },
+                    {
+                        OR: [
+                            { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
+                            { documentKind: null },
+                        ],
+                    },
+                ],
+            },
+            orderBy: [
+                { createdDate: "desc" },
+                { id: "desc" },
+            ],
+            select: {
+                documentId: true,
+                branchId: true,
+            },
+        });
+
+        let ownershipChanged = false;
+        let includesUnassignedDocument = false;
+        for (const candidate of candidates) {
+            const result = await this.linkMirroredDocumentByPhoneUsecase.execute(
+                candidate.documentId,
+                { linkExistingOnly: true },
+            );
+            if (result === "linked") {
+                ownershipChanged = true;
+                includesUnassignedDocument ||= candidate.branchId === null;
+            }
+        }
+        if (!ownershipChanged) return;
+
+        const persistedClient = await this.prismaService.client.findUnique({
+            where: { id: client.id },
+            select: { eDocId: true },
+        });
+        if (persistedClient) {
+            client.update({ eDocId: persistedClient.eDocId });
+        }
+        await this.invalidateContractDocumentSnapshots(
+            branchId,
+            includesUnassignedDocument,
+        );
     }
 
     private async invalidateContractDocumentSnapshots(
@@ -471,27 +577,148 @@ export class ClientService {
         }
     }
 
-    private buildClientBadges(params: {
+    /** Latest non-service-record contract document per client. */
+    private async findLatestContractByClientId(
+        clientIds: number[],
+    ): Promise<Map<number, LatestContractSignal>> {
+        const latestContractMap = new Map<number, LatestContractSignal>();
+        if (clientIds.length === 0) return latestContractMap;
+
+        const serviceRecordTemplateIds =
+            configuredServiceRecordTemplateIds(this.configService);
+        const contractDocs = await this.prismaService.eformsign_doc.findMany({
+            where: {
+                clientId: { in: clientIds },
+                serviceRecordCaseId: null,
+                // Contract lifecycle status is an indexed projection that commits before
+                // detail/PDF artifacts finish. Do not filter it by artifact syncStatus:
+                // doing so can hide the newest contract and fall back to an older one.
+                OR: [
+                    { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
+                    { documentKind: null },
+                ],
+            },
+            orderBy: [
+                { createdDate: "desc" },
+                { id: "desc" },
+            ],
+            select: {
+                clientId: true,
+                documentId: true,
+                statusType: true,
+                stepType: true,
+                stepName: true,
+                detailPayload: true,
+                permanentPurgeRequestedAt: true,
+                documentKind: true,
+                serviceRecordCaseId: true,
+                templateId: true,
+            },
+        });
+
+        for (const doc of contractDocs) {
+            if (doc.clientId === null) continue;
+            if (isServiceRecordEformsignDocument(doc, serviceRecordTemplateIds)) {
+                continue;
+            }
+            if (!latestContractMap.has(doc.clientId)) {
+                latestContractMap.set(doc.clientId, {
+                    statusType: doc.statusType,
+                    permanentPurgeRequestedAt: doc.permanentPurgeRequestedAt,
+                    documentId: doc.documentId,
+                    stepType: doc.stepType,
+                    stepName: doc.stepName,
+                    detailPayload: doc.detailPayload,
+                });
+            }
+        }
+
+        return latestContractMap;
+    }
+
+    /** Whether a client's latest contract document is still active (see `ACTIVE_DOCUMENT_STATUSES`). */
+    private async findHasActiveContractDocumentByClientId(
+        clientIds: number[],
+    ): Promise<Map<number, boolean>> {
+        const latestContractMap = await this.findLatestContractByClientId(clientIds);
+
+        return new Map(
+            [...latestContractMap].map(([clientId, contract]) => [
+                clientId,
+                contract.permanentPurgeRequestedAt == null
+                && !DELETED_DOCUMENT_STATUS_TYPES.has(contract.statusType.trim().padStart(3, "0"))
+                && ACTIVE_DOCUMENT_STATUSES.has(this.mapStatusTypeToDocumentStatus(contract.statusType)),
+            ]),
+        );
+    }
+
+    /**
+     * Single source of truth for "this client's contract needs attention".
+     * The `contract_required` badge, the dashboard list and the
+     * `/clients/alerts` sidebar feed all read this, so every surface agrees.
+     *
+     * An active document (created/requested/opened/completed — see
+     * `ACTIVE_DOCUMENT_STATUSES`) already means a contract exists, so no action
+     * is required even if the customer has not signed yet. Only a client with
+     * no active document — none at all, or the latest one rejected/revoked/
+     * deleted — needs a contract sent, and only within the send window. Windows
+     * are counted in KR business days, so a weekend or holiday does not
+     * silently eat the warning time.
+     *
+     * Deliberately excludes 교체 요청: a replacement is unrelated to whether a
+     * contract exists, so it must not suppress the contract badge.
+     */
+    private computeContractActionRequired(params: {
         serviceStatus: string | null;
-        documentStatus: DocumentStatusType;
         startDate: Date | null;
+        hasActiveContractDocument: boolean;
+    }): ClientActionRequired | null {
+        if (
+            params.serviceStatus === SERVICE_STATUS.PRE_BOOKING ||
+            params.serviceStatus === SERVICE_STATUS.COMPLETED ||
+            params.serviceStatus === SERVICE_STATUS.TERMINATED
+        ) {
+            return null;
+        }
+
+        if (!params.startDate) return null;
+
+        const businessDaysUntilStart = diffBusinessDaysKr(
+            params.startDate.toISOString().slice(0, 10),
+        );
+        if (businessDaysUntilStart === null) return null;
+
+        if (params.hasActiveContractDocument) return null;
+
+        if (businessDaysUntilStart <= CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD) {
+            return { reason: "발송 필요", priority: 3 };
+        }
+
+        return null;
+    }
+
+    /** Contract attention plus the non-contract 교체 요청 alert, which outranks it. */
+    private computeActionRequired(params: {
+        serviceStatus: string | null;
+        startDate: Date | null;
+        hasActiveContractDocument: boolean;
+    }): ClientActionRequired | null {
+        if (params.serviceStatus === SERVICE_STATUS.REPLACEMENT_REQUESTED) {
+            return { reason: "교체 요청", priority: 1 };
+        }
+
+        return this.computeContractActionRequired(params);
+    }
+
+    private buildClientBadges(params: {
+        contractActionRequired: ClientActionRequired | null;
+        serviceStatus: string | null;
         breastPump: boolean;
         careCenter: boolean | null;
     }): ClientBadge[] {
         const badges: ClientBadge[] = [];
-        const businessDaysUntilStart = params.startDate
-            ? diffBusinessDaysKr(params.startDate.toISOString().slice(0, 10))
-            : null;
-        const isWaitingWithinContractWindow =
-            params.serviceStatus === SERVICE_STATUS.WAITING &&
-            businessDaysUntilStart !== null &&
-            businessDaysUntilStart >= 0 &&
-            businessDaysUntilStart <= CONTRACT_REQUIRED_BUSINESS_DAYS_THRESHOLD;
-        const requiresContract =
-            params.documentStatus !== "completed" &&
-            (params.serviceStatus === SERVICE_STATUS.ACTIVE || isWaitingWithinContractWindow);
 
-        if (requiresContract) {
+        if (params.contractActionRequired) {
             badges.push({
                 key: "contract_required",
                 status: "terminated",
@@ -533,25 +760,6 @@ export class ClientService {
         return badges.sort((left, right) => left.priority - right.priority);
     }
 
-    private async assertAllowedClientArea(branchid: string, areaId: string | null | undefined): Promise<void> {
-        if (!areaId) return;
-
-        const areaScope = branchid
-            ? [{ branchId: branchid }, { branchId: null }]
-            : [{ branchId: null }];
-        const area = await this.prismaService.area.findFirst({
-            where: {
-                id: areaId,
-                OR: areaScope,
-            },
-            select: { id: true },
-        });
-
-        if (!area) {
-            throw new BadRequestException("areaId must reference an available area");
-        }
-    }
-
     private async assertAllowedEmployees(
         branchid: string,
         primaryEmployeeId: number | null,
@@ -580,12 +788,6 @@ export class ClientService {
         });
         if (employees.length !== employeeIds.length) {
             throw new BadRequestException("selected employees must belong to the client branch");
-        }
-    }
-
-    private assertValidServicePeriod(startDate: Date | null, endDate: Date | null): void {
-        if (startDate && endDate && startDate > endDate) {
-            throw new BadRequestException("서비스 시작일은 종료일보다 늦을 수 없습니다.");
         }
     }
 
@@ -664,6 +866,7 @@ export class ClientService {
         voucherClient: boolean;
         birthday?: string | null;
         dueDate?: string | null;
+        birthDate?: string | null;
         serviceStatus?: string | null;
         breastPump: boolean;
         eDocId?: string | null;
@@ -673,12 +876,13 @@ export class ClientService {
         reuseExistingClient?: boolean;
         source?: string;
     }): Promise<ClientEntity> {
-        const startDate = params.startDate ? new Date(params.startDate) : null;
-        const endDate = params.endDate ? new Date(params.endDate) : null;
-        const dueDate = params.dueDate ? new Date(params.dueDate) : null;
-        this.assertValidServicePeriod(startDate, endDate);
-        this.assertAllowedServiceStatus(params.serviceStatus);
-        await this.assertAllowedClientArea(branchid, params.areaId);
+        const startDate = parseClientDate(params.startDate) ?? null;
+        const endDate = parseClientDate(params.endDate) ?? null;
+        const dueDate = parseClientDate(params.dueDate) ?? null;
+        const birthDate = parseClientDate(params.birthDate) ?? null;
+        mergeAndValidateClientServicePeriod(null, { startDate, endDate });
+        assertAllowedServiceStatus(params.serviceStatus);
+        await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
 
         let suppressGreetingSms = params.suppressGreetingSms ?? false;
         const applyMessageAutomation = params.applyMessageAutomation ?? true;
@@ -693,51 +897,52 @@ export class ClientService {
             suppressGreetingSms = !greetingEnabled;
         }
 
-        const normalizedPhone = normalizePhone(params.phone ?? null);
-        if (normalizedPhone) {
-            const existing = await this.clientRepository.findByPhone(branchid, normalizedPhone);
-            if (existing) {
-                if (params.reuseExistingClient !== true) {
-                    throw new ConflictException({
-                        statusCode: 409,
-                        error: "Conflict",
-                        message: "이미 같은 전화번호의 고객이 있습니다.",
-                        clientId: existing.id,
-                    });
-                }
-                this.logger.log(`[Client] Reusing existing client ${existing.id} for duplicate phone in branch ${branchid}`);
-                if (params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined) {
-                    const assignment = await this.syncEmployeeAssignment(branchid, {
-                        clientId: existing.id,
-                        primaryEmployeeId: params.primaryEmployeeId ?? undefined,
-                        secondaryEmployeeId: params.secondaryEmployeeId,
-                        workAddress: params.address ?? existing.address ?? "",
-                        startDate: startDate ?? existing.startDate ?? new Date(),
-                        endDate: endDate ?? existing.endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
-                    });
-                    if (assignment.replacedScheduleId !== null) {
-                        await this.revokeServiceRecordLinkAfterCommit(
-                            existing.id,
-                            assignment.replacedScheduleId,
-                        );
-                    }
-                    if (assignment.createdScheduleId !== null) {
-                        await this.triggerService
-                            ?.syncEmployeeAssignmentRulesForSchedule(branchid, assignment.createdScheduleId, true)
-                            ?.catch((error) => {
-                                this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
-                            });
-                        this.serviceRecordLinkService
-                            ?.scheduleForServiceStart(assignment.createdScheduleId)
-                            ?.catch((error) => {
-                                this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
-                            });
-                    }
-                }
-                await this.linkContractDocumentsByPhone(branchid, existing, normalizedPhone);
-                await this.serviceRecordLifecycleService?.ensureForClient(existing.id);
-                return existing;
+        const { normalizedPhone, existingClient: existing } = await findClientByNormalizedPhone(
+            this.clientRepository,
+            branchid,
+            params.phone,
+        );
+        if (existing && normalizedPhone) {
+            if (params.reuseExistingClient !== true) {
+                throw new ConflictException({
+                    statusCode: 409,
+                    error: "Conflict",
+                    message: "이미 같은 전화번호의 고객이 있습니다.",
+                    clientId: existing.id,
+                });
             }
+            this.logger.log(`[Client] Reusing existing client ${existing.id} for duplicate phone in branch ${branchid}`);
+            if (params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined) {
+                const assignment = await this.syncEmployeeAssignment(branchid, {
+                    clientId: existing.id,
+                    primaryEmployeeId: params.primaryEmployeeId ?? undefined,
+                    secondaryEmployeeId: params.secondaryEmployeeId,
+                    workAddress: params.address ?? existing.address ?? "",
+                    startDate: startDate ?? existing.startDate ?? new Date(),
+                    endDate: endDate ?? existing.endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
+                });
+                if (assignment.replacedScheduleId !== null) {
+                    await this.revokeServiceRecordLinkAfterCommit(
+                        existing.id,
+                        assignment.replacedScheduleId,
+                    );
+                }
+                if (assignment.createdScheduleId !== null) {
+                    await this.triggerService
+                        ?.syncEmployeeAssignmentRulesForSchedule(branchid, assignment.createdScheduleId, true)
+                        ?.catch((error) => {
+                            this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
+                        });
+                    this.serviceRecordLinkService
+                        ?.scheduleForServiceStart(assignment.createdScheduleId)
+                        ?.catch((error) => {
+                            this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
+                        });
+                }
+            }
+            await this.linkContractDocumentsByPhone(branchid, existing, normalizedPhone);
+            await this.serviceRecordLifecycleService?.ensureForClient(existing.id);
+            return existing;
         }
 
         const normalizedPricing = normalizeClientPricing({
@@ -763,6 +968,7 @@ export class ClientService {
             voucherClient: params.voucherClient,
             birthday: params.birthday ?? null,
             dueDate,
+            birthDate,
             serviceStatus: params.serviceStatus ?? null,
             breastPump: params.breastPump,
             eDocId: params.eDocId ?? null,
@@ -937,44 +1143,7 @@ export class ClientService {
         const pendingScheduleChangeMap = new Map(pendingScheduleChanges.map(change => [change.clientId, change]));
 
         // 현재 페이지 고객의 계약 문서만 한 번에 조회하고, 고객별 최신 상태를 사용한다.
-        const serviceRecordTemplateIds =
-            configuredServiceRecordTemplateIds(this.configService);
-        const contractDocs = await this.prismaService.eformsign_doc.findMany({
-            where: {
-                clientId: { in: clientIds },
-                permanentPurgeRequestedAt: null,
-                statusType: { notIn: [...DELETED_DOCUMENT_STATUS_TYPES] },
-                serviceRecordCaseId: null,
-                // Contract lifecycle status is an indexed projection that commits before
-                // detail/PDF artifacts finish. Do not filter it by artifact syncStatus:
-                // doing so can hide the newest contract and fall back to an older one.
-                OR: [
-                    { documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT },
-                    { documentKind: null },
-                ],
-            },
-            orderBy: [
-                { createdDate: "desc" },
-                { id: "desc" },
-            ],
-            select: {
-                clientId: true,
-                statusType: true,
-                documentKind: true,
-                serviceRecordCaseId: true,
-                templateId: true,
-            },
-        });
-        const latestContractStatusMap = new Map<number, string>();
-        for (const doc of contractDocs) {
-            if (doc.clientId === null) continue;
-            if (isServiceRecordEformsignDocument(doc, serviceRecordTemplateIds)) {
-                continue;
-            }
-            if (!latestContractStatusMap.has(doc.clientId)) {
-                latestContractStatusMap.set(doc.clientId, doc.statusType);
-            }
-        }
+        const latestContractMap = await this.findLatestContractByClientId(clientIds);
 
         // Compute and update service status for each client (lazy update strategy)
         const clientsNeedingUpdate: { id: number; newStatus: ServiceStatusType }[] = [];
@@ -994,14 +1163,23 @@ export class ClientService {
             if (client.serviceStatus !== computedStatus) {
                 clientsNeedingUpdate.push({ id: client.id, newStatus: computedStatus });
             }
-            const documentStatus = this.mapStatusTypeToDocumentStatus(latestContractStatusMap.get(client.id));
-            const badges = this.buildClientBadges({
+            const latestContract = latestContractMap.get(client.id);
+            const documentStatus = latestContract?.permanentPurgeRequestedAt != null
+                ? "deleted"
+                : this.mapStatusTypeToDocumentStatus(latestContract?.statusType);
+            const hasActiveContractDocument = ACTIVE_DOCUMENT_STATUSES.has(documentStatus);
+            const contractSignals = {
                 serviceStatus: computedStatus,
-                documentStatus,
                 startDate: client.startDate,
+                hasActiveContractDocument,
+            };
+            const badges = this.buildClientBadges({
+                contractActionRequired: this.computeContractActionRequired(contractSignals),
+                serviceStatus: computedStatus,
                 breastPump: client.breastPump,
                 careCenter: client.careCenter,
             });
+            const actionRequired = this.computeActionRequired(contractSignals);
 
                 return {
                     id: client.id,
@@ -1020,6 +1198,7 @@ export class ClientService {
                     voucherClient: client.voucherClient,
                     birthday: client.birthday,
                     dueDate: client.dueDate,
+                    birthDate: client.birthDate,
                     serviceStatus: computedStatus, // Return computed status, not stored one
                     breastPump: client.breastPump,
                     eDocId: client.eDocId,
@@ -1027,6 +1206,7 @@ export class ClientService {
                     hasSigned: client.eDocId !== null,
                     documentStatus,
                     badges,
+                    actionRequired,
                     primaryEmployee: schedule?.primaryEmployee
                         ? {
                             id: schedule.primaryEmployee.id,
@@ -1127,6 +1307,7 @@ export class ClientService {
         voucherClient?: boolean;
         birthday?: string | null;
         dueDate?: string | null;
+        birthDate?: string | null;
         serviceStatus?: string | null;
         breastPump?: boolean;
         eDocId?: string | null;
@@ -1162,30 +1343,40 @@ export class ClientService {
                 actualPrice: params.actualPrice === undefined ? existingClient.actualPrice : params.actualPrice,
             })
             : null;
-        this.assertAllowedServiceStatus(params.serviceStatus);
-        await this.assertAllowedClientArea(branchid, params.areaId);
+        assertAllowedServiceStatus(params.serviceStatus);
+        await assertAllowedClientArea(this.prismaService, branchid, params.areaId);
+        const startDateUpdate = params.startDate === undefined ? undefined : parseClientDate(params.startDate);
+        const endDateUpdate = params.endDate === undefined ? undefined : parseClientDate(params.endDate);
+        // Parsed the same way as the service period above and as create() does,
+        // rather than with a raw `new Date`: that reads "2026-08" as 1 August
+        // and hands anything it cannot parse to Prisma as an Invalid Date. Both
+        // become a 400 here instead, and before the transaction opens.
+        const dueDateUpdate = params.dueDate ? parseClientDate(params.dueDate) : undefined;
+        const birthDateUpdate = params.birthDate === undefined
+            ? undefined
+            : (params.birthDate ? parseClientDate(params.birthDate) : null);
         await this.serviceRecordLifecycleService?.validatePeriodChange({
             clientId: id,
-            startDate: params.startDate === undefined
-                ? undefined
-                : params.startDate ? new Date(params.startDate) : null,
-            endDate: params.endDate === undefined
-                ? undefined
-                : params.endDate ? new Date(params.endDate) : null,
+            startDate: startDateUpdate,
+            endDate: endDateUpdate,
             duration: params.duration,
         });
 
-        const normalizedPhone = normalizePhone(params.phone ?? null);
-        if (normalizedPhone) {
-            const clientWithPhone = await this.clientRepository.findByPhone(branchid, normalizedPhone);
-            if (clientWithPhone && clientWithPhone.id !== id) {
-                throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });
-            }
+        const { existingClient: clientWithPhone } = await findClientByNormalizedPhone(
+            this.clientRepository,
+            branchid,
+            params.phone,
+        );
+        if (clientWithPhone && clientWithPhone.id !== id) {
+            throw new ConflictException({ statusCode: 409, code: "P2002", error: "Conflict", field: "phone" });
         }
 
-        const startDate = params.startDate ? new Date(params.startDate) : existingClient.startDate ?? new Date();
-        const endDate = params.endDate ? new Date(params.endDate) : existingClient.endDate ?? new Date(startDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
-        this.assertValidServicePeriod(startDate, endDate);
+        const mergedServicePeriod = mergeAndValidateClientServicePeriod(existingClient, {
+            startDate: startDateUpdate,
+            endDate: endDateUpdate,
+        });
+        const startDate = mergedServicePeriod.startDate ?? new Date();
+        const endDate = mergedServicePeriod.endDate ?? new Date(startDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
 
         // Check if employee assignment is being changed
         const employeeChanged = params.primaryEmployeeId !== undefined || params.secondaryEmployeeId !== undefined;
@@ -1248,19 +1439,20 @@ export class ClientService {
                 data: {
                     name: params.name,
                     address: params.address ?? undefined,
-                    phone: params.phone ?? undefined,
+                    phone: params.phone === undefined ? undefined : params.phone,
                     type: normalizedPricing?.type,
                     duration: params.duration ?? undefined,
                     fullPrice: normalizedPricing?.fullPrice,
                     grant: normalizedPricing?.grant,
                     actualPrice: normalizedPricing?.actualPrice,
-                    startDate: params.startDate ? new Date(params.startDate) : undefined,
-                    endDate: params.endDate ? new Date(params.endDate) : undefined,
+                    startDate: startDateUpdate,
+                    endDate: endDateUpdate,
                     careCenter: params.careCenter ?? undefined,
                     voucherClient: params.voucherClient,
                     birthday: params.birthday ?? undefined,
-                    dueDate: params.dueDate ? new Date(params.dueDate) : undefined,
-                    serviceStatus: params.serviceStatus ?? undefined,
+                    dueDate: dueDateUpdate,
+                    birthDate: birthDateUpdate,
+                    serviceStatus: params.serviceStatus === undefined ? undefined : params.serviceStatus,
                     breastPump: params.breastPump,
                     eDocId: params.eDocId ?? undefined,
                     areaId: params.areaId === undefined ? undefined : params.areaId,
@@ -1381,7 +1573,7 @@ export class ClientService {
             newSecondaryEmployeeId ?? null,
         );
 
-        this.assertValidServicePeriod(client.startDate, client.endDate);
+        mergeAndValidateClientServicePeriod(client, {});
         const replacementStartDate = new Date();
         const replacementEndDate = client.endDate ?? new Date(replacementStartDate.getTime() + DEFAULT_SERVICE_PERIOD_MS);
 
@@ -1499,7 +1691,7 @@ export class ClientService {
         const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
         const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59);
 
-        const [activeClients, contractsNotSent, contractsPendingSignature, upcomingThisMonth, upcomingNextMonth] = 
+        const [activeClients, contractsNotSent, branchClients, upcomingThisMonth, upcomingNextMonth] =
             await Promise.all([
                 this.prismaService.client.count({
                     where: { serviceStatus: SERVICE_STATUS.ACTIVE, branchId: branchid },
@@ -1511,12 +1703,9 @@ export class ClientService {
                         branchId: branchid,
                     },
                 }),
-                this.prismaService.client.count({
-                    where: {
-                        eDocId: { not: null },
-                        eformsignDocByEDocId: { statusType: { not: '050' } },
-                        branchId: branchid,
-                    },
+                this.prismaService.client.findMany({
+                    where: { branchId: branchid },
+                    select: { id: true },
                 }),
                 this.prismaService.client.count({
                     where: {
@@ -1533,6 +1722,32 @@ export class ClientService {
                     },
                 }),
             ]);
+
+        // 대시보드의 "검토 필요 문서"는 계약서 목록과 같은 규칙으로 센다: 제공기관
+        // 검토 단계에 있고 검토 창(계약 종료 영업일 1일 전~)이 열린 문서만.
+        const latestContracts = await this.findLatestContractByClientId(
+            branchClients.map((client) => client.id),
+        );
+        const contractsPendingSignature = [...latestContracts.values()].filter((doc) => {
+            if (
+                doc.permanentPurgeRequestedAt != null
+                || DELETED_DOCUMENT_STATUS_TYPES.has(doc.statusType.trim().padStart(3, "0"))
+            ) {
+                return false;
+            }
+            const endDate = doc.detailPayload && typeof doc.detailPayload === "object"
+                ? extractEformsignContractEndDate(doc.detailPayload as unknown as EformsignApiDocumentResponse)
+                : null;
+            return resolveEformsignDocDisplayStatus({
+                id: doc.documentId,
+                current_status: {
+                    status_type: doc.statusType,
+                    step_type: doc.stepType,
+                    step_name: doc.stepName,
+                },
+                ...(endDate ? { contract_end_date: endDate.toISOString().slice(0, 10) } : {}),
+            }) === "review";
+        }).length;
 
         return { activeClients, contractsNotSent, contractsPendingSignature, upcomingThisMonth, upcomingNextMonth };
     }
@@ -1556,13 +1771,19 @@ export class ClientService {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const sendThresholdDate = new Date(today);
-        sendThresholdDate.setDate(today.getDate() + ACTION_REQUIRED_SEND_THRESHOLD_DAYS);
-        sendThresholdDate.setHours(23, 59, 59, 999);
+        // The window is business days, which spans more calendar days than its
+        // count. Translate it into the exact calendar date it reaches so this
+        // pre-filter only narrows the scan — computeActionRequired still decides
+        // (it alone knows whether the latest document is active).
+        const businessDayCutoff = (businessDays: number): Date => {
+            const cutoff = new Date(
+                `${addBusinessDaysKr(isoDateInKorea(today), businessDays)}T00:00:00.000Z`,
+            );
+            cutoff.setHours(23, 59, 59, 999);
+            return cutoff;
+        };
 
-        const signatureThresholdDate = new Date(today);
-        signatureThresholdDate.setDate(today.getDate() + ACTION_REQUIRED_SIGNATURE_THRESHOLD_DAYS);
-        signatureThresholdDate.setHours(23, 59, 59, 999);
+        const sendThresholdDate = businessDayCutoff(CONTRACT_SEND_BUSINESS_DAYS_THRESHOLD);
 
         const clients = await this.prismaService.client.findMany({
             where: {
@@ -1570,21 +1791,11 @@ export class ClientService {
                 OR: [
                     { serviceStatus: SERVICE_STATUS.REPLACEMENT_REQUESTED },
                     {
-                        eDocId: null,
                         OR: [
                             { serviceStatus: null },
                             { serviceStatus: { notIn: [SERVICE_STATUS.PRE_BOOKING, SERVICE_STATUS.COMPLETED, SERVICE_STATUS.TERMINATED] } },
                         ],
                         startDate: { lte: sendThresholdDate },
-                    },
-                    {
-                        eDocId: { not: null },
-                        OR: [
-                            { serviceStatus: null },
-                            { serviceStatus: { notIn: [SERVICE_STATUS.PRE_BOOKING, SERVICE_STATUS.COMPLETED, SERVICE_STATUS.TERMINATED] } },
-                        ],
-                        startDate: { lte: signatureThresholdDate },
-                        eformsignDocByEDocId: { statusType: { not: "050" } },
                     },
                 ],
             },
@@ -1595,77 +1806,41 @@ export class ClientService {
                 startDate: true,
                 endDate: true,
                 serviceStatus: true,
-                eDocId: true,
-                eformsignDocByEDocId: {
-                    select: {
-                        statusType: true,
-                    },
-                },
             },
             orderBy: { createdAt: "desc" },
             take: Math.max(limit * 4, 12),
         });
 
+        // Reads the latest contract, matching the badge — not the document
+        // pinned by eDocId, which can lag behind a re-issued contract.
+        const hasActiveDocumentByClientId = await this.findHasActiveContractDocumentByClientId(
+            clients.map((client) => client.id),
+        );
+
         return clients
             .map((client): ClientActionRequiredAlert | null => {
-                const eformsignDoc = client.eformsignDocByEDocId as { statusType: string | null } | null | undefined;
                 const serviceStatus = computeServiceStatus(
                     client.serviceStatus,
                     client.startDate,
                     client.endDate,
                 );
 
-                if (serviceStatus === SERVICE_STATUS.REPLACEMENT_REQUESTED) {
-                    return {
-                        id: client.id,
-                        name: client.name,
-                        createdAt: client.createdAt ?? null,
-                        reason: "교체 요청",
-                        priority: 1,
-                    };
-                }
+                const actionRequired = this.computeActionRequired({
+                    serviceStatus,
+                    startDate: client.startDate,
+                    hasActiveContractDocument: hasActiveDocumentByClientId.get(client.id) ?? false,
+                });
 
-                if (
-                    serviceStatus === SERVICE_STATUS.PRE_BOOKING ||
-                    serviceStatus === SERVICE_STATUS.COMPLETED ||
-                    serviceStatus === SERVICE_STATUS.TERMINATED
-                ) {
+                if (!actionRequired) {
                     return null;
                 }
 
-                if (!client.startDate) {
-                    return null;
-                }
-
-                const start = new Date(client.startDate);
-                start.setHours(0, 0, 0, 0);
-                const daysUntilStart = Math.round((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-                if (!client.eDocId && daysUntilStart <= ACTION_REQUIRED_SEND_THRESHOLD_DAYS) {
-                    return {
-                        id: client.id,
-                        name: client.name,
-                        createdAt: client.createdAt ?? null,
-                        reason: "발송 필요",
-                        priority: 3,
-                    };
-                }
-
-                if (
-                    client.eDocId &&
-                    eformsignDoc?.statusType !== "050" &&
-                    daysUntilStart <= ACTION_REQUIRED_SIGNATURE_THRESHOLD_DAYS
-                ) {
-                    return {
-                        id: client.id,
-                        name: client.name,
-                        createdAt: client.createdAt ?? null,
-                        reason: "서명 필요",
-                        priority: 2,
-                    };
-                }
-
-                return null;
+                return {
+                    id: client.id,
+                    name: client.name,
+                    createdAt: client.createdAt ?? null,
+                    ...actionRequired,
+                };
             })
             .filter((alert): alert is ClientActionRequiredAlert => alert !== null)
             .sort((a, b) => a.priority - b.priority)

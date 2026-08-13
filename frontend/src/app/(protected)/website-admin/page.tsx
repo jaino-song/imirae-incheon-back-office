@@ -87,10 +87,10 @@ export default function WebsiteAdminPage() {
     onSuccess: (data) => {
       queryClient.setQueryData(["settings", "ribbon-config"], data);
       setDraft({});
-      toast({ title: "저장 완료", description: "리본 배너 설정이 저장되었습니다." });
+      toast({ description: "리본 배너 설정을 저장했어요", variant: "success" });
     },
     onError: () => {
-      toast({ title: "저장 실패", description: "설정 저장 중 오류가 발생했습니다.", variant: "destructive" });
+      toast({ description: "리본 배너 설정을 저장하지 못했어요", variant: "destructive" });
     },
   });
 

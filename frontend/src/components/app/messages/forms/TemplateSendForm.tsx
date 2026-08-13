@@ -41,9 +41,9 @@ const DUPLICATE_SEND_WINDOW_MS = DUPLICATE_SEND_WINDOW_HOURS * 60 * 60 * 1000;
 type ServiceRecordLinkFailureStage = "assignment" | "send";
 
 const SERVICE_RECORD_LINK_ERROR_MESSAGES: Record<string, string> = {
-  "Assignment not found": "선택한 관리사님과 산모님의 배정 일정을 찾지 못해 제공기록지 링크를 발송하지 못했습니다.",
-  "제공인력 전화번호가 없습니다": "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 발송하지 못했습니다.",
-  "준비된 제공기록지 링크가 만료되었거나 유효하지 않습니다": "제공기록지 링크가 만료되었습니다. 입력 정보를 다시 선택해 새 링크를 준비해 주세요.",
+  "Assignment not found": "선택한 관리사님과 산모님의 배정 일정을 찾지 못해 제공기록지 링크를 보내지 못했어요",
+  "제공인력 전화번호가 없습니다": "선택한 관리사님의 전화번호가 없어 제공기록지 링크를 보내지 못했어요",
+  "준비된 제공기록지 링크가 만료되었거나 유효하지 않습니다": "제공기록지 링크가 만료됐어요. 입력 정보를 다시 선택해 새 링크를 준비해 주세요",
 };
 
 export interface TemplateSendFormSubmitState {
@@ -116,12 +116,12 @@ function getServiceRecordLinkErrorMessage(
   failureStage: ServiceRecordLinkFailureStage,
 ): string {
   const stageFallback = failureStage === "assignment"
-    ? "산모님의 배정 정보를 불러오지 못해 제공기록지 링크를 발송하지 못했습니다."
-    : "서버가 제공기록지 링크 발송 요청을 처리하지 못했으니 잠시 후 다시 시도해 주세요.";
+    ? "산모님의 배정 정보를 불러오지 못해 제공기록지 링크를 보내지 못했어요"
+    : "서버가 제공기록지 링크 발송 요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요";
 
   if (!isAxiosError<{ message?: unknown; error?: unknown }>(error)) return stageFallback;
   if (!error.response) {
-    return "서버에 연결하지 못해 제공기록지 링크를 발송하지 못했습니다.";
+    return "서버에 연결하지 못해 제공기록지 링크를 보내지 못했어요";
   }
 
   const payload = error.response.data;
@@ -134,13 +134,13 @@ function getServiceRecordLinkErrorMessage(
   }
 
   if (error.response.status === 401) {
-    return "로그인이 만료되어 제공기록지 링크를 발송하지 못했습니다.";
+    return "로그인이 만료돼서 제공기록지 링크를 보내지 못했어요";
   }
   if (error.response.status === 403) {
-    return "선택한 배정 일정을 처리할 권한이 없어 제공기록지 링크를 발송하지 못했습니다.";
+    return "선택한 배정 일정을 처리할 권한이 없어 제공기록지 링크를 보내지 못했어요";
   }
   if (error.response.status === 404) {
-    return "선택한 관리사님과 산모님의 배정 일정을 찾지 못해 제공기록지 링크를 발송하지 못했습니다.";
+    return "선택한 관리사님과 산모님의 배정 일정을 찾지 못해 제공기록지 링크를 보내지 못했어요";
   }
 
   return stageFallback;
@@ -262,34 +262,34 @@ export function TemplateSendForm({
   const shouldShowRecipientNameInPill = requiresRecipientName || shouldUseInlinePhoneRecipient;
   const requiresPriceInfoFields = templateId === "builtin:price-info";
   const recipientValidationMessage = requiresRecipientName && !recipientName
-    ? "산모님 성함을 입력하거나 기존 고객을 선택해 주세요."
+    ? "산모님 성함을 입력하거나 기존 고객을 선택해 주세요"
     : !recipientPhone
-      ? "휴대 전화번호를 입력해 주세요."
+      ? "휴대 전화번호를 입력해 주세요"
     : !isRecipientValid
-      ? "휴대 전화번호 형식이 올바르지 않습니다."
+      ? "휴대 전화번호 형식이 올바르지 않아요"
       : null;
   const templateFieldValidationMessage = requiresPriceInfoFields && !voucherType
-    ? "바우처 유형을 선택해 주세요."
+    ? "바우처 유형을 선택해 주세요"
     : requiresPriceInfoFields && !voucherDuration
-      ? "서비스 기간을 선택해 주세요."
+      ? "서비스 기간을 선택해 주세요"
       : requiresPriceInfoFields && !area
-        ? "지역을 선택해 주세요."
+        ? "지역을 선택해 주세요"
         : requiresPriceInfoFields && !voucherYear
-          ? "바우처 연도를 선택해 주세요."
+          ? "바우처 연도를 선택해 주세요"
           : null;
   const serviceRecordValidationMessage = employeeId === null || !employeeName.trim()
-    ? "관리사님을 선택해 주세요."
+    ? "관리사님을 선택해 주세요"
     : !normalizedEmployeePhone
-      ? "관리사님 전화번호를 선택해 주세요."
+      ? "관리사님 전화번호를 선택해 주세요"
       : !isValidKoreanPhoneNumber(normalizedEmployeePhone)
-        ? "관리사님 전화번호 형식이 올바르지 않습니다."
+        ? "관리사님 전화번호 형식이 올바르지 않아요"
         : clientId === null
-          ? "산모님을 선택해 주세요."
+          ? "산모님을 선택해 주세요"
           : null;
   const messageValidationMessage = !trimmedMessage
-    ? "메시지 본문을 입력해 주세요."
+    ? "메시지 본문을 입력해 주세요"
     : isBodyTooLong
-      ? `본문은 최대 ${MAX_BODY_LENGTH}자까지 입력할 수 있습니다.`
+      ? `본문은 최대 ${MAX_BODY_LENGTH}자까지 입력할 수 있어요`
       : null;
   const currentQueueItem = useMemo<RecipientQueueItem | null>(() => {
     if (isServiceRecordLinkDelivery) return null;
@@ -528,7 +528,7 @@ export function TemplateSendForm({
 
     if (failedRecipients.length === 0) {
       // All succeeded — existing happy path.
-      setFeedback({ tone: "success", message: `${recipients.length}건의 메시지 발송 요청이 접수되었습니다.` });
+      setFeedback({ tone: "success", message: `메시지 발송 요청 ${recipients.length}건을 접수했어요` });
       setRecipientQueue([]);
       handleClearRecipient({ clearFeedback: false });
     } else {
@@ -539,7 +539,7 @@ export function TemplateSendForm({
       );
 
       if (succeededRecipients.length === 0) {
-        setFeedback({ tone: "error", message: `${failedRecipients.length}건 발송에 실패했습니다.` });
+        setFeedback({ tone: "error", message: `${failedRecipients.length}건을 보내지 못했어요` });
       } else {
         setFeedback({
           tone: "error",
@@ -583,7 +583,7 @@ export function TemplateSendForm({
     if (clientId === null || employeeId === null || !serviceRecordLinkPreparation) {
       const errorMessage =
         serviceRecordValidationMessage ??
-        "제공기록지 링크를 준비하고 있습니다. 잠시 후 다시 시도해 주세요.";
+        "제공기록지 링크를 준비하고 있어요. 잠시 후 다시 시도해 주세요";
       setFeedback({ tone: "error", message: errorMessage });
       toast({ variant: "destructive", description: errorMessage });
       return;
@@ -601,18 +601,18 @@ export function TemplateSendForm({
       const { status } = response.data;
 
       if (status === "sent") {
-        setFeedback({ tone: "success", message: "제공기록지 링크 즉시 발송이 완료되었습니다." });
-        toast({ description: "제공기록지 링크 즉시 발송이 완료되었습니다." });
+        setFeedback({ tone: "success", message: "제공기록지 링크를 바로 보냈어요" });
+        toast({ variant: "success", description: "제공기록지 링크를 바로 보냈어요" });
         resetEmployeeFields();
         resetClientFields();
       } else if (status === "processing") {
-        setFeedback({ tone: "success", message: "제공기록지 링크를 발송하고 있습니다." });
-        toast({ description: "제공기록지 링크를 발송하고 있습니다." });
+        setFeedback({ tone: "success", message: "제공기록지 링크를 보내고 있어요" });
+        toast({ description: "제공기록지 링크를 보내고 있어요" });
       } else {
         const errorMessage =
           status === "pending"
-            ? "즉시 발송에 실패해 재시도 대기열에 등록되었습니다."
-            : "제공기록지 링크 즉시 발송에 실패했습니다.";
+            ? "바로 보내지 못해 재시도 대기열에 넣었어요"
+            : "제공기록지 링크를 바로 보내지 못했어요";
         setFeedback({ tone: "error", message: errorMessage });
         toast({ variant: "destructive", description: errorMessage });
       }

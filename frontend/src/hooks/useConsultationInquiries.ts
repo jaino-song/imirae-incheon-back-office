@@ -66,8 +66,8 @@ export function useMarkConsultationInquiryRead() {
 
     return useMutation({
         mutationFn: (id: string) => consultationInquiriesApi.markRead(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: consultationInquiryQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: consultationInquiryQueryKeys.all });
         },
     });
 }

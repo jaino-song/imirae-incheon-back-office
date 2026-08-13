@@ -30,8 +30,8 @@ export function useCreateEmployee() {
     return useMutation({
         mutationFn: (dto: CreateEmployeeDto) =>
             employeesApi.create(dto).then(r => r.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeKeys.all });
         },
     });
 }
@@ -43,8 +43,8 @@ export function useUpdateEmployee() {
     return useMutation({
         mutationFn: ({ id, dto }: { id: number; dto: UpdateEmployeeDto }) =>
             employeesApi.update(id, dto).then(r => r.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeKeys.all });
         },
     });
 }
@@ -55,8 +55,8 @@ export function useDeleteEmployee() {
 
     return useMutation({
         mutationFn: (id: number) => employeesApi.delete(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeKeys.all });
         },
     });
 }
@@ -68,8 +68,8 @@ export function useToggleEmployeeOpenStatus() {
     return useMutation({
         mutationFn: ({ id, openToNextWork }: { id: number; openToNextWork: boolean }) =>
             employeesApi.toggleOpenStatus(id, openToNextWork).then(r => r.data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: employeeKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: employeeKeys.all });
         },
     });
 }

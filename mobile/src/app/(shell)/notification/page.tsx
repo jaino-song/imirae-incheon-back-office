@@ -5,13 +5,16 @@ import { useMutation } from "@tanstack/react-query";
 import { BellRing, Mail, Send, type LucideIcon } from "lucide-react";
 
 import { Switch } from "@/components/ui/switch";
-import { Toaster } from "@/components/ui/toaster";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
 import { usePushNotification } from "@/hooks/usePushNotification";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api/client";
 import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safe-storage";
 import { useInitialUser } from "@/providers/UserProvider";
+import {
+  NOTIFICATION_EMAIL_ENABLED,
+  PWA_NOTIFICATIONS_ENABLED,
+} from "@/lib/notification-config";
 import "@/components/app/mobile-redesign/redesign.css";
 
 /** Canonical data-component base for the /notification settings route. */
@@ -84,7 +87,7 @@ function NotificationSettingsRow({
 }
 
 export default function NotificationPage() {
-  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(NOTIFICATION_EMAIL_ENABLED);
   const [isAppNotificationUpdating, setIsAppNotificationUpdating] = useState(false);
 
   const { toast } = useToast();
@@ -105,16 +108,21 @@ export default function NotificationPage() {
   const appNotificationDisabled =
     isAppNotificationLoading
     || isAppNotificationUpdating
+    || !PWA_NOTIFICATIONS_ENABLED
     || !isAppNotificationSupported
     || appNotificationPermission === "denied";
-  const appNotificationDescription = !isAppNotificationSupported
+  const appNotificationDescription = !PWA_NOTIFICATIONS_ENABLED
+    ? "앱 알림은 현재 비활성화되어 있습니다."
+    : !isAppNotificationSupported
     ? "이 브라우저는 앱 알림을 지원하지 않습니다."
     : appNotificationPermission === "denied"
       ? "브라우저에서 알림 권한이 차단되어 있습니다."
       : isAppNotificationEnabled
         ? "앱에서 중요한 업무 알림을 받고 있습니다."
         : "앱에서 중요한 업무 알림을 받지 않습니다.";
-  const emailNotificationDescription = accountEmail
+  const emailNotificationDescription = !NOTIFICATION_EMAIL_ENABLED
+    ? "이메일 알림은 현재 비활성화되어 있습니다."
+    : accountEmail
     ? `${accountEmail}로 주요 알림을 받습니다.`
     : "현재 계정 이메일을 불러오는 중입니다.";
 
@@ -125,14 +133,15 @@ export default function NotificationPage() {
     },
     onSuccess: (data) => {
       toast({
-        title: "테스트 알림 전송 완료",
+        variant: "success",
+        title: "테스트 알림을 보냈어요",
         description: `성공 ${data.sent}건 · 실패 ${data.failed}건`,
       });
     },
     onError: () => {
       toast({
-        title: "테스트 알림 실패",
-        description: "알림 전송에 실패했습니다.",
+        title: "테스트 알림을 보내지 못했어요",
+        description: "잠시 후 다시 시도해 주세요",
         variant: "destructive",
       });
     },
@@ -147,10 +156,10 @@ export default function NotificationPage() {
 
     if (!success) {
       toast({
-        title: "앱 알림 설정 실패",
+        title: "앱 알림 설정을 바꾸지 못했어요",
         description: checked
-          ? "앱 알림을 켜지 못했습니다. 브라우저 알림 권한을 확인해주세요."
-          : "앱 알림을 끄지 못했습니다. 잠시 후 다시 시도해주세요.",
+          ? "앱 알림을 켜지 못했어요. 브라우저 알림 권한을 확인해 주세요"
+          : "앱 알림을 끄지 못했어요. 잠시 후 다시 시도해 주세요",
         variant: "destructive",
       });
     }
@@ -250,9 +259,9 @@ export default function NotificationPage() {
                   <label className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center" htmlFor="notif-email">
                     <Switch
                       id="notif-email"
-                      checked={emailNotifications && Boolean(accountEmail)}
+                      checked={NOTIFICATION_EMAIL_ENABLED && emailNotifications && Boolean(accountEmail)}
                       onCheckedChange={handleEmailNotificationChange}
-                      disabled={!accountEmail}
+                      disabled={!NOTIFICATION_EMAIL_ENABLED || !accountEmail}
                       aria-label="이메일 알림 설정"
                     />
                   </label>
@@ -289,8 +298,6 @@ export default function NotificationPage() {
           </div>
         </div>
       </div>
-
-      <Toaster />
     </section>
   );
 }

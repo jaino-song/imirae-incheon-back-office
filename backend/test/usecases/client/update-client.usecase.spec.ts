@@ -67,6 +67,52 @@ describe("UpdateClientUsecase", () => {
             expect(result.dueDate).toEqual(new Date("2024-03-01"));
         });
 
+        it("should set birthDate", async () => {
+            // Arrange
+            const existingClient = ClientFactory.create({ id: 1, name: "고객", birthDate: null });
+            mockRepository.setData([existingClient]);
+
+            // Act
+            const result = await usecase.execute(branchId, 1, {
+                birthDate: new Date("1995-03-15"),
+            });
+
+            // Assert
+            expect(result.birthDate).toEqual(new Date("1995-03-15"));
+        });
+
+        it("should clear birthDate when explicitly set to null (tri-state, mirrors areaId)", async () => {
+            // Arrange
+            const existingClient = ClientFactory.create({
+                id: 1,
+                name: "고객",
+                birthDate: new Date("1995-03-15"),
+            });
+            mockRepository.setData([existingClient]);
+
+            // Act
+            const result = await usecase.execute(branchId, 1, { birthDate: null });
+
+            // Assert
+            expect(result.birthDate).toBeNull();
+        });
+
+        it("should leave birthDate untouched when omitted from the update", async () => {
+            // Arrange
+            const existingClient = ClientFactory.create({
+                id: 1,
+                name: "고객",
+                birthDate: new Date("1995-03-15"),
+            });
+            mockRepository.setData([existingClient]);
+
+            // Act
+            const result = await usecase.execute(branchId, 1, { name: "새 이름" });
+
+            // Assert
+            expect(result.birthDate).toEqual(new Date("1995-03-15"));
+        });
+
         it("should throw NotFoundException when client not found", async () => {
             // Arrange - empty repository
 

@@ -74,6 +74,18 @@ export class NotificationEntity {
         return this.readAt !== null;
     }
 
+    withData(data: Record<string, unknown>): NotificationEntity {
+        return NotificationEntity.reconstitute(
+            this.id,
+            this.userId,
+            this.title,
+            this.body,
+            data,
+            this.sentAt,
+            this.readAt,
+        );
+    }
+
     /**
      * Convert to web push payload format
      */
@@ -81,8 +93,8 @@ export class NotificationEntity {
         return JSON.stringify({
             title: this.title,
             body: this.body,
-            icon: '/icon-192.png',
-            badge: '/badge-72.png',
+            icon: '/assets/icon-192.png',
+            badge: '/assets/badge-72.png',
             data: this.data,
         });
     }

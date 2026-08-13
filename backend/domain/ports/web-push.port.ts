@@ -8,6 +8,11 @@ import { PushSubscriptionEntity } from "../entities/push-subscription.entity";
  */
 export interface IWebPushPort {
     /**
+     * Whether push delivery is currently enabled and configured.
+     */
+    isEnabled(): boolean;
+
+    /**
      * Send push notification to a single subscription
      * @returns true if sent successfully, false if subscription is invalid/expired
      */

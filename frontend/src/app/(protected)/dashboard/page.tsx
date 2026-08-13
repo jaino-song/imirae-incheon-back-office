@@ -7,8 +7,9 @@ import {
   fetchDashboardClientPage,
   useDashboardOverview,
 } from "@/hooks/useDashboardStats";
+import { useReviewNeededContracts } from "@/hooks/useReviewNeededContracts";
+import { ReviewNeededContractsCard } from "@/components/app/dashboard/ReviewNeededContractsCard";
 import { Client } from "@/lib/client/types";
-import { getActionRequiredStatus } from "@/lib/client/action-required";
 import { useInitialUser } from "@/providers/UserProvider";
 import {
   StatsBar,
@@ -60,6 +61,7 @@ export default function DashboardPage() {
     refetch: refetchOverview,
   } = useDashboardOverview(50);
   const user = useInitialUser();
+  const { data: reviewNeededContracts } = useReviewNeededContracts();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [extraClientPages, setExtraClientPages] = useState<Client[][]>([]);
   const [isFetchingNextClients, setIsFetchingNextClients] = useState(false);
@@ -174,7 +176,7 @@ export default function DashboardPage() {
   const actionRequiredClients = useMemo(() => {
     return clients
       .map((client) => {
-        const status = getActionRequiredStatus(client);
+        const status = client.actionRequired;
         if (!status) {
           return null;
         }
@@ -214,11 +216,12 @@ export default function DashboardPage() {
     return {
       activeClients: clients.filter((client) => client.serviceStatus === "active").length,
       upcomingSoon: visibleUpcomingClients.length,
-      contractsRequired: actionRequiredClients.filter((item) => (
-        item.reason === "이용자 완료 필요" || item.reason === "발송 필요"
+      // Counts the same badge the clients page renders, so both surfaces agree.
+      contractsRequired: clients.filter((client) => (
+        client.badges?.some((badge) => badge.key === "contract_required")
       )).length,
     };
-  }, [actionRequiredClients, clients, visibleUpcomingClients]);
+  }, [clients, visibleUpcomingClients]);
 
   const selectedClientData = useMemo(() => {
     if (!selectedClient) return null;
@@ -259,6 +262,12 @@ export default function DashboardPage() {
           }))}
         />
       </Block>
+
+      {reviewNeededContracts && reviewNeededContracts.length > 0 && (
+        <Block name="desktop_dashboard_review-needed" className="shrink-0">
+          <ReviewNeededContractsCard contracts={reviewNeededContracts} />
+        </Block>
+      )}
 
       <Block
         name="desktop_dashboard_split"

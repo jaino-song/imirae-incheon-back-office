@@ -2,6 +2,12 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
 
 // Employee status type
 export type EmployeeStatus = 'available' | 'working' | 'unavailable';
@@ -62,7 +68,12 @@ export function useEmployees() {
         queryKey: employeeQueryKeys.lists(),
         queryFn: async () => {
             const { data } = await api.get("/employees");
-            return data;
+            if (Array.isArray(data)) return data as Employee[];
+            if (data && typeof data === "object") {
+                if (Array.isArray((data as Record<string, unknown>).data)) return (data as Record<string, unknown>).data as Employee[];
+                if (Array.isArray((data as Record<string, unknown>).items)) return (data as Record<string, unknown>).items as Employee[];
+            }
+            return [];
         },
         staleTime: 1000 * 60 * 10, // 10 minutes
     });
@@ -118,15 +129,33 @@ export function useUpdateEmployee() {
     });
 }
 
+// Removes an employee from a cached list. Non-list shapes pass through unchanged.
+function removeEmployeeFromCacheData(current: unknown, id: number): unknown {
+    if (!Array.isArray(current)) return current;
+    return removeById(current as Employee[], id);
+}
+
 // Delete employee
 export function useDeleteEmployee() {
     const queryClient = useQueryClient();
 
-    return useMutation({
+    return useMutation<void, Error, number, { previous: QuerySnapshot }>({
         mutationFn: async (id: number) => {
             await api.delete("/employees", { params: { id } });
         },
-        onSuccess: () => {
+        onMutate: async (id) => {
+            // Scope to list keys so detail caches are never optimistically edited.
+            const previous = await snapshotAndTransformQueries(
+                queryClient,
+                { queryKey: employeeQueryKeys.lists() },
+                (current) => removeEmployeeFromCacheData(current, id),
+            );
+            return { previous };
+        },
+        onError: (_error, _id, context) => {
+            if (context?.previous) restoreQueries(queryClient, context.previous);
+        },
+        onSettled: () => {
             queryClient.invalidateQueries({ queryKey: employeeQueryKeys.all });
         },
     });

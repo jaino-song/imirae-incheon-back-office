@@ -64,6 +64,7 @@ describe("ClientController (Integration)", () => {
         hasSigned: false,
         documentStatus: null,
         badges: [],
+        actionRequired: null,
     });
 
     beforeEach(async () => {
@@ -528,6 +529,7 @@ describe("ClientController (Integration)", () => {
                         voucherClient: undefined,
                         birthday: undefined,
                         dueDate: undefined,
+                        birthDate: undefined,
                         serviceStatus: undefined,
                         breastPump: undefined,
                         eDocId: undefined,

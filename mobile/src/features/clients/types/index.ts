@@ -2,6 +2,12 @@ import type {
     ClientBadgeKey,
     ClientBadgeStatus,
 } from "@babyjamjam/shared/tokens/status-badge";
+import type { ClientActionRequired } from "@babyjamjam/shared/types/client-action-required";
+
+export type {
+    ActionRequiredReason,
+    ClientActionRequired,
+} from "@babyjamjam/shared/types/client-action-required";
 
 // Employee summary for client responses
 export interface EmployeeSummary {
@@ -42,6 +48,8 @@ export interface Client {
     updatedAt?: string | null;
     birthday: string | null;           // YYMMDD format
     dueDate: string | null;
+    birthDate: string | null;          // actual delivery date, ISO
+
     address: string | null;
     phone: string | null;
     primaryEmployee: EmployeeSummary | null;  // Primary employee info from active schedule
@@ -62,6 +70,7 @@ export interface Client {
     hasSigned: boolean;
     documentStatus: DocumentStatus;    // eformsign document status: created/opened/completed
     badges?: ClientBadge[];
+    actionRequired?: ClientActionRequired | null;
     pendingScheduleChange?: PendingScheduleChange | null;
 }
 
@@ -70,6 +79,7 @@ export interface CreateClientDto {
     name: string;
     birthday?: string | null;
     dueDate?: string | null;
+    birthDate?: string | null;
     address?: string | null;
     phone?: string | null;
     primaryEmployeeId: number | null;  // Employee ID (backend converts to schedule)
@@ -96,6 +106,7 @@ export interface UpdateClientDto {
     name?: string;
     birthday?: string | null;
     dueDate?: string | null;
+    birthDate?: string | null;
     address?: string | null;
     phone?: string | null;
     primaryEmployeeId?: number | null;  // Employee ID (backend converts to schedule)

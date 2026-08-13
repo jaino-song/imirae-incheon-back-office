@@ -4,9 +4,14 @@ import nodemailer, { Transporter } from "nodemailer";
 import {
     EmailOptions,
     EmailPort,
-    NotificationEmailOptions,
 } from "domain/ports/email.port";
 import { maskEmail } from "application/utils/mask";
+
+const DEFAULT_FROM_EMAIL = "admin@babyjamjam.local";
+const SENDER_DISPLAY_NAME = "아가잼잼 어드민";
+
+const formatSenderAddress = (sender: string): string =>
+    sender.includes("<") ? sender : `${SENDER_DISPLAY_NAME} <${sender}>`;
 
 @Injectable()
 export class SmtpEmailAdapter implements EmailPort {
@@ -26,7 +31,7 @@ export class SmtpEmailAdapter implements EmailPort {
                 }
                 : undefined,
         });
-        this.from = process.env["SMTP_FROM_EMAIL"] || "admin@babyjamjam.local";
+        this.from = formatSenderAddress(process.env["SMTP_FROM_EMAIL"] || DEFAULT_FROM_EMAIL);
     }
 
     async send(options: EmailOptions): Promise<string> {
@@ -61,15 +66,6 @@ export class SmtpEmailAdapter implements EmailPort {
             subject: "비밀번호 재설정",
             text: `${name || "사용자"}님, 비밀번호를 재설정해 주세요: ${resetUrl}`,
             html: `<p>${this.escape(name || "사용자")}님, 비밀번호를 재설정해 주세요.</p><p><a href="${this.escape(resetUrl)}">비밀번호 재설정</a></p>`,
-        });
-    }
-
-    sendNotificationEmail(options: NotificationEmailOptions): Promise<string> {
-        return this.send({
-            to: options.to,
-            subject: options.title,
-            text: `${options.body}\n${options.ctaLabel}: ${options.ctaUrl}`,
-            html: `<h1>${this.escape(options.title)}</h1><p>${this.escape(options.body)}</p><p><a href="${this.escape(options.ctaUrl)}">${this.escape(options.ctaLabel)}</a></p>`,
         });
     }
 

@@ -9,6 +9,7 @@ export interface DashboardAnalytics {
 export interface DashboardAnalyticsClient {
   serviceStatus: string | null;
   startDate: string | null;
+  endDate?: string | null;
   eDocId: string | null;
   documentStatus: string | null;
 }
@@ -165,9 +166,9 @@ export function deriveDashboardAnalyticsFromClients(
         }
       }
 
-      if (client.eDocId && client.documentStatus && client.documentStatus !== "completed") {
-        acc.contractsPendingSignature += 1;
-      }
+      // The client projection cannot distinguish provider-review workflow state
+      // from other unfinished states. Only the dedicated server analytics payload
+      // may populate contractsPendingSignature; the offline fallback stays at zero.
 
       if (isContractIncompleteNearServiceStart(client, today)) {
         acc.contractsNotSent += 1;

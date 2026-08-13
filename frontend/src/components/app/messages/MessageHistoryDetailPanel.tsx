@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import {
   MESSAGE_HISTORY_STATUS_LABELS,
+  MESSAGE_LOG_STATUS_BADGE_VARIANT,
+  MESSAGE_RECIPIENT_LABELS,
   formatMessageDateTimeCompact,
   formatMessageFailureReason,
   getMessageHistoryTimestamp as getSharedMessageHistoryTimestamp,
@@ -26,6 +28,7 @@ import {
 import type {
   MessageLogRecord as ApiMessageLogRecord,
   TriggerEventType,
+  TriggerRecipientType,
 } from "@/features/message-triggers/types";
 import { StatusBadge } from "@/components/app/ui/status-badge";
 import { DetailPanel, InfoCard, InfoRow, ListEmptyState } from "@/components/app/v3";
@@ -48,6 +51,8 @@ export interface MessageHistoryRecord {
   status: MessageHistoryStatus;
   messagePreview: string;
   failureReason?: string;
+  cancelReason?: string;
+  recipientType: TriggerRecipientType | null;
   icon: LucideIcon;
 }
 
@@ -70,32 +75,31 @@ interface MessageHistoryDetailPanelProps {
   dataComponentPrefix: string;
 }
 
+// tone (hand-rolled Tailwind palette classes) intentionally dropped in favor of
+// StatusBadge + the shared MESSAGE_LOG_STATUS_BADGE_VARIANT map below, which both
+// apps' StatusBadge already wires to the shared --status-* design tokens.
 export const MESSAGE_HISTORY_STATUS_META: Record<
   MessageHistoryStatus,
-  { label: string; icon: LucideIcon; tone: string; avatarClass: string }
+  { label: string; icon: LucideIcon; avatarClass: string }
 > = {
   sent: {
     label: MESSAGE_HISTORY_STATUS_LABELS.sent,
     icon: CheckCircle2,
-    tone: "bg-emerald-50 text-emerald-600",
     avatarClass: "border border-[hsl(137,34%,84%)] bg-[hsl(137,60%,94%)] text-v3-green",
   },
   failed: {
     label: MESSAGE_HISTORY_STATUS_LABELS.failed,
     icon: AlertCircle,
-    tone: "bg-red-50 text-red-600",
     avatarClass: "border border-[hsla(355,36%,45%,0.20)] bg-[hsl(355,40%,94%)] text-[hsl(355,36%,45%)]",
   },
   pending: {
     label: MESSAGE_HISTORY_STATUS_LABELS.pending,
     icon: Clock3,
-    tone: "bg-amber-50 text-amber-600",
     avatarClass: "border border-[hsla(38,92%,35%,0.18)] bg-[hsl(47,100%,92%)] text-[hsl(38,92%,35%)]",
   },
   canceled: {
     label: MESSAGE_HISTORY_STATUS_LABELS.canceled,
     icon: AlertCircle,
-    tone: "bg-slate-100 text-slate-600",
     avatarClass: "border border-slate-200 bg-slate-100 text-slate-600",
   },
 };
@@ -219,11 +223,30 @@ export function normalizeMessageHistoryRecord(
   options: NormalizeMessageHistoryRecordOptions = {}
 ): MessageHistoryRecord {
   const normalized = normalizeMessageHistoryPresentation(record, options);
+  // normalizeMessageHistoryPresentation (shared) only ever derives failureReason
+  // for status "failed" — it has no equivalent for "canceled". The cancel reason
+  // rides the same raw errorMessage field (see backend
+  // MessageTriggerService.listHistory's terminalJobRecords, which stuffs
+  // job.cancelReason into errorMessage for a canceled row with no log entry), so
+  // it's derived here the same way failureReason already is.
+  const cancelReason = record.status === "canceled"
+    ? formatMessageHistoryFailureReason(record.errorMessage) || undefined
+    : undefined;
 
   return {
     ...normalized,
+    cancelReason,
+    recipientType: record.recipientType,
     icon: record.eventType ? HISTORY_EVENT_ICON_BY_TYPE[record.eventType] : MessageCircle,
   };
+}
+
+// Shared with the upcoming-zone matcher in the desktop messages page
+// (matchesScheduledJobQuery): collapses PRIMARY_EMPLOYEE/SECONDARY_EMPLOYEE
+// down to "직원" so a "직원"/"고객" search matches the same way in both zones.
+// Exported so both matchers reuse one mapping instead of drifting into two.
+export function getScheduledRecipientBadge(recipientType: TriggerRecipientType) {
+  return recipientType === "CLIENT" ? MESSAGE_RECIPIENT_LABELS.CLIENT : "직원";
 }
 
 export function matchesMessageHistoryQuery(record: MessageHistoryRecord, query: string) {
@@ -235,6 +258,7 @@ export function matchesMessageHistoryQuery(record: MessageHistoryRecord, query: 
     record.channelLabel,
     record.messagePreview,
     record.failureReason ?? "",
+    record.recipientType ? getScheduledRecipientBadge(record.recipientType) : "",
     MESSAGE_HISTORY_STATUS_META[record.status].label,
   ]);
 }
@@ -251,6 +275,7 @@ export function MessageHistoryDetailPanel({
 }: MessageHistoryDetailPanelProps) {
   const showRetry = !!selectedRecord && canRetry && !!onRetry;
   const displayFailureReason = formatMessageHistoryFailureReason(selectedRecord?.failureReason);
+  const displayCancelReason = selectedRecord?.cancelReason;
 
   return (
     <DetailPanel data-component="desktop_messages_sections_split-layout_detail-panel"
@@ -282,28 +307,14 @@ export function MessageHistoryDetailPanel({
           : "왼쪽 목록에서 발송 기록을 선택해 주세요."
       }
       badges={
-        selectedRecord?.status === "sent" ? (
+        selectedRecord ? (
           <StatusBadge
             data-component={`${dataComponentPrefix}_detail-status`}
-            variant="success"
+            variant={MESSAGE_LOG_STATUS_BADGE_VARIANT[selectedRecord.status]}
             size="sm"
           >
             {MESSAGE_HISTORY_STATUS_META[selectedRecord.status].label}
           </StatusBadge>
-        ) : selectedRecord ? (
-          <span
-            data-component={`${dataComponentPrefix}_detail-status`}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.68rem] font-semibold",
-              MESSAGE_HISTORY_STATUS_META[selectedRecord.status].tone
-            )}
-          >
-            {(() => {
-              const StatusIcon = MESSAGE_HISTORY_STATUS_META[selectedRecord.status].icon;
-              return <StatusIcon className="h-3.5 w-3.5" />;
-            })()}
-            {MESSAGE_HISTORY_STATUS_META[selectedRecord.status].label}
-          </span>
         ) : null
       }
       trailing={
@@ -351,6 +362,13 @@ export function MessageHistoryDetailPanel({
                 data-component={`${dataComponentPrefix}_detail-content_info-card_error`}
                 label="실패 사유"
                 value={<span className="text-red-700">{displayFailureReason}</span>}
+              />
+            ) : null}
+            {displayCancelReason ? (
+              <InfoRow
+                data-component={`${dataComponentPrefix}_detail-content_info-card_cancel-reason`}
+                label="취소 사유"
+                value={<span className="text-slate-600">{displayCancelReason}</span>}
               />
             ) : null}
           </InfoCard>

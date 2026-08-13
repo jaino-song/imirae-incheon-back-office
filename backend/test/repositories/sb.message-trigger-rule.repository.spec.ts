@@ -4,6 +4,7 @@ import {
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { SbMessageTriggerRuleRepository } from "infrastructure/database/repositories/sb.message-trigger-rule.repository";
 
@@ -31,6 +32,9 @@ describe("SbMessageTriggerRuleRepository", () => {
         update: jest.fn(),
         updateMany: jest.fn(),
         deleteMany: jest.fn(),
+        $queryRaw: jest.fn(),
+        $executeRaw: jest.fn(),
+        $transaction: jest.fn(),
     });
 
     const createRow = (
@@ -52,13 +56,26 @@ describe("SbMessageTriggerRuleRepository", () => {
         ...overrides,
     });
 
+    const getSqlText = (value: unknown): string => {
+        if (typeof value === "object" && value !== null && "strings" in value) {
+            const strings = (value as { strings?: unknown }).strings;
+            if (Array.isArray(strings)) return strings.join("");
+        }
+        return String(value);
+    };
+
     let messageTriggerRuleModel: ReturnType<typeof createMockPrismaMessageTriggerRule>;
     let repository: SbMessageTriggerRuleRepository;
 
     beforeEach(() => {
         messageTriggerRuleModel = createMockPrismaMessageTriggerRule();
-        repository = new SbMessageTriggerRuleRepository({
+        const prisma = {
             message_trigger_rule: messageTriggerRuleModel,
+            $transaction: jest.fn(),
+        };
+        prisma.$transaction.mockImplementation(async (operation: (tx: unknown) => Promise<unknown>) => operation(messageTriggerRuleModel));
+        repository = new SbMessageTriggerRuleRepository({
+            ...prisma,
         } as unknown as PrismaService);
     });
 
@@ -138,7 +155,141 @@ describe("SbMessageTriggerRuleRepository", () => {
                 jobsStale: true,
                 updatedAt: readUpdatedAt,
             },
-            data: { jobsStale: false },
+            data: { jobsStale: false, updatedAt: readUpdatedAt },
         });
+    });
+
+    it("updates and deletes only against the complete branch-scoped target snapshot", async () => {
+        const createdAt = new Date("2026-07-08T00:00:00.000Z");
+        const updatedAt = new Date("2026-07-08T01:00:00.000Z");
+        const expected = MessageTriggerRuleEntity.reconstitute(
+            "rule-1",
+            "branch-1",
+            "서비스 시작 7일 전 서비스 안내",
+            false,
+            MessageTriggerEventType.SERVICE_START,
+            MessageTriggerOffsetType.BEFORE_DAYS,
+            7,
+            MessageTriggerRecipientType.CLIENT,
+            MessageTriggerTemplateKey.SERVICE_INFO,
+            createdAt,
+            updatedAt,
+            true,
+            false,
+        );
+        const next = MessageTriggerRuleEntity.reconstitute(
+            expected.id,
+            expected.branchId,
+            "변경된 규칙",
+            expected.isActive,
+            expected.eventType,
+            expected.offsetType,
+            expected.offsetDays,
+            expected.recipientType,
+            expected.templateKey,
+            expected.createdAt,
+            new Date("2026-07-08T02:00:00.000Z"),
+            expected.isDefault,
+            expected.jobsStale,
+        );
+        messageTriggerRuleModel.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+        messageTriggerRuleModel.deleteMany.mockResolvedValueOnce({ count: 1 });
+
+        await expect(repository.updateIfTargetMatches("branch-1", expected, next)).resolves.toBe(next);
+        await expect(repository.updateIfTargetMatches("branch-1", expected, next)).resolves.toBeNull();
+        await expect(repository.deleteIfTargetMatches("branch-1", expected)).resolves.toBe(true);
+        expect(messageTriggerRuleModel.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ id: "rule-1", branchId: "branch-1", updatedAt }),
+        }));
+        expect(messageTriggerRuleModel.deleteMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ id: "rule-1", branchId: "branch-1", updatedAt }),
+        }));
+    });
+
+    it("atomically locks the rule, fences pending jobs, and sets jobsStale", async () => {
+        const expected = MessageTriggerRuleEntity.reconstitute(
+            "rule-atomic",
+            "branch-1",
+            "서비스 시작 7일 전 서비스 안내",
+            true,
+            MessageTriggerEventType.SERVICE_START,
+            MessageTriggerOffsetType.BEFORE_DAYS,
+            7,
+            MessageTriggerRecipientType.CLIENT,
+            MessageTriggerTemplateKey.SERVICE_INFO,
+            new Date("2026-07-08T00:00:00.000Z"),
+            new Date("2026-07-08T01:00:00.000Z"),
+            false,
+            false,
+        );
+        const next = MessageTriggerRuleEntity.reconstitute(
+            expected.id,
+            expected.branchId,
+            "변경된 규칙",
+            expected.isActive,
+            expected.eventType,
+            expected.offsetType,
+            expected.offsetDays,
+            expected.recipientType,
+            expected.templateKey,
+            expected.createdAt,
+            expected.updatedAt,
+            expected.isDefault,
+            true,
+        );
+        const raw = (rule: MessageTriggerRuleEntity) => ({
+            id: rule.id,
+            branch_id: rule.branchId,
+            name: rule.name,
+            is_active: rule.isActive,
+            event_type: rule.eventType,
+            offset_type: rule.offsetType,
+            offset_days: rule.offsetDays,
+            recipient_type: rule.recipientType,
+            template_key: rule.templateKey,
+            is_default: rule.isDefault,
+            jobs_stale: rule.jobsStale,
+            created_at: rule.createdAt,
+            updated_at: rule.updatedAt,
+        });
+        messageTriggerRuleModel.$queryRaw
+            .mockResolvedValueOnce([raw(expected)])
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([raw(next)]);
+        messageTriggerRuleModel.$executeRaw.mockResolvedValue(1);
+
+        await expect(repository.updateIfTargetMatchesAndFenceJobs(
+            "branch-1",
+            expected,
+            next,
+            "Rule updated",
+        )).resolves.toEqual(expect.objectContaining({ name: "변경된 규칙", jobsStale: true }));
+        expect(messageTriggerRuleModel.$queryRaw).toHaveBeenCalledTimes(3);
+        expect(getSqlText(messageTriggerRuleModel.$queryRaw.mock.calls[0][0])).toContain("FOR UPDATE");
+        expect(getSqlText(messageTriggerRuleModel.$queryRaw.mock.calls[1][0])).toContain("message_trigger_job");
+        expect(messageTriggerRuleModel.$executeRaw).toHaveBeenCalledTimes(1);
+
+        messageTriggerRuleModel.$queryRaw.mockReset();
+        messageTriggerRuleModel.$queryRaw.mockResolvedValueOnce([raw(expected)]).mockResolvedValueOnce([{ status: "processing" }]);
+        await expect(repository.updateIfTargetMatchesAndFenceJobs(
+            "branch-1",
+            expected,
+            next,
+            "Rule updated",
+        )).resolves.toBeNull();
+        expect(messageTriggerRuleModel.$queryRaw).toHaveBeenCalledTimes(2);
+        expect(messageTriggerRuleModel.$executeRaw).toHaveBeenCalledTimes(1);
+
+        messageTriggerRuleModel.$queryRaw.mockReset();
+        messageTriggerRuleModel.$queryRaw.mockResolvedValueOnce([raw(expected)]).mockResolvedValueOnce([{ status: "sent" }]);
+        await expect(repository.updateIfTargetMatchesAndFenceJobs(
+            "branch-1",
+            expected,
+            next,
+            "Rule updated",
+            new Date("2026-07-08T01:30:00.000Z"),
+        )).resolves.toBeNull();
+        expect(getSqlText(messageTriggerRuleModel.$queryRaw.mock.calls[1][0])).toContain("sent_at >=");
+        expect(messageTriggerRuleModel.$executeRaw).toHaveBeenCalledTimes(1);
     });
 });

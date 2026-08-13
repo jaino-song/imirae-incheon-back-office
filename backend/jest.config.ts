@@ -11,12 +11,20 @@ const config: Config = {
         }],
     },
     testMatch: ["**/*.spec.ts"],
+    // The integration specs stand up a full Nest app per test. With Jest's
+    // default worker count (cores - 1) they contend for CPU hard enough to blow
+    // the 5s default timeout, which surfaced as unrelated specs failing roughly
+    // one full-suite run in four — timeouts, stray 401s and missed mock calls.
+    // Cap the workers and give a slow-under-load test room to finish.
+    maxWorkers: "50%",
+    testTimeout: 15000,
     // test/e2e needs a live DB/env — it gets its own gated runner, keep the unit suite hermetic.
     testPathIgnorePatterns: [
         "/node_modules/",
         "/dist/",
         "<rootDir>/test/e2e/",
         "<rootDir>/test/auth-e2e/",
+        "<rootDir>/test/agent-e2e/runtime/",
     ],
     moduleNameMapper: {
         "^application/(.*)$": "<rootDir>/application/$1",

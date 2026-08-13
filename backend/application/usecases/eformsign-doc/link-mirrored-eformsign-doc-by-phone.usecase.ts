@@ -8,6 +8,7 @@ import { SystemSettingService } from "application/services/system-setting.servic
 import {
     extractEformsignContractClientCandidate,
     formatNormalizedKoreanPhone,
+    toEformsignDocumentDetail,
 } from "application/utils/eformsign-contract-client-candidate";
 import { extractPhoneCandidates, normalizePhone } from "application/utils/normalize-phone";
 import {
@@ -51,6 +52,11 @@ export interface LinkMirroredEformsignDocOptions {
      * greeting or catch-up message jobs for records that predate the cutover.
      */
     suppressOutboundAutomation?: boolean;
+    /**
+     * The mirror generation is not ready yet. Only let an already registered
+     * client claim the document; never create a client from this attempt.
+     */
+    linkExistingOnly?: boolean;
 }
 
 /**
@@ -128,7 +134,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                 clientId: assignedClientId,
                 createdDate: document.createdDate,
             }, expectedMirrorGeneration);
-            if (result !== "mirror_not_ready") {
+            if (result !== "mirror_not_ready" && !options.linkExistingOnly) {
                 const postLinkApplied = await this.applyPostLinkEffects({
                     documentId,
                     clientId: assignedClientId,
@@ -139,7 +145,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             return result;
         }
 
-        const detail = toDocumentDetail(document.detailPayload);
+        const detail = toEformsignDocumentDetail(document.detailPayload);
         const candidate = detail
             ? extractEformsignContractClientCandidate(detail)
             : null;
@@ -161,9 +167,10 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             return "skipped";
         }
 
-        const creationBranchId =
-            AUTO_REGISTRATION_COMPLETED_STATUS_CODES.has(document.statusType)
-            && candidate?.phone === phone
+        const creationBranchId = options.linkExistingOnly
+            ? null
+            : AUTO_REGISTRATION_COMPLETED_STATUS_CODES.has(document.statusType)
+                && candidate?.phone === phone
                 ? await this.resolveAutoRegistrationBranch(
                     document.branchId,
                     detail,
@@ -304,7 +311,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (this.isServiceRecord(document)) return { status: "skipped" };
                         if (document.clientId !== null) return { status: "already_linked" };
 
-                        const detail = toDocumentDetail(document.detailPayload);
+                        const detail = toEformsignDocumentDetail(document.detailPayload);
                         const candidate = detail
                             ? extractEformsignContractClientCandidate(detail)
                             : null;
@@ -715,12 +722,6 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             );
         }
     }
-}
-
-function toDocumentDetail(value: Prisma.JsonValue | null): EformsignApiDocumentResponse | null {
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-        ? value as unknown as EformsignApiDocumentResponse
-        : null;
 }
 
 function singleLegacyPhone(value: string, hasDetail: boolean): string | null {

@@ -398,6 +398,10 @@ body:has([data-slot="messages-page"]) [data-slot="messages-content"] {
   border-radius: 16px;
   box-shadow: 0 4px 24px hsla(214, 50%, 20%, 0.06);
 }
+.stats-grid > .mini-stat:nth-child(1) { animation-delay: 0ms; }
+.stats-grid > .mini-stat:nth-child(2) { animation-delay: 60ms; }
+.stats-grid > .mini-stat:nth-child(3) { animation-delay: 120ms; }
+.stats-grid > .mini-stat:nth-child(4) { animation-delay: 180ms; }
 .mini-stat-icon {
   width: 36px;
   height: 36px;
@@ -567,7 +571,7 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
 }
 
 [data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot^="mobile-bottom-nav-"],
-[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-chat"] {
+[data-slot="app-root"]:has([data-slot="dashboard-page"]) [data-slot="mobile-bottom-nav-messages"] {
   gap: 2px !important;
   padding: 5px 4px !important;
   border-radius: 14px !important;
@@ -663,18 +667,9 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   gap: 0.5rem; /* Tailwind gap-2 — section-header/list-item/contract-item 간 균일 간격 */
 }
 .list-card-scroll::-webkit-scrollbar { display: none; }
-.list-card-scroll.has-top-overflow::before {
-  content: "";
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: block;
-  align-self: stretch;
-  height: 18px;
-  flex: 0 0 18px;
-  margin-bottom: calc(-18px - 0.5rem);
-  background: linear-gradient(to bottom, white, transparent);
-  pointer-events: none;
+.list-card-scroll.has-top-overflow {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 100%);
 }
 
 /* ===== Filter pills ===== */
@@ -712,11 +707,11 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
 }
 .filter-pill.filter-pill-skeleton {
   border-color: hsl(var(--v3-border));
-  background: hsl(var(--v3-dim-white));
+  background: var(--skeleton-bg);
   color: transparent;
   cursor: default;
   pointer-events: none;
-  animation: pulse 0.8s ease-in-out infinite;
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 .filter-pill.filter-pill-skeleton:disabled {
   opacity: 1;
@@ -1164,10 +1159,10 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   flex: 0 0 auto;
   padding: 0;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
+  background: var(--skeleton-bg);
   color: transparent;
   box-shadow: none;
-  animation: mobile-menu-skeleton-pulse 1.1s ease-in-out infinite;
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 .menu-badge-skeleton {
   width: var(--menu-badge-skeleton-width, 18px);
@@ -1185,16 +1180,6 @@ main[data-slot="main-content"]:has([data-slot="dashboard-page"]) > [data-slot="d
   padding: 4px 8px;
   line-height: 1;
   white-space: nowrap;
-}
-
-@keyframes mobile-menu-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 
 .branch-switch-btn {
@@ -1670,6 +1655,9 @@ body.mobile-all-route .menu-row {
 .nav-stack.show-detail .nav-page.detail {
   transform: translateY(0);
 }
+.nav-page.detail.sheet-dragging {
+  transition: none;
+}
 .scrim {
   position: absolute;
   inset: 0;
@@ -1692,6 +1680,7 @@ body.mobile-all-route .menu-row {
   border-radius: 999px;
   margin: 8px auto 0;
   flex-shrink: 0;
+  touch-action: none;
 }
 .sheet-header {
   padding: 8px 16px 12px;
@@ -1702,6 +1691,8 @@ body.mobile-all-route .menu-row {
   flex-shrink: 0;
   position: relative;
   z-index: 3;
+  touch-action: none;
+  user-select: none;
   /* Opaque so scrolled content cannot bleed through, but it has to be the
      sheet's own colour — hardcoding white left a seam against the sheet. */
   background: hsl(var(--v3-dim-white));
@@ -1898,6 +1889,11 @@ body.mobile-all-route .menu-row {
   line-height: 1.45;
   text-align: center;
 }
+/* A request that failed, not a list that is empty. Muted grey reads as "there
+   is nothing here"; this has to read as "something went wrong". */
+.detail-empty-state.is-error {
+  color: hsl(var(--v3-burgundy));
+}
 .info-row {
   display: flex;
   align-items: flex-start;
@@ -1988,7 +1984,8 @@ body.mobile-all-route .menu-row {
   /* Matches .sheet-header: opaque for the sticky case, in the sheet's colour. */
   background: hsl(var(--v3-dim-white));
 }
-body.mobile-clients-route .detail-tabs {
+body.mobile-clients-route .detail-tabs,
+body:has([data-slot="calls-content"]) .detail-tabs {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -2419,29 +2416,14 @@ body.mobile-clients-route .detail-tabs {
 }
 
 [data-slot="skeleton"].service-record-skeleton-loader {
-  background:
-    linear-gradient(
-      90deg,
-      hsl(var(--v3-text-muted) / 0.42) 0%,
-      hsl(var(--v3-text-muted) / 0.2) 42%,
-      hsl(var(--v3-text-muted) / 0.42) 78%
-    );
-  background-size: 220% 100%;
+  background: var(--skeleton-bg);
+  background-image: none;
   opacity: 1;
-  animation: service-record-skeleton-shimmer 1.05s ease-in-out infinite;
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
-@keyframes service-record-skeleton-shimmer {
-  0% {
-    background-position: 120% 0;
-  }
-
-  100% {
-    background-position: -120% 0;
-  }
-}
-
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"],
+body:has([data-slot="calls-content"]) [data-slot="mobile-bottom-nav"] {
   position: absolute !important;
   left: 14px !important;
   right: 14px !important;
@@ -2458,23 +2440,27 @@ body.mobile-clients-route [data-slot="mobile-bottom-nav"] {
   border-radius: 20px;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"],
+body:has([data-slot="calls-content"]) [data-slot="mobile-bottom-nav"] > div[aria-hidden="true"] {
   display: none;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] a {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] a,
+body:has([data-slot="calls-content"]) [data-slot="mobile-bottom-nav"] a {
   gap: 2px;
   padding: 5px 4px;
   border-radius: 14px;
   font-family: "NanumSquare Neo", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", -apple-system, sans-serif;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] svg {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] svg,
+body:has([data-slot="calls-content"]) [data-slot="mobile-bottom-nav"] svg {
   width: 18px;
   height: 18px;
 }
 
-body.mobile-clients-route [data-slot="mobile-bottom-nav"] span {
+body.mobile-clients-route [data-slot="mobile-bottom-nav"] span,
+body:has([data-slot="calls-content"]) [data-slot="mobile-bottom-nav"] span {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
@@ -2484,13 +2470,15 @@ body.mobile-clients-route [data-slot="mobile-bottom-nav-clients"] {
   background: transparent;
 }
 
-body.mobile-clients-route:has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"] {
+body.mobile-clients-route:has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"],
+body:has([data-slot="calls-content"]):has(.nav-stack.show-detail) [data-slot="mobile-bottom-nav"] {
   transform: translate(-50%, calc(100% + 32px));
   opacity: 0;
   pointer-events: none;
 }
 
-body.mobile-clients-route [data-slot="mobile-header"] {
+body.mobile-clients-route [data-slot="mobile-header"],
+body:has([data-slot="calls-content"]) [data-slot="mobile-header"] {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -2511,8 +2499,14 @@ body.mobile-clients-route [data-slot="mobile-header"] {
     sans-serif;
 }
 
-/* ===== Pop-up entrance animation (shared) ===== */
-.pop-up {
+/* ===== Pop-up entrance animation (shared across mobile elements) ===== */
+.pop-up,
+.mini-stat,
+.profile-card,
+.info-card,
+.list-card,
+.message-detail,
+.price-breakdown {
   animation: mobile-redesign-pop-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -3281,11 +3275,13 @@ body:has([data-slot="auth-login-page"]) main[data-slot="main-content"] {
   background: hsl(var(--v3-dim-white));
 }
 
+/* No max-width here: login was the only auth page clamping itself to a 430px
+   centred column, so it rendered narrower than register, forgot-password,
+   reset-password, verify-email and callback beside it. On a handset the clamp
+   never applied anyway — it only ever showed up as an inconsistency on wider
+   screens. */
 [data-slot="auth-login-page"].auth-page {
-  width: 100%;
-  max-width: 430px;
   min-height: 100%;
-  margin: 0 auto;
   padding: 24px;
 }
 
@@ -3565,22 +3561,24 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   height: 100%;
   min-height: 0;
   background: hsl(var(--v3-dim-white));
-  padding: 24px 20px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
   box-sizing: border-box;
   overflow: hidden;
   line-height: normal;
 }
 .branch-header {
-  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex-shrink: 0;
 }
 .branch-title {
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   font-weight: 800;
   color: hsl(var(--v3-dark));
-  margin-bottom: 6px;
 }
 .branch-user {
   display: flex;
@@ -3589,7 +3587,6 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   background: white;
   border-radius: 14px;
   padding: 10px 12px;
-  margin-bottom: 18px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   flex-shrink: 0;
 }
@@ -3610,16 +3607,18 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   flex: 1;
   min-width: 0;
   line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .branch-user-name {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: hsl(var(--v3-dark));
 }
 .branch-user-email {
   font-size: 0.66rem;
   color: hsl(var(--v3-text-muted));
-  margin-top: 2px;
 }
 .branch-list {
   display: flex;
@@ -3700,7 +3699,6 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
   display: block;
 }
 .branch-actions {
-  margin-top: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3725,18 +3723,26 @@ main[data-slot="main-content"]:has([data-slot="select-branch-page"]) > [data-slo
 }
 .logout-link {
   min-height: 44px;
-  background: none;
-  border: 0;
+  background: white;
+  border: 1.5px solid hsl(var(--v3-primary));
+  border-radius: 14px;
   text-align: center;
-  font-size: 0.74rem;
-  color: hsl(var(--v3-text-muted));
-  padding: 8px;
+  font-size: 0.82rem;
+  color: hsl(var(--v3-primary));
+  padding: 8px 14px;
   cursor: pointer;
   font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease-out;
+}
+.logout-link:hover {
+  background: hsl(var(--v3-primary-light));
 }
 .logout-link span {
-  color: hsl(var(--v3-burgundy));
-  font-weight: 600;
+  color: hsl(var(--v3-primary));
+  font-weight: 700;
 }
 
 /* ===== Register page wizard (/register) ===== */
@@ -4235,31 +4241,40 @@ body.mobile-contracts-route [data-slot="mobile-detail-stack-track"].show-detail 
 /* Lock the app shell to the viewport on the clients route (parity with the
    dashboard, redesign.css:155-212) so the page itself never scrolls — only the
    inner [data-slot="clients-content"] list scrolls. */
-body.mobile-clients-route {
+body.mobile-clients-route,
+body:has([data-slot="calls-content"]) {
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-slot="app-root"] {
+body.mobile-clients-route [data-slot="app-root"],
+body:has([data-slot="calls-content"]) [data-slot="app-root"] {
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  body.mobile-clients-route [data-slot="app-root"] {
+  body.mobile-clients-route [data-slot="app-root"],
+body:has([data-slot="calls-content"]) [data-slot="app-root"] {
     height: min(100dvh, 844px);
     max-height: 844px;
   }
 }
 
-body.mobile-clients-route [data-slot="app-root"] [data-slot="app-content"] {
+body.mobile-clients-route [data-slot="app-root"] [data-slot="app-content"],
+body:has([data-slot="calls-content"]) [data-slot="app-root"] [data-slot="app-content"] {
   position: relative;
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-body.mobile-clients-route [data-slot="main-content"] {
+/* The call inbox shares this treatment: same list-plus-detail-sheet shape, same
+   64px header to clear. Without it the shell falls back to V3MainContent's
+   default (pt-20, no clamp), which pushes the header spacing 16px out, lets the
+   sheet grow past the viewport, and leaves the list with no scroll container. */
+body.mobile-clients-route [data-slot="main-content"],
+body:has([data-slot="calls-content"]) [data-slot="main-content"] {
   position: absolute !important;
   inset: 0 !important;
   display: flex !important;
@@ -4273,11 +4288,16 @@ body.mobile-clients-route [data-slot="main-content"] {
   color: hsl(var(--v3-text));
 }
 
-body.mobile-clients-route .mobile-detail-sheet {
+body.mobile-clients-route .mobile-detail-sheet,
+body:has([data-slot="calls-content"]) .mobile-detail-sheet {
   flex: 1;
   height: 100%;
   min-height: 0 !important;
   margin: 0 !important;
+}
+
+[data-slot="calls-content"] {
+  padding: 12px 14px 76px;
 }
 
 body.mobile-clients-route [data-slot="clients-content"] {
@@ -4285,7 +4305,8 @@ body.mobile-clients-route [data-slot="clients-content"] {
   overflow-y: auto;
 }
 
-body.mobile-clients-route [data-slot="mobile-detail-stack-track"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-track"],
+body:has([data-slot="calls-content"]) [data-slot="mobile-detail-stack-track"] {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -4293,16 +4314,20 @@ body.mobile-clients-route [data-slot="mobile-detail-stack-track"] {
 }
 
 body.mobile-clients-route [data-slot="mobile-detail-stack-list-page"],
-body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="calls-content"]) [data-slot="mobile-detail-stack-list-page"],
+body:has([data-slot="calls-content"]) [data-slot="mobile-detail-stack-detail-page"] {
   position: absolute;
   inset: 0;
 }
 
-body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"] {
+body.mobile-clients-route [data-slot="mobile-detail-stack-detail-page"],
+body:has([data-slot="calls-content"]) [data-slot="mobile-detail-stack-detail-page"] {
   top: 50px;
 }
 
-body.mobile-clients-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
+body.mobile-clients-route [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list,
+body:has([data-slot="calls-content"]) [data-slot="mobile-detail-stack-track"].show-detail .nav-page.list {
   transform: translateX(0) !important;
 }
 
@@ -4343,6 +4368,13 @@ body.mobile-contracts-route .search-bar input {
   z-index: 3;
   padding-top: 8px;
   box-shadow: 0 1px 0 hsl(var(--v3-border));
+}
+.message-count-skeleton {
+  display: inline-block;
+  width: 2.5rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  vertical-align: middle;
 }
 
 /* 카드 하단에 핀되는 load-more 컨트롤. isInitialLoad === true 인 동안만 mount.
@@ -4763,11 +4795,6 @@ body.mobile-contracts-route nextjs-portal {
   min-height: 0 !important;
 }
 
-/* Faster skeleton pulse for bg-v3-dim-white */
-[data-slot="skeleton"].bg-v3-dim-white {
-  animation-duration: 0.7s;
-}
-
 /* ===== Dashboard viewport-fit chain (mirrors clients/prices/contracts pattern) ===== */
 body.mobile-dashboard-route [data-slot="main-content"] {
   position: absolute !important;
@@ -4874,6 +4901,15 @@ body.mobile-contracts-route:has([data-slot="mobile-detail-stack-track"].show-det
 }
 
 /* ===== Mobile redesign frame removal ===== */
+body:has([data-slot="auth-login-page"]),
+body:has([data-slot="auth-forgot-password-page"]),
+body:has([data-slot="auth-register-page"]),
+body:has([data-slot="auth-reset-password-page"]),
+body:has([data-slot="auth-verify-email-page"]),
+body:has([data-slot="auth-callback-page"]) {
+  padding: 0 !important;
+}
+
 html:has(body [data-slot="dashboard-page"]),
 html:has(body.mobile-all-route),
 html:has(body [data-slot="employees-content"]),
@@ -4881,6 +4917,9 @@ html:has(body [data-slot="messages-page"]),
 html:has(body [data-slot="auth-login-page"]),
 html:has(body [data-slot="auth-forgot-password-page"]),
 html:has(body [data-slot="auth-register-page"]),
+html:has(body [data-slot="auth-reset-password-page"]),
+html:has(body [data-slot="auth-verify-email-page"]),
+html:has(body [data-slot="auth-callback-page"]),
 html:has(body [data-slot="select-branch-page"]),
 html:has(body [data-slot="clients-new-page-shell"]),
 html:has(body [data-slot="chat-page"]),
@@ -4897,6 +4936,9 @@ body:has([data-slot="messages-page"]),
 body:has([data-slot="auth-login-page"]),
 body:has([data-slot="auth-forgot-password-page"]),
 body:has([data-slot="auth-register-page"]),
+body:has([data-slot="auth-reset-password-page"]),
+body:has([data-slot="auth-verify-email-page"]),
+body:has([data-slot="auth-callback-page"]),
 body:has([data-slot="select-branch-page"]),
 body:has([data-slot="clients-new-page-shell"]),
 body:has([data-slot="chat-page"]),
@@ -4913,6 +4955,9 @@ body:has([data-slot="messages-page"]) [data-slot="app-root"],
 body:has([data-slot="auth-login-page"]) [data-slot="app-root"],
 body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"],
 body:has([data-slot="auth-register-page"]) [data-slot="app-root"],
+body:has([data-slot="auth-reset-password-page"]) [data-slot="app-root"],
+body:has([data-slot="auth-verify-email-page"]) [data-slot="app-root"],
+body:has([data-slot="auth-callback-page"]) [data-slot="app-root"],
 [data-slot="app-root"]:has([data-slot="select-branch-page"]),
 body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
 body:has([data-slot="chat-page"]) [data-slot="app-root"],
@@ -4932,6 +4977,9 @@ body:has([data-slot="messages-page"]) [data-slot="app-root"]::before,
 body:has([data-slot="auth-login-page"]) [data-slot="app-root"]::before,
 body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"]::before,
 body:has([data-slot="auth-register-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="auth-reset-password-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="auth-verify-email-page"]) [data-slot="app-root"]::before,
+body:has([data-slot="auth-callback-page"]) [data-slot="app-root"]::before,
 [data-slot="app-root"]:has([data-slot="select-branch-page"])::before,
 body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"]::before,
 body:has([data-slot="chat-page"]) [data-slot="app-root"]::before,
@@ -4949,6 +4997,9 @@ body:has([data-slot="messages-page"]) [data-slot="app-content"],
 body:has([data-slot="auth-login-page"]) [data-slot="app-content"],
 body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-content"],
 body:has([data-slot="auth-register-page"]) [data-slot="app-content"],
+body:has([data-slot="auth-reset-password-page"]) [data-slot="app-content"],
+body:has([data-slot="auth-verify-email-page"]) [data-slot="app-content"],
+body:has([data-slot="auth-callback-page"]) [data-slot="app-content"],
 [data-slot="app-root"]:has([data-slot="select-branch-page"]) [data-slot="app-content"],
 body:has([data-slot="clients-new-page-shell"]) [data-slot="app-content"],
 body:has([data-slot="chat-page"]) [data-slot="app-content"],
@@ -4965,6 +5016,9 @@ body:has([data-slot="messages-page"]) nextjs-portal,
 body:has([data-slot="auth-login-page"]) nextjs-portal,
 body:has([data-slot="auth-forgot-password-page"]) nextjs-portal,
 body:has([data-slot="auth-register-page"]) nextjs-portal,
+body:has([data-slot="auth-reset-password-page"]) nextjs-portal,
+body:has([data-slot="auth-verify-email-page"]) nextjs-portal,
+body:has([data-slot="auth-callback-page"]) nextjs-portal,
 body:has([data-slot="select-branch-page"]) nextjs-portal,
 body:has([data-slot="clients-new-page-shell"]) nextjs-portal,
 body:has([data-slot="chat-page"]) nextjs-portal,
@@ -5472,8 +5526,8 @@ body.mobile-dashboard-route [data-slot="dashboard-content"] {
   width: 4ch;
   height: 0.85em;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
-  animation: pulse 1.6s ease-in-out infinite;
+  background: var(--skeleton-bg);
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
 .contracts-loading-row {
@@ -5492,8 +5546,8 @@ body.mobile-dashboard-route [data-slot="dashboard-content"] {
 .contracts-loading-badge {
   flex: 0 0 auto;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
-  animation: pulse 1.6s ease-in-out infinite;
+  background: var(--skeleton-bg);
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
 .contracts-loading-avatar {
@@ -5529,8 +5583,8 @@ body.mobile-dashboard-route [data-slot="dashboard-content"] {
   width: 88px;
   height: 36px;
   border-radius: 999px;
-  background: hsl(var(--v3-dim-white));
-  animation: pulse 1.6s ease-in-out infinite;
+  background: var(--skeleton-bg);
+  animation: bjj-skeleton-pulse var(--skeleton-pulse-duration) ease-in-out infinite;
 }
 
 /* The shared sliding indicator owns the active background. Route-specific
@@ -5600,6 +5654,9 @@ body.mobile-contracts-route [data-slot="app-content"] {
   body:has([data-slot="auth-login-page"]) [data-slot="app-root"],
   body:has([data-slot="auth-forgot-password-page"]) [data-slot="app-root"],
   body:has([data-slot="auth-register-page"]) [data-slot="app-root"],
+  body:has([data-slot="auth-reset-password-page"]) [data-slot="app-root"],
+  body:has([data-slot="auth-verify-email-page"]) [data-slot="app-root"],
+  body:has([data-slot="auth-callback-page"]) [data-slot="app-root"],
   [data-slot="app-root"]:has([data-slot="select-branch-page"]),
   body:has([data-slot="clients-new-page-shell"]) [data-slot="app-root"],
   body:has([data-slot="chat-page"]) [data-slot="app-root"],

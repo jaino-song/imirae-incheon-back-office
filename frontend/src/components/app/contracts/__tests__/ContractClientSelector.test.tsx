@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 import type { Client } from "@/lib/client/types";
 import {
+  canCreateNewContractDocument,
   ContractClientSelector,
   hasExistingContractDocument,
 } from "../ContractClientSelector";
@@ -12,6 +13,7 @@ const mockExistingClient: Client = {
   createdAt: "2026-01-01",
   birthday: "960201",
   dueDate: "2026-06-10",
+  birthDate: null,
   address: "경기도 고양시",
   phone: "01066211878",
   primaryEmployee: null,
@@ -125,5 +127,22 @@ describe("ContractClientSelector", () => {
       }),
     ).toBe(true);
     expect(hasExistingContractDocument(mockNewClient)).toBe(false);
+  });
+
+  it("allows a new contract only when no active document exists", () => {
+    expect(canCreateNewContractDocument(mockNewClient)).toBe(true);
+    for (const documentStatus of ["rejected", "revoked", "deleted"] as const) {
+      expect(
+        canCreateNewContractDocument({ ...mockExistingClient, documentStatus }),
+      ).toBe(true);
+    }
+    for (const documentStatus of ["created", "requested", "opened", "completed"] as const) {
+      expect(
+        canCreateNewContractDocument({ ...mockExistingClient, documentStatus }),
+      ).toBe(false);
+    }
+    expect(
+      canCreateNewContractDocument({ ...mockExistingClient, documentStatus: null }),
+    ).toBe(false);
   });
 });

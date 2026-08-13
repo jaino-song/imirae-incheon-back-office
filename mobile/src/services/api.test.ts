@@ -132,3 +132,47 @@ describe("eformsignApi.authenticate", () => {
         expect(mockPost).toHaveBeenCalledTimes(4);
     });
 });
+
+describe("eformsignApi.finalizeHeadless", () => {
+    it("keeps the client timeout above the mobile proxy timeout", async () => {
+        const { apiModule, mockPost } = await loadApiModule();
+        mockPost.mockResolvedValue({ data: { ok: true } });
+
+        await apiModule.eformsignApi.finalizeHeadless("doc-1", undefined, "progress-1");
+
+        expect(mockPost).toHaveBeenCalledWith(
+            "/eformsign-docs/finalize-headless",
+            {
+                documentId: "doc-1",
+                prefillEndDate: undefined,
+                progressId: "progress-1",
+            },
+            { timeout: 180_000 },
+        );
+    });
+
+    it("continues an advanced provider step until the document is completed", async () => {
+        const { apiModule, mockPost } = await loadApiModule();
+        mockPost
+            .mockResolvedValueOnce({ data: { ok: true, completed: false, durationMs: 700 } })
+            .mockResolvedValueOnce({ data: { ok: true, completed: true, durationMs: 900 } });
+
+        await expect(apiModule.eformsignApi.finalizeHeadless("doc-1"))
+            .resolves.toEqual({ ok: true, completed: true, durationMs: 1_600 });
+        expect(mockPost).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails closed when the provider keeps advancing beyond the bounded workflow", async () => {
+        const { apiModule, mockPost } = await loadApiModule();
+        mockPost.mockResolvedValue({ data: { ok: true, completed: false, durationMs: 700 } });
+
+        await expect(apiModule.eformsignApi.finalizeHeadless("doc-1"))
+            .resolves.toEqual({
+                ok: false,
+                reason: "provider_workflow_incomplete",
+                fallbackHint: "manual_check",
+                durationMs: 2_100,
+            });
+        expect(mockPost).toHaveBeenCalledTimes(3);
+    });
+});

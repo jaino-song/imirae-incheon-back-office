@@ -6,7 +6,7 @@ import {
     UNASSIGNED_REVIEW_STAGE_STATUS_STORAGE_VALUES,
     UNASSIGNED_TERMINAL_STATUS_CODES,
 } from "domain/constants/eformsign-doc-status.constants";
-import { EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
+import { EFORMSIGN_DOCUMENT_KIND, EformsignDocEntity } from "domain/entities/eformsign-doc.entity";
 import {
     EformsignDocCompletionClaimParams,
     EformsignDocCompletionClaimResult,
@@ -17,6 +17,7 @@ import {
     EformsignDocStaleUpdateError,
     EformsignDocUnscopedResult,
     IEformsignDocRepository,
+    ReviewStageContract,
     UpsertEformsignDocByDocumentIdOptions,
     UpsertUnassignedEformsignDocOptions,
 } from "domain/repositories/eformsign-doc.repository.interface";
@@ -30,6 +31,8 @@ import {
 } from "infrastructure/database/eformsign-doc-compat";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EformsignDocMapper } from "infrastructure/database/mapper/eformsign-doc.mapper";
+import { extractEformsignContractEndDate } from "application/utils/eformsign-contract-client-candidate";
+import type { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 
 const isUniqueConstraintError = (error: unknown): boolean =>
     typeof error === "object"
@@ -339,6 +342,90 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                 customerName: trimmed && trimmed !== "수신자" ? trimmed : null,
             };
         });
+    }
+
+    async findContractEndDatesByDocumentIds(documentIds: string[]): Promise<Map<string, string>> {
+        if (documentIds.length === 0) return new Map();
+
+        const docs = await this.prismaService.eformsign_doc.findMany({
+            where: { documentId: { in: documentIds } },
+            select: { documentId: true, detailPayload: true },
+        });
+
+        const endDates = new Map<string, string>();
+        for (const doc of docs) {
+            if (!doc.detailPayload || typeof doc.detailPayload !== "object") continue;
+            const endDate = extractEformsignContractEndDate(
+                doc.detailPayload as unknown as EformsignApiDocumentResponse,
+            );
+            if (endDate) endDates.set(doc.documentId, endDate.toISOString().slice(0, 10));
+        }
+        return endDates;
+    }
+
+    // Storage aliases for the provider-review request status (doc_request_reviewer).
+    // New writes are normalized to "070", but older vendor-ingestion paths may have
+    // persisted the raw name or the unpadded numeric form — same fencing concern as
+    // EFORMSIGN_COMPLETED_STATUS_STORAGE_VALUES.
+    private static readonly REVIEW_STAGE_STATUS_STORAGE_VALUES = [
+        "070",
+        "70",
+        "doc_request_reviewer",
+    ];
+
+    async findReviewStageContracts(): Promise<ReviewStageContract[]> {
+        const docs = await this.prismaService.eformsign_doc.findMany({
+            where: {
+                documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
+                statusType: { in: SbEformsignDocRepository.REVIEW_STAGE_STATUS_STORAGE_VALUES },
+                permanentPurgeRequestedAt: null,
+            },
+            select: {
+                documentId: true,
+                branchId: true,
+                customerName: true,
+                stepRecipientName: true,
+                detailPayload: true,
+                autoFinalizeAttempts: true,
+                autoFinalizeLastAttemptAt: true,
+                autoFinalizeLastError: true,
+            },
+        });
+
+        return docs.map((doc) => {
+            const endDate =
+                doc.detailPayload && typeof doc.detailPayload === "object"
+                    ? extractEformsignContractEndDate(
+                        doc.detailPayload as unknown as EformsignApiDocumentResponse,
+                    )
+                    : null;
+            const recipientName = doc.stepRecipientName.trim();
+            return {
+                documentId: doc.documentId,
+                branchId: doc.branchId,
+                customerName:
+                    doc.customerName?.trim()
+                    // "수신자" is the adoption-time fallback sentinel, not a real name.
+                    || (recipientName && recipientName !== "수신자" ? recipientName : null),
+                contractEndDate: endDate ? endDate.toISOString().slice(0, 10) : null,
+                autoFinalizeAttempts: doc.autoFinalizeAttempts,
+                autoFinalizeLastAttemptAt: doc.autoFinalizeLastAttemptAt,
+                autoFinalizeLastError: doc.autoFinalizeLastError,
+            };
+        });
+    }
+
+    async recordAutoFinalizeFailure(documentId: string, error: string): Promise<number> {
+        const updated = await this.prismaService.eformsign_doc.update({
+            where: { documentId },
+            data: {
+                autoFinalizeAttempts: { increment: 1 },
+                autoFinalizeLastAttemptAt: new Date(),
+                autoFinalizeLastError: error,
+            },
+            select: { autoFinalizeAttempts: true },
+        });
+        return updated.autoFinalizeAttempts;
     }
 
     async findClientNamesByBranch(branchid: string): Promise<EformsignDocClientSummary[]> {

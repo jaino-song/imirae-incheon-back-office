@@ -9,15 +9,38 @@ import {
 } from "application/usecases/notification";
 import { PushSubscriptionEntity } from "domain/entities/push-subscription.entity";
 import { NotificationEntity } from "domain/entities/notification.entity";
+import { UserEntity } from "domain/entities/user.entity";
 import { IUserRepository, USER_REPOSITORY } from "domain/repositories/user.repository.interface";
 import { EMAIL_PORT, EmailPort } from "domain/ports/email.port";
 import { SystemSettingService } from "./system-setting.service";
+import { isNotificationEmailEnabled } from "application/constants/notification";
 
 const EMAIL_SEND_INTERVAL_MS = 600;
 
 interface NotificationEmailTemplateContext {
     ctaUrl: string;
     ctaLabel: string;
+}
+
+/**
+ * One line item of the per-branch daily digest. The scheduler builds these from its
+ * repository queries; the digest is delivered as a single notification row, a single
+ * push and a single email per branch user, no matter how many sections there are.
+ */
+export interface DailyDigestSection {
+    key: string;
+    label: string;
+    description: string;
+    count: number;
+    /** Korean counter suffix used in the push/notification summary line ("건" / "명"). */
+    unit: string;
+    url: string;
+    /**
+     * Optional per-item detail lines rendered under the section — e.g. a list of client names,
+     * or a composite line like "recipient · template — reason". Each entry renders on its own
+     * line and is HTML-escaped the same way the rest of the digest is.
+     */
+    details?: string[];
 }
 
 @Injectable()
@@ -53,8 +76,11 @@ export class NotificationService {
         userId: string,
         title: string,
         body: string,
-        emailTemplateContext?: NotificationEmailTemplateContext,
     ) {
+        if (!isNotificationEmailEnabled()) {
+            return;
+        }
+
         const user = await this.userRepository.findById(userId);
         if (!user?.email) {
             return;
@@ -72,18 +98,6 @@ export class NotificationService {
 
         try {
             await this.enqueueEmailSend(async () => {
-                if (emailTemplateContext) {
-                    await this.emailPort.sendNotificationEmail({
-                        to: recipientEmail,
-                        name: recipientName,
-                        title,
-                        body: safeBody,
-                        ctaUrl: emailTemplateContext.ctaUrl,
-                        ctaLabel: emailTemplateContext.ctaLabel,
-                    });
-                    return;
-                }
-
                 await this.emailPort.send({
                     to: recipientEmail,
                     subject: `[아가잼잼] ${title}`,
@@ -109,10 +123,9 @@ export class NotificationService {
         userIds: string[],
         title: string,
         body: string,
-        emailTemplateContext?: NotificationEmailTemplateContext,
     ) {
         for (const userId of userIds) {
-            await this.sendEmailNotificationToUser(userId, title, body, emailTemplateContext);
+            await this.sendEmailNotificationToUser(userId, title, body);
         }
     }
 
@@ -123,8 +136,11 @@ export class NotificationService {
                 await this.delay(waitMs);
             }
 
-            await task();
-            this.nextEmailSendAt = Date.now() + EMAIL_SEND_INTERVAL_MS;
+            try {
+                await task();
+            } finally {
+                this.nextEmailSendAt = Date.now() + EMAIL_SEND_INTERVAL_MS;
+            }
         });
 
         this.emailSendQueue = queuedSend.catch(() => undefined);
@@ -228,21 +244,150 @@ export class NotificationService {
         return this.markNotificationReadUsecase.markAllAsRead(branchid, userId);
     }
 
-    async sendToRoles(
-        roles: string[],
-        title: string,
-        body: string,
-        data?: Record<string, unknown>,
-        emailTemplateContext?: NotificationEmailTemplateContext,
+    /**
+     * Daily digest: one notification row + one push + one email per branch user,
+     * carrying every section collected for that branch. Recipients are branch-scoped
+     * (owners included) — never the global role list.
+     */
+    async sendDailyDigestToBranchUsers(
+        branchid: string,
+        branchName: string,
+        sections: DailyDigestSection[],
+        emailTemplateContext: NotificationEmailTemplateContext,
     ): Promise<{ sent: number; failed: number }> {
-        const users = await this.userRepository.findByRoles(roles);
-        if (users.length === 0) {
+        if (sections.length === 0) {
             return { sent: 0, failed: 0 };
         }
-        const userIds = users.map(u => u.id);
-        const result = await this.sendNotificationUsecase.sendToUsers({ userIds, title, body, data });
-        await this.sendEmailNotificationsToUsers(userIds, title, body, emailTemplateContext);
-        return result;
+
+        const users = await this.userRepository.findNotificationRecipientsByBranchId(branchid);
+        const uniqueUsers = Array.from(new Map(users.map((user) => [user.id, user])).values());
+        if (uniqueUsers.length === 0) {
+            return { sent: 0, failed: 0 };
+        }
+
+        const title = `오늘 확인할 알림이 ${sections.length}건 있습니다`;
+        const summary = sections.map((section) => `${section.label} ${section.count}${section.unit}`).join(" · ");
+        const body = `[${branchName}] ${summary} 지금 확인해 보세요.`;
+        const data = { type: "daily-summary", url: sections.length === 1 ? sections[0]!.url : "/", sections };
+
+        const results = await Promise.allSettled(uniqueUsers.map(async (user) => {
+            await this.sendNotificationUsecase.execute(branchid, { userId: user.id, title, body, data });
+            return this.sendDailyDigestEmailToUser(user, branchName, title, sections, emailTemplateContext);
+        }));
+
+        let sent = 0;
+        let failed = 0;
+        let emailsSent = 0;
+        let emailsSkipped = 0;
+        let emailsFailed = 0;
+        for (const result of results) {
+            if (result.status === "fulfilled") {
+                sent++;
+                if (result.value === "sent") {
+                    emailsSent++;
+                } else if (result.value === "skipped") {
+                    emailsSkipped++;
+                } else {
+                    emailsFailed++;
+                }
+                continue;
+            }
+
+            failed++;
+            this.logger.error(
+                `Failed to send daily digest for branch ${branchid}`,
+                result.reason instanceof Error ? result.reason.stack : String(result.reason),
+            );
+        }
+
+        const emailLog = `daily digest emails for branch ${branchid}: ${emailsSent} sent, ${emailsSkipped} skipped, ${emailsFailed} failed`;
+        if (emailsFailed === 0) {
+            this.logger.log(emailLog);
+        } else {
+            this.logger.warn(emailLog);
+        }
+
+        return { sent, failed };
+    }
+
+    private async sendDailyDigestEmailToUser(
+        user: UserEntity,
+        branchName: string,
+        title: string,
+        sections: DailyDigestSection[],
+        emailTemplateContext: NotificationEmailTemplateContext,
+    ): Promise<"sent" | "skipped" | "failed"> {
+        if (!isNotificationEmailEnabled()) {
+            return "skipped";
+        }
+
+        if (!user.email) {
+            return "skipped";
+        }
+
+        try {
+            const isEnabled = await this.systemSettingService.getUserEmailNotificationsEnabled(user.id);
+            if (!isEnabled) {
+                return "skipped";
+            }
+
+            const recipientEmail = user.email;
+            const recipientName = user.name ?? "사용자";
+            const safeRecipientName = this.escapeHtml(recipientName);
+            const safeBranchName = this.escapeHtml(branchName);
+            const safeCtaUrl = this.escapeHtml(emailTemplateContext.ctaUrl);
+            const safeCtaLabel = this.escapeHtml(emailTemplateContext.ctaLabel);
+
+            const sectionsHtml = sections.map((section) => {
+                const detailsHtml = section.details && section.details.length > 0
+                    ? `<p style="margin: 4px 0 0; color: #4a6382;">${section.details.map((detail) => this.escapeHtml(detail)).join("<br />")}</p>`
+                    : "";
+                return `
+                        <div style="margin: 0 0 20px;">
+                          <h2 style="margin: 0 0 4px; font-size: 16px; color: #12366a;">${this.escapeHtml(section.label)}</h2>
+                          <p style="margin: 0;">${this.escapeHtml(section.description)}</p>
+                          ${detailsHtml}
+                        </div>`;
+            }).join("");
+
+            const html = `
+                      <div style="font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif; line-height: 1.6; color: #17304d;">
+                        <p style="margin: 0 0 20px;">${safeRecipientName}님, 오늘 ${safeBranchName}에서 확인이 필요한 알림 ${sections.length}건을 정리했어요.</p>${sectionsHtml}
+                        <p style="margin: 24px 0 0;">
+                          <a href="${safeCtaUrl}" style="display: inline-block; padding: 12px 20px; background-color: #12366a; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">${safeCtaLabel}</a>
+                        </p>
+                      </div>
+                    `;
+
+            const textLines = [
+                `${recipientName}님, 오늘 ${branchName}에서 확인이 필요한 알림 ${sections.length}건을 정리했어요.`,
+                "",
+            ];
+            for (const section of sections) {
+                textLines.push(`[${section.label}] ${section.description}`);
+                if (section.details && section.details.length > 0) {
+                    textLines.push(section.details.join("\n"));
+                }
+                textLines.push("");
+            }
+            textLines.push(`${emailTemplateContext.ctaLabel}: ${emailTemplateContext.ctaUrl}`);
+
+            await this.enqueueEmailSend(async () => {
+                await this.emailPort.send({
+                    to: recipientEmail,
+                    subject: `[아가잼잼] ${title}`,
+                    text: textLines.join("\n"),
+                    html,
+                });
+            });
+            return "sent";
+        } catch (error) {
+            this.logger.error(
+                `Failed to send daily digest email to user ${user.id}`,
+                error instanceof Error ? error.stack : String(error),
+            );
+            return "failed";
+        }
     }
 
     async sendToBranchUsers(

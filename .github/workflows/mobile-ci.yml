@@ -25,6 +25,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The e2e copy drift gate diffs against a base commit; the default
+          # depth-1 checkout has no history for it to resolve and the gate
+          # would silently skip.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -65,6 +70,22 @@ jobs:
 
       - name: UI architecture gate
         run: pnpm lint:ui-architecture --platform mobile
+
+      # Reworded UI copy is invisible to the unit tests below — the Playwright
+      # specs that assert it only run in the e2e job, against a seeded backend.
+      # This catches a stale assertion here in seconds instead of there in
+      # minutes. Repo-wide, so it also covers frontend when only this job runs.
+      - name: e2e copy drift gate
+        run: |
+          # A pull request compares against its own base; a push against the
+          # head it replaced. Defaulting to origin/dev would compare a dev push
+          # to the very commit under test.
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then BASE="${{ github.event.before }}"; fi
+          case "$BASE" in
+            ""|0000000000000000000000000000000000000000) BASE="HEAD~1" ;;
+          esac
+          pnpm lint:e2e-strings --base "$BASE"
 
       - name: Unit tests
         run: pnpm --filter ./mobile test
@@ -240,6 +261,18 @@ jobs:
           else
             pnpm --filter ./mobile run test:e2e
           fi
+
+      - name: Rebuild mobile app with operational copilot shell
+        env:
+          NEXT_PUBLIC_E2E_TEST: 'true'
+          NEXT_PUBLIC_AGENT_SHELL_ENABLED: 'true'
+          NODE_ENV: production
+        run: pnpm --filter ./mobile exec next build
+
+      - name: Run mobile operational copilot against the real backend
+        env:
+          RUN_AGENT_REAL_E2E: '1'
+        run: pnpm --filter ./mobile exec playwright test tests/agent-real-backend.spec.ts
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

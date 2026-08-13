@@ -33,6 +33,8 @@ export interface CreateEformsignDocParams {
     templateId?: string | null;
     /** Internal adopt-path fence; ordinary document creation must leave this unset. */
     preserveExistingMirrorProjection?: boolean;
+    /** Approval target hash used to prevent a stale post-provider client link. */
+    clientTargetVersion?: string;
 }
 
 export type CreateEformsignDocWarning = "client_link_failed" | "mirror_sync_failed";
@@ -106,8 +108,20 @@ export class CreateEformsignDocUsecase {
             try {
                 const client = linkedClient ?? await this.clientRepository.findById(branchid, clientId);
                 if (client) {
-                    client.update({ eDocId: params.documentId });
-                    await this.clientRepository.update(branchid, client);
+                    if (params.clientTargetVersion) {
+                        const linked = await this.clientRepository.updateIfTargetVersion(
+                            branchid,
+                            client.id,
+                            params.clientTargetVersion,
+                            { eDocId: params.documentId },
+                        );
+                        if (!linked) {
+                            throw new Error("Client changed before contract link could be persisted");
+                        }
+                    } else {
+                        client.update({ eDocId: params.documentId });
+                        await this.clientRepository.update(branchid, client);
+                    }
                     this.logger.log(`Linked document ${params.documentId} to client ${client.id}`);
                 } else {
                     this.logger.warn(`Client ${clientId} not found, skipping e_doc_id update`);

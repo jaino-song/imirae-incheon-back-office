@@ -37,6 +37,24 @@ export function normalizeIsoDate(value: string | null | undefined): string {
   return isStrictIsoDate(isoDate) ? isoDate : "";
 }
 
+/**
+ * Types out to YYYY-MM-DD, inserting the dashes as the digits arrive, so a date
+ * can be keyed straight in instead of going through the native picker. Shapes
+ * the text only — use isStrictIsoDate to find out whether it is a real date.
+ */
+export function formatIsoDateInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+
+  if (digits.length <= 4) {
+    return digits;
+  }
+  if (digits.length <= 6) {
+    return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  }
+
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+}
+
 export function yymmddToIso(value: string): string {
   const trimmed = value.trim();
 
@@ -45,6 +63,18 @@ export function yymmddToIso(value: string): string {
   }
 
   return normalizeIsoDate(`20${trimmed.slice(0, 2)}-${trimmed.slice(2, 4)}-${trimmed.slice(4, 6)}`);
+}
+
+/**
+ * Normalises a date that may arrive in either shape into YYYY-MM-DD.
+ *
+ * Prefill sources — a contract document, an eformsign edit — still speak the
+ * six-digit YYMMDD that predates the ISO wizard store. Anything already ISO
+ * passes through; anything unrecognisable becomes "". Do not use it on
+ * 생년월일, which is stored as YYMMDD on purpose.
+ */
+export function toIsoDate(value: string | null | undefined): string {
+  return normalizeIsoDate(value) || yymmddToIso((value ?? "").trim());
 }
 
 export function isoToYymmdd(value: string | null | undefined): string {

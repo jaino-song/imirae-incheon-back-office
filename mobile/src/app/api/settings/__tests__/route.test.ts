@@ -8,6 +8,8 @@ import {
   GET as getMessageSenderApproval,
   POST as requestMessageSenderApproval,
 } from "../message-sender-approval/route";
+import { GET as getMessageAutomationPolicies } from "../message-automation-policies/route";
+import { PUT as updateMessageAutomationPastTriggerConfig } from "../message-automation-policies/past-trigger/route";
 import {
   GET as getClientRegistrationPolicy,
   PUT as updateClientRegistrationPolicy,
@@ -121,6 +123,102 @@ describe("settings API routes", () => {
       approvalBody,
       { headers: { Authorization: "Bearer auth-token" } },
     );
+  });
+
+  it("requires auth before fetching message automation policies", async () => {
+    const response = await getMessageAutomationPolicies(
+      noCookieRequest("/api/settings/message-automation-policies"),
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it("proxies message automation policy reads", async () => {
+    const payload = {
+      policies: [
+        {
+          id: "service-start",
+          title: "Service start",
+          description: "Sends when service starts",
+          active: true,
+          requiresApproval: false,
+          rows: [],
+        },
+      ],
+      pastTriggerConfig: {
+        sendIntervalMinutes: 30,
+        ruleOrder: ["service-start"],
+      },
+    };
+    mockGet.mockResolvedValue({ status: 200, data: payload });
+
+    const response = await getMessageAutomationPolicies(
+      createRequest("/api/settings/message-automation-policies"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(payload);
+    expect(mockGet).toHaveBeenCalledWith(
+      "/settings/message-automation-policies",
+      { headers: { Authorization: "Bearer auth-token" } },
+    );
+  });
+
+  it("requires auth before updating message automation past-trigger config", async () => {
+    const response = await updateMessageAutomationPastTriggerConfig(
+      noCookieRequest(
+        "/api/settings/message-automation-policies/past-trigger",
+        "PUT",
+      ),
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it("proxies validated message automation past-trigger config updates", async () => {
+    const config = {
+      sendIntervalMinutes: 30,
+      ruleOrder: ["service-start", "service-end"],
+    };
+    mockPut.mockResolvedValue({ status: 200, data: config });
+
+    const response = await updateMessageAutomationPastTriggerConfig(
+      createRequest("/api/settings/message-automation-policies/past-trigger", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(config);
+    expect(mockPut).toHaveBeenCalledWith(
+      "/settings/message-automation-policies/past-trigger",
+      config,
+      { headers: { Authorization: "Bearer auth-token" } },
+    );
+  });
+
+  it.each([
+    ["sendIntervalMinutes below the minimum", { sendIntervalMinutes: 0, ruleOrder: [] }],
+    ["sendIntervalMinutes above the maximum", { sendIntervalMinutes: 1441, ruleOrder: [] }],
+    ["non-array ruleOrder", { sendIntervalMinutes: 30, ruleOrder: "service-start" }],
+  ])("rejects %s before proxying", async (_caseName, body) => {
+    const response = await updateMessageAutomationPastTriggerConfig(
+      createRequest("/api/settings/message-automation-policies/past-trigger", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const responseBody = await response.json();
+    expect(responseBody.error).toBe("Invalid request body");
+    expect(Array.isArray(responseBody.issues)).toBe(true);
+    expect(mockPut).not.toHaveBeenCalled();
   });
 
   it("proxies client registration policy reads and partial updates", async () => {

@@ -11,8 +11,11 @@ import { runEformsignCreationGates } from "./eformsign-creation-gates";
 import { runEformsignFinalizeGates } from "./eformsign-finalize-gates";
 import type { EformsignHeadlessProgressStep } from "application/services/eformsign-headless-progress.service";
 import {
+    EFORMSIGN_SDK_COMPLETION_CODE,
     formatEformsignCallbackPayload,
+    formatObservedSuccessCallbacks,
     readEformsignCallbackState,
+    readObservedSuccessCallbacks,
 } from "./eformsign-gate-utils";
 import { areE2EVendorStubsEnabled } from "infrastructure/vendor-stubs/e2e-vendor-stubs";
 
@@ -20,8 +23,18 @@ import { areE2EVendorStubsEnabled } from "infrastructure/vendor-stubs/e2e-vendor
  * Result envelope returned by the headless service. The frontend uses
  * `ok: false` + `reason` to fall back to the iframe path automatically.
  */
+/**
+ * How the gate loop ended. "request-send-clicked" means it clicked the popup
+ * 전송 that submits the document; "success-latched" means it stopped on the SDK
+ * callback instead, without necessarily having submitted anything.
+ */
+export type EformsignGateOutcome =
+    | "success-latched"
+    | "request-send-clicked"
+    | "request-send-attempted";
+
 export type HeadlessDispatchResult =
-    | { ok: true; durationMs: number; documentId?: string }
+    | { ok: true; durationMs: number; documentId?: string; gateOutcome?: EformsignGateOutcome }
     | { ok: false; reason: string; durationMs: number; documentId?: string };
 
 export interface DispatchCreationParams {
@@ -174,12 +187,46 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         await this.waitForEformsignIframe(page, "eformsign_iframe");
         params.onProgress?.("client-started");
 
-        await runEformsignCreationGates(page, eformsignFrame, this.logger, params.onProgress);
+        let gateOutcome: EformsignGateOutcome;
+        try {
+            gateOutcome = await runEformsignCreationGates(
+                page,
+                eformsignFrame,
+                this.logger,
+                params.onProgress,
+            );
+        } catch (gateError) {
+            // Multi-step templates can submit directly from the top-level 전송
+            // and never render the confirmation popup used by older templates.
+            // The terminal SDK callback includes the newly created document id;
+            // once that durable vendor identity exists, opening a fresh mode:01
+            // iframe would risk sending a duplicate contract.
+            const callbackState = await readEformsignCallbackState(page);
+            const callbackDocumentId = callbackState.hasSuccess
+                ? this.readDocumentIdFromCallback(callbackState.success)
+                : undefined;
+            if (!callbackState.hasError && callbackDocumentId) {
+                const reason = gateError instanceof Error ? gateError.message : String(gateError);
+                this.logger.warn(
+                    `[creation] gate ended with "${reason}" after eformsign returned document ${callbackDocumentId}; treating the vendor-confirmed creation as success.`,
+                );
+                params.onProgress?.("sent");
+                return {
+                    ok: true,
+                    durationMs: Date.now() - start,
+                    documentId: callbackDocumentId,
+                    gateOutcome: "success-latched",
+                };
+            }
+            throw gateError;
+        }
+        this.logger.log(`[creation] gate sequence ended: ${gateOutcome}`);
 
         // The gate runner only confirms the click sequence completed; the
         // actual dispatch is acknowledged by the SDK success callback
-        // (`__eformsignSuccess`). If that never fires, the document was not
-        // sent — surface that as ok=false so the frontend falls back.
+        // (`__eformsignSuccess`). If that never fires, surface ok=false; the
+        // caller uses the emitted creating progress to reconcile remotely
+        // instead of reopening mode:01.
         const documentId = await this.waitForTerminalSdkCallback(page, 30_000);
         params.onProgress?.("sent");
 
@@ -187,6 +234,7 @@ export class EformsignHeadlessService implements OnModuleDestroy {
             ok: true,
             durationMs: Date.now() - start,
             documentId: documentId ?? params.documentId,
+            gateOutcome,
         };
     }
 
@@ -202,7 +250,8 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         await this.waitForEformsignIframe(page, "eformsign_finalize_iframe");
         params.onProgress?.("client-started");
 
-        await runEformsignFinalizeGates(page, eformsignFrame, this.logger, params.onProgress);
+        const gateOutcome = await runEformsignFinalizeGates(page, eformsignFrame, this.logger, params.onProgress);
+        this.logger.log(`[finalize] gate sequence ended: ${gateOutcome}`);
 
         const documentId = await this.waitForTerminalSdkCallback(page, 30_000);
         params.onProgress?.("sent");
@@ -211,29 +260,47 @@ export class EformsignHeadlessService implements OnModuleDestroy {
             ok: true,
             durationMs: Date.now() - start,
             documentId: documentId ?? params.documentId,
+            gateOutcome,
         };
     }
 
     private async waitForTerminalSdkCallback(page: Page, timeoutMs: number): Promise<string | undefined> {
-        await page.waitForFunction(
-            () => {
-                const w = window as unknown as {
-                    __eformsignSuccess?: unknown;
-                    __eformsignError?: unknown;
-                };
-                return w.__eformsignSuccess !== undefined || w.__eformsignError !== undefined;
-            },
-            { timeout: timeoutMs },
-        );
+        try {
+            await page.waitForFunction(
+                () => {
+                    const w = window as unknown as {
+                        __eformsignSuccess?: unknown;
+                        __eformsignError?: unknown;
+                    };
+                    return w.__eformsignSuccess !== undefined || w.__eformsignError !== undefined;
+                },
+                { timeout: timeoutMs },
+            );
+        } catch {
+            // Non-terminal success callbacks are the expected shape of this
+            // timeout, and they are the only record of how far the SDK got —
+            // a bare Playwright timeout here left past incidents unexplainable.
+            throw new Error(
+                `eformsign SDK reported no terminal callback within ${timeoutMs}ms. ` +
+                    `Observed success callbacks: ${await this.describeObservedCallbacks(page)}`,
+            );
+        }
 
         const state = await readEformsignCallbackState(page);
         if (state.hasError) {
             throw new Error(`eformsign SDK error: ${formatEformsignCallbackPayload(state.error)}`);
         }
         if (!state.hasSuccess) {
-            throw new Error("eformsign SDK completed without a success callback");
+            throw new Error(
+                "eformsign SDK completed without a success callback. " +
+                    `Observed success callbacks: ${await this.describeObservedCallbacks(page)}`,
+            );
         }
         return this.readDocumentIdFromCallback(state.success);
+    }
+
+    private async describeObservedCallbacks(page: Page): Promise<string> {
+        return formatObservedSuccessCallbacks(await readObservedSuccessCallbacks(page));
     }
 
     private readDocumentIdFromCallback(payload: unknown): string | undefined {
@@ -323,7 +390,12 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         sdk.document(
             option,
             "${iframeId}",
-            function (resp) { window.__eformsignSuccess = resp; },
+            function (resp) {
+                (window.__eformsignSuccessLog = window.__eformsignSuccessLog || []).push(resp);
+                if (resp && String(resp.code) === "${EFORMSIGN_SDK_COMPLETION_CODE}") {
+                    window.__eformsignSuccess = resp;
+                }
+            },
             function (resp) { window.__eformsignError = resp; },
             function (resp) { window.__eformsignAction = resp; }
         );

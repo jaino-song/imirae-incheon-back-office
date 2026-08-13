@@ -43,7 +43,7 @@ describe("MessagesPermissionGuard", () => {
   beforeEach(() => {
     mockPush.mockClear();
     mockReplace.mockClear();
-    mockPathname = "/messages/new";
+    mockPathname = "/messages/templates";
     mockGetMessageSenderApproval.mockReset();
     mockGetMessageSenderApproval.mockResolvedValue({
       approvalStatus: "not_requested",
@@ -64,7 +64,45 @@ describe("MessagesPermissionGuard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "신청하기" }));
 
-    expect(mockPush).toHaveBeenCalledWith("/messages/sender-approval");
+    expect(mockPush).toHaveBeenCalledWith("/messages/settings");
+  });
+
+  it("hides the protected message page while checking sender approval", async () => {
+    const pendingApproval = {
+      approvalStatus: "not_requested" as const,
+      isApproved: false,
+      canRequest: true,
+      requestedAt: null,
+      approvedAt: null,
+    };
+    let resolveApproval: (value: typeof pendingApproval) => void = () => undefined;
+    mockGetMessageSenderApproval.mockReturnValue(
+      new Promise<typeof pendingApproval>((resolve) => {
+        resolveApproval = resolve;
+      }),
+    );
+
+    renderGuard();
+
+    expect(await screen.findByRole("status")).toHaveTextContent("메시지 권한 확인 중...");
+    expect(screen.queryByTestId("messages-route-child")).not.toBeInTheDocument();
+
+    resolveApproval(pendingApproval);
+
+    expect(await screen.findByText("메시지 전송 권한이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
+  });
+
+  it("allows /messages/new without approval and keeps the approval modal closed", async () => {
+    mockPathname = "/messages/new";
+
+    renderGuard();
+
+    expect(await screen.findByTestId("messages-route-child")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetMessageSenderApproval).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
   });
 
   it("routes to /all when the approval modal cancel button is clicked", async () => {
@@ -132,31 +170,53 @@ describe("MessagesPermissionGuard", () => {
     expect(mockReplace).toHaveBeenCalledWith("/all");
   });
 
-  it("does not block the sender approval route", async () => {
-    mockPathname = "/messages/sender-approval";
-
-    renderGuard();
-
-    expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(mockGetMessageSenderApproval).not.toHaveBeenCalled();
-    });
-    expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
-  });
-
-  it.each(["/messages/scheduled", "/messages/history"])(
-    "allows the read-only route %s before sender approval",
+  it.each(["/messages/settings", "/messages/sender-approval"])(
+    "does not block the settings route %s",
     async (pathname) => {
       mockPathname = pathname;
 
       renderGuard();
 
       expect(screen.getByTestId("messages-route-child")).toBeInTheDocument();
+
       await waitFor(() => {
         expect(mockGetMessageSenderApproval).not.toHaveBeenCalled();
       });
-      expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("메시지 전송 권한이 필요합니다."),
+      ).not.toBeInTheDocument();
     },
   );
+
+  it("gates /messages/history behind sender approval, just like other protected routes", async () => {
+    // /messages/history is the merged 발송 예정/발송 기록 screen. It used to be
+    // read-only-exempt; that exemption was the bug this test now guards
+    // against — the nav already disabled it for unapproved senders, but a
+    // direct URL visit skipped the check entirely.
+    mockPathname = "/messages/history";
+
+    renderGuard();
+
+    expect(await screen.findByText("메시지 전송 권한이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByText("문자 발신번호 승인 신청을 완료해야 메시지를 발송할 수 있습니다.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetMessageSenderApproval).toHaveBeenCalled();
+    });
+  });
+
+  it("shows /messages/history once sender approval is granted", async () => {
+    mockPathname = "/messages/history";
+    mockGetMessageSenderApproval.mockResolvedValue({
+      approvalStatus: "approved",
+      isApproved: true,
+      canRequest: true,
+      requestedAt: "2026-06-01T00:00:00.000Z",
+      approvedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    renderGuard();
+
+    expect(await screen.findByTestId("messages-route-child")).toBeInTheDocument();
+    expect(screen.queryByText("메시지 전송 권한이 필요합니다.")).not.toBeInTheDocument();
+  });
 });

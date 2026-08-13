@@ -96,6 +96,26 @@ describe("SbEformsignDocumentMirrorRepository", () => {
                         files: [file],
                     })
                     .mockResolvedValueOnce({
+                        detailPayload: {
+                            id: "doc-1",
+                            current_status: { status_type: "062" },
+                        },
+                        detailSourceUpdatedDate: detailVersion,
+                        syncStatus: "partial",
+                        permanentPurgeRequestedAt: null,
+                        files: [file],
+                    })
+                    .mockResolvedValueOnce({
+                        detailPayload: {
+                            id: "doc-1",
+                            current_status: { status_type: "062" },
+                        },
+                        detailSourceUpdatedDate: detailVersion,
+                        syncStatus: "partial",
+                        permanentPurgeRequestedAt: null,
+                        files: [{ ...file, fileType: "audit_trail" }],
+                    })
+                    .mockResolvedValueOnce({
                         detailPayload: { id: "doc-1" },
                         detailSourceUpdatedDate: detailVersion,
                         syncStatus: "ready",
@@ -112,6 +132,10 @@ describe("SbEformsignDocumentMirrorRepository", () => {
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
+        await expect(repository.findFile("doc-1", "document")).resolves.toMatchObject({
+            content: Buffer.from("pdf"),
+        });
+        await expect(repository.findFile("doc-1", "audit_trail")).resolves.toBeNull();
         await expect(repository.findFile("doc-1", "document")).resolves.toBeNull();
     });
 
@@ -352,6 +376,11 @@ describe("SbEformsignDocumentMirrorRepository", () => {
                 detailSourceUpdatedDate: deletedAt,
                 detailSyncedAt: deletedAt,
                 syncStatus: "ready",
+                // The purge must release its own intent. A retained intent means "the vendor
+                // still owes us a purge", which the reconcile sweep acts on by retrying the
+                // vendor call; leaving it set would have the sweep permanently delete a
+                // document the delete deliberately only cancelled. Burial is the 049 status's
+                // job, not this field's.
                 permanentPurgeRequestedAt: null,
             }),
         });

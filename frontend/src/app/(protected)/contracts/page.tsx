@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { EformsignDocClientSummary } from "@babyjamjam/shared/types/eformsign";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { matchesSearchQuery } from "@/lib/search/korean-search";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
 import {
   FileText,
@@ -25,6 +24,7 @@ import {
   Bell,
 } from "lucide-react";
 import {
+  useContractClientCandidate,
   useDeleteEformsignDocument,
 } from "@/hooks/useEformsignDocuments";
 import { useEformsignAuth } from "@/hooks/useEformsignAuth";
@@ -34,8 +34,10 @@ import { useInfiniteContracts } from "@/hooks/useInfiniteContracts";
 import { ServiceRecordHeaderCard } from "@/features/service-records/components/ServiceRecordHeaderCard";
 import { useClientServiceRecords } from "@/features/service-records/hooks/use-service-records";
 import type { EformsignDocument, EformsignDocumentOption } from "@/lib/eformsign/types";
+import { useDebounce } from "use-debounce";
 import {
   DocumentFilterType,
+  contractStatusBadgeType,
   mapDocStatusLabel,
   getStatusCategory,
   foldContractStats,
@@ -64,6 +66,7 @@ import {
 } from "@/components/app/v3";
 import type { StatusType } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
+import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -95,13 +98,11 @@ import {
   extractOpenEvents,
   extractReRequestEvents,
 } from "@/lib/eformsign/document-details";
-import {
-  UNKNOWN_CUSTOMER_NAME,
-  customerName as getEformsignCustomerName,
-} from "@/lib/eformsign/display-name";
+import { resolveDocumentCustomerName } from "@/lib/eformsign/display-name";
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
 import { useAllVoucherPriceInfos } from "@/hooks/useVoucherData";
 import { inferVoucherDurationFromAmounts } from "@/lib/voucher/duration";
+import { contractCandidateToClientPrefill } from "@/lib/client/contract-client-prefill";
 import { ContractsListItem } from "@/components/app/contracts/ContractsListItem";
 import {
   ContractReviewActionButton,
@@ -161,7 +162,6 @@ const ContractDocumentPreviewModal = dynamic(
   { ssr: false }
 );
 
-const EXCLUDED_CUSTOMER_NAMES: string[] = [];
 
 const TAB_ITEMS = [
   { label: "전체", value: "all" },
@@ -189,20 +189,6 @@ type InfoCardRow = {
   value: React.ReactNode;
 };
 
-function displayCustomerName(doc: EformsignDocument | null): string | null {
-  if (!doc) return null;
-  const name = getEformsignCustomerName(doc);
-  return name === UNKNOWN_CUSTOMER_NAME ? null : name;
-}
-
-function matchesDocumentSearch(
-  doc: EformsignDocument,
-  query: string,
-  mappedCustomerName?: string | null,
-): boolean {
-  return matchesSearchQuery(query, [mappedCustomerName ?? displayCustomerName(doc), doc.document_name]);
-}
-
 function matchesDocumentStatusTab(doc: EformsignDocument, tab: string): boolean {
   if (tab === "all") return true;
   return getStatusCategory(doc.current_status?.status_type) === tab;
@@ -223,24 +209,13 @@ function formatDateTime(timestamp: number): string {
   });
 }
 
-function mapCategoryToStatusType(category: "completed" | "expired" | "in-progress"): StatusType {
-  switch (category) {
-    case "completed":
-      return "signed";
-    case "expired":
-      return "expired";
-    case "in-progress":
-      return "pending";
-  }
-}
-
 function getSignatureProgress(
   category: "completed" | "expired" | "in-progress",
   hasOpenedDocument: boolean,
-  isReviewNeeded: boolean
+  isCustomerSigned: boolean
 ) {
   const isCompleted = category === "completed";
-  const isSigned = isCompleted || isReviewNeeded;
+  const isSigned = isCompleted || isCustomerSigned;
   const steps = [
     { label: "문서 생성", done: true },
     { label: "발송 완료", done: true },
@@ -474,6 +449,7 @@ export default function ContractsPage() {
   const [hasContractCreationSession, setHasContractCreationSession] = useState(false);
   const [contractCreationActiveStep, setContractCreationActiveStep] = useState(0);
   const [deleteTargetDocumentId, setDeleteTargetDocumentId] = useState<string | null>(null);
+  const [registerClientDocumentId, setRegisterClientDocumentId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceRecordActiveTab, setServiceRecordActiveTab] = useState("all");
   const [serviceRecordSearchQuery, setServiceRecordSearchQuery] = useState("");
@@ -485,14 +461,37 @@ export default function ContractsPage() {
   });
   useEformsignDocsLiveStream(isAuthenticated);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const deleteDocument = useDeleteEformsignDocument();
+  const registerCandidateQuery = useContractClientCandidate(registerClientDocumentId);
+  const registerClientPrefill = useMemo(
+    () => (registerCandidateQuery.data
+      ? contractCandidateToClientPrefill(registerCandidateQuery.data)
+      : undefined),
+    [registerCandidateQuery.data],
+  );
+  const registerClientOpen =
+    registerClientDocumentId !== null
+    && (registerCandidateQuery.isSuccess || registerCandidateQuery.isError);
+  useEffect(() => {
+    if (registerClientDocumentId !== null && registerCandidateQuery.isError) {
+      toast({
+        variant: "destructive",
+        title: "계약 정보를 불러오지 못했어요",
+        description: "고객 정보를 직접 입력해 주세요",
+      });
+    }
+  }, [registerCandidateQuery.isError, registerClientDocumentId, toast]);
   const { data: serviceRecordTemplateConfig, isLoading: isServiceRecordTemplateLoading } = useQuery({
     queryKey: ["eformsign-docs", "service-record-template-id"],
     queryFn: () => eformsignApi.getServiceRecordTemplateId(),
     enabled: isAuthenticated,
     staleTime: 1000 * 60 * 60,
   });
-  const { data: documentClientSummaries = [] } = useQuery({
+  const {
+    data: documentClientSummaries = [],
+    isPending: isClientSummariesPending,
+  } = useQuery({
     queryKey: ["eformsign-client-names"],
     queryFn: () => eformsignApi.getDocumentClientNames(),
     enabled: isAuthenticated,
@@ -506,7 +505,7 @@ export default function ContractsPage() {
     (doc: EformsignDocument | null): string | null => {
       if (!doc) return null;
       const mappedName = documentClientSummaryById.get(doc.id)?.clientName.trim();
-      return mappedName || displayCustomerName(doc);
+      return resolveDocumentCustomerName(doc, mappedName);
     },
     [documentClientSummaryById],
   );
@@ -520,6 +519,14 @@ export default function ContractsPage() {
   );
   const activeListTab = activeSection === "service-records" ? serviceRecordActiveTab : activeTab;
   const filterType: DocumentFilterType = activeListTab === "all" ? null : (activeListTab as DocumentFilterType);
+  // Search is applied server-side (chosung-aware), so each keystroke would be a
+  // request — debounce to one request per pause, matching mobile's
+  // useDebouncedValue(searchQuery.trim(), 300). Each surface debounces its own
+  // term so a section switch immediately uses that section's settled term.
+  const [debouncedSearchQuery] = useDebounce(searchQuery.trim(), 300);
+  const [debouncedServiceRecordSearchQuery] = useDebounce(serviceRecordSearchQuery.trim(), 300);
+  const activeSearchQuery =
+    activeSection === "service-records" ? debouncedServiceRecordSearchQuery : debouncedSearchQuery;
   const templateFilter = useMemo(
     () => serviceRecordTemplateIds.length > 0
       ? {
@@ -545,8 +552,8 @@ export default function ContractsPage() {
   } = useInfiniteContracts({
     enabled: canFetchDocuments,
     filterType,
-    excludedNames: EXCLUDED_CUSTOMER_NAMES,
     templateFilter,
+    search: activeSearchQuery,
   });
   // 전체 탭 StatsBar 카운터: 서버가 지점(인천=회사 전체) 상태 신호를 한 번 모아 내려주고
   // foldContractStats로 접는다. 무한 스크롤 목록과 분리되어, 스크롤하지 않아도 정확하다.
@@ -567,27 +574,20 @@ export default function ContractsPage() {
   const isStatsLoading = isBootstrappingAuth || isCountsLoading;
   const isServiceRecordListLoading = isInitialLoading;
 
-  // Use infinite scroll documents, with optional local search filter
-  const documents = useMemo(
-    () => infiniteDocuments.filter(
-      (doc) => matchesDocumentSearch(doc, searchQuery, resolveCustomerName(doc)),
-    ),
-    [infiniteDocuments, resolveCustomerName, searchQuery],
-  );
+  // Search happens server-side (it is part of the query key), so what the
+  // server returns is what renders — total_rows/hasNextPage describe the
+  // searched set and pagination stops when the matches run out.
+  const documents = infiniteDocuments;
 
   const serviceRecordDocuments = useMemo(() => {
     if (serviceRecordTemplateIds.length === 0) return [];
     return infiniteDocuments.filter(
-      (doc) =>
-        matchesDocumentStatusTab(doc, serviceRecordActiveTab) &&
-        matchesDocumentSearch(doc, serviceRecordSearchQuery, resolveCustomerName(doc)),
+      (doc) => matchesDocumentStatusTab(doc, serviceRecordActiveTab),
     );
   }, [
     serviceRecordTemplateIds,
     infiniteDocuments,
-    resolveCustomerName,
     serviceRecordActiveTab,
-    serviceRecordSearchQuery,
   ]);
 
   const stats = useMemo(
@@ -629,6 +629,19 @@ export default function ContractsPage() {
     router.replace("/contracts", { scroll: false });
   }, [handleStartContractCreation, router, searchParams]);
 
+  // Deep link used by notifications and the dashboard 검토 필요 card
+  // (/contracts?documentId=…): select the document and clear the param.
+  // Selection survives the replace — selectedDocument resolves reactively once
+  // the list page containing the document loads.
+  useEffect(() => {
+    const documentIdParam = searchParams.get("documentId");
+    if (!documentIdParam) return;
+
+    setActiveSection("maternity");
+    setSelectedDocId(documentIdParam);
+    router.replace("/contracts", { scroll: false });
+  }, [router, searchParams]);
+
   const handleCloseContractCreation = useCallback(() => {
     setIsCreating(false);
     setHasContractCreationSession(false);
@@ -667,19 +680,21 @@ export default function ContractsPage() {
         setSelectedServiceRecordDocId(null);
       }
 
+      setRegisterClientDocumentId(null);
       setDeleteTargetDocumentId(null);
       toast({
-        title: "문서 삭제 완료",
-        description: "선택한 문서를 삭제했습니다.",
+        variant: "success",
+        title: "문서를 삭제했어요",
+        description: "선택한 문서를 목록에서 지웠어요",
       });
     } catch (deleteError) {
       console.error("Failed to delete contract document:", deleteError);
       toast({
-        title: "문서 삭제 실패",
+        title: "문서를 삭제하지 못했어요",
         description:
           deleteError instanceof Error
             ? deleteError.message
-            : "문서 삭제 중 오류가 발생했습니다. 다시 시도해주세요.",
+            : "잠시 후 다시 시도해 주세요",
         variant: "destructive",
       });
     }
@@ -705,6 +720,7 @@ export default function ContractsPage() {
         isLoading={isStatsLoading}
         items={[
           { icon: CheckCircle2, value: stats.reviewNeeded, label: "검토 필요", counter: "건", colorIndex: 0 },
+          { icon: FileSignature, value: stats.signed, label: "서명 완료", counter: "건", colorIndex: 1 },
           { icon: Send, value: stats.sendRequired, label: "이용자 완료 필요", counter: "건", colorIndex: 1 },
           { icon: FileText, value: stats.drafting, label: "작성 대기중", counter: "건" },
           { icon: AlertTriangle, value: stats.expired, label: "기간 만료", counter: "건", colorIndex: 3 },
@@ -720,7 +736,10 @@ export default function ContractsPage() {
           data-component="desktop_contracts_sections_section-nav"
           items={NAV_SECTIONS}
           activeId={activeSection}
-          onSelect={(id) => setActiveSection(id as SectionId)}
+          onSelect={(id) => {
+            setRegisterClientDocumentId(null);
+            setActiveSection(id as SectionId);
+          }}
         />
 
         <div
@@ -784,7 +803,11 @@ export default function ContractsPage() {
                     isInteractive: !isLoading && Boolean(item),
                   };
                 }}
-                onSlotClick={(doc) => { setIsCreating(false); setSelectedDocId(doc.id); }}
+                onSlotClick={(doc) => {
+                  setIsCreating(false);
+                  setRegisterClientDocumentId(null);
+                  setSelectedDocId(doc.id);
+                }}
                 // Load more props
                 hasMore={hasNextPage}
                 onLoadMore={() => fetchNextPage()}
@@ -861,6 +884,7 @@ export default function ContractsPage() {
               document={selectedDocument}
               documentClientSummary={documentClientSummaryById.get(selectedDocument.id) ?? null}
               onDeleteRequest={handleDeleteRequest}
+              onRegisterClient={isClientSummariesPending ? undefined : setRegisterClientDocumentId}
             />
           ) : !isCreating && !hasContractCreationSession ? (
             <EmptyState icon={FileText} message="계약을 선택하면 상세 정보가 표시됩니다" />
@@ -1066,13 +1090,30 @@ export default function ContractsPage() {
         }}
         data-component="desktop_contracts_modals_delete-approval"
         title="문서를 삭제하시겠습니까?"
-        description="삭제한 전자문서는 복구할 수 없습니다."
+        description="전자문서가 취소되어 수신자가 더 이상 서명할 수 없습니다. 복구할 수 없습니다."
         approvalLabel="삭제"
         pendingLabel="삭제 중..."
         approvalVariant="destructive"
         isPending={deleteDocument.isPending}
         onApprove={() => void handleDeleteConfirm()}
       />
+
+      {registerClientDocumentId !== null && (
+        <ClientFormDialog
+          data-component="desktop_contracts_modals_register-client"
+          open={registerClientOpen}
+          onClose={() => setRegisterClientDocumentId(null)}
+          prefill={registerClientPrefill}
+          notice={registerCandidateQuery.isError
+            ? "계약서에서 정보를 불러오지 못했습니다. 계약서의 전화번호와 동일하게 입력해야 자동 연결됩니다."
+            : "전화번호를 변경하면 이 계약서와 자동 연결되지 않을 수 있습니다."}
+          onSuccess={() => {
+            setRegisterClientDocumentId(null);
+            void queryClient.invalidateQueries({ queryKey: ["eformsign-client-names"] });
+            void queryClient.invalidateQueries({ queryKey: ["eformsign-documents"] });
+          }}
+        />
+      )}
     </PageSection>
   );
 }
@@ -1082,12 +1123,14 @@ function ContractDetail({
   document: doc,
   documentClientSummary,
   onDeleteRequest,
+  onRegisterClient,
   reviewAction = "finalize",
 }: {
   "data-component": string;
   document: EformsignDocument;
   documentClientSummary?: EformsignDocClientSummary | null;
   onDeleteRequest?: (documentId: string) => void;
+  onRegisterClient?: (documentId: string) => void;
   reviewAction?: ContractReviewAction;
 }) {
   const isMobile = useIsMobile();
@@ -1103,7 +1146,7 @@ function ContractDetail({
   const detailedDocument = detailQuery.data ?? doc;
   const isBaseDetailLoading = detailQuery.isFetching || detailQuery.isPlaceholderData;
   const mappedCustomerName = documentClientSummary?.clientName.trim();
-  const customerName = mappedCustomerName || displayCustomerName(detailedDocument) || "–";
+  const customerName = resolveDocumentCustomerName(detailedDocument, mappedCustomerName) || "–";
   const isServiceRecordDocument = reviewAction === "preview";
   const serviceRecordQuery = useClientServiceRecords(documentClientSummary?.clientId ?? null, {
     enabled: isServiceRecordDocument,
@@ -1112,9 +1155,16 @@ function ContractDetail({
     ?? serviceRecordQuery.data?.assignments.find((assignment) => assignment.header)?.header
     ?? null;
   const category = getStatusCategory(detailedDocument.current_status?.status_type);
-  const statusLabel = mapDocStatusLabel(detailedDocument.current_status);
-  const statusType: StatusType =
-    statusLabel === "검토 필요" ? "review" : mapCategoryToStatusType(category);
+  const contractEndDateIso = formatIsoDateInput(
+    extractFieldDate(detailedDocument, {
+      year: ["계약 종료 년도", "계약종료년도", "endYear"],
+      month: ["계약 종료 월", "계약종료월", "endMonth"],
+      day: ["계약 종료 일", "계약종료일", "endDay"],
+      full: ["계약 종료일", "계약종료일", "endDate", "contractEndDate"],
+    }) ?? "",
+  );
+  const statusLabel = mapDocStatusLabel(detailedDocument.current_status, contractEndDateIso || null);
+  const statusType: StatusType = contractStatusBadgeType(statusLabel);
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>("document");
   const [isReRequestDialogOpen, setIsReRequestDialogOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -1262,16 +1312,6 @@ function ContractDetail({
       day: ["계약 종료 일", "계약종료일", "endDay"],
       full: ["계약 종료일", "계약종료일", "서비스 종료일", "서비스종료일", "endDate"],
     }) ?? "–";
-  const contractEndDateIso = (() => {
-    const year = extractDocumentFieldValue(detailedDocument, ["계약 종료 년도", "계약종료년도", "endYear"]);
-    const month = extractDocumentFieldValue(detailedDocument, ["계약 종료 월", "계약종료월", "endMonth"]);
-    const day = extractDocumentFieldValue(detailedDocument, ["계약 종료 일", "계약종료일", "endDay"]);
-    if (!year || !month || !day) return "";
-    const yearNum = parseInt(year, 10);
-    if (Number.isNaN(yearNum)) return "";
-    const yearStr = (yearNum < 100 ? 2000 + yearNum : yearNum).toString().padStart(4, "0");
-    return `${yearStr}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  })();
   const paymentDate =
     extractFieldDate(detailedDocument, {
       year: ["본인부담금 수령 년도", "본인부담금수령년도", "결제 년도", "결제년도", "paymentYear"],
@@ -1291,8 +1331,9 @@ function ContractDetail({
   const reRequestEvents = extractReRequestEvents(detailedDocument);
   const openEvents = extractOpenEvents(detailedDocument);
   const hasOpenedDocument = openEvents.length > 0;
-  const isReviewNeeded = mapDocStatusLabel(detailedDocument.current_status) === "검토 필요";
-  const steps = getSignatureProgress(category, hasOpenedDocument, isReviewNeeded);
+  const isReviewNeeded = statusLabel === "검토 필요";
+  const isCustomerSigned = statusLabel === "서명 완료" || isReviewNeeded;
+  const steps = getSignatureProgress(category, hasOpenedDocument, isCustomerSigned);
   const customerSignedTimestamp = extractCustomerSignedTimestamp(detailedDocument);
   const customerSignedDate =
     customerSignedTimestamp != null ? formatDateTime(customerSignedTimestamp) : null;
@@ -1340,8 +1381,9 @@ function ContractDetail({
 
   const handleFinalizeSuccess = () => {
     toast({
-      title: "최종 확인 완료",
-      description: `${reviewDocumentLabel}가 완료 처리되었습니다.`,
+      variant: "success",
+      title: "최종 확인을 마쳤어요",
+      description: `${reviewDocumentLabel}를 완료 처리했어요`,
     });
     resetFinalizeState();
     queryClient.invalidateQueries({ queryKey: ["eformsign-documents"] });
@@ -1367,13 +1409,14 @@ function ContractDetail({
       handleReRequestDialogChange(false);
       queryClient.invalidateQueries({ queryKey: ["eformsign-documents"] });
       toast({
-        description: `${customerName}님에게 전자문서 작성을 재요청했습니다.`,
+        variant: "success",
+        description: `${customerName}님에게 전자문서 작성을 재요청했어요`,
       });
     },
     onError: (error) => {
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "재요청 중 오류가 발생했습니다.",
+        description: error instanceof Error ? error.message : "재요청하지 못했어요",
       });
     },
   });
@@ -1382,15 +1425,35 @@ function ContractDetail({
     mutationFn: async (endDate?: string): Promise<{ kind: "headless" } | { kind: "iframe"; option: EformsignDocumentOption }> => {
       // BJJ-90: try the backend-driven finalize first when the flag is on.
       if (isFeatureEnabled("headlessDispatch")) {
+        // Raised inside the try but acted on outside it: the catch below exists
+        // to turn transport failures into an iframe retry, and it would swallow
+        // this signal just as readily.
+        let manualCheckRequired = false;
+        let transportOutcomeUnknown = false;
         try {
           const progressId = finalizeProgressIdRef.current ?? undefined;
           const headless = await eformsignApi.finalizeHeadless(doc.id, endDate, progressId);
           if (headless.ok) {
             return { kind: "headless" };
           }
-          console.warn("[finalize] headless finalize ok=false, falling back to iframe", headless.reason);
+          manualCheckRequired = headless.fallbackHint === "manual_check";
+          console.warn(
+            "[finalize] headless finalize ok=false",
+            headless.reason,
+            headless.fallbackHint,
+          );
         } catch (headlessError) {
-          console.warn("[finalize] headless finalize threw, falling back to iframe", headlessError);
+          transportOutcomeUnknown = true;
+          console.warn("[finalize] headless finalize verdict is unknown", headlessError);
+        }
+        // The backend asks for the iframe only once it has confirmed with
+        // eformsign that the step is still unfinished. When it could not
+        // confirm, reopening the editor would invite re-approval of a step that
+        // may already be done.
+        if (manualCheckRequired || transportOutcomeUnknown) {
+          throw new Error(
+            "완료 처리 결과를 확인하지 못했어요. eformsign에서 문서 상태를 확인한 뒤 다시 시도해 주세요.",
+          );
         }
       }
 
@@ -1410,8 +1473,9 @@ function ContractDetail({
         setIsFinalizeOpen(false);
         setFinalizeEndDate("");
         toast({
-          title: "최종 확인 완료",
-          description: `${reviewDocumentLabel}가 완료 처리되었습니다.`,
+          variant: "success",
+          title: "최종 확인을 마쳤어요",
+          description: `${reviewDocumentLabel}를 완료 처리했어요`,
         });
         // Headless finalize completes within ~1s of the SDK success callback,
         // but eformsign's status field (060 → 070) and the matching webhook
@@ -1440,8 +1504,8 @@ function ContractDetail({
       setFinalizeProgress(INITIAL_FINALIZE_PROGRESS);
       toast({
         variant: "destructive",
-        title: "최종 확인 실패",
-        description: error instanceof Error ? error.message : "최종 확인 준비 중 오류가 발생했습니다.",
+        title: "최종 확인을 마치지 못했어요",
+        description: error instanceof Error ? error.message : "잠시 후 다시 시도해 주세요",
       });
     },
   });
@@ -1469,7 +1533,7 @@ function ContractDetail({
   const handleStaffCompletionError = (message: string) => {
     toast({
       variant: "destructive",
-      title: "최종 확인 실패",
+      title: "최종 확인을 마치지 못했어요",
       description: message,
     });
     closeStaffCompletionModal();
@@ -1477,8 +1541,8 @@ function ContractDetail({
 
   const handleStaffCompletionCancel = () => {
     toast({
-      title: "최종 확인 취소",
-      description: "최종 확인이 취소되었습니다.",
+      title: "최종 확인을 취소했어요",
+      description: "필요하면 다시 최종 확인을 진행할 수 있어요",
     });
     closeStaffCompletionModal();
   };
@@ -1624,11 +1688,13 @@ function ContractDetail({
   } else {
     const pendingText = isReviewNeeded
       ? "제공기관 검토 필요"
-      : hasOpenedDocument
-        ? "이용자 서명 대기중입니다"
-        : "이용자 문서 열람 대기중입니다";
+      : isCustomerSigned
+        ? "이용자 서명 완료 — 계약 종료 1영업일 전부터 검토할 수 있습니다"
+        : hasOpenedDocument
+          ? "이용자 서명 대기중입니다"
+          : "이용자 문서 열람 대기중입니다";
     activityItems.push({
-      icon: isReviewNeeded ? FileSignature : Eye,
+      icon: isCustomerSigned ? FileSignature : Eye,
       iconVariant: "warning",
       text: pendingText,
       time: "현재",
@@ -1790,6 +1856,8 @@ function ContractDetail({
     />,
   ];
 
+  const canRegisterClient = Boolean(onRegisterClient && !documentClientSummary?.clientId);
+
   const stepperActions = (
     <div
       data-component={`${dataComponent}_header_stepper-actions`}
@@ -1809,7 +1877,7 @@ function ContractDetail({
           collapseOnHeaderOverflow
         />
       </button>
-      {(canReRequest || onDeleteRequest) && (
+      {(canReRequest || onDeleteRequest || canRegisterClient) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1828,6 +1896,15 @@ function ContractDetail({
             sideOffset={8}
             className="min-w-[8rem]"
           >
+            {canRegisterClient && (
+              <DropdownMenuItem
+                data-component={`${dataComponent}_header_stepper-actions_more-menu_content_register-client`}
+                onSelect={() => onRegisterClient?.(doc.id)}
+              >
+                고객 등록
+              </DropdownMenuItem>
+            )}
+            {canRegisterClient && (canReRequest || onDeleteRequest) && <DropdownMenuSeparator />}
             {canReRequest && (
               <DropdownMenuItem
                 data-component={`${dataComponent}_header_stepper-actions_more-menu_content_rerequest`}

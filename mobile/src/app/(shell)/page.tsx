@@ -1,16 +1,16 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { t } from "@/lib/i18n/translations";
 import { getLocale } from "@/app/actions/locale";
 import { getCurrentUser } from "@/lib/auth/cookies";
 import { Button } from "@/components/ui/button";
+import { PwaDashboardRedirect } from "@/components/app/root/pwa-dashboard-redirect";
 
 export default async function Home() {
     const token = await getCurrentUser();
 
     // Auto redirect to dashboard if authenticated
     if (token) {
-        redirect("/dashboard");
+        return <PwaDashboardRedirect />;
     }
 
     const locale = await getLocale();

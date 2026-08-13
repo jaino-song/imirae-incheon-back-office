@@ -1,10 +1,20 @@
 import axios from "axios";
 import { api } from "@/lib/api/client";
+/**
+ * Headless dispatch/finalize run a real browser against eformsign, so they blow
+ * far past the 30s default on `api`. The three hops must stay ordered — backend
+ * budget (≈160s worst case) < Next.js proxy (170s) < this — so the browser
+ * always ends up holding the backend's own verdict (which carries
+ * `fallbackHint`) instead of aborting first on an outcome it can't classify.
+ */
+const HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS = 180_000;
+const MAX_PROVIDER_FINALIZE_STEPS = 3;
 import { safeStorageSetItem } from "@/lib/safe-storage";
 import type { RegisterRequest } from "@babyjamjam/shared";
 import { ContractDataDto } from '@/backend/application/dto/contract.dto';
 import {
     EformsignApiListResponse,
+    EformsignContractClientCandidateResponse,
     CreateEformsignDocRecordRequest,
     EformsignAuthStatusResponse,
     EformsignDeleteDocumentsResponse,
@@ -49,6 +59,10 @@ export interface LocalEformsignDocRecord {
     documentKind: "contract" | "service_record_snapshot" | null;
     employeeScheduleId: number | null;
     templateId: string | null;
+    /** YYYY-MM-DD, attached for provider-review docs; splits 서명 완료 vs 검토 필요. */
+    contractEndDate?: string | null;
+    /** Authoritative display status stamped by the backend at serve time. */
+    displayStatus?: string | null;
 }
 
 export function normalizeDocumentListResponse(
@@ -167,6 +181,12 @@ export const eformsignApi = {
         const { data } = await api.get(`/eformsign/documents/${documentId}`);
         return data;
     },
+    getDocumentClientCandidate: async (documentId: string) => {
+        const { data } = await api.get(
+            `/eformsign/documents/${encodeURIComponent(documentId)}/client-candidate`
+        );
+        return data as EformsignContractClientCandidateResponse;
+    },
     // Receipt = page 7 of the document PDF, extracted by the download_files BFF route.
     // Browser-navigable BFF URL (full /api path, used as href/download — NOT via the axios client).
     getDocumentReceiptDownloadUrl: (documentId: string): string =>
@@ -203,37 +223,36 @@ export const eformsignApi = {
     // Documents APIs - token is read from httpOnly cookie on server
     // Note: eformsign routes use /eformsign prefix to avoid conflict with file storage /documents
     // Unified endpoint - fetches all documents in single request (more efficient)
-    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; templateId?: string; templateMatch?: "include" | "exclude"; excludeDeleted?: boolean }): Promise<EformsignDocumentsResponse> => {
+    getAllDocuments: async (params?: { limit?: number; skip?: number; type?: string | null; templateId?: string; templateMatch?: "include" | "exclude"; search?: string; excludeDeleted?: boolean }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get('/eformsign/documents', { params });
         return data;
     },
-    getInProgressDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude" }): Promise<EformsignDocumentsResponse> => {
+    getInProgressDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/in-progress', { params });
         return normalizeDocumentListResponse(data, params);
     },
-    getCompletedDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude" }): Promise<EformsignDocumentsResponse> => {
+    getCompletedDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/completed', { params });
         return normalizeDocumentListResponse(data, params);
     },
-    getExpiredDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude" }): Promise<EformsignDocumentsResponse> => {
+    getExpiredDocuments: async (params?: { limit?: number; skip?: number; templateId?: string; templateMatch?: "include" | "exclude"; search?: string }): Promise<EformsignDocumentsResponse> => {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/expired', { params });
         return normalizeDocumentListResponse(data, params);
     },
+    // A delete cancels the document at eformsign and purges the local copy. There is no
+    // permanence choice any more, so is_permanent is no longer sent.
     deleteDocuments: async (
-        documentIds: string[],
-        isPermanent: boolean = false
+        documentIds: string[]
     ): Promise<EformsignDeleteDocumentsResponse> => {
         const { data } = await api.delete('/eformsign/documents', {
-            params: { is_permanent: isPermanent },
             data: { document_ids: documentIds },
         });
         return data;
     },
     deleteDocument: async (
-        documentId: string,
-        isPermanent: boolean = false
+        documentId: string
     ): Promise<EformsignDeleteDocumentsResponse> => {
-        return eformsignApi.deleteDocuments([documentId], isPermanent);
+        return eformsignApi.deleteDocuments([documentId]);
     },
     // Legacy alias
     getDocuments: async (): Promise<EformsignDocumentsResponse> => {
@@ -257,7 +276,7 @@ export const eformsignApi = {
             clientId,
             progressId,
             force,
-        });
+        }, { timeout: HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS });
         return data;
     },
     adoptDocument: async (
@@ -280,12 +299,25 @@ export const eformsignApi = {
         prefillEndDate?: string,
         progressId?: string,
     ): Promise<HeadlessFinalizeResponse> => {
-        const { data } = await api.post('/eformsign-docs/finalize-headless', {
-            documentId,
-            prefillEndDate,
-            progressId,
-        });
-        return data;
+        let totalDurationMs = 0;
+        for (let attempt = 1; attempt <= MAX_PROVIDER_FINALIZE_STEPS; attempt += 1) {
+            const { data } = await api.post('/eformsign-docs/finalize-headless', {
+                documentId,
+                prefillEndDate,
+                progressId,
+            }, { timeout: HEADLESS_DISPATCH_CLIENT_TIMEOUT_MS });
+            const result = data as HeadlessFinalizeResponse;
+            totalDurationMs += result.durationMs ?? 0;
+            if (!result.ok || result.completed !== false) {
+                return { ...result, durationMs: totalDurationMs };
+            }
+        }
+        return {
+            ok: false,
+            reason: "provider_workflow_incomplete",
+            fallbackHint: "manual_check",
+            durationMs: totalDurationMs,
+        };
     },
     getDocumentClientNames: async (): Promise<EformsignDocClientSummary[]> => {
         const { data } = await api.get('/eformsign-docs/client-names');

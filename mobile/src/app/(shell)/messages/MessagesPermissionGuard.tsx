@@ -26,9 +26,17 @@ export function useMessagesPermissionGuard() {
 export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const isSenderApprovalRoute = pathname?.startsWith("/messages/sender-approval") ?? false;
-  const isReadOnlyRoute = pathname === "/messages/scheduled" || pathname === "/messages/history";
-  const isPermissionExemptRoute = isSenderApprovalRoute || isReadOnlyRoute;
+  const isSettingsRoute = pathname?.startsWith("/messages/settings") ?? false;
+  const isLegacySenderApprovalRoute =
+    pathname?.startsWith("/messages/sender-approval") ?? false;
+  const isNewMessageRoute = pathname === "/messages/new";
+  // /messages/history (the merged 발송 예정/발송 기록 screen) is intentionally NOT
+  // exempt: it requires the same sending approval as every other message
+  // screen. It used to be read-only-exempt back when it only showed past
+  // sends; now it also surfaces upcoming sends and a cancel action, so it
+  // needs the same gate as send/templates/triggers.
+  const isPermissionExemptRoute =
+    isSettingsRoute || isLegacySenderApprovalRoute;
 
   const { data: senderApproval, isLoading } = useQuery({
     queryKey: MESSAGE_SENDER_APPROVAL_QUERY_KEY,
@@ -41,7 +49,9 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
   const needsRequestPermission = Boolean(
     senderApproval && !senderApproval.isApproved && !senderApproval.canRequest,
   );
-  const shouldShowApprovalModal = !isPermissionExemptRoute && needsSenderApproval;
+  const shouldShowApprovalModal =
+    !isPermissionExemptRoute && !isNewMessageRoute && needsSenderApproval;
+  const isPermissionCheckLoading = !isPermissionExemptRoute && isLoading;
 
   const handleApprovalModalCancel = () => {
     router.replace("/all");
@@ -53,8 +63,21 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
       return;
     }
 
-    router.push("/messages/sender-approval");
+    router.push("/messages/settings");
   };
+
+  if (isPermissionCheckLoading) {
+    return (
+      <div
+        data-component="mobile_messages_permission-guard_loading"
+        className="flex min-h-0 flex-1 items-center justify-center"
+        role="status"
+        aria-live="polite"
+      >
+        메시지 권한 확인 중...
+      </div>
+    );
+  }
 
   return (
     <MessagesPermissionGuardContext.Provider

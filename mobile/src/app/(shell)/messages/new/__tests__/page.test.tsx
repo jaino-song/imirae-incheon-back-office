@@ -14,6 +14,7 @@ const mockUseSystemTemplate = jest.fn();
 const mockGetMessageSenderApproval = jest.fn();
 const mockUseBankAccountInfos = jest.fn();
 const mockUseVoucherPriceInfos = jest.fn();
+const mockUseMessagesPermissionGuard = jest.fn();
 const mockClipboardWriteText = jest.fn();
 let mockSearchParams = new URLSearchParams();
 
@@ -48,6 +49,7 @@ const mockClients: Client[] = [
     updatedAt: null,
     birthday: null,
     dueDate: null,
+    birthDate: null,
     address: "인천 연수구",
     phone: "01077778888",
     primaryEmployee: null,
@@ -81,6 +83,12 @@ jest.mock("@/hooks/use-message-templates", () => ({
 
 jest.mock("@/features/system-templates/hooks", () => ({
   useSystemTemplate: (key: string) => mockUseSystemTemplate(key),
+  useSystemTemplates: () => ({
+    data: ["GREETING", "INFO", "PRICE_INFO", "REMINDER", "SERVICE_INFO", "SURVEY", "THANKS"]
+      .map((k) => mockUseSystemTemplate(k)?.data)
+      .filter(Boolean),
+    isLoading: false,
+  }),
 }));
 
 jest.mock("@/hooks/useClients", () => ({
@@ -103,6 +111,10 @@ jest.mock("@/services/api", () => ({
   settingsApi: {
     getMessageSenderApproval: () => mockGetMessageSenderApproval(),
   },
+}));
+
+jest.mock("@/app/(shell)/messages/MessagesPermissionGuard", () => ({
+  useMessagesPermissionGuard: () => mockUseMessagesPermissionGuard(),
 }));
 
 function renderPage() {
@@ -142,6 +154,11 @@ describe("NewMessagePage", () => {
   beforeEach(() => {
     mockPush.mockClear();
     mockGetMessageSenderApproval.mockReset();
+    mockUseMessagesPermissionGuard.mockReset();
+    mockUseMessagesPermissionGuard.mockReturnValue({
+      isLoading: false,
+      needsSenderApproval: false,
+    });
     mockGetMessageSenderApproval.mockResolvedValue({
       approvalStatus: "approved",
       isApproved: true,
@@ -185,7 +202,7 @@ describe("NewMessagePage", () => {
     }));
     mockUseSystemTemplate.mockReset();
     mockUseSystemTemplate.mockImplementation((key: string) => {
-      if (key === "GREETING") {
+      if (key === "GREETING" || key === "greeting") {
         return {
           data: {
             id: "system-greeting",
@@ -200,7 +217,7 @@ describe("NewMessagePage", () => {
         };
       }
 
-      if (key === "SERVICE_INFO") {
+      if (key === "SERVICE_INFO" || key === "service-info") {
         return {
           data: {
             id: "system-service-info",
@@ -392,6 +409,80 @@ describe("NewMessagePage", () => {
     });
   });
 
+  it("seeds the recipient chip and name variable once the deep-linked client resolves late", async () => {
+    mockSearchParams = new URLSearchParams({ clientId: "7" });
+    mockUseAllClients.mockReturnValue({ data: undefined, isLoading: true });
+
+    const { rerender } = renderPage();
+
+    await openTemplateSelect();
+    fireEvent.click(screen.getByRole("option", { name: "서비스 안내" }));
+
+    expect(screen.queryByRole("button", { name: "박서연 수신자 제거" })).not.toBeInTheDocument();
+    expect(
+      (screen.getByLabelText("메시지 본문") as HTMLTextAreaElement).value,
+    ).not.toContain("박서연");
+
+    mockUseAllClients.mockReturnValue({ data: mockClients, isLoading: false });
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <NewMessagePage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "박서연 수신자 제거" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("메시지 본문")).toHaveValue(
+        "박서연 산모님~♡\n서비스 시작일: {{serviceDate}}\n산후관리서비스 관련 안내사항을 보내드립니다 :)",
+      );
+    });
+  });
+
+  it("surfaces the missing-phone warning once a deep-linked client without a phone resolves late", async () => {
+    mockSearchParams = new URLSearchParams({ clientId: "7" });
+    mockUseAllClients.mockReturnValue({ data: undefined, isLoading: true });
+
+    const { rerender } = renderPage();
+
+    expect(screen.queryByText("선택한 고객에 등록된 연락처가 없습니다.")).not.toBeInTheDocument();
+
+    mockUseAllClients.mockReturnValue({
+      data: [{ ...mockClients[0], phone: "" }],
+      isLoading: false,
+    });
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <NewMessagePage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("선택한 고객에 등록된 연락처가 없습니다.")).toBeInTheDocument();
+  });
+
+  it("does not re-add a deep-linked recipient the user removed when the client list refetches", async () => {
+    mockSearchParams = new URLSearchParams({ clientId: "7" });
+    mockUseAllClients.mockReturnValue({ data: mockClients, isLoading: false });
+
+    const { rerender } = renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "박서연 수신자 제거" }));
+    expect(screen.queryByRole("button", { name: "박서연 수신자 제거" })).not.toBeInTheDocument();
+
+    mockUseAllClients.mockReturnValue({
+      data: mockClients.map((client) => ({ ...client })),
+      isLoading: false,
+    });
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <NewMessagePage />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "박서연 수신자 제거" })).not.toBeInTheDocument();
+    });
+  });
+
   it("blocks submissions with more than 50 recipients", async () => {
     renderPage();
 
@@ -464,6 +555,18 @@ describe("NewMessagePage", () => {
   it("disables immediate send until a recipient is selected", () => {
     renderPage();
 
+    expect(screen.getByRole("button", { name: "즉시 발송" })).toBeDisabled();
+  });
+
+  it("keeps the send page accessible but disables immediate send without approval", () => {
+    mockUseMessagesPermissionGuard.mockReturnValue({
+      isLoading: false,
+      needsSenderApproval: true,
+    });
+
+    renderPage();
+
+    expect(screen.getByText("새 메시지")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "즉시 발송" })).toBeDisabled();
   });
 
@@ -628,10 +731,10 @@ describe("NewMessagePage", () => {
     fireEvent.focus(recipientNameInput);
     fireEvent.change(recipientNameInput, { target: { value: "박서연" } });
     fireEvent.click(await screen.findByText("박서연"));
+    fireEvent.blur(recipientNameInput);
 
     expect(recipientNameInput).toHaveValue("");
     expect(screen.queryByRole("button", { name: "선택 해제" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "목록 열기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "박서연 수신자 제거" })).toBeInTheDocument();
 
     await waitFor(() => {

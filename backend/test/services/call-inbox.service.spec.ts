@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, NotFoundException, NotImplementedException } from "@nestjs/common";
 import { CallInboxService } from "application/services/call-inbox.service";
+import { createHash } from "node:crypto";
 
 describe("CallInboxService", () => {
     const prisma = {
+        $transaction: jest.fn(),
         call_record: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
         client_draft: {
             findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(),
@@ -10,6 +12,7 @@ describe("CallInboxService", () => {
         },
         client: { findMany: jest.fn(), findFirst: jest.fn() },
     };
+    prisma.$transaction.mockImplementation(async (callback: (transaction: never) => Promise<unknown>) => callback(prisma as never));
     const clientService = { create: jest.fn(), update: jest.fn() };
     let service: CallInboxService;
 
@@ -23,6 +26,7 @@ describe("CallInboxService", () => {
 
     beforeEach(() => {
         jest.resetAllMocks();
+        prisma.$transaction.mockImplementation(async (callback: (transaction: never) => Promise<unknown>) => callback(prisma as never));
         prisma.client.findMany.mockResolvedValue([]);
         prisma.client_draft.update.mockResolvedValue({});
         prisma.call_record.update.mockResolvedValue({});
@@ -50,6 +54,26 @@ describe("CallInboxService", () => {
         }));
         expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
             data: expect.objectContaining({ matchedClientId: 77 }),
+        }));
+    });
+
+    it("confirmNewClient: passes 출산일 to ClientService.create", async () => {
+        // The create call maps fields one by one, so a column left out of that
+        // mapping is silently dropped even when the reviewer filled it in.
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.create.mockResolvedValue({ id: 77 });
+
+        await service.confirmNewClient("branch-1", "user-1", "draft-1", {
+            fields: {
+                name: "김서연", careCenter: false, voucherClient: true, breastPump: false,
+                dueDate: "2026-09-15", birthDate: "2026-08-05",
+            },
+        });
+
+        expect(clientService.create).toHaveBeenCalledWith("branch-1", expect.objectContaining({
+            dueDate: "2026-09-15",
+            birthDate: "2026-08-05",
         }));
     });
 
@@ -141,6 +165,24 @@ describe("CallInboxService", () => {
         }));
     });
 
+    it("confirmClientUpdate: carries 출산일 through the allowlist", async () => {
+        // A "아기 낳았어요" call is the one that fills birthDate in. It reaches
+        // the client only if PROPOSAL_FIELDS lists it — that set is both what
+        // the extraction may propose and what a confirm is filtered against.
+        prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.update.mockResolvedValue({});
+        prisma.client_draft.update.mockResolvedValue({});
+
+        await service.confirm("branch-1", "user-1", "draft-1", {
+            changes: { birthDate: "2026-08-05" },
+        });
+
+        expect(clientService.update).toHaveBeenCalledWith("branch-1", 142, {
+            birthDate: "2026-08-05",
+        });
+    });
+
     it("confirmClientUpdate: 409 when no client linked — clientId check happens BEFORE lock", async () => {
         const unlinkeddraft = { ...clientUpdateDraft, clientId: null };
         prisma.client_draft.findFirst.mockResolvedValue(unlinkeddraft);
@@ -208,6 +250,110 @@ describe("CallInboxService", () => {
         );
     });
 
+    describe("confirmApprovedTarget CLIENT_UPDATE preparation", () => {
+        const expectedVersion = () => createHash("sha256").update(JSON.stringify(clientUpdateDraft)).digest("hex");
+
+        it("rejects a null client linkage before claiming the draft", async () => {
+            const draft = { ...clientUpdateDraft, clientId: null };
+            prisma.client_draft.findFirst.mockResolvedValue(draft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, createHash("sha256").update(JSON.stringify(draft)).digest("hex"))).rejects.toThrow(ConflictException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("rejects unsupported-only changes before claiming the draft", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { hairColor: "blonde" },
+            }, expectedVersion())).rejects.toThrow(BadRequestException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("rejects an unknown draft type before claiming the draft", async () => {
+            const draft = { ...clientUpdateDraft, type: "UNSUPPORTED" };
+            prisma.client_draft.findFirst.mockResolvedValue(draft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, createHash("sha256").update(JSON.stringify(draft)).digest("hex"))).rejects.toThrow(BadRequestException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("rejects a target-version mismatch before claiming the draft", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, "stale-version")).rejects.toThrow(ConflictException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        });
+
+        it("validates, claims, and confirms the prepared changes", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+            clientService.update.mockResolvedValue({});
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23", hairColor: "ignored" },
+            }, expectedVersion())).resolves.toEqual({ clientId: 142 });
+
+            expect(prisma.client_draft.updateMany).toHaveBeenCalledWith({
+                where: { id: "draft-1", branchId: "branch-1", status: "PENDING" },
+                data: { status: "CONFIRMING", confirmingStartedAt: expect.any(Date) },
+            });
+            expect(clientService.update).toHaveBeenCalledWith("branch-1", 142, { startDate: "2026-06-23" });
+            expect(prisma.client_draft.update).toHaveBeenCalledWith(expect.objectContaining({
+                where: { id: "draft-1" },
+                data: expect.objectContaining({ status: "CONFIRMED", reviewedById: "user-1" }),
+            }));
+        });
+
+        it("rolls a claimed draft back to PENDING when the client update fails", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+            clientService.update.mockRejectedValue(new Error("serviceStatus invalid"));
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { serviceStatus: "invalid" },
+            }, expectedVersion())).rejects.toThrow("serviceStatus invalid");
+
+            expect(prisma.client_draft.update).toHaveBeenCalledWith({
+                where: { id: "draft-1" },
+                data: { status: "PENDING", confirmingStartedAt: null },
+            });
+        });
+
+        it("contains bookkeeping failure after an approved client update", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+            clientService.update.mockResolvedValue({});
+            prisma.client_draft.update
+                .mockRejectedValueOnce(new Error("db blip"))
+                .mockResolvedValueOnce({});
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                changes: { startDate: "2026-06-23" },
+            }, expectedVersion())).resolves.toEqual({ clientId: 142 });
+
+            const updateCalls = prisma.client_draft.update.mock.calls;
+            expect(updateCalls.some(([args]: [{ data: { status?: string } }]) => args.data.status === "PENDING")).toBe(false);
+            expect(updateCalls[updateCalls.length - 1]![0].data).toEqual(
+                expect.objectContaining({ status: "CONFIRMED", confirmingStartedAt: null }),
+            );
+        });
+    });
+
     it("confirm dispatch: NEW_CLIENT without fields → 400", async () => {
         prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
 
@@ -261,5 +407,42 @@ describe("CallInboxService", () => {
         expect(result.data[0]!.phoneMatchesExistingClient).toBe(true);
         expect(result.total).toBe(2);
         expect(result.totalPages).toBe(1);
+    });
+
+    it("patchDraftApprovedTarget mutates only when the locked draft still matches", async () => {
+        const draft = {
+            id: "draft-atomic",
+            branchId: "branch-1",
+            status: "PENDING",
+            proposals: [],
+            updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+        };
+        prisma.client_draft.findFirst.mockResolvedValue(draft);
+        prisma.client_draft.update.mockResolvedValue({});
+        const expected = createHash("sha256").update(JSON.stringify(draft)).digest("hex");
+
+        await service.patchDraftApprovedTarget("branch-1", "draft-atomic", { proposals: [] }, expected);
+
+        expect(prisma.client_draft.update).toHaveBeenCalledWith(expect.objectContaining({
+            where: { id: "draft-atomic" },
+            data: { proposals: [] },
+        }));
+    });
+
+    it("patchDraftApprovedTarget rejects an interleaved target change before any mutation", async () => {
+        const original = {
+            id: "draft-race",
+            branchId: "branch-1",
+            status: "PENDING",
+            proposals: [],
+            updatedAt: new Date("2026-08-04T00:00:00.000Z"),
+        };
+        const changed = { ...original, proposals: [{ field: "name", value: "changed" }] };
+        prisma.client_draft.findFirst.mockResolvedValue(changed);
+        const expected = createHash("sha256").update(JSON.stringify(original)).digest("hex");
+
+        await expect(service.patchDraftApprovedTarget("branch-1", "draft-race", { proposals: [] }, expected))
+            .rejects.toThrow(ConflictException);
+        expect(prisma.client_draft.update).not.toHaveBeenCalled();
     });
 });

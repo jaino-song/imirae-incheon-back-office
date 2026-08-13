@@ -2,6 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
 import { messageTriggersApi } from "../api/message-triggers.api";
 import { messageTriggerKeys } from "./keys";
 import type {
@@ -130,13 +136,48 @@ export function useUpdateMessageTriggerRule() {
     });
 }
 
+// Removes a rule from the cached rule list. Non-array shapes pass through unchanged.
+function removeTriggerRuleFromCacheData(current: unknown, id: string): unknown {
+    if (!Array.isArray(current)) return current;
+    return removeById(current as MessageTriggerRule[], id);
+}
+
 export function useDeleteMessageTriggerRule() {
     const queryClient = useQueryClient();
 
-    return useMutation({
+    return useMutation<unknown, Error, string, { previous: QuerySnapshot }>({
         mutationFn: (id: string) => messageTriggersApi.delete(id),
-        onSuccess: () => {
+        onMutate: async (id) => {
+            // Must target the exact rule-list key, never `messageTriggerKeys.all`:
+            // that broad prefix also matches upcoming jobs, history, templates and
+            // detail caches, whose differently-shaped rows can carry the same `id`.
+            const previous = await snapshotAndTransformQueries(
+                queryClient,
+                { queryKey: messageTriggerKeys.list() },
+                (current) => removeTriggerRuleFromCacheData(current, id),
+            );
+            return { previous };
+        },
+        onError: (_error, _id, context) => {
+            if (context?.previous) restoreQueries(queryClient, context.previous);
+        },
+        onSettled: () => {
             queryClient.invalidateQueries({ queryKey: messageTriggerKeys.all });
+        },
+    });
+}
+
+// Cancels a still-pending trigger job. On success the job drops out of the
+// upcoming list and a canceled entry appears in history, so both queries need
+// a refetch for the row to visibly move from one zone to the other.
+export function useCancelMessageTriggerJob() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (id: string) => messageTriggersApi.cancelJob(id).then((response) => response.data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
+            queryClient.invalidateQueries({ queryKey: messageTriggerKeys.history() });
         },
     });
 }

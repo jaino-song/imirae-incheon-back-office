@@ -2,6 +2,12 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import {
+    removeById,
+    restoreQueries,
+    snapshotAndTransformQueries,
+    type QuerySnapshot,
+} from "@/lib/query/optimistic-list-cache";
 
 export interface Document {
     id: string;
@@ -19,14 +25,15 @@ export interface Document {
     updatedAt: string;
 }
 
+// orgId/uploadedBy are deliberately absent: the backend derives both from the
+// JWT (@CurrentTenant), and the proxy strips them — sending them would only
+// earn a 400 from the backend's forbidNonWhitelisted pipe.
 export interface UploadDocumentParams {
     file: File;
     name?: string;
     description?: string;
     categoryId: string;
     tags?: string[];
-    orgId?: string;
-    uploadedBy?: string;
     onProgress?: (progress: number) => void;
 }
 
@@ -85,8 +92,6 @@ export function useUploadDocument() {
             description,
             categoryId,
             tags,
-            orgId,
-            uploadedBy,
             onProgress,
         }: UploadDocumentParams) => {
             const formData = new FormData();
@@ -95,8 +100,6 @@ export function useUploadDocument() {
             if (description) formData.append("description", description);
             formData.append("categoryId", categoryId);
             if (tags) formData.append("tags", JSON.stringify(tags));
-            if (orgId) formData.append("orgId", orgId);
-            if (uploadedBy) formData.append("uploadedBy", uploadedBy);
 
             const { data } = await api.post<Document>("/file-storage/files", formData, {
                 onUploadProgress: (progressEvent) => {
@@ -108,8 +111,8 @@ export function useUploadDocument() {
             });
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
         },
         onError: (error) => {
             console.error("[useUploadDocument] onError called:", error);
@@ -128,14 +131,20 @@ export function useUpdateDocument() {
             const { data } = await api.put<Document>(`/file-storage/files/${id}`, params);
             return data;
         },
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
-            queryClient.invalidateQueries({ queryKey: documentQueryKeys.detail(data.id) });
+        onSuccess: async (data) => {
+            await queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
+            await queryClient.invalidateQueries({ queryKey: documentQueryKeys.detail(data.id) });
         },
         onError: (error) => {
             console.error("[useUpdateDocument] onError called:", error);
         },
     });
+}
+
+// Removes a document from a cached list. Non-list shapes pass through unchanged.
+function removeDocumentFromCacheData(current: unknown, id: string): unknown {
+    if (!Array.isArray(current)) return current;
+    return removeById(current as Document[], id);
 }
 
 /**
@@ -144,16 +153,27 @@ export function useUpdateDocument() {
 export function useDeleteDocument() {
      const queryClient = useQueryClient();
 
-     return useMutation<string, Error, string>({
+     return useMutation<string, Error, string, { previous: QuerySnapshot }>({
          mutationFn: async (id: string) => {
              await api.delete(`/file-storage/files/${id}`);
              return id;
          },
-         onSuccess: () => {
-             queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
+         onMutate: async (id) => {
+             // Scope to list keys so detail caches are never optimistically edited.
+             // Every per-categoryId list variant lives under this prefix.
+             const previous = await snapshotAndTransformQueries(
+                 queryClient,
+                 { queryKey: documentQueryKeys.lists() },
+                 (current) => removeDocumentFromCacheData(current, id),
+             );
+             return { previous };
          },
-         onError: (error) => {
+         onError: (error, _id, context) => {
+             if (context?.previous) restoreQueries(queryClient, context.previous);
              console.error("[useDeleteDocument] onError called:", error);
+         },
+         onSettled: async () => {
+             await queryClient.invalidateQueries({ queryKey: documentQueryKeys.all });
          },
      });
 }

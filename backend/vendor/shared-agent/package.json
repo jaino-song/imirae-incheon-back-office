@@ -1,0 +1,14 @@
+{
+  "name": "@babyjamjam/shared",
+  "version": "0.1.0-backend-agent",
+  "private": true,
+  "type": "commonjs",
+  "main": "agent/index.js",
+  "types": "agent/index.d.ts",
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "ai": "6.0.116"
+  }
+}

@@ -12,6 +12,10 @@ import {
     HeadlessDispatchResponse,
 } from "@babyjamjam/shared/types/eformsign";
 import type {
+    MessageAutomationPastTriggerConfig,
+    MessageAutomationPoliciesResponse,
+    MessageAutomationPolicy,
+    MessageAutomationPolicyRow,
     MessageSenderApprovalResponse,
     MessageSenderApprovalStatus,
 } from "@babyjamjam/shared/types/message";
@@ -52,7 +56,8 @@ export interface ServiceRecordTemplateIdResponse {
 }
 
 const HEADLESS_DISPATCH_TIMEOUT_MS = 180_000;
-const HEADLESS_FINALIZE_TIMEOUT_MS = 60_000;
+const HEADLESS_FINALIZE_TIMEOUT_MS = 180_000;
+const MAX_PROVIDER_FINALIZE_STEPS = 3;
 const DEFAULT_EFORMSIGN_LIMIT = 100;
 const DEFAULT_EFORMSIGN_SKIP = 0;
 const MAX_EFORMSIGN_AUTH_5XX_ATTEMPTS = 3;
@@ -143,6 +148,7 @@ export type EformsignStatusCategoryParam =
     | "unknown";
 
 export type EformsignTemplateMatchParam = "include" | "exclude";
+export type EformsignDisplayStatusParam = "signed" | "review";
 
 export interface GetAllDocumentsParams {
     limit?: number;
@@ -151,6 +157,8 @@ export interface GetAllDocumentsParams {
     templateMatch?: EformsignTemplateMatchParam;
     /** Server-side status bucket filter, applied before the limit/skip slice. */
     statusCategory?: EformsignStatusCategoryParam;
+    /** Provider-review display split, applied before the limit/skip slice. */
+    displayStatus?: EformsignDisplayStatusParam;
     /** Server-side (chosung-aware) name/title search, applied before the slice. */
     search?: string;
     /** Drops deleted (047/049) documents before the slice. Sent as "true" only when enabled. */
@@ -163,6 +171,10 @@ export interface EformsignStatusSignal {
     step_type: string | null;
     step_name: string | null;
     step_recipient_types: Array<string | null>;
+    /** YYYY-MM-DD when known; splits the 서명 완료/검토 필요 counters. */
+    contract_end_date?: string | null;
+    /** Authoritative display status stamped by the backend at serve time. */
+    display_status?: string | null;
 }
 
 export interface EformsignStatusCountsResponse {
@@ -185,6 +197,7 @@ function buildDocumentListParams(
     if (params.templateId) query.templateId = params.templateId;
     if (params.templateMatch) query.templateMatch = params.templateMatch;
     if (params.statusCategory) query.statusCategory = params.statusCategory;
+    if (params.displayStatus) query.displayStatus = params.displayStatus;
 
     const search = params.search?.trim();
     if (search) query.search = search;
@@ -368,14 +381,27 @@ export const eformsignApi = {
         prefillEndDate?: string,
         progressId?: string,
     ): Promise<FinalizeHeadlessResponse> => {
-        const { data } = await api.post('/eformsign-docs/finalize-headless', {
-            documentId,
-            prefillEndDate,
-            progressId,
-        }, {
-            timeout: HEADLESS_FINALIZE_TIMEOUT_MS,
-        });
-        return data;
+        let totalDurationMs = 0;
+        for (let attempt = 1; attempt <= MAX_PROVIDER_FINALIZE_STEPS; attempt += 1) {
+            const { data } = await api.post('/eformsign-docs/finalize-headless', {
+                documentId,
+                prefillEndDate,
+                progressId,
+            }, {
+                timeout: HEADLESS_FINALIZE_TIMEOUT_MS,
+            });
+            const result = data as FinalizeHeadlessResponse;
+            totalDurationMs += result.durationMs ?? 0;
+            if (!result.ok || result.completed !== false) {
+                return { ...result, durationMs: totalDurationMs };
+            }
+        }
+        return {
+            ok: false,
+            reason: "provider_workflow_incomplete",
+            fallbackHint: "manual_check",
+            durationMs: totalDurationMs,
+        };
     },
     // Create eformsign doc record to track document in local DB
     createDocRecord: async (params: CreateEformsignDocRecordRequest) => {
@@ -432,21 +458,20 @@ export const eformsignApi = {
         const { data } = await api.get<EformsignApiListResponse>('/eformsign/documents/rejected');
         return normalizeDocumentListResponse(data);
     },
+    // A delete cancels the document at eformsign and purges the local copy. There is no
+    // permanence choice any more, so is_permanent is no longer sent.
     deleteDocuments: async (
-        documentIds: string[],
-        isPermanent: boolean = false
+        documentIds: string[]
     ): Promise<EformsignDeleteDocumentsResponse> => {
         const { data } = await api.delete('/eformsign/documents', {
-            params: { is_permanent: isPermanent },
             data: { document_ids: documentIds },
         });
         return data;
     },
     deleteDocument: async (
-        documentId: string,
-        isPermanent: boolean = false
+        documentId: string
     ): Promise<EformsignDeleteDocumentsResponse> => {
-        return eformsignApi.deleteDocuments([documentId], isPermanent);
+        return eformsignApi.deleteDocuments([documentId]);
     },
     // Legacy alias
     getDocuments: async (): Promise<EformsignDocumentsResponse> => {
@@ -487,6 +512,10 @@ export async function withEformsignReauth<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export type {
+    MessageAutomationPastTriggerConfig,
+    MessageAutomationPoliciesResponse,
+    MessageAutomationPolicy,
+    MessageAutomationPolicyRow,
     MessageSenderApprovalResponse,
     MessageSenderApprovalStatus,
 };
@@ -511,6 +540,16 @@ export const settingsApi = {
     },
     getMessageSenderApproval: async (): Promise<MessageSenderApprovalResponse> => {
         const { data } = await api.get("/settings/message-sender-approval");
+        return data;
+    },
+    getMessageAutomationPolicies: async (): Promise<MessageAutomationPoliciesResponse> => {
+        const { data } = await api.get("/settings/message-automation-policies");
+        return data;
+    },
+    updateMessageAutomationPastTriggerConfig: async (
+        config: MessageAutomationPastTriggerConfig,
+    ): Promise<MessageAutomationPastTriggerConfig> => {
+        const { data } = await api.put("/settings/message-automation-policies/past-trigger", config);
         return data;
     },
     requestMessageSenderApproval: async (): Promise<MessageSenderApprovalResponse> => {

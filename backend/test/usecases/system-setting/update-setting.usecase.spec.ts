@@ -6,6 +6,7 @@ describe("UpdateSettingUsecase", () => {
     const createMockRepository = (): jest.Mocked<ISystemSettingRepository> => ({
         findByKey: jest.fn(),
         upsert: jest.fn(),
+        compareAndSet: jest.fn(),
     });
 
     let usecase: UpdateSettingUsecase;
@@ -50,5 +51,19 @@ describe("UpdateSettingUsecase", () => {
             expect(result.key).toBe("other_key");
             expect(result.value).toBe("other_value");
         });
+    });
+
+    it("delegates compare-and-set updates with the supplied version function", async () => {
+        const entity = new SystemSettingEntity("ribbon_config", "{}", new Date());
+        repository.compareAndSet.mockResolvedValue(entity);
+        const versionOf = (value: string | null) => value ?? "default";
+
+        await expect(usecase.executeIfVersion("ribbon_config", "{}", "v1", versionOf)).resolves.toBe(entity);
+        expect(repository.compareAndSet).toHaveBeenCalledWith(
+            "ribbon_config",
+            "v1",
+            expect.objectContaining({ key: "ribbon_config", value: "{}" }),
+            versionOf,
+        );
     });
 });

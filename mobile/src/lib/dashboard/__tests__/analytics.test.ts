@@ -117,6 +117,25 @@ describe("deriveDashboardAnalyticsFromClients", () => {
     expect(analytics.contractsNotSent).toBe(2);
   });
 
+  it("only counts pending-signature contracts once the review window opens", () => {
+    const base = { eDocId: "doc-1", documentStatus: "opened" as const };
+    const analytics = deriveDashboardAnalyticsFromClients(
+      [
+        // Ends far in the future → review window closed → not counted.
+        client({ ...base, endDate: "2099-12-31" }),
+        // Already past its end date → counted.
+        client({ ...base, endDate: "2026-06-01" }),
+        // No end date → window treated as open (server parity) → counted.
+        client({ ...base }),
+        // Completed docs are never counted regardless of dates.
+        client({ ...base, documentStatus: "completed", endDate: "2026-06-01" }),
+      ],
+      NOW,
+    );
+
+    expect(analytics.contractsPendingSignature).toBe(0);
+  });
+
   it("derives weekly upcoming starts from service-start window", () => {
     const analytics = deriveDashboardAnalyticsFromClients(
       [

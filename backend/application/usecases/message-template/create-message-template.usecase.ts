@@ -1,6 +1,7 @@
 import { Inject, Injectable, BadRequestException } from "@nestjs/common";
 import { MessageTemplateEntity, TemplateVariable } from "domain/entities/message-template.entity";
 import { IMessageTemplateRepository, MESSAGE_TEMPLATE_REPOSITORY } from "domain/repositories/message-template.repository.interface";
+import type { Prisma } from "@prisma/client";
 
 export type CreateMessageTemplateParams = {
     name: string;
@@ -17,7 +18,8 @@ export class CreateMessageTemplateUsecase {
 
     async execute(
         branchid: string,
-        params: CreateMessageTemplateParams
+        params: CreateMessageTemplateParams,
+        transaction?: Prisma.TransactionClient,
     ): Promise<MessageTemplateEntity> {
         const template = MessageTemplateEntity.create(params);
 
@@ -26,6 +28,6 @@ export class CreateMessageTemplateUsecase {
             throw new BadRequestException(validation.errors.join(", "));
         }
 
-        return this.messageTemplateRepository.create(branchid, template);
+        return this.messageTemplateRepository.create(branchid, template, transaction);
     }
 }

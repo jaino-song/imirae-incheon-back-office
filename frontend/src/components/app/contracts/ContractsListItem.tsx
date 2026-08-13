@@ -3,9 +3,8 @@
 import { memo } from "react";
 import { Calendar, CircleCheck, FileSignature } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AnimatedSlotListItemContent, StatusBadge, type StatusType } from "@/components/app/v3";
-import { cn } from "@/lib/utils";
-import { getStatusCategory, mapDocStatusLabel } from "@/lib/eformsign/status-codes";
+import { AnimatedSlotListItemContent, StatusBadge } from "@/components/app/v3";
+import { contractStatusBadgeType, getStatusCategory, mapDocStatusLabel } from "@/lib/eformsign/status-codes";
 import type { EformsignDocument } from "@/lib/eformsign/types";
 import { formatDateForDisplay } from "@/lib/date/format-date-for-display";
 
@@ -17,18 +16,31 @@ interface ContractsListItemProps {
   isLoading: boolean;
 }
 
-function mapCategoryToStatusType(
-  category: "completed" | "expired" | "in-progress"
-): StatusType {
-  switch (category) {
-    case "completed":
-      return "signed";
-    case "expired":
-      return "expired";
-    default:
-      return "pending";
-  }
-}
+const CONTRACT_STATUS_AVATAR_CLASSES = {
+  pending: {
+    container: "bg-v3-dim-white",
+    icon: "text-v3-text-muted",
+  },
+  signed: {
+    container: "bg-v3-primary-light",
+    icon: "text-v3-primary",
+  },
+  review: {
+    container: "bg-v3-orange-light",
+    icon: "text-v3-orange",
+  },
+  completed: {
+    container: "bg-v3-green-light",
+    icon: "text-v3-green",
+  },
+  expired: {
+    container: "bg-v3-burgundy-light",
+    icon: "text-v3-burgundy",
+  },
+} as const satisfies Record<
+  ReturnType<typeof contractStatusBadgeType>,
+  { container: string; icon: string }
+>;
 
 function formatDate(timestamp: number): string {
   return formatDateForDisplay(timestamp);
@@ -64,9 +76,13 @@ function ContractsListItemComponent({
   }
 
   const category = getStatusCategory(document.current_status?.status_type);
-  const statusLabel = mapDocStatusLabel(document.current_status);
-  const isReviewNeeded = statusLabel === "검토 필요";
-  const statusType: StatusType = isReviewNeeded ? "review" : mapCategoryToStatusType(category);
+  const statusLabel = mapDocStatusLabel(
+    document.current_status,
+    document.contract_end_date,
+    document.display_status,
+  );
+  const statusType = contractStatusBadgeType(statusLabel);
+  const avatarClasses = CONTRACT_STATUS_AVATAR_CLASSES[statusType];
   const sentDate = formatDate(document.created_date);
   const signedDate =
     category === "completed" ? formatDate(document.updated_date) : null;
@@ -81,24 +97,8 @@ function ContractsListItemComponent({
     <AnimatedSlotListItemContent
       data-component={dataComponent}
       icon={FileSignature}
-      iconContainerClassName={cn(
-        category === "completed"
-          ? "bg-v3-green-light"
-          : category === "expired"
-            ? "bg-v3-burgundy-light"
-            : isReviewNeeded
-              ? "bg-v3-primary-light"
-              : "bg-v3-orange-light"
-      )}
-      iconClassName={cn(
-        category === "completed"
-          ? "text-v3-green"
-          : category === "expired"
-            ? "text-v3-burgundy"
-            : isReviewNeeded
-              ? "text-v3-primary"
-              : "text-v3-orange"
-      )}
+      iconContainerClassName={avatarClasses.container}
+      iconClassName={avatarClasses.icon}
       title={recipientName}
       titleClassName={isRecipientNamePlaceholder ? "italic text-v3-text-muted" : undefined}
       subtitle={subtitle ?? document.document_name}

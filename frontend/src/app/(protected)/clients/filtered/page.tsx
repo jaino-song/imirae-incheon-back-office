@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import { getApiErrorMessage } from "@babyjamjam/shared";
 import { useFilteredClients, useDeleteClient } from "@/hooks/useClients";
 import { Client, DocumentStatus } from "@/lib/client/types";
 import { ClientDetailModal } from "@/components/app/clients/ClientDetailModal";
 import { ClientFormDialog } from "@/components/app/clients/ClientFormDialog";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
+import { NotificationOneButtonModal } from "@/components/app/ui/NotificationOneButtonModal";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,6 +93,7 @@ export default function FilteredClientsPage() {
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [formDialogOpen, setFormDialogOpen] = useState(false);
     const [deleteTargetClientId, setDeleteTargetClientId] = useState<number | null>(null);
+    const [deleteErrorMessage, setDeleteErrorMessage] = useState<string | null>(null);
 
     const { data: clients, isLoading, error } = useFilteredClients(filter || "");
     const deleteClient = useDeleteClient();
@@ -123,6 +126,13 @@ export default function FilteredClientsPage() {
             setDeleteTargetClientId(null);
         } catch (err) {
             console.error("Failed to delete client:", err);
+            setDeleteTargetClientId(null);
+            setDeleteErrorMessage(
+                getApiErrorMessage(
+                    err,
+                    "고객 삭제에 실패했습니다. 다시 시도해 주세요.",
+                ),
+            );
         }
     };
 
@@ -220,6 +230,18 @@ export default function FilteredClientsPage() {
                 approvalVariant="destructive"
                 isPending={deleteClient.isPending}
                 onApprove={() => void handleDeleteConfirm()}
+            />
+
+            <NotificationOneButtonModal
+                open={deleteErrorMessage !== null}
+                onOpenChange={(open) => {
+                    if (!open) setDeleteErrorMessage(null);
+                }}
+                data-component="desktop_clients-filtered_delete-error-notification"
+                title="고객을 삭제하지 못했습니다."
+                description={deleteErrorMessage ?? ""}
+                isDescriptionVisuallyHidden={false}
+                onAcknowledge={() => setDeleteErrorMessage(null)}
             />
         </section>
     );

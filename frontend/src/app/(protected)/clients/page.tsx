@@ -45,11 +45,12 @@ import {
     ClientFormDialog,
     ClientFormPanel,
 } from "@/components/app/clients/ClientFormDialog";
+import { MaternityContractDialog } from "@/components/app/clients/MaternityContractDialog";
+import { canCreateNewContractDocument } from "@/components/app/contracts/ContractClientSelector";
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
 import { getClientDisplayLabel } from "@/components/app/clients/client-display";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { NotificationOneButtonModal } from "@/components/app/ui/NotificationOneButtonModal";
-import { StatusPill } from "@/components/app/ui/status-badge";
 import { ClientDetailModal } from "@/components/app/clients/ClientDetailModal";
 import { ServiceRecordLinkResetResultModal } from "@/components/app/clients/ServiceRecordLinkResetResultModal";
 import { ServiceScheduleChangeModal } from "@/components/app/clients/ServiceScheduleChangeModal";
@@ -170,10 +171,10 @@ function ClientAutomationSection() {
         },
         onError: (_error, _variables, context) => {
             if (context?.previous) queryClient.setQueryData(["settings", "client-registration-policy"], context.previous);
-            toast({ variant: "destructive", description: "고객 자동 등록 설정 저장 중 오류가 발생했습니다." });
+            toast({ variant: "destructive", description: "고객 자동 등록 설정을 저장하지 못했어요" });
         },
         onSuccess: (saved) => queryClient.setQueryData(["settings", "client-registration-policy"], saved),
-        onSettled: () => void queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] }),
+        onSettled: async () => { await queryClient.invalidateQueries({ queryKey: ["settings", "client-registration-policy"] }); },
     });
     const selectedAutomation =
         CLIENT_AUTOMATION_ITEMS.find((item) => item.id === selectedAutomationId) ?? null;
@@ -284,6 +285,7 @@ export default function ClientsPage() {
     const [isCreatingClient, setIsCreatingClient] = useState(false);
     const [formDialogOpen, setFormDialogOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
+    const [maternityContractClient, setMaternityContractClient] = useState<Client | null>(null);
     const [deleteTargetClientId, setDeleteTargetClientId] = useState<number | null>(null);
     const [deleteErrorMessage, setDeleteErrorMessage] = useState<string | null>(null);
     const [resetLinkTargetClientId, setResetLinkTargetClientId] = useState<number | null>(null);
@@ -444,7 +446,7 @@ export default function ClientsPage() {
                 ?? null;
             if (!activeAssignment) {
                 toast({
-                    description: "관리사 배정이 없어 링크를 재설정할 수 없습니다.",
+                    description: "관리사 배정이 없어 링크를 재설정할 수 없어요",
                     variant: "destructive",
                 });
                 return;
@@ -455,7 +457,7 @@ export default function ClientsPage() {
             setResetServiceRecordUrl(reset.data.serviceRecordUrl);
         } catch {
             toast({
-                description: "제공기록지 링크 재설정에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+                description: "제공기록지 링크를 재설정하지 못했어요. 잠시 후 다시 시도해 주세요",
                 variant: "destructive",
             });
         } finally {
@@ -473,7 +475,7 @@ export default function ClientsPage() {
                 ?? null;
             if (!activeAssignment) {
                 toast({
-                    description: "관리사 배정이 없어 서비스 일정을 변경할 수 없습니다.",
+                    description: "관리사 배정이 없어 서비스 일정을 변경할 수 없어요",
                     variant: "destructive",
                 });
                 return;
@@ -493,7 +495,7 @@ export default function ClientsPage() {
             });
         } catch {
             toast({
-                description: "변경할 수 있는 다음 서비스 일정을 불러오지 못했습니다.",
+                description: "변경할 수 있는 다음 서비스 일정을 불러오지 못했어요",
                 variant: "destructive",
             });
         } finally {
@@ -521,7 +523,8 @@ export default function ClientsPage() {
             setSelectedScheduleChangeDate("");
             await queryClient.invalidateQueries({ queryKey: ["clients"] });
             toast({
-                description: `서비스 일정과 종료일(${changed.data.newEndDate})이 변경되었습니다.`,
+              variant: "success",
+                description: `서비스 일정과 종료일(${changed.data.newEndDate})을 변경했어요`,
             });
         } catch (error) {
             toast({
@@ -536,10 +539,10 @@ export default function ClientsPage() {
     const handleCopyResetServiceRecordLink = async (serviceRecordUrl: string) => {
         try {
             await navigator.clipboard.writeText(serviceRecordUrl);
-            toast({ description: "제공기록지 링크를 복사했습니다." });
+            toast({ variant: "success", description: "제공기록지 링크를 복사했어요" });
         } catch {
             toast({
-                description: "링크 복사에 실패했습니다. 링크를 직접 선택해 복사해 주세요.",
+                description: "링크를 복사하지 못했어요. 링크를 직접 선택해 복사해 주세요",
                 variant: "destructive",
             });
         }
@@ -548,15 +551,16 @@ export default function ClientsPage() {
     const handleDeleteConfirm = async () => {
         if (deleteTargetClientId === null) return;
 
+        const clientId = deleteTargetClientId;
+        setDeleteTargetClientId(null);
+
         try {
-            await deleteClient.mutateAsync(deleteTargetClientId);
-            if (activeSelectedClient?.id === deleteTargetClientId) {
-                setSelectedClient(null);
-            }
-            setDeleteTargetClientId(null);
+            await deleteClient.mutateAsync(clientId);
+            setSelectedClient((currentClient) => (
+                currentClient?.id === clientId ? null : currentClient
+            ));
         } catch (err) {
             console.error("Failed to delete client:", err);
-            setDeleteTargetClientId(null);
             setDeleteErrorMessage(
                 getApiErrorMessage(
                     err,
@@ -596,6 +600,10 @@ export default function ClientsPage() {
         setEditingClient((currentClient) => (
             currentClient?.id === client.id ? client : currentClient
         ));
+    };
+
+    const handleMaternityContractSuccess = async () => {
+        await queryClient.invalidateQueries({ queryKey: ["clients"] });
     };
 
     const handleClientFormPanelClose = () => {
@@ -766,13 +774,12 @@ export default function ClientsPage() {
                                                                 }
                                                             />
                                                             {remainingClientBadges.length > 0 ? (
-                                                                <StatusPill
+                                                                <span
                                                                     data-component="desktop_clients_sections_section-content_list-section_split-layout_list-panel_content_item_status-more"
-                                                                    variant="neutral"
-                                                                    size="sm"
+                                                                    className="shrink-0 text-[calc(10.4px*var(--glint-ui-scale,1))] font-semibold text-v3-text-muted"
                                                                 >
                                                                     +{remainingClientBadges.length}
-                                                                </StatusPill>
+                                                                </span>
                                                             ) : null}
                                                         </div>
                                                     ) : undefined}
@@ -825,7 +832,8 @@ export default function ClientsPage() {
                             compactBackLabel="고객 목록으로 돌아가기"
                             onScheduleChangeDecided={clearSelectedClientScheduleChange}
                             trailing={
-                                <DropdownMenu>
+                                // Avoid overlapping Radix modal layers when an action opens a dialog.
+                                <DropdownMenu modal={false}>
                                     <DropdownMenuTrigger asChild>
                                         <button
                                             type="button"
@@ -840,6 +848,16 @@ export default function ClientsPage() {
                                             <Pencil className="w-4 h-4" />
                                             {t(locale, "common.edit")}
                                         </DropdownMenuItem>
+                                        {canCreateNewContractDocument(activeSelectedClient) && (
+                                            <DropdownMenuItem
+                                                data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_create-maternity-contract"
+                                                onClick={() => setMaternityContractClient(activeSelectedClient)}
+                                                className="gap-2"
+                                            >
+                                                <FileSignature className="w-4 h-4" />
+                                                산모 계약서 생성
+                                            </DropdownMenuItem>
+                                        )}
                                         <DropdownMenuItem
                                             data-component="desktop_clients_sections_section-content_list-section_split-layout_detail-selection_detail-panel_header_menu_change-service-schedule"
                                             disabled={isPreparingScheduleChange}
@@ -900,6 +918,15 @@ export default function ClientsPage() {
                 client={editingClient ?? null}
                 onSuccess={handleClientFormDialogSuccess}
             />
+
+            {maternityContractClient ? (
+                <MaternityContractDialog
+                    open
+                    client={maternityContractClient}
+                    onClose={() => setMaternityContractClient(null)}
+                    onSuccess={() => void handleMaternityContractSuccess()}
+                />
+            ) : null}
 
             <TwoButtonModal
                 open={resetLinkTargetClientId !== null}

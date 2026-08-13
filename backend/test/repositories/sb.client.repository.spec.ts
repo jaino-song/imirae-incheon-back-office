@@ -1,6 +1,8 @@
 import { SbClientRepository } from "infrastructure/database/repositories/sb.client.repository";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientEntity } from "domain/entities/client.entity";
+import { clearSchemaCapabilityCache } from "infrastructure/database/schema-capabilities";
+import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
 
 describe("SbClientRepository", () => {
     // ============================================
@@ -59,6 +61,7 @@ describe("SbClientRepository", () => {
         breastPump: false,
         eDocId: null,
         dueDate: null,
+        birthDate: null,
         ...overrides,
     });
 
@@ -69,6 +72,11 @@ describe("SbClientRepository", () => {
     let repository: SbClientRepository;
 
     beforeEach(() => {
+        // hasColumn() memoizes per (table, column) in a module-level cache, so it
+        // must be cleared between tests — otherwise a column-absent test run
+        // before a column-present test (or vice versa) would leak its cached
+        // answer and silently pass/fail for the wrong reason.
+        clearSchemaCapabilityCache();
         clientModel = createMockPrismaClient();
         prisma = {
             client: clientModel,
@@ -370,12 +378,38 @@ describe("SbClientRepository", () => {
                         breastPump: false,
                         eDocId: null,
                         dueDate: null,
+                        birthDate: null,
                         branchId: branchId,
                     }),
                     select: expect.any(Object),
                 }));
                 expect(result).toBeInstanceOf(ClientEntity);
                 expect(result.id).toBe(5);
+            });
+        });
+
+        describe("given entity with a birthDate", () => {
+            it("should persist and return birthDate", async () => {
+                // Arrange
+                const birthDate = new Date("2026-08-05T00:00:00.000Z");
+                const entity = createClientEntity({ birthDate });
+                const createdRow = createClientRow({
+                    id: 8,
+                    birthDate,
+                });
+                clientModel.create.mockResolvedValue(createdRow);
+
+                // Act
+                const result = await repository.create(branchId, entity);
+
+                // Assert
+                expect(clientModel.create).toHaveBeenCalledWith(expect.objectContaining({
+                    data: expect.objectContaining({
+                        birthDate,
+                    }),
+                    select: expect.any(Object),
+                }));
+                expect(result.birthDate).toEqual(birthDate);
             });
         });
 
@@ -514,6 +548,7 @@ describe("SbClientRepository", () => {
                         suppressGreetingSms: false,
                         eDocId: null,
                         dueDate: null,
+                        birthDate: null,
                         areaId: null,
                     },
                 });
@@ -523,6 +558,57 @@ describe("SbClientRepository", () => {
                 }));
                 expect(result).toBeInstanceOf(ClientEntity);
                 expect(result.id).toBe(7);
+            });
+        });
+
+        describe("given an existing ClientEntity with a birthDate", () => {
+            it("should update client birthDate", async () => {
+                // Arrange
+                const birthDate = new Date("2026-08-05T00:00:00.000Z");
+                const entity = new ClientEntity(
+                    7,
+                    "Updated Name",
+                    "Updated Address",
+                    "010-3333-4444",
+                    "C",
+                    6,
+                    "60000",
+                    "30000",
+                    "30000",
+                    new Date("2024-03-01T00:00:00.000Z"),
+                    new Date("2024-09-01T00:00:00.000Z"),
+                    true,
+                    false,
+                    "880520",
+                    "in_progress",
+                    true,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    birthDate,
+                );
+                const updatedRow = createClientRow({
+                    id: 7,
+                    name: "Updated Name",
+                    birthDate,
+                });
+                clientModel.updateMany.mockResolvedValue({ count: 1 });
+                clientModel.findFirst.mockResolvedValue(updatedRow);
+
+                // Act
+                const result = await repository.update(branchId, entity);
+
+                // Assert
+                expect(clientModel.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 7, branchId: branchId },
+                    data: expect.objectContaining({
+                        birthDate,
+                    }),
+                }));
+                expect(result.birthDate).toEqual(birthDate);
             });
         });
 
@@ -552,12 +638,135 @@ describe("SbClientRepository", () => {
         });
     });
 
+    describe("approval-bound update", () => {
+        const createTransaction = () => ({
+            $queryRaw: jest.fn().mockResolvedValue([]),
+            client: {
+                findFirst: jest.fn(),
+                updateMany: jest.fn(),
+            },
+        });
+
+        it("locks the branch-owned row before comparing and mutating", async () => {
+            const row = createClientRow({ id: 42, branchId });
+            const transaction = createTransaction();
+            transaction.client.findFirst
+                .mockResolvedValueOnce(row)
+                .mockResolvedValueOnce({ ...row, name: "Updated" });
+            transaction.client.updateMany.mockResolvedValue({ count: 1 });
+            const current = ClientEntity.reconstitute(
+                row.id, row.name, row.address, row.phone, row.type, row.duration,
+                row.fullPrice, row.grant, row.actualPrice, row.startDate, row.endDate,
+                row.careCenter, row.voucherClient, row.birthday, row.dueDate,
+                row.serviceStatus, row.breastPump, row.eDocId, null, null, branchId,
+                false, null,
+            );
+
+            const result = await repository.updateIfTargetVersion(
+                branchId,
+                row.id,
+                clientAgentTargetVersion(current),
+                { name: "Updated" },
+                transaction as never,
+            );
+
+            expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+            expect(transaction.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                where: { id: row.id, branchId },
+                data: expect.objectContaining({ name: "Updated" }),
+            }));
+            expect(result).toMatchObject({ id: row.id, name: "Updated" });
+        });
+
+        it("does not mutate when the locked row no longer matches the approved target", async () => {
+            const row = createClientRow({ id: 43, branchId, name: "Changed" });
+            const transaction = createTransaction();
+            transaction.client.findFirst.mockResolvedValue(row);
+
+            const result = await repository.updateIfTargetVersion(
+                branchId,
+                row.id,
+                "stale-target-version",
+                { name: "Should not persist" },
+                transaction as never,
+            );
+
+            expect(result).toBeNull();
+            expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+            expect(transaction.client.updateMany).not.toHaveBeenCalled();
+        });
+    });
+
+    // ============================================
+    // birth_date deploy-window gating (mirrors area_id/supportsAreaId)
+    // ============================================
+    describe("given the birth_date column does not exist yet (pre-migration deploy window)", () => {
+        const mockColumnExists = (missingColumns: string[]) => {
+            (prisma.$queryRawUnsafe as jest.Mock).mockImplementation(
+                (_sql: string, _table: string, column: string) =>
+                    Promise.resolve([{ exists: !missingColumns.includes(column) }]),
+            );
+        };
+
+        it("omits birthDate from the select so findById does not reference the missing column", async () => {
+            mockColumnExists(["birth_date"]);
+            clientModel.findFirst.mockResolvedValue(createClientRow({ id: 1 }));
+
+            await repository.findById(branchId, 1);
+
+            const { select } = clientModel.findFirst.mock.calls[0][0];
+            expect(select).not.toHaveProperty("birthDate");
+            expect(select).toMatchObject({ areaId: true });
+        });
+
+        it("strips birthDate from the create payload so client.create does not send the missing column", async () => {
+            mockColumnExists(["birth_date"]);
+            const entity = createClientEntity({ birthDate: new Date("1995-03-15T00:00:00.000Z") });
+            clientModel.create.mockResolvedValue(createClientRow({ id: 10 }));
+
+            await repository.create(branchId, entity);
+
+            const { data } = clientModel.create.mock.calls[0][0];
+            expect(data).not.toHaveProperty("birthDate");
+        });
+
+        it("strips birthDate from the update payload so client.updateMany does not send the missing column", async () => {
+            mockColumnExists(["birth_date"]);
+            const entity = new ClientEntity(
+                11, "Client", null, null, null, null, null, null, null,
+                null, null, false, false, null, null, true, null,
+                null, null, null, null, false,
+                new Date("1995-03-15T00:00:00.000Z"),
+            );
+            clientModel.updateMany.mockResolvedValue({ count: 1 });
+            clientModel.findFirst.mockResolvedValue(createClientRow({ id: 11 }));
+
+            await repository.update(branchId, entity);
+
+            const { data } = clientModel.updateMany.mock.calls[0][0];
+            expect(data).not.toHaveProperty("birthDate");
+        });
+    });
+
+    describe("given the birth_date column exists (post-migration)", () => {
+        it("includes birthDate in the select and create/update payloads", async () => {
+            const entity = createClientEntity({ birthDate: new Date("1995-03-15T00:00:00.000Z") });
+            clientModel.create.mockResolvedValue(createClientRow({ id: 12, birthDate: new Date("1995-03-15T00:00:00.000Z") }));
+
+            await repository.create(branchId, entity);
+
+            const { data, select } = clientModel.create.mock.calls[0][0];
+            expect(data).toHaveProperty("birthDate", new Date("1995-03-15T00:00:00.000Z"));
+            expect(select).toMatchObject({ birthDate: true });
+        });
+    });
+
     // ============================================
     // findStartingWithinDays
     // ============================================
     describe("findStartingWithinDays", () => {
         describe("given clients with start dates within the specified days", () => {
-            it("should query with gt (not gte) to exclude clients starting today", async () => {
+            it("should query with gte (not gt) so clients starting today are included", async () => {
                 // Arrange
                 const rows = [createClientRow({ id: 1, name: "Future Client" })];
                 clientModel.findMany.mockResolvedValue(rows);
@@ -567,8 +776,8 @@ describe("SbClientRepository", () => {
 
                 // Assert
                 const callArgs = clientModel.findMany.mock.calls[0][0];
-                expect(callArgs.where.startDate.gt).toBeDefined();
-                expect(callArgs.where.startDate.gte).toBeUndefined();
+                expect(callArgs.where.startDate.gte).toBeDefined();
+                expect(callArgs.where.startDate.gt).toBeUndefined();
                 expect(callArgs.where.startDate.lte).toBeDefined();
             });
 
@@ -609,7 +818,7 @@ describe("SbClientRepository", () => {
     // ============================================
     describe("findWithIncompleteContractsStartingWithinDays", () => {
         describe("given clients with incomplete contracts starting soon", () => {
-            it("should query with gt (not gte) to exclude clients starting today", async () => {
+            it("should query with gte (not gt) so clients starting today are included", async () => {
                 // Arrange
                 clientModel.findMany.mockResolvedValue([]);
 
@@ -618,8 +827,8 @@ describe("SbClientRepository", () => {
 
                 // Assert
                 const callArgs = clientModel.findMany.mock.calls[0][0];
-                expect(callArgs.where.startDate.gt).toBeDefined();
-                expect(callArgs.where.startDate.gte).toBeUndefined();
+                expect(callArgs.where.startDate.gte).toBeDefined();
+                expect(callArgs.where.startDate.gt).toBeUndefined();
             });
 
             it("should filter by eDocId not null and statusType not 050", async () => {
@@ -642,7 +851,7 @@ describe("SbClientRepository", () => {
     // ============================================
     describe("findWithoutContractSentStartingWithinDays", () => {
         describe("given clients without contracts sent starting soon", () => {
-            it("should query with gt (not gte) to exclude clients starting today", async () => {
+            it("should query with gte (not gt) so clients starting today are included", async () => {
                 // Arrange
                 clientModel.findMany.mockResolvedValue([]);
 
@@ -651,8 +860,8 @@ describe("SbClientRepository", () => {
 
                 // Assert
                 const callArgs = clientModel.findMany.mock.calls[0][0];
-                expect(callArgs.where.startDate.gt).toBeDefined();
-                expect(callArgs.where.startDate.gte).toBeUndefined();
+                expect(callArgs.where.startDate.gte).toBeDefined();
+                expect(callArgs.where.startDate.gt).toBeUndefined();
             });
 
             it("should filter by eDocId being null", async () => {

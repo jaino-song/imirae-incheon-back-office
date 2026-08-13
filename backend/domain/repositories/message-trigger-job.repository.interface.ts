@@ -1,10 +1,18 @@
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 
+export interface MessageTriggerJobCancellationScope {
+    clientId?: number;
+    employeeScheduleId?: number;
+    scheduledBefore?: Date;
+}
+
 export interface IMessageTriggerJobRepository {
     create(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
     update(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
     findById(id: string): Promise<MessageTriggerJobEntity | null>;
     claimPending(id: string): Promise<boolean>;
+    /** Claim only while the branch-scoped rule is not fenced as stale. */
+    claimPendingWithRuleFence(id: string, branchId: string | null): Promise<boolean>;
     findDuePending(limit?: number): Promise<MessageTriggerJobEntity[]>;
     findStaleProcessing(cutoff: Date, limit?: number): Promise<MessageTriggerJobEntity[]>;
     findUpcomingPendingByBranch(
@@ -15,7 +23,34 @@ export interface IMessageTriggerJobRepository {
         branchId: string,
         limit?: number,
     ): Promise<MessageTriggerJobEntity[]>;
+    /**
+     * Terminal (failed or canceled) jobs for a branch whose terminal
+     * transition landed in `[since, until)` — `canceledAt` for a canceled
+     * row, `updatedAt` for a failed row (there is no dedicated failedAt
+     * column; markFailed() always bumps updatedAt at the moment of
+     * failure). Excludes rows the user canceled themselves
+     * (canceledByUser = true): a cancel the user pressed must never be
+     * reported back to them as a problem. Feeds the daily digest.
+     */
+    findRecentUndeliveredByBranch(
+        branchId: string,
+        since: Date,
+        until: Date,
+        limit: number,
+    ): Promise<MessageTriggerJobEntity[]>;
+    countRecentUndeliveredByBranch(
+        branchId: string,
+        since: Date,
+        until: Date,
+    ): Promise<number>;
+    findHistoryByBranch(
+        branchId: string,
+        limit?: number,
+        beforeId?: string,
+    ): Promise<MessageTriggerJobEntity[]>;
     findPendingByRuleId(ruleId: string): Promise<MessageTriggerJobEntity[]>;
+    /** Whether a rule still has active jobs persisted before its current version fence. */
+    hasActiveJobsBefore(branchId: string, ruleId: string, before: Date): Promise<boolean>;
     findPendingByRuleIdsAndClientId(ruleIds: string[], clientId: number): Promise<MessageTriggerJobEntity[]>;
     findPendingByRuleIdsAndEmployeeScheduleId(
         ruleIds: string[],
@@ -31,7 +66,51 @@ export interface IMessageTriggerJobRepository {
     markOrphanedJobsReconciled(jobIds: string[], replacementClientId: number): Promise<number>;
     cancelPendingByRuleId(ruleId: string, reason: string): Promise<number>;
     cancelPendingOlderThan(ruleId: string, cutoff: Date, reason: string): Promise<number>;
+    /**
+     * Cancel a single job on the user's behalf. Only a `pending` job scoped
+     * to the given branch is canceled — a `processing` job is left alone
+     * since it may already be in flight at the SMS provider. The canceled
+     * row is marked so the re-sync upsert below never resurrects it. Returns
+     * whether the cancel matched a row.
+     */
+    cancelPendingByUser(id: string, branchId: string, reason: string): Promise<boolean>;
+    /**
+     * Cancel mutable pending jobs only while the branch-scoped rule is at the
+     * inspected generation and stale state. Null means the producer lost the
+     * generation race and must leave all job rows untouched.
+     */
+    cancelPendingForRuleGeneration(
+        branchId: string,
+        ruleId: string,
+        expectedUpdatedAt: Date,
+        expectedJobsStale: boolean,
+        reason: string,
+        scope?: MessageTriggerJobCancellationScope,
+    ): Promise<number | null>;
     upsertPending(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity>;
+    /**
+     * Upsert a pending job only while its rule is at the inspected generation
+     * and expected stale state. A null result means the producer lost the
+     * generation race and must fail closed without touching job rows.
+     */
+    upsertPendingForRuleGeneration(
+        job: MessageTriggerJobEntity,
+        expectedUpdatedAt: Date,
+        expectedJobsStale: boolean,
+    ): Promise<MessageTriggerJobEntity | null>;
+    /**
+     * Lock and compare a rejected source job, then create the action-bound
+     * retry job in the same transaction. A null result means the approved
+     * source target drifted or is no longer retryable.
+     */
+    claimProviderRejectedForRetry(
+        branchId: string,
+        sourceJobId: string,
+        expectedTargetVersion: string,
+        expectedSnapshotHash: string,
+        expectedSource: MessageTriggerJobEntity,
+        retryJob: MessageTriggerJobEntity,
+    ): Promise<MessageTriggerJobEntity | null>;
 }
 
 export const MESSAGE_TRIGGER_JOB_REPOSITORY = "MESSAGE_TRIGGER_JOB_REPOSITORY";

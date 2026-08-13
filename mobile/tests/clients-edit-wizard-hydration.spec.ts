@@ -117,11 +117,13 @@ test.describe("clients edit wizard hydration", () => {
     await expect(nameInput).toHaveValue(MOCK_CLIENT.name);
     const phoneInput = page.locator('input[placeholder="010-1234-5678"]');
     await expect(phoneInput).toHaveValue(MOCK_CLIENT.phone);
-    const birthdayInput = page.locator('input[placeholder="YYMMDD"]').nth(0);
+    // Pinned to the field's own data-component rather than an index into the
+    // YYMMDD placeholders: only 생년월일 carries that placeholder now, the
+    // three real dates hydrate as ISO.
+    const birthdayInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birthday-field_birthday-input"]');
     await expect(birthdayInput).toHaveValue("950414");
-    const dueDateInput = page.locator('input[placeholder="YYMMDD"]').nth(1);
-    // ISO "2026-06-11" → "260611"
-    await expect(dueDateInput).toHaveValue("260611");
+    const dueDateInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_due-date-field_due-date-input"]');
+    await expect(dueDateInput).toHaveValue("2026-06-11");
     const addressInput = page.locator('input[placeholder="서울시 강남구..."]');
     await expect(addressInput).toHaveValue(MOCK_CLIENT.address);
 
@@ -154,12 +156,12 @@ test.describe("clients edit wizard hydration", () => {
 
     // ── Step 3 (계약 정보) ──
     await expect(page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_contract-status-card"]')).toBeVisible();
-    const startDateInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card"] input').nth(0);
-    await expect(startDateInput).toHaveValue("260530");
-    const endDateInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card"] input').nth(1);
-    // hydrate "260626" (ISO 2026-06-26 → YYMMDD). business-days 재계산이 덮어쓸 수 있는데,
-    // 정확한 결과는 휴일 캘린더 의존이므로 6자리 YYMMDD 모양만 확인.
-    await expect(endDateInput).toHaveValue(/^\d{6}$/);
+    const startDateInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_start-date-field_start-date-input"]');
+    await expect(startDateInput).toHaveValue("2026-05-30");
+    const endDateInput = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_service-period-card_end-date-field_end-date-input"]');
+    // business-days 재계산이 덮어쓸 수 있는데, 정확한 결과는 휴일 캘린더
+    // 의존이므로 ISO 모양만 확인.
+    await expect(endDateInput).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
 
     // 마지막 단계 primary 버튼 라벨이 "저장" 인지 확인 (편집 모드 분기)
     await expect(primaryBtn).toHaveText("저장");
@@ -194,9 +196,8 @@ test.describe("clients edit wizard hydration", () => {
 
     await page.goto("/clients/new");
     await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_name-field_name-input"]').fill("자부담 신규 고객");
-    const compactDateInputs = page.locator('input[placeholder="YYMMDD"]');
-    await compactDateInputs.nth(0).fill("900101");
-    await compactDateInputs.nth(1).fill("260901");
+    await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_birthday-field_birthday-input"]').fill("900101");
+    await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-details-card_due-date-field_due-date-input"]').fill("2026-09-01");
     await page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_basic-contact-card_phone-field_phone-input"]').fill("01012345678");
 
     const nextButton = page.locator('[data-component="mobile_clients-new_screen_root_page_wizard_actions"] button').nth(1);

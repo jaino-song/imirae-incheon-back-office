@@ -35,6 +35,7 @@ import { SbMessageTriggerJobRepository } from "infrastructure/database/repositor
 import { SbMessageTriggerRuleRepository } from "infrastructure/database/repositories/sb.message-trigger-rule.repository";
 import { MessageController } from "interface/controllers/message.controller";
 import { MessageTriggerController } from "interface/controllers/message-trigger.controller";
+import { MessageExternalAgentCapabilitiesProvider } from "application/usecases/message/message-external-agent-capabilities.provider";
 
 @Module({
     imports: [
@@ -68,6 +69,7 @@ import { MessageTriggerController } from "interface/controllers/message-trigger.
         MessageTriggerDeliveryService,
         MessageTriggerService,
         MessageTriggerSchedulerService,
+        MessageExternalAgentCapabilitiesProvider,
     ],
     exports: [
         MessageService,

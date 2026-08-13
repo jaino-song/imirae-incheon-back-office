@@ -5,6 +5,7 @@ export * from "./find-eformsign-docs-by-client-id.usecase";
 export * from "./list-eformsign-docs.usecase";
 export * from "./list-other-branch-document-ids.usecase";
 export * from "./list-eformsign-doc-display-fields.usecase";
+export * from "./get-contract-client-candidate.usecase";
 
 // Local DB use cases - Write
 export * from "./create-eformsign-doc.usecase";
@@ -16,6 +17,7 @@ export * from "./link-document-to-client.usecase";
 export * from "./link-mirrored-eformsign-doc-by-phone.usecase";
 export * from "./reconcile-completed-mirrored-eformsign-doc.usecase";
 export * from "./list-client-names-by-branch.usecase";
+export * from "./list-review-stage-contracts.usecase";
 export * from "./sync-client-end-date.usecase";
 // NOTE: UpdateClientContractStatusUsecase deprecated - service status is now computed from dates
 

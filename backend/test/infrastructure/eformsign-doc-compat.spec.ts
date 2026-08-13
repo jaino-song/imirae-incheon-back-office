@@ -242,6 +242,86 @@ describe("stripPendingEformsignDocPredicates", () => {
         })).toEqual({ OR: [{}] });
     });
 
+    it("preserves an authored empty AND array nested inside OR", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { AND: [] },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({
+            OR: [
+                { AND: [] },
+                { branchId: "branch-1" },
+            ],
+        });
+    });
+
+    it("preserves an authored empty NOT array nested inside OR", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { NOT: [] },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({
+            OR: [
+                { NOT: [] },
+                { branchId: "branch-1" },
+            ],
+        });
+    });
+
+    it("propagates a removed tautology past an authored empty AND array", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { AND: [], templateId: null },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({
+            OR: [
+                { AND: [], id: { notIn: [] } },
+                { branchId: "branch-1" },
+            ],
+        });
+    });
+
+    it("propagates a removed tautology past an authored empty NOT array", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { NOT: [], templateId: null },
+                { branchId: "branch-1" },
+            ],
+        })).toEqual({
+            OR: [
+                { NOT: [], id: { notIn: [] } },
+                { branchId: "branch-1" },
+            ],
+        });
+    });
+
+    it("preserves root empty OR semantics while retaining a stripped tautology", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [],
+            templateId: null,
+        })).toEqual({
+            OR: [],
+            id: { notIn: [] },
+        });
+    });
+
+    it("retains a stripped tautology beside recursively empty logical branches", () => {
+        expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
+            OR: [
+                { AND: [{}], templateId: null },
+                { NOT: {}, templateId: null },
+            ],
+        })).toEqual({
+            OR: [
+                { AND: [{}], id: { notIn: [] } },
+                { NOT: {}, id: { notIn: [] } },
+            ],
+        });
+    });
+
     it("preserves a pre-existing empty branch inside NOT", () => {
         expect(stripPendingEformsignDocPredicates(missingColumnError("document_kind"), {
             NOT: {},

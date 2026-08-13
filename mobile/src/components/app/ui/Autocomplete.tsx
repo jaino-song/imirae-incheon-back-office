@@ -7,7 +7,7 @@ import {
     useRef,
     type ReactNode,
 } from "react";
-import { Check, ChevronDown, X, Loader2 } from "lucide-react";
+import { Check, X, Loader2, Play } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
@@ -123,9 +123,19 @@ export function Autocomplete<T>({
     }, [items, displayInputValue, filter, getItemLabel]);
 
     const showDropdown = !disabled && (isFocused || isToggledOpen);
+    const hasQuery = displayInputValue.trim().length > 0;
+    const isDropdownVisible =
+        showDropdown &&
+        (filteredItems.length > 0 || isLoading || hasQuery || items.length === 0);
     const optionCount = filteredItems.length + (manualEntry ? 1 : 0);
     const activeHighlightedIndex =
         highlightedIndex >= 0 && highlightedIndex < optionCount ? highlightedIndex : -1;
+    const toggleActionLabel =
+        currentInputValue.trim().length > 0 && manualEntry
+            ? "수동 입력으로 진행"
+            : showDropdown
+              ? "목록 닫기"
+              : "목록 열기";
 
     const handleSelect = (item: T) => {
         if (disabled) return;
@@ -173,16 +183,15 @@ export function Autocomplete<T>({
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (disabled) return;
-        if (!showDropdown) return;
-        const total = filteredItems.length + (manualEntry ? 1 : 0);
-        if (total === 0) return;
+        if (!isDropdownVisible) return;
+        if (optionCount === 0) return;
 
         if (e.key === "ArrowDown") {
             e.preventDefault();
-            setHighlightedIndex((prev) => (prev + 1) % total);
+            setHighlightedIndex((prev) => (prev + 1) % optionCount);
         } else if (e.key === "ArrowUp") {
             e.preventDefault();
-            setHighlightedIndex((prev) => (prev - 1 + total) % total);
+            setHighlightedIndex((prev) => (prev - 1 + optionCount) % optionCount);
         } else if (e.key === "Enter") {
             if (activeHighlightedIndex >= 0) {
                 e.preventDefault();
@@ -259,7 +268,7 @@ export function Autocomplete<T>({
                     disabled={disabled}
                     data-component={inputDc}
                     data-slot="autocomplete-input"
-                    data-state={showDropdown ? "open" : "closed"}
+                    data-state={isDropdownVisible ? "open" : "closed"}
                     className={cn(
                         "h-[44px] pr-24 data-[state=open]:!rounded-b-none data-[state=open]:!shadow-none",
                         !error &&
@@ -285,32 +294,39 @@ export function Autocomplete<T>({
                     {isLoading && (
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     )}
-                    {!value && !isLoading && !disabled ? (
+                    {!value && !isLoading && !disabled && (isFocused || isToggledOpen) ? (
                         <button
                             type="button"
-                            onClick={() => {
-                                if (showDropdown) {
-                                    setIsToggledOpen(false);
-                                    setIsFocused(false);
-                                    inputRef.current?.blur();
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (currentInputValue.trim().length > 0 && manualEntry) {
+                                    handleManualEntry();
                                 } else {
-                                    updateInputValue(selectedInputValue || currentInputValue);
-                                    setHighlightedIndex(-1);
-                                    setIsToggledOpen(true);
-                                    inputRef.current?.focus();
+                                    if (showDropdown) {
+                                        setIsToggledOpen(false);
+                                        setIsFocused(false);
+                                        inputRef.current?.blur();
+                                    } else {
+                                        updateInputValue(selectedInputValue || currentInputValue);
+                                        setHighlightedIndex(-1);
+                                        setIsToggledOpen(true);
+                                        inputRef.current?.focus();
+                                    }
                                 }
                             }}
-                            className="flex h-[44px] w-[44px] items-center justify-center rounded-2xl"
-                            aria-label="목록 열기"
+                            className="flex h-[44px] w-[44px] items-center justify-center rounded-2xl text-v3-primary transition-colors hover:text-v3-primary/80 disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label={toggleActionLabel}
+                            title={toggleActionLabel}
                             data-component={toggleDc}
                             data-slot="autocomplete-toggle"
                         >
-                            <ChevronDown className="size-4 translate-x-[9px] text-muted-foreground opacity-50" />
+                            <Play className="h-3.5 w-3.5 translate-x-[9px] fill-current" aria-hidden="true" />
                         </button>
                     ) : null}
                 </div>
 
-                {showDropdown && (
+                {isDropdownVisible && (
                     <div
                         data-component={dropdownDc}
                         data-slot="autocomplete-dropdown"

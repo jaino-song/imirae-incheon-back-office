@@ -31,7 +31,6 @@ describe("MessagesAutomationPage", () => {
       .toContainElement(container.querySelector('[data-component="mobile_messages_automation_page_content_list-card_body"]'));
     expect(MESSAGE_NAVIGATION_ITEMS.map((item) => item.title)).toEqual([
       "전송하기",
-      "발송 예정",
       "발송 기록",
       "템플릿",
       "자동 전송",
@@ -46,8 +45,15 @@ describe("MessagesAutomationPage", () => {
       .toHaveAttribute("aria-pressed", "true");
     expect(container.querySelector(".message-navigation-row")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "발송 예정" }));
+    // 발송 기록 (the merged screen) is gated only by sending approval, not by
+    // owner status, so it is enabled and navigable like any released section.
+    const historyButton = screen.getByRole("button", { name: "발송 기록" });
+    expect(historyButton).not.toBeDisabled();
+    fireEvent.click(historyButton);
+    expect(mockPush).toHaveBeenCalledWith("/messages/history");
 
-    expect(mockPush).toHaveBeenCalledWith("/messages/scheduled");
+    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/messages/settings");
   });
 });

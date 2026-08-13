@@ -148,6 +148,7 @@ describe("ClientFormPanel voucher pricing", () => {
       createdAt: "2026-01-01",
       birthday: "900101",
       dueDate: "2026-08-01",
+      birthDate: null,
       address: "인천시 서구",
       phone: "010-1111-2222",
       primaryEmployee: null,
@@ -225,6 +226,7 @@ describe("ClientFormPanel voucher pricing", () => {
       createdAt: "2026-01-01",
       birthday: "900101",
       dueDate: "2026-08-01",
+      birthDate: null,
       address: "인천시 서구",
       phone: "010-1111-3333",
       primaryEmployee: null,
@@ -265,13 +267,14 @@ describe("ClientFormPanel voucher pricing", () => {
     await waitFor(() => expect(fullPrice).toHaveValue("1,620,000"));
   });
 
-  it("hydrates existing ISO dates as YYMMDD exactly once", async () => {
+  it("hydrates existing ISO dates as YYYY-MM-DD exactly once", async () => {
     const client: Client = {
       id: 3,
       name: "날짜 검수 고객",
       createdAt: "2026-01-01",
       birthday: "900101",
       dueDate: "2026-09-01",
+      birthDate: null,
       address: "인천시 남동구",
       phone: "010-1111-4444",
       primaryEmployee: null,
@@ -296,11 +299,30 @@ describe("ClientFormPanel voucher pricing", () => {
       <ClientFormPanel open activeStep={0} client={client} onClose={jest.fn()} />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText("출산 예정일")).toHaveValue("260901"));
+    await waitFor(() => expect(screen.getByLabelText("출산 예정일")).toHaveValue("2026-09-01"));
 
     rerender(<ClientFormPanel open activeStep={3} client={client} onClose={jest.fn()} />);
 
-    expect(screen.getByLabelText("시작일")).toHaveValue("260801");
-    expect(screen.getByLabelText("종료일")).toHaveValue("260805");
+    const startDateInput = screen.getByLabelText("시작일");
+    const endDateInput = screen.getByLabelText("종료일");
+    expect(startDateInput).toHaveAttribute("placeholder", "YYYY-MM-DD");
+    expect(startDateInput).toHaveAttribute("maxLength", "10");
+    expect(startDateInput).toHaveValue("2026-08-01");
+    expect(endDateInput).toHaveAttribute("placeholder", "YYYY-MM-DD");
+    expect(endDateInput).toHaveAttribute("maxLength", "10");
+    expect(endDateInput).toHaveValue("2026-08-05");
+    expect(endDateInput).not.toHaveAttribute("readonly");
+
+    await act(async () => {
+      fireEvent.change(startDateInput, { target: { value: "20260802" } });
+      await Promise.resolve();
+    });
+    expect(startDateInput).toHaveValue("2026-08-02");
+
+    await act(async () => {
+      fireEvent.change(endDateInput, { target: { value: "20260812" } });
+      await Promise.resolve();
+    });
+    expect(endDateInput).toHaveValue("2026-08-12");
   });
 });

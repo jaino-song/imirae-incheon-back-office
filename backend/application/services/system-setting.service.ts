@@ -1,4 +1,5 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { GetSettingUsecase, UpdateSettingUsecase } from "application/usecases/system-setting";
 import {
     SystemSettingEntity,
@@ -29,6 +30,10 @@ export class SystemSettingService {
 
     private getGreetingOnAutoRegistrationKey(branchId: string): string {
         return `branch:${branchId}:greeting_on_auto_registration`;
+    }
+
+    private getPwaUndeliveredDigestWatermarkKey(branchId: string): string {
+        return `branch:${branchId}:pwa_undelivered_digest_watermark`;
     }
 
     async getUserEmailNotificationsEnabled(userId: string): Promise<boolean> {
@@ -64,6 +69,21 @@ export class SystemSettingService {
             SystemSettingEntity.RIBBON_CONFIG_KEY,
             JSON.stringify(config)
         );
+    }
+
+    async setRibbonConfigIfVersion(
+        expectedTargetVersion: string,
+        config: RibbonConfig,
+    ): Promise<SystemSettingEntity> {
+        const normalized = { ...DEFAULT_RIBBON_CONFIG, ...config };
+        const updated = await this.updateSettingUsecase.executeIfVersion(
+            SystemSettingEntity.RIBBON_CONFIG_KEY,
+            JSON.stringify(normalized),
+            expectedTargetVersion,
+            (rawValue) => this.ribbonTargetVersion(rawValue),
+        );
+        if (!updated) throw new ConflictException("Ribbon configuration changed after approval");
+        return updated;
     }
 
     async getMessageAutomationPastTriggerConfig(
@@ -118,6 +138,25 @@ export class SystemSettingService {
         );
     }
 
+    async getPwaUndeliveredDigestWatermark(branchId: string): Promise<Date | null> {
+        const value = await this.getSettingUsecase.execute(
+            this.getPwaUndeliveredDigestWatermarkKey(branchId),
+        );
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    async setPwaUndeliveredDigestWatermark(
+        branchId: string,
+        watermark: Date,
+    ): Promise<SystemSettingEntity> {
+        return this.updateSettingUsecase.execute(
+            this.getPwaUndeliveredDigestWatermarkKey(branchId),
+            watermark.toISOString(),
+        );
+    }
+
     private parseMessageAutomationPastTriggerConfig(
         value: string | null,
     ): MessageAutomationPastTriggerConfig {
@@ -149,5 +188,17 @@ export class SystemSettingService {
             sendIntervalMinutes: Math.min(Math.max(sendIntervalMinutes ?? 1, 1), 1440),
             ruleOrder: [...new Set(ruleOrder)],
         };
+    }
+
+    private ribbonTargetVersion(rawValue: string | null): string {
+        let current = DEFAULT_RIBBON_CONFIG;
+        if (rawValue) {
+            try {
+                current = { ...DEFAULT_RIBBON_CONFIG, ...JSON.parse(rawValue) };
+            } catch {
+                current = DEFAULT_RIBBON_CONFIG;
+            }
+        }
+        return createHash("sha256").update(JSON.stringify(current)).digest("hex");
     }
 }

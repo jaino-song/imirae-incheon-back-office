@@ -26,8 +26,11 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { Toaster } from "@/components/ui/toaster";
 import { KakaoLinkResultModal } from "@/features/auth/settings/kakao-link-result-modal";
+import {
+  NOTIFICATION_EMAIL_ENABLED,
+  PWA_NOTIFICATIONS_ENABLED,
+} from "@/lib/notification-config";
 
 const UserKeyIcon = forwardRef<SVGSVGElement, LucideProps>(function UserKeyIcon(
   { size = 20, className, ...props },
@@ -93,7 +96,8 @@ export default function SettingsPage() {
   } = usePushNotification();
 
   const emailNotificationsEnabled =
-    notificationPreferencesQuery.data?.emailNotificationsEnabled ?? true;
+    NOTIFICATION_EMAIL_ENABLED
+      && (notificationPreferencesQuery.data?.emailNotificationsEnabled ?? true);
 
   const updateNotificationPreferencesMutation = useMutation({
     mutationFn: settingsApi.updateNotificationPreferences,
@@ -239,14 +243,16 @@ export default function SettingsPage() {
                       이메일 알림
                     </Label>
                     <p className="text-sm text-muted-foreground">
-                      시스템 알림 및 중요 업데이트를 이메일로 수신합니다.
+                      {NOTIFICATION_EMAIL_ENABLED
+                        ? "시스템 알림 및 중요 업데이트를 이메일로 수신합니다."
+                        : "이메일 알림은 현재 비활성화되어 있습니다."}
                     </p>
                   </div>
                   <Switch
                     id="notif-email"
                     checked={emailNotificationsEnabled}
                     onCheckedChange={handleEmailNotificationToggle}
-                    disabled={notificationPreferencesQuery.isLoading || updateNotificationPreferencesMutation.isPending}
+                    disabled={!NOTIFICATION_EMAIL_ENABLED || notificationPreferencesQuery.isLoading || updateNotificationPreferencesMutation.isPending}
                   />
                 </div>
 
@@ -256,7 +262,9 @@ export default function SettingsPage() {
                       브라우저 알림
                     </Label>
                     <p className="text-sm text-muted-foreground">
-                      {isBrowserNotificationSupported
+                      {!PWA_NOTIFICATIONS_ENABLED
+                        ? "브라우저 푸시 알림은 현재 비활성화되어 있습니다."
+                        : isBrowserNotificationSupported
                         ? browserNotificationPermission === "denied"
                           ? "브라우저 설정에서 알림 권한을 허용해 주세요."
                           : "브라우저 푸시 알림을 수신합니다."
@@ -270,7 +278,7 @@ export default function SettingsPage() {
                       id="notif-browser"
                       checked={isBrowserNotificationEnabled}
                       onCheckedChange={handleBrowserNotificationToggle}
-                      disabled={!isBrowserNotificationSupported || browserNotificationPermission === "denied"}
+                      disabled={!PWA_NOTIFICATIONS_ENABLED || !isBrowserNotificationSupported || browserNotificationPermission === "denied"}
                     />
                   )}
                 </div>
@@ -425,8 +433,6 @@ export default function SettingsPage() {
 
         </div>
       </div>
-
-      <Toaster />
     </section>
   );
 }

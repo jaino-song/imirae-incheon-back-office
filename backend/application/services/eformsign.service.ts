@@ -24,6 +24,7 @@ import {
     EformsignApiError,
     extractEformsignVendorCode,
 } from "infrastructure/api/eformsign-api.error";
+import { normalizeEformsignStatusCode } from "domain/utils/eformsign-status-code";
 
 export interface EformsignTokenResponse {
     oauth_token: {
@@ -32,9 +33,17 @@ export interface EformsignTokenResponse {
     };
 }
 
+export interface EformsignDocumentWorkflowState {
+    statusCode?: string;
+    stepType?: string;
+    stepIndex?: string;
+    stepName?: string;
+}
+
 const ISO_END_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 export const EFORMSIGN_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 export const EFORMSIGN_DOWNLOAD_TIMEOUT_MS = 30_000;
+export const EFORMSIGN_STATUS_READ_TIMEOUT_MS = 2_000;
 // Deletion is non-idempotent, so one bounded attempt is safer than retries.
 // Keep the same total request-and-body budget used by the API client.
 export const EFORMSIGN_DELETE_TIMEOUT_MS = 30_000;
@@ -174,7 +183,11 @@ export class EformsignService {
 
         if (!response.ok) {
             const errorData = await response.text();
-            throw new Error(`Failed to get access token: ${response.status} - ${errorData}`);
+            throw new EformsignApiError(
+                `Failed to get access token: ${response.status} - ${errorData}`,
+                response.status,
+                extractEformsignVendorCode(errorData),
+            );
         }
 
         return await response.json();
@@ -203,7 +216,11 @@ export class EformsignService {
 
         if (!response.ok) {
             const errorData = await response.text();
-            throw new Error(`Failed to refresh token: ${response.status} - ${errorData}`);
+            throw new EformsignApiError(
+                `Failed to refresh token: ${response.status} - ${errorData}`,
+                response.status,
+                extractEformsignVendorCode(errorData),
+            );
         }
 
         return await response.json();
@@ -347,7 +364,10 @@ export class EformsignService {
 
         return {
             fields: [
-                { id: EFORMSIGN_END_DATE_FIELD_IDS.year, value: year, enabled: true, required: false },
+                // The live regional templates print the century prefix (`20`)
+                // outside this field, matching the two-digit values sent during
+                // contract creation. Supplying `2026` renders as `20 2026`.
+                { id: EFORMSIGN_END_DATE_FIELD_IDS.year, value: year!.slice(-2), enabled: true, required: false },
                 { id: EFORMSIGN_END_DATE_FIELD_IDS.month, value: month, enabled: true, required: false },
                 { id: EFORMSIGN_END_DATE_FIELD_IDS.day, value: day, enabled: true, required: false },
             ],
@@ -661,6 +681,81 @@ export class EformsignService {
     }
 
     /**
+     * Cancel one or more documents.
+     * POST /v2.0/api/documents/cancel
+     *
+     * This is what "삭제" performs against the vendor. Cancelling expires the recipient's
+     * signing link immediately — verified live: a link that opened before the call showed
+     * an expiry notice after it — which is the point, since deletions are usually mis-sends.
+     * Unlike DELETE it leaves the document and its audit trail at eformsign; a non-permanent
+     * DELETE would only park it in the vendor's trash for 14 days before erasing it.
+     *
+     * Only in-progress documents can be cancelled. Already completed/rejected/cancelled ones
+     * come back in `fail_result`; that is expected and is not an error — they have no live
+     * signing link left to revoke. The caller decides what to do with them.
+     *
+     * Note: a cancelled document still reports `recipients[].token_id`, despite the vendor
+     * spec claiming otherwise. Never treat that token's presence as "the link is alive".
+     *
+     * Shares the delete timeout helpers: both are single-shot mutating vendor calls that
+     * must not be retried blindly.
+     */
+    async cancelDocuments(
+        accessToken: string,
+        documentIds: string[],
+        comment: string = "관리자 삭제",
+    ): Promise<any> {
+        if (this.vendorStubsEnabled) {
+            const result = buildEformsignStubDeleteResponse(documentIds);
+            await this.bumpDocumentSnapshotVersions(documentIds);
+            return result;
+        }
+
+        this.assertConfigured();
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+            controller.abort(createDeleteTimeoutError());
+        }, EFORMSIGN_DELETE_TIMEOUT_MS);
+        try {
+            const response = await waitForDeleteOperation(
+                fetch(`${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/cancel`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({
+                        input: {
+                            document_ids: documentIds,
+                            comment,
+                        },
+                    }),
+                    signal: controller.signal,
+                }),
+                controller.signal,
+            );
+
+            if (!response.ok) {
+                const errorData = await waitForDeleteOperation(
+                    response.text(),
+                    controller.signal,
+                );
+                throw new EformsignApiError(
+                    `Failed to cancel documents: ${response.status} - ${errorData}`,
+                    response.status,
+                    extractEformsignVendorCode(errorData),
+                );
+            }
+
+            const result = await waitForDeleteOperation(response.json(), controller.signal);
+            await this.bumpDocumentSnapshotVersions(documentIds);
+            return result;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    /**
      * Re-request a document for the current outsider recipient.
      * Reuses the existing recipient settings by omitting recipients from next_steps.
      */
@@ -814,10 +909,57 @@ export class EformsignService {
         );
     }
 
-    private async fetchStaffCompletionDocument(documentId: string, accessToken: string): Promise<any> {
+    /**
+     * The document's current status at the vendor, normalized to a canonical
+     * code. When a headless run ends without a terminal SDK callback, eformsign
+     * — not the automation — is the authority on whether the step finished.
+     * Returns undefined when the response carries no recognizable status.
+     */
+    async fetchDocumentWorkflowState(
+        documentId: string,
+        accessToken: string,
+    ): Promise<EformsignDocumentWorkflowState> {
+        const doc = await this.fetchStaffCompletionDocument(
+            documentId,
+            accessToken,
+            AbortSignal.timeout(EFORMSIGN_STATUS_READ_TIMEOUT_MS),
+        );
+        const currentStatus = doc?.document?.current_status ?? doc?.current_status;
+        const rawStatus =
+            currentStatus?.status_type ??
+            doc?.document?.document_status ??
+            doc?.document_status ??
+            doc?.status_type ??
+            doc?.status;
+        const asOptionalString = (value: unknown): string | undefined => {
+            if (value === null || value === undefined) return undefined;
+            const normalized = String(value).trim();
+            return normalized || undefined;
+        };
+
+        return {
+            statusCode: rawStatus === null || rawStatus === undefined || rawStatus === ""
+                ? undefined
+                : normalizeEformsignStatusCode(rawStatus),
+            stepType: asOptionalString(currentStatus?.step_type),
+            stepIndex: asOptionalString(currentStatus?.step_index),
+            stepName: asOptionalString(currentStatus?.step_name),
+        };
+    }
+
+    async fetchDocumentStatusCode(documentId: string, accessToken: string): Promise<string | undefined> {
+        return (await this.fetchDocumentWorkflowState(documentId, accessToken)).statusCode;
+    }
+
+    private async fetchStaffCompletionDocument(
+        documentId: string,
+        accessToken: string,
+        signal?: AbortSignal,
+    ): Promise<any> {
         const params = new URLSearchParams({ include_detail_template_info: "true" });
         const docRes = await fetch(`${this.EFORMSIGN_DOC_API_URL}/v2.0/api/documents/${documentId}?${params}`, {
             headers: { Authorization: `Bearer ${accessToken}` },
+            ...(signal ? { signal } : {}),
         });
 
         if (!docRes.ok) {

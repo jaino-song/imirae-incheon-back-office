@@ -113,9 +113,17 @@ export function ListCountSkeleton({
 export function ListRowsSkeleton({
   "data-component": dataComponent,
   rowCount = 6,
+  rightLines = 1,
 }: {
   "data-component": string;
   rowCount?: number;
+  /**
+   * How many stacked placeholders the trailing column gets. It drives the row
+   * height, so it has to match what the loaded row puts there or the list
+   * reflows when the data lands. One is right for a lone badge or chevron;
+   * pass 2 where a badge sits above a timestamp.
+   */
+  rightLines?: 1 | 2;
 }) {
   return (
     <div
@@ -144,6 +152,13 @@ export function ListRowsSkeleton({
             data-component={`${dataComponent}_row_right`}
           >
             <Skeleton className="h-6 w-14 rounded-full bg-v3-dim-white animate-pulse" />
+            {/* 16px, not the 14px the timestamp actually renders at: the badge
+                placeholder above is 24px against a real badge's 26px, so this
+                makes the column add up to the same 43px and the rows stay put
+                when the data arrives. */}
+            {rightLines > 1 && (
+              <Skeleton className="h-4 w-12 bg-v3-dim-white animate-pulse" />
+            )}
           </div>
         </div>
       ))}
@@ -406,12 +421,12 @@ export function FilterPills({
       data-source-component={FILTER_PILLS_SOURCE_COMPONENT}
       onScroll={updateOverflow}
     >
-      {items.map((item) => (
+      {items.map((item, index) => (
         item.skeleton ? (
           <button
-            key={item.label}
+            key={`skeleton-${item.label}-${index}`}
             type="button"
-            className="filter-pill filter-pill-skeleton"
+            className="filter-pill filter-pill-skeleton skeleton-base"
             data-component={`${dataComponent}_pill`}
             data-loading="true"
             aria-hidden="true"
@@ -425,7 +440,7 @@ export function FilterPills({
           </button>
         ) : (
           <button
-            key={item.label}
+            key={`${item.label}-${index}`}
             type="button"
             className={`filter-pill ${item.label === activeLabel ? "active" : ""}`}
             data-component={`${dataComponent}_pill`}
@@ -510,6 +525,7 @@ export function ListCard({
   title,
   count,
   actionLabel,
+  actionLoading,
   actionHref,
   actionIcon,
   actionType = "button",
@@ -522,12 +538,14 @@ export function ListCard({
   beforeScroll,
   scrollRef,
   loadMore,
+  className,
   children,
 }: {
   "data-component": string;
   title: string;
   count?: ReactNode;
   actionLabel?: string;
+  actionLoading?: boolean;
   actionHref?: string;
   actionIcon?: ReactNode;
   actionType?: "button" | "submit";
@@ -540,6 +558,7 @@ export function ListCard({
   beforeScroll?: ReactNode;
   scrollRef?: RefObject<HTMLDivElement | null>;
   loadMore?: ReactNode;
+  className?: string;
   children: ReactNode;
 }) {
   const [actionFeedback, setActionFeedback] = useState("");
@@ -549,7 +568,7 @@ export function ListCard({
 
   return (
     <div
-      className="list-card flex flex-col gap-4"
+      className={cn("list-card pop-up flex flex-col gap-4", className)}
       data-component={dataComponent}
       data-source-component={LIST_CARD_SOURCE_COMPONENT}
     >
@@ -558,6 +577,7 @@ export function ListCard({
         title={title}
         count={count}
         actionLabel={actionLabel}
+        actionLoading={actionLoading}
         actionHref={actionHref}
         actionIcon={actionIcon}
         actionType={actionType}
@@ -814,7 +834,7 @@ export function MenuGroups({
               <div className="menu-right">
                 {row.badgeLoading ? (
                   <span
-                    className="menu-badge menu-badge-skeleton"
+                    className="menu-badge menu-badge-skeleton skeleton-base"
                     data-component={`${rowBase}_badge-skeleton`}
                     style={badgeSkeletonStyle}
                     aria-hidden="true"
@@ -824,7 +844,7 @@ export function MenuGroups({
                 ) : null}
                 {row.valueLoading ? (
                   <span
-                    className="menu-value menu-value-skeleton"
+                    className="menu-value menu-value-skeleton skeleton-base"
                     data-component={`${rowBase}_value-skeleton`}
                     style={valueSkeletonStyle}
                     aria-hidden="true"

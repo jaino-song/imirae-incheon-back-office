@@ -9,23 +9,33 @@
     "exports": {
         ".": "./src/index.ts",
         "./api": "./src/api/index.ts",
+        "./agent": "./src/agent/index.ts",
+        "./tokens/skeleton.css": "./src/tokens/skeleton.css",
         "./tokens/status-badge": "./src/tokens/status-badge.ts",
+        "./client/badges": "./src/client/badges.ts",
+        "./eformsign/display-name": "./src/eformsign/display-name.ts",
         "./ui-contracts": "./src/ui-contracts/index.ts",
         "./ui-contracts/*": "./src/ui-contracts/*.ts",
+        "./types/client-action-required": "./src/types/client-action-required.ts",
         "./types/eformsign": "./src/types/eformsign.ts",
         "./types/message": "./src/types/message.ts",
         "./types/service-record": "./src/types/service-record.ts",
         "./types/system-template": "./src/types/system-template.ts",
         "./constants/service-record-form-layout": "./src/constants/service-record-form-layout.ts",
         "./constants/eformsign-status-codes": "./src/constants/eformsign-status-codes.ts",
+        "./constants/eformsign-doc-status": "./src/constants/eformsign-doc-status.ts",
+        "./constants/client-document-status": "./src/constants/client-document-status.ts",
+        "./constants/service-record-display": "./src/constants/service-record-display.ts",
         "./constants/employee-status": "./src/constants/employee-status.ts",
         "./utils": "./src/utils/index.ts",
         "./utils/date": "./src/utils/date.ts",
+        "./utils/rule-order": "./src/utils/rule-order.ts",
         "./utils/business-days": "./src/utils/business-days.ts",
         "./utils/birthday": "./src/utils/birthday.ts",
         "./eslint-plugin": "./eslint-plugin/index.mjs"
     },
     "scripts": {
+        "build:backend-runtime": "tsc -p tsconfig.backend-runtime.json",
         "type-check": "tsc --noEmit",
         "test": "jest && node --test eslint-plugin/__tests__/*.test.js"
     },
@@ -38,6 +48,7 @@
         "next": "^16"
     },
     "devDependencies": {
+        "ai": "6.0.116",
         "@types/jest": "^29.5.12",
         "eslint": "^9",
         "jest": "^30.2.0",

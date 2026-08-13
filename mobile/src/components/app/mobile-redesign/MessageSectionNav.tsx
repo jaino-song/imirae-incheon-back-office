@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock3,
@@ -15,7 +16,9 @@ import {
   type MessageSectionId,
 } from "@babyjamjam/shared";
 
+import { useMessagesPermissionGuard } from "@/app/(shell)/messages/MessagesPermissionGuard";
 import { MobileSectionNav } from "@/components/app/mobile-redesign/primitives";
+import { useInitialUser } from "@/providers/UserProvider";
 
 const SOURCE_COMPONENT = "MessageSectionNav";
 
@@ -43,12 +46,16 @@ export const MESSAGE_NAVIGATION_ITEMS: MessageNavigationItem[] =
     icon: MESSAGE_NAVIGATION_PRESENTATION[section.id],
   }));
 
-const MESSAGE_SECTION_NAV_ITEMS = MESSAGE_NAVIGATION_ITEMS.map((item) => ({
-  id: item.id,
-  label: item.title,
-  icon: item.icon,
-  disabled: item.id === "templates",
-}));
+// Sections that are still 출시 예정. The owner gets early access to them; everyone
+// else sees them disabled until the features ship.
+// "scheduled" no longer has a nav entry (folded into the merged 발송 기록
+// screen) and "history" is gated only by sending approval below, so neither
+// belongs in this set anymore.
+const UNRELEASED_SECTION_IDS = new Set<MessageSectionId>([
+  "templates",
+  "triggers",
+]);
+const SENDER_APPROVAL_EXEMPT_SECTION_IDS = new Set<MessageSectionId>(["send", "settings"]);
 
 export function MessageSectionNav({
   "data-component": dataComponent,
@@ -58,6 +65,22 @@ export function MessageSectionNav({
   activeId: MessageSectionId;
 }) {
   const router = useRouter();
+  const user = useInitialUser();
+  const isOwner = user?.role === "owner";
+  const { needsSenderApproval } = useMessagesPermissionGuard();
+
+  const sectionNavItems = useMemo(
+    () =>
+      MESSAGE_NAVIGATION_ITEMS.map((item) => ({
+        id: item.id,
+        label: item.title,
+        icon: item.icon,
+        disabled:
+          (needsSenderApproval && !SENDER_APPROVAL_EXEMPT_SECTION_IDS.has(item.id)) ||
+          (UNRELEASED_SECTION_IDS.has(item.id) && !isOwner),
+      })),
+    [isOwner, needsSenderApproval],
+  );
 
   const handleSectionSelect = (sectionId: MessageSectionId) => {
     const selectedItem = MESSAGE_NAVIGATION_ITEMS.find((item) => item.id === sectionId);
@@ -69,7 +92,7 @@ export function MessageSectionNav({
       data-component={dataComponent}
       sourceComponent={SOURCE_COMPONENT}
       ariaLabel="메시지 기능"
-      items={MESSAGE_SECTION_NAV_ITEMS}
+      items={sectionNavItems}
       activeId={activeId}
       onSelect={handleSectionSelect}
     />

@@ -74,6 +74,7 @@ const client: Client = {
     name: "고객",
     birthday: null,
     dueDate: null,
+    birthDate: null,
     address: null,
     phone: null,
     primaryEmployee: {
@@ -195,6 +196,7 @@ describe("ClientDetailPanel employee phones", () => {
             documentKind: "contract",
             employeeScheduleId: null,
             templateId: null,
+            displayStatus: "signed",
         }]);
         const { queryClient } = renderPanel({
             ...client,
@@ -207,6 +209,7 @@ describe("ClientDetailPanel employee phones", () => {
                 documentId: "contract-document-1",
                 statusDetail: "검토 필요",
                 stepName: "검토 필요",
+                displayStatus: null,
             }),
         ]));
     });

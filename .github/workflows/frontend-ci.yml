@@ -25,6 +25,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The e2e copy drift gate diffs against a base commit; the default
+          # depth-1 checkout has no history for it to resolve and the gate
+          # would silently skip.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -60,6 +65,22 @@ jobs:
 
       - name: UI architecture gate
         run: pnpm lint:ui-architecture --platform frontend
+
+      # Reworded UI copy is invisible to the unit tests below — the Playwright
+      # specs that assert it only run in the e2e job, against a seeded backend.
+      # This catches a stale assertion here in seconds instead of there in
+      # minutes. Repo-wide, so it also covers mobile when only this job runs.
+      - name: e2e copy drift gate
+        run: |
+          # A pull request compares against its own base; a push against the
+          # head it replaced. Defaulting to origin/dev would compare a dev push
+          # to the very commit under test.
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then BASE="${{ github.event.before }}"; fi
+          case "$BASE" in
+            ""|0000000000000000000000000000000000000000) BASE="HEAD~1" ;;
+          esac
+          pnpm lint:e2e-strings --base "$BASE"
 
       - name: Unit tests
         run: pnpm --filter ./frontend test

@@ -102,15 +102,19 @@ export function SidebarNotifications() {
   const [modalPosition, setModalPosition] = React.useState<{ top: number; left: number } | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
   const { isScrollActive, handleScroll } = useScrollActivity();
-  const { data: alerts = [] } = useClientAlerts(3);
-  const { data: savedNotifications = [] } = useNotifications(5, 0, true);
+  const { data: alerts = [], isLoading: isAlertsLoading } = useClientAlerts(3);
+  const {
+    data: savedNotifications = [],
+    isLoading: isSavedNotificationsLoading,
+  } = useNotifications(5, 0, true);
   const markAsRead = useMarkAsRead();
+  const isNotificationsLoading = isAlertsLoading || isSavedNotificationsLoading;
 
   const notifications = React.useMemo<SidebarNotificationItem[]>(() => {
     const actionItems: SidebarNotificationItem[] = alerts.map((alert) => {
       const message = alert.reason === "교체 요청"
         ? "교체 요청이 접수되었습니다."
-        : alert.reason === "이용자 완료 필요"
+        : alert.reason === "서명 필요"
           ? "서비스 시작 전 서명이 필요합니다."
           : "서비스 시작 전 문서 발송이 필요합니다.";
 
@@ -247,10 +251,11 @@ export function SidebarNotifications() {
                 data-scroll-active={isScrollActive ? "true" : "false"}
                 onScroll={handleScroll}
               >
-                {notifications.length ? (
+                {isNotificationsLoading || notifications.length ? (
                   <AnimatedSlotList<SidebarNotificationItem>
                     items={notifications}
-                    isLoading={false}
+                    isLoading={isNotificationsLoading}
+                    loadingCount={6}
                     itemDataComponent="desktop_chrome_sidebar_notifications-modal_item"
                     getItemKey={(notification) => notification.id}
                     onSlotClick={(notification) => handleNotificationClick(notification)}
