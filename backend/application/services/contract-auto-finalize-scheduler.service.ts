@@ -11,7 +11,7 @@ import {
     isTransientPrismaConnectivityError,
     summarizePrismaError,
 } from "infrastructure/database/prisma-error.utils";
-import { FinalizeDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/finalize-document-headless.usecase";
+import { EformsignDocumentJobService } from "application/services/eformsign-document-job.service";
 import { NotificationService } from "application/services/notification.service";
 import { SchedulerExecutionGuard } from "./scheduler-execution.guard";
 import {
@@ -22,18 +22,17 @@ import {
 
 export const CONTRACT_AUTO_FINALIZE_FAILED_NOTIFICATION_TYPE = "contract-auto-finalize-failed";
 
-// Each finalize drives a headless browser through eformsign's editor — worst
-// case ~100s per document — and documents run strictly serially, so the run
-// budget is sized for a handful of same-day contracts, not for throughput.
+// Queue production is fast and documents run strictly serially, so the run
+// budget still leaves room for a large same-day backlog without overlapping ticks.
 const MAX_RUN_MS = 30 * 60 * 1000;
 const DB_COOLDOWN_MS = 5 * 60 * 1000;
 
 /**
- * Nightly auto-finalize for maternity contracts stuck at the provider-review
- * stage (070): the first KST midnight after a contract's stored end date, the
- * staff "검토 완료 확인" wizard runs headlessly with that end date prefilled.
- * Retries up to 3 attempts total; exhaustion notifies the branch and leaves the
- * document for manual handling (surfaced on the dashboard card).
+ * Nightly producer for maternity contracts stuck at the provider-review stage
+ * (070): the first KST midnight after a contract's stored end date, enqueue the
+ * worker's "검토 완료 확인" job with that end date prefilled. The existing
+ * document attempt counter remains the terminal provider-failure budget; queue
+ * retries and queue infrastructure failures do not consume it.
  */
 @Injectable()
 export class ContractAutoFinalizeSchedulerService {
@@ -51,7 +50,7 @@ export class ContractAutoFinalizeSchedulerService {
         private readonly configService: ConfigService,
         @Inject(EFORMSIGN_DOC_REPOSITORY)
         private readonly eformsignDocRepository: IEformsignDocRepository,
-        private readonly finalizeUsecase: FinalizeDocumentHeadlessUsecase,
+        private readonly documentJobService: EformsignDocumentJobService,
         private readonly notificationService: NotificationService,
     ) {}
 
@@ -109,59 +108,44 @@ export class ContractAutoFinalizeSchedulerService {
             `[Contract Auto Finalize] ${due.length} contract(s) due (today ${todayKst}, since ${sinceDate})`,
         );
 
-        // Strictly serial: each finalize occupies a headless browser slot for up
-        // to ~100s, and a failure on one document must not stop the rest.
+        // Strictly serial: a queue failure on one document must not stop the rest.
         for (const contract of due) {
-            await this.finalizeContract(contract);
+            await this.enqueueFinalization(contract, todayKst);
         }
     }
 
-    private async finalizeContract(contract: ReviewStageContract): Promise<void> {
-        const { documentId } = contract;
-        try {
-            let totalDurationMs = 0;
-            for (let attempt = 1; attempt <= 3; attempt += 1) {
-                const result = await this.finalizeUsecase.execute({
-                    documentId,
-                    prefillEndDate: contract.contractEndDate ?? undefined,
-                });
-                totalDurationMs += result.durationMs;
-                if (result.ok && result.completed === false) continue;
-                if (result.ok) {
-                    this.logger.log(
-                        `[Contract Auto Finalize] Finalized ${documentId} (end date ${contract.contractEndDate}) in ${totalDurationMs}ms`,
-                    );
-                    return;
-                }
-                await this.recordFailure(contract, result.reason);
-                return;
-            }
-            await this.recordFailure(contract, "provider_workflow_incomplete");
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            await this.recordFailure(contract, reason);
-        }
-    }
-
-    private async recordFailure(contract: ReviewStageContract, reason: string): Promise<void> {
-        const { documentId } = contract;
-        let attempts: number;
-        try {
-            attempts = await this.eformsignDocRepository.recordAutoFinalizeFailure(documentId, reason);
-        } catch (error) {
-            // Losing the counter must not lose the failure itself.
-            this.logger.error(
-                `[Contract Auto Finalize] ${documentId} failed ("${reason}") and the attempt could not be recorded`,
-                error instanceof Error ? error.stack : String(error),
+    private async enqueueFinalization(
+        contract: ReviewStageContract,
+        todayKst: string,
+    ): Promise<void> {
+        const { documentId, branchId } = contract;
+        if (!branchId) {
+            this.logger.warn(
+                `[Contract Auto Finalize] ${documentId} is eligible but has no authoritative branch; refusing to enqueue`,
             );
             return;
         }
 
-        this.logger.warn(
-            `[Contract Auto Finalize] ${documentId} failed attempt ${attempts}/${CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS}: ${reason}`,
-        );
-        if (attempts >= CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS) {
-            await this.notifyExhausted(contract, reason);
+        const requestKey = `auto_finalize:${documentId}:${todayKst}`;
+        try {
+            await this.documentJobService.enqueueFinalizeDocument({
+                branchId,
+                requestKey,
+                documentId,
+                prefillEndDate: contract.contractEndDate ?? undefined,
+                source: "auto_finalize",
+                createdByUserId: null,
+            });
+            this.logger.log(
+                `[Contract Auto Finalize] Enqueued ${documentId} (end date ${contract.contractEndDate}, request ${requestKey})`,
+            );
+        } catch (error) {
+            // Queue infrastructure failure is not a provider terminal outcome:
+            // leave the document's attempt budget untouched for the next tick.
+            this.logger.error(
+                `[Contract Auto Finalize] Failed to enqueue ${documentId}`,
+                error instanceof Error ? error.stack : String(error),
+            );
         }
     }
 
