@@ -1,0 +1,10 @@
+{$CADDY_SITE_ADDRESS} {
+    encode zstd gzip
+
+    reverse_proxy api:3001
+
+    log {
+        output stdout
+        format json
+    }
+}

@@ -1,0 +1,73 @@
+name: babyjamjam-backend
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    image: ${BACKEND_IMAGE:-babyjamjam-backend}:${BACKEND_IMAGE_TAG:-local}
+    env_file:
+      - ${BACKEND_ENV_FILE:-/opt/babyjamjam/backend.env}
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: "3001"
+      NODE_ENV: production
+      SCHEDULERS_ENABLED: ${SCHEDULERS_ENABLED:-false}
+      VALKEY_URL: redis://valkey:6379
+    depends_on:
+      valkey:
+        condition: service_healthy
+    expose:
+      - "3001"
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1gb
+    networks:
+      - backend
+
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    command: ["valkey-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - valkey_data:/data
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./deploy/lightsail/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - backend
+
+networks:
+  backend:
+
+volumes:
+  caddy_config:
+  caddy_data:
+  valkey_data:
