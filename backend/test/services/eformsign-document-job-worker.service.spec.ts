@@ -79,6 +79,7 @@ function buildWorker(overrides: {
         markCompleted: jest.fn().mockResolvedValue(null),
         markFailed: jest.fn().mockResolvedValue(null),
         markRequiresAttention: jest.fn().mockResolvedValue(null),
+        deleteExpiredTerminal: jest.fn().mockResolvedValue(0),
         ...overrides.repository,
     };
     const dispatch = {
@@ -93,14 +94,18 @@ function buildWorker(overrides: {
         reconcile: jest.fn().mockResolvedValue({ status: "requires_attention" }),
         ...overrides.reconciliation,
     };
+    const autoFinalizeScheduler = {
+        recordTerminalFailure: jest.fn().mockResolvedValue(undefined),
+    };
     const worker = new EformsignDocumentJobWorkerService(
         new ConfigService({ EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED: "true" }),
         repository as never,
         dispatch as never,
         finalize as never,
         reconciliation as never,
+        autoFinalizeScheduler as never,
     );
-    return { worker, repository, dispatch, finalize, reconciliation };
+    return { worker, repository, dispatch, finalize, reconciliation, autoFinalizeScheduler };
 }
 
 describe("EformsignDocumentJobWorkerService", () => {

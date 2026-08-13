@@ -458,6 +458,7 @@ export default function ContractsPage() {
   const [serviceRecordActiveTab, setServiceRecordActiveTab] = useState("all");
   const [serviceRecordSearchQuery, setServiceRecordSearchQuery] = useState("");
   const [selectedServiceRecordDocId, setSelectedServiceRecordDocId] = useState<string | null>(null);
+  const [isDocumentJobsPopoverOpen, setIsDocumentJobsPopoverOpen] = useState(false);
   const documentJobsEnabled = isFeatureEnabled("eformsignDocumentJobs");
 
   const { isAuthenticated, isLoading: isLoadingAuth, error: authError } = useEformsignAuth({
@@ -469,6 +470,7 @@ export default function ContractsPage() {
   const queryClient = useQueryClient();
   const documentJobsQuery = useEformsignDocumentJobs({
     isAuthenticated: isAuthenticated && documentJobsEnabled,
+    isPopoverOpen: isDocumentJobsPopoverOpen,
   });
   const deleteDocument = useDeleteEformsignDocument();
   const registerCandidateQuery = useContractClientCandidate(registerClientDocumentId);
@@ -725,6 +727,7 @@ export default function ContractsPage() {
       {/* TODO: 통계 카운트는 아직 제공기록지 문서를 포함한다. 후속 작업에서 통계 엔드포인트를 분리한다. */}
       <ContractStatsBar
         name="contracts"
+        showDocumentJobs={documentJobsEnabled}
         isLoading={isStatsLoading}
         items={[
           { icon: CheckCircle2, value: stats.reviewNeeded, label: "검토 필요", counter: "건", colorIndex: 0 },
@@ -735,9 +738,12 @@ export default function ContractsPage() {
         ]}
         summary={documentJobsEnabled ? documentJobsQuery.summary : null}
         documentJobs={documentJobsEnabled ? (documentJobsQuery.data ?? null) : null}
-        isJobsLoading={documentJobsEnabled && documentJobsQuery.isLoading}
+        isJobsLoading={documentJobsEnabled && (
+          documentJobsQuery.summaryQuery.isLoading || documentJobsQuery.isLoading
+        )}
         jobsError={documentJobsEnabled ? documentJobsQuery.error : null}
         onRetryJobs={documentJobsEnabled ? () => void documentJobsQuery.refetch() : undefined}
+        onJobsPopoverOpenChange={setIsDocumentJobsPopoverOpen}
       />
 
       <div
@@ -1650,7 +1656,7 @@ function ContractDetail({
   const handleServiceRecordFinalizeApprove = () => {
     setIsServiceRecordFinalizeConfirmOpen(false);
     if (documentJobsEnabled) {
-      openStaffCompletionMutation.mutate();
+      openStaffCompletionMutation.mutate(undefined);
       return;
     }
     setIsFinalizeOpen(true);

@@ -31,6 +31,7 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         configValues = {
             CONTRACT_AUTO_FINALIZE_ENABLED: "true",
             CONTRACT_AUTO_FINALIZE_SINCE: sinceDate,
+            EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED: "true",
         };
         repository = {
             findReviewStageContracts: jest.fn().mockResolvedValue([]),
@@ -55,6 +56,16 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         configValues["CONTRACT_AUTO_FINALIZE_ENABLED"] = undefined;
         await service.autoFinalizeDueContracts();
         expect(repository.findReviewStageContracts).not.toHaveBeenCalled();
+    });
+
+    it("does not produce jobs while the accepting flag is off", async () => {
+        configValues["EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED"] = "false";
+        repository.findReviewStageContracts.mockResolvedValue([contract()]);
+
+        await service.autoFinalizeDueContracts();
+
+        expect(repository.findReviewStageContracts).not.toHaveBeenCalled();
+        expect(documentJobService.enqueueFinalizeDocument).not.toHaveBeenCalled();
     });
 
     it("refuses to run without a valid activation date (the backlog fence)", async () => {
@@ -166,6 +177,19 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         expect(options).toEqual({
             dedupe: { type: CONTRACT_AUTO_FINALIZE_FAILED_NOTIFICATION_TYPE, documentId: "doc-1" },
         });
+    });
+
+    it("increments the provider failure budget once and notifies on exhaustion", async () => {
+        repository.recordAutoFinalizeFailure.mockResolvedValue(3);
+        repository.findReviewStageContracts.mockResolvedValue([contract({ documentId: "doc-1" })]);
+
+        await service.recordTerminalFailure("doc-1", "PRE_SEND_RETRY_EXHAUSTED");
+
+        expect(repository.recordAutoFinalizeFailure).toHaveBeenCalledWith(
+            "doc-1",
+            "PRE_SEND_RETRY_EXHAUSTED",
+        );
+        expect(notificationService.sendToBranchUsers).toHaveBeenCalledTimes(1);
     });
 
     it("fails closed when an eligible document has no authoritative branch", async () => {

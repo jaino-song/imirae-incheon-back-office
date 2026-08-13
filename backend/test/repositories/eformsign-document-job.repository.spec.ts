@@ -132,6 +132,7 @@ describe("SbEformsignDocumentJobRepository", () => {
         const statement = sqlText(queryRaw.mock.calls[0][0]);
         expect(statement).toContain("progress_step IS NULL");
         expect(statement).toContain("ELSE 'reconciling'");
+        expect(statement).toContain("status IN ('processing', 'reconciling')");
     });
 
     it("scopes summary and every list section to the authenticated branch", async () => {

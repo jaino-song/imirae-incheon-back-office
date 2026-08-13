@@ -4,6 +4,7 @@ import { Interval } from "@nestjs/schedule";
 
 import type { ContractDataDto } from "application/dto/contract.dto";
 import { EformsignDocumentJobReconciliationService } from "application/services/eformsign-document-job-reconciliation.service";
+import { ContractAutoFinalizeSchedulerService } from "application/services/contract-auto-finalize-scheduler.service";
 import {
     DispatchDocumentHeadlessUsecase,
     DispatchHeadlessResult,
@@ -26,6 +27,8 @@ const PRE_SEND_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
 const MAX_PRE_SEND_RETRIES = PRE_SEND_RETRY_DELAYS_MS.length;
 const MAX_CONSECUTIVE_FINALIZE_STEPS = 3;
 const WORKER_ENABLED_ENV = "EFORMSIGN_DOCUMENT_JOBS_WORKER_ENABLED";
+const TERMINAL_RETENTION_MS = 7 * 24 * 60 * 60_000;
+const RETENTION_SWEEP_INTERVAL_MS = 60 * 60_000;
 
 interface CreateDocumentJobPayload {
     clientId: number;
@@ -49,6 +52,7 @@ interface FinalizeDocumentJobPayload {
 export class EformsignDocumentJobWorkerService {
     private readonly logger = new Logger(EformsignDocumentJobWorkerService.name);
     private running = false;
+    private lastRetentionSweepAt = 0;
 
     constructor(
         private readonly configService: ConfigService,
@@ -57,6 +61,7 @@ export class EformsignDocumentJobWorkerService {
         private readonly dispatchUsecase: DispatchDocumentHeadlessUsecase,
         private readonly finalizeUsecase: FinalizeDocumentHeadlessUsecase,
         private readonly reconciliationService: EformsignDocumentJobReconciliationService,
+        private readonly autoFinalizeScheduler: ContractAutoFinalizeSchedulerService,
     ) {}
 
     @Interval(WORKER_INTERVAL_MS)
@@ -64,6 +69,7 @@ export class EformsignDocumentJobWorkerService {
         if (!this.isEnabled() || this.running) return;
         this.running = true;
         try {
+            this.sweepExpiredTerminalJobs();
             const stale = await this.repository.recoverStale(
                 new Date(Date.now() - STALE_CUTOFF_MS),
             );
@@ -77,9 +83,8 @@ export class EformsignDocumentJobWorkerService {
             for (const job of jobs) {
                 await this.processClaimedJob(job);
             }
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Eformsign document job worker tick failed: ${reason}`);
+        } catch {
+            this.logger.warn("Eformsign document job worker tick failed");
         } finally {
             this.running = false;
         }
@@ -105,9 +110,8 @@ export class EformsignDocumentJobWorkerService {
             } else {
                 await this.repository.markFailed(job.id, "UNSUPPORTED_JOB_TYPE");
             }
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Eformsign document job ${job.id} failed: ${reason}`);
+        } catch {
+            this.logger.warn(`Eformsign document job ${job.id} failed`);
             await this.handleExecutionFailure(job, latestProgressStep);
         } finally {
             clearInterval(heartbeat);
@@ -217,7 +221,13 @@ export class EformsignDocumentJobWorkerService {
             );
             return;
         }
-        await this.repository.markFailed(job.id, "PRE_SEND_RETRY_EXHAUSTED");
+        const failed = await this.repository.markFailed(job.id, "PRE_SEND_RETRY_EXHAUSTED");
+        if (failed && job.source === "auto_finalize" && job.documentId) {
+            await this.autoFinalizeScheduler.recordTerminalFailure(
+                job.documentId,
+                "PRE_SEND_RETRY_EXHAUSTED",
+            );
+        }
     }
 
     private async markAndReconcile(
@@ -245,9 +255,8 @@ export class EformsignDocumentJobWorkerService {
         progressStep: () => string | undefined,
     ): ReturnType<typeof setInterval> {
         const heartbeat = setInterval(() => {
-            void this.repository.updateProgress(jobId, progressStep() ?? "processing", new Date()).catch((error: unknown) => {
-                const reason = error instanceof Error ? error.message : String(error);
-                this.logger.warn(`Eformsign document job heartbeat failed: ${reason}`);
+            void this.repository.updateProgress(jobId, progressStep() ?? "processing", new Date()).catch(() => {
+                this.logger.warn(`Eformsign document job ${jobId} heartbeat failed`);
             });
         }, HEARTBEAT_INTERVAL_MS);
         if (typeof heartbeat !== "number") heartbeat.unref?.();
@@ -257,10 +266,18 @@ export class EformsignDocumentJobWorkerService {
     private async recordProgress(jobId: string, step: EformsignHeadlessProgressStep): Promise<void> {
         try {
             await this.repository.updateProgress(jobId, step, new Date());
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Eformsign document job progress update failed: ${reason}`);
+        } catch {
+            this.logger.warn(`Eformsign document job ${jobId} progress update failed`);
         }
+    }
+
+    private sweepExpiredTerminalJobs(): void {
+        const now = Date.now();
+        if (now - this.lastRetentionSweepAt < RETENTION_SWEEP_INTERVAL_MS) return;
+        this.lastRetentionSweepAt = now;
+        void this.repository
+            .deleteExpiredTerminal(new Date(now - TERMINAL_RETENTION_MS))
+            .catch(() => this.logger.warn("Eformsign document job retention sweep failed"));
     }
 
     private isEnabled(): boolean {

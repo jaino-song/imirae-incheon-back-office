@@ -150,7 +150,8 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
                     ELSE NULL
                 END,
                 heartbeat_at = NULL, updated_at = now()
-            WHERE status = 'processing' AND COALESCE(heartbeat_at, updated_at) < ${cutoff}
+            WHERE status IN ('processing', 'reconciling')
+              AND COALESCE(heartbeat_at, updated_at) < ${cutoff}
             RETURNING *
         `);
         return rows.map((row) => this.toDomain(row));

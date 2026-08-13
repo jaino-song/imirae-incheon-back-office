@@ -41,6 +41,7 @@ export type ContractDocumentJobStatus =
 export interface ContractDocumentJob {
   jobId: string;
   jobType: string;
+  source?: "staff" | "auto_finalize";
   status: ContractDocumentJobStatus;
   clientId?: number | null;
   documentId?: string | null;
@@ -91,6 +92,7 @@ interface SectionProps {
   error: unknown;
   onRetry?: () => void;
   emptyMessage: string;
+  onNavigate: () => void;
 }
 
 const STATUS_COPY: Record<ContractDocumentJobStatus, { label: string; variant: "neutral" | "info" | "success" | "warning" | "danger" }> = {
@@ -117,6 +119,7 @@ function getJobSubtitle(job: ContractDocumentJob): string {
 }
 
 function getJobMeta(job: ContractDocumentJob): string {
+  if (job.source === "auto_finalize") return "자동 최종화";
   if (job.attempts && job.attempts > 1) return `${job.attempts}회 시도`;
   if (job.completedAt) return "최근 완료";
   return "전자문서 작업";
@@ -186,6 +189,7 @@ function JobSection({
   error,
   onRetry,
   emptyMessage,
+  onNavigate,
 }: SectionProps) {
   return (
     <section data-component={base} data-slot="job-section" className="space-y-[calc(8px*var(--glint-ui-scale,1))]">
@@ -240,7 +244,7 @@ function JobSection({
               <JobRow
                 job={item}
                 dataComponent={itemBase}
-                onNavigate={() => undefined}
+                onNavigate={onNavigate}
               />
             );
           }}
@@ -332,6 +336,7 @@ export function ContractDocumentJobsPopover({
             error={resolvedError}
             onRetry={resolvedRetry}
             emptyMessage="처리 중인 전자문서가 없습니다."
+            onNavigate={() => handleOpenChange(false)}
           />
           <JobSection
             base={sub("attention")}
@@ -342,6 +347,7 @@ export function ContractDocumentJobsPopover({
             error={resolvedError}
             onRetry={resolvedRetry}
             emptyMessage="확인이 필요한 전자문서가 없습니다."
+            onNavigate={() => handleOpenChange(false)}
           />
           <JobSection
             base={sub("recent")}
@@ -352,6 +358,7 @@ export function ContractDocumentJobsPopover({
             error={resolvedError}
             onRetry={resolvedRetry}
             emptyMessage="최근 처리한 전자문서가 없습니다."
+            onNavigate={() => handleOpenChange(false)}
           />
         </div>
       </PopoverContent>

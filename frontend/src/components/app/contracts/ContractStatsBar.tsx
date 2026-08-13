@@ -27,8 +27,10 @@ export interface ContractStatsBarProps {
   error?: unknown;
   onRetryJobs?: () => void;
   onRetry?: () => void;
+  onJobsPopoverOpenChange?: (open: boolean) => void;
   className?: string;
   jobsPopoverClassName?: string;
+  showDocumentJobs?: boolean;
 }
 
 type JobsPopoverProps = Pick<
@@ -50,8 +52,10 @@ export function ContractStatsBar({
   error,
   onRetryJobs,
   onRetry,
+  onJobsPopoverOpenChange,
   className,
   jobsPopoverClassName,
+  showDocumentJobs = true,
 }: ContractStatsBarProps) {
   const statsBase = `${name}_stats`;
   const resolvedJobsLoading = jobsLoading || isJobsLoading;
@@ -89,8 +93,9 @@ export function ContractStatsBar({
         />
       ))}
 
-      <ContractDocumentJobsPopover
+      {showDocumentJobs ? <ContractDocumentJobsPopover
         {...popoverProps}
+        onOpenChange={onJobsPopoverOpenChange}
         className={jobsPopoverClassName}
         data-component={`${statsBase}_document-jobs-popover`}
         trigger={
@@ -109,7 +114,7 @@ export function ContractStatsBar({
             className="ms-auto max-lg:ms-0"
           />
         }
-      />
+      /> : null}
     </div>
   );
 }

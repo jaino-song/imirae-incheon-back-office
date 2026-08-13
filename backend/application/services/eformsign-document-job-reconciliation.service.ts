@@ -58,9 +58,8 @@ export class EformsignDocumentJobReconciliationService {
                 return await this.reconcileCreation(job, token.oauth_token.access_token);
             }
             return await this.reconcileFinalization(job, token.oauth_token.access_token);
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : "provider state unavailable";
-            this.logger.warn(`Eformsign job reconciliation could not read provider state: ${reason}`);
+        } catch {
+            this.logger.warn(`Eformsign job ${job.id} reconciliation could not read provider state`);
             return this.requiresAttention(job, "PROVIDER_STATE_UNAVAILABLE");
         }
     }
@@ -130,9 +129,8 @@ export class EformsignDocumentJobReconciliationService {
                 documentId,
                 clientId: job.clientId,
             });
-        } catch (error) {
-            const reason = error instanceof Error ? error.message : "provider document adoption failed";
-            this.logger.warn(`Eformsign job adoption failed: ${reason}`);
+        } catch {
+            this.logger.warn(`Eformsign job ${job.id} provider document adoption failed`);
             return this.requiresAttention(job, "ADOPTION_FAILED");
         }
 
@@ -167,9 +165,8 @@ export class EformsignDocumentJobReconciliationService {
                     suppressOutboundAutomation: true,
                     strictCompletionReconciliation: true,
                 });
-            } catch (error) {
-                const reason = error instanceof Error ? error.message : "document mirror reconciliation failed";
-                this.logger.warn(`Eformsign completion mirror failed: ${reason}`);
+            } catch {
+                this.logger.warn(`Eformsign job ${job.id} completion mirror failed`);
                 return this.requiresAttention(job, "COMPLETION_MIRROR_FAILED");
             }
         }

@@ -59,6 +59,14 @@ export class ContractAutoFinalizeSchedulerService {
         if (this.configService.get<string>("CONTRACT_AUTO_FINALIZE_ENABLED") !== "true") {
             return;
         }
+        if (
+            this.configService
+                .get<string>("EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED")
+                ?.trim()
+                .toLowerCase() !== "true"
+        ) {
+            return;
+        }
         const sinceDate = this.configService.get<string>("CONTRACT_AUTO_FINALIZE_SINCE");
         if (!isValidIsoDate(sinceDate)) {
             // The activation date is the backlog fence. Running without it would
@@ -176,5 +184,23 @@ export class ContractAutoFinalizeSchedulerService {
                 error instanceof Error ? error.stack : String(error),
             );
         }
+    }
+
+    async recordTerminalFailure(documentId: string, reason: string): Promise<void> {
+        const attempts = await this.eformsignDocRepository.recordAutoFinalizeFailure(
+            documentId,
+            reason,
+        );
+        if (attempts < CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS) return;
+
+        const contract = (await this.eformsignDocRepository.findReviewStageContracts())
+            .find((candidate) => candidate.documentId === documentId);
+        if (!contract) {
+            this.logger.warn(
+                `[Contract Auto Finalize] ${documentId} exhausted its retries but is no longer in review stage`,
+            );
+            return;
+        }
+        await this.notifyExhausted(contract, reason);
     }
 }
