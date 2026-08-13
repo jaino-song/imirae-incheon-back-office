@@ -39,6 +39,7 @@ export interface DispatchHeadlessParams {
     clientId: number;
     progressId?: string;
     force?: boolean;
+    onProgress?: (step: EformsignHeadlessProgressStep) => void;
 }
 
 export interface DispatchHeadlessSuccess {
@@ -194,6 +195,7 @@ export class DispatchDocumentHeadlessUsecase {
                 documentOption,
                 onProgress: (step) => {
                     latestProgressStep = step;
+                    params.onProgress?.(step);
                     this.progressService.emit(params.progressId, step);
                 },
             });

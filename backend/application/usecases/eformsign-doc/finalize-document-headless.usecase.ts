@@ -23,6 +23,7 @@ export interface FinalizeHeadlessParams {
     documentId: string;
     prefillEndDate?: string;
     progressId?: string;
+    onProgress?: (step: EformsignHeadlessProgressStep) => void;
 }
 
 export interface FinalizeHeadlessSuccess {
@@ -172,6 +173,7 @@ export class FinalizeDocumentHeadlessUsecase {
                 documentId: params.documentId,
                 onProgress: (step) => {
                     latestProgressStep = step;
+                    params.onProgress?.(step);
                     // The SDK's sent callback confirms this step's submission,
                     // not whole-document completion. Hold it until the vendor
                     // status read proves that no provider step remains.
