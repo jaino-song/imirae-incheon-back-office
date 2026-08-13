@@ -210,7 +210,10 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
             const rows = await tx.$queryRaw<RawJob[]>(Prisma.sql`
                 UPDATE "eformsign_document_job" SET status = ${status}, last_error_code = ${errorCode},
                     completed_at = now(), payload = NULL,
-                    active_key = CASE WHEN ${releaseActiveKey} THEN NULL ELSE active_key END,
+                    active_key = CASE
+                        WHEN ${releaseActiveKey} AND source <> 'auto_finalize' THEN NULL
+                        ELSE active_key
+                    END,
                     heartbeat_at = NULL, lease_token = NULL, updated_at = now()
                 WHERE id = ${id}::uuid AND lease_token = ${leaseToken}::uuid
                   AND status IN ('processing', 'reconciling') RETURNING *
@@ -241,6 +244,14 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
                     WHERE id = ${id}::uuid
                 `);
                 row.auto_finalize_outcome_recorded_at = recordedAt;
+            }
+            if (status === "failed" && recordedAttempts !== null) {
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE "eformsign_document_job"
+                    SET active_key = ${recordedAttempts < 3 ? null : row.active_key}
+                    WHERE id = ${id}::uuid
+                `);
+                if (recordedAttempts < 3) row.active_key = null;
             }
             return new EformsignDocumentJobEntity({
                 ...this.toDomain(row),

@@ -143,6 +143,40 @@ describe("SbEformsignDocumentJobRepository", () => {
         expect(statement).not.toContain("active_key = NULL");
     });
 
+    it("records an auto-finalize terminal attempt atomically and releases retry capacity below the cap", async () => {
+        const executeRawInTransaction = jest.fn().mockResolvedValue(1);
+        const queryRawInTransaction = jest.fn().mockResolvedValueOnce([row({
+            job_type: "finalize_document",
+            source: "auto_finalize",
+            status: "failed",
+            document_id: "doc-1",
+            active_key: "finalize:doc-1",
+            lease_token: "00000000-0000-0000-0000-000000000099",
+        })]);
+        const prisma = {
+            $transaction: jest.fn(async (operation: (tx: unknown) => Promise<unknown>) => operation({
+                $queryRaw: queryRawInTransaction,
+                $executeRaw: executeRawInTransaction,
+                eformsign_doc: {
+                    update: jest.fn().mockResolvedValue({ autoFinalizeAttempts: 2 }),
+                },
+            })),
+        } as unknown as PrismaService;
+        const autoRepository = new SbEformsignDocumentJobRepository(prisma);
+
+        const transitioned = await autoRepository.markFailed(
+            row().id,
+            "00000000-0000-0000-0000-000000000099",
+            "PRE_SEND_RETRY_EXHAUSTED",
+        );
+
+        expect(transitioned).toEqual(expect.objectContaining({
+            autoFinalizeOutcomeAttempts: 2,
+            activeKey: null,
+        }));
+        expect(executeRawInTransaction).toHaveBeenCalledTimes(2);
+    });
+
     it("recovers only pre-send progress to queued and reconciles possible sends", async () => {
         queryRaw.mockResolvedValueOnce([
             row({ progress_step: "validating", status: "queued" }),
