@@ -35,6 +35,62 @@ import type {
 const DEFAULT_EFORMSIGN_LIMIT = 100;
 const DEFAULT_EFORMSIGN_SKIP = 0;
 
+export type EformsignDocumentJobType = "create_document" | "finalize_document";
+export type EformsignDocumentJobSource = "staff" | "auto_finalize";
+export type EformsignDocumentJobStatus =
+    | "queued"
+    | "processing"
+    | "reconciling"
+    | "completed"
+    | "failed"
+    | "requires_attention";
+
+export interface EformsignDocumentJobSummary {
+    activeCount: number;
+    requiresAttentionCount: number;
+}
+
+/** Fields intentionally exposed by the backend's safe job response DTO. */
+export interface EformsignDocumentJobResponse {
+    jobId: string;
+    jobType: EformsignDocumentJobType;
+    source: EformsignDocumentJobSource;
+    status: EformsignDocumentJobStatus;
+    clientId: number | null;
+    documentId: string | null;
+    progressStep: string | null;
+    attempts: number;
+    nextAttemptAt: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface EformsignDocumentJobList {
+    active: EformsignDocumentJobResponse[];
+    requiresAttention: EformsignDocumentJobResponse[];
+    recent: EformsignDocumentJobResponse[];
+}
+
+export interface EnqueueEformsignDocumentJobResponse {
+    jobId: string;
+    status: EformsignDocumentJobStatus;
+    existing: boolean;
+}
+
+export interface CreateEformsignDocumentJobRequest {
+    requestKey: string;
+    clientId: number;
+    contractData: ContractDataDto;
+}
+
+export interface FinalizeEformsignDocumentJobRequest {
+    requestKey: string;
+    documentId: string;
+    prefillEndDate?: string;
+}
+
 export interface ServiceRecordTemplateIdResponse {
     templateId: string | null;
     templateIds?: string[];
@@ -218,6 +274,32 @@ export const eformsignApi = {
     // Create eformsign doc record to track document in local DB
     createDocRecord: async (params: CreateEformsignDocRecordRequest) => {
         const { data } = await api.post('/eformsign-docs', params);
+        return data;
+    },
+    getDocumentJobSummary: async (): Promise<EformsignDocumentJobSummary> => {
+        const { data } = await api.get<EformsignDocumentJobSummary>('/eformsign-docs/jobs/summary');
+        return data;
+    },
+    getDocumentJobs: async (): Promise<EformsignDocumentJobList> => {
+        const { data } = await api.get<EformsignDocumentJobList>('/eformsign-docs/jobs');
+        return data;
+    },
+    enqueueDocumentCreation: async (
+        params: CreateEformsignDocumentJobRequest,
+    ): Promise<EnqueueEformsignDocumentJobResponse> => {
+        const { data } = await api.post<EnqueueEformsignDocumentJobResponse>(
+            '/eformsign-docs/jobs/creation',
+            params,
+        );
+        return data;
+    },
+    enqueueDocumentFinalization: async (
+        params: FinalizeEformsignDocumentJobRequest,
+    ): Promise<EnqueueEformsignDocumentJobResponse> => {
+        const { data } = await api.post<EnqueueEformsignDocumentJobResponse>(
+            '/eformsign-docs/jobs/finalization',
+            params,
+        );
         return data;
     },
     // Documents APIs - token is read from httpOnly cookie on server
