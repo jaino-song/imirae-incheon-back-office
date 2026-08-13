@@ -160,6 +160,64 @@ describe("EformsignDocumentJobWorkerService", () => {
         );
     });
 
+    it("keeps a send-progress marker when the headless call throws", async () => {
+        const claimed = job();
+        const { worker, repository, reconciliation } = buildWorker({
+            repository: {
+                claimDue: jest.fn().mockResolvedValue([claimed]),
+                markReconciling: jest.fn().mockResolvedValue({ ...claimed, status: "reconciling", payload: null }),
+            },
+            dispatch: {
+                execute: jest.fn().mockImplementation(async (_branchId, { onProgress }) => {
+                    onProgress?.("sent");
+                    throw new Error("browser disconnected");
+                }),
+            },
+        });
+
+        await worker.processDueJobs();
+
+        expect(repository.scheduleRetry).not.toHaveBeenCalled();
+        expect(repository.markReconciling).toHaveBeenCalledWith(claimed.id, "sent");
+        expect(reconciliation.reconcile).toHaveBeenCalled();
+    });
+
+    it("does not retry a later finalize step after an earlier step was sent", async () => {
+        const claimed = job({
+            id: "00000000-0000-0000-0000-000000000003",
+            jobType: "finalize_document",
+            documentId: "doc-3",
+            activeKey: "finalize:doc-3",
+            payload: { documentId: "doc-3" },
+        });
+        const { worker, repository, finalize, reconciliation } = buildWorker({
+            repository: {
+                claimDue: jest.fn().mockResolvedValue([claimed]),
+                markReconciling: jest.fn().mockResolvedValue({ ...claimed, status: "reconciling", payload: null }),
+            },
+            finalize: {
+                execute: jest.fn()
+                    .mockImplementationOnce(async ({ onProgress }) => {
+                        onProgress?.("sent");
+                        return { ok: true, completed: false, durationMs: 1 };
+                    })
+                    .mockResolvedValueOnce({
+                        ok: false,
+                        reason: "provider timeout",
+                        fallbackHint: "iframe",
+                        durationMs: 1,
+                    }),
+            },
+        });
+
+        await worker.processDueJobs();
+
+        expect(finalize.execute).toHaveBeenCalledTimes(2);
+        expect(repository.scheduleRetry).not.toHaveBeenCalled();
+        expect(repository.markReconciling).toHaveBeenCalledWith(claimed.id, "sent");
+        expect(reconciliation.reconcile).toHaveBeenCalled();
+    });
+
     it("persists progress and sends a heartbeat while a provider operation is running", async () => {
         jest.useFakeTimers();
         const claimed = job();

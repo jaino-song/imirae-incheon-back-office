@@ -91,7 +91,7 @@ export class EformsignDocumentJobWorkerService {
             return;
         }
 
-        let latestProgressStep = job.progressStep ?? undefined;
+        let latestProgressStep: EformsignHeadlessProgressStep | undefined;
         const heartbeat = this.startHeartbeat(job.id, () => latestProgressStep);
         try {
             if (job.jobType === "create_document") {
@@ -108,7 +108,7 @@ export class EformsignDocumentJobWorkerService {
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             this.logger.warn(`Eformsign document job ${job.id} failed: ${reason}`);
-            await this.handleExecutionFailure(job, latestProgressStep === "creating" || latestProgressStep === "sent");
+            await this.handleExecutionFailure(job, latestProgressStep);
         } finally {
             clearInterval(heartbeat);
         }
@@ -159,8 +159,8 @@ export class EformsignDocumentJobWorkerService {
             return;
         }
 
+        let latestProgressStep: EformsignHeadlessProgressStep | undefined;
         for (let step = 0; step < MAX_CONSECUTIVE_FINALIZE_STEPS; step += 1) {
-            let latestProgressStep: EformsignHeadlessProgressStep | undefined;
             const result = await this.finalizeUsecase.execute({
                 documentId,
                 prefillEndDate: payload.prefillEndDate,
@@ -191,10 +191,17 @@ export class EformsignDocumentJobWorkerService {
 
     private async handleExecutionFailure(
         job: EformsignDocumentJobEntity,
-        sendAttempted: boolean,
+        latestProgressStep?: EformsignHeadlessProgressStep,
     ): Promise<void> {
-        if (sendAttempted || job.progressStep === "creating" || job.progressStep === "sent") {
-            await this.markAndReconcile(job, job.progressStep ?? "reconciling");
+        const sendAttempted = latestProgressStep === "creating"
+            || latestProgressStep === "sent"
+            || job.progressStep === "creating"
+            || job.progressStep === "sent";
+        if (sendAttempted) {
+            await this.markAndReconcile(
+                job,
+                latestProgressStep ?? job.progressStep ?? "reconciling",
+            );
             return;
         }
         await this.handlePreSendFailure(job, "HEADLESS_EXECUTION_FAILURE");
