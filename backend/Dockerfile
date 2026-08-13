@@ -9,7 +9,9 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY backend/package.json backend/package.json
-COPY backend/vendor/shared-agent/package.json backend/vendor/shared-agent/package.json
+# The backend consumes this vendored package through a file: dependency. Copy
+# its declarations and runtime files before pnpm resolves the dependency.
+COPY backend/vendor/shared-agent backend/vendor/shared-agent
 
 RUN pnpm install --frozen-lockfile --filter ./backend...
 
