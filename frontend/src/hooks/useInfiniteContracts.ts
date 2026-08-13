@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { eformsignApi } from "@/services/api";
 import { EformsignDocument, EformsignDocumentsResponse } from "@/lib/eformsign/types";
 import { eformsignQueryKeys } from "@/hooks/useEformsignDocuments";
@@ -170,19 +174,28 @@ export function useInfiniteContracts({
         page.snapshot_version ?? UNVERSIONED_SNAPSHOT_GENERATION)
       .find((generation) => generation !== baseSnapshotGeneration);
   }, [pages, baseSnapshotGeneration]);
-  const lastSnapshotResetRef = useRef<string | null>(null);
+  const lastSnapshotRestartRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (baseSnapshotGeneration === undefined) return;
     if (conflictingSnapshotGeneration === undefined) {
-      lastSnapshotResetRef.current = null;
+      lastSnapshotRestartRef.current = null;
       return;
     }
     const signature =
       `${queryKey.join("|")}::${baseSnapshotGeneration}->${conflictingSnapshotGeneration}`;
-    if (lastSnapshotResetRef.current === signature) return;
-    lastSnapshotResetRef.current = signature;
-    void queryClient.resetQueries({ queryKey, exact: true });
+    if (lastSnapshotRestartRef.current === signature) return;
+    lastSnapshotRestartRef.current = signature;
+    queryClient.setQueryData<InfiniteData<EformsignDocumentsResponse>>(
+      queryKey,
+      (current) => current
+        ? {
+            pages: current.pages.slice(0, 1),
+            pageParams: current.pageParams.slice(0, 1),
+          }
+        : current,
+    );
+    void queryClient.invalidateQueries({ queryKey, exact: true });
   }, [
     baseSnapshotGeneration,
     conflictingSnapshotGeneration,

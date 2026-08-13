@@ -86,6 +86,7 @@ describe("FinalizeDocumentHeadlessUsecase", () => {
             "service-record-1",
             {
                 force: true,
+                publishChangeReason: "mirror:finalize",
                 suppressOutboundAutomation: true,
                 strictCompletionReconciliation: true,
             },

@@ -69,6 +69,107 @@ describe("EformsignDocumentMirrorService", () => {
         jest.restoreAllMocks();
     });
 
+    it("publishes a branch-scoped change after a requested mirror sync converges", async () => {
+        const repository = {
+            findState: jest.fn().mockResolvedValue({ branchId: "branch-1" }),
+        };
+        const eventBus = { emit: jest.fn() };
+        const service = new EformsignDocumentMirrorService(
+            {
+                getAccessToken: jest.fn().mockResolvedValue({
+                    oauth_token: { access_token: "vendor-token" },
+                }),
+            } as never,
+            repository as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            undefined,
+            undefined,
+            eventBus as never,
+        );
+        jest.spyOn(service, "syncDocumentWithToken").mockResolvedValue({
+            status: "synced",
+            documentId: "doc-1",
+            sourceUpdatedDate: new Date(UPDATED_AT),
+            storedFileTypes: ["document", "audit_trail"],
+            missingFileTypes: [],
+        });
+
+        await expect(service.syncDocument("doc-1", {
+            publishChangeReason: "mirror:finalize",
+        })).resolves.toEqual(expect.objectContaining({ status: "synced" }));
+
+        expect(eventBus.emit).toHaveBeenCalledWith({
+            branchId: "branch-1",
+            documentId: "doc-1",
+            reason: "mirror:finalize",
+        });
+    });
+
+    it("preserves a converged mirror when change publication lookup fails", async () => {
+        const service = new EformsignDocumentMirrorService(
+            {
+                getAccessToken: jest.fn().mockResolvedValue({
+                    oauth_token: { access_token: "vendor-token" },
+                }),
+            } as never,
+            {
+                findState: jest.fn().mockRejectedValue(new Error("branch lookup unavailable")),
+            } as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            undefined,
+            undefined,
+            { emit: jest.fn() } as never,
+        );
+        jest.spyOn(service, "syncDocumentWithToken").mockResolvedValue({
+            status: "synced",
+            documentId: "doc-1",
+            sourceUpdatedDate: new Date(UPDATED_AT),
+            storedFileTypes: ["document", "audit_trail"],
+            missingFileTypes: [],
+        });
+
+        await expect(service.syncDocument("doc-1", {
+            publishChangeReason: "mirror:finalize",
+        })).resolves.toEqual(expect.objectContaining({ status: "synced" }));
+    });
+
+    it("does not publish an unscoped change when the mirrored document has no branch", async () => {
+        const eventBus = { emit: jest.fn() };
+        const service = new EformsignDocumentMirrorService(
+            {
+                getAccessToken: jest.fn().mockResolvedValue({
+                    oauth_token: { access_token: "vendor-token" },
+                }),
+            } as never,
+            {
+                findState: jest.fn().mockResolvedValue({ branchId: null }),
+            } as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            undefined,
+            undefined,
+            eventBus as never,
+        );
+        jest.spyOn(service, "syncDocumentWithToken").mockResolvedValue({
+            status: "synced",
+            documentId: "doc-1",
+            sourceUpdatedDate: new Date(UPDATED_AT),
+            storedFileTypes: ["document", "audit_trail"],
+            missingFileTypes: [],
+        });
+
+        await expect(service.syncDocument("doc-1", {
+            publishChangeReason: "mirror:finalize",
+        })).resolves.toEqual(expect.objectContaining({ status: "synced" }));
+
+        expect(eventBus.emit).not.toHaveBeenCalled();
+    });
+
     it("invalidates snapshots when permanent-purge visibility changes", async () => {
         const generation = new Date("2026-07-30T00:00:00.000Z");
         const request = { documentId: "doc-1", generation };
