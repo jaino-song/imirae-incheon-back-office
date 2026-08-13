@@ -3,7 +3,10 @@ FROM node:20-bookworm-slim AS build
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
-RUN corepack enable
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable
 
 WORKDIR /app
 
@@ -26,6 +29,10 @@ ENV NODE_PATH="/app/backend/dist"
 ENV PLAYWRIGHT_BROWSERS_PATH="/ms-playwright"
 
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/backend/node_modules ./backend/node_modules
