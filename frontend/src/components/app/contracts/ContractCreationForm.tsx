@@ -40,6 +40,8 @@ import {
 import { useCallback, useState, useEffect, useRef, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEformsign } from "@/hooks/useEformsign";
+import { useToast } from "@/hooks/use-toast";
+import { useEnqueueEformsignDocumentCreation } from "@/hooks/useEformsignDocumentJobs";
 import { useGetAuthUser } from "@/hooks/useGetAuthUser";
 import type { EformsignDocumentOption } from "@/lib/eformsign/types";
 import {
@@ -355,6 +357,7 @@ export const ContractCreationForm = ({
   const router = useRouter();
   const locale = useLocale();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data: authUser } = useGetAuthUser();
   const [internalActiveStep, setInternalActiveStep] = useState(0);
   const activeStep = controlledActiveStep ?? internalActiveStep;
@@ -383,6 +386,7 @@ export const ContractCreationForm = ({
     setConfirmationMessage(null);
   };
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [allowIframeFallback, setAllowIframeFallback] = useState(false);
   // Kept out of `submitError` on purpose: opening the iframe fallback re-enters
@@ -532,6 +536,7 @@ export const ContractCreationForm = ({
   const createClientMutation = useCreateClient();
   const deleteClientMutation = useDeleteClient();
   const updateClientMutation = useUpdateClient();
+  const enqueueCreationMutation = useEnqueueEformsignDocumentCreation();
   const stepLabels = t(locale, "contract-msg.pagination-steps") as unknown as string[];
 
   const handleVoucherYearChange = (value: number) => {
@@ -765,9 +770,14 @@ export const ContractCreationForm = ({
   };
 
   const handleContractCreation = async ({ mode = "auto" }: ContractCreationRunOptions = {}) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     onSubmissionStateChange?.(true);
     try {
-      const shouldAttemptHeadless = mode !== "manual" && isFeatureEnabled("headlessDispatch");
+      const shouldEnqueueDocumentJob = mode !== "manual" && isFeatureEnabled("eformsignDocumentJobs");
+      const shouldAttemptHeadless = !shouldEnqueueDocumentJob
+        && mode !== "manual"
+        && isFeatureEnabled("headlessDispatch");
 
       if (employeeId === null || (showEmployee2 && employee2Id === null)) {
         setSubmitError("등록된 제공인력을 목록에서 선택해 주세요.");
@@ -775,7 +785,7 @@ export const ContractCreationForm = ({
         return;
       }
 
-      if (!shouldAttemptHeadless && !isEformsignLoaded) {
+      if (!shouldEnqueueDocumentJob && !shouldAttemptHeadless && !isEformsignLoaded) {
         setSubmitError("eformsign SDK가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.");
         setActiveStep(CONTRACT_INFO_STEP_INDEX);
         return;
@@ -867,13 +877,6 @@ export const ContractCreationForm = ({
           throw new Error("고객 정보를 먼저 선택하거나 등록해 주세요.");
         }
 
-        const executionTime = Date.now();
-        const authResult = await eformsignApi.authenticate(executionTime);
-
-        if (!authResult.success) {
-          throw new Error("Failed to authenticate");
-        }
-
         const start = dayjs(startDate);
         const end = endDate ? dayjs(endDate) : null;
         const payment = dayjs(paymentDate);
@@ -912,6 +915,25 @@ export const ContractCreationForm = ({
           grant,
           actualPrice,
         };
+
+        if (shouldEnqueueDocumentJob) {
+          await enqueueCreationMutation.mutateAsync({
+            requestKey: createHeadlessProgressId(),
+            clientId: finalClientId,
+            contractData,
+          });
+          toast({ description: "전자문서 작업을 시작했어요" });
+          if (onSuccess) onSuccess();
+          else onClose?.();
+          return;
+        }
+
+        const executionTime = Date.now();
+        const authResult = await eformsignApi.authenticate(executionTime);
+
+        if (!authResult.success) {
+          throw new Error("Failed to authenticate");
+        }
 
         // BJJ-90: when the flag is on, drive the iframe gate sequence on the
         // backend via Playwright. Failures stay on the processing step so the
@@ -1152,6 +1174,7 @@ export const ContractCreationForm = ({
         }
       }
     } finally {
+      isSubmittingRef.current = false;
       onSubmissionStateChange?.(false);
     }
   };
