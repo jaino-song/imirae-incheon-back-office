@@ -4,6 +4,7 @@ import {
     Get,
     HttpCode,
     HttpStatus,
+    ConflictException,
     Logger,
     MessageEvent,
     Post,
@@ -369,13 +370,15 @@ export class EformsignDocController {
         @Body() dto: CreateEformsignDocumentJobDto,
     ): Promise<EnqueueEformsignDocumentJobResponseDto> {
         this.assertDocumentJobsAccepting();
-        const result = await this.documentJobService.enqueueCreateDocument({
-            branchId: tenant.branchId ?? "",
-            createdByUserId: tenant.userId ?? request.user?.userId,
-            requestKey: dto.requestKey,
-            clientId: dto.clientId,
-            contractData: dto.contractData,
-        });
+        const result = await this.enqueueDocumentJob(() =>
+            this.documentJobService.enqueueCreateDocument({
+                branchId: tenant.branchId ?? "",
+                createdByUserId: tenant.userId ?? request.user?.userId,
+                requestKey: dto.requestKey,
+                clientId: dto.clientId,
+                contractData: dto.contractData,
+            }),
+        );
         return {
             jobId: result.job.id,
             status: result.job.status,
@@ -396,14 +399,16 @@ export class EformsignDocController {
         @Body() dto: FinalizeEformsignDocumentJobDto,
     ): Promise<EnqueueEformsignDocumentJobResponseDto> {
         this.assertDocumentJobsAccepting();
-        const result = await this.documentJobService.enqueueFinalizeDocument({
-            branchId: tenant.branchId ?? "",
-            createdByUserId: tenant.userId ?? request.user?.userId,
-            requestKey: dto.requestKey,
-            documentId: dto.documentId,
-            prefillEndDate: dto.prefillEndDate,
-            source: "staff",
-        });
+        const result = await this.enqueueDocumentJob(() =>
+            this.documentJobService.enqueueFinalizeDocument({
+                branchId: tenant.branchId ?? "",
+                createdByUserId: tenant.userId ?? request.user?.userId,
+                requestKey: dto.requestKey,
+                documentId: dto.documentId,
+                prefillEndDate: dto.prefillEndDate,
+                source: "staff",
+            }),
+        );
         return {
             jobId: result.job.id,
             status: result.job.status,
@@ -451,6 +456,20 @@ export class EformsignDocController {
                 .toLowerCase() !== "true"
         ) {
             throw new ServiceUnavailableException("Eformsign document jobs are not accepting new work");
+        }
+    }
+
+    private async enqueueDocumentJob<T>(operation: () => Promise<T>): Promise<T> {
+        try {
+            return await operation();
+        } catch (error) {
+            if (
+                error instanceof Error
+                && error.message.startsWith("EFORMSIGN_DOCUMENT_JOB_")
+            ) {
+                throw new ConflictException("전자문서 작업 요청이 기존 작업과 충돌합니다.");
+            }
+            throw error;
         }
     }
 }

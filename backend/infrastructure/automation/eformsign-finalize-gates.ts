@@ -32,7 +32,7 @@ export async function runEformsignFinalizeGates(
     page: Page,
     eformsignFrame: FrameLocator,
     logger: NestLogger | Console = console,
-    onProgress?: (step: EformsignHeadlessProgressStep) => void,
+    onProgress?: (step: EformsignHeadlessProgressStep) => void | Promise<void>,
 ): Promise<"success-latched" | "request-send-clicked" | "request-send-attempted"> {
     const startedAt = Date.now();
     let deadline = startedAt + EFORMSIGN_FINALIZE_GATE_WAIT_TIMEOUT_MS;
@@ -74,12 +74,12 @@ export async function runEformsignFinalizeGates(
     // Finalize prefill (서비스 종료일) is applied via the SDK options before the
     // iframe even renders, so as soon as we reach the gate loop the data is
     // effectively "inserted". Mirrors creation's info-inserted semantics.
-    onProgress?.("info-inserted");
+    await onProgress?.("info-inserted");
 
-    const emitCreating = () => {
+    const emitCreating = async () => {
         if (creatingEmitted) return;
         creatingEmitted = true;
-        onProgress?.("creating");
+        await onProgress?.("creating");
     };
 
     const tryPreSendClick = async (locator: Locator, action: string): Promise<boolean> => {
@@ -126,16 +126,16 @@ export async function runEformsignFinalizeGates(
                 requestSendDialog.getByRole("button", { name: "전송" }),
             );
             if (requestSendButton) {
+                // The durable fence must commit before any provider-side send.
+                await emitCreating();
                 if (!(await tryClickGateLocator(requestSendButton))) {
                     lastAction = "popup 전송 click outcome ambiguous; reconciling";
                     const message =
                         "[finalize-gate] popup 전송 click outcome is ambiguous; reconciling without retry";
                     logMessage(message);
-                    emitCreating();
                     return "request-send-attempted";
                 }
                 logMessage("[finalize-gate] clicked popup 전송");
-                emitCreating();
                 return "request-send-clicked";
             }
 
@@ -162,6 +162,7 @@ export async function runEformsignFinalizeGates(
                 topLevelSendAttempted = true;
                 topLevelSendClickCount += 1;
                 topLevelSendPopupWaitPolls = 0;
+                await emitCreating();
                 if (!(await tryClickGateLocator(topLevelSendButton))) {
                     lastAction = "top-level 전송 click outcome ambiguous; waiting for popup";
                     noteAction(lastAction);

@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS "eformsign_document_job" (
     "attempts" INTEGER NOT NULL DEFAULT 0,
     "next_attempt_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "heartbeat_at" TIMESTAMPTZ(6),
+    "lease_token" UUID,
+    "auto_finalize_outcome_recorded_at" TIMESTAMPTZ(6),
     "started_at" TIMESTAMPTZ(6),
     "completed_at" TIMESTAMPTZ(6),
     "last_error_code" VARCHAR(80),
@@ -34,6 +36,18 @@ CREATE TABLE IF NOT EXISTS "eformsign_document_job" (
 -- Converge a table left behind by an interrupted first execution. These are
 -- all additive and preserve existing rows; a newly created table already has
 -- the complete shape above.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM "eformsign_document_job"
+        WHERE branch_id IS NULL OR job_type IS NULL OR source IS NULL
+           OR status IS NULL OR request_key IS NULL OR attempts IS NULL
+           OR next_attempt_at IS NULL OR created_at IS NULL OR updated_at IS NULL
+    ) THEN
+        RAISE EXCEPTION 'eformsign_document_job contains rows missing required values';
+    END IF;
+END $$;
+
 ALTER TABLE "eformsign_document_job"
     ADD COLUMN IF NOT EXISTS "branch_id" UUID,
     ADD COLUMN IF NOT EXISTS "client_id" INTEGER,
@@ -49,6 +63,8 @@ ALTER TABLE "eformsign_document_job"
     ADD COLUMN IF NOT EXISTS "attempts" INTEGER DEFAULT 0,
     ADD COLUMN IF NOT EXISTS "next_attempt_at" TIMESTAMPTZ(6) DEFAULT CURRENT_TIMESTAMP,
     ADD COLUMN IF NOT EXISTS "heartbeat_at" TIMESTAMPTZ(6),
+    ADD COLUMN IF NOT EXISTS "lease_token" UUID,
+    ADD COLUMN IF NOT EXISTS "auto_finalize_outcome_recorded_at" TIMESTAMPTZ(6),
     ADD COLUMN IF NOT EXISTS "started_at" TIMESTAMPTZ(6),
     ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMPTZ(6),
     ADD COLUMN IF NOT EXISTS "last_error_code" VARCHAR(80),
@@ -72,6 +88,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_branch_id_fkey'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_branch_id_fkey"
@@ -82,6 +99,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_client_id_fkey'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_client_id_fkey"
@@ -92,6 +110,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_created_by_user_id_fkey'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_created_by_user_id_fkey"
@@ -102,6 +121,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_job_type_check'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_job_type_check"
@@ -111,6 +131,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_source_check'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_source_check"
@@ -120,6 +141,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_status_check'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_status_check"
@@ -129,6 +151,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_attempts_nonnegative_check'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_attempts_nonnegative_check"
@@ -138,6 +161,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_payload_fingerprint_check'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_payload_fingerprint_check"
@@ -147,6 +171,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'eformsign_document_job_last_error_code_check'
+          AND conrelid = 'public.eformsign_document_job'::regclass
     ) THEN
         ALTER TABLE "eformsign_document_job"
             ADD CONSTRAINT "eformsign_document_job_last_error_code_check"
@@ -172,17 +197,22 @@ CREATE INDEX IF NOT EXISTS "idx_eformsign_document_job_document_id"
 CREATE INDEX IF NOT EXISTS "idx_eformsign_document_job_client_id"
     ON "eformsign_document_job" ("client_id");
 
--- The patch workflow may replay this migration. Reject partially converged
--- rows before restoring the required-column contract.
 DO $$
+DECLARE
+    index_definition TEXT;
 BEGIN
-    IF EXISTS (
-        SELECT 1 FROM "eformsign_document_job"
-        WHERE branch_id IS NULL OR job_type IS NULL OR source IS NULL
-           OR status IS NULL OR request_key IS NULL OR attempts IS NULL
-           OR next_attempt_at IS NULL OR created_at IS NULL OR updated_at IS NULL
-    ) THEN
-        RAISE EXCEPTION 'eformsign_document_job contains rows missing required values';
+    SELECT indexdef INTO index_definition FROM pg_indexes
+    WHERE schemaname = 'public' AND tablename = 'eformsign_document_job'
+      AND indexname = 'eformsign_document_job_request_key_key';
+    IF index_definition IS NULL OR index_definition NOT LIKE 'CREATE UNIQUE INDEX% (request_key)' THEN
+        RAISE EXCEPTION 'eformsign_document_job request key index definition drifted';
+    END IF;
+
+    SELECT indexdef INTO index_definition FROM pg_indexes
+    WHERE schemaname = 'public' AND tablename = 'eformsign_document_job'
+      AND indexname = 'eformsign_document_job_active_key_key';
+    IF index_definition IS NULL OR index_definition NOT LIKE 'CREATE UNIQUE INDEX% (active_key)' THEN
+        RAISE EXCEPTION 'eformsign_document_job active key index definition drifted';
     END IF;
 END $$;
 

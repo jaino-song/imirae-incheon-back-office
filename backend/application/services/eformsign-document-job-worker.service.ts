@@ -19,6 +19,14 @@ import {
     EFORMSIGN_DOCUMENT_JOB_REPOSITORY,
     IEformsignDocumentJobRepository,
 } from "domain/repositories/eformsign-document-job.repository.interface";
+import {
+    EFORMSIGN_DOC_REPOSITORY,
+    IEformsignDocRepository,
+} from "domain/repositories/eformsign-doc.repository.interface";
+import {
+    CLIENT_REPOSITORY,
+    IClientRepository,
+} from "domain/repositories/client.repository.interface";
 
 const WORKER_INTERVAL_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -44,9 +52,9 @@ interface FinalizeDocumentJobPayload {
 }
 
 /**
- * Polls durable eformsign jobs and runs one claimed provider operation at a
- * time. The repository owns the global three-job claim boundary; this service
- * owns retry safety and heartbeat/progress updates.
+ * Polls durable eformsign jobs and starts every claimed provider operation
+ * immediately. The repository owns the global three-job boundary and lease;
+ * this service owns retry safety and heartbeat/progress updates.
  */
 @Injectable()
 export class EformsignDocumentJobWorkerService {
@@ -62,6 +70,10 @@ export class EformsignDocumentJobWorkerService {
         private readonly finalizeUsecase: FinalizeDocumentHeadlessUsecase,
         private readonly reconciliationService: EformsignDocumentJobReconciliationService,
         private readonly autoFinalizeScheduler: ContractAutoFinalizeSchedulerService,
+        @Inject(EFORMSIGN_DOC_REPOSITORY)
+        private readonly eformsignDocRepository: IEformsignDocRepository,
+        @Inject(CLIENT_REPOSITORY)
+        private readonly clientRepository: IClientRepository,
     ) {}
 
     @Interval(WORKER_INTERVAL_MS)
@@ -80,9 +92,7 @@ export class EformsignDocumentJobWorkerService {
             }
 
             const jobs = await this.repository.claimDue(3);
-            for (const job of jobs) {
-                await this.processClaimedJob(job);
-            }
+            await Promise.all(jobs.map((job) => this.processClaimedJob(job)));
         } catch {
             this.logger.warn("Eformsign document job worker tick failed");
         } finally {
@@ -91,13 +101,35 @@ export class EformsignDocumentJobWorkerService {
     }
 
     private async processClaimedJob(job: EformsignDocumentJobEntity): Promise<void> {
+        if (!job.leaseToken) {
+            this.logger.warn(`Eformsign document job ${job.id} has no lease`);
+            return;
+        }
+        if (!(await this.ownsTarget(job))) {
+            const attention = await this.repository.markRequiresAttention(
+                job.id,
+                job.leaseToken,
+                "JOB_TARGET_NOT_OWNED_BY_BRANCH",
+            );
+            await this.recordAutoFinalizeTerminalOutcome(
+                job,
+                attention,
+                "JOB_TARGET_NOT_OWNED_BY_BRANCH",
+            );
+            return;
+        }
         if (!job.payload) {
-            await this.repository.markRequiresAttention(job.id, "MISSING_JOB_PAYLOAD");
+            const attention = await this.repository.markRequiresAttention(
+                job.id,
+                job.leaseToken,
+                "MISSING_JOB_PAYLOAD",
+            );
+            await this.recordAutoFinalizeTerminalOutcome(job, attention, "MISSING_JOB_PAYLOAD");
             return;
         }
 
         let latestProgressStep: EformsignHeadlessProgressStep | undefined;
-        const heartbeat = this.startHeartbeat(job.id, () => latestProgressStep);
+        const heartbeat = this.startHeartbeat(job.id, job.leaseToken, () => latestProgressStep);
         try {
             if (job.jobType === "create_document") {
                 await this.processCreation(job, (step) => {
@@ -108,7 +140,12 @@ export class EformsignDocumentJobWorkerService {
                     latestProgressStep = step;
                 });
             } else {
-                await this.repository.markFailed(job.id, "UNSUPPORTED_JOB_TYPE");
+                const failed = await this.repository.markFailed(
+                    job.id,
+                    job.leaseToken,
+                    "UNSUPPORTED_JOB_TYPE",
+                );
+                await this.recordAutoFinalizeTerminalOutcome(job, failed, "UNSUPPORTED_JOB_TYPE");
             }
         } catch {
             this.logger.warn(`Eformsign document job ${job.id} failed`);
@@ -118,13 +155,32 @@ export class EformsignDocumentJobWorkerService {
         }
     }
 
+    private async ownsTarget(job: EformsignDocumentJobEntity): Promise<boolean> {
+        if (job.jobType === "create_document") {
+            if (!job.clientId) return false;
+            return Boolean(await this.clientRepository.findById(job.branchId, job.clientId));
+        }
+        if (!job.documentId) return false;
+        return Boolean(await this.eformsignDocRepository.findByDocumentId(
+            job.branchId,
+            job.documentId,
+        ));
+    }
+
     private async processCreation(
         job: EformsignDocumentJobEntity,
         onProgressStep?: (step: EformsignHeadlessProgressStep) => void,
     ): Promise<void> {
+        const leaseToken = job.leaseToken;
+        if (!leaseToken) return;
         const payload = parseCreatePayload(job.payload ?? {});
         if (!payload) {
-            await this.repository.markRequiresAttention(job.id, "INVALID_CREATE_JOB_PAYLOAD");
+            const attention = await this.repository.markRequiresAttention(
+                job.id,
+                leaseToken,
+                "INVALID_CREATE_JOB_PAYLOAD",
+            );
+            await this.recordAutoFinalizeTerminalOutcome(job, attention, "INVALID_CREATE_JOB_PAYLOAD");
             return;
         }
 
@@ -134,15 +190,15 @@ export class EformsignDocumentJobWorkerService {
             clientId: payload.clientId,
             progressId: payload.progressId,
             force: payload.force,
-            onProgress: (step) => {
+            onProgress: async (step) => {
                 latestProgressStep = step;
                 onProgressStep?.(step);
-                void this.recordProgress(job.id, step);
+                await this.recordProgress(job.id, leaseToken, step);
             },
         });
 
         if (result.ok) {
-            await this.repository.markCompleted(job.id, result.documentId);
+            await this.repository.markCompleted(job.id, leaseToken, result.documentId);
             return;
         }
         if (this.isAmbiguous(result, latestProgressStep)) {
@@ -156,10 +212,17 @@ export class EformsignDocumentJobWorkerService {
         job: EformsignDocumentJobEntity,
         onProgressStep?: (step: EformsignHeadlessProgressStep) => void,
     ): Promise<void> {
+        const leaseToken = job.leaseToken;
+        if (!leaseToken) return;
         const payload = parseFinalizePayload(job.payload ?? {});
         const documentId = job.documentId ?? payload?.documentId;
         if (!payload || !documentId) {
-            await this.repository.markRequiresAttention(job.id, "INVALID_FINALIZE_JOB_PAYLOAD");
+            const attention = await this.repository.markRequiresAttention(
+                job.id,
+                leaseToken,
+                "INVALID_FINALIZE_JOB_PAYLOAD",
+            );
+            await this.recordAutoFinalizeTerminalOutcome(job, attention, "INVALID_FINALIZE_JOB_PAYLOAD");
             return;
         }
 
@@ -169,10 +232,10 @@ export class EformsignDocumentJobWorkerService {
                 documentId,
                 prefillEndDate: payload.prefillEndDate,
                 progressId: payload.progressId,
-                onProgress: (progressStep) => {
+                onProgress: async (progressStep) => {
                     latestProgressStep = progressStep;
                     onProgressStep?.(progressStep);
-                    void this.recordProgress(job.id, progressStep);
+                    await this.recordProgress(job.id, leaseToken, progressStep);
                 },
             });
 
@@ -185,7 +248,7 @@ export class EformsignDocumentJobWorkerService {
                 return;
             }
             if (result.completed) {
-                await this.repository.markCompleted(job.id, documentId);
+                await this.repository.markCompleted(job.id, leaseToken, documentId);
                 return;
             }
         }
@@ -212,29 +275,37 @@ export class EformsignDocumentJobWorkerService {
     }
 
     private async handlePreSendFailure(job: EformsignDocumentJobEntity, errorCode: string): Promise<void> {
+        const leaseToken = job.leaseToken;
+        if (!leaseToken) return;
         if (job.attempts <= MAX_PRE_SEND_RETRIES) {
             const delayMs = PRE_SEND_RETRY_DELAYS_MS[job.attempts - 1] ?? PRE_SEND_RETRY_DELAYS_MS.at(-1)!;
             await this.repository.scheduleRetry(
                 job.id,
+                leaseToken,
                 new Date(Date.now() + delayMs),
                 errorCode,
             );
             return;
         }
-        const failed = await this.repository.markFailed(job.id, "PRE_SEND_RETRY_EXHAUSTED");
-        if (failed && job.source === "auto_finalize" && job.documentId) {
-            await this.autoFinalizeScheduler.recordTerminalFailure(
-                job.documentId,
-                "PRE_SEND_RETRY_EXHAUSTED",
-            );
-        }
+        const failed = await this.repository.markFailed(
+            job.id,
+            leaseToken,
+            "PRE_SEND_RETRY_EXHAUSTED",
+        );
+        await this.recordAutoFinalizeTerminalOutcome(job, failed, "PRE_SEND_RETRY_EXHAUSTED");
     }
 
     private async markAndReconcile(
         job: EformsignDocumentJobEntity,
         progressStep?: string,
     ): Promise<void> {
-        const reconciling = await this.repository.markReconciling(job.id, progressStep ?? "reconciling");
+        const leaseToken = job.leaseToken;
+        if (!leaseToken) return;
+        const reconciling = await this.repository.markReconciling(
+            job.id,
+            leaseToken,
+            progressStep ?? "reconciling",
+        );
         if (!reconciling) return;
         // markReconciling intentionally clears the persisted payload so a
         // reconciling row cannot retain customer data. Keep the claimed copy
@@ -247,15 +318,27 @@ export class EformsignDocumentJobWorkerService {
     }
 
     private async reconcile(job: EformsignDocumentJobEntity): Promise<void> {
-        await this.reconciliationService.reconcile(job);
+        const result = await this.reconciliationService.reconcile(job);
+        if (
+            result.status === "requires_attention"
+            && job.source === "auto_finalize"
+            && job.documentId
+        ) {
+            await this.autoFinalizeScheduler.recordTerminalFailure(
+                job.documentId,
+                result.reason ?? "RECONCILIATION_REQUIRES_ATTENTION",
+                result.recordedAttempts ?? null,
+            );
+        }
     }
 
     private startHeartbeat(
         jobId: string,
+        jobLeaseToken: string,
         progressStep: () => string | undefined,
     ): ReturnType<typeof setInterval> {
         const heartbeat = setInterval(() => {
-            void this.repository.updateProgress(jobId, progressStep() ?? "processing", new Date()).catch(() => {
+            void this.repository.updateProgress(jobId, jobLeaseToken, progressStep() ?? "processing", new Date()).catch(() => {
                 this.logger.warn(`Eformsign document job ${jobId} heartbeat failed`);
             });
         }, HEARTBEAT_INTERVAL_MS);
@@ -263,12 +346,24 @@ export class EformsignDocumentJobWorkerService {
         return heartbeat;
     }
 
-    private async recordProgress(jobId: string, step: EformsignHeadlessProgressStep): Promise<void> {
-        try {
-            await this.repository.updateProgress(jobId, step, new Date());
-        } catch {
-            this.logger.warn(`Eformsign document job ${jobId} progress update failed`);
+    private async recordProgress(jobId: string, leaseToken: string, step: EformsignHeadlessProgressStep): Promise<void> {
+        const updated = await this.repository.updateProgress(jobId, leaseToken, step, new Date());
+        if (!updated) {
+            throw new Error("EFORMSIGN_DOCUMENT_JOB_LEASE_LOST");
         }
+    }
+
+    private async recordAutoFinalizeTerminalOutcome(
+        job: EformsignDocumentJobEntity,
+        transitioned: EformsignDocumentJobEntity | null,
+        reason: string,
+    ): Promise<void> {
+        if (!transitioned || job.source !== "auto_finalize" || !job.documentId) return;
+        await this.autoFinalizeScheduler.recordTerminalFailure(
+            job.documentId,
+            reason,
+            transitioned.autoFinalizeOutcomeAttempts,
+        );
     }
 
     private sweepExpiredTerminalJobs(): void {

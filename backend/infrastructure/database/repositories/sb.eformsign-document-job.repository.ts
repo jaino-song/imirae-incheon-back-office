@@ -20,6 +20,7 @@ type RawJob = {
     job_type: string; source: string; status: string; request_key: string; active_key: string | null;
     payload: Prisma.JsonValue | string | null; payload_fingerprint: string | null; progress_step: string | null;
     attempts: number; next_attempt_at: Date | string; heartbeat_at: Date | string | null;
+    lease_token: string | null; auto_finalize_outcome_recorded_at: Date | string | null;
     started_at: Date | string | null; completed_at: Date | string | null; last_error_code: string | null;
     created_by_user_id: string | null; created_at: Date | string; updated_at: Date | string;
 };
@@ -50,12 +51,20 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
 
             const existing = await tx.$queryRaw<RawJob[]>(Prisma.sql`
                 SELECT * FROM "eformsign_document_job"
-                WHERE branch_id = ${input.branchId}::uuid
-                  AND (request_key = ${input.requestKey} OR active_key = ${input.activeKey})
+                WHERE request_key = ${input.requestKey} OR active_key = ${input.activeKey}
                 ORDER BY CASE WHEN request_key = ${input.requestKey} THEN 0 ELSE 1 END
                 LIMIT 1
             `);
             if (!existing[0]) throw new Error("EFORMSIGN_DOCUMENT_JOB_KEY_CONFLICT");
+            if (existing[0].branch_id !== input.branchId) {
+                throw new Error("EFORMSIGN_DOCUMENT_JOB_KEY_CONFLICT");
+            }
+            if (
+                existing[0].request_key === input.requestKey
+                && existing[0].payload_fingerprint !== input.payloadFingerprint
+            ) {
+                throw new Error("EFORMSIGN_DOCUMENT_JOB_IDEMPOTENCY_MISMATCH");
+            }
             return { job: this.toDomain(existing[0]), existing: true };
         });
     }
@@ -81,7 +90,8 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
                 )
                 UPDATE "eformsign_document_job" job
                 SET status = 'processing', attempts = attempts + 1,
-                    started_at = COALESCE(started_at, now()), heartbeat_at = now(), updated_at = now()
+                    started_at = COALESCE(started_at, now()), heartbeat_at = now(),
+                    lease_token = gen_random_uuid(), updated_at = now()
                 FROM picked WHERE job.id = picked.id
                 RETURNING job.*
             `);
@@ -89,49 +99,50 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
         });
     }
 
-    async updateProgress(id: string, progressStep: string, heartbeatAt = new Date()) {
+    async updateProgress(id: string, leaseToken: string, progressStep: string, heartbeatAt = new Date()) {
         return this.updateOne(Prisma.sql`
             UPDATE "eformsign_document_job" SET progress_step = ${progressStep},
                 heartbeat_at = ${heartbeatAt}, updated_at = now()
-            WHERE id = ${id}::uuid AND status IN ('processing', 'reconciling') RETURNING *
+            WHERE id = ${id}::uuid AND lease_token = ${leaseToken}::uuid
+              AND status IN ('processing', 'reconciling') RETURNING *
         `);
     }
 
-    async scheduleRetry(id: string, nextAttemptAt: Date, errorCode: string) {
+    async scheduleRetry(id: string, leaseToken: string, nextAttemptAt: Date, errorCode: string) {
         return this.updateOne(Prisma.sql`
             UPDATE "eformsign_document_job" SET status = 'queued', next_attempt_at = ${nextAttemptAt},
-                last_error_code = ${errorCode}, heartbeat_at = NULL, updated_at = now()
-            WHERE id = ${id}::uuid AND status = 'processing' RETURNING *
+                last_error_code = ${errorCode}, heartbeat_at = NULL, lease_token = NULL, updated_at = now()
+            WHERE id = ${id}::uuid AND lease_token = ${leaseToken}::uuid
+              AND status = 'processing' RETURNING *
         `);
     }
 
-    async markReconciling(id: string, progressStep = "reconciling") {
+    async markReconciling(id: string, leaseToken: string, progressStep = "reconciling") {
         return this.updateOne(Prisma.sql`
             UPDATE "eformsign_document_job" SET status = 'reconciling', progress_step = ${progressStep},
                 payload = NULL, heartbeat_at = now(), updated_at = now()
-            WHERE id = ${id}::uuid AND status IN ('processing', 'reconciling') RETURNING *
+            WHERE id = ${id}::uuid AND lease_token = ${leaseToken}::uuid
+              AND status IN ('processing', 'reconciling') RETURNING *
         `);
     }
 
-    async markCompleted(id: string, documentId?: string) {
+    async markCompleted(id: string, leaseToken: string, documentId?: string) {
         return this.updateOne(Prisma.sql`
             UPDATE "eformsign_document_job" SET status = 'completed',
                 document_id = COALESCE(${documentId ?? null}, document_id), completed_at = now(),
-                payload = NULL, active_key = NULL, heartbeat_at = NULL, last_error_code = NULL, updated_at = now()
-            WHERE id = ${id}::uuid AND status IN ('processing', 'reconciling') RETURNING *
+                payload = NULL, active_key = NULL, heartbeat_at = NULL, lease_token = NULL,
+                last_error_code = NULL, updated_at = now()
+            WHERE id = ${id}::uuid AND lease_token = ${leaseToken}::uuid
+              AND status IN ('processing', 'reconciling') RETURNING *
         `);
     }
 
-    async markFailed(id: string, errorCode: string) {
-        return this.terminal(id, "failed", errorCode);
+    async markFailed(id: string, leaseToken: string, errorCode: string) {
+        return this.terminal(id, leaseToken, "failed", errorCode, true);
     }
 
-    async markRequiresAttention(id: string, errorCode: string) {
-        return this.updateOne(Prisma.sql`
-            UPDATE "eformsign_document_job" SET status = 'requires_attention', last_error_code = ${errorCode},
-                payload = NULL, heartbeat_at = NULL, completed_at = now(), updated_at = now()
-            WHERE id = ${id}::uuid AND status IN ('processing', 'reconciling') RETURNING *
-        `);
+    async markRequiresAttention(id: string, leaseToken: string, errorCode: string) {
+        return this.terminal(id, leaseToken, "requires_attention", errorCode, false);
     }
 
     async recoverStale(cutoff: Date) {
@@ -149,7 +160,12 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
                     WHEN progress_step IS NULL OR progress_step IN ('queued', 'validating', 'preparing') THEN payload
                     ELSE NULL
                 END,
-                heartbeat_at = NULL, updated_at = now()
+                heartbeat_at = NULL,
+                lease_token = CASE
+                    WHEN progress_step IS NULL OR progress_step IN ('queued', 'validating', 'preparing') THEN NULL
+                    ELSE gen_random_uuid()
+                END,
+                updated_at = now()
             WHERE status IN ('processing', 'reconciling')
               AND COALESCE(heartbeat_at, updated_at) < ${cutoff}
             RETURNING *
@@ -170,7 +186,7 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
         const limit = Math.max(1, Math.min(terminalLimit, 50));
         const [active, requiresAttention, recent] = await Promise.all([
             this.prisma.$queryRaw<RawJob[]>(Prisma.sql`SELECT * FROM "eformsign_document_job" WHERE branch_id = ${branchId}::uuid AND status IN ${ACTIVE_STATUSES} ORDER BY created_at ASC`),
-            this.prisma.$queryRaw<RawJob[]>(Prisma.sql`SELECT * FROM "eformsign_document_job" WHERE branch_id = ${branchId}::uuid AND status = 'requires_attention' ORDER BY updated_at DESC`),
+            this.prisma.$queryRaw<RawJob[]>(Prisma.sql`SELECT * FROM "eformsign_document_job" WHERE branch_id = ${branchId}::uuid AND status = 'requires_attention' ORDER BY updated_at DESC LIMIT 50`),
             this.prisma.$queryRaw<RawJob[]>(Prisma.sql`SELECT * FROM "eformsign_document_job" WHERE branch_id = ${branchId}::uuid AND status IN ${TERMINAL_STATUSES} AND completed_at >= ${terminalSince} ORDER BY completed_at DESC LIMIT ${limit}`),
         ]);
         return { active: active.map(this.toDomain), requiresAttention: requiresAttention.map(this.toDomain), recent: recent.map(this.toDomain) };
@@ -183,12 +199,54 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
         return Number(count);
     }
 
-    private async terminal(id: string, status: "failed", errorCode: string) {
-        return this.updateOne(Prisma.sql`
-            UPDATE "eformsign_document_job" SET status = ${status}, last_error_code = ${errorCode},
-                completed_at = now(), payload = NULL, active_key = NULL, heartbeat_at = NULL, updated_at = now()
-            WHERE id = ${id}::uuid AND status IN ('processing', 'reconciling') RETURNING *
-        `);
+    private async terminal(
+        id: string,
+        leaseToken: string,
+        status: "failed" | "requires_attention",
+        errorCode: string,
+        releaseActiveKey: boolean,
+    ) {
+        return this.prisma.$transaction(async (tx) => {
+            const rows = await tx.$queryRaw<RawJob[]>(Prisma.sql`
+                UPDATE "eformsign_document_job" SET status = ${status}, last_error_code = ${errorCode},
+                    completed_at = now(), payload = NULL,
+                    active_key = CASE WHEN ${releaseActiveKey} THEN NULL ELSE active_key END,
+                    heartbeat_at = NULL, lease_token = NULL, updated_at = now()
+                WHERE id = ${id}::uuid AND lease_token = ${leaseToken}::uuid
+                  AND status IN ('processing', 'reconciling') RETURNING *
+            `);
+            const row = rows[0];
+            if (!row) return null;
+
+            let recordedAttempts: number | null = null;
+            if (
+                row.source === "auto_finalize"
+                && row.document_id
+                && !row.auto_finalize_outcome_recorded_at
+            ) {
+                const updated = await tx.eformsign_doc.update({
+                    where: { documentId: row.document_id },
+                    data: {
+                        autoFinalizeAttempts: { increment: 1 },
+                        autoFinalizeLastAttemptAt: new Date(),
+                        autoFinalizeLastError: errorCode,
+                    },
+                    select: { autoFinalizeAttempts: true },
+                });
+                recordedAttempts = updated.autoFinalizeAttempts;
+                const recordedAt = new Date();
+                await tx.$executeRaw(Prisma.sql`
+                    UPDATE "eformsign_document_job"
+                    SET auto_finalize_outcome_recorded_at = ${recordedAt}
+                    WHERE id = ${id}::uuid
+                `);
+                row.auto_finalize_outcome_recorded_at = recordedAt;
+            }
+            return new EformsignDocumentJobEntity({
+                ...this.toDomain(row),
+                autoFinalizeOutcomeAttempts: recordedAttempts,
+            });
+        });
     }
 
     private async updateOne(query: Prisma.Sql) {
@@ -203,6 +261,11 @@ export class SbEformsignDocumentJobRepository implements IEformsignDocumentJobRe
         payload: this.parsePayload(row.payload), payloadFingerprint: row.payload_fingerprint,
         progressStep: row.progress_step, attempts: row.attempts, nextAttemptAt: new Date(row.next_attempt_at),
         heartbeatAt: row.heartbeat_at ? new Date(row.heartbeat_at) : null,
+        leaseToken: row.lease_token,
+        autoFinalizeOutcomeRecordedAt: row.auto_finalize_outcome_recorded_at
+            ? new Date(row.auto_finalize_outcome_recorded_at)
+            : null,
+        autoFinalizeOutcomeAttempts: null,
         startedAt: row.started_at ? new Date(row.started_at) : null,
         completedAt: row.completed_at ? new Date(row.completed_at) : null, lastErrorCode: row.last_error_code,
         createdByUserId: row.created_by_user_id, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),

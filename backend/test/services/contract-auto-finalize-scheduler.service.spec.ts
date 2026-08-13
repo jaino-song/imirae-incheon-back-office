@@ -180,15 +180,11 @@ describe("ContractAutoFinalizeSchedulerService", () => {
     });
 
     it("increments the provider failure budget once and notifies on exhaustion", async () => {
-        repository.recordAutoFinalizeFailure.mockResolvedValue(3);
         repository.findReviewStageContracts.mockResolvedValue([contract({ documentId: "doc-1" })]);
 
-        await service.recordTerminalFailure("doc-1", "PRE_SEND_RETRY_EXHAUSTED");
+        await service.recordTerminalFailure("doc-1", "PRE_SEND_RETRY_EXHAUSTED", 3);
 
-        expect(repository.recordAutoFinalizeFailure).toHaveBeenCalledWith(
-            "doc-1",
-            "PRE_SEND_RETRY_EXHAUSTED",
-        );
+        expect(repository.recordAutoFinalizeFailure).not.toHaveBeenCalled();
         expect(notificationService.sendToBranchUsers).toHaveBeenCalledTimes(1);
     });
 

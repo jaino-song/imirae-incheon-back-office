@@ -24,6 +24,8 @@ const row = (overrides: Record<string, unknown> = {}) => ({
     attempts: 0,
     next_attempt_at: new Date("2026-08-13T00:00:00Z"),
     heartbeat_at: null,
+    lease_token: null,
+    auto_finalize_outcome_recorded_at: null,
     started_at: null,
     completed_at: null,
     last_error_code: null,
@@ -69,7 +71,7 @@ describe("SbEformsignDocumentJobRepository", () => {
         expect(sqlText(queryRaw.mock.calls[0][0])).toContain("ON CONFLICT DO NOTHING");
     });
 
-    it("returns the existing request or active job after a unique conflict", async () => {
+    it("returns the existing request or active job after a matching unique conflict", async () => {
         queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([row()]);
         const result = await repository.enqueue({
             branchId: row().branch_id,
@@ -84,6 +86,20 @@ describe("SbEformsignDocumentJobRepository", () => {
         expect(result.existing).toBe(true);
         expect(sqlText(queryRaw.mock.calls[1][0])).toContain("request_key");
         expect(sqlText(queryRaw.mock.calls[1][0])).toContain("active_key");
+    });
+
+    it("rejects a reused request key with a different payload fingerprint", async () => {
+        queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([row()]);
+        await expect(repository.enqueue({
+            branchId: row().branch_id,
+            clientId: 7,
+            jobType: "create_document",
+            source: "staff",
+            requestKey: "request-1",
+            activeKey: "create:branch:7",
+            payload: {},
+            payloadFingerprint: "b".repeat(64),
+        })).rejects.toThrow("EFORMSIGN_DOCUMENT_JOB_IDEMPOTENCY_MISMATCH");
     });
 
     it("serializes replicas and refuses a fourth global active job", async () => {
@@ -104,11 +120,12 @@ describe("SbEformsignDocumentJobRepository", () => {
         const claimSql = sqlText(queryRaw.mock.calls[1][0]);
         expect(claimSql).toContain("FOR UPDATE SKIP LOCKED");
         expect(claimSql).toContain("attempts = attempts + 1");
+        expect(claimSql).toContain("lease_token = gen_random_uuid()");
     });
 
     it("clears payload and active key on safe terminal transitions", async () => {
         queryRaw.mockResolvedValueOnce([row({ status: "completed", payload: null, active_key: null })]);
-        await repository.markCompleted(row().id, "doc-1");
+        await repository.markCompleted(row().id, "00000000-0000-0000-0000-000000000099", "doc-1");
         const statement = sqlText(queryRaw.mock.calls[0][0]);
         expect(statement).toContain("payload = NULL");
         expect(statement).toContain("active_key = NULL");
@@ -116,7 +133,11 @@ describe("SbEformsignDocumentJobRepository", () => {
 
     it("retains the active key for attention jobs while clearing sensitive payload", async () => {
         queryRaw.mockResolvedValueOnce([row({ status: "requires_attention", payload: null })]);
-        await repository.markRequiresAttention(row().id, "AMBIGUOUS_PROVIDER_STATE");
+        await repository.markRequiresAttention(
+            row().id,
+            "00000000-0000-0000-0000-000000000099",
+            "AMBIGUOUS_PROVIDER_STATE",
+        );
         const statement = sqlText(queryRaw.mock.calls[0][0]);
         expect(statement).toContain("payload = NULL");
         expect(statement).not.toContain("active_key = NULL");

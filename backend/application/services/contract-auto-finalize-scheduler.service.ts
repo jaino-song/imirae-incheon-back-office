@@ -186,11 +186,12 @@ export class ContractAutoFinalizeSchedulerService {
         }
     }
 
-    async recordTerminalFailure(documentId: string, reason: string): Promise<void> {
-        const attempts = await this.eformsignDocRepository.recordAutoFinalizeFailure(
-            documentId,
-            reason,
-        );
+    async recordTerminalFailure(
+        documentId: string,
+        reason: string,
+        attempts: number | null,
+    ): Promise<void> {
+        if (attempts === null) return;
         if (attempts < CONTRACT_AUTO_FINALIZE_MAX_ATTEMPTS) return;
 
         const contract = (await this.eformsignDocRepository.findReviewStageContracts())

@@ -52,6 +52,10 @@ durable table is therefore required.
 7. The schema and SQL patch add no dependencies, queues, extensions, or live
    database changes. The database-patches workflow applies and verifies the
    patch independently in dev, preview, and production.
+8. Unresolved `requires_attention` rows are retained and keep their active key
+   so a staff or scheduler retry cannot duplicate an ambiguous provider send.
+   The branch list is bounded to the newest 50 rows. A future authorized
+   reconciliation operation may resolve them; they are not auto-deleted.
 
 ## Consequences
 

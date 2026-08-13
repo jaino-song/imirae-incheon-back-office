@@ -25,6 +25,9 @@ function job(overrides: Partial<EformsignDocumentJobEntity> = {}): EformsignDocu
         attempts: 1,
         nextAttemptAt: new Date(),
         heartbeatAt: new Date(),
+        leaseToken: "00000000-0000-0000-0000-000000000099",
+        autoFinalizeOutcomeRecordedAt: null,
+        autoFinalizeOutcomeAttempts: null,
         startedAt: new Date(),
         completedAt: null,
         lastErrorCode: null,
@@ -73,7 +76,7 @@ function buildWorker(overrides: {
     const repository = {
         recoverStale: jest.fn().mockResolvedValue([]),
         claimDue: jest.fn().mockResolvedValue([]),
-        updateProgress: jest.fn().mockResolvedValue(null),
+        updateProgress: jest.fn().mockImplementation(async () => job()),
         scheduleRetry: jest.fn().mockResolvedValue(null),
         markReconciling: jest.fn().mockResolvedValue(null),
         markCompleted: jest.fn().mockResolvedValue(null),
@@ -104,6 +107,8 @@ function buildWorker(overrides: {
         finalize as never,
         reconciliation as never,
         autoFinalizeScheduler as never,
+        { findByDocumentId: jest.fn().mockResolvedValue({ documentId: "doc" }) } as never,
+        { findById: jest.fn().mockResolvedValue({ id: 7 }) } as never,
     );
     return { worker, repository, dispatch, finalize, reconciliation, autoFinalizeScheduler };
 }
@@ -135,6 +140,7 @@ describe("EformsignDocumentJobWorkerService", () => {
         );
         expect(repository.scheduleRetry).toHaveBeenCalledWith(
             claimed.id,
+            claimed.leaseToken,
             expect.any(Date),
             "HEADLESS_CREATE_PRE_SEND_FAILURE",
         );
@@ -150,7 +156,7 @@ describe("EformsignDocumentJobWorkerService", () => {
             },
             dispatch: {
                 execute: jest.fn().mockImplementation(async (_branchId, { onProgress }) => {
-                    onProgress?.("creating");
+                    await onProgress?.("creating");
                     return { ok: false, reason: "browser disconnected", durationMs: 10 };
                 }),
             },
@@ -159,7 +165,11 @@ describe("EformsignDocumentJobWorkerService", () => {
         await worker.processDueJobs();
 
         expect(repository.scheduleRetry).not.toHaveBeenCalled();
-        expect(repository.markReconciling).toHaveBeenCalledWith(claimed.id, "creating");
+        expect(repository.markReconciling).toHaveBeenCalledWith(
+            claimed.id,
+            claimed.leaseToken,
+            "creating",
+        );
         expect(reconciliation.reconcile).toHaveBeenCalledWith(
             expect.objectContaining({ payload: claimed.payload }),
         );
@@ -174,7 +184,7 @@ describe("EformsignDocumentJobWorkerService", () => {
             },
             dispatch: {
                 execute: jest.fn().mockImplementation(async (_branchId, { onProgress }) => {
-                    onProgress?.("sent");
+                    await onProgress?.("sent");
                     throw new Error("browser disconnected");
                 }),
             },
@@ -183,7 +193,11 @@ describe("EformsignDocumentJobWorkerService", () => {
         await worker.processDueJobs();
 
         expect(repository.scheduleRetry).not.toHaveBeenCalled();
-        expect(repository.markReconciling).toHaveBeenCalledWith(claimed.id, "sent");
+        expect(repository.markReconciling).toHaveBeenCalledWith(
+            claimed.id,
+            claimed.leaseToken,
+            "sent",
+        );
         expect(reconciliation.reconcile).toHaveBeenCalled();
     });
 
@@ -203,7 +217,7 @@ describe("EformsignDocumentJobWorkerService", () => {
             finalize: {
                 execute: jest.fn()
                     .mockImplementationOnce(async ({ onProgress }) => {
-                        onProgress?.("sent");
+                        await onProgress?.("sent");
                         return { ok: true, completed: false, durationMs: 1 };
                     })
                     .mockResolvedValueOnce({
@@ -219,7 +233,11 @@ describe("EformsignDocumentJobWorkerService", () => {
 
         expect(finalize.execute).toHaveBeenCalledTimes(2);
         expect(repository.scheduleRetry).not.toHaveBeenCalled();
-        expect(repository.markReconciling).toHaveBeenCalledWith(claimed.id, "sent");
+        expect(repository.markReconciling).toHaveBeenCalledWith(
+            claimed.id,
+            claimed.leaseToken,
+            "sent",
+        );
         expect(reconciliation.reconcile).toHaveBeenCalled();
     });
 
@@ -234,26 +252,32 @@ describe("EformsignDocumentJobWorkerService", () => {
             repository: { claimDue: jest.fn().mockResolvedValue([claimed]) },
             dispatch: {
                 execute: jest.fn().mockImplementation(async (_branchId, { onProgress }) => {
-                    onProgress?.("info-inserted");
+                    await onProgress?.("info-inserted");
                     return dispatchPromise;
                 }),
             },
         });
 
         const processing = worker.processDueJobs();
-        await Promise.resolve();
-        await Promise.resolve();
+        for (let tick = 0; tick < 10 && repository.updateProgress.mock.calls.length === 0; tick += 1) {
+            await Promise.resolve();
+        }
         jest.advanceTimersByTime(30_000);
         await Promise.resolve();
         expect(repository.updateProgress).toHaveBeenCalledWith(
             claimed.id,
+            claimed.leaseToken,
             "info-inserted",
             expect.any(Date),
         );
 
         resolveDispatch({ ok: true, documentId: "doc-1", durationMs: 10 });
         await processing;
-        expect(repository.markCompleted).toHaveBeenCalledWith(claimed.id, "doc-1");
+        expect(repository.markCompleted).toHaveBeenCalledWith(
+            claimed.id,
+            claimed.leaseToken,
+            "doc-1",
+        );
     });
 
     it("dispatches creation and consecutive finalization jobs through their typed payloads", async () => {
@@ -278,7 +302,44 @@ describe("EformsignDocumentJobWorkerService", () => {
             documentId: "doc-2",
             prefillEndDate: "2026-08-17",
         }));
-        expect(repository.markCompleted).toHaveBeenNthCalledWith(1, createJob.id, "doc-1");
-        expect(repository.markCompleted).toHaveBeenNthCalledWith(2, finalizeJob.id, "doc-2");
+        expect(repository.markCompleted).toHaveBeenNthCalledWith(
+            1,
+            createJob.id,
+            createJob.leaseToken,
+            "doc-1",
+        );
+        expect(repository.markCompleted).toHaveBeenNthCalledWith(
+            2,
+            finalizeJob.id,
+            finalizeJob.leaseToken,
+            "doc-2",
+        );
+    });
+
+    it("starts all three claimed jobs immediately instead of holding stale in-memory claims", async () => {
+        const claimed = [1, 2, 3].map((index) => job({
+            id: `00000000-0000-0000-0000-00000000000${index}`,
+            clientId: index,
+            activeKey: `create:${branchId}:${index}`,
+            payload: { clientId: index, contractData: contractData() },
+        }));
+        const started: number[] = [];
+        const releases = new Map<number, () => void>();
+        const { worker } = buildWorker({
+            repository: { claimDue: jest.fn().mockResolvedValue(claimed) },
+            dispatch: {
+                execute: jest.fn().mockImplementation(async (_branchId, { clientId }) => {
+                    started.push(clientId);
+                    await new Promise<void>((resolve) => releases.set(clientId, resolve));
+                    return { ok: true, documentId: `doc-${clientId}`, durationMs: 1 };
+                }),
+            },
+        });
+
+        const processing = worker.processDueJobs();
+        for (let tick = 0; tick < 20 && started.length < 3; tick += 1) await Promise.resolve();
+        expect(started.sort()).toEqual([1, 2, 3]);
+        releases.forEach((release) => release());
+        await processing;
     });
 });

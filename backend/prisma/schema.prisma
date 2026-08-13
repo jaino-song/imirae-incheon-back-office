@@ -381,6 +381,8 @@ model eformsign_document_job {
   attempts           Int       @default(0)
   nextAttemptAt      DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
   heartbeatAt        DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+  leaseToken         String?   @map("lease_token") @db.Uuid
+  autoFinalizeOutcomeRecordedAt DateTime? @map("auto_finalize_outcome_recorded_at") @db.Timestamptz(6)
   startedAt          DateTime? @map("started_at") @db.Timestamptz(6)
   completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
   lastErrorCode      String?   @map("last_error_code") @db.VarChar(80)

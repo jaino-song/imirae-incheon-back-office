@@ -32,12 +32,12 @@ export interface EformsignDocumentJobList {
 export interface IEformsignDocumentJobRepository {
     enqueue(input: EnqueueEformsignDocumentJobInput): Promise<{ job: EformsignDocumentJobEntity; existing: boolean }>;
     claimDue(limit?: number): Promise<EformsignDocumentJobEntity[]>;
-    updateProgress(id: string, progressStep: string, heartbeatAt?: Date): Promise<EformsignDocumentJobEntity | null>;
-    scheduleRetry(id: string, nextAttemptAt: Date, errorCode: string): Promise<EformsignDocumentJobEntity | null>;
-    markReconciling(id: string, progressStep?: string): Promise<EformsignDocumentJobEntity | null>;
-    markCompleted(id: string, documentId?: string): Promise<EformsignDocumentJobEntity | null>;
-    markFailed(id: string, errorCode: string): Promise<EformsignDocumentJobEntity | null>;
-    markRequiresAttention(id: string, errorCode: string): Promise<EformsignDocumentJobEntity | null>;
+    updateProgress(id: string, leaseToken: string, progressStep: string, heartbeatAt?: Date): Promise<EformsignDocumentJobEntity | null>;
+    scheduleRetry(id: string, leaseToken: string, nextAttemptAt: Date, errorCode: string): Promise<EformsignDocumentJobEntity | null>;
+    markReconciling(id: string, leaseToken: string, progressStep?: string): Promise<EformsignDocumentJobEntity | null>;
+    markCompleted(id: string, leaseToken: string, documentId?: string): Promise<EformsignDocumentJobEntity | null>;
+    markFailed(id: string, leaseToken: string, errorCode: string): Promise<EformsignDocumentJobEntity | null>;
+    markRequiresAttention(id: string, leaseToken: string, errorCode: string): Promise<EformsignDocumentJobEntity | null>;
     recoverStale(cutoff: Date): Promise<EformsignDocumentJobEntity[]>;
     getSummary(branchId: string): Promise<EformsignDocumentJobSummary>;
     listForBranch(branchId: string, terminalSince: Date, terminalLimit?: number): Promise<EformsignDocumentJobList>;

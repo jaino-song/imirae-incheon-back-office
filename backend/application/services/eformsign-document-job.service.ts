@@ -13,6 +13,8 @@ import {
     EformsignDocumentJobSummary,
     IEformsignDocumentJobRepository,
 } from "domain/repositories/eformsign-document-job.repository.interface";
+import { EFORMSIGN_DOC_REPOSITORY, IEformsignDocRepository } from "domain/repositories/eformsign-doc.repository.interface";
+import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 
 export interface EnqueueCreateDocumentParams {
     branchId: string;
@@ -51,11 +53,17 @@ export class EformsignDocumentJobService {
     constructor(
         @Inject(EFORMSIGN_DOCUMENT_JOB_REPOSITORY)
         private readonly repository: IEformsignDocumentJobRepository,
+        @Inject(EFORMSIGN_DOC_REPOSITORY)
+        private readonly eformsignDocRepository: IEformsignDocRepository,
+        @Inject(CLIENT_REPOSITORY)
+        private readonly clientRepository: IClientRepository,
     ) {}
 
     async enqueueCreateDocument(
         params: EnqueueCreateDocumentParams,
     ): Promise<EnqueueDocumentJobResult> {
+        const client = await this.clientRepository.findById(params.branchId, params.clientId);
+        if (!client) throw new Error("EFORMSIGN_DOCUMENT_JOB_CLIENT_NOT_FOUND");
         const payload: EformsignDocumentJobPayload = {
             clientId: params.clientId,
             contractData: params.contractData,
@@ -79,6 +87,11 @@ export class EformsignDocumentJobService {
     async enqueueFinalizeDocument(
         params: EnqueueFinalizeDocumentParams,
     ): Promise<EnqueueDocumentJobResult> {
+        const document = await this.eformsignDocRepository.findByDocumentId(
+            params.branchId,
+            params.documentId,
+        );
+        if (!document) throw new Error("EFORMSIGN_DOCUMENT_JOB_DOCUMENT_NOT_FOUND");
         const payload: EformsignDocumentJobPayload = {
             documentId: params.documentId,
             ...(params.prefillEndDate ? { prefillEndDate: params.prefillEndDate } : {}),

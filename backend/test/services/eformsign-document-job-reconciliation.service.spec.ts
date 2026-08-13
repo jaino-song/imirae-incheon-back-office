@@ -12,12 +12,15 @@ function job(overrides: Partial<EformsignDocumentJobEntity> = {}): EformsignDocu
         status: "reconciling",
         requestKey: "request-1",
         activeKey: "create:branch:7",
-        payload: { clientId: 7, contractData: {} },
+        payload: { clientId: 7, contractData: { customerName: "고객" } },
         payloadFingerprint: "a".repeat(64),
         progressStep: "creating",
         attempts: 1,
         nextAttemptAt: new Date(),
         heartbeatAt: new Date(),
+        leaseToken: "00000000-0000-0000-0000-000000000099",
+        autoFinalizeOutcomeRecordedAt: null,
+        autoFinalizeOutcomeAttempts: null,
         startedAt: new Date("2026-08-13T00:00:00Z"),
         completedAt: null,
         lastErrorCode: null,
@@ -42,6 +45,7 @@ describe("EformsignDocumentJobReconciliationService", () => {
                 execute: jest.fn().mockResolvedValue([{
                     id: "doc-1",
                     created_date: Date.now(),
+                    document_name: "고객 계약서",
                 }]),
             } as never,
             { execute: jest.fn() } as never,
@@ -56,7 +60,11 @@ describe("EformsignDocumentJobReconciliationService", () => {
             "00000000-0000-0000-0000-000000000010",
             { documentId: "doc-1", clientId: 7 },
         );
-        expect(repository.markCompleted).toHaveBeenCalledWith(job().id, "doc-1");
+        expect(repository.markCompleted).toHaveBeenCalledWith(
+            job().id,
+            job().leaseToken,
+            "doc-1",
+        );
     });
 
     it("requires attention when provider creation state is ambiguous", async () => {
@@ -69,8 +77,8 @@ describe("EformsignDocumentJobReconciliationService", () => {
             { execute: jest.fn().mockResolvedValue({ oauth_token: { access_token: "token" } }) } as never,
             {
                 execute: jest.fn().mockResolvedValue([
-                    { id: "doc-1", created_date: Date.now() },
-                    { id: "doc-2", created_date: Date.now() },
+                    { id: "doc-1", created_date: Date.now(), document_name: "고객 계약서" },
+                    { id: "doc-2", created_date: Date.now(), document_name: "고객 계약서" },
                 ]),
             } as never,
             { execute: jest.fn() } as never,
@@ -80,9 +88,11 @@ describe("EformsignDocumentJobReconciliationService", () => {
         await expect(service.reconcile(job())).resolves.toEqual({
             status: "requires_attention",
             reason: "AMBIGUOUS_PROVIDER_STATE",
+            recordedAttempts: null,
         });
         expect(repository.markRequiresAttention).toHaveBeenCalledWith(
             job().id,
+            job().leaseToken,
             "AMBIGUOUS_PROVIDER_STATE",
         );
     });
@@ -103,9 +113,11 @@ describe("EformsignDocumentJobReconciliationService", () => {
         await expect(service.reconcile(job())).resolves.toEqual({
             status: "requires_attention",
             reason: "PROVIDER_STATE_UNAVAILABLE",
+            recordedAttempts: null,
         });
         expect(repository.markRequiresAttention).toHaveBeenCalledWith(
             job().id,
+            job().leaseToken,
             "PROVIDER_STATE_UNAVAILABLE",
         );
     });
@@ -140,6 +152,10 @@ describe("EformsignDocumentJobReconciliationService", () => {
             "doc-finalize",
             expect.objectContaining({ strictCompletionReconciliation: true }),
         );
-        expect(repository.markCompleted).toHaveBeenCalledWith(finalizationJob.id, "doc-finalize");
+        expect(repository.markCompleted).toHaveBeenCalledWith(
+            finalizationJob.id,
+            finalizationJob.leaseToken,
+            "doc-finalize",
+        );
     });
 });

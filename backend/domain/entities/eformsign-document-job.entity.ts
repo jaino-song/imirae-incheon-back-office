@@ -30,6 +30,9 @@ export interface EformsignDocumentJobProps {
     attempts: number;
     nextAttemptAt: Date;
     heartbeatAt: Date | null;
+    leaseToken: string | null;
+    autoFinalizeOutcomeRecordedAt: Date | null;
+    autoFinalizeOutcomeAttempts: number | null;
     startedAt: Date | null;
     completedAt: Date | null;
     lastErrorCode: string | null;
@@ -58,6 +61,9 @@ export class EformsignDocumentJobEntity implements EformsignDocumentJobProps {
     declare readonly attempts: number;
     declare readonly nextAttemptAt: Date;
     declare readonly heartbeatAt: Date | null;
+    declare readonly leaseToken: string | null;
+    declare readonly autoFinalizeOutcomeRecordedAt: Date | null;
+    declare readonly autoFinalizeOutcomeAttempts: number | null;
     declare readonly startedAt: Date | null;
     declare readonly completedAt: Date | null;
     declare readonly lastErrorCode: string | null;

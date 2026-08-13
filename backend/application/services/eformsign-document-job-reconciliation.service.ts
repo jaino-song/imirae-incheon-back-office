@@ -27,6 +27,7 @@ export interface EformsignDocumentJobReconciliationResult {
     status: EformsignDocumentJobReconciliationStatus;
     documentId?: string;
     reason?: string;
+    recordedAttempts?: number | null;
 }
 
 /**
@@ -81,6 +82,9 @@ export class EformsignDocumentJobReconciliationService {
             : undefined;
         const customerName = readString(contractData?.customerName);
         const area = readString(contractData?.area);
+        if (!customerName) {
+            return this.requiresAttention(job, "MISSING_CREATION_RECONCILIATION_HINTS");
+        }
         if (this.areaTemplateService && area) {
             const expectedTemplate = await this.areaTemplateService.findByArea(job.branchId, area);
             if (expectedTemplate?.templateId) {
@@ -88,27 +92,25 @@ export class EformsignDocumentJobReconciliationService {
             }
         }
 
-        if (customerName) {
-            const titleMatches = candidates.filter((document) =>
-                document.document_name?.includes(customerName),
-            );
-            if (titleMatches.length > 0) {
-                candidates = titleMatches;
-            } else {
-                const fieldMatches: typeof candidates = [];
-                for (const candidate of candidates.slice(0, 10)) {
-                    try {
-                        const detail = await this.fetchDocumentUsecase.execute(accessToken, candidate.id);
-                        const customerField = detail.fields?.find((field) => field.id === "이용자 성명");
-                        if (customerField?.value?.trim() === customerName) {
-                            fieldMatches.push(candidate);
-                        }
-                    } catch {
-                        // A failed detail read is insufficient evidence for adoption.
+        const titleMatches = candidates.filter((document) =>
+            document.document_name?.includes(customerName),
+        );
+        if (titleMatches.length > 0) {
+            candidates = titleMatches;
+        } else {
+            const fieldMatches: typeof candidates = [];
+            for (const candidate of candidates.slice(0, 10)) {
+                try {
+                    const detail = await this.fetchDocumentUsecase.execute(accessToken, candidate.id);
+                    const customerField = detail.fields?.find((field) => field.id === "이용자 성명");
+                    if (customerField?.value?.trim() === customerName) {
+                        fieldMatches.push(candidate);
                     }
+                } catch {
+                    // A failed detail read is insufficient evidence for adoption.
                 }
-                candidates = fieldMatches;
             }
+            candidates = fieldMatches;
         }
 
         if (candidates.length !== 1 || !candidates[0]) {
@@ -134,7 +136,8 @@ export class EformsignDocumentJobReconciliationService {
             return this.requiresAttention(job, "ADOPTION_FAILED");
         }
 
-        await this.repository.markCompleted(job.id, documentId);
+        if (!job.leaseToken) return this.requiresAttention(job, "MISSING_JOB_LEASE");
+        await this.repository.markCompleted(job.id, job.leaseToken, documentId);
         return { status: "completed", documentId };
     }
 
@@ -171,7 +174,8 @@ export class EformsignDocumentJobReconciliationService {
             }
         }
 
-        await this.repository.markCompleted(job.id, documentId);
+        if (!job.leaseToken) return this.requiresAttention(job, "MISSING_JOB_LEASE");
+        await this.repository.markCompleted(job.id, job.leaseToken, documentId);
         return { status: "completed", documentId };
     }
 
@@ -179,8 +183,17 @@ export class EformsignDocumentJobReconciliationService {
         job: EformsignDocumentJobEntity,
         reason: string,
     ): Promise<EformsignDocumentJobReconciliationResult> {
-        await this.repository.markRequiresAttention(job.id, reason);
-        return { status: "requires_attention", reason };
+        if (!job.leaseToken) return { status: "requires_attention", reason: "MISSING_JOB_LEASE" };
+        const transitioned = await this.repository.markRequiresAttention(
+            job.id,
+            job.leaseToken,
+            reason,
+        );
+        return {
+            status: "requires_attention",
+            reason,
+            recordedAttempts: transitioned?.autoFinalizeOutcomeAttempts ?? null,
+        };
     }
 }
 
