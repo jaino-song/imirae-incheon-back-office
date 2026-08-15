@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 
 import { MessageSenderApprovalModal } from "@/components/app/messages/MessageSenderApprovalModal";
+import { PwaLaunchScreen } from "@/components/app/root/pwa-launch-screen";
 import { settingsApi } from "@/services/api";
 
 const MESSAGE_SENDER_APPROVAL_QUERY_KEY = ["settings", "message-sender-approval"] as const;
@@ -67,16 +68,7 @@ export function MessagesPermissionGuard({ children }: { children: ReactNode }) {
   };
 
   if (isPermissionCheckLoading) {
-    return (
-      <div
-        data-component="mobile_messages_permission-guard_loading"
-        className="flex min-h-0 flex-1 items-center justify-center"
-        role="status"
-        aria-live="polite"
-      >
-        메시지 권한 확인 중...
-      </div>
-    );
+    return <PwaLaunchScreen data-component="mobile_messages_permission-guard_loading" />;
   }
 
   return (
