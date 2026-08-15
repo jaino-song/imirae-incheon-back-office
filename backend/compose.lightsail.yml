@@ -12,7 +12,6 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: "3001"
       NODE_ENV: production
-      SCHEDULERS_ENABLED: ${SCHEDULERS_ENABLED:-false}
       VALKEY_URL: redis://valkey:6379
     depends_on:
       valkey:
