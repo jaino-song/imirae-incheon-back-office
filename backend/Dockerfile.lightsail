@@ -1,3 +1,4 @@
+# Lightsail-only image. Railway must keep using its existing backend builder.
 FROM node:20-bookworm-slim AS build
 
 ENV PNPM_HOME="/pnpm"

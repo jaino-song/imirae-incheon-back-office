@@ -4,7 +4,7 @@ services:
   api:
     build:
       context: ..
-      dockerfile: backend/Dockerfile
+      dockerfile: backend/Dockerfile.lightsail
     image: ${BACKEND_IMAGE:-babyjamjam-backend}:${BACKEND_IMAGE_TAG:-local}
     env_file:
       - ${BACKEND_ENV_FILE:-/opt/babyjamjam/backend.env}
