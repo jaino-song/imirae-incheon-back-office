@@ -40,13 +40,13 @@ export type HeadlessDispatchResult =
 export interface DispatchCreationParams {
     documentOption: Record<string, unknown>;
     documentId?: string;
-    onProgress?: (step: EformsignHeadlessProgressStep) => void;
+    onProgress?: (step: EformsignHeadlessProgressStep) => void | Promise<void>;
 }
 
 export interface DispatchFinalizeParams {
     documentOption: Record<string, unknown>;
     documentId: string;
-    onProgress?: (step: EformsignHeadlessProgressStep) => void;
+    onProgress?: (step: EformsignHeadlessProgressStep) => void | Promise<void>;
 }
 
 const MAX_CONCURRENCY = 3;
@@ -99,10 +99,10 @@ export class EformsignHeadlessService implements OnModuleDestroy {
      */
     async dispatchCreation(params: DispatchCreationParams): Promise<HeadlessDispatchResult> {
         if (areE2EVendorStubsEnabled(this.configService)) {
-            params.onProgress?.("client-started");
-            params.onProgress?.("info-inserted");
-            params.onProgress?.("creating");
-            params.onProgress?.("sent");
+            await params.onProgress?.("client-started");
+            await params.onProgress?.("info-inserted");
+            await params.onProgress?.("creating");
+            await params.onProgress?.("sent");
             return {
                 ok: true,
                 durationMs: 0,
@@ -140,10 +140,10 @@ export class EformsignHeadlessService implements OnModuleDestroy {
      */
     async dispatchFinalize(params: DispatchFinalizeParams): Promise<HeadlessDispatchResult> {
         if (areE2EVendorStubsEnabled(this.configService)) {
-            params.onProgress?.("client-started");
-            params.onProgress?.("info-inserted");
-            params.onProgress?.("creating");
-            params.onProgress?.("sent");
+            await params.onProgress?.("client-started");
+            await params.onProgress?.("info-inserted");
+            await params.onProgress?.("creating");
+            await params.onProgress?.("sent");
             return {
                 ok: true,
                 durationMs: 0,
@@ -185,7 +185,7 @@ export class EformsignHeadlessService implements OnModuleDestroy {
 
         const eformsignFrame = page.frameLocator("iframe#eformsign_iframe");
         await this.waitForEformsignIframe(page, "eformsign_iframe");
-        params.onProgress?.("client-started");
+        await params.onProgress?.("client-started");
 
         let gateOutcome: EformsignGateOutcome;
         try {
@@ -210,7 +210,7 @@ export class EformsignHeadlessService implements OnModuleDestroy {
                 this.logger.warn(
                     `[creation] gate ended with "${reason}" after eformsign returned document ${callbackDocumentId}; treating the vendor-confirmed creation as success.`,
                 );
-                params.onProgress?.("sent");
+                await params.onProgress?.("sent");
                 return {
                     ok: true,
                     durationMs: Date.now() - start,
@@ -228,7 +228,7 @@ export class EformsignHeadlessService implements OnModuleDestroy {
         // caller uses the emitted creating progress to reconcile remotely
         // instead of reopening mode:01.
         const documentId = await this.waitForTerminalSdkCallback(page, 30_000);
-        params.onProgress?.("sent");
+        await params.onProgress?.("sent");
 
         return {
             ok: true,
@@ -248,13 +248,13 @@ export class EformsignHeadlessService implements OnModuleDestroy {
 
         const eformsignFrame = page.frameLocator("iframe#eformsign_finalize_iframe");
         await this.waitForEformsignIframe(page, "eformsign_finalize_iframe");
-        params.onProgress?.("client-started");
+        await params.onProgress?.("client-started");
 
         const gateOutcome = await runEformsignFinalizeGates(page, eformsignFrame, this.logger, params.onProgress);
         this.logger.log(`[finalize] gate sequence ended: ${gateOutcome}`);
 
         const documentId = await this.waitForTerminalSdkCallback(page, 30_000);
-        params.onProgress?.("sent");
+        await params.onProgress?.("sent");
 
         return {
             ok: true,
