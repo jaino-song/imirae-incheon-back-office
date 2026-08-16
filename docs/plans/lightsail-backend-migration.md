@@ -63,25 +63,25 @@ NestJS Backend
 
 ## Phase 1: Make the Backend Deployable
 
-- [ ] Add a multi-stage backend `Dockerfile`.
-- [ ] Add `.dockerignore`.
-- [ ] Add a production Docker Compose configuration.
-- [ ] Add Caddy or Nginx configuration.
-- [ ] Add a lightweight `/health` endpoint.
-- [ ] Add graceful `SIGTERM` shutdown handling.
-- [ ] Tag container images using the Git commit SHA.
-- [ ] Add deployment and rollback scripts.
-- [ ] Ensure runtime secrets are not included in the image.
+- [x] Add a multi-stage backend `Dockerfile`.
+- [x] Add `.dockerignore`.
+- [x] Add a production Docker Compose configuration.
+- [x] Add Caddy or Nginx configuration.
+- [x] Add a lightweight `/health` endpoint.
+- [x] Add graceful `SIGTERM` shutdown handling.
+- [x] Tag container images using the Git commit SHA.
+- [x] Add deployment and rollback scripts.
+- [x] Ensure runtime secrets are injected from a host-only environment file.
 
 ### Scheduler Safety
 
 Railway and Lightsail will run simultaneously during validation. Scheduled jobs must not execute from both environments.
 
-- [ ] Add a global `SCHEDULERS_ENABLED` environment variable.
-- [ ] Apply the switch to every NestJS scheduled job.
-- [ ] Default the switch safely per environment.
-- [ ] Add tests confirming disabled schedulers do not execute.
-- [ ] Document which deployment currently owns scheduled work.
+- [x] Add a global `SCHEDULERS_ENABLED` environment variable.
+- [x] Apply the switch at Nest scheduler registration so every cron, interval, and timeout is covered.
+- [x] Preserve current behavior by default and disable explicitly for the shadow deployment.
+- [x] Add tests confirming disabled scheduler registration.
+- [x] Document Railway as the scheduler owner during the shadow deployment.
 
 ## Phase 2: Create the Deployment Pipeline
 
@@ -102,13 +102,14 @@ Automatic production deployment should remain disabled until the migration is st
 
 ## Phase 3: Provision Lightsail
 
-- [ ] Create the Lightsail instance in Seoul.
-- [ ] Attach a static IPv4.
-- [ ] Restrict SSH access where practical.
-- [ ] Open public ports `80` and `443`.
-- [ ] Keep backend port `3001` private.
-- [ ] Install Docker and Docker Compose.
-- [ ] Install and configure Caddy or Nginx.
+- [x] Create the Lightsail instance in Seoul.
+- [x] Attach a static IPv4.
+- [x] Restrict SSH access to the Lightsail browser client.
+- [x] Open public ports `80` and `443`.
+- [x] Keep backend port `3001` private in Docker Compose.
+- [x] Install Docker and Docker Compose.
+- [x] Add the Caddy configuration; activate it with the shadow deployment.
+- [x] Replace Railway-private Valkey with a private persistent Compose service.
 - [ ] Enable automatic daily snapshots.
 - [ ] Configure CPU and instance-status alarms.
 - [ ] Configure an external uptime monitor.

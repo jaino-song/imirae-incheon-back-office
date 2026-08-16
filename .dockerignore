@@ -1,0 +1,15 @@
+.git
+.github
+.pnpm-store
+**/.DS_Store
+**/.env
+**/.env.*
+!**/env.example
+**/coverage
+**/dist
+**/node_modules
+**/*.log
+docs
+frontend
+mobile
+packages
