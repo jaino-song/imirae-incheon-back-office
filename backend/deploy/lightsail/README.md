@@ -4,6 +4,10 @@ This stack runs the NestJS API, a private Valkey instance, and Caddy on the
 Seoul Lightsail host. Railway remains the production traffic and scheduler
 owner until the cutover is explicitly approved.
 
+The image definition is intentionally named `backend/Dockerfile.lightsail`.
+Keeping it separate from the conventional `backend/Dockerfile` path prevents
+Railway's `/backend` build context from auto-selecting a repository-root image.
+
 ## Host setup
 
 - Clone this repository to `/opt/babyjamjam/repository`.

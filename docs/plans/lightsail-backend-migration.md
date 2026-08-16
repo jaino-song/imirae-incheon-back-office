@@ -63,7 +63,7 @@ NestJS Backend
 
 ## Phase 1: Make the Backend Deployable
 
-- [x] Add a multi-stage backend `Dockerfile`.
+- [x] Add a multi-stage backend `Dockerfile.lightsail`.
 - [x] Add `.dockerignore`.
 - [x] Add a production Docker Compose configuration.
 - [x] Add Caddy or Nginx configuration.
