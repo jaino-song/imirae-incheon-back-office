@@ -14,23 +14,29 @@ export function PwaLaunchScreen({ "data-component": dataComponent }: PwaLaunchSc
       data-component={dataComponent}
       data-slot="pwa-launch-screen"
       role="status"
-      className="fixed inset-0 z-[9999] bg-white"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-white"
     >
-      <Image
-        alt="아가잼잼"
-        className="absolute left-1/2 top-1/2 h-auto w-[136px] -translate-x-1/2 -translate-y-1/2"
-        data-component={`${dataComponent}_logo`}
-        data-slot="brand-logo"
-        height={136}
-        priority
-        src="/assets/logo.svg"
-        width={136}
-      />
-      <Spinner
-        aria-hidden="true"
-        className="absolute bottom-[calc(env(safe-area-inset-bottom)+2rem)] left-1/2 -translate-x-1/2 text-primary"
-        data-component={`${dataComponent}_spinner`}
-      />
+      <div
+        className="flex flex-col items-center gap-4"
+        data-component={`${dataComponent}_content`}
+        data-slot="pwa-launch-content"
+      >
+        <Image
+          alt="아가잼잼"
+          className="h-auto w-[136px]"
+          data-component={`${dataComponent}_content_logo`}
+          data-slot="brand-logo"
+          height={136}
+          priority
+          src="/assets/logo.svg"
+          width={136}
+        />
+        <Spinner
+          aria-hidden="true"
+          className="text-primary"
+          data-component={`${dataComponent}_content_spinner`}
+        />
+      </div>
     </section>
   );
 }

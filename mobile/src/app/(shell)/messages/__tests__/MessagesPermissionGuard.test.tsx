@@ -84,7 +84,10 @@ describe("MessagesPermissionGuard", () => {
 
     renderGuard();
 
-    expect(await screen.findByRole("status")).toHaveTextContent("메시지 권한 확인 중...");
+    expect(
+      await screen.findByRole("status", { name: "아가잼잼을 불러오는 중" }),
+    ).toHaveAttribute("data-component", "mobile_messages_permission-guard_loading");
+    expect(screen.queryByText("메시지 권한 확인 중...")).not.toBeInTheDocument();
     expect(screen.queryByTestId("messages-route-child")).not.toBeInTheDocument();
 
     resolveApproval(pendingApproval);

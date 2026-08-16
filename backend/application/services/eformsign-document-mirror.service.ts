@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 
+import { EformsignDocsEventBus } from "application/services/eformsign-docs-event-bus.service";
 import { EformsignDocumentSnapshotService } from "application/services/eformsign-document-snapshot.service";
 import { EformsignService } from "application/services/eformsign.service";
 import { eformsignCustomerPhone } from "application/utils/eformsign-contract-client-candidate";
@@ -81,6 +82,8 @@ export interface SyncEformsignDocumentOptions {
      * must apply lifecycle effects during the strict mirror sync itself.
      */
     deferServiceRecordLifecycle?: boolean;
+    /** Publish only after the requested local mirror convergence has succeeded. */
+    publishChangeReason?: string;
 }
 
 export interface SyncEformsignDocumentResult {
@@ -135,6 +138,8 @@ export class EformsignDocumentMirrorService {
         private readonly documentSnapshotService?: EformsignDocumentSnapshotService,
         @Optional()
         private readonly completedMirrorReconciler?: ReconcileCompletedMirroredEformsignDocUsecase,
+        @Optional()
+        private readonly docsEventBus?: EformsignDocsEventBus,
     ) {}
 
     async getStoredDetail(documentId: string): Promise<EformsignApiDocumentResponse | null> {
@@ -295,11 +300,32 @@ export class EformsignDocumentMirrorService {
         options: SyncEformsignDocumentOptions = {},
     ): Promise<SyncEformsignDocumentResult> {
         const token = await this.eformsignClient.getAccessToken(Date.now());
-        return this.syncDocumentWithToken(
+        const result = await this.syncDocumentWithToken(
             token.oauth_token.access_token,
             documentId,
             options,
         );
+        if (options.publishChangeReason && this.docsEventBus) {
+            await this.publishDocumentChange(documentId, options.publishChangeReason);
+        }
+        return result;
+    }
+
+    private async publishDocumentChange(documentId: string, reason: string): Promise<void> {
+        try {
+            const state = await this.mirrorRepository.findState(documentId);
+            if (!state?.branchId) return;
+            this.docsEventBus?.emit({
+                branchId: state.branchId,
+                documentId,
+                reason,
+            });
+        } catch (error) {
+            this.logger.warn(
+                `Failed to publish eformsign document change for ${documentId}: `
+                + sanitizeEformsignErrorMessage(error),
+            );
+        }
     }
 
     async syncDocumentWithToken(

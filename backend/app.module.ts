@@ -36,6 +36,8 @@ import { ServiceRecordEntryModule } from "module/service-record-entry.module";
 import { getJwtSecret } from "./infrastructure/auth/jwt-secret";
 import { ContractClientAssignmentGuardService } from "application/services/contract-client-assignment-guard.service";
 import { AgentModule } from "module/agent.module";
+import { resolveSchedulerModuleOptions } from "infrastructure/config/scheduler-config";
+import { HealthController } from "interface/controllers/health.controller";
 
 const ENV_FILE_PATHS = [
     resolve(process.cwd(), "backend/.env.local"),
@@ -56,7 +58,7 @@ const ENV_FILE_PATHS = [
             envFilePath: ENV_FILE_PATHS,
         }),
         DatabaseModule,
-        ScheduleModule.forRoot(),
+        ScheduleModule.forRoot(resolveSchedulerModuleOptions(process.env)),
         PassportModule,
         JwtModule.register({
             secret: getJwtSecret(),
@@ -86,7 +88,7 @@ const ENV_FILE_PATHS = [
         SystemAdminModule,
         ServiceRecordEntryModule,
     ],
-    controllers: [EformsignController],
+    controllers: [EformsignController, HealthController],
     providers: [
         EformsignService,
         JwtStrategy,

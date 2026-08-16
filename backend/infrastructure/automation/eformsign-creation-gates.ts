@@ -42,7 +42,7 @@ export async function runEformsignCreationGates(
     page: Page,
     eformsignFrame: FrameLocator,
     logger: NestLogger | Logger | Console = console,
-    onProgress?: (step: EformsignHeadlessProgressStep) => void,
+    onProgress?: (step: EformsignHeadlessProgressStep) => void | Promise<void>,
 ): Promise<"success-latched" | "request-send-clicked" | "request-send-attempted"> {
     const startedAt = Date.now();
     let deadline = startedAt + EFORMSIGN_CREATION_GATE_WAIT_TIMEOUT_MS;
@@ -85,16 +85,16 @@ export async function runEformsignCreationGates(
         logMessage(line);
     };
 
-    const emitInfoInserted = () => {
+    const emitInfoInserted = async () => {
         if (infoInsertedEmitted) return;
         infoInsertedEmitted = true;
-        onProgress?.("info-inserted");
+        await onProgress?.("info-inserted");
     };
 
-    const emitSendAttempted = () => {
+    const emitSendAttempted = async () => {
         if (sendAttemptedEmitted) return;
         sendAttemptedEmitted = true;
-        onProgress?.("creating");
+        await onProgress?.("creating");
     };
 
     const tryPreSendClick = async (locator: Locator, action: string): Promise<boolean> => {
@@ -165,7 +165,7 @@ export async function runEformsignCreationGates(
                 logMessage("[creation-gate] clicked 회사 도장 확인");
                 stampConfirmCount++;
                 if (stampConfirmCount >= 3) {
-                    emitInfoInserted();
+                    await emitInfoInserted();
                 }
                 noteAction("clicked 회사 도장 확인");
                 await page.waitForTimeout(250);
@@ -177,18 +177,18 @@ export async function runEformsignCreationGates(
                 requestSendDialog.getByRole("button", { name: "전송" }),
             );
             if (requestSendButton) {
+                // Persist the ambiguity fence before the provider can observe
+                // the click. If persistence fails, abort without submitting.
+                await emitInfoInserted();
+                await emitSendAttempted();
                 if (!(await tryClickGateLocator(requestSendButton))) {
                     lastAction = "popup 전송 click outcome ambiguous; reconciling";
                     const message =
                         "[creation-gate] popup 전송 click outcome is ambiguous; reconciling without retry";
                     logMessage(message);
-                    emitInfoInserted();
-                    emitSendAttempted();
                     return "request-send-attempted";
                 }
                 logMessage("[creation-gate] clicked popup 전송");
-                emitInfoInserted();
-                emitSendAttempted();
                 return "request-send-clicked";
             }
 
@@ -216,9 +216,9 @@ export async function runEformsignCreationGates(
                 topLevelSendAttempted = true;
                 topLevelSendPopupWaitPolls = 0;
                 if (isFinalTopLevelSend) {
-                    emitInfoInserted();
+                    await emitInfoInserted();
                 }
-                emitSendAttempted();
+                await emitSendAttempted();
 
                 if (!(await tryClickGateLocator(topLevelSendButton))) {
                     lastAction = "top-level 전송 click outcome ambiguous; waiting for popup";

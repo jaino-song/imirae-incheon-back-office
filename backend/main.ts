@@ -9,6 +9,7 @@ import { PrismaExceptionFilter } from "./infrastructure/filters/prisma-exception
 import { ServiceRecordSentryExceptionFilter } from "./infrastructure/observability/service-record-sentry-exception.filter";
 import { GlobalValidationPipe } from "./infrastructure/pipes/global-validation.pipe";
 import { assertVendorStubsConfigured } from "./infrastructure/vendor-stubs/e2e-vendor-stubs";
+import { resolveRuntimeNetworkConfig } from "./infrastructure/config/runtime-config";
 
 // Catch any unhandled errors
 process.on('uncaughtException', (error) => {
@@ -46,6 +47,7 @@ async function bootstrap() {
     assertVendorStubsConfigured({ get: (key: string) => process.env[key] });
 
     const app = await NestFactory.create(AppModule);
+    app.enableShutdownHooks();
     app.use(helmet());
     // 1mb: call-transcript webhook payloads (long transcripts) exceed the 100kb express default
     app.use(json({ limit: "1mb" }));
@@ -90,12 +92,10 @@ async function bootstrap() {
         res.send("Server is running");
     });
 
-    // WARNING: DO NOT CHANGE - Railway Deployment Configuration
-    // The port MUST be hardcoded to 3001 and "nest start" must be used.
-    // Changing to process.env.PORT or "node dist/main" will break Railway deployment.
-    // See commit 993b0d63 for details on why this configuration is required.
-    await app.listen(3001);
-    console.log("Server is running");
+    // Preserve Railway's port while allowing container-specific bind overrides.
+    const { host, port } = resolveRuntimeNetworkConfig(process.env);
+    await app.listen(port, host);
+    console.log(`Server is running on ${host}:${port}`);
 }
 bootstrap().catch((error) => {
     console.error("BOOTSTRAP FAILED:", error);

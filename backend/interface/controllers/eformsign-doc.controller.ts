@@ -1,9 +1,25 @@
-import { Body, Controller, Get, Logger, MessageEvent, Post, Query, Sse, UseGuards } from "@nestjs/common";
+import {
+    Body,
+    Controller,
+    Get,
+    HttpCode,
+    HttpStatus,
+    ConflictException,
+    Logger,
+    MessageEvent,
+    Post,
+    Query,
+    Req,
+    ServiceUnavailableException,
+    Sse,
+    UseGuards,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Observable, filter, interval, map, merge } from "rxjs";
 import { EformsignDocService } from "application/services/eformsign-doc.service";
 import { EformsignDocsEventBus } from "application/services/eformsign-docs-event-bus.service";
 import { EformsignHeadlessProgressService } from "application/services/eformsign-headless-progress.service";
+import { EformsignDocumentJobService } from "application/services/eformsign-document-job.service";
 import { ListClientNamesByBranchUsecase } from "application/usecases/eformsign-doc/list-client-names-by-branch.usecase";
 import { ListReviewStageContractsUsecase } from "application/usecases/eformsign-doc/list-review-stage-contracts.usecase";
 import { DispatchDocumentHeadlessUsecase } from "application/usecases/eformsign-doc/dispatch-document-headless.usecase";
@@ -22,6 +38,13 @@ import {
     AdoptEformsignDocDto,
     ReviewNeededContractDto,
 } from "interface/dto/eformsign-doc.dto";
+import {
+    CreateEformsignDocumentJobDto,
+    FinalizeEformsignDocumentJobDto,
+    EnqueueEformsignDocumentJobResponseDto,
+    EformsignDocumentJobListResponseDto,
+    toEformsignDocumentJobResponse,
+} from "interface/dto/eformsign-document-job.dto";
 import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { parseInteger } from "interface/parse-integer";
@@ -41,6 +64,7 @@ export class EformsignDocController {
         private readonly eventBus: EformsignDocsEventBus,
         private readonly headlessProgressService: EformsignHeadlessProgressService,
         private readonly configService: ConfigService,
+        private readonly documentJobService: EformsignDocumentJobService,
     ) {}
 
     /**
@@ -331,5 +355,121 @@ export class EformsignDocController {
             completed: result.completed,
             durationMs: result.durationMs,
         };
+    }
+
+    /**
+     * POST /eformsign-docs/jobs/creation
+     * Queue a durable document-creation operation. The branch and actor are
+     * always taken from the authenticated tenant; neither is client supplied.
+     */
+    @Post("jobs/creation")
+    @HttpCode(HttpStatus.ACCEPTED)
+    async enqueueCreationJob(
+        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @Req() request: { user?: { userId?: string } },
+        @Body() dto: CreateEformsignDocumentJobDto,
+    ): Promise<EnqueueEformsignDocumentJobResponseDto> {
+        this.assertDocumentJobsAccepting();
+        const result = await this.enqueueDocumentJob(() =>
+            this.documentJobService.enqueueCreateDocument({
+                branchId: tenant.branchId ?? "",
+                createdByUserId: tenant.userId ?? request.user?.userId,
+                requestKey: dto.requestKey,
+                clientId: dto.clientId,
+                contractData: dto.contractData,
+            }),
+        );
+        return {
+            jobId: result.job.id,
+            status: result.job.status,
+            existing: result.existing,
+        };
+    }
+
+    /**
+     * POST /eformsign-docs/jobs/finalization
+     * Queue a durable document-finalization operation for the current staff
+     * actor. Auto-finalization uses the worker-facing service directly.
+     */
+    @Post("jobs/finalization")
+    @HttpCode(HttpStatus.ACCEPTED)
+    async enqueueFinalizationJob(
+        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @Req() request: { user?: { userId?: string } },
+        @Body() dto: FinalizeEformsignDocumentJobDto,
+    ): Promise<EnqueueEformsignDocumentJobResponseDto> {
+        this.assertDocumentJobsAccepting();
+        const result = await this.enqueueDocumentJob(() =>
+            this.documentJobService.enqueueFinalizeDocument({
+                branchId: tenant.branchId ?? "",
+                createdByUserId: tenant.userId ?? request.user?.userId,
+                requestKey: dto.requestKey,
+                documentId: dto.documentId,
+                prefillEndDate: dto.prefillEndDate,
+                source: "staff",
+            }),
+        );
+        return {
+            jobId: result.job.id,
+            status: result.job.status,
+            existing: result.existing,
+        };
+    }
+
+    /** GET /eformsign-docs/jobs/summary */
+    @Get("jobs/summary")
+    async getDocumentJobSummary(@CurrentTenant() tenant: { branchId?: string }) {
+        const summary = await this.documentJobService.getSummary(tenant.branchId ?? "");
+        return {
+            activeCount: summary.activeCount,
+            requiresAttentionCount: summary.requiresAttentionCount,
+        };
+    }
+
+    /**
+     * GET /eformsign-docs/jobs
+     * Return all active/attention jobs and at most the last 24 hours of
+     * terminal jobs for the authenticated branch.
+     */
+    @Get("jobs")
+    async listDocumentJobs(
+        @CurrentTenant() tenant: { branchId?: string },
+    ): Promise<EformsignDocumentJobListResponseDto> {
+        const terminalSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const result = await this.documentJobService.listForBranch(
+            tenant.branchId ?? "",
+            terminalSince,
+            50,
+        );
+        return {
+            active: result.active.map(toEformsignDocumentJobResponse),
+            requiresAttention: result.requiresAttention.map(toEformsignDocumentJobResponse),
+            recent: result.recent.map(toEformsignDocumentJobResponse),
+        };
+    }
+
+    private assertDocumentJobsAccepting(): void {
+        if (
+            this.configService
+                .get<string>("EFORMSIGN_DOCUMENT_JOBS_ACCEPTING_ENABLED")
+                ?.trim()
+                .toLowerCase() !== "true"
+        ) {
+            throw new ServiceUnavailableException("Eformsign document jobs are not accepting new work");
+        }
+    }
+
+    private async enqueueDocumentJob<T>(operation: () => Promise<T>): Promise<T> {
+        try {
+            return await operation();
+        } catch (error) {
+            if (
+                error instanceof Error
+                && error.message.startsWith("EFORMSIGN_DOCUMENT_JOB_")
+            ) {
+                throw new ConflictException("전자문서 작업 요청이 기존 작업과 충돌합니다.");
+            }
+            throw error;
+        }
     }
 }
