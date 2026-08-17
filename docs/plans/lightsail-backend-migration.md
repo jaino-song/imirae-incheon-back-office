@@ -2,13 +2,19 @@
 
 ## Summary
 
-Migrate the BabyJamJam production NestJS backend from Railway Singapore to AWS Lightsail Seoul to reduce latency between Korean users, the backend, and Supabase Seoul.
+Migrate the BabyJamJam NestJS backend environments from Railway Singapore to AWS Lightsail Seoul to reduce latency between Korean users, the backend, and Supabase Seoul.
 
-The migration is intentionally incremental and reversible. Supabase PostgreSQL, Supabase Storage, Vercel frontends, and the Railway Preview backend remain unchanged initially.
+The original production cutover was intentionally incremental and reversible.
+Production is now served from Lightsail; the follow-up restores preview as a
+logically isolated stack on the same VM. Supabase PostgreSQL, Supabase Storage,
+and Vercel frontends remain unchanged. The operational source of truth is
+[`backend/deploy/lightsail/README.md`](../../backend/deploy/lightsail/README.md).
 
 ## Goals
 
 - Move `api.babyjamjam.com` to AWS Lightsail Seoul.
+- Serve `preview.api.babyjamjam.com` from an isolated preview stack on the same
+  Lightsail VM.
 - Maintain the current API hostname and frontend configuration.
 - Reduce backend-to-database and Korean user latency.
 - Preserve Supabase PostgreSQL and Storage.
@@ -25,7 +31,7 @@ The migration is intentionally incremental and reversible. Supabase PostgreSQL, 
 - Changing API contracts or authentication behavior.
 - Changing Vercel frontend hosting.
 
-## Target Architecture
+## Current Target Architecture
 
 ```text
 Users in Korea
@@ -34,29 +40,32 @@ Users in Korea
 Vercel Frontend
       |
       v
-api.babyjamjam.com
-      |
-      v
-AWS Lightsail Seoul
-NestJS Backend
-      |
-      +-- Supabase PostgreSQL Seoul
-      +-- Supabase Storage
-      +-- Aligo
-      +-- Eformsign
-      +-- Resend
-      +-- Web Push
+api.babyjamjam.com           preview.api.babyjamjam.com
+          \                       /
+           \                     /
+            v                   v
+        Shared Caddy edge on AWS Lightsail Seoul
+                |                    |
+                v                    v
+       Production API/Valkey   Preview API/Valkey
+       schedulers enabled      schedulers disabled
+                |                    |
+                +------ integrations-+
+                       and each environment's
+                       configured Supabase resources
 ```
 
 ## Target Infrastructure
 
 - AWS Lightsail Linux instance
 - Region: Seoul (`ap-northeast-2`)
-- Plan: 2 vCPU, 2 GB RAM, 60 GB SSD
-- Expected base cost: $12/month
+- Plan: 2 vCPU, 4 GB RAM
+- Current base cost: $24/month
 - Attached static IPv4
 - Docker Compose
-- Caddy or Nginx for HTTPS
+- One shared Caddy edge for HTTPS and hostname routing
+- Separate Compose projects, runtime files, Valkey volumes, and deployment
+  state for production and preview
 - Daily automatic snapshots
 - Lightsail metrics and alarms
 - GitHub Actions deployment workflow
@@ -286,11 +295,18 @@ No database rollback is required because the migration does not move or modify t
 - [ ] Rollback to Railway has been rehearsed.
 - [ ] Production hosting remains near the target monthly budget.
 
-## Optional Follow-up
+## Environment-separation Follow-up
 
 After production stabilizes:
 
-- Evaluate moving Railway Preview to a separate $7 Lightsail instance.
-- Ensure Preview and Production use separate databases before migration.
+- [x] Define production and preview as separate Compose projects on the current
+  Lightsail VM.
+- [x] Isolate their runtime files, private networks, Valkey containers, volumes,
+  public routes, and deployment history.
+- [x] Fail closed when preview does not explicitly disable schedulers.
+- [ ] Verify Preview and Production use their intended separate Railway-derived
+  environment values before live activation.
+- [ ] Activate and validate `preview.api.babyjamjam.com` through the shared edge.
 - Evaluate PostgreSQL advisory locks for all scheduled jobs.
-- Evaluate a second production instance only after scheduler safety and memory usage are proven.
+- Evaluate a second VM only when host-level fault isolation or additional
+  capacity justifies the extra monthly cost.
