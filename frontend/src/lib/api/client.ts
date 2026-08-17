@@ -47,7 +47,9 @@ const APP_AUTH_NON_RETRY_PATHS = [
     "/auth/logout",
 ] as const;
 
-const processQueue = (error: AxiosError | null = null) => {
+const EFORMSIGN_CREDENTIAL_REAUTH_STATUSES = new Set([400, 401, 403]);
+
+const processQueue = (error: unknown = null) => {
     failedQueue.forEach((prom) => {
         if (error) {
             prom.reject(error);
@@ -99,6 +101,13 @@ function isAppAuthRequiredError(error: AxiosError): boolean {
     const message = (data as { error?: unknown; message?: unknown }).error
         ?? (data as { error?: unknown; message?: unknown }).message;
     return typeof message === "string" && message.startsWith("Authentication required.");
+}
+
+function shouldAuthenticateEformsignFromCredentials(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+
+    const status = (error as { response?: { status?: unknown } }).response?.status;
+    return typeof status === "number" && EFORMSIGN_CREDENTIAL_REAUTH_STATUSES.has(status);
 }
 
 function redirectToLoginOnce() {
@@ -189,8 +198,34 @@ api.interceptors.response.use(
                     processQueue();
                     return axios(originalRequest);
                 } catch (refreshError) {
-                    processQueue(refreshError as AxiosError);
                     captureApiError(refreshError);
+
+                    if (shouldAuthenticateEformsignFromCredentials(refreshError)) {
+                        try {
+                            const authenticationTime = Date.now();
+                            await api.post('/access-token', { executionTime: authenticationTime });
+
+                            if (typeof window !== 'undefined') {
+                                safeStorageSetItem(
+                                    "session",
+                                    "eformsign_auth_time",
+                                    authenticationTime.toString(),
+                                );
+                            }
+
+                            processQueue();
+                            return axios(originalRequest);
+                        } catch (authenticationError) {
+                            processQueue(authenticationError);
+                            captureApiError(authenticationError);
+                            if (typeof window !== 'undefined') {
+                                safeStorageRemoveItem("session", "eformsign_auth_time");
+                            }
+                            return Promise.reject(authenticationError);
+                        }
+                    }
+
+                    processQueue(refreshError);
                     if (typeof window !== 'undefined') {
                         safeStorageRemoveItem("session", "eformsign_auth_time");
                     }
