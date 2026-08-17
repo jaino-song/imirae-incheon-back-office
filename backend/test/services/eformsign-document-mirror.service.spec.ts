@@ -875,6 +875,39 @@ describe("EformsignDocumentMirrorService", () => {
         });
     });
 
+    it("skips client reconciliation during a read-triggered file repair", async () => {
+        const detail = richDetail();
+        const linkByPhoneUsecase = {
+            execute: jest.fn().mockResolvedValue("already_linked"),
+        };
+        const service = new EformsignDocumentMirrorService(
+            {} as never,
+            {
+                findState: jest.fn().mockResolvedValue({
+                    documentId: "doc-1",
+                    branchId: "branch-1",
+                    detailPayload: redactCredentialFields(detail),
+                    detailSourceUpdatedDate: new Date(UPDATED_AT),
+                    detailSyncedAt: new Date(UPDATED_AT),
+                    syncStatus: "ready",
+                    syncError: null,
+                    files: [
+                        { fileType: "document", sourceUpdatedDate: new Date(UPDATED_AT) },
+                        { fileType: "audit_trail", sourceUpdatedDate: new Date(UPDATED_AT) },
+                    ],
+                }),
+            } as never,
+            {} as never,
+            linkByPhoneUsecase as never,
+            {} as never,
+        );
+
+        await expect(service.syncDocumentWithToken("token", "doc-1", {
+            skipClientReconciliation: true,
+        })).resolves.toEqual(expect.objectContaining({ status: "skipped" }));
+        expect(linkByPhoneUsecase.execute).not.toHaveBeenCalled();
+    });
+
     it("reconciles a ready completed mirror through persistence-only completion effects", async () => {
         const detail = richDetail();
         const sourceUpdatedDate = new Date(UPDATED_AT);
