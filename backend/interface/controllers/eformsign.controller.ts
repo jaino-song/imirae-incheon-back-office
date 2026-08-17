@@ -193,6 +193,8 @@ function toStatusSignal(doc: unknown): EformsignStatusSignal {
 @Controller("api")
 @UseGuards(JwtGuard, TenantGuard)
 export class EformsignController {
+    private readonly missingDocumentFileSyncs = new Map<string, Promise<void>>();
+
     constructor(
         private readonly eformsignService: EformsignService,
         private readonly areaTemplateService: AreaTemplateService,
@@ -889,10 +891,17 @@ export class EformsignController {
                     HttpStatus.FORBIDDEN,
                 );
             }
-            const file = await this.documentMirrorService.getStoredFileMetadata(
+            let file = await this.documentMirrorService.getStoredFileMetadata(
                 documentId,
                 parsedFileType,
             );
+            if (!file) {
+                await this.syncMissingDocumentFile(documentId);
+                file = await this.documentMirrorService.getStoredFileMetadata(
+                    documentId,
+                    parsedFileType,
+                );
+            }
             if (!file) {
                 throw new ServiceUnavailableException({
                     error: "Document file is waiting for local synchronization",
@@ -935,10 +944,17 @@ export class EformsignController {
                     HttpStatus.FORBIDDEN,
                 );
             }
-            const file = await this.documentMirrorService.getStoredFile(
+            let file = await this.documentMirrorService.getStoredFile(
                 documentId,
                 parsedFileType,
             );
+            if (!file) {
+                await this.syncMissingDocumentFile(documentId);
+                file = await this.documentMirrorService.getStoredFile(
+                    documentId,
+                    parsedFileType,
+                );
+            }
             if (!file) {
                 throw new ServiceUnavailableException({
                     error: "Document file is waiting for local synchronization",
@@ -956,6 +972,32 @@ export class EformsignController {
             res.send(file.body);
         } catch (error) {
             throwHttpOrInternalError(error);
+        }
+    }
+
+    private async syncMissingDocumentFile(documentId: string): Promise<void> {
+        const currentSync = this.missingDocumentFileSyncs.get(documentId);
+        if (currentSync) {
+            await currentSync;
+            return;
+        }
+
+        const nextSync = Promise.resolve().then(async () => {
+            await this.documentMirrorService.syncDocument(documentId, {
+                skipBranchOwnedProjection: true,
+                skipClientReconciliation: true,
+                skipHealthySameVersionFileRepair: true,
+                suppressOutboundAutomation: true,
+            });
+        });
+        this.missingDocumentFileSyncs.set(documentId, nextSync);
+
+        try {
+            await nextSync;
+        } finally {
+            if (this.missingDocumentFileSyncs.get(documentId) === nextSync) {
+                this.missingDocumentFileSyncs.delete(documentId);
+            }
         }
     }
 
