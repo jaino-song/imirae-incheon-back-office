@@ -61,7 +61,7 @@ docker run --rm \
     --env PRODUCTION_CADDY_SITE_ADDRESS \
     --env PRODUCTION_CADDY_UPSTREAM \
     --volume "$REPOSITORY_ROOT/backend/deploy/lightsail/Caddyfile:/etc/caddy/Caddyfile:ro" \
-    caddy:2.10.2-alpine validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    caddy:2.10.2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 docker compose -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans caddy
 
 caddy_container_id="$(docker compose -f "$COMPOSE_FILE" ps -q caddy)"
