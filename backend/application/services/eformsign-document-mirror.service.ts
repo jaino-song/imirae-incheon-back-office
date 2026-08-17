@@ -67,6 +67,11 @@ export interface SyncEformsignDocumentOptions {
     expectedUpdatedDate?: number;
     suppressOutboundAutomation?: boolean;
     /**
+     * Read-triggered file repair must not link customers or apply lifecycle
+     * effects while it refreshes the durable detail and PDF mirror.
+     */
+    skipClientReconciliation?: boolean;
+    /**
      * Keep an already branch-owned list projection authoritative while still
      * refreshing the durable detail and PDF mirror from the vendor.
      */
@@ -335,7 +340,8 @@ export class EformsignDocumentMirrorService {
     ): Promise<SyncEformsignDocumentResult> {
         const previousState = await this.mirrorRepository.findState(documentId);
         if (!options.force && isFresh(previousState, options)) {
-            const ownershipChanged = await this.reconcileClient(documentId, options);
+            const ownershipChanged = !options.skipClientReconciliation
+                && await this.reconcileClient(documentId, options);
             return {
                 status: "skipped",
                 documentId,
@@ -404,7 +410,8 @@ export class EformsignDocumentMirrorService {
             });
             if (!detailApplied) {
                 const currentState = await this.mirrorRepository.findState(documentId);
-                const ownershipChanged = await this.reconcileClient(documentId, options);
+                const ownershipChanged = !options.skipClientReconciliation
+                    && await this.reconcileClient(documentId, options);
                 return {
                     status: "skipped",
                     documentId,
@@ -478,7 +485,8 @@ export class EformsignDocumentMirrorService {
                 strictCompletionReconciliationStarted =
                     options.strictCompletionReconciliation === true;
             }
-            const ownershipChanged = await this.reconcileClient(documentId, options);
+            const ownershipChanged = !options.skipClientReconciliation
+                && await this.reconcileClient(documentId, options);
 
             return {
                 status: "synced",
