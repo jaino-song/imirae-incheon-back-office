@@ -97,6 +97,23 @@ function createUnauthorizedErrorWithMessage(
     } as AxiosError;
 }
 
+function createResponseError(
+    config: RetryableRequestConfig,
+    status: number,
+): AxiosError {
+    return {
+        name: "AxiosError",
+        message: `Request failed with status code ${status}`,
+        config,
+        response: {
+            status,
+            data: { error: `Upstream returned ${status}` },
+        },
+        isAxiosError: true,
+        toJSON: () => ({}),
+    } as AxiosError;
+}
+
 describe("api client network retry", () => {
     beforeEach(() => {
         mockAxios.mockClear();
@@ -209,6 +226,7 @@ describe("api client app-session refresh", () => {
 describe("api client eformsign refresh failure classification", () => {
     beforeEach(() => {
         mockAxios.mockClear();
+        mockAxios.__mockApi.apiPost.mockReset();
         mockAxios.__mockApi.barePost.mockReset();
         window.history.replaceState({}, "", "/login");
     });
@@ -245,5 +263,86 @@ describe("api client eformsign refresh failure classification", () => {
         expect(originalRequest._appAuthRetry).toBe(true);
         expect(mockAxios.__mockApi.barePost).toHaveBeenCalledTimes(1);
         expect(mockAxios).toHaveBeenCalledWith(originalRequest);
+    });
+
+    it("authenticates from configured credentials and retries once when provider refresh returns 400", async () => {
+        const refreshError = createResponseError(
+            { method: "POST", url: "/refresh-access-token" },
+            400,
+        );
+        mockAxios.__mockApi.apiPost
+            .mockRejectedValueOnce(refreshError)
+            .mockResolvedValueOnce({ data: { success: true } });
+        const originalRequest: RetryableRequestConfig = {
+            method: "POST",
+            url: "/eformsign/documents/document-1/re-request",
+        };
+
+        await getResponseRejectedHandler()(createUnauthorizedError(originalRequest));
+
+        expect(mockAxios.__mockApi.apiPost).toHaveBeenCalledTimes(2);
+        expect(mockAxios.__mockApi.apiPost.mock.calls[0]?.[0]).toBe("/refresh-access-token");
+        expect(mockAxios.__mockApi.apiPost.mock.calls[1]?.[0]).toBe("/access-token");
+        expect(mockAxios).toHaveBeenCalledTimes(1);
+        expect(mockAxios).toHaveBeenCalledWith(originalRequest);
+    });
+
+    it("does not replay the original request when provider refresh and credential authentication both fail", async () => {
+        const refreshError = createResponseError(
+            { method: "POST", url: "/refresh-access-token" },
+            400,
+        );
+        const authenticationError = createResponseError(
+            { method: "POST", url: "/access-token" },
+            503,
+        );
+        mockAxios.__mockApi.apiPost
+            .mockRejectedValueOnce(refreshError)
+            .mockRejectedValueOnce(authenticationError);
+        const originalRequest: RetryableRequestConfig = {
+            method: "POST",
+            url: "/eformsign/documents/document-1/re-request",
+        };
+
+        await expect(
+            getResponseRejectedHandler()(createUnauthorizedError(originalRequest)),
+        ).rejects.toBe(authenticationError);
+
+        expect(mockAxios.__mockApi.apiPost).toHaveBeenCalledTimes(2);
+        expect(mockAxios).not.toHaveBeenCalled();
+    });
+
+    it("shares one credential authentication across concurrent eformsign 401 responses", async () => {
+        const refreshError = createResponseError(
+            { method: "POST", url: "/refresh-access-token" },
+            400,
+        );
+        let rejectRefresh: ((reason: AxiosError) => void) | undefined;
+        mockAxios.__mockApi.apiPost
+            .mockImplementationOnce(
+                () => new Promise((_, reject) => {
+                    rejectRefresh = reject;
+                }),
+            )
+            .mockResolvedValueOnce({ data: { success: true } });
+        const firstRequest: RetryableRequestConfig = {
+            method: "POST",
+            url: "/eformsign/documents/document-1/re-request",
+        };
+        const secondRequest: RetryableRequestConfig = {
+            method: "DELETE",
+            url: "/eformsign/documents/document-2",
+        };
+
+        const first = getResponseRejectedHandler()(createUnauthorizedError(firstRequest));
+        const second = getResponseRejectedHandler()(createUnauthorizedError(secondRequest));
+        rejectRefresh?.(refreshError);
+        await Promise.all([first, second]);
+
+        expect(mockAxios.__mockApi.apiPost).toHaveBeenCalledTimes(2);
+        expect(mockAxios.__mockApi.apiPost.mock.calls[1]?.[0]).toBe("/access-token");
+        expect(mockAxios).toHaveBeenCalledTimes(2);
+        expect(mockAxios).toHaveBeenCalledWith(firstRequest);
+        expect(mockAxios).toHaveBeenCalledWith(secondRequest);
     });
 });
