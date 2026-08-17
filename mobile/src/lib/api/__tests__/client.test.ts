@@ -95,6 +95,22 @@ describe("service-record API error monitoring", () => {
         );
     });
 
+    it("does not retry a mutation when the network result is ambiguous", async () => {
+        const adapter = jest.fn(async (config) => {
+            throw new AxiosError("Network Error", "ERR_NETWORK", config);
+        });
+        api.defaults.adapter = adapter;
+
+        await expect(
+            api.post("/message-deliveries/sms", {
+                receiver: "01000000000",
+                message: "test",
+            }),
+        ).rejects.toMatchObject({ code: "ERR_NETWORK" });
+
+        expect(adapter).toHaveBeenCalledTimes(1);
+    });
+
     it("captures a resolved service-record 5xx failure without retrying", async () => {
         const adapter = jest.fn(async (config) => {
             throw new AxiosError(
