@@ -21,13 +21,23 @@ import { normalizeClientPricing } from "domain/services/client-pricing";
 import { computeServiceStatus } from "domain/value-objects/service-status.vo";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
-const AUTO_REGISTRATION_COMPLETED_STATUS_CODES = new Set([
+const AUTO_REGISTRATION_ELIGIBLE_STATUS_CODES = new Set([
+    // 001 is only a temporary save. Start from the first durable document state.
+    "002",
     "003",
+    "010",
     "012",
+    "020",
     "022",
+    "030",
     "032",
+    "043",
     "050",
-    // 062 is participant acceptance and can still advance to provider review.
+    "060",
+    "062",
+    "063",
+    "064",
+    "070",
     "072",
     "092",
 ]);
@@ -79,9 +89,10 @@ interface TransactionResult {
  * Reconciles a locally mirrored contract with its client.
  *
  * Existing clients can claim an unassigned document because their branch already
- * supplies the tenant boundary. A new client is created only for a completed
- * contract whose document already has an owning branch and whose branch policy
- * explicitly allows automatic registration.
+ * supplies the tenant boundary. A new client is created from the first durable
+ * document state when its document has an owning branch and that branch policy
+ * explicitly allows automatic registration. Temporary saves and terminal-
+ * negative documents never create clients.
  */
 @Injectable()
 export class LinkMirroredEformsignDocByPhoneUsecase {
@@ -169,7 +180,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
 
         const creationBranchId = options.linkExistingOnly
             ? null
-            : AUTO_REGISTRATION_COMPLETED_STATUS_CODES.has(document.statusType)
+            : AUTO_REGISTRATION_ELIGIBLE_STATUS_CODES.has(document.statusType)
                 && candidate?.phone === phone
                 ? await this.resolveAutoRegistrationBranch(
                     document.branchId,
@@ -358,7 +369,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                         if (!creationBranchId) {
                             return { status: "no_branch" };
                         }
-                        if (!AUTO_REGISTRATION_COMPLETED_STATUS_CODES.has(document.statusType)) {
+                        if (!AUTO_REGISTRATION_ELIGIBLE_STATUS_CODES.has(document.statusType)) {
                             return { status: "not_completed" };
                         }
                         if (!candidate || candidate.phone !== params.phone) {

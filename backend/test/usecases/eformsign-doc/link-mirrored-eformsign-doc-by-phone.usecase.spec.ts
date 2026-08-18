@@ -596,6 +596,7 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             branchId: "branch-1",
             customerPhone: "01012345678",
             detailPayload: contractDetail(),
+            statusType: "002",
         });
         const { transaction, settings, usecase } = setup(document);
         transaction.client.findMany.mockResolvedValue([]);
@@ -857,12 +858,37 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         expect(transaction.client.create).not.toHaveBeenCalled();
     });
 
-    it("waits for final completion before creating a client", async () => {
+    it.each([
+        "002",
+        "010",
+        "020",
+        "030",
+        "043",
+        "060",
+        "062",
+        "063",
+        "064",
+        "070",
+    ])("creates a client from document creation onward at status %s", async (statusType) => {
         const document = mirroredDocument({
             branchId: "branch-1",
             customerPhone: "01012345678",
             detailPayload: contractDetail(),
-            statusType: "062",
+            statusType,
+        });
+        const { transaction, usecase } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+
+        await expect(usecase.execute("doc-1")).resolves.toBe("created");
+        expect(transaction.client.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not create a client from a temporary save", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+            statusType: "001",
         });
         const { transaction, usecase } = setup(document);
         transaction.client.findMany.mockResolvedValue([]);
@@ -870,6 +896,23 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         await expect(usecase.execute("doc-1")).resolves.toBe("not_completed");
         expect(transaction.client.create).not.toHaveBeenCalled();
     });
+
+    it.each(["011", "042", "080"])(
+        "does not create a client from terminal-negative status %s",
+        async (statusType) => {
+            const document = mirroredDocument({
+                branchId: "branch-1",
+                customerPhone: "01012345678",
+                detailPayload: contractDetail(),
+                statusType,
+            });
+            const { transaction, usecase } = setup(document);
+            transaction.client.findMany.mockResolvedValue([]);
+
+            await expect(usecase.execute("doc-1")).resolves.toBe("not_completed");
+            expect(transaction.client.create).not.toHaveBeenCalled();
+        },
+    );
 
     it("never links service-record documents as customer contracts", async () => {
         const { prisma, usecase } = setup();
