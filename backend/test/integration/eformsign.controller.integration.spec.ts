@@ -86,6 +86,7 @@ describe("EformsignController (Integration)", () => {
         getStoredDetail: jest.fn(),
         getStoredFile: jest.fn(),
         getStoredFileMetadata: jest.fn(),
+        syncDocument: jest.fn(),
         markDocumentsDeleted: jest.fn(),
         purgeDocuments: jest.fn(),
         findTerminalDocumentIds: jest.fn(),
@@ -103,6 +104,7 @@ describe("EformsignController (Integration)", () => {
         documentMirrorService.getStoredDetail.mockReset();
         documentMirrorService.getStoredFile.mockReset();
         documentMirrorService.getStoredFileMetadata.mockReset();
+        documentMirrorService.syncDocument.mockReset();
         documentMirrorService.markDocumentsDeleted.mockReset();
         documentMirrorService.purgeDocuments.mockReset();
         documentMirrorService.findTerminalDocumentIds.mockReset();
@@ -726,7 +728,7 @@ describe("EformsignController (Integration)", () => {
     it("serves document PDF metadata for HEAD without loading stored bytes", async () => {
         eformsignDocService.findAll.mockResolvedValue([
             { documentId: "branch-1-doc" },
-        ] as any);
+        ] as never);
         documentMirrorService.getStoredFileMetadata.mockResolvedValue({
             status: 200,
             contentType: "application/pdf",
@@ -748,6 +750,133 @@ describe("EformsignController (Integration)", () => {
         expect(documentMirrorService.getStoredFile).not.toHaveBeenCalled();
     });
 
+    it("repairs a missing document PDF before serving HEAD metadata", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as never);
+        documentMirrorService.getStoredFileMetadata
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({
+                status: 200,
+                contentType: "application/pdf",
+                contentDisposition: "inline",
+                byteSize: 321,
+            });
+        documentMirrorService.syncDocument.mockResolvedValue({ status: "synced" });
+
+        const response = await request(app.getHttpServer())
+            .head("/api/documents/branch-1-doc/download_files?fileType=document");
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toContain("application/pdf");
+        expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
+            "branch-1-doc",
+            {
+                skipBranchOwnedProjection: true,
+                skipClientReconciliation: true,
+                skipHealthySameVersionFileRepair: true,
+                suppressOutboundAutomation: true,
+            },
+        );
+        expect(documentMirrorService.getStoredFileMetadata).toHaveBeenCalledTimes(2);
+    });
+
+    it("repairs a missing document PDF before serving its bytes", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as never);
+        documentMirrorService.getStoredFile
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({
+                status: 200,
+                contentType: "application/pdf",
+                contentDisposition: "inline",
+                body: Buffer.from("pdf"),
+            });
+        documentMirrorService.syncDocument.mockResolvedValue({ status: "synced" });
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents/branch-1-doc/download_files?fileType=document");
+
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toContain("application/pdf");
+        expect(documentMirrorService.syncDocument).toHaveBeenCalledWith(
+            "branch-1-doc",
+            {
+                skipBranchOwnedProjection: true,
+                skipClientReconciliation: true,
+                skipHealthySameVersionFileRepair: true,
+                suppressOutboundAutomation: true,
+            },
+        );
+        expect(documentMirrorService.getStoredFile).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the waiting response when the provider PDF is still unavailable", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as never);
+        documentMirrorService.getStoredFile.mockResolvedValue(null);
+        documentMirrorService.syncDocument.mockResolvedValue({
+            status: "synced",
+            missingFileTypes: ["document"],
+        });
+
+        const response = await request(app.getHttpServer())
+            .get("/api/documents/branch-1-doc/download_files?fileType=document");
+
+        expect(response.status).toBe(503);
+        expect(documentMirrorService.syncDocument).toHaveBeenCalledTimes(1);
+        expect(documentMirrorService.getStoredFile).toHaveBeenCalledTimes(2);
+    });
+
+    it("shares one missing-file repair across concurrent preview requests", async () => {
+        eformsignDocService.findAll.mockResolvedValue([
+            { documentId: "branch-1-doc" },
+        ] as any);
+        const storedFile = {
+            status: 200,
+            contentType: "application/pdf",
+            contentDisposition: "inline",
+            body: Buffer.from("pdf"),
+        };
+        let missingReadCount = 0;
+        let finishMissingReads: (() => void) | undefined;
+        const bothRequestsReadMissingFile = new Promise<void>((resolve) => {
+            finishMissingReads = resolve;
+        });
+        documentMirrorService.getStoredFile.mockImplementation(async () => {
+            if (missingReadCount < 2) {
+                missingReadCount += 1;
+                if (missingReadCount === 2) finishMissingReads?.();
+                return null;
+            }
+            return storedFile;
+        });
+        let finishSync: (() => void) | undefined;
+        const pendingSync = new Promise((resolve) => {
+            finishSync = () => resolve({ status: "synced" });
+        });
+        documentMirrorService.syncDocument.mockReturnValue(pendingSync);
+
+        const firstRequest = request(app.getHttpServer())
+            .get("/api/documents/branch-1-doc/download_files?fileType=document");
+        const secondRequest = request(app.getHttpServer())
+            .get("/api/documents/branch-1-doc/download_files?fileType=document");
+        const responses = Promise.all([firstRequest, secondRequest]);
+
+        await bothRequestsReadMissingFile;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const syncCallCount = documentMirrorService.syncDocument.mock.calls.length;
+        finishSync?.();
+
+        await expect(responses).resolves.toEqual([
+            expect.objectContaining({ status: 200 }),
+            expect.objectContaining({ status: 200 }),
+        ]);
+        expect(syncCallCount).toBe(1);
+    });
+
     it("forbids downloading a document owned by another branch", async () => {
         eformsignDocService.findAll.mockResolvedValue([{ documentId: "branch-1-doc" }] as any);
 
@@ -756,6 +885,7 @@ describe("EformsignController (Integration)", () => {
 
         expect(response.status).toBe(403);
         expect(documentMirrorService.getStoredFile).not.toHaveBeenCalled();
+        expect(documentMirrorService.syncDocument).not.toHaveBeenCalled();
     });
 
     it("forbids the headquarters branch from downloading another branch's document", async () => {
@@ -767,6 +897,7 @@ describe("EformsignController (Integration)", () => {
 
         expect(response.status).toBe(403);
         expect(documentMirrorService.getStoredFile).not.toHaveBeenCalled();
+        expect(documentMirrorService.syncDocument).not.toHaveBeenCalled();
     });
 
     it("lets the headquarters branch download an unmapped document", async () => {
