@@ -19,7 +19,7 @@ describe("VercelGeminiGateway", () => {
         configService = {
             get: jest.fn((key: string) => {
                 if (key === "GEMINI_API_KEY") return process.env["GEMINI_API_KEY"];
-                if (key === "GEMINI_CHAT_MODEL") return "gemini-2.0-flash-lite";
+                if (key === "GEMINI_CHAT_MODEL") return "gemini-3.5-flash-lite";
                 if (key === "GEMINI_CHAT_TEMPERATURE") return 0.1;
                 if (key === "GEMINI_CHAT_MAX_OUTPUT_TOKENS") return 1024;
                 return undefined;
