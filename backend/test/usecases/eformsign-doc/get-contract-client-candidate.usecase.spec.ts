@@ -117,7 +117,7 @@ describe("GetContractClientCandidateUsecase", () => {
         });
     });
 
-    it("detail payload가 있어도 고객 후보를 추출하지 못하면 전화만 폴백한다", async () => {
+    it("detail 전화 후보를 추출하지 못하면 상세 정보와 저장 전화번호를 함께 사용한다", async () => {
         findUnique.mockResolvedValue({
             documentId: "doc-3",
             customerName: "관리사 이름",
@@ -132,8 +132,8 @@ describe("GetContractClientCandidateUsecase", () => {
 
         expect(result).toEqual({
             documentId: "doc-3",
-            extracted: false,
-            name: null,
+            extracted: true,
+            name: "홍길동",
             phone: "010-1111-2222",
             address: null,
             birthday: null,
@@ -149,6 +149,56 @@ describe("GetContractClientCandidateUsecase", () => {
             voucherClient: false,
             breastPump: false,
         });
+    });
+
+    it("고객 전화 수신자를 확인하지 못해도 전자문서의 다른 고객 정보를 보존한다", async () => {
+        findUnique.mockResolvedValue({
+            documentId: "doc-prefill-without-phone",
+            customerName: null,
+            customerPhone: null,
+            detailPayload: {
+                fields: [
+                    { id: "이용자 성명", value: "김산모" },
+                    { id: "이용자 주소", value: "인천시 연수구" },
+                    { id: "이용자 생년월일", value: "1991-02-03" },
+                    { id: "계약 시작일", value: "2026-08-20" },
+                    { id: "계약 종료일", value: "2026-09-02" },
+                ],
+                recipients: [{
+                    recipient_type: "01",
+                    name: "담당자",
+                    sms: "+82 10-9999-9999",
+                }],
+            },
+        });
+
+        await expect(usecase.execute("doc-prefill-without-phone")).resolves.toEqual(
+            expect.objectContaining({
+                extracted: true,
+                name: "김산모",
+                phone: null,
+                address: "인천시 연수구",
+                birthday: "910203",
+                startDate: "2026-08-20",
+                endDate: "2026-09-02",
+            }),
+        );
+    });
+
+    it("82 국가번호 형식의 저장 전화번호를 국내 010 형식으로 반환한다", async () => {
+        findUnique.mockResolvedValue({
+            documentId: "doc-international-phone",
+            customerName: null,
+            customerPhone: "82 10 9876 5432",
+            detailPayload: null,
+        });
+
+        await expect(usecase.execute("doc-international-phone")).resolves.toEqual(
+            expect.objectContaining({
+                extracted: false,
+                phone: "010-9876-5432",
+            }),
+        );
     });
 
     it("detail payload가 배열이면 문서 컬럼 폴백을 반환한다", async () => {

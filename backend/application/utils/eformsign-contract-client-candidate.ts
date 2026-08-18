@@ -27,6 +27,11 @@ export interface EformsignContractClientCandidate {
     breastPump: boolean;
 }
 
+export interface EformsignContractClientPrefillCandidate
+    extends Omit<EformsignContractClientCandidate, "phone"> {
+    phone: string | null;
+}
+
 export function toEformsignDocumentDetail(
     value: Prisma.JsonValue | null,
 ): EformsignApiDocumentResponse | null {
@@ -411,13 +416,12 @@ function booleanValue(value: string | null): boolean | null {
     return null;
 }
 
-export function extractEformsignContractClientCandidate(
+export function extractEformsignContractClientPrefillCandidate(
     document: EformsignApiDocumentResponse,
-): EformsignContractClientCandidate | null {
+): EformsignContractClientPrefillCandidate | null {
     const name = contractCustomerNameValue(document);
     if (!name || name === "고객 미지정" || name === "수신자") return null;
     const phone = eformsignCustomerPhone(document, name);
-    if (!phone) return null;
 
     const [periodStartDate] = contractPeriodDates(document);
     const startDate = dateValue(eformsignDocumentFieldValue(document, [
@@ -531,6 +535,18 @@ export function extractEformsignContractClientCandidate(
             "breastPump",
         ])) ?? false,
     };
+}
+
+/**
+ * 자동 연결용 후보는 고객 수신자로 검증된 전화번호까지 있어야 한다.
+ * 등록 폼 프리필은 전화번호가 없어도 다른 전자문서 필드를 보존한다.
+ */
+export function extractEformsignContractClientCandidate(
+    document: EformsignApiDocumentResponse,
+): EformsignContractClientCandidate | null {
+    const candidate = extractEformsignContractClientPrefillCandidate(document);
+    if (!candidate?.phone) return null;
+    return { ...candidate, phone: candidate.phone };
 }
 
 export function formatNormalizedKoreanPhone(phone: string): string {
