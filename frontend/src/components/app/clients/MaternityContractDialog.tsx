@@ -142,16 +142,17 @@ export function MaternityContractDialog({
           onSubmissionStateChange={setIsSubmitting}
           onSessionStateChange={setHasCreationSession}
           onProcessingFailureChange={setProcessingFailed}
+          contentClassName="h-auto flex-1"
           renderLayout={({ content, footer }) => (
             <>
               <div
                 data-component={`${BASE_DATA_COMPONENT}_content`}
-                className={APP_DIALOG_BODY_CLASS_NAME}
+                className={cn(APP_DIALOG_BODY_CLASS_NAME, "flex flex-col gap-5 space-y-0")}
               >
                 <SteppedWizardStepper
                   steps={CONTRACT_CREATION_STEPPER_STEPS}
                   currentStep={activeStep}
-                  className="mb-2"
+                  className="shrink-0"
                 />
                 {content}
               </div>
