@@ -966,7 +966,7 @@ describe("EformsignDocumentMirrorService", () => {
         expect(linkByPhoneUsecase.execute).not.toHaveBeenCalled();
     });
 
-    it("links an existing client while a non-completed mirror remains partial", async () => {
+    it("creates a client while a durable in-progress mirror waits for files", async () => {
         const completedDetail = richDetail();
         const detail = {
             ...completedDetail,
@@ -997,7 +997,7 @@ describe("EformsignDocumentMirrorService", () => {
             markSyncFailed: jest.fn().mockResolvedValue(undefined),
         };
         const linkByPhoneUsecase = {
-            execute: jest.fn().mockResolvedValue("linked"),
+            execute: jest.fn().mockResolvedValue("created"),
         };
         const completedMirrorReconciler = { execute: jest.fn() };
         const snapshots = {
@@ -1042,9 +1042,7 @@ describe("EformsignDocumentMirrorService", () => {
             "partial",
             "Files not ready: audit_trail",
         );
-        expect(linkByPhoneUsecase.execute).toHaveBeenCalledWith("doc-1", {
-            linkExistingOnly: true,
-        });
+        expect(linkByPhoneUsecase.execute).toHaveBeenCalledWith("doc-1", undefined);
         expect(snapshots.bumpVersion).toHaveBeenCalledWith("branch-1");
         expect(completedMirrorReconciler.execute).not.toHaveBeenCalled();
     });
@@ -1301,7 +1299,7 @@ describe("EformsignDocumentMirrorService", () => {
         expect(client.getDocument).not.toHaveBeenCalled();
     });
 
-    it("keeps non-completed mirrors on the existing link-only reconciliation path", async () => {
+    it("reconciles a ready in-progress mirror through the phone-based client path", async () => {
         const detail = richDetail();
         detail.current_status.status_type = "060";
         const sourceUpdatedDate = new Date(UPDATED_AT);
