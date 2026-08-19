@@ -582,14 +582,18 @@ export class EformsignDocumentMirrorService {
             : undefined;
         if (!isCurrentVersionReady(state)) {
             try {
+                const canCreateFromPartialDetail =
+                    isDetailReadyForEarlyClientReconciliation(state);
                 const result = await this.linkDocumentByPhoneUsecase.execute(
                     documentId,
-                    {
-                        ...linkOptions,
-                        linkExistingOnly: true,
-                    },
+                    canCreateFromPartialDetail
+                        ? linkOptions
+                        : {
+                            ...linkOptions,
+                            linkExistingOnly: true,
+                        },
                 );
-                if (result === "linked") {
+                if (result === "created" || result === "linked") {
                     await this.invalidateDocumentSnapshots([documentId]);
                     return true;
                 }
@@ -760,6 +764,21 @@ function isCurrentVersionReady(
         && state.syncStatus === "ready"
         && !state.permanentPurgeRequestedAt
         && hasCurrentVersionFiles(state),
+    );
+}
+
+function isDetailReadyForEarlyClientReconciliation(
+    state: EformsignDocumentMirrorState | null,
+): boolean {
+    // In-progress documents commonly have no final PDFs yet. A partial row with
+    // a persisted detail generation is sufficient for the client use case,
+    // which still enforces status, branch, phone, policy, and duplicate gates.
+    return Boolean(
+        state?.detailPayload
+        && state.detailSourceUpdatedDate
+        && state.detailSyncedAt
+        && state.syncStatus === "partial"
+        && !state.permanentPurgeRequestedAt,
     );
 }
 
