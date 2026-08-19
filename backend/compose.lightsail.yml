@@ -1,4 +1,4 @@
-name: babyjamjam-backend
+name: ${COMPOSE_PROJECT_NAME:-babyjamjam-backend}
 
 services:
   api:
@@ -20,16 +20,23 @@ services:
       - "3001"
     init: true
     restart: unless-stopped
+    cpus: ${BACKEND_CPU_LIMIT:-1.0}
+    mem_limit: ${BACKEND_MEMORY_LIMIT:-1536m}
     security_opt:
       - no-new-privileges:true
     shm_size: 1gb
     networks:
-      - backend
+      backend:
+      edge:
+        aliases:
+          - ${BACKEND_NETWORK_ALIAS:-api}
 
   valkey:
     image: valkey/valkey:8.1-alpine
     command: ["valkey-server", "--appendonly", "yes"]
     restart: unless-stopped
+    cpus: ${VALKEY_CPU_LIMIT:-0.25}
+    mem_limit: ${VALKEY_MEMORY_LIMIT:-128m}
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -42,31 +49,13 @@ services:
     networks:
       - backend
 
-  caddy:
-    image: caddy:2.10.2-alpine
-    depends_on:
-      api:
-        condition: service_healthy
-    environment:
-      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-:80}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - ./deploy/lightsail/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - backend
-
 networks:
   backend:
+  edge:
+    name: ${LIGHTSAIL_EDGE_NETWORK:-babyjamjam-edge}
+    external: true
 
 volumes:
-  caddy_config:
-  caddy_data:
   valkey_data:
+    name: ${VALKEY_DATA_VOLUME:-babyjamjam-backend-production_valkey_data}
+    external: true

@@ -42,10 +42,10 @@ describe("contractCandidateToClientPrefill", () => {
         });
     });
 
-    it("null 필드는 폼 기본값 형태(빈 문자열/false)로 치환하고 undefined 키를 만들지 않는다", () => {
+    it("전화번호가 없어도 추출된 상세 필드를 보존하고 null은 폼 기본값으로 치환한다", () => {
         const result = contractCandidateToClientPrefill({
             ...base,
-            extracted: false,
+            extracted: true,
             name: "김산모",
             phone: null,
             address: null,

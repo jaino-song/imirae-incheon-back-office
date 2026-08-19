@@ -1,7 +1,18 @@
-{$CADDY_SITE_ADDRESS} {
+{$PRODUCTION_CADDY_SITE_ADDRESS} {
     encode zstd gzip
 
-    reverse_proxy api:3001
+    reverse_proxy {$PRODUCTION_CADDY_UPSTREAM}
+
+    log {
+        output stdout
+        format json
+    }
+}
+
+{$PREVIEW_CADDY_SITE_ADDRESS} {
+    encode zstd gzip
+
+    reverse_proxy {$PREVIEW_CADDY_UPSTREAM}
 
     log {
         output stdout

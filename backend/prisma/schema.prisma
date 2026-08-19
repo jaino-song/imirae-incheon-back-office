@@ -327,6 +327,7 @@ model eformsign_doc {
   expiredDate                DateTime                       @map("expired_date") @db.Timestamptz(6)
   expired                    Boolean                        @default(false)
   clientId                   Int?                           @map("client_id")
+  autoRegisteredClient       Boolean                        @default(false) @map("auto_registered_client")
   branchId                   String?                        @map("branch_id") @db.Uuid
   documentKind               String?                        @map("document_kind")
   employeeScheduleId         Int?                           @map("employee_schedule_id")

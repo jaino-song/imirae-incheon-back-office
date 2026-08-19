@@ -5,12 +5,67 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 COMPOSE_FILE="$REPOSITORY_ROOT/backend/compose.lightsail.yml"
-STATE_DIRECTORY="${DEPLOY_STATE_DIRECTORY:-/opt/babyjamjam}"
+ENVIRONMENT="${1:-${LIGHTSAIL_ENVIRONMENT:-}}"
+STATE_ROOT="${LIGHTSAIL_STATE_ROOT:-/opt/babyjamjam}"
+PUBLIC_HEALTH_REQUIRED="${BACKEND_PUBLIC_HEALTH_REQUIRED:-true}"
+BUILD_IMAGE="${BACKEND_BUILD_IMAGE:-true}"
+
+case "$ENVIRONMENT" in
+    production)
+        DEFAULT_PUBLIC_HEALTH_URL="https://api.babyjamjam.com/health"
+        DEFAULT_BACKEND_CPU_LIMIT="1.5"
+        DEFAULT_BACKEND_MEMORY_LIMIT="2g"
+        DEFAULT_VALKEY_DATA_VOLUME="babyjamjam-backend-production_valkey_data"
+        DEFAULT_EDGE_NETWORK="babyjamjam-edge-production"
+        ;;
+    preview)
+        DEFAULT_PUBLIC_HEALTH_URL="https://preview.api.babyjamjam.com/health"
+        DEFAULT_BACKEND_CPU_LIMIT="0.5"
+        DEFAULT_BACKEND_MEMORY_LIMIT="1g"
+        DEFAULT_VALKEY_DATA_VOLUME="babyjamjam-backend-preview_valkey_data"
+        DEFAULT_EDGE_NETWORK="babyjamjam-edge-preview"
+        ;;
+    *)
+        echo "Usage: $0 <production|preview>" >&2
+        exit 1
+        ;;
+esac
+
+STATE_DIRECTORY="${DEPLOY_STATE_DIRECTORY:-$STATE_ROOT/environments/$ENVIRONMENT}"
 ENV_FILE="${BACKEND_ENV_FILE:-$STATE_DIRECTORY/backend.env}"
 CURRENT_TAG_FILE="$STATE_DIRECTORY/current-image-tag"
 PREVIOUS_TAG_FILE="$STATE_DIRECTORY/previous-image-tag"
 IMAGE_TAG="$(git -C "$REPOSITORY_ROOT" rev-parse --verify HEAD)"
-PUBLIC_HEALTH_URL="${BACKEND_PUBLIC_HEALTH_URL:-http://127.0.0.1/health}"
+PUBLIC_HEALTH_URL="${BACKEND_PUBLIC_HEALTH_URL:-$DEFAULT_PUBLIC_HEALTH_URL}"
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-babyjamjam-backend-$ENVIRONMENT}"
+NETWORK_ALIAS="${BACKEND_NETWORK_ALIAS:-api-$ENVIRONMENT}"
+VALKEY_DATA_VOLUME="${VALKEY_DATA_VOLUME:-$DEFAULT_VALKEY_DATA_VOLUME}"
+EDGE_NETWORK="${LIGHTSAIL_EDGE_NETWORK:-$DEFAULT_EDGE_NETWORK}"
+
+read_environment_value() {
+    local wanted_key="$1"
+
+    awk -v wanted_key="$wanted_key" '
+        /^[[:space:]]*#/ { next }
+        {
+            separator = index($0, "=")
+            if (separator == 0) next
+
+            key = substr($0, 1, separator - 1)
+            gsub(/[[:space:]]/, "", key)
+            if (key != wanted_key) next
+
+            value = substr($0, separator + 1)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            quote = substr(value, 1, 1)
+            if ((quote == "\"" || quote == "\047") && substr(value, length(value), 1) == quote) {
+                value = substr(value, 2, length(value) - 2)
+            }
+            result = tolower(value)
+        }
+        END { print result }
+    ' "$ENV_FILE"
+}
 
 if [[ ! -r "$ENV_FILE" ]]; then
     echo "Backend environment file is not readable: $ENV_FILE" >&2
@@ -27,6 +82,21 @@ if [[ "$PUBLIC_HEALTH_URL" != http://* && "$PUBLIC_HEALTH_URL" != https://* ]]; 
     exit 1
 fi
 
+if [[ "$PUBLIC_HEALTH_REQUIRED" != "true" && "$PUBLIC_HEALTH_REQUIRED" != "false" ]]; then
+    echo "BACKEND_PUBLIC_HEALTH_REQUIRED must be true or false." >&2
+    exit 1
+fi
+
+if [[ "$BUILD_IMAGE" != "true" && "$BUILD_IMAGE" != "false" ]]; then
+    echo "BACKEND_BUILD_IMAGE must be true or false." >&2
+    exit 1
+fi
+
+if [[ "$ENVIRONMENT" == "preview" && "$(read_environment_value SCHEDULERS_ENABLED)" != "false" ]]; then
+    echo "Preview deployments require SCHEDULERS_ENABLED=false in $ENV_FILE." >&2
+    exit 1
+fi
+
 if [[ -n "$(git -C "$REPOSITORY_ROOT" status --porcelain --untracked-files=all)" ]]; then
     echo "Refusing to tag a deployment from a dirty checkout: $REPOSITORY_ROOT" >&2
     git -C "$REPOSITORY_ROOT" status --short >&2
@@ -37,9 +107,28 @@ mkdir -p "$STATE_DIRECTORY"
 
 export BACKEND_ENV_FILE="$ENV_FILE"
 export BACKEND_IMAGE_TAG="$IMAGE_TAG"
+export BACKEND_CPU_LIMIT="${BACKEND_CPU_LIMIT:-$DEFAULT_BACKEND_CPU_LIMIT}"
+export BACKEND_MEMORY_LIMIT="${BACKEND_MEMORY_LIMIT:-$DEFAULT_BACKEND_MEMORY_LIMIT}"
+export BACKEND_NETWORK_ALIAS="$NETWORK_ALIAS"
+export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
+export LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK"
+export VALKEY_DATA_VOLUME
+
+if ! docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1; then
+    docker network create "$EDGE_NETWORK" >/dev/null
+fi
+
+if ! docker volume inspect "$VALKEY_DATA_VOLUME" >/dev/null 2>&1; then
+    docker volume create "$VALKEY_DATA_VOLUME" >/dev/null
+fi
 
 docker compose -f "$COMPOSE_FILE" config --quiet
-docker compose -f "$COMPOSE_FILE" build --pull api
+if [[ "$BUILD_IMAGE" == "true" ]]; then
+    docker compose -f "$COMPOSE_FILE" build --pull api
+elif ! docker image inspect "${BACKEND_IMAGE:-babyjamjam-backend}:$IMAGE_TAG" >/dev/null 2>&1; then
+    echo "BACKEND_BUILD_IMAGE=false requires a local image: ${BACKEND_IMAGE:-babyjamjam-backend}:$IMAGE_TAG" >&2
+    exit 1
+fi
 docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 
 api_container_id="$(docker compose -f "$COMPOSE_FILE" ps -q api)"
@@ -72,32 +161,24 @@ if [[ "$api_is_healthy" != "true" ]]; then
     exit 1
 fi
 
-caddy_container_id="$(docker compose -f "$COMPOSE_FILE" ps -q caddy)"
-if [[ -z "$caddy_container_id" ]]; then
-    echo "The Caddy container was not created." >&2
-    exit 1
+if [[ "$PUBLIC_HEALTH_REQUIRED" == "false" ]]; then
+    echo "Started $ENVIRONMENT after the internal API health check only; deployment state was not recorded."
+    echo "Deploy the shared edge, then rerun with BACKEND_PUBLIC_HEALTH_REQUIRED=true." >&2
+    exit 0
 fi
 
-proxy_is_healthy=false
+public_route_is_healthy=false
 for _attempt in $(seq 1 30); do
-    caddy_status="$(docker inspect --format '{{.State.Status}}' "$caddy_container_id")"
-
-    if [[ "$caddy_status" == "running" ]] && curl --fail --silent --location --proto '=http,https' --proto-redir '=http,https' --connect-timeout 5 --max-time 10 "$PUBLIC_HEALTH_URL" >/dev/null; then
-        proxy_is_healthy=true
+    if curl --fail --silent --location --proto '=http,https' --proto-redir '=http,https' --connect-timeout 5 --max-time 10 "$PUBLIC_HEALTH_URL" >/dev/null; then
+        public_route_is_healthy=true
         break
-    fi
-
-    if [[ "$caddy_status" == "exited" || "$caddy_status" == "dead" ]]; then
-        docker compose -f "$COMPOSE_FILE" logs --tail 100 caddy >&2
-        echo "Deployment failed with Caddy state: $caddy_status" >&2
-        exit 1
     fi
 
     sleep 2
 done
 
-if [[ "$proxy_is_healthy" != "true" ]]; then
-    docker compose -f "$COMPOSE_FILE" logs --tail 100 api caddy >&2
+if [[ "$public_route_is_healthy" != "true" ]]; then
+    docker compose -f "$COMPOSE_FILE" logs --tail 100 api >&2
     echo "Deployment timed out waiting for the public health check: $PUBLIC_HEALTH_URL" >&2
     exit 1
 fi
@@ -112,4 +193,4 @@ if [[ -n "$previous_tag" && "$previous_tag" != "$IMAGE_TAG" ]]; then
 fi
 
 printf '%s\n' "$IMAGE_TAG" > "$CURRENT_TAG_FILE"
-echo "Deployed backend image after API and public proxy health checks: $IMAGE_TAG"
+echo "Deployed $ENVIRONMENT backend image after API and public proxy health checks: $IMAGE_TAG"

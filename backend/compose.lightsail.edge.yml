@@ -1,0 +1,42 @@
+name: ${EDGE_COMPOSE_PROJECT_NAME:-babyjamjam-edge}
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    environment:
+      PREVIEW_CADDY_SITE_ADDRESS: ${PREVIEW_CADDY_SITE_ADDRESS:-preview.api.babyjamjam.com}
+      PREVIEW_CADDY_UPSTREAM: ${PREVIEW_CADDY_UPSTREAM:-api-preview:3001}
+      PRODUCTION_CADDY_SITE_ADDRESS: ${PRODUCTION_CADDY_SITE_ADDRESS:-api.babyjamjam.com}
+      PRODUCTION_CADDY_UPSTREAM: ${PRODUCTION_CADDY_UPSTREAM:-api-production:3001}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    restart: unless-stopped
+    cpus: ${CADDY_CPU_LIMIT:-0.25}
+    mem_limit: ${CADDY_MEMORY_LIMIT:-128m}
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./deploy/lightsail/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - production_edge
+      - preview_edge
+
+networks:
+  production_edge:
+    name: ${PRODUCTION_EDGE_NETWORK:-babyjamjam-edge-production}
+    external: true
+  preview_edge:
+    name: ${PREVIEW_EDGE_NETWORK:-babyjamjam-edge-preview}
+    external: true
+
+volumes:
+  caddy_config:
+    name: ${CADDY_CONFIG_VOLUME:-babyjamjam-backend_caddy_config}
+    external: true
+  caddy_data:
+    name: ${CADDY_DATA_VOLUME:-babyjamjam-backend_caddy_data}
+    external: true
