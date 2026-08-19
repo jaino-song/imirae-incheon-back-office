@@ -1,5 +1,9 @@
 import type { Client } from "@/lib/client/types";
-import { diffBusinessDaysKr, isoDateInKorea } from "@/lib/date/business-days";
+import {
+  diffBusinessDaysKr,
+  isBusinessDayKr,
+  isoDateInKorea,
+} from "@/lib/date/business-days";
 
 export interface DashboardClientDue {
   label: string;
@@ -21,6 +25,18 @@ function businessDayDiff(targetDate: string | null | undefined, today = new Date
   const targetIso = normalizeIsoDate(targetDate);
   if (!targetIso) return null;
   return diffBusinessDaysKr(targetIso, isoDateInKorea(today));
+}
+
+export function isServiceEndingNextBusinessDay(
+  client: Pick<Client, "serviceStatus" | "endDate">,
+  today = new Date(),
+): boolean {
+  if (client.serviceStatus !== "active") {
+    return false;
+  }
+
+  const todayIso = isoDateInKorea(today);
+  return isBusinessDayKr(todayIso) && businessDayDiff(client.endDate, today) === 1;
 }
 
 function formatBusinessDue(prefix: string, diff: number) {
