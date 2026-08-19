@@ -1042,7 +1042,15 @@ describe("EformsignDocumentMirrorService", () => {
             "partial",
             "Files not ready: audit_trail",
         );
-        expect(linkByPhoneUsecase.execute).toHaveBeenCalledWith("doc-1", undefined);
+        expect(linkByPhoneUsecase.execute).toHaveBeenCalledWith(
+            "doc-1",
+            undefined,
+            {
+                detailSourceUpdatedDate: new Date(UPDATED_AT),
+                detailSyncedAt: new Date(UPDATED_AT),
+                readiness: "detail",
+            },
+        );
         expect(snapshots.bumpVersion).toHaveBeenCalledWith("branch-1");
         expect(completedMirrorReconciler.execute).not.toHaveBeenCalled();
     });
