@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common";
 
 import {
-    extractEformsignContractClientCandidate,
+    extractEformsignContractClientPrefillCandidate,
     formatNormalizedKoreanPhone,
     toEformsignDocumentDetail,
 } from "application/utils/eformsign-contract-client-candidate";
+import { normalizePhone } from "application/utils/normalize-phone";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 /**
@@ -34,11 +35,10 @@ export interface EformsignContractClientCandidateResponse {
 
 /**
  * 미연결 계약서에서 고객 등록 폼 프리필용 후보를 읽어온다.
- * 자동 등록(LinkMirroredEformsignDocByPhoneUsecase)과 같은 추출 유틸·별칭 테이블을
- * 사용한다. 자동 등록은 customerPhone ?? candidate ?? legacy SMS를 전화 키로
- * 추가 사용하지만, 이 엔드포인트는 그 과정을 수행하지 않는다.
- * 추출 실패 폴백에서는 문서 컬럼의 이름을 채우지 않고 신뢰할 수 있는
- * customerPhone만 사용한다.
+ * 자동 등록(LinkMirroredEformsignDocByPhoneUsecase)과 같은 필드·별칭 테이블을
+ * 사용하되, 등록 폼에서는 전화번호를 검증하지 못해도 다른 상세 필드를 보존한다.
+ * 전화번호는 고객 수신자로 검증된 상세 번호 또는 신뢰 가능한 customerPhone만
+ * 국내 형식으로 정규화하며 legacy SMS 번호는 사용하지 않는다.
  * Caller MUST apply the branch guard (see EformsignController.getDocumentClientCandidate)
  * before calling; this method performs no tenant scoping.
  */
@@ -62,16 +62,17 @@ export class GetContractClientCandidateUsecase {
 
         const detail = toEformsignDocumentDetail(document.detailPayload);
         const candidate = detail
-            ? extractEformsignContractClientCandidate(detail)
+            ? extractEformsignContractClientPrefillCandidate(detail)
             : null;
+        const phone = formattedKoreanPhone(
+            candidate?.phone ?? document.customerPhone,
+        );
         if (!candidate) {
             return {
                 documentId: document.documentId,
                 extracted: false,
                 name: null,
-                phone: document.customerPhone
-                    ? formatNormalizedKoreanPhone(document.customerPhone)
-                    : null,
+                phone,
                 address: null,
                 birthday: null,
                 dueDate: null,
@@ -92,7 +93,7 @@ export class GetContractClientCandidateUsecase {
             documentId: document.documentId,
             extracted: true,
             name: candidate.name,
-            phone: formatNormalizedKoreanPhone(candidate.phone),
+            phone,
             address: candidate.address,
             birthday: candidate.birthday,
             dueDate: toDateOnly(candidate.dueDate),
@@ -108,6 +109,11 @@ export class GetContractClientCandidateUsecase {
             breastPump: candidate.breastPump,
         };
     }
+}
+
+function formattedKoreanPhone(phone: string | null): string | null {
+    const normalized = normalizePhone(phone);
+    return normalized ? formatNormalizedKoreanPhone(normalized) : null;
 }
 
 // 추출기가 만드는 Date는 UTC 자정 기준(Date.UTC)이므로 toISOString 절단이 안전하다.

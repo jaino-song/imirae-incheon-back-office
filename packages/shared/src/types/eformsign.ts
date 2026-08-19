@@ -229,6 +229,8 @@ export interface EformsignDocClientSummary {
 
 /**
  * 계약서 detail payload에서 추출한 고객 등록 후보.
+ * extracted=true여도 고객 수신자로 검증된 번호와 저장 customerPhone이 모두 없으면
+ * phone은 null이며, 나머지 상세 필드는 그대로 프리필한다.
  * extracted=false 폴백은 이름을 채우지 않는다 (문서 컬럼 이름은 관리사/직원명일 수
  * 있어 신뢰 불가); phone만 폴백된다.
  * 날짜는 모두 YYYY-MM-DD, phone은 대시 포함 표기(예: 010-1234-5678).
