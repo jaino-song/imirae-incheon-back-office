@@ -7,9 +7,8 @@ import {
   fetchDashboardClientPage,
   useDashboardOverview,
 } from "@/hooks/useDashboardStats";
-import { useReviewNeededContracts } from "@/hooks/useReviewNeededContracts";
-import { ReviewNeededContractsCard } from "@/components/app/dashboard/ReviewNeededContractsCard";
 import { Client } from "@/lib/client/types";
+import { isServiceEndingNextBusinessDay } from "@/lib/dashboard/client-due";
 import { useInitialUser } from "@/providers/UserProvider";
 import {
   StatsBar,
@@ -19,7 +18,6 @@ import {
   RecentActivitiesPanel,
 } from "@/components/app/v3";
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
-import { getDashboardAttentionItems } from "@/lib/dashboard/client-groups";
 import {
   Users,
   Calendar,
@@ -61,7 +59,6 @@ export default function DashboardPage() {
     refetch: refetchOverview,
   } = useDashboardOverview(50);
   const user = useInitialUser();
-  const { data: reviewNeededContracts } = useReviewNeededContracts();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [extraClientPages, setExtraClientPages] = useState<Client[][]>([]);
   const [isFetchingNextClients, setIsFetchingNextClients] = useState(false);
@@ -173,10 +170,6 @@ export default function DashboardPage() {
     updateDashboardClientQuery,
   ]);
 
-  const actionRequiredClients = useMemo(() => {
-    return getDashboardAttentionItems(clients);
-  }, [clients]);
-
   const upcomingClients = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -197,6 +190,10 @@ export default function DashboardPage() {
   const visibleUpcomingClients = useMemo(() => {
     return upcomingClients.filter((client) => !client.startDate || !isToday(client.startDate));
   }, [upcomingClients]);
+
+  const endingNextBusinessDayClients = useMemo(() => {
+    return clients.filter((client) => isServiceEndingNextBusinessDay(client));
+  }, [clients]);
 
   const dashboardStats = useMemo(() => {
     return {
@@ -249,12 +246,6 @@ export default function DashboardPage() {
         />
       </Block>
 
-      {reviewNeededContracts && reviewNeededContracts.length > 0 && (
-        <Block name="desktop_dashboard_review-needed" className="shrink-0">
-          <ReviewNeededContractsCard contracts={reviewNeededContracts} />
-        </Block>
-      )}
-
       <Block
         name="desktop_dashboard_split"
         className="flex-1 min-h-0"
@@ -269,8 +260,7 @@ export default function DashboardPage() {
             className="h-full min-h-0"
           >
             <RecentActivitiesPanel
-              actionRequiredItems={actionRequiredClients}
-              upcomingItems={visibleUpcomingClients}
+              items={endingNextBusinessDayClients}
               isLoading={overviewLoading}
               isError={overviewError}
               onRetry={() => refetchClients()}

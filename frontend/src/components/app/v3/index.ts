@@ -31,11 +31,7 @@ export { AnimatedSlotListItemContent } from './AnimatedSlotListItemContent';
 export type { AnimatedSlotListItemContentProps } from './AnimatedSlotListItemContent';
 export { HeaderActionButton } from './HeaderActionButton';
 export type { HeaderActionButtonProps } from './HeaderActionButton';
-export {
-  RecentActivitiesPanel,
-  getRecentActivityActionVisual,
-  getRecentActivityAvatarClass,
-} from './RecentActivitiesPanel';
+export { RecentActivitiesPanel } from './RecentActivitiesPanel';
 export type { RecentActivitiesPanelProps } from './RecentActivitiesPanel';
 export { SteppedWizard } from './SteppedWizard';
 export type { WizardStep, SteppedWizardProps } from './SteppedWizard';

@@ -1,14 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { AlertTriangle, Loader2, Users } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  type ActionRequiredReason,
-  type ActionRequiredStatus,
-} from "@/lib/client/action-required";
-import type { DashboardAttentionItem } from "@/lib/dashboard/client-groups";
 import {
   getClientBadgeAvatarClassName,
   getClientBadges,
@@ -24,20 +19,14 @@ import { ListPanel } from "./ListPanel";
 import { StatusBadge } from "./StatusBadge";
 import type { Client } from "@/lib/client/types";
 
-type RecentActivitiesPanelTab = "all" | "upcoming" | "actionRequired";
-
 type RecentActivityListItem = {
   key: string;
   client: Client;
-  actionReason?: ActionRequiredReason;
-  actionPriority?: ActionRequiredStatus["priority"];
-  isUpcoming: boolean;
 };
 
 export interface RecentActivitiesPanelProps {
   title?: string;
-  actionRequiredItems: DashboardAttentionItem[];
-  upcomingItems: Client[];
+  items: Client[];
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
@@ -57,63 +46,6 @@ const SKELETON_ICON_BG = [
   "bg-[hsl(34,100%,55%)]",
   "bg-[hsl(213,15%,50%)]",
 ];
-
-const PRIORITY_COLORS: Record<
-  number,
-  { iconBg: string; badgeBg: string; badgeText: string; badgeBorder: string }
-> = {
-  1: {
-    iconBg: "border border-[hsla(355,36%,45%,0.20)] bg-[hsl(355,40%,94%)] text-[hsl(355,36%,45%)]",
-    badgeBg: "bg-[hsl(355,40%,94%)]",
-    badgeText: "text-[hsl(355,36%,45%)]",
-    badgeBorder: "border-[hsla(355,36%,45%,0.20)]",
-  },
-  2: {
-    iconBg: "border border-[hsla(38,92%,35%,0.18)] bg-[hsl(47,100%,92%)] text-[hsl(38,92%,35%)]",
-    badgeBg: "bg-[hsl(47,100%,92%)]",
-    badgeText: "text-[hsl(38,92%,35%)]",
-    badgeBorder: "border-[hsla(38,92%,35%,0.18)]",
-  },
-  3: {
-    iconBg: "border border-[hsl(214,70%,85%)] bg-[hsl(214,80%,95%)] text-v3-primary",
-    badgeBg: "bg-[hsl(214,80%,95%)]",
-    badgeText: "text-v3-primary",
-    badgeBorder: "border-[hsl(214,70%,85%)]",
-  },
-};
-
-export function getRecentActivityActionVisual(
-  priority: ActionRequiredStatus["priority"] = 3,
-) {
-  return PRIORITY_COLORS[priority] ?? PRIORITY_COLORS[3];
-}
-
-export function getRecentActivityAvatarClass({
-  actionPriority,
-  isUpcoming = false,
-}: {
-  name?: string;
-  actionPriority?: ActionRequiredStatus["priority"];
-  isUpcoming?: boolean;
-}) {
-  if (actionPriority) {
-    return getRecentActivityActionVisual(actionPriority).iconBg;
-  }
-
-  if (isUpcoming) {
-    return getRecentActivityActionVisual(3).iconBg;
-  }
-
-  return getRecentActivityActionVisual(3).iconBg;
-}
-
-function isToday(dateStr: string): boolean {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(dateStr);
-  target.setHours(0, 0, 0, 0);
-  return target.getTime() === today.getTime();
-}
 
 function ErrorState({ onRetry }: { onRetry: () => void }) {
   return (
@@ -138,22 +70,9 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function getFilterEmptyMessage(activeTab: RecentActivitiesPanelTab): string {
-  if (activeTab === "actionRequired") {
-    return "현재 조치가 필요한 항목이 없습니다";
-  }
-
-  if (activeTab === "upcoming") {
-    return "곧 시작 예정인 고객이 없습니다";
-  }
-
-  return "표시할 최근 현황이 없습니다";
-}
-
 export function RecentActivitiesPanel({
   title = "최근 현황",
-  actionRequiredItems,
-  upcomingItems,
+  items,
   isLoading,
   isError,
   onRetry,
@@ -166,78 +85,17 @@ export function RecentActivitiesPanel({
   viewAllLabel = "전체 고객 보기",
   className,
 }: RecentActivitiesPanelProps) {
-  const [activeTab, setActiveTab] = useState<RecentActivitiesPanelTab>("all");
-  const isEmpty =
-    actionRequiredItems.length === 0 && upcomingItems.length === 0;
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadMoreTriggeredRef = useRef(false);
-  const tabs = useMemo(
-    () =>
-      [
-        { value: "all", label: "전체" },
-        { value: "upcoming", label: "곧 시작" },
-        { value: "actionRequired", label: "조치 필요" },
-      ] satisfies Array<{ value: RecentActivitiesPanelTab; label: string }>,
-    []
-  );
 
-  const listItems = useMemo<RecentActivityListItem[]>(() => {
-    const actionRequiredByClientId = new Map(
-      actionRequiredItems.map((item) => [item.client.id, item] as const),
-    );
-    const normalizedUpcomingItems = upcomingItems
-      .filter((item) => !item.startDate || !isToday(item.startDate))
-      .map((item) => item);
-
-    const toListItem = (
-      client: Client,
-      actionItem?: DashboardAttentionItem,
-      isUpcoming = false,
-    ): RecentActivityListItem => ({
-      key: `recent-${client.id}`,
-      client,
-      actionReason: actionItem?.reason,
-      actionPriority: actionItem?.priority,
-      isUpcoming,
-    });
-
-    if (activeTab === "actionRequired") {
-      return actionRequiredItems.map((item) =>
-        toListItem(
-          item.client,
-          item,
-          normalizedUpcomingItems.some((upcomingItem) => upcomingItem.id === item.client.id),
-        ),
-      );
-    }
-
-    if (activeTab === "upcoming") {
-      return normalizedUpcomingItems.map((item) =>
-        toListItem(item, actionRequiredByClientId.get(item.id), true),
-      );
-    }
-
-    const mergedItems = actionRequiredItems.map((item) =>
-      toListItem(
-        item.client,
-        item,
-        normalizedUpcomingItems.some((upcomingItem) => upcomingItem.id === item.client.id),
-      ),
-    );
-
-    const mergedClientIds = new Set(mergedItems.map((item) => item.client.id));
-
-    return [
-      ...mergedItems,
-      ...normalizedUpcomingItems.filter(
-        (item) => !mergedClientIds.has(item.id),
-      ).map((item) => toListItem(item, undefined, true)),
-    ];
-  }, [actionRequiredItems, upcomingItems, activeTab]);
+  const listItems = useMemo<RecentActivityListItem[]>(() => items.map((client) => ({
+    key: `recent-${client.id}`,
+    client,
+  })), [items]);
 
   useEffect(() => {
     loadMoreTriggeredRef.current = false;
-  }, [listItems.length, hasMore, isFetchingMore, activeTab]);
+  }, [listItems.length, hasMore, isFetchingMore]);
 
   useEffect(() => {
     if (!hasMore || !onLoadMore || isFetchingMore) {
@@ -273,18 +131,14 @@ export function RecentActivitiesPanel({
     return () => observer.disconnect();
   }, [hasMore, onLoadMore, isFetchingMore]);
 
-  const isListEmpty = !isLoading && !isError && (isEmpty || listItems.length === 0);
+  const isListEmpty = !isLoading && !isError && listItems.length === 0;
 
   return (
     <ListPanel data-component="desktop_dashboard_split_activities-panel_list-panel"
       title={title}
-      tabs={tabs}
-      activeTab={activeTab}
-      onTabChange={(nextTab) => setActiveTab(nextTab as RecentActivitiesPanelTab)}
-      tabsAriaLabel={`${title} 필터`}
       emptyState={
         isListEmpty ? (
-          <ListEmptyState message={getFilterEmptyMessage(activeTab)} />
+          <ListEmptyState message="종료 1영업일 전인 계약이 없습니다" />
         ) : undefined
       }
       className={className}
@@ -297,7 +151,7 @@ export function RecentActivitiesPanel({
               data-component="desktop_dashboard_split_activities-panel_list-panel_list"
               items={listItems}
               isLoading={isLoading}
-              loadingCount={activeTab === "all" ? 6 : 4}
+              loadingCount={6}
               className="space-y-2"
               itemDataComponent="desktop_dashboard_split_activities-panel_list-panel_list_item"
               getItemKey={(item) => item.key}
@@ -340,10 +194,8 @@ export function RecentActivitiesPanel({
                 const clientBadges = getClientBadges(item.client);
                 const sortedClientBadges = prioritizeClientBadges(clientBadges);
                 const primaryClientBadge = getPrimaryClientBadge(clientBadges);
-                const subtitle = getDashboardClientDueLabel(item.client, {
-                  contractRequired: sortedClientBadges.some((badge) => badge.key === "contract_required"),
-                  upcoming: item.isUpcoming,
-                }) ?? `${item.client.type || "일반"} · ${item.client.primaryEmployee?.name || "-"}`;
+                const subtitle = getDashboardClientDueLabel(item.client)
+                  ?? `${item.client.type || "일반"} · ${item.client.primaryEmployee?.name || "-"}`;
 
                 return (
                   <AnimatedSlotListItemContent
