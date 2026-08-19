@@ -6,6 +6,7 @@ import { IMessageTriggerJobRepository } from "domain/repositories/message-trigge
 import { SystemSettingService } from "application/services/system-setting.service";
 import {
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
+    MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
 
@@ -140,6 +141,59 @@ describe("PwaNotificationSchedulerService", () => {
                 url: "/messages",
                 details: [`이하늘 · ${undeliveredMessageLabel(MessageTriggerTemplateKey.SERVICE_INFO)} — 24시간 경과로 취소`],
             },
+        ]);
+    });
+
+    it("should attach one exact notification item per ending client and undelivered message", async () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-08-20T00:00:00.000Z").getTime());
+        clientRepository.findStartingWithinDays.mockResolvedValue([]);
+        clientRepository.findEndingWithinDays.mockResolvedValue([
+            { id: 10, name: "김민지", endDate: new Date("2026-08-21T00:00:00.000Z") },
+        ]);
+        clientRepository.findWithIncompleteContractsStartingWithinDays.mockResolvedValue([]);
+        clientRepository.findWithoutContractSentStartingWithinDays.mockResolvedValue([]);
+        messageTriggerJobRepository.findRecentUndeliveredByBranch.mockResolvedValue([
+            {
+                id: "job-1",
+                status: "failed",
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                payload: { recipientName: "강하은" },
+                templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+                cancelReason: "발송 실패",
+            },
+        ]);
+        messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(1);
+
+        await service.sendDailySummaryNotifications();
+
+        const [, , sections] = digestCall();
+        expect(sections).toEqual([
+            expect.objectContaining({
+                key: "ending",
+                notificationItems: [{
+                    title: "서비스 종료 예정",
+                    body: "김민지 산모님의 서비스가 내일 종료됩니다.",
+                    data: {
+                        type: "daily-summary-item",
+                        category: "service-ending",
+                        clientId: 10,
+                        url: "/clients/filtered?filter=ending-soon",
+                    },
+                }],
+            }),
+            expect.objectContaining({
+                key: "undeliveredMessages",
+                notificationItems: [{
+                    title: "메시지 전송 실패",
+                    body: "강하은 관리사님에게 보낸 제공기록지 메시지 전송이 실패했습니다.",
+                    data: {
+                        type: "daily-summary-item",
+                        category: "message-undelivered",
+                        jobId: "job-1",
+                        url: "/messages",
+                    },
+                }],
+            }),
         ]);
     });
 
