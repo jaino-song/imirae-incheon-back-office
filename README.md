@@ -573,3 +573,24 @@ redistribute, publish, sublicense, sell, host, or deploy this source code or any
 of it.
 
 All rights are reserved by the repository owner.
+
+## Secrets
+
+Backend and frontend `.env` files are rendered from 1Password, not copied between worktrees.
+Templates (`backend/env.tpl`, `frontend/env.local.tpl`) are committed and contain references
+only — no secret material. Rendered `.env` files are gitignored and never committed.
+
+```bash
+~/.agents/bin/env-pull backend/env.tpl backend/.env
+~/.agents/bin/env-pull frontend/env.local.tpl frontend/.env.local
+```
+
+Requires the 1Password CLI (`brew install 1password-cli`) with
+Settings > Developer > "Integrate with 1Password CLI" enabled. Secrets live in the `BabyJamJam`
+vault.
+
+To **add** a variable: create or extend the vault item, add a line to the template referencing it,
+re-render. To **rotate**: change it in 1Password and re-render — no file hunting.
+
+The root `.env` is deliberately not templated: all 40 of its entries are empty declarations, so it
+holds no secret material.

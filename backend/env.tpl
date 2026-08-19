@@ -1,0 +1,57 @@
+# backend/env.tpl — rendered by: ~/.agents/bin/env-pull backend/env.tpl
+# References only, never secret material. Safe to commit.
+# Note: the renderer parses comments too, so never write a reference
+# prefix in prose here — it is treated as a real reference.
+
+DATABASE_URL="op://BabyJamJam/BJJ Dev Database/DATABASE_URL"
+DIRECT_URL="op://BabyJamJam/BJJ Dev Database/DIRECT_URL"
+JWT_SECRET="op://BabyJamJam/BJJ Dev JWT/JWT_SECRET"
+KAKAO_CLIENT_ID="479afcedc0c97cded2033bfbfb4472ee"
+KAKAO_CLIENT_SECRET="op://BabyJamJam/BJJ Kakao OAuth/KAKAO_CLIENT_SECRET"
+KAKAO_CALLBACK_URL=http://localhost:3001/auth/kakao/callback
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
+DEVELOPMENT_API_BASE_URL=http://localhost:3001
+DEVELOPMENT_FRONTEND_URL=http://localhost:3000
+DEVELOPMENT_MOBILE_FRONTEND_URL=http://localhost:3002
+PRODUCTION_FRONTEND_URL="https://imirae-incheon-back-office.vercel.app"
+PREVIEW_FRONTEND_URL="https://staff.babyjamjam.com"
+SUPABASE_URL="https://ebiughoiebblasxwgxbe.supabase.co"
+SUPABASE_SERVICE_KEY="op://BabyJamJam/BJJ Dev Supabase/SUPABASE_SERVICE_KEY"
+GEMINI_API_KEY="op://BabyJamJam/BJJ Gemini/GEMINI_API_KEY"
+GEMINI_CHAT_MODEL=
+GEMINI_CHAT_TEMPERATURE=
+GEMINI_CHAT_MAX_OUTPUT_TOKENS=
+GEMINI_CHAT_TIMEOUT_MS=
+EFORMSIGN_USER_EMAIL="forchildrenbysongs@gmail.com"
+EFORMSIGN_API_URL="https://api.eformsign.com"
+EFORMSIGN_DOC_API_URL="https://kr-api.eformsign.com"
+EFORMSIGN_API_KEY="op://BabyJamJam/BJJ eformsign/API_KEY"
+EFORMSIGN_PRIVATE_KEY="op://BabyJamJam/BJJ eformsign/PRIVATE_KEY"
+EFORMSIGN_COMPANY_ID="6635b9dacdbc4837ba378c6336ef1e34"
+EFORMSIGN_TEMPLATE_ID="d1591da29590495d800f55f1d1fc1378"
+EFORMSIGN_FEEDBACK_TEMPLATE_ID="f091d768fb2c4a74b429525b428337f7"
+EFORMSIGN_FEEDBACK_TEMPLATE_ID_10="0dca5a5ace7d47e6a911c6bfa3103534"
+EFORMSIGN_FEEDBACK_TEMPLATE_ID_15="acc55dd658c6489f80e64bb3d3970140"
+EFORMSIGN_FEEDBACK_TEMPLATE_ID_20="7522d1e4786748068dc3a93e0bfb081a"
+EFORMSIGN_WEBHOOK_SECRET="op://BabyJamJam/BJJ eformsign/WEBHOOK_SECRET"
+ALIGO_API_URL="https://kakaoapi.aligo.in"
+ALIGO_API_KEY="op://BabyJamJam/BJJ Aligo/API_KEY"
+ALIGO_USER_ID="forchildrenbys"
+ALIGO_SENDER_KEY="op://BabyJamJam/BJJ Aligo/SENDER_KEY"
+ALIGO_SENDER_PHONE="010-9641-1878"
+CHANNELTALK_API_URL="https://api.channel.io"
+CHANNELTALK_ACCESS_KEY="op://BabyJamJam/BJJ ChannelTalk/ACCESS_KEY"
+CHANNELTALK_ACCESS_SECRET="op://BabyJamJam/BJJ ChannelTalk/ACCESS_SECRET"
+VAPID_PUBLIC_KEY="BLbY845TlJyGq4F8-7ezddfhd_uzVTBFXc1XZ2mSDPXISPzlh7JdgWzlrfL1xbgLBIXa_AYuFwncj8CdS5BNfsQ"
+VAPID_PRIVATE_KEY="op://BabyJamJam/BJJ VAPID/PRIVATE_KEY"
+VAPID_EMAIL="forchildrenbysongs@gmail.com"
+RESEND_API_KEY="op://BabyJamJam/BJJ Resend/API_KEY"
+RESEND_FROM_EMAIL=admin@babyjamjam.com
+
+# Local-only service record testing. Fallback only — `pnpm start:dev` auto-resolves the current LAN IP and overrides this (scripts/start-dev-lan.mjs).
+MOBILE_SERVICE_RECORD_BASE_URL="http://192.168.219.142:3002"
+SERVICE_RECORD_AUTO_FINALIZE_ENABLED=true
+EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID="f091d768fb2c4a74b429525b428337f7"
+EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_10="0dca5a5ace7d47e6a911c6bfa3103534"
+EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_15="acc55dd658c6489f80e64bb3d3970140"
+EFORMSIGN_SERVICE_RECORD_TEMPLATE_ID_20="7522d1e4786748068dc3a93e0bfb081a"
