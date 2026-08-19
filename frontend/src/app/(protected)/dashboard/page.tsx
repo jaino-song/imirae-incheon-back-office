@@ -17,9 +17,9 @@ import {
   DetailEmptyState,
   DetailPanel,
   RecentActivitiesPanel,
-  type ActionRequiredItem,
 } from "@/components/app/v3";
 import { ClientDetailPanel } from "@/components/app/clients/ClientDetailPanel";
+import { getDashboardAttentionItems } from "@/lib/dashboard/client-groups";
 import {
   Users,
   Calendar,
@@ -174,21 +174,7 @@ export default function DashboardPage() {
   ]);
 
   const actionRequiredClients = useMemo(() => {
-    return clients
-      .map((client) => {
-        const status = client.actionRequired;
-        if (!status) {
-          return null;
-        }
-
-        return {
-          client,
-          reason: status.reason,
-          priority: status.priority,
-        } satisfies ActionRequiredItem;
-      })
-      .filter((item): item is ActionRequiredItem => item !== null)
-      .sort((a, b) => a.priority - b.priority);
+    return getDashboardAttentionItems(clients);
   }, [clients]);
 
   const upcomingClients = useMemo(() => {

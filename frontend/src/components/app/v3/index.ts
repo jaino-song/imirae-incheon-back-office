@@ -36,7 +36,7 @@ export {
   getRecentActivityActionVisual,
   getRecentActivityAvatarClass,
 } from './RecentActivitiesPanel';
-export type { ActionRequiredItem, RecentActivitiesPanelProps } from './RecentActivitiesPanel';
+export type { RecentActivitiesPanelProps } from './RecentActivitiesPanel';
 export { SteppedWizard } from './SteppedWizard';
 export type { WizardStep, SteppedWizardProps } from './SteppedWizard';
 export { SteppedWizardStepper } from './SteppedWizardStepper';

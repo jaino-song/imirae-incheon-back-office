@@ -8,6 +8,7 @@ import {
   type ActionRequiredReason,
   type ActionRequiredStatus,
 } from "@/lib/client/action-required";
+import type { DashboardAttentionItem } from "@/lib/dashboard/client-groups";
 import {
   getClientBadgeAvatarClassName,
   getClientBadges,
@@ -23,12 +24,6 @@ import { ListPanel } from "./ListPanel";
 import { StatusBadge } from "./StatusBadge";
 import type { Client } from "@/lib/client/types";
 
-export type ActionRequiredItem = {
-  client: Client;
-  reason: ActionRequiredReason;
-  priority: ActionRequiredStatus["priority"];
-};
-
 type RecentActivitiesPanelTab = "all" | "upcoming" | "actionRequired";
 
 type RecentActivityListItem = {
@@ -41,7 +36,7 @@ type RecentActivityListItem = {
 
 export interface RecentActivitiesPanelProps {
   title?: string;
-  actionRequiredItems: ActionRequiredItem[];
+  actionRequiredItems: DashboardAttentionItem[];
   upcomingItems: Client[];
   isLoading: boolean;
   isError: boolean;
@@ -196,7 +191,7 @@ export function RecentActivitiesPanel({
 
     const toListItem = (
       client: Client,
-      actionItem?: ActionRequiredItem,
+      actionItem?: DashboardAttentionItem,
       isUpcoming = false,
     ): RecentActivityListItem => ({
       key: `recent-${client.id}`,
