@@ -478,6 +478,43 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         expect(serviceRecordLifecycle.ensureForClient).not.toHaveBeenCalled();
     });
 
+    it("locks a partial detail generation without requiring final files", async () => {
+        const document = mirroredDocument({
+            branchId: "branch-1",
+            customerPhone: "01012345678",
+            detailPayload: contractDetail(),
+            statusType: "020",
+        });
+        const {
+            transaction,
+            messageTrigger,
+            serviceRecordLifecycle,
+            usecase,
+        } = setup(document);
+        transaction.client.findMany.mockResolvedValue([]);
+        transaction.$queryRaw.mockResolvedValue([]);
+
+        await expect(usecase.execute(
+            "doc-1",
+            undefined,
+            {
+                ...expectedMirrorGeneration(),
+                readiness: "detail",
+            },
+        )).resolves.toBe("mirror_not_ready");
+
+        const [fenceQuery] = transaction.$queryRaw.mock.calls[0];
+        const sql = fenceQuery.strings.join(" ");
+        expect(sql).toContain("detail_payload IS NOT NULL");
+        expect(sql).toContain("permanent_purge_requested_at IS NULL");
+        expect(sql).not.toContain("sync_status = 'ready'");
+        expect(sql).not.toContain("eformsign_doc_file");
+        expect(transaction.client.create).not.toHaveBeenCalled();
+        expect(transaction.eformsign_doc.updateMany).not.toHaveBeenCalled();
+        expect(messageTrigger.ensureDefaultRulesForBranch).not.toHaveBeenCalled();
+        expect(serviceRecordLifecycle.ensureForClient).not.toHaveBeenCalled();
+    });
+
     it("does not initialize lifecycle after an assigned link when the post-link generation recheck loses", async () => {
         const document = mirroredDocument({
             branchId: "branch-1",

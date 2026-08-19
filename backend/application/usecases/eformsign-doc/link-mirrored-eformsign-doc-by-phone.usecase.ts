@@ -77,6 +77,7 @@ export interface LinkMirroredEformsignDocOptions {
 export interface ExpectedEformsignMirrorGeneration {
     detailSourceUpdatedDate: Date;
     detailSyncedAt: Date;
+    readiness?: "complete" | "detail";
 }
 
 interface TransactionResult {
@@ -498,28 +499,33 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
         expectedMirrorGeneration?: ExpectedEformsignMirrorGeneration,
     ): Promise<boolean> {
         if (!expectedMirrorGeneration) return true;
+        const readinessFence = expectedMirrorGeneration.readiness === "detail"
+            ? Prisma.sql`AND doc.detail_payload IS NOT NULL`
+            : Prisma.sql`
+                AND doc.sync_status = 'ready'
+                AND EXISTS (
+                    SELECT 1
+                    FROM eformsign_doc_file AS document_file
+                    WHERE document_file.eformsign_doc_id = doc.id
+                      AND document_file.file_type = 'document'
+                      AND document_file.source_updated_date = doc.detail_source_updated_date
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM eformsign_doc_file AS audit_trail_file
+                    WHERE audit_trail_file.eformsign_doc_id = doc.id
+                      AND audit_trail_file.file_type = 'audit_trail'
+                      AND audit_trail_file.source_updated_date = doc.detail_source_updated_date
+                )
+            `;
         const locked = await transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
             SELECT doc.id
             FROM eformsign_doc AS doc
             WHERE doc.document_id = ${documentId}
               AND doc.detail_source_updated_date = ${expectedMirrorGeneration.detailSourceUpdatedDate}
               AND doc.detail_synced_at = ${expectedMirrorGeneration.detailSyncedAt}
-              AND doc.sync_status = 'ready'
               AND doc.permanent_purge_requested_at IS NULL
-              AND EXISTS (
-                  SELECT 1
-                  FROM eformsign_doc_file AS document_file
-                  WHERE document_file.eformsign_doc_id = doc.id
-                    AND document_file.file_type = 'document'
-                    AND document_file.source_updated_date = doc.detail_source_updated_date
-              )
-              AND EXISTS (
-                  SELECT 1
-                  FROM eformsign_doc_file AS audit_trail_file
-                  WHERE audit_trail_file.eformsign_doc_id = doc.id
-                    AND audit_trail_file.file_type = 'audit_trail'
-                    AND audit_trail_file.source_updated_date = doc.detail_source_updated_date
-              )
+              ${readinessFence}
             FOR UPDATE
         `);
         return locked.length === 1;

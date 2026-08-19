@@ -604,7 +604,10 @@ export class SbEformsignDocRepository implements IEformsignDocRepository {
                         permanentPurgeRequestedAt: null,
                         statusType: { notIn: DELETED_EFORMSIGN_STATUS_TYPES },
                     },
-                    data: { clientId },
+                    data: {
+                        clientId,
+                        autoRegisteredClient: false,
+                    },
                 });
                 if (reassigned.count !== 1) {
                     // We hold the parent-row lock, so this cannot be a normal
