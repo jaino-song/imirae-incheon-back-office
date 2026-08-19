@@ -87,12 +87,16 @@ export class SmsRetryService {
             });
 
             if (!this.isAcceptedSmsResult(result)) {
-                this.markSmsRetryFailed(retryLog, result.response.message || "문자 발송 요청이 실패했습니다.");
+                this.markSmsRetryRejected(retryLog, result.response.message || "문자 발송 요청이 실패했습니다.");
                 await this.logRepository.update(retryLog);
                 this.logger.warn(`[Retry] SMS retry rejected for log ${retryLog.id}: ${result.response.message}`);
                 return retryLog;
             }
 
+            retryLog.variables = {
+                ...retryLog.variables,
+                retrySafety: "accepted",
+            };
             if (isScheduledInFuture) {
                 retryLog.status = "pending";
                 retryLog.aligoMid = result.response.msg_id ? String(result.response.msg_id) : null;
@@ -106,9 +110,14 @@ export class SmsRetryService {
             this.logger.log(`[Retry] Successfully resent SMS ${retryLog.templateKey} to ${maskPhone(retryLog.receiver)}`);
             return retryLog;
         } catch (error) {
-            this.markSmsRetryFailed(retryLog, error instanceof Error ? error.message : String(error));
+            this.markSmsRetryUncertain(
+                retryLog,
+                error instanceof Error ? error.message : String(error),
+            );
             await this.logRepository.update(retryLog);
-            this.logger.warn(`[Retry] Failed SMS attempt ${retryLog.attempts} for log ${retryLog.id}: ${error}`);
+            this.logger.warn(
+                `[Retry] SMS result uncertain for log ${retryLog.id}; automatic retry stopped: ${error}`,
+            );
             return retryLog;
         }
     }
@@ -129,6 +138,10 @@ export class SmsRetryService {
                 ...sourceLog.variables,
                 retryOfLogId: String(sourceLog.id),
                 retryAttempt: String(sourceLog.attempts + 1),
+                // Persist the attempt conservatively before the provider call. If the
+                // process exits after submission but before the result update, the
+                // scheduler must not submit the same SMS again automatically.
+                retrySafety: "uncertain",
             },
             "pending",
             null,
@@ -150,14 +163,30 @@ export class SmsRetryService {
         return Number.isNaN(ms) ? null : ms;
     }
 
-    private markSmsRetryFailed(log: MessageLogEntity, errorMessage: string): void {
+    private markSmsRetryRejected(log: MessageLogEntity, errorMessage: string): void {
         log.status = "failed";
         log.errorMessage = errorMessage;
         log.attempts += 1;
         log.lastAttemptAt = new Date(Date.now());
+        log.variables = {
+            ...log.variables,
+            retrySafety: "provider-rejected",
+        };
         log.nextRetryAt = log.canRetry()
             ? new Date(Date.now() + SMS_DELIVERY_RETRY_DELAY_MS)
             : null;
+    }
+
+    private markSmsRetryUncertain(log: MessageLogEntity, errorMessage: string): void {
+        log.status = "failed";
+        log.errorMessage = `${errorMessage} 문자 발송 결과가 불확실하여 자동 재전송을 중단했습니다. 제공자 이력 확인 후 수동 확인이 필요합니다.`;
+        log.attempts += 1;
+        log.lastAttemptAt = new Date(Date.now());
+        log.nextRetryAt = null;
+        log.variables = {
+            ...log.variables,
+            retrySafety: "uncertain",
+        };
     }
 
     private isAcceptedSmsResult(result: Awaited<ReturnType<AligoService["sendSms"]>>): boolean {

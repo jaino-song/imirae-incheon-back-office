@@ -23,6 +23,7 @@ import {
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
 import {
+    MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON,
     PAST_OCCURRENCE_GRACE_MS,
     SEND_HOUR_KST,
     TRIGGER_JOB_PROCESSING_RECLAIM_MS,
@@ -64,6 +65,11 @@ interface UpsertRuleParams {
     templateKey: MessageTriggerTemplateKey;
 }
 
+export interface MessageTriggerIntentSyncOptions {
+    stableBatchAt: Date;
+    preserveExisting: true;
+}
+
 type MessageTriggerRuleValidationParams = Pick<
     UpsertRuleParams,
     "eventType" | "offsetType" | "offsetDays" | "recipientType" | "templateKey"
@@ -89,7 +95,6 @@ const DEFAULT_CLIENT_GREETING_TRIGGER: UpsertRuleParams = {
     templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
 };
 
-const MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON = "메시지 발송 승인 필요";
 const ORPHANED_TRIGGER_JOB_CANCEL_REASON = "Related client or schedule deleted";
 const EXPIRED_PENDING_JOB_CANCEL_REASON = "기존 발송 예정 24시간 경과";
 const MISSING_CATCH_UP_PREDECESSOR_CANCEL_REASON = "보충 발송 이전 순위 job 없음";
@@ -712,6 +717,7 @@ export class MessageTriggerService {
         clientId: number,
         includePast: boolean,
         suppressGreeting = false,
+        intentOptions?: MessageTriggerIntentSyncOptions,
     ): Promise<void> {
         if (!(await this.hasTriggerSchema())) {
             return;
@@ -751,12 +757,14 @@ export class MessageTriggerService {
         ]);
 
         if (includePast) {
-            await this.cancelPendingJobsForClient(
-                branchId,
-                rules,
-                clientId,
-                "Client data changed",
-            );
+            if (!intentOptions?.preserveExisting) {
+                await this.cancelPendingJobsForClient(
+                    branchId,
+                    rules,
+                    clientId,
+                    "Client data changed",
+                );
+            }
         } else {
             const immediateRules = rules.filter(
                 (rule) => rule.offsetType === MessageTriggerOffsetType.IMMEDIATE,
@@ -794,11 +802,21 @@ export class MessageTriggerService {
         }
 
         const jobsToPersist = includePast
-            ? await this.applyRetroactiveSendConfig(branchId, candidateJobs)
+            ? await this.applyRetroactiveSendConfig(
+                branchId,
+                candidateJobs,
+                intentOptions?.stableBatchAt,
+            )
             : candidateJobs;
 
         for (const { rule, job } of jobsToPersist) {
-            await this.persistPendingJob(job, rule, includePast, false);
+            await this.persistPendingJob(
+                job,
+                rule,
+                includePast,
+                false,
+                intentOptions?.preserveExisting === true,
+            );
         }
     }
 
@@ -870,6 +888,7 @@ export class MessageTriggerService {
         branchId: string,
         employeeScheduleId: number,
         includePast: boolean,
+        intentOptions?: Pick<MessageTriggerIntentSyncOptions, "preserveExisting">,
     ): Promise<void> {
         if (!(await this.hasTriggerSchema())) {
             return;
@@ -892,12 +911,14 @@ export class MessageTriggerService {
             MessageTriggerEventType.EMPLOYEE_ASSIGNED,
         ]);
 
-        await this.cancelPendingJobsForEmployeeSchedule(
-            branchId,
-            rules,
-            employeeScheduleId,
-            "Employee assignment changed",
-        );
+        if (!intentOptions?.preserveExisting) {
+            await this.cancelPendingJobsForEmployeeSchedule(
+                branchId,
+                rules,
+                employeeScheduleId,
+                "Employee assignment changed",
+            );
+        }
 
         for (const rule of rules) {
             const job = this.buildEmployeeAssignmentJob(rule, schedule);
@@ -905,7 +926,13 @@ export class MessageTriggerService {
             if (await this.hasSentEmployeeAssignmentJobForSameEmployee(job)) {
                 continue;
             }
-            await this.persistPendingJob(job, rule, includePast, false);
+            await this.persistPendingJob(
+                job,
+                rule,
+                includePast,
+                false,
+                intentOptions?.preserveExisting === true,
+            );
         }
     }
 
@@ -1049,6 +1076,7 @@ export class MessageTriggerService {
         rule: MessageTriggerRuleEntity,
         includePast: boolean,
         expectedJobsStale: boolean,
+        preserveExisting = false,
     ): Promise<void> {
         if (!job) return;
         if (!includePast) {
@@ -1070,18 +1098,22 @@ export class MessageTriggerService {
             job,
             rule.updatedAt,
             expectedJobsStale,
+            preserveExisting,
         );
     }
 
     private async applyRetroactiveSendConfig(
         branchId: string,
         candidates: ClientRuleJobCandidate[],
+        stableBatchAt?: Date,
     ): Promise<ClientRuleJobCandidate[]> {
         if (candidates.length === 0) return candidates;
 
         const config = await this.getRetroactiveSendConfig(branchId);
         const now = Date.now();
-        const baseScheduledFor = new Date(now);
+        const baseScheduledFor = stableBatchAt
+            ? new Date(stableBatchAt)
+            : new Date(now);
         const dueCandidates = candidates.filter(({ job }) => job.scheduledFor.getTime() <= now);
         const futureCandidates = candidates
             .filter(({ job }) => job.scheduledFor.getTime() > now)

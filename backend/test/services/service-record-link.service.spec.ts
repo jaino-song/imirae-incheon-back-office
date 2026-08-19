@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ServiceRecordLinkService } from "application/services/service-record-link.service";
 import {
+    SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
     SERVICE_RECORD_LINK_RULE_ID,
     SERVICE_RECORD_LINK_SMS_LOG_TEMPLATE_KEY,
     SERVICE_RECORD_LINK_SMS_TITLE,
@@ -20,8 +21,12 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 
 describe("ServiceRecordLinkService", () => {
     const createPrisma = () => ({
+        $queryRaw: jest.fn().mockResolvedValue([{ id: "claim-1" }]),
         employee_schedule: {
             findUnique: jest.fn(),
+        },
+        message_trigger_job: {
+            updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         },
         message_trigger_rule: {
             upsert: jest.fn().mockResolvedValue(undefined),
@@ -364,6 +369,82 @@ describe("ServiceRecordLinkService", () => {
         );
     });
 
+    it("claims the durable automatic retry marker before issuing a token", async () => {
+        const prisma = createPrisma();
+        const tokenService = createTokenService();
+        const service = new ServiceRecordLinkService(
+            prisma as unknown as PrismaService,
+            tokenService as never,
+            createConfigService() as unknown as ConfigService,
+            createJobRepository() as unknown as IMessageTriggerJobRepository,
+            createLogRepository() as unknown as IMessageLogRepository,
+        );
+        prisma.employee_schedule.findUnique.mockResolvedValue(createSchedule());
+
+        await expect(service.scheduleForServiceStart(10)).resolves.toBe(true);
+
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+        expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+            tokenService.issueLink.mock.invocationCallOrder[0]!,
+        );
+        const sql = prisma.$queryRaw.mock.calls[0]?.[0] as { strings: readonly string[] };
+        expect(sql.strings.join("?")).toContain('ON CONFLICT ("dedupe_key") DO UPDATE');
+        expect(sql.strings.join("?")).toContain("WHERE NOT EXISTS");
+        expect(sql.strings.join("?")).toContain("blocker.\"status\" IN ('pending', 'processing', 'sent')");
+        expect(sql.strings.join("?")).toContain('"canceled_by_user" = false');
+    });
+
+    it("does not issue another token when another instance owns the automatic claim", async () => {
+        const prisma = createPrisma();
+        prisma.$queryRaw.mockResolvedValue([]);
+        const tokenService = createTokenService();
+        const jobRepository = createJobRepository();
+        const service = new ServiceRecordLinkService(
+            prisma as unknown as PrismaService,
+            tokenService as never,
+            createConfigService() as unknown as ConfigService,
+            jobRepository as unknown as IMessageTriggerJobRepository,
+            createLogRepository() as unknown as IMessageLogRepository,
+        );
+        prisma.employee_schedule.findUnique.mockResolvedValue(createSchedule());
+
+        await expect(service.scheduleForServiceStart(10)).resolves.toBe(false);
+
+        expect(tokenService.reuseActiveLink).not.toHaveBeenCalled();
+        expect(tokenService.issueLink).not.toHaveBeenCalled();
+        expect(jobRepository.upsertPending).not.toHaveBeenCalled();
+        expect(prisma.message_trigger_job.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("backs off the retry marker when automatic token issuance fails", async () => {
+        const prisma = createPrisma();
+        const tokenService = createTokenService();
+        tokenService.issueLink.mockRejectedValue(new Error("token unavailable"));
+        const service = new ServiceRecordLinkService(
+            prisma as unknown as PrismaService,
+            tokenService as never,
+            createConfigService() as unknown as ConfigService,
+            createJobRepository() as unknown as IMessageTriggerJobRepository,
+            createLogRepository() as unknown as IMessageLogRepository,
+        );
+        prisma.employee_schedule.findUnique.mockResolvedValue(createSchedule());
+        const before = Date.now();
+
+        await expect(service.scheduleForServiceStart(10)).rejects.toThrow("token unavailable");
+
+        const updateCall = prisma.message_trigger_job.updateMany.mock.calls[0]?.[0];
+        expect(updateCall).toEqual({
+            where: {
+                dedupeKey: `${SERVICE_RECORD_LINK_RULE_ID}:schedule:10:primary`,
+                status: "failed",
+                cancelReason: SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
+                canceledByUser: false,
+            },
+            data: { nextAttemptAt: expect.any(Date) },
+        });
+        expect(updateCall.data.nextAttemptAt.getTime()).toBeGreaterThan(before + 5 * 60 * 1000);
+    });
+
     it("supersedes retryable stale SMS logs before issuing a replacement token", async () => {
         const prisma = createPrisma();
         const tokenService = createTokenService();
@@ -504,7 +585,7 @@ describe("ServiceRecordLinkService", () => {
         expect(jobRepository.upsertPending).not.toHaveBeenCalled();
     });
 
-    it("scheduleForServiceStart still swallows scheduling errors", async () => {
+    it("surfaces scheduling errors so the caller can arrange a retry", async () => {
         const prisma = createPrisma();
         const tokenService = createTokenService();
         tokenService.issueLink.mockRejectedValue(new Error("token unavailable"));
@@ -517,7 +598,7 @@ describe("ServiceRecordLinkService", () => {
         );
         prisma.employee_schedule.findUnique.mockResolvedValue(createSchedule());
 
-        await expect(service.scheduleForServiceStart(10)).resolves.toBeUndefined();
+        await expect(service.scheduleForServiceStart(10)).rejects.toThrow("token unavailable");
     });
 
     it("extends an existing token to end-date 20:00 KST", async () => {

@@ -34,6 +34,7 @@ import { addBusinessDaysKr, diffBusinessDaysKr, isoDateInKorea } from "domain/ut
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { computeServiceStatus, SERVICE_STATUS, ServiceStatusType } from "domain/value-objects/service-status.vo";
 import { MessageTriggerService } from "./message-trigger.service";
+import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import { SystemSettingService } from "./system-setting.service";
@@ -190,6 +191,7 @@ export class ClientService {
         private readonly clientRepository: IClientRepository,
         private readonly systemSettingService: SystemSettingService,
         private readonly documentSnapshotService: EformsignDocumentSnapshotService,
+        private readonly messageAutomationIntentService: MessageAutomationIntentService,
         @Optional() private readonly triggerService?: MessageTriggerService,
         @Optional() private readonly serviceRecordLinkService?: ServiceRecordLinkService,
         @Optional() private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
@@ -798,6 +800,7 @@ export class ClientService {
         workAddress: string;
         startDate: Date;
         endDate: Date;
+        applyMessageAutomation: boolean;
     }): Promise<{ createdScheduleId: number | null; replacedScheduleId: number | null }> {
         const currentSchedule = await this.prismaService.employee_schedule.findFirst({
             where: { clientId: params.clientId, branchId: branchid, replaced: false },
@@ -822,6 +825,7 @@ export class ClientService {
             throw new BadRequestException("primary employee is required to create an assignment");
         }
 
+        const intentAt = new Date();
         const newSchedule = await this.prismaService.$transaction(async (transaction) => {
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
@@ -829,7 +833,7 @@ export class ClientService {
                     data: { replaced: true, endDate: new Date() },
                 });
             }
-            return transaction.employee_schedule.create({
+            const newSchedule = await transaction.employee_schedule.create({
                 data: {
                     clientId: params.clientId,
                     branchId: branchid,
@@ -841,6 +845,16 @@ export class ClientService {
                     replaced: false,
                 },
             });
+            if (params.applyMessageAutomation) {
+                await this.messageAutomationIntentService.persistScheduleIntent(transaction, {
+                    branchId: branchid,
+                    clientId: params.clientId,
+                    scheduleId: newSchedule.id,
+                    includePast: true,
+                    intentAt,
+                });
+            }
+            return newSchedule;
         });
 
         return {
@@ -920,6 +934,7 @@ export class ClientService {
                     workAddress: params.address ?? existing.address ?? "",
                     startDate: startDate ?? existing.startDate ?? new Date(),
                     endDate: endDate ?? existing.endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
+                    applyMessageAutomation,
                 });
                 if (assignment.replacedScheduleId !== null) {
                     await this.revokeServiceRecordLinkAfterCommit(
@@ -928,16 +943,15 @@ export class ClientService {
                     );
                 }
                 if (assignment.createdScheduleId !== null) {
-                    await this.triggerService
-                        ?.syncEmployeeAssignmentRulesForSchedule(branchid, assignment.createdScheduleId, true)
-                        ?.catch((error) => {
-                            this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
+                    if (applyMessageAutomation) {
+                        await this.messageAutomationIntentService.fulfillScheduleIntent({
+                            branchId: branchid,
+                            scheduleId: assignment.createdScheduleId,
+                            includePast: true,
+                        }).catch((error) => {
+                            this.logger.error(`Failed to fulfill assignment message intent: ${error}`);
                         });
-                    this.serviceRecordLinkService
-                        ?.scheduleForServiceStart(assignment.createdScheduleId)
-                        ?.catch((error) => {
-                            this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
-                        });
+                    }
                 }
             }
             await this.linkContractDocumentsByPhone(branchid, existing, normalizedPhone);
@@ -982,18 +996,50 @@ export class ClientService {
 
         let client: ClientEntity;
         let createdScheduleId: number | null = null;
+        const automationIntentAt = new Date();
         if (primaryEmployeeId !== null) {
-            const result = await this.createClientUsecase.executeWithInitialSchedule(branchid, createParams, {
-                primaryEmployeeId,
-                secondaryEmployeeId,
-                workAddress: params.address ?? "",
-                startDate: startDate ?? new Date(),
-                endDate: endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
+            const result = await this.prismaService.$transaction(async (transaction) => {
+                const created = await this.createClientUsecase.executeWithInitialSchedule(branchid, createParams, {
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    workAddress: params.address ?? "",
+                    startDate: startDate ?? new Date(),
+                    endDate: endDate ?? new Date(Date.now() + DEFAULT_SERVICE_PERIOD_MS),
+                }, transaction);
+                if (applyMessageAutomation) {
+                    await this.messageAutomationIntentService.persistClientIntent(transaction, {
+                        branchId: branchid,
+                        clientId: created.client.id,
+                        includePast: true,
+                        suppressGreeting: suppressGreetingSms,
+                        intentAt: automationIntentAt,
+                    });
+                    await this.messageAutomationIntentService.persistScheduleIntent(transaction, {
+                        branchId: branchid,
+                        clientId: created.client.id,
+                        scheduleId: created.scheduleId,
+                        includePast: true,
+                        intentAt: automationIntentAt,
+                    });
+                }
+                return created;
             });
             client = result.client;
             createdScheduleId = result.scheduleId;
         } else {
-            client = await this.createClientUsecase.execute(branchid, createParams);
+            client = await this.prismaService.$transaction(async (transaction) => {
+                const created = await this.createClientUsecase.execute(branchid, createParams, transaction);
+                if (applyMessageAutomation) {
+                    await this.messageAutomationIntentService.persistClientIntent(transaction, {
+                        branchId: branchid,
+                        clientId: created.id,
+                        includePast: true,
+                        suppressGreeting: suppressGreetingSms,
+                        intentAt: automationIntentAt,
+                    });
+                }
+                return created;
+            });
         }
 
         if (normalizedPhone) {
@@ -1001,25 +1047,24 @@ export class ClientService {
         }
         await this.serviceRecordLifecycleService?.ensureForClient(client.id);
 
-        if (this.triggerService && applyMessageAutomation) {
-            await this.triggerService
-                .ensureDefaultRulesForBranch(branchid)
-                .then(() => this.triggerService!.syncClientRulesForClient(branchid, client.id, true, suppressGreetingSms))
-                .catch((error) => {
-                    this.logger.error(`Failed to sync client trigger rules: ${error}`);
-                });
+        if (applyMessageAutomation) {
+            await this.messageAutomationIntentService.fulfillClientIntent({
+                branchId: branchid,
+                clientId: client.id,
+                includePast: true,
+                suppressGreeting: suppressGreetingSms,
+            }).catch((error) => {
+                this.logger.error(`Failed to fulfill client message intent: ${error}`);
+            });
         }
         if (createdScheduleId !== null && applyMessageAutomation) {
-            await this.triggerService
-                ?.syncEmployeeAssignmentRulesForSchedule(branchid, createdScheduleId, true)
-                ?.catch((error) => {
-                    this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
-                });
-            this.serviceRecordLinkService
-                ?.scheduleForServiceStart(createdScheduleId)
-                ?.catch((error) => {
-                    this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
-                });
+            await this.messageAutomationIntentService.fulfillScheduleIntent({
+                branchId: branchid,
+                scheduleId: createdScheduleId,
+                includePast: true,
+            }).catch((error) => {
+                this.logger.error(`Failed to fulfill assignment message intent: ${error}`);
+            });
         }
 
         return client;
@@ -1486,7 +1531,7 @@ export class ClientService {
                 ?.catch((error) => {
                     this.logger.error(`Failed to sync employee assignment triggers: ${error}`);
                 });
-            this.serviceRecordLinkService
+            await this.serviceRecordLinkService
                 ?.scheduleForServiceStart(createdScheduleId)
                 ?.catch((error) => {
                     this.logger.error(`Failed to schedule service-record link SMS: ${error}`);
@@ -1620,13 +1665,13 @@ export class ClientService {
         if (replacedScheduleId !== null) {
             await this.revokeServiceRecordLinkAfterCommit(clientId, replacedScheduleId);
         }
-        this.triggerService
+        await this.triggerService
             ?.syncEmployeeAssignmentRulesForSchedule(branchid, replacementSchedule.id, true)
             ?.catch((error) => {
                 this.logger.error(`Failed to sync replacement assignment triggers: ${error}`);
             });
         await this.serviceRecordLifecycleService?.ensureForClient(clientId);
-        this.serviceRecordLinkService
+        await this.serviceRecordLinkService
             ?.scheduleForServiceStart(replacementSchedule.id)
             ?.catch((error) => {
                 this.logger.error(`Failed to schedule replacement service-record link SMS: ${error}`);

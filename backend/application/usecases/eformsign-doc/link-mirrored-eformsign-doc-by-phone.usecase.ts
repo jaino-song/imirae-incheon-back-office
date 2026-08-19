@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { persistClientMessageAutomationIntent } from "application/services/message-automation-intent-writer";
+import { fulfillClientMessageAutomationIntent } from "application/services/client-message-automation-intent-fulfiller";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { SystemSettingService } from "application/services/system-setting.service";
 import {
@@ -204,6 +206,8 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             canCreate,
             creationBranchId,
             suppressGreetingSms,
+            applyMessageAutomation: !options.suppressOutboundAutomation,
+            intentAt: new Date(),
             expectedMirrorGeneration,
         });
         if (
@@ -278,6 +282,8 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
         canCreate: boolean;
         creationBranchId: string | null;
         suppressGreetingSms: boolean;
+        applyMessageAutomation: boolean;
+        intentAt: Date;
         expectedMirrorGeneration?: ExpectedEformsignMirrorGeneration;
     }): Promise<TransactionResult> {
         let lastError: unknown;
@@ -437,6 +443,15 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             throw new Error(
                                 `Eformsign document ${document.documentId} was claimed concurrently`,
                             );
+                        }
+                        if (params.applyMessageAutomation) {
+                            await persistClientMessageAutomationIntent(transaction, {
+                                branchId: creationBranchId,
+                                clientId: client.id,
+                                includePast: true,
+                                suppressGreeting: params.suppressGreetingSms,
+                                intentAt: params.intentAt,
+                            });
                         }
                         return {
                             status: "created",
@@ -726,13 +741,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
     ): Promise<void> {
         if (!this.messageTriggerService) return;
         try {
-            await this.messageTriggerService.ensureDefaultRulesForBranch(branchId);
-            await this.messageTriggerService.syncClientRulesForClient(
+            await fulfillClientMessageAutomationIntent({
+                prisma: this.prisma,
+                triggerService: this.messageTriggerService,
                 branchId,
                 clientId,
-                true,
-                suppressGreetingSms,
-            );
+                includePast: true,
+                suppressGreeting: suppressGreetingSms,
+            });
         } catch (error) {
             const errorType = error instanceof Error ? error.name : "UnknownError";
             this.logger.error(
@@ -740,6 +756,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             );
         }
     }
+
 }
 
 function singleLegacyPhone(value: string, hasDetail: boolean): string | null {

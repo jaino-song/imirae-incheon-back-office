@@ -180,10 +180,11 @@ export class SbClientRepository implements IClientRepository {
         branchid: string,
         client: ClientEntity,
         schedule: InitialClientSchedule,
+        transaction?: Prisma.TransactionClient,
     ): Promise<ClientWithInitialSchedule> {
         const select = await this.getClientSelect();
         const data = await this.getClientCreateData(client);
-        const created = await this.prismaService.client.create({
+        const created = await (transaction ?? this.prismaService).client.create({
             data: {
                 ...data,
                 branchId: branchid,
