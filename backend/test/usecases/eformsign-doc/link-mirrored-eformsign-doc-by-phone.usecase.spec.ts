@@ -353,6 +353,7 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
                 clientId: 31,
                 documentKind: "contract",
                 customerPhone: "01012345678",
+                autoRegisteredClient: true,
             },
         });
         expect(messageTrigger.ensureDefaultRulesForBranch)
@@ -639,6 +640,7 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
             data: {
                 branchId: "branch-1",
                 clientId: 31,
+                autoRegisteredClient: true,
                 documentKind: "contract",
                 customerPhone: "01012345678",
             },

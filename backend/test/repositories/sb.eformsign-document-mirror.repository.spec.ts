@@ -338,9 +338,22 @@ describe("SbEformsignDocumentMirrorRepository", () => {
                 deleteMany: jest.fn().mockResolvedValue({ count: 2 }),
             },
             client: {
+                findFirst: jest.fn().mockResolvedValue({ id: 31 }),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
-            $queryRaw: jest.fn().mockResolvedValue([{ id: 11, documentId: "doc-1" }]),
+            message_trigger_job: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            service_record_case: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            $queryRaw: jest.fn().mockResolvedValue([{
+                id: 11,
+                documentId: "doc-1",
+                clientId: 31,
+                autoRegisteredClient: true,
+            }]),
         };
         (prisma as { $transaction?: jest.Mock }).$transaction = transactionMock(prisma);
         const repository = new SbEformsignDocumentMirrorRepository(
@@ -353,6 +366,57 @@ describe("SbEformsignDocumentMirrorRepository", () => {
         expect(prisma.client.updateMany).toHaveBeenCalledWith({
             where: { eDocId: { in: ["doc-1"] } },
             data: { eDocId: null },
+        });
+        expect(prisma.message_trigger_job.deleteMany).toHaveBeenCalledWith({
+            where: {
+                clientId: 31,
+                sentAt: null,
+                logs: { none: {} },
+            },
+        });
+        expect(prisma.client.findFirst).toHaveBeenCalledWith({
+            where: {
+                id: 31,
+                eDocId: { in: ["doc-1"] },
+                eformsignDocs: {
+                    none: { id: { notIn: [11] } },
+                },
+                employeeSchedules: { none: {} },
+                callRecords: { none: {} },
+                clientDrafts: { none: {} },
+                scheduleChangeRequests: { none: {} },
+                messageLogs: { none: {} },
+                eformsignDocumentJobs: { none: {} },
+            },
+            select: { id: true },
+        });
+        expect(prisma.service_record_case.deleteMany).toHaveBeenCalledWith({
+            where: {
+                clientId: 31,
+                assignments: { none: {} },
+                days: { none: {} },
+                serviceRecordTokens: { none: {} },
+                legacyHeaders: { none: {} },
+                snapshotChunks: { none: {} },
+                eformsignDocs: { none: {} },
+            },
+        });
+        expect(prisma.client.deleteMany).toHaveBeenCalledWith({
+            where: {
+                id: 31,
+                eDocId: { in: ["doc-1"] },
+                eformsignDocs: {
+                    none: { id: { notIn: [11] } },
+                },
+                employeeSchedules: { none: {} },
+                callRecords: { none: {} },
+                clientDrafts: { none: {} },
+                scheduleChangeRequests: { none: {} },
+                messageLogs: { none: {} },
+                eformsignDocumentJobs: { none: {} },
+                messageTriggerJobs: { none: {} },
+                serviceRecordCase: { is: null },
+            },
         });
         expect(prisma.eformsign_doc_file.deleteMany).toHaveBeenCalledWith({
             where: { eformsignDocId: { in: [11] } },
@@ -367,6 +431,7 @@ describe("SbEformsignDocumentMirrorRepository", () => {
                 creatorName: null,
                 lastEditorName: null,
                 clientId: null,
+                autoRegisteredClient: false,
                 documentKind: null,
                 employeeScheduleId: null,
                 serviceRecordCaseId: null,
@@ -385,7 +450,91 @@ describe("SbEformsignDocumentMirrorRepository", () => {
             }),
         });
         expect((prisma as { $transaction?: jest.Mock }).$transaction).toHaveBeenCalledTimes(1);
-        expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps automatic-registration artifacts when the client has real business data", async () => {
+        const prisma = {
+            eformsign_doc: {
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            eformsign_doc_file: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            client: {
+                findFirst: jest.fn().mockResolvedValue(null),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            message_trigger_job: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            service_record_case: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            $queryRaw: jest.fn().mockResolvedValue([{
+                id: 11,
+                documentId: "doc-1",
+                clientId: 31,
+                autoRegisteredClient: true,
+            }]),
+        };
+        (prisma as { $transaction?: jest.Mock }).$transaction = transactionMock(prisma);
+        const repository = new SbEformsignDocumentMirrorRepository(prisma as never);
+
+        await repository.purgeContent(
+            ["doc-1"],
+            new Date("2026-07-30T00:00:00.000Z"),
+        );
+
+        expect(prisma.client.findFirst).toHaveBeenCalledTimes(1);
+        expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.service_record_case.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.client.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("keeps an existing client that was only linked to the purged document", async () => {
+        const prisma = {
+            eformsign_doc: {
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            eformsign_doc_file: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            client: {
+                findFirst: jest.fn().mockResolvedValue(null),
+                updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            message_trigger_job: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            service_record_case: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            $queryRaw: jest.fn().mockResolvedValue([{
+                id: 11,
+                documentId: "doc-1",
+                clientId: 31,
+                autoRegisteredClient: false,
+            }]),
+        };
+        (prisma as { $transaction?: jest.Mock }).$transaction = transactionMock(prisma);
+        const repository = new SbEformsignDocumentMirrorRepository(prisma as never);
+
+        await repository.purgeContent(
+            ["doc-1"],
+            new Date("2026-07-30T00:00:00.000Z"),
+        );
+
+        expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.service_record_case.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.client.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.client.findFirst).not.toHaveBeenCalled();
+        expect(prisma.client.updateMany).toHaveBeenCalledWith({
+            where: { eDocId: { in: ["doc-1"] } },
+            data: { eDocId: null },
+        });
     });
 
     it("serializes a concurrent tombstone after purge without restoring stale PII or purge intent", async () => {

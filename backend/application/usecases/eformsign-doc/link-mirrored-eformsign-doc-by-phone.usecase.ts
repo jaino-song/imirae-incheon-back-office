@@ -427,6 +427,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                             data: {
                                 branchId: creationBranchId,
                                 clientId: client.id,
+                                autoRegisteredClient: true,
                                 documentKind: EFORMSIGN_DOCUMENT_KIND.CONTRACT,
                                 customerPhone: candidate.phone,
                             },
