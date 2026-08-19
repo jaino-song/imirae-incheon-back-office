@@ -22,6 +22,12 @@ interface NotificationEmailTemplateContext {
     ctaLabel: string;
 }
 
+export interface DailyDigestNotificationItem {
+    title: string;
+    body: string;
+    data: Record<string, unknown>;
+}
+
 /**
  * One line item of the per-branch daily digest. The scheduler builds these from its
  * repository queries; the digest is delivered as a single notification row, a single
@@ -41,6 +47,8 @@ export interface DailyDigestSection {
      * line and is HTML-escaped the same way the rest of the digest is.
      */
     details?: string[];
+    /** Exact in-app/push rows for sections whose subjects are already known. */
+    notificationItems?: DailyDigestNotificationItem[];
 }
 
 @Injectable()
@@ -265,13 +273,34 @@ export class NotificationService {
             return { sent: 0, failed: 0 };
         }
 
+        const itemizedSections = sections.filter((section) => (section.notificationItems?.length ?? 0) > 0);
+        const aggregateSections = sections.filter((section) => (section.notificationItems?.length ?? 0) === 0);
+        const notificationItems = itemizedSections.flatMap((section) => section.notificationItems ?? []);
         const title = `오늘 확인할 알림이 ${sections.length}건 있습니다`;
-        const summary = sections.map((section) => `${section.label} ${section.count}${section.unit}`).join(" · ");
-        const body = `[${branchName}] ${summary} 지금 확인해 보세요.`;
-        const data = { type: "daily-summary", url: sections.length === 1 ? sections[0]!.url : "/", sections };
 
         const results = await Promise.allSettled(uniqueUsers.map(async (user) => {
-            await this.sendNotificationUsecase.execute(branchid, { userId: user.id, title, body, data });
+            if (aggregateSections.length > 0) {
+                const summary = aggregateSections
+                    .map((section) => `${section.label} ${section.count}${section.unit}`)
+                    .join(" · ");
+                const body = `[${branchName}] ${summary} 지금 확인해 보세요.`;
+                const data = {
+                    type: "daily-summary",
+                    url: aggregateSections.length === 1 ? aggregateSections[0]!.url : "/",
+                    sections: aggregateSections,
+                };
+                await this.sendNotificationUsecase.execute(branchid, { userId: user.id, title, body, data });
+            }
+
+            for (const item of notificationItems) {
+                await this.sendNotificationUsecase.execute(branchid, {
+                    userId: user.id,
+                    title: item.title,
+                    body: item.body,
+                    data: item.data,
+                });
+            }
+
             return this.sendDailyDigestEmailToUser(user, branchName, title, sections, emailTemplateContext);
         }));
 

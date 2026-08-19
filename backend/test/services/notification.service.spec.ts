@@ -230,6 +230,49 @@ describe("NotificationService", () => {
             }
         });
 
+        it("should store exact item notifications instead of an aggregate row for itemized sections", async () => {
+            const itemizedSections: DailyDigestSection[] = [{
+                key: "ending",
+                label: "서비스 종료 예정",
+                description: "7일 내에 종료 예정인 서비스가 1건 있어요.",
+                count: 1,
+                unit: "건",
+                url: "/clients/filtered?filter=ending-soon",
+                notificationItems: [{
+                    title: "서비스 종료 예정",
+                    body: "김민지 산모님의 서비스가 내일 종료됩니다.",
+                    data: {
+                        type: "daily-summary-item",
+                        category: "service-ending",
+                        clientId: 10,
+                        url: "/clients/filtered?filter=ending-soon",
+                    },
+                }],
+            }];
+
+            await service.sendDailyDigestToBranchUsers(
+                branchId,
+                branchName,
+                itemizedSections,
+                digestContext,
+            );
+
+            expect(sendNotificationUsecase.execute).toHaveBeenCalledTimes(2);
+            for (const userId of ["user-1", "user-2"]) {
+                expect(sendNotificationUsecase.execute).toHaveBeenCalledWith(branchId, {
+                    userId,
+                    title: "서비스 종료 예정",
+                    body: "김민지 산모님의 서비스가 내일 종료됩니다.",
+                    data: {
+                        type: "daily-summary-item",
+                        category: "service-ending",
+                        clientId: 10,
+                        url: "/clients/filtered?filter=ending-soon",
+                    },
+                });
+            }
+        });
+
         it("should resolve recipients from the branch, never from the global role list", async () => {
             await service.sendDailyDigestToBranchUsers(branchId, branchName, sections, digestContext);
 

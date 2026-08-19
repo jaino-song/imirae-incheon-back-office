@@ -31,6 +31,7 @@ export interface AnimatedSlotListItemContentProps {
   contentClassName?: string;
   titleClassName?: string;
   subtitleClassName?: string;
+  subtitleTextClassName?: string;
   metaClassName?: string;
   statusClassName?: string;
 }
@@ -48,6 +49,7 @@ export function AnimatedSlotListItemContent({
   contentClassName,
   titleClassName,
   subtitleClassName,
+  subtitleTextClassName,
   metaClassName,
   statusClassName,
 }: AnimatedSlotListItemContentProps) {
@@ -137,7 +139,12 @@ export function AnimatedSlotListItemContent({
               subtitleClassName
             )}
           >
-            <span className="block min-w-0 truncate [&>*+*]:ml-[calc(8px*var(--glint-ui-scale,1))]">
+            <span
+              className={cn(
+                "block min-w-0 [&>*+*]:ml-[calc(8px*var(--glint-ui-scale,1))]",
+                subtitleTextClassName ?? "truncate"
+              )}
+            >
               {subtitle}
             </span>
           </div>
