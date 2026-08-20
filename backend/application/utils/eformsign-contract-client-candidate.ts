@@ -30,6 +30,10 @@ export interface EformsignContractClientCandidate {
 export interface EformsignContractClientPrefillCandidate
     extends Omit<EformsignContractClientCandidate, "phone"> {
     phone: string | null;
+    primaryProviderName: string | null;
+    primaryProviderPhone: string | null;
+    secondaryProviderName: string | null;
+    secondaryProviderPhone: string | null;
 }
 
 export function toEformsignDocumentDetail(
@@ -459,6 +463,34 @@ export function extractEformsignContractClientPrefillCandidate(
     return {
         name,
         phone,
+        primaryProviderName: eformsignDocumentFieldValue(document, [
+            "제공인력 1 성명",
+            "제공인력1성명",
+            "주 제공인력 성명",
+            "주제공인력성명",
+            "primaryProviderName",
+        ]),
+        primaryProviderPhone: normalizePhone(eformsignDocumentFieldValue(document, [
+            "제공인력 1 연락처",
+            "제공인력1연락처",
+            "주 제공인력 연락처",
+            "주제공인력연락처",
+            "primaryProviderPhone",
+        ])),
+        secondaryProviderName: eformsignDocumentFieldValue(document, [
+            "제공인력 2 성명",
+            "제공인력2성명",
+            "보조 제공인력 성명",
+            "보조제공인력성명",
+            "secondaryProviderName",
+        ]),
+        secondaryProviderPhone: normalizePhone(eformsignDocumentFieldValue(document, [
+            "제공인력 2 연락처",
+            "제공인력2연락처",
+            "보조 제공인력 연락처",
+            "보조제공인력연락처",
+            "secondaryProviderPhone",
+        ])),
         address: eformsignDocumentFieldValue(document, [
             "이용자 주소",
             "이용자주소",
@@ -546,7 +578,23 @@ export function extractEformsignContractClientCandidate(
 ): EformsignContractClientCandidate | null {
     const candidate = extractEformsignContractClientPrefillCandidate(document);
     if (!candidate?.phone) return null;
-    return { ...candidate, phone: candidate.phone };
+    return {
+        name: candidate.name,
+        phone: candidate.phone,
+        address: candidate.address,
+        birthday: candidate.birthday,
+        dueDate: candidate.dueDate,
+        startDate: candidate.startDate,
+        endDate: candidate.endDate,
+        type: candidate.type,
+        duration: candidate.duration,
+        fullPrice: candidate.fullPrice,
+        grant: candidate.grant,
+        actualPrice: candidate.actualPrice,
+        careCenter: candidate.careCenter,
+        voucherClient: candidate.voucherClient,
+        breastPump: candidate.breastPump,
+    };
 }
 
 export function formatNormalizedKoreanPhone(phone: string): string {

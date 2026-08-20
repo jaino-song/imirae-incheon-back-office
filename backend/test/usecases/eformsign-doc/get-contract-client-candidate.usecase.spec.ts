@@ -3,13 +3,19 @@ import { PrismaService } from "infrastructure/database/prisma.service";
 
 describe("GetContractClientCandidateUsecase", () => {
     const findUnique = jest.fn();
+    const findEmployees = jest.fn();
+    const findVoucherPrices = jest.fn();
     const prisma = {
         eformsign_doc: { findUnique },
+        employee: { findMany: findEmployees },
+        voucher_price_info: { findMany: findVoucherPrices },
     } as unknown as PrismaService;
 
     let usecase: GetContractClientCandidateUsecase;
 
     beforeEach(() => {
+        findEmployees.mockResolvedValue([]);
+        findVoucherPrices.mockResolvedValue([]);
         usecase = new GetContractClientCandidateUsecase(prisma);
     });
 
@@ -75,6 +81,8 @@ describe("GetContractClientCandidateUsecase", () => {
             dueDate: "2026-07-20",
             startDate: "2026-08-10",
             endDate: "2026-08-24",
+            primaryEmployeeId: null,
+            secondaryEmployeeId: null,
             type: "A-가형",
             duration: 10,
             fullPrice: "1234000",
@@ -84,6 +92,80 @@ describe("GetContractClientCandidateUsecase", () => {
             voucherClient: true,
             breastPump: false,
         });
+    });
+
+    it("지점 제공인력과 고유한 바우처 요금 행을 계약서 값으로 연결한다", async () => {
+        findUnique.mockResolvedValue({
+            documentId: "doc-live-shape",
+            customerName: null,
+            customerPhone: null,
+            detailPayload: {
+                fields: [
+                    { id: "이용자 성명", value: "박지원" },
+                    { id: "서비스 기간", value: "2026-08-19 ~ 2026-09-15" },
+                    { id: "제공인력 1 성명", value: "김희선" },
+                    { id: "제공인력 1 연락처", value: "01053309359" },
+                    { id: "제공인력 2 성명", value: "이보조" },
+                    { id: "총 서비스 금액", value: "2,928,000" },
+                    { id: "정부지원금", value: "1,440,000" },
+                    { id: "본인부담금", value: "1,488,000" },
+                ],
+            },
+        });
+        findEmployees.mockResolvedValue([
+            { id: 17, name: "김희선", phone: "010-5330-9359" },
+            { id: 23, name: "이보조", phone: "010-1111-2222" },
+        ]);
+        findVoucherPrices.mockResolvedValue([{
+            type: "A통합1형",
+            duration: BigInt(20),
+            fullPrice: "2928000",
+            grant: "1440000",
+            actualPrice: "1488000",
+        }]);
+
+        await expect(usecase.execute("doc-live-shape", "branch-1")).resolves.toEqual(
+            expect.objectContaining({
+                primaryEmployeeId: 17,
+                secondaryEmployeeId: 23,
+                type: "A통합1형",
+                duration: 20,
+                fullPrice: "2928000",
+                grant: "1440000",
+                actualPrice: "1488000",
+            }),
+        );
+        expect(findEmployees).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ branchId: "branch-1", deletedAt: null }),
+        }));
+        expect(findVoucherPrices).toHaveBeenCalledWith(expect.objectContaining({
+            where: { year: 2026 },
+        }));
+    });
+
+    it("동일 요금 행이 둘 이상이면 바우처 유형과 기간을 추측하지 않는다", async () => {
+        findUnique.mockResolvedValue({
+            documentId: "doc-ambiguous-price",
+            customerName: null,
+            customerPhone: null,
+            detailPayload: {
+                fields: [
+                    { id: "이용자 성명", value: "박지원" },
+                    { id: "계약 시작일", value: "2026-08-19" },
+                    { id: "총 서비스 금액", value: "2,928,000" },
+                    { id: "정부지원금", value: "1,440,000" },
+                    { id: "본인부담금", value: "1,488,000" },
+                ],
+            },
+        });
+        findVoucherPrices.mockResolvedValue([
+            { type: "A형", duration: BigInt(15), fullPrice: "2928000", grant: "1440000", actualPrice: "1488000" },
+            { type: "B형", duration: BigInt(20), fullPrice: "2928000", grant: "1440000", actualPrice: "1488000" },
+        ]);
+
+        await expect(usecase.execute("doc-ambiguous-price", "branch-1")).resolves.toEqual(
+            expect.objectContaining({ type: null, duration: null }),
+        );
     });
 
     it("payload가 없으면 문서 컬럼 폴백을 반환한다", async () => {
@@ -106,6 +188,8 @@ describe("GetContractClientCandidateUsecase", () => {
             dueDate: null,
             startDate: null,
             endDate: null,
+            primaryEmployeeId: null,
+            secondaryEmployeeId: null,
             type: null,
             duration: null,
             fullPrice: null,
@@ -140,6 +224,8 @@ describe("GetContractClientCandidateUsecase", () => {
             dueDate: null,
             startDate: null,
             endDate: null,
+            primaryEmployeeId: null,
+            secondaryEmployeeId: null,
             type: null,
             duration: null,
             fullPrice: null,
@@ -221,6 +307,8 @@ describe("GetContractClientCandidateUsecase", () => {
             dueDate: null,
             startDate: null,
             endDate: null,
+            primaryEmployeeId: null,
+            secondaryEmployeeId: null,
             type: null,
             duration: null,
             fullPrice: null,
