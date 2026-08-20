@@ -33,5 +33,12 @@ describe("document upload policy", () => {
             size: 8,
             bytes: Buffer.from("name,age"),
         })).toBeNull();
+
+        expect(validateDocumentUploadCandidate({
+            fileName: "명단.csv",
+            mimeType: "application/vnd.ms-excel",
+            size: 8,
+            bytes: Buffer.from("name,age"),
+        })).toBeNull();
     });
 });

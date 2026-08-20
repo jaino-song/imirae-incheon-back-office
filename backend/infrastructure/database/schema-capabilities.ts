@@ -3,13 +3,15 @@ import { PrismaService } from "./prisma.service";
 const columnCache = new Map<string, boolean>();
 const tableCache = new Map<string, boolean>();
 
-async function queryExists(prisma: PrismaService, sql: string, params: unknown[]): Promise<boolean> {
+export type SchemaCapabilityClient = Pick<PrismaService, "$queryRawUnsafe">;
+
+async function queryExists(prisma: SchemaCapabilityClient, sql: string, params: unknown[]): Promise<boolean> {
     const result = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(sql, ...params);
     return Boolean(result[0]?.exists);
 }
 
 export async function hasColumn(
-    prisma: PrismaService,
+    prisma: SchemaCapabilityClient,
     tableName: string,
     columnName: string,
 ): Promise<boolean> {
@@ -34,7 +36,7 @@ export async function hasColumn(
     return exists;
 }
 
-export async function hasTable(prisma: PrismaService, tableName: string): Promise<boolean> {
+export async function hasTable(prisma: SchemaCapabilityClient, tableName: string): Promise<boolean> {
     if (tableCache.has(tableName)) {
         return tableCache.get(tableName)!;
     }

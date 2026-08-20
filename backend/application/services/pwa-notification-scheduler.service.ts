@@ -201,7 +201,11 @@ export class PwaNotificationSchedulerService {
                 unit: "건",
                 url: "/messages",
                 details: undelivered.items.map((job) => this.formatUndeliveredMessageDetail(job)),
-                ...(notificationItems.length > 0 ? { notificationItems } : {}),
+                // NotificationService excludes itemized sections from its aggregate row.
+                // Only itemize when every counted failure has an exact item; otherwise keep
+                // this section aggregate so the total remains visible before the watermark
+                // advances, even when the detail query is capped.
+                ...(notificationItems.length === undelivered.total ? { notificationItems } : {}),
             });
         }
 

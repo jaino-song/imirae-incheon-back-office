@@ -322,9 +322,14 @@ describe("PwaNotificationSchedulerService", () => {
             });
         });
 
-        it("should preserve the total count while capping rendered details at 50", async () => {
+        it("should preserve the total count as an aggregate while capping rendered details at 50", async () => {
+            const runStartedAt = new Date("2026-08-20T00:00:00.000Z");
+            jest.spyOn(Date, "now").mockReturnValue(runStartedAt.getTime());
             messageTriggerJobRepository.findRecentUndeliveredByBranch.mockResolvedValue(
                 Array.from({ length: 50 }, (_, index) => ({
+                    id: `job-${index + 1}`,
+                    status: "failed",
+                    recipientType: MessageTriggerRecipientType.CLIENT,
                     payload: { recipientName: `이용자 ${index + 1}` },
                     templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
                     cancelReason: "발송 실패",
@@ -339,6 +344,11 @@ describe("PwaNotificationSchedulerService", () => {
             expect(section?.count).toBe(73);
             expect(section?.description).toContain("73건");
             expect(section?.details).toHaveLength(50);
+            expect(section?.notificationItems).toBeUndefined();
+            expect(systemSettingService.setPwaUndeliveredDigestWatermark).toHaveBeenCalledWith(
+                "branch-1",
+                runStartedAt,
+            );
         });
 
         it("should fall back to 사용자 when a job's payload is missing a recipient name", async () => {

@@ -81,7 +81,7 @@ describe("MessageAutomationIntentService", () => {
         );
     });
 
-    it("keeps an unapproved branch intent without generating outbound jobs", async () => {
+    it("releases a claim when sender approval is revoked after the atomic claim", async () => {
         const { service, prisma, triggerService } = setup();
         prisma.branch.findUnique.mockResolvedValue({ smsSenderApprovalStatus: "pending" });
 
@@ -97,10 +97,89 @@ describe("MessageAutomationIntentService", () => {
         expect(prisma.message_trigger_job.updateMany).toHaveBeenCalledWith(
             expect.objectContaining({
                 where: expect.objectContaining({ id: "intent-1" }),
-                data: { nextAttemptAt: expect.any(Date) },
+                data: {
+                    attempts: 0,
+                    nextAttemptAt: expect.any(Date),
+                },
             }),
         );
         expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("atomically defers an unapproved due intent so it cannot starve the reconciliation batch", async () => {
+        const { service, prisma, triggerService } = setup();
+        prisma.$queryRaw.mockResolvedValue([]);
+
+        await expect(service.fulfillClientIntent({
+            branchId: "branch-1",
+            clientId: 31,
+            includePast: true,
+            suppressGreeting: false,
+        })).resolves.toBe(false);
+
+        expect(triggerService.ensureDefaultRulesForBranch).not.toHaveBeenCalled();
+        expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+        expect(prisma.branch.findUnique).not.toHaveBeenCalled();
+        expect(prisma.message_trigger_job.updateMany).not.toHaveBeenCalled();
+
+        const claimQuery = prisma.$queryRaw.mock.calls[0]?.[0] as {
+            strings?: readonly string[];
+            values?: readonly unknown[];
+        };
+        const claimSql = claimQuery.strings?.join("?") ?? "";
+        expect(claimSql).toContain("LEFT JOIN \"branch\"");
+        expect(claimSql).toContain("FOR UPDATE OF job SKIP LOCKED");
+        expect(claimSql).toContain("next_attempt_at = CASE");
+        expect(claimSql).toContain("ELSE 0");
+        expect(claimSql).toContain("WHERE is_approved");
+        expect(claimQuery.values).toContain(5 * 60 * 1000);
+    });
+
+    it("rebases again when approval is restored after a claimed intent was released", async () => {
+        const { service, prisma, triggerService } = setup();
+        const revokedClaimAt = new Date("2026-08-20T01:02:03.000Z");
+        const restoredClaimAt = new Date("2026-08-22T01:02:03.000Z");
+        prisma.$queryRaw
+            .mockResolvedValueOnce([{
+                id: "intent-1",
+                scheduled_for: revokedClaimAt,
+            }])
+            .mockResolvedValueOnce([{
+                id: "intent-1",
+                scheduled_for: restoredClaimAt,
+            }]);
+        prisma.branch.findUnique
+            .mockResolvedValueOnce({ smsSenderApprovalStatus: "pending" })
+            .mockResolvedValue({ smsSenderApprovalStatus: "approved" });
+        const params = {
+            branchId: "branch-1",
+            clientId: 31,
+            includePast: true,
+            suppressGreeting: false,
+        };
+
+        await expect(service.fulfillClientIntent(params)).resolves.toBe(false);
+        await expect(service.fulfillClientIntent(params)).resolves.toBe(true);
+
+        expect(prisma.message_trigger_job.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: {
+                    attempts: 0,
+                    nextAttemptAt: expect.any(Date),
+                },
+            }),
+        );
+        expect(triggerService.syncClientRulesForClient).toHaveBeenCalledTimes(1);
+        expect(triggerService.syncClientRulesForClient).toHaveBeenCalledWith(
+            "branch-1",
+            31,
+            true,
+            false,
+            {
+                stableBatchAt: restoredClaimAt,
+                preserveExisting: true,
+            },
+        );
     });
 
     it("releases a client intent when zero-job rule generation fails", async () => {
@@ -118,6 +197,56 @@ describe("MessageAutomationIntentService", () => {
             expect.objectContaining({ where: expect.objectContaining({ id: "intent-1" }) }),
         );
         expect(prisma.message_trigger_job.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("rebases a client intent delayed beyond 24 hours to its first approved claim", async () => {
+        jest.useFakeTimers().setSystemTime(new Date("2026-08-22T01:02:03.000Z"));
+        try {
+            const { service, prisma, triggerService, transaction } = setup();
+            const persistedWhileApprovalPendingAt = new Date("2026-08-20T01:02:03.000Z");
+            const firstApprovedClaimAt = new Date("2026-08-22T01:02:03.000Z");
+            prisma.$queryRaw.mockResolvedValue([{
+                id: "intent-1",
+                scheduled_for: firstApprovedClaimAt,
+            }]);
+
+            await service.persistClientIntent(transaction as never, {
+                branchId: "branch-1",
+                clientId: 31,
+                includePast: true,
+                suppressGreeting: false,
+                intentAt: persistedWhileApprovalPendingAt,
+            });
+
+            await expect(service.fulfillClientIntent({
+                branchId: "branch-1",
+                clientId: 31,
+                includePast: true,
+                suppressGreeting: false,
+            })).resolves.toBe(true);
+
+            expect(triggerService.syncClientRulesForClient).toHaveBeenCalledWith(
+                "branch-1",
+                31,
+                true,
+                false,
+                {
+                    stableBatchAt: firstApprovedClaimAt,
+                    preserveExisting: true,
+                },
+            );
+            const claimQuery = prisma.$queryRaw.mock.calls[0]?.[0] as {
+                strings?: readonly string[];
+            };
+            const claimSql = claimQuery.strings?.join("?") ?? "";
+            expect(claimSql).toContain("sms_sender_approval_status");
+            expect(claimSql).toContain("scheduled_for = CASE");
+            expect(claimSql).toContain("job.attempts = 0");
+            expect(firstApprovedClaimAt.getTime() - persistedWhileApprovalPendingAt.getTime())
+                .toBeGreaterThan(24 * 60 * 60 * 1000);
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     it("reuses the same stable generation after intent deletion fails", async () => {
@@ -150,6 +279,9 @@ describe("MessageAutomationIntentService", () => {
             },
         );
         expect(prisma.message_trigger_job.updateMany).toHaveBeenCalledTimes(1);
+        expect(prisma.message_trigger_job.updateMany.mock.calls[0]?.[0].data).toEqual({
+            nextAttemptAt: expect.any(Date),
+        });
     });
 
     it("allows only one concurrent worker to fulfill a client intent", async () => {

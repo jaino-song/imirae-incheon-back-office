@@ -13,7 +13,7 @@ const MIME_EXTENSIONS: Readonly<Record<string, ReadonlySet<string>>> = {
     "image/webp": new Set([".webp"]),
     "application/msword": new Set([".doc"]),
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": new Set([".docx"]),
-    "application/vnd.ms-excel": new Set([".xls"]),
+    "application/vnd.ms-excel": new Set([".xls", ".csv"]),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": new Set([".xlsx"]),
     "application/vnd.ms-powerpoint": new Set([".ppt"]),
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": new Set([".pptx"]),

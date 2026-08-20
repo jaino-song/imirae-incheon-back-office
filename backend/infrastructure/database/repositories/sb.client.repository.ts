@@ -8,7 +8,10 @@ import {
 } from "domain/repositories/client.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientMapper } from "infrastructure/database/mapper/client.mapper";
-import { hasColumn } from "infrastructure/database/schema-capabilities";
+import {
+    hasColumn,
+    type SchemaCapabilityClient,
+} from "infrastructure/database/schema-capabilities";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { clientAgentTargetVersion } from "application/usecases/client/client-agent-target";
 import type { Prisma } from "@prisma/client";
@@ -17,10 +20,10 @@ import type { Prisma } from "@prisma/client";
 export class SbClientRepository implements IClientRepository {
     constructor(private readonly prismaService: PrismaService) {}
 
-    private async getClientSelect() {
-        const supportsCreatedAt = await hasColumn(this.prismaService, "client", "created_at");
-        const supportsAreaId = await hasColumn(this.prismaService, "client", "area_id");
-        const supportsBirthDate = await hasColumn(this.prismaService, "client", "birth_date");
+    private async getClientSelect(capabilityClient: SchemaCapabilityClient = this.prismaService) {
+        const supportsCreatedAt = await hasColumn(capabilityClient, "client", "created_at");
+        const supportsAreaId = await hasColumn(capabilityClient, "client", "area_id");
+        const supportsBirthDate = await hasColumn(capabilityClient, "client", "birth_date");
 
         return {
             id: true,
@@ -51,10 +54,13 @@ export class SbClientRepository implements IClientRepository {
         } as const;
     }
 
-    private async getClientCreateData(client: ClientEntity) {
+    private async getClientCreateData(
+        client: ClientEntity,
+        capabilityClient: SchemaCapabilityClient = this.prismaService,
+    ) {
         const { areaId, birthDate, ...rest } = ClientMapper.toPrismaCreate(client);
-        const supportsAreaId = await hasColumn(this.prismaService, "client", "area_id");
-        const supportsBirthDate = await hasColumn(this.prismaService, "client", "birth_date");
+        const supportsAreaId = await hasColumn(capabilityClient, "client", "area_id");
+        const supportsBirthDate = await hasColumn(capabilityClient, "client", "birth_date");
 
         return {
             ...rest,
@@ -63,10 +69,13 @@ export class SbClientRepository implements IClientRepository {
         };
     }
 
-    private async getClientUpdateData(client: ClientEntity) {
+    private async getClientUpdateData(
+        client: ClientEntity,
+        capabilityClient: SchemaCapabilityClient = this.prismaService,
+    ) {
         const { areaId, birthDate, ...rest } = ClientMapper.toPrismaUpdate(client);
-        const supportsAreaId = await hasColumn(this.prismaService, "client", "area_id");
-        const supportsBirthDate = await hasColumn(this.prismaService, "client", "birth_date");
+        const supportsAreaId = await hasColumn(capabilityClient, "client", "area_id");
+        const supportsBirthDate = await hasColumn(capabilityClient, "client", "birth_date");
 
         return {
             ...rest,
@@ -99,7 +108,7 @@ export class SbClientRepository implements IClientRepository {
             WHERE "id" = ${id} AND "branch_id" = ${branchid}::uuid
             FOR UPDATE
         `;
-        const select = await this.getClientSelect();
+        const select = await this.getClientSelect(transaction);
         const client = await transaction.client.findFirst({
             where: { id, branchId: branchid },
             select,
@@ -164,9 +173,10 @@ export class SbClientRepository implements IClientRepository {
     }
 
     async create(branchid: string, client: ClientEntity, transaction?: Prisma.TransactionClient): Promise<ClientEntity> {
-        const select = await this.getClientSelect();
-        const data = await this.getClientCreateData(client);
-        const created = await (transaction ?? this.prismaService).client.create({
+        const queryClient = transaction ?? this.prismaService;
+        const select = await this.getClientSelect(queryClient);
+        const data = await this.getClientCreateData(client, queryClient);
+        const created = await queryClient.client.create({
             data: {
                 ...data,
                 branchId: branchid,
@@ -182,9 +192,10 @@ export class SbClientRepository implements IClientRepository {
         schedule: InitialClientSchedule,
         transaction?: Prisma.TransactionClient,
     ): Promise<ClientWithInitialSchedule> {
-        const select = await this.getClientSelect();
-        const data = await this.getClientCreateData(client);
-        const created = await (transaction ?? this.prismaService).client.create({
+        const queryClient = transaction ?? this.prismaService;
+        const select = await this.getClientSelect(queryClient);
+        const data = await this.getClientCreateData(client, queryClient);
+        const created = await queryClient.client.create({
             data: {
                 ...data,
                 branchId: branchid,
@@ -254,14 +265,14 @@ export class SbClientRepository implements IClientRepository {
             }
 
             current.update(updates);
-            const data = await this.getClientUpdateData(current);
+            const data = await this.getClientUpdateData(current, tx);
             const updated = await tx.client.updateMany({
                 where: { id, branchId: branchid },
                 data,
             });
             if (updated.count !== 1) return null;
 
-            const select = await this.getClientSelect();
+            const select = await this.getClientSelect(tx);
             const row = await tx.client.findFirst({
                 where: { id, branchId: branchid },
                 select,
