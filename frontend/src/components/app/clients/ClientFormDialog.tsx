@@ -298,6 +298,7 @@ function ClientFormContent({
     const locale = useLocale();
     const isEditMode = !!client;
     const prefillRef = useRef(prefill);
+    const appliedPrefillRef = useRef(prefill);
     useEffect(() => {
         prefillRef.current = prefill;
     }, [prefill]);
@@ -658,6 +659,38 @@ function ClientFormContent({
             });
         }
     }, [clearPrefillName, client, open, prefillName]);
+
+    // The contract candidate request can finish after the dialog has opened.
+    // Apply that first late result while the create form is still untouched.
+    useEffect(() => {
+        const previousPrefill = appliedPrefillRef.current;
+        appliedPrefillRef.current = prefill;
+        if (
+            !open
+            || client
+            || !prefill
+            || prefill === previousPrefill
+            || hasUserEditedSinceOpen
+        ) {
+            return;
+        }
+
+        const latePrefill = Object.fromEntries(
+            Object.entries(prefill).filter(([, value]) => value !== undefined),
+        ) as Partial<ClientFormData>;
+        skipNextEndDateRecalculationRef.current = true;
+        queueMicrotask(() => {
+            setFormData((current) => ({
+                ...current,
+                ...latePrefill,
+                startDate: normalizeDateForCompactState(latePrefill.startDate ?? current.startDate),
+                endDate: normalizeDateForCompactState(latePrefill.endDate ?? current.endDate),
+            }));
+            if (latePrefill.fullPrice || latePrefill.grant || latePrefill.actualPrice) {
+                setPricesManuallyEdited(true);
+            }
+        });
+    }, [client, hasUserEditedSinceOpen, open, prefill]);
 
     const isLegacyNoopEdit = Boolean(
         isEditMode

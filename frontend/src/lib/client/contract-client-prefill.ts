@@ -1,6 +1,7 @@
 import type { EformsignContractClientCandidateResponse } from "@babyjamjam/shared/types/eformsign";
 
 import type { ClientFormData } from "@/features/clients/types";
+import { formatKoreanPhoneNumber, normalizeKoreanPhoneLookupKey } from "@/lib/phone";
 
 /**
  * 계약서 후보 응답을 ClientFormDialog 생성 모드 프리필로 변환한다.
@@ -8,15 +9,20 @@ import type { ClientFormData } from "@/features/clients/types";
  */
 export function contractCandidateToClientPrefill(
     candidate: EformsignContractClientCandidateResponse,
+    now: Date = new Date(),
 ): Partial<ClientFormData> {
+    const normalizedPhone = normalizeKoreanPhoneLookupKey(candidate.phone ?? "");
+    const today = localDateOnly(now);
     return {
         name: candidate.name ?? "",
-        phone: candidate.phone ?? "",
+        phone: formatKoreanPhoneNumber(normalizedPhone),
         address: candidate.address ?? "",
         birthday: candidate.birthday ?? "",
         dueDate: candidate.dueDate ?? "",
         startDate: candidate.startDate ?? "",
         endDate: candidate.endDate ?? "",
+        primaryEmployeeId: candidate.primaryEmployeeId,
+        secondaryEmployeeId: candidate.secondaryEmployeeId,
         type: candidate.type ?? "",
         duration: candidate.duration,
         fullPrice: candidate.fullPrice ?? "",
@@ -25,5 +31,15 @@ export function contractCandidateToClientPrefill(
         careCenter: candidate.careCenter ?? false,
         voucherClient: candidate.voucherClient,
         breastPump: candidate.breastPump,
+        serviceStatus: candidate.startDate && candidate.startDate < today
+            ? "active"
+            : "pre_booking",
     };
+}
+
+function localDateOnly(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
 }

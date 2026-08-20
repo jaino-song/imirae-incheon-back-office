@@ -168,4 +168,20 @@ describe("ClientFormDialog prefill", () => {
 
         await waitFor(() => expect(screen.getByLabelText("종료일")).not.toHaveValue(""));
     });
+
+    it("applies a phone when prefill arrives after the dialog is already open", async () => {
+        const { rerender } = render(
+            <ClientFormDialog open onClose={jest.fn()} />,
+        );
+
+        rerender(
+            <ClientFormDialog
+                open
+                onClose={jest.fn()}
+                prefill={{ phone: "010-9876-5432" }}
+            />,
+        );
+
+        await waitFor(() => expect(screen.getByLabelText("연락처")).toHaveValue("010-9876-5432"));
+    });
 });

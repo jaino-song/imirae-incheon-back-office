@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
 import {
+    EformsignContractClientPrefillCandidate,
     extractEformsignContractClientPrefillCandidate,
     formatNormalizedKoreanPhone,
     toEformsignDocumentDetail,
@@ -23,6 +24,8 @@ export interface EformsignContractClientCandidateResponse {
     dueDate: string | null;
     startDate: string | null;
     endDate: string | null;
+    primaryEmployeeId: number | null;
+    secondaryEmployeeId: number | null;
     type: string | null;
     duration: number | null;
     fullPrice: string | null;
@@ -39,8 +42,9 @@ export interface EformsignContractClientCandidateResponse {
  * 사용하되, 등록 폼에서는 전화번호를 검증하지 못해도 다른 상세 필드를 보존한다.
  * 전화번호는 고객 수신자로 검증된 상세 번호 또는 신뢰 가능한 customerPhone만
  * 국내 형식으로 정규화하며 legacy SMS 번호는 사용하지 않는다.
- * Caller MUST apply the branch guard (see EformsignController.getDocumentClientCandidate)
- * before calling; this method performs no tenant scoping.
+ * Caller MUST apply the document branch guard (see
+ * EformsignController.getDocumentClientCandidate) before calling. Related
+ * employee lookup remains explicitly scoped to that same branch here.
  */
 @Injectable()
 export class GetContractClientCandidateUsecase {
@@ -48,6 +52,7 @@ export class GetContractClientCandidateUsecase {
 
     async execute(
         documentId: string,
+        branchId?: string,
     ): Promise<EformsignContractClientCandidateResponse | null> {
         const document = await this.prisma.eformsign_doc.findUnique({
             where: { documentId },
@@ -67,6 +72,12 @@ export class GetContractClientCandidateUsecase {
         const phone = formattedKoreanPhone(
             candidate?.phone ?? document.customerPhone,
         );
+        const employeeIds = candidate
+            ? await this.resolveProviderEmployeeIds(candidate, branchId)
+            : { primaryEmployeeId: null, secondaryEmployeeId: null };
+        const voucherSelection = candidate
+            ? await this.resolveVoucherSelection(candidate)
+            : null;
         if (!candidate) {
             return {
                 documentId: document.documentId,
@@ -78,6 +89,8 @@ export class GetContractClientCandidateUsecase {
                 dueDate: null,
                 startDate: null,
                 endDate: null,
+                primaryEmployeeId: null,
+                secondaryEmployeeId: null,
                 type: null,
                 duration: null,
                 fullPrice: null,
@@ -99,8 +112,9 @@ export class GetContractClientCandidateUsecase {
             dueDate: toDateOnly(candidate.dueDate),
             startDate: toDateOnly(candidate.startDate),
             endDate: toDateOnly(candidate.endDate),
-            type: candidate.type,
-            duration: candidate.duration,
+            ...employeeIds,
+            type: voucherSelection?.type ?? candidate.type,
+            duration: voucherSelection?.duration ?? candidate.duration,
             fullPrice: candidate.fullPrice,
             grant: candidate.grant,
             actualPrice: candidate.actualPrice,
@@ -109,6 +123,98 @@ export class GetContractClientCandidateUsecase {
             breastPump: candidate.breastPump,
         };
     }
+
+    private async resolveProviderEmployeeIds(
+        candidate: EformsignContractClientPrefillCandidate,
+        branchId?: string,
+    ): Promise<{ primaryEmployeeId: number | null; secondaryEmployeeId: number | null }> {
+        if (!branchId) {
+            return { primaryEmployeeId: null, secondaryEmployeeId: null };
+        }
+
+        const providers = [
+            { name: candidate.primaryProviderName, phone: candidate.primaryProviderPhone },
+            { name: candidate.secondaryProviderName, phone: candidate.secondaryProviderPhone },
+        ];
+        const filters = providers.flatMap(({ name, phone }) => [
+            ...(name ? [{ name: name.trim() }] : []),
+            ...(phone ? [
+                { phone },
+                { phone: formatNormalizedKoreanPhone(phone) },
+            ] : []),
+        ]);
+        if (filters.length === 0) {
+            return { primaryEmployeeId: null, secondaryEmployeeId: null };
+        }
+
+        const employees = await this.prisma.employee.findMany({
+            where: {
+                branchId,
+                deletedAt: null,
+                OR: filters,
+            },
+            select: { id: true, name: true, phone: true },
+        });
+        const resolve = (provider: typeof providers[number]): number | null => {
+            const phoneMatches = provider.phone
+                ? employees.filter((employee) => normalizePhone(employee.phone) === provider.phone)
+                : [];
+            if (phoneMatches.length === 1) return phoneMatches[0]!.id;
+
+            const normalizedName = provider.name?.trim();
+            const nameMatches = normalizedName
+                ? employees.filter((employee) => employee.name.trim() === normalizedName)
+                : [];
+            return nameMatches.length === 1 ? nameMatches[0]!.id : null;
+        };
+
+        return {
+            primaryEmployeeId: resolve(providers[0]!),
+            secondaryEmployeeId: resolve(providers[1]!),
+        };
+    }
+
+    private async resolveVoucherSelection(
+        candidate: EformsignContractClientPrefillCandidate,
+    ): Promise<{ type: string; duration: number } | null> {
+        if (!candidate.voucherClient || (candidate.type && candidate.duration)) return null;
+        const year = (candidate.startDate ?? candidate.endDate)?.getUTCFullYear();
+        const amounts = [candidate.fullPrice, candidate.grant, candidate.actualPrice]
+            .filter((value): value is string => Boolean(value));
+        if (!year || amounts.length < 2) return null;
+
+        const priceRows = await this.prisma.voucher_price_info.findMany({
+            where: { year },
+            select: {
+                type: true,
+                duration: true,
+                fullPrice: true,
+                grant: true,
+                actualPrice: true,
+            },
+        });
+        const matches = priceRows.filter((row) => {
+            if (!row.type || row.duration == null) return false;
+            if (candidate.type && row.type !== candidate.type) return false;
+            if (candidate.duration && Number(row.duration) !== candidate.duration) return false;
+            return (
+                (!candidate.fullPrice || numericAmount(row.fullPrice) === candidate.fullPrice)
+                && (!candidate.grant || numericAmount(row.grant) === candidate.grant)
+                && (!candidate.actualPrice || numericAmount(row.actualPrice) === candidate.actualPrice)
+            );
+        });
+        if (matches.length !== 1) return null;
+        const match = matches[0]!;
+        const duration = Number(match.duration);
+        return Number.isSafeInteger(duration) && duration > 0
+            ? { type: match.type!, duration }
+            : null;
+    }
+}
+
+function numericAmount(value: string | null): string | null {
+    const digits = value?.replace(/\D/g, "") ?? "";
+    return digits || null;
 }
 
 function formattedKoreanPhone(phone: string | null): string | null {
