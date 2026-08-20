@@ -3,6 +3,7 @@ import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity
 import { IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EmployeeScheduleMapper } from "infrastructure/database/mapper/employee-schedule.mapper";
+import type { Prisma } from "@prisma/client";
 
 @Injectable()
 export class SbEmployeeScheduleRepository implements IEmployeeScheduleRepository {
@@ -50,8 +51,12 @@ export class SbEmployeeScheduleRepository implements IEmployeeScheduleRepository
         return schedules.map(EmployeeScheduleMapper.toDomain);
     }
 
-    async create(branchid: string, schedule: EmployeeScheduleEntity): Promise<EmployeeScheduleEntity> {
-        const created = await this.prismaService.employee_schedule.create({
+    async create(
+        branchid: string,
+        schedule: EmployeeScheduleEntity,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<EmployeeScheduleEntity> {
+        const created = await (transaction ?? this.prismaService).employee_schedule.create({
             data: {
                 ...EmployeeScheduleMapper.toPrismaCreate(schedule),
                 branchId: branchid,

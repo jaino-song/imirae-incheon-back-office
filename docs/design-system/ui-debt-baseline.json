@@ -55,11 +55,6 @@
       "ui-architecture/no-raw-ui-in-pages": 1,
       "ui-architecture/no-visual-tailwind-in-pages": 26
     },
-    "frontend/src/app/(protected)/files/page.tsx": {
-      "ui-architecture/no-page-local-components": 1,
-      "ui-architecture/no-raw-ui-in-pages": 1,
-      "ui-architecture/no-visual-tailwind-in-pages": 45
-    },
     "frontend/src/app/(protected)/messages/page.tsx": {
       "ui-architecture/no-page-local-components": 3,
       "ui-architecture/no-raw-ui-in-pages": 1,
@@ -203,15 +198,6 @@
     },
     "mobile/src/app/(shell)/employees/schedule/page.tsx": {
       "data-component/require-data-component": 8
-    },
-    "mobile/src/app/(shell)/files/page.tsx": {
-      "data-component/require-data-component": 52,
-      "ui-architecture/no-page-local-components": 6,
-      "ui-architecture/no-raw-ui-in-pages": 1
-    },
-    "mobile/src/app/(shell)/files/upload/page.tsx": {
-      "ui-architecture/no-page-local-components": 1,
-      "ui-architecture/no-raw-ui-in-pages": 10
     },
     "mobile/src/app/(shell)/logout/page.tsx": {
       "ui-architecture/no-visual-tailwind-in-pages": 4

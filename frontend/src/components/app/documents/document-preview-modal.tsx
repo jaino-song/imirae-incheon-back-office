@@ -29,9 +29,9 @@ interface DocumentPreviewModalProps {
   onDelete?: (doc: Document) => void;
 }
 
-function getCategoryLabel(categoryId: string, categories: DocumentCategory[]): string {
-  const category = categories.find((item) => item.id === categoryId);
-  return category?.label || categoryId;
+function getCategoryLabel(doc: Document, categories: DocumentCategory[]): string {
+  const category = categories.find((item) => item.id === doc.categoryId);
+  return doc.categoryLabel ?? category?.label ?? doc.categoryId;
 }
 
 export default function DocumentPreviewModal({
@@ -132,7 +132,10 @@ export default function DocumentPreviewModal({
       title={doc.name}
       badges={[
         <Badge variant="outline" key="category">
-          {getCategoryLabel(doc.categoryId, categories)}
+          {getCategoryLabel(doc, categories)}
+        </Badge>,
+        <Badge variant="outline" key="visibility">
+          {doc.visibilityScope === "all_branches" ? "모든 지점 공개" : "현재 지점 전용"}
         </Badge>,
       ]}
       srDescription={srDescription}

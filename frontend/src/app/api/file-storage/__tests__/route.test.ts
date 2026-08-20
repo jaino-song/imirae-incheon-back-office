@@ -4,6 +4,7 @@
 import { NextRequest } from "next/server";
 
 import { serverAPIClient } from "@/lib/api/server";
+import { GET as getCapabilities } from "../capabilities/route";
 import { GET as downloadFile, HEAD as headFile } from "../files/[fileId]/download/route";
 import {
   DELETE as deleteFile,
@@ -48,7 +49,7 @@ function createUploadRequest(extraFields: Record<string, string | File> = {}): N
   formData.append("file", new File(["contents"], "document.txt", { type: "text/plain" }));
   formData.append("name", "Document");
   for (const [key, value] of Object.entries(extraFields)) {
-    formData.append(key, value);
+    formData.set(key, value);
   }
 
   return new NextRequest("http://localhost/api/file-storage/files", {
@@ -85,6 +86,20 @@ describe("file-storage API routes", () => {
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ error: "Failed to fetch documents" });
+  });
+
+  it("proxies the authenticated storage capability contract", async () => {
+    mockGet.mockResolvedValue({
+      status: 200,
+      data: { maxFileSizeBytes: 25 * 1024 * 1024, multiple: false },
+    });
+
+    const response = await getCapabilities(createGetRequest("/api/file-storage/capabilities"));
+
+    expect(response.status).toBe(200);
+    expect(mockGet).toHaveBeenCalledWith("/documents/capabilities", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer auth-token" }),
+    }));
   });
 
   it("preserves backend status and payload when uploading files", async () => {
@@ -140,6 +155,23 @@ describe("file-storage API routes", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "Invalid upload metadata" });
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported files before buffering or proxying", async () => {
+    const response = await uploadFile(createUploadRequest({
+      file: new File(["<html></html>"], "payload.html", { type: "text/html" }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-file form value without raising an internal error", async () => {
+    const response = await uploadFile(createUploadRequest({ file: "not-a-file" }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "File is required" });
     expect(mockPost).not.toHaveBeenCalled();
   });
 

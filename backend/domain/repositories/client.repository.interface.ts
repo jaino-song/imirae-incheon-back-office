@@ -46,6 +46,7 @@ export interface IClientRepository {
         branchid: string,
         client: ClientEntity,
         schedule: InitialClientSchedule,
+        transaction?: Prisma.TransactionClient,
     ): Promise<ClientWithInitialSchedule>;
     update(branchid: string, client: ClientEntity): Promise<ClientEntity>;
     /**

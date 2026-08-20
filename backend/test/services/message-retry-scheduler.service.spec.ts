@@ -4,7 +4,7 @@ import { MessageLogEntity } from "domain/entities/message-log.entity";
 import { IMessageLogRepository } from "domain/repositories/message-log.repository.interface";
 
 describe("MessageRetrySchedulerService", () => {
-    const createLog = (provider: string) =>
+    const createLog = (provider: string, retrySafety?: string) =>
         MessageLogEntity.reconstitute(
             provider === "aligo_sms" ? 77 : 78,
             "branch-1",
@@ -14,7 +14,7 @@ describe("MessageRetrySchedulerService", () => {
             "01012345678",
             7,
             "message",
-            {},
+            retrySafety ? { retrySafety } : {},
             "failed",
             null,
             "retryable",
@@ -62,6 +62,30 @@ describe("MessageRetrySchedulerService", () => {
         expect(alimtalkLog.status).toBe("failed");
         expect(alimtalkLog.nextRetryAt).toBeNull();
         expect(logRepository.update).toHaveBeenCalledWith(alimtalkLog);
+    });
+
+    it("does not resend uncertain Aligo SMS and marks it for provider-history/manual verification", async () => {
+        const uncertainLog = createLog("aligo_sms", "uncertain");
+        logRepository.findPendingRetries.mockResolvedValue([uncertainLog]);
+
+        await scheduler.retryFailedMessages();
+
+        expect(smsRetryService.retry).not.toHaveBeenCalled();
+        expect(logRepository.update).toHaveBeenCalledWith(uncertainLog);
+        expect(uncertainLog.status).toBe("failed");
+        expect(uncertainLog.nextRetryAt).toBeNull();
+        expect(uncertainLog.errorMessage).toContain("제공자 이력");
+        expect(uncertainLog.errorMessage).toContain("수동 확인");
+    });
+
+    it("continues retrying provider-rejected Aligo SMS logs", async () => {
+        const providerRejectedLog = createLog("aligo_sms", "provider-rejected");
+        logRepository.findPendingRetries.mockResolvedValue([providerRejectedLog]);
+
+        await scheduler.retryFailedMessages();
+
+        expect(smsRetryService.retry).toHaveBeenCalledWith(providerRejectedLog);
+        expect(logRepository.update).not.toHaveBeenCalled();
     });
 
     it("terminates unsupported message providers instead of retrying forever", async () => {

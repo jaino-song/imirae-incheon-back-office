@@ -1,6 +1,9 @@
 import fs from "node:fs";
 
-const source = fs.readFileSync(require.resolve("./page"), "utf8");
+const source = fs.readFileSync(
+  require.resolve("../../../../components/app/files/file-upload-screen"),
+  "utf8",
+);
 
 describe("mobile file upload navigation lifecycle", () => {
   it("locks header back and cancel while uploading", () => {

@@ -4,47 +4,80 @@ import { DocumentEntity } from "domain/entities/document.entity";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { DocumentMapper } from "infrastructure/database/mapper/document.mapper";
 
+const documentCategoryLabelInclude = {
+    documentCategory: { select: { label: true } },
+} as const;
+
 @Injectable()
 export class DocumentRepository implements IDocumentRepository {
     constructor(private readonly prismaService: PrismaService) {}
 
     async findById(branchid: string, id: string): Promise<DocumentEntity | null> {
         const doc = await this.prismaService.document.findFirst({
+            where: {
+                id,
+                OR: [
+                    { branchId: branchid },
+                    { visibilityScope: "all_branches" },
+                ],
+            },
+            include: documentCategoryLabelInclude,
+        });
+        return doc ? DocumentMapper.toDomain(doc) : null;
+    }
+
+    async findBranchById(branchid: string, id: string): Promise<DocumentEntity | null> {
+        const doc = await this.prismaService.document.findFirst({
             where: { id, branchId: branchid },
+            include: documentCategoryLabelInclude,
         });
         return doc ? DocumentMapper.toDomain(doc) : null;
     }
 
     async findByOrgId(branchid: string, orgId: string): Promise<DocumentEntity[]> {
         const docs = await this.prismaService.document.findMany({
-            where: { orgId, branchId: branchid },
+            where: {
+                orgId,
+                OR: [
+                    { branchId: branchid },
+                    { visibilityScope: "all_branches" },
+                ],
+            },
+            include: documentCategoryLabelInclude,
         });
         return docs.map(DocumentMapper.toDomain);
     }
 
     async findByCategoryId(branchid: string, categoryId: string): Promise<DocumentEntity[]> {
         const docs = await this.prismaService.document.findMany({
-            where: { categoryId, branchId: branchid },
+            where: {
+                categoryId,
+                OR: [
+                    { branchId: branchid },
+                    { visibilityScope: "all_branches" },
+                ],
+            },
+            include: documentCategoryLabelInclude,
         });
         return docs.map(DocumentMapper.toDomain);
     }
 
     async findAll(branchid: string): Promise<DocumentEntity[]> {
         const docs = await this.prismaService.document.findMany({
-            where: { branchId: branchid },
+            where: {
+                OR: [
+                    { branchId: branchid },
+                    { visibilityScope: "all_branches" },
+                ],
+            },
+            include: documentCategoryLabelInclude,
         });
         return docs.map(DocumentMapper.toDomain);
     }
 
-    async existsByStoragePathOutsideBranch(branchid: string, storagePath: string): Promise<boolean> {
+    async existsByStoragePath(storagePath: string): Promise<boolean> {
         const existingDocument = await this.prismaService.document.findFirst({
-            where: {
-                storagePath,
-                OR: [
-                    { branchId: null },
-                    { branchId: { not: branchid } },
-                ],
-            },
+            where: { storagePath },
             select: { id: true },
         });
 
@@ -57,6 +90,7 @@ export class DocumentRepository implements IDocumentRepository {
                 ...DocumentMapper.toPrismaCreate(doc),
                 branchId: branchid,
             },
+            include: documentCategoryLabelInclude,
         });
         return DocumentMapper.toDomain(created);
     }
@@ -74,6 +108,7 @@ export class DocumentRepository implements IDocumentRepository {
         }
         const updated = await this.prismaService.document.findFirst({
             where: { id: doc.id, branchId: branchid },
+            include: documentCategoryLabelInclude,
         });
         if (!updated) {
             throw new Error("Document not found after update");

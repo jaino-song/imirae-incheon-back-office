@@ -1,3 +1,4 @@
+/* FileUploadScreen organism styles. */
 :global([data-slot="app-root"]:has([data-slot="files-upload-page-shell"])) {
   overflow: hidden;
   background: hsl(var(--v3-dim-white));
@@ -101,6 +102,17 @@
   color: hsl(var(--v3-burgundy));
   font-size: 0.74rem;
   font-weight: 700;
+}
+
+.visibilityNotice {
+  border: 1px solid hsl(var(--v3-border));
+  border-radius: 14px;
+  background: hsl(var(--v3-primary-light));
+  color: hsl(var(--v3-primary));
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.45;
+  padding: 10px 12px;
 }
 
 .dropzone {

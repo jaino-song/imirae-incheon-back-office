@@ -12,6 +12,14 @@ import {
     isValidFileId,
 } from "../../../file-route-utils";
 
+function copyNosniffHeader(
+    upstreamHeaders: Record<string, unknown> | undefined,
+    headers: Record<string, string>,
+): void {
+    const nosniff = upstreamHeaders?.["x-content-type-options"];
+    if (nosniff) headers["X-Content-Type-Options"] = String(nosniff);
+}
+
 export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ fileId: string }> }
@@ -50,10 +58,7 @@ export async function GET(
             "Content-Disposition": String(response.headers["content-disposition"] ?? "inline"),
             "Content-Length": String(response.data.byteLength),
         };
-        const nosniff = response.headers["x-content-type-options"];
-        if (nosniff) {
-            headers["X-Content-Type-Options"] = String(nosniff);
-        }
+        copyNosniffHeader(response.headers, headers);
 
         return new NextResponse(response.data, {
             status: response.status,
@@ -67,5 +72,39 @@ export async function GET(
             }
         }
         return errorResponse(error, "download document");
+    }
+}
+
+export async function HEAD(
+    request: NextRequest,
+    { params }: { params: Promise<{ fileId: string }> }
+) {
+    try {
+        const token = getAuthToken(request);
+        if (!token) return new NextResponse(null, { status: 401 });
+
+        const { fileId } = await params;
+        if (!isValidFileId(fileId)) return new NextResponse(null, { status: 400 });
+
+        const response = await serverAPIClient.get(documentPath(fileId), {
+            headers: getAuthHeaders(token),
+        });
+        const headers: Record<string, string> = {
+            "Content-Type": response.data?.mimeType || "application/octet-stream",
+            "Content-Disposition": "inline",
+        };
+        if (typeof response.data?.fileSize === "number") {
+            headers["Content-Length"] = String(response.data.fileSize);
+        }
+        copyNosniffHeader(response.headers, headers);
+        return new NextResponse(null, { headers });
+    } catch (error) {
+        if (error && typeof error === "object" && "response" in error) {
+            const axiosError = error as { response?: { status: number } };
+            if (axiosError.response?.status === 404) {
+                return new NextResponse(null, { status: 404 });
+            }
+        }
+        return new NextResponse(null, { status: 500 });
     }
 }

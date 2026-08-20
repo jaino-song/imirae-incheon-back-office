@@ -91,8 +91,18 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
                 create: jest.fn().mockResolvedValue({ id: 31 }),
                 updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
+            message_trigger_rule: {
+                upsert: jest.fn().mockResolvedValue(undefined),
+            },
+            message_trigger_job: {
+                upsert: jest.fn().mockResolvedValue(undefined),
+            },
         };
         const prisma = {
+            $queryRaw: jest.fn().mockResolvedValue([{
+                id: "automation-intent-1",
+                scheduled_for: new Date("2026-07-21T00:02:00.000Z"),
+            }]),
             user: {
                 findFirst: jest.fn().mockResolvedValue(null),
             },
@@ -100,6 +110,12 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
                 findMany: jest.fn().mockResolvedValue([
                     { id: "branch-1" },
                 ]),
+                findUnique: jest.fn().mockResolvedValue({
+                    smsSenderApprovalStatus: "approved",
+                }),
+            },
+            message_trigger_job: {
+                deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
             eformsign_doc: {
                 findUnique: jest.fn().mockResolvedValue(document),
@@ -318,6 +334,7 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         });
         const {
             transaction,
+            prisma,
             settings,
             messageTrigger,
             serviceRecordLifecycle,
@@ -356,10 +373,36 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
                 autoRegisteredClient: true,
             },
         });
+        expect(transaction.message_trigger_rule.upsert).toHaveBeenCalledTimes(1);
+        expect(transaction.message_trigger_job.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                create: expect.objectContaining({
+                    branchId: "branch-1",
+                    clientId: 31,
+                    ruleId: "system:message_automation_intent",
+                    status: "failed",
+                }),
+            }),
+        );
         expect(messageTrigger.ensureDefaultRulesForBranch)
             .toHaveBeenCalledWith("branch-1");
         expect(messageTrigger.syncClientRulesForClient)
-            .toHaveBeenCalledWith("branch-1", 31, true, true);
+            .toHaveBeenCalledWith(
+                "branch-1",
+                31,
+                true,
+                true,
+                {
+                    stableBatchAt: new Date("2026-07-21T00:02:00.000Z"),
+                    preserveExisting: true,
+                },
+            );
+        expect(prisma.message_trigger_job.deleteMany).toHaveBeenCalledWith({
+            where: expect.objectContaining({
+                id: "automation-intent-1",
+                ruleId: "system:message_automation_intent",
+            }),
+        });
         expect(serviceRecordLifecycle.ensureForClient)
             .toHaveBeenCalledWith(31);
     });
@@ -389,6 +432,8 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         expect(settings.getGreetingOnAutoRegistrationEnabled).not.toHaveBeenCalled();
         expect(messageTrigger.ensureDefaultRulesForBranch).not.toHaveBeenCalled();
         expect(messageTrigger.syncClientRulesForClient).not.toHaveBeenCalled();
+        expect(transaction.message_trigger_rule.upsert).not.toHaveBeenCalled();
+        expect(transaction.message_trigger_job.upsert).not.toHaveBeenCalled();
         expect(serviceRecordLifecycle.ensureForClient).not.toHaveBeenCalled();
     });
 
@@ -437,6 +482,8 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         expect(settings.getGreetingOnAutoRegistrationEnabled).not.toHaveBeenCalled();
         expect(messageTrigger.ensureDefaultRulesForBranch).not.toHaveBeenCalled();
         expect(messageTrigger.syncClientRulesForClient).not.toHaveBeenCalled();
+        expect(transaction.message_trigger_rule.upsert).not.toHaveBeenCalled();
+        expect(transaction.message_trigger_job.upsert).not.toHaveBeenCalled();
         expect(serviceRecordLifecycle.ensureForClient).toHaveBeenCalledWith(31);
     });
 
@@ -600,7 +647,16 @@ describe("LinkMirroredEformsignDocByPhoneUsecase", () => {
         expect(messageTrigger.ensureDefaultRulesForBranch)
             .toHaveBeenCalledWith("branch-1");
         expect(messageTrigger.syncClientRulesForClient)
-            .toHaveBeenCalledWith("branch-1", 31, true, true);
+            .toHaveBeenCalledWith(
+                "branch-1",
+                31,
+                true,
+                true,
+                {
+                    stableBatchAt: new Date("2026-07-21T00:02:00.000Z"),
+                    preserveExisting: true,
+                },
+            );
     });
 
     it("propagates an expected-generation lifecycle failure so completion can retry", async () => {

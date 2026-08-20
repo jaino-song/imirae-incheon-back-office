@@ -2,21 +2,28 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import {
+    DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
+    type DocumentUploadCapabilities,
+} from "@babyjamjam/shared/file-storage";
 
 export interface Document {
     id: string;
     name: string;
-    description?: string;
+    description?: string | null;
     categoryId: string;
+    categoryLabel?: string | null;
     tags: string[];
     mimeType: string;
     fileSize: number;
     storagePath: string;
-    storageUrl?: string;
-    orgId?: string;
+    storageUrl?: string | null;
+    orgId?: string | null;
     uploadedBy: string;
     createdAt: string;
     updatedAt: string;
+    visibilityScope: "branch" | "all_branches";
+    canManage: boolean;
 }
 
 export interface UploadDocumentParams {
@@ -25,8 +32,6 @@ export interface UploadDocumentParams {
     description?: string;
     categoryId: string;
     tags?: string[];
-    orgId?: string;
-    uploadedBy?: string;
     onProgress?: (progress: number) => void;
 }
 
@@ -44,7 +49,20 @@ export const documentQueryKeys = {
     list: (filters: Record<string, unknown>) => [...documentQueryKeys.lists(), filters] as const,
     details: () => [...documentQueryKeys.all, "detail"] as const,
     detail: (id: string) => [...documentQueryKeys.details(), id] as const,
+    capabilities: () => [...documentQueryKeys.all, "upload-capabilities"] as const,
 };
+
+export function useDocumentUploadCapabilities() {
+    return useQuery<DocumentUploadCapabilities>({
+        queryKey: documentQueryKeys.capabilities(),
+        queryFn: async () => {
+            const { data } = await api.get<DocumentUploadCapabilities>("/file-storage/capabilities");
+            return data;
+        },
+        placeholderData: DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
+        staleTime: 1000 * 60 * 5,
+    });
+}
 
 export function useDocuments(categoryId?: string) {
     return useQuery<Document[]>({
@@ -85,8 +103,6 @@ export function useUploadDocument() {
             description,
             categoryId,
             tags,
-            orgId,
-            uploadedBy,
             onProgress,
         }: UploadDocumentParams) => {
             const formData = new FormData();
@@ -95,8 +111,6 @@ export function useUploadDocument() {
             if (description) formData.append("description", description);
             formData.append("categoryId", categoryId);
             if (tags) formData.append("tags", JSON.stringify(tags));
-            if (orgId) formData.append("orgId", orgId);
-            if (uploadedBy) formData.append("uploadedBy", uploadedBy);
 
             const { data } = await api.post<Document>("/file-storage/files", formData, {
                 onUploadProgress: (progressEvent) => {

@@ -13,6 +13,7 @@ import {
 // forwards upstream error text (e.g. class-validator messages) to the
 // browser. File-storage mirrors mobile's sanitized error behaviour.
 import { errorResponse } from "@babyjamjam/shared/api";
+import { validateDocumentUploadCandidate } from "@babyjamjam/shared/file-storage";
 
 // Identity fields (orgId/uploadedBy) are deliberately NOT part of this
 // whitelist: the backend derives branch + uploader from the JWT
@@ -56,13 +57,18 @@ export async function POST(request: NextRequest) {
         }
 
         const formData = await request.formData();
-        const file = formData.get("file") as File | null;
+        const file = formData.get("file");
 
-        if (!file) {
+        if (!(file instanceof File)) {
             return NextResponse.json(
                 { error: "File is required" },
                 { status: 400 }
             );
+        }
+
+        const fileValidationError = validateDocumentUploadCandidate(file);
+        if (fileValidationError) {
+            return NextResponse.json({ error: fileValidationError }, { status: 400 });
         }
 
         const arrayBuffer = await file.arrayBuffer();

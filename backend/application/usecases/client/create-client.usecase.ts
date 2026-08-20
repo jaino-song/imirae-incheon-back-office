@@ -49,11 +49,12 @@ export class CreateClientUsecase {
         branchid: string,
         params: CreateClientParams,
         schedule: InitialClientSchedule,
+        transaction?: Prisma.TransactionClient,
     ): Promise<ClientWithInitialSchedule> {
         const client = ClientEntity.create({
             ...params,
             eDocId: params.eDocId ?? null,
         });
-        return this.clientRepository.createWithInitialSchedule(branchid, client, schedule);
+        return this.clientRepository.createWithInitialSchedule(branchid, client, schedule, transaction);
     }
 }
