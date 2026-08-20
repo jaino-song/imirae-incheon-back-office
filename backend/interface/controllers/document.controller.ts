@@ -9,6 +9,7 @@ import {
     UseInterceptors,
     UploadedFile,
     BadRequestException,
+    ForbiddenException,
     Inject,
     Logger,
     NotFoundException,
@@ -20,11 +21,22 @@ import { randomUUID } from "node:crypto";
 import { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { DocumentService } from "application/services/document.service";
-import { CreateDocumentDto, UpdateDocumentDto, UploadDocumentDto } from "interface/dto/document.dto";
+import { DocumentCategoryService } from "application/services/document-category.service";
+import { UpdateDocumentDto, UploadDocumentDto } from "interface/dto/document.dto";
 import {
     DocumentEntity,
+    DOCUMENT_VISIBILITY_SCOPE,
     max_file_size,
 } from "domain/entities/document.entity";
+import {
+    DOCUMENT_INLINE_SAFE_MIME_TYPE_SET,
+    DOCUMENT_UPLOAD_CAPABILITIES,
+} from "domain/constants/document-storage.constants";
+import {
+    getDocumentFileExtension,
+    normalizeDocumentMimeType,
+    validateDocumentUploadCandidate,
+} from "domain/services/document-upload-policy";
 import {
     FILE_STORAGE_PORT,
     FileStorageObjectNotFoundError,
@@ -79,72 +91,26 @@ function isMissingStorageObjectError(error: unknown): boolean {
     return error.message.toLowerCase().includes("object not found");
 }
 
-/**
- * Lowercased media-type "essence" with any parameters (`; charset=...`)
- * stripped, so MIME checks cannot be bypassed with variants such as
- * `TEXT/HTML; charset=utf-8`.
- */
-function normalizeMimeType(mimetype: string | undefined | null): string {
-    return (mimetype ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+interface DocumentTenant {
+    branchId?: string;
+    userId?: string;
+    globalRole?: string | null;
 }
 
-/**
- * MIME types that may be rendered inline on this origin: PDF plus the raster
- * image types the preview UI actually displays. Everything else is forced into
- * an opaque attachment download so browser-scriptable content (text/html,
- * image/svg+xml, XML, ...) stored under any historical row can never execute
- * with a staff session. image/svg+xml is deliberately absent - SVG can carry
- * script, and the preview UI's image check matches every image/* type.
- * image/jpg is a nonstandard alias of image/jpeg that the mobile upload page
- * has always accepted; it is a harmless raster type, kept so such rows keep
- * previewing.
- */
-const INLINE_SAFE_MIME_TYPES: ReadonlySet<string> = new Set([
-    "application/pdf",
-    "image/png",
-    "image/jpeg",
-    "image/jpg",
-    "image/gif",
-    "image/webp",
-]);
-
-/**
- * Defence-in-depth allowlist for uploads, deliberately broader than
- * INLINE_SAFE_MIME_TYPES: it covers every MIME type the product itself models
- * (the download extension map below, frontend document-preview-utils, the
- * mobile upload page) plus office/archive/text formats staff plausibly upload
- * through the desktop dropzone, which historically accepted any type.
- * application/octet-stream must stay allowed: browsers derive a file's type
- * from OS registry data, so .hwp/.hwpx - the product's flagship document
- * format - and other locally unregistered extensions frequently arrive as
- * application/octet-stream (or with no type at all). That is safe because
- * nothing outside INLINE_SAFE_MIME_TYPES is ever served inline, so a
- * mislabelled upload can only ever be downloaded, never rendered. What this
- * list is really for is keeping browser-scriptable types (text/html,
- * image/svg+xml, XML, JavaScript) out of storage entirely.
- */
-const UPLOAD_ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
-    ...INLINE_SAFE_MIME_TYPES,
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/hwp",
-    "application/haansofthwp",
-    "application/vnd.hancom.hwp",
-    "application/vnd.hancom.hwpx",
-    "application/x-hwp",
-    "application/x-hwpx",
-    "image/heic",
-    "image/heif",
-    "application/zip",
-    "application/x-zip-compressed",
-    "text/plain",
-    "text/csv",
-    "application/octet-stream",
-]);
+function requireDocumentTenant(tenant: DocumentTenant): {
+    branchId: string;
+    userId: string;
+    globalRole?: string | null;
+} {
+    if (!tenant.branchId || !tenant.userId) {
+        throw new ForbiddenException("tenant context unavailable");
+    }
+    return {
+        branchId: tenant.branchId,
+        userId: tenant.userId,
+        globalRole: tenant.globalRole,
+    };
+}
 
 /** RFC 5987 value-chars percent-encoding: encodeURIComponent plus the characters it leaves bare that RFC 5987 does not allow. */
 function encodeRfc5987ValueChars(value: string): string {
@@ -175,6 +141,7 @@ export class DocumentController {
 
     constructor(
         private readonly documentService: DocumentService,
+        private readonly documentCategoryService: DocumentCategoryService,
         @Inject(FILE_STORAGE_PORT)
         private readonly fileStorage: FileStoragePort,
     ) {}
@@ -192,7 +159,7 @@ export class DocumentController {
         }),
     )
     async upload(
-        @CurrentTenant() tenant: { branchId?: string; userId?: string },
+        @CurrentTenant() tenant: DocumentTenant,
         @UploadedFile() file: Express.Multer.File,
         @Body() dto: UploadDocumentDto,
     ) {
@@ -200,28 +167,26 @@ export class DocumentController {
             throw new BadRequestException("file is required");
         }
 
-        // validate file size
-        if (!DocumentEntity.validatefilesize(file.size)) {
-            throw new BadRequestException(
-                `file size exceeds maximum limit of ${max_file_size / (1024 * 1024)}mb`,
-            );
-        }
-
-        // Multer forwards the client-supplied multipart Content-Type verbatim,
-        // so gate it against the upload allowlist before anything is stored.
-        const mimeType = normalizeMimeType(file.mimetype) || "application/octet-stream";
-        if (!UPLOAD_ALLOWED_MIME_TYPES.has(mimeType)) {
-            throw new BadRequestException(`unsupported file type: ${mimeType}`);
-        }
-
-        // generate unique storage path
-        const lastDotIndex = file.originalname.lastIndexOf(".");
-        const fileExtension =
-            lastDotIndex >= 0 ? file.originalname.slice(lastDotIndex + 1) : "";
-        const storagePath = fileExtension
-            ? `${randomUUID()}.${fileExtension}`
-            : randomUUID();
         const tags = parseDocumentTags(dto.tags);
+
+        const validationError = validateDocumentUploadCandidate({
+            fileName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            bytes: file.buffer,
+        });
+        if (validationError) throw new BadRequestException(validationError);
+
+        const verifiedTenant = requireDocumentTenant(tenant);
+        const documentName = dto.name?.trim() || file.originalname;
+        if (documentName.length > 255) {
+            throw new BadRequestException("document name must be 255 characters or fewer");
+        }
+        const mimeType = normalizeDocumentMimeType(file.mimetype);
+        const branchId = verifiedTenant.branchId;
+        await this.documentCategoryService.assertAvailableToBranch(branchId, dto.categoryId);
+        const fileExtension = getDocumentFileExtension(file.originalname);
+        const storagePath = `documents/${branchId}/${randomUUID()}${fileExtension}`;
 
         // upload to storage
         const storageUrl = await this.fileStorage.upload(
@@ -229,12 +194,10 @@ export class DocumentController {
             storagePath,
             mimeType,
         );
-        const branchId = tenant.branchId ?? "";
-
         let entity: DocumentEntity;
         try {
             entity = await this.documentService.create(branchId, {
-                name: dto.name || file.originalname,
+                name: documentName,
                 description: dto.description,
                 categoryId: dto.categoryId,
                 tags,
@@ -242,7 +205,10 @@ export class DocumentController {
                 filesize: file.size,
                 storagepath: storagePath,
                 branchid: branchId,
-                uploadedby: tenant.userId || "system",
+                uploadedby: verifiedTenant.userId,
+                visibilityScope: verifiedTenant.globalRole === "owner"
+                    ? DOCUMENT_VISIBILITY_SCOPE.ALL_BRANCHES
+                    : DOCUMENT_VISIBILITY_SCOPE.BRANCH,
             });
         } catch (error) {
             // The object is already in storage, so a failed insert (claimed
@@ -261,61 +227,37 @@ export class DocumentController {
             }
             throw error;
         }
-        return this.toResponse(entity, storageUrl);
+        return this.toResponse(entity, branchId, storageUrl);
     }
 
-    /**
-     * Registers a row against a storage object that is already there. No client
-     * calls it — both apps upload through POST /upload — but it is reachable by
-     * anyone holding a token, so it derives what it can rather than believing
-     * the body. The storage path is still the caller's claim; that is safe
-     * because DocumentService.create refuses a path another branch owns.
-     */
-    @Post()
-    async create(
-        @CurrentTenant() tenant: { branchId?: string; userId?: string },
-        @Body() dto: CreateDocumentDto,
-    ) {
-        const branchId = tenant.branchId ?? "";
-        // Same gate as the upload route: this row's mimetype decides how the
-        // download serves it, so an unfiltered one would be the way around the
-        // inline allowlist.
-        const mimeType = normalizeMimeType(dto.mimetype) || "application/octet-stream";
-        if (!UPLOAD_ALLOWED_MIME_TYPES.has(mimeType)) {
-            throw new BadRequestException(`unsupported file type: ${mimeType}`);
-        }
-
-        const entity = await this.documentService.create(branchId, {
-            name: dto.name,
-            description: dto.description,
-            categoryId: dto.categoryId,
-            tags: dto.tags,
-            mimetype: mimeType,
-            filesize: dto.filesize,
-            storagepath: dto.storagepath,
-            branchid: branchId,
-            // Taken from the verified tenant, never the body — otherwise the
-            // audit trail is whatever the caller typed.
-            uploadedby: tenant.userId || "system",
-        });
-        return this.toResponse(entity);
+    @Get("capabilities")
+    getCapabilities(@CurrentTenant() tenant: DocumentTenant) {
+        const verifiedTenant = requireDocumentTenant(tenant);
+        return {
+            ...DOCUMENT_UPLOAD_CAPABILITIES,
+            uploadVisibilityScope: verifiedTenant.globalRole === "owner"
+                ? DOCUMENT_VISIBILITY_SCOPE.ALL_BRANCHES
+                : DOCUMENT_VISIBILITY_SCOPE.BRANCH,
+        };
     }
 
     @Get()
     async findAll(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: DocumentTenant,
         @Query("categoryId") categoryId?: string
     ) {
-        const entities = categoryId 
-            ? await this.documentService.findByCategoryId(tenant.branchId ?? "", categoryId) 
-            : await this.documentService.findAll(tenant.branchId ?? "");
-        return entities.map((entity) => this.toListResponse(entity));
+        const { branchId } = requireDocumentTenant(tenant);
+        const entities = categoryId
+            ? await this.documentService.findByCategoryId(branchId, categoryId)
+            : await this.documentService.findAll(branchId);
+        return entities.map((entity) => this.toListResponse(entity, branchId));
     }
 
     @Get(":id")
-    async findById(@CurrentTenant() tenant: { branchId?: string }, @Param("id") id: string) {
-        const entity = await this.documentService.findById(tenant.branchId ?? "", id);
-        return this.toResponse(entity);
+    async findById(@CurrentTenant() tenant: DocumentTenant, @Param("id") id: string) {
+        const { branchId } = requireDocumentTenant(tenant);
+        const entity = await this.documentService.findById(branchId, id);
+        return this.toResponse(entity, branchId);
     }
 
     /**
@@ -324,38 +266,41 @@ export class DocumentController {
      */
     @Get("org/:branchid")
     async findByOrgId(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: DocumentTenant,
         @Param("branchid") branchid: string
     ) {
-        const entities = await this.documentService.findByOrgId(tenant.branchId ?? "", branchid);
-        return entities.map((entity) => this.toListResponse(entity));
+        const { branchId } = requireDocumentTenant(tenant);
+        const entities = await this.documentService.findByOrgId(branchId, branchid);
+        return entities.map((entity) => this.toListResponse(entity, branchId));
     }
 
     @Get("category/:categoryId")
     async findByCategoryId(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: DocumentTenant,
         @Param("categoryId") categoryId: string
     ) {
-        const entities = await this.documentService.findByCategoryId(
-            tenant.branchId ?? "",
-            categoryId
-        );
-        return entities.map((entity) => this.toListResponse(entity));
+        const { branchId } = requireDocumentTenant(tenant);
+        const entities = await this.documentService.findByCategoryId(branchId, categoryId);
+        return entities.map((entity) => this.toListResponse(entity, branchId));
     }
 
     @Put(":id")
     async update(
-        @CurrentTenant() tenant: { branchId?: string },
+        @CurrentTenant() tenant: DocumentTenant,
         @Param("id") id: string,
         @Body() dto: UpdateDocumentDto
     ) {
-        const entity = await this.documentService.update(tenant.branchId ?? "", id, {
+        const { branchId } = requireDocumentTenant(tenant);
+        if (dto.categoryId) {
+            await this.documentCategoryService.assertAvailableToBranch(branchId, dto.categoryId);
+        }
+        const entity = await this.documentService.update(branchId, id, {
             name: dto.name,
             description: dto.description,
             categoryId: dto.categoryId,
             tags: dto.tags,
         });
-        return this.toResponse(entity);
+        return this.toResponse(entity, branchId);
     }
 
     /**
@@ -363,33 +308,35 @@ export class DocumentController {
      * Delete a document (also deletes from storage)
      */
     @Delete(":id")
-    async delete(@CurrentTenant() tenant: { branchId?: string }, @Param("id") id: string) {
-        await this.documentService.deleteWithStorage(tenant.branchId ?? "", id);
+    async delete(@CurrentTenant() tenant: DocumentTenant, @Param("id") id: string) {
+        const { branchId } = requireDocumentTenant(tenant);
+        await this.documentService.deleteWithStorage(branchId, id);
         return { message: "Document deleted successfully" };
     }
 
-     /**
-      * GET /documents/:id/download
-      * Download a document file
-      */
-     @Get(":id/download")
-     async download(
-         @CurrentTenant() tenant: { branchId?: string },
-         @Param("id") id: string,
-         @Res() res: Response,
-         @Query("attachment") attachment?: string,
-     ) {
-         const doc = await this.documentService.findById(tenant.branchId ?? "", id);
-         let fileBuffer: Buffer;
-         try {
-             fileBuffer = await this.fileStorage.download(doc.storagepath);
-         } catch (error) {
-             if (isMissingStorageObjectError(error)) {
-                 throw new NotFoundException("Document file not found");
-             }
+    /**
+     * GET /documents/:id/download
+     * Download a document file
+     */
+    @Get(":id/download")
+    async download(
+        @CurrentTenant() tenant: DocumentTenant,
+        @Param("id") id: string,
+        @Res() res: Response,
+        @Query("attachment") attachment?: string,
+    ) {
+        const { branchId } = requireDocumentTenant(tenant);
+        const doc = await this.documentService.findById(branchId, id);
+        let fileBuffer: Buffer;
+        try {
+            fileBuffer = await this.fileStorage.download(doc.storagepath);
+        } catch (error) {
+            if (isMissingStorageObjectError(error)) {
+                throw new NotFoundException("Document file not found");
+            }
 
-             throw error;
-         }
+            throw error;
+        }
          
          // Helper to get extension from mimetype
          const getExtension = (mimetype: string): string => {
@@ -430,8 +377,8 @@ export class DocumentController {
          // caller asked for, so stored browser-scriptable content can never
          // execute on this origin. nosniff stops an allowlisted Content-Type
          // from being re-sniffed into something executable.
-         const normalizedMimeType = normalizeMimeType(doc.mimetype);
-         const isInlineSafe = INLINE_SAFE_MIME_TYPES.has(normalizedMimeType);
+         const normalizedMimeType = normalizeDocumentMimeType(doc.mimetype);
+         const isInlineSafe = DOCUMENT_INLINE_SAFE_MIME_TYPE_SET.has(normalizedMimeType);
          const asAttachment = attachment === "true" || !isInlineSafe;
 
          res.set({
@@ -446,7 +393,11 @@ export class DocumentController {
          res.send(fileBuffer);
      }
 
-    private async toResponse(entity: DocumentEntity, storageUrl?: string) {
+    private async toResponse(
+        entity: DocumentEntity,
+        currentBranchId: string,
+        storageUrl?: string,
+    ) {
         let resolvedStorageUrl = storageUrl;
         if (resolvedStorageUrl === undefined) {
             try {
@@ -460,19 +411,24 @@ export class DocumentController {
             }
         }
 
-        return this.serializeDocument(entity, resolvedStorageUrl);
+        return this.serializeDocument(entity, resolvedStorageUrl, currentBranchId);
     }
 
-    private toListResponse(entity: DocumentEntity) {
-        return this.serializeDocument(entity, null);
+    private toListResponse(entity: DocumentEntity, currentBranchId: string) {
+        return this.serializeDocument(entity, null, currentBranchId);
     }
 
-    private serializeDocument(entity: DocumentEntity, storageUrl: string | null) {
+    private serializeDocument(
+        entity: DocumentEntity,
+        storageUrl: string | null,
+        currentBranchId: string,
+    ) {
         return {
             id: entity.id,
             name: entity.name,
             description: entity.description,
             categoryId: entity.categoryId,
+            categoryLabel: entity.categoryLabel,
             tags: entity.tags,
             mimeType: entity.mimetype,
             fileSize: entity.filesize,
@@ -480,6 +436,8 @@ export class DocumentController {
             storageUrl,
             orgId: entity.branchid,
             uploadedBy: entity.uploadedby,
+            visibilityScope: entity.visibilityScope,
+            canManage: entity.branchId === currentBranchId,
             createdAt: entity.createdat,
             updatedAt: entity.updatedat,
         };

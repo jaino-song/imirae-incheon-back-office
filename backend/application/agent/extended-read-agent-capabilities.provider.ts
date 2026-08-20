@@ -154,8 +154,8 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
             this.read("calls.list", "calls", "List calls for the current branch", "call_record", {}, { select: { id: true, fileName: true, recordedAt: true, summary: true, category: true, callerName: true, matchedClientId: true, processingStatus: true, createdAt: true }, searchFields: ["fileName", "callerName", "category"] }),
             this.read("calls.transcriptSummary", "calls", "List call transcript summaries without exposing raw transcripts", "call_record", {}, { select: { id: true, recordedAt: true, summary: true, category: true, processingStatus: true, matchedClientId: true, createdAt: true }, searchFields: ["fileName", "callerName", "category"] }),
             this.read("drafts.list", "drafts", "List client drafts for the current branch", "client_draft", {}, { select: { id: true, callRecordId: true, type: true, status: true, clientId: true, reviewedAt: true, createdAt: true, confirmingStartedAt: true } }),
-            this.read("files.search", "files", "Search authorized files for the current branch", "document", {}, { select: { id: true, name: true, description: true, tags: true, mimeType: true, fileSize: true, orgId: true, uploadedBy: true, createdAt: true, updatedAt: true, categoryId: true, branchId: true }, searchFields: ["name", "description"] }),
-            this.read("files.metadata", "files", "Read authorized file metadata without signed URLs", "document", {}, { select: { id: true, name: true, description: true, tags: true, mimeType: true, fileSize: true, orgId: true, uploadedBy: true, createdAt: true, updatedAt: true, categoryId: true, branchId: true }, searchFields: ["name", "description"] }),
+            this.read("files.search", "files", "Search authorized files for the current branch and owner publications", "document", {}, { select: { id: true, name: true, description: true, tags: true, mimeType: true, fileSize: true, orgId: true, uploadedBy: true, visibilityScope: true, createdAt: true, updatedAt: true, categoryId: true, branchId: true }, searchFields: ["name", "description"] }),
+            this.read("files.metadata", "files", "Read authorized file metadata without signed URLs", "document", {}, { select: { id: true, name: true, description: true, tags: true, mimeType: true, fileSize: true, orgId: true, uploadedBy: true, visibilityScope: true, createdAt: true, updatedAt: true, categoryId: true, branchId: true }, searchFields: ["name", "description"] }),
             this.read("service-records.oversight", "service-records", "Read service-record oversight rows for the current branch", "service_record_case", {}, { select: { id: true, clientId: true, status: true, startDate: true, endDate: true, requiredSessionCount: true, formVersion: true, completedAt: true, finalizationDueAt: true, finalizationStartedAt: true, finalizedAt: true, documentsCompletedAt: true, finalizationAttempts: true, nextAttemptAt: true, version: true, createdAt: true, updatedAt: true } }),
             this.analyticsSummary(),
             this.settingsRead(),
@@ -547,8 +547,21 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
         take: number,
         options: { select?: Record<string, boolean> } = {},
     ): Promise<unknown[]> {
+        const scopedWhere = table === "document"
+            ? {
+                AND: [
+                    {
+                        OR: [
+                            { branchId },
+                            { visibilityScope: "all_branches" },
+                        ],
+                    },
+                    where,
+                ],
+            }
+            : { branchId, ...where };
         return this.model(table).findMany({
-            where: { branchId, ...where },
+            where: scopedWhere,
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             take,
             ...(options.select ? { select: options.select } : {}),

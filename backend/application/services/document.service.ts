@@ -1,5 +1,9 @@
 import { Injectable, Inject, NotFoundException, ForbiddenException, Optional } from "@nestjs/common";
-import { DocumentEntity } from "domain/entities/document.entity";
+import {
+    DocumentEntity,
+    DOCUMENT_VISIBILITY_SCOPE,
+    type DocumentVisibilityScope,
+} from "domain/entities/document.entity";
 import { IDocumentRepository, DOCUMENT_REPOSITORY } from "domain/repositories/document.repository.interface";
 import { FILE_STORAGE_PORT, FileStorageObjectNotFoundError, type FileStoragePort } from "domain/ports/file-storage.port";
 
@@ -23,12 +27,10 @@ export class DocumentService {
         storageurl?: string;
         branchid?: string;
         uploadedby: string;
+        visibilityScope?: DocumentVisibilityScope;
     }): Promise<DocumentEntity> {
-        const isClaimedOutsideBranch = await this.documentRepository.existsByStoragePathOutsideBranch(
-            branchId,
-            params.storagepath,
-        );
-        if (isClaimedOutsideBranch) {
+        const isClaimed = await this.documentRepository.existsByStoragePath(params.storagepath);
+        if (isClaimed) {
             throw new ForbiddenException("storage path unavailable");
         }
 
@@ -43,6 +45,8 @@ export class DocumentService {
             storageUrl: params.storageurl,
             orgId: params.branchid,
             uploadedBy: params.uploadedby,
+            branchId,
+            visibilityScope: params.visibilityScope ?? DOCUMENT_VISIBILITY_SCOPE.BRANCH,
         });
         return this.documentRepository.create(branchId, doc);
     }
@@ -86,7 +90,7 @@ export class DocumentService {
             tags?: string[];
         },
     ): Promise<DocumentEntity> {
-        const existing = await this.findById(branchId, id);
+        const existing = await this.findBranchDocumentById(branchId, id);
 
         const updated = DocumentEntity.reconstitute(
             existing.id,
@@ -102,6 +106,8 @@ export class DocumentService {
             existing.uploadedBy,
             existing.createdAt,
             new Date(),
+            existing.branchId,
+            existing.visibilityScope,
         );
 
         return this.documentRepository.update(branchId, updated);
@@ -111,7 +117,7 @@ export class DocumentService {
      * Delete a document
      */
     async delete(branchId: string, id: string): Promise<void> {
-        await this.findById(branchId, id); // Ensure it exists
+        await this.findBranchDocumentById(branchId, id); // Ensure it exists
         await this.documentRepository.delete(branchId, id);
     }
 
@@ -123,7 +129,7 @@ export class DocumentService {
 
     /** Delete only the external object so an agent action can durably stage completion. */
     async deleteStorageForDocument(branchId: string, id: string): Promise<void> {
-        const document = await this.findById(branchId, id);
+        const document = await this.findBranchDocumentById(branchId, id);
         await this.deleteStorageObject(document);
     }
 
@@ -147,7 +153,7 @@ export class DocumentService {
 
     /** Idempotently complete an action-bound deletion staged before the external call. */
     async recoverStagedDeletion(branchId: string, id: string): Promise<void> {
-        const document = await this.documentRepository.findById(branchId, id);
+        const document = await this.documentRepository.findBranchById(branchId, id);
         if (!document) return;
         await this.deleteStorageObject(document);
         await this.documentRepository.delete(branchId, id);
@@ -159,8 +165,16 @@ export class DocumentService {
 
     /** Finish only branch-scoped metadata cleanup after storage deletion is proven. */
     async deleteMetadataAfterStorageDeletion(branchId: string, id: string): Promise<void> {
-        const document = await this.documentRepository.findById(branchId, id);
+        const document = await this.documentRepository.findBranchById(branchId, id);
         if (!document) return;
         await this.documentRepository.delete(branchId, id);
+    }
+
+    private async findBranchDocumentById(branchId: string, id: string): Promise<DocumentEntity> {
+        const document = await this.documentRepository.findBranchById(branchId, id);
+        if (!document) {
+            throw new NotFoundException(`Document with id ${id} not found`);
+        }
+        return document;
     }
 }

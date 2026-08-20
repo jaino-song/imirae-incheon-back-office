@@ -16,6 +16,8 @@ import {
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { MESSAGE_AUTOMATION_INTENT_RULE_ID } from "domain/constants/message-automation-intent";
+import { MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON } from "domain/constants/message-automation-policy";
 
 type MessageTriggerJobPrismaRow = {
     id: string;
@@ -244,6 +246,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         const rows = await this.prisma.message_trigger_job.findMany({
             where: {
                 branchId,
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
                 status: { in: ["failed", "canceled"] },
             },
             orderBy: { updatedAt: "desc" },
@@ -269,6 +272,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         const rows = await this.prisma.message_trigger_job.findMany({
             where: {
                 branchId,
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
                 canceledByUser: false,
                 OR: [
                     { status: "canceled", canceledAt: { gte: since, lt: until } },
@@ -289,6 +293,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         return this.prisma.message_trigger_job.count({
             where: {
                 branchId,
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
                 canceledByUser: false,
                 OR: [
                     { status: "canceled", canceledAt: { gte: since, lt: until } },
@@ -304,7 +309,10 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         beforeId?: string,
     ): Promise<MessageTriggerJobEntity[]> {
         const rows = await this.prisma.message_trigger_job.findMany({
-            where: { branchId },
+            where: {
+                branchId,
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
+            },
             orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
             take: limit,
             ...(beforeId ? { cursor: { id: beforeId }, skip: 1 } : {}),
@@ -580,6 +588,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
         job: MessageTriggerJobEntity,
         expectedUpdatedAt: Date,
         expectedJobsStale: boolean,
+        preserveExisting = false,
     ): Promise<MessageTriggerJobEntity | null> {
         const branchPredicate = job.branchId === null
             ? Prisma.sql`branch_id IS NULL`
@@ -612,14 +621,47 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 return null;
             }
 
-            return this.upsertPendingWithClient(transaction, job);
+            return this.upsertPendingWithClient(transaction, job, preserveExisting);
         });
     }
 
     private async upsertPendingWithClient(
         client: PrismaService | Prisma.TransactionClient,
         job: MessageTriggerJobEntity,
+        preserveExisting = false,
     ): Promise<MessageTriggerJobEntity> {
+        const conflictAction = preserveExisting
+            ? Prisma.sql`DO UPDATE SET
+                status = 'pending',
+                scheduled_for = EXCLUDED.scheduled_for,
+                sent_at = NULL,
+                canceled_at = NULL,
+                cancel_reason = NULL,
+                recipient_type = EXCLUDED.recipient_type,
+                recipient_phone = EXCLUDED.recipient_phone,
+                template_key = EXCLUDED.template_key,
+                payload = EXCLUDED.payload,
+                attempts = 0,
+                next_attempt_at = NULL,
+                updated_at = date_trunc('milliseconds', clock_timestamp())
+            WHERE "message_trigger_job"."status" = 'canceled'
+              AND "message_trigger_job"."canceled_by_user" = false
+              AND "message_trigger_job"."cancel_reason" = ${MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON}`
+            : Prisma.sql`DO UPDATE SET
+                status = 'pending',
+                scheduled_for = EXCLUDED.scheduled_for,
+                sent_at = NULL,
+                canceled_at = NULL,
+                cancel_reason = NULL,
+                recipient_type = EXCLUDED.recipient_type,
+                recipient_phone = EXCLUDED.recipient_phone,
+                template_key = EXCLUDED.template_key,
+                payload = EXCLUDED.payload,
+                attempts = 0,
+                next_attempt_at = NULL,
+                updated_at = date_trunc('milliseconds', clock_timestamp())
+            WHERE "message_trigger_job"."status" NOT IN ('sent', 'processing')
+              AND NOT ("message_trigger_job"."status" = 'canceled' AND "message_trigger_job"."canceled_by_user" = true)`;
         const rows = await client.$queryRaw<MessageTriggerJobRawRow[]>(Prisma.sql`
             INSERT INTO "message_trigger_job" (
                 branch_id,
@@ -659,30 +701,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 NULL,
                 date_trunc('milliseconds', clock_timestamp())
             )
-            ON CONFLICT ("dedupe_key") DO UPDATE SET
-                status = 'pending',
-                scheduled_for = EXCLUDED.scheduled_for,
-                sent_at = NULL,
-                canceled_at = NULL,
-                cancel_reason = NULL,
-                recipient_type = EXCLUDED.recipient_type,
-                recipient_phone = EXCLUDED.recipient_phone,
-                template_key = EXCLUDED.template_key,
-                payload = EXCLUDED.payload,
-                attempts = 0,
-                next_attempt_at = NULL,
-                updated_at = date_trunc('milliseconds', clock_timestamp())
-            -- 'sent' and 'processing' rows are excluded so an in-flight or
-            -- already-delivered message is never rewritten by a re-sync. A
-            -- row the user explicitly canceled (canceled_by_user = true)
-            -- must be just as immutable here: that cancel is a deliberate
-            -- user decision, not stale state to reconcile away, so this
-            -- upsert must never resurrect it back to pending. An
-            -- internally-canceled or failed row always has
-            -- canceled_by_user = false, so it is unaffected by this extra
-            -- clause and keeps resurrecting exactly as before.
-            WHERE "message_trigger_job"."status" NOT IN ('sent', 'processing')
-              AND NOT ("message_trigger_job"."status" = 'canceled' AND "message_trigger_job"."canceled_by_user" = true)
+            ON CONFLICT ("dedupe_key") ${conflictAction}
             RETURNING *;
         `);
 

@@ -345,6 +345,13 @@ describe("SbClientRepository", () => {
     // create
     // ============================================
     describe("create", () => {
+        const createTransaction = () => ({
+            $queryRawUnsafe: jest.fn().mockResolvedValue([{ exists: true }]),
+            client: {
+                create: jest.fn(),
+            },
+        });
+
         describe("given a valid ClientEntity", () => {
             it("should persist client with correct data mapping", async () => {
                 // Arrange
@@ -386,6 +393,20 @@ describe("SbClientRepository", () => {
                 expect(result).toBeInstanceOf(ClientEntity);
                 expect(result.id).toBe(5);
             });
+        });
+
+        it("runs cold schema capability probes on the supplied transaction connection", async () => {
+            const entity = createClientEntity();
+            const transaction = createTransaction();
+            transaction.client.create.mockResolvedValue(createClientRow({
+                id: 15,
+                name: "Test Client",
+            }));
+
+            await repository.create(branchId, entity, transaction as never);
+
+            expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+            expect(transaction.$queryRawUnsafe).toHaveBeenCalledTimes(3);
         });
 
         describe("given entity with a birthDate", () => {
@@ -487,6 +508,26 @@ describe("SbClientRepository", () => {
             }));
             expect(result.client.id).toBe(9);
             expect(result.scheduleId).toBe(44);
+        });
+
+        it("keeps initial-schedule schema probes on the supplied transaction connection", async () => {
+            const entity = createClientEntity();
+            const transaction = createTransaction();
+            transaction.client.create.mockResolvedValue({
+                ...createClientRow({ id: 16, name: "Test Client" }),
+                employeeSchedules: [{ id: 45 }],
+            });
+
+            await repository.createWithInitialSchedule(branchId, entity, {
+                primaryEmployeeId: 5,
+                secondaryEmployeeId: null,
+                workAddress: "Test Address",
+                startDate: new Date("2024-02-01T00:00:00.000Z"),
+                endDate: new Date("2024-08-01T00:00:00.000Z"),
+            }, transaction as never);
+
+            expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+            expect(transaction.$queryRawUnsafe).toHaveBeenCalledTimes(3);
         });
     });
 
@@ -641,6 +682,7 @@ describe("SbClientRepository", () => {
     describe("approval-bound update", () => {
         const createTransaction = () => ({
             $queryRaw: jest.fn().mockResolvedValue([]),
+            $queryRawUnsafe: jest.fn().mockResolvedValue([{ exists: true }]),
             client: {
                 findFirst: jest.fn(),
                 updateMany: jest.fn(),

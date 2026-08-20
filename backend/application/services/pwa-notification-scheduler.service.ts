@@ -1,6 +1,10 @@
 import { Injectable, Inject, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { DailyDigestSection, NotificationService } from "./notification.service";
+import {
+    type DailyDigestNotificationItem,
+    type DailyDigestSection,
+    NotificationService,
+} from "./notification.service";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import { BRANCH_REPOSITORY, IBranchRepository } from "domain/repositories/branch.repository.interface";
 import {
@@ -8,10 +12,27 @@ import {
     MESSAGE_TRIGGER_JOB_REPOSITORY,
 } from "domain/repositories/message-trigger-job.repository.interface";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
-import { MESSAGE_TRIGGER_TEMPLATE_CATALOG } from "domain/constants/message-trigger-catalog";
+import {
+    MESSAGE_TRIGGER_TEMPLATE_CATALOG,
+    MessageTriggerRecipientType,
+    MessageTriggerTemplateKey,
+} from "domain/constants/message-trigger-catalog";
 import { SystemSettingService } from "./system-setting.service";
 
 const DAYS_THRESHOLD = 7;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const KOREA_TIME_ZONE = "Asia/Seoul";
+const KST_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+    timeZone: KOREA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+});
+const KST_MONTH_DAY_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: KOREA_TIME_ZONE,
+    month: "long",
+    day: "numeric",
+});
 
 // Initial lookback for branches that do not have a successful digest watermark yet.
 // After the first successful run, each branch resumes from its persisted boundary.
@@ -117,6 +138,22 @@ export class PwaNotificationSchedulerService {
         }
 
         if (ending.length > 0) {
+            const notificationItems = ending.flatMap((client): DailyDigestNotificationItem[] => {
+                if (!client.name?.trim() || !client.endDate) {
+                    return [];
+                }
+
+                return [{
+                    title: "서비스 종료 예정",
+                    body: `${client.name.trim()} 산모님의 서비스가 ${this.formatScheduleDay(client.endDate, runStartedAt)} 종료됩니다.`,
+                    data: {
+                        type: "daily-summary-item",
+                        category: "service-ending",
+                        clientId: client.id,
+                        url: "/clients/filtered?filter=ending-soon",
+                    },
+                }];
+            });
             sections.push({
                 key: "ending",
                 label: "서비스 종료 예정",
@@ -124,6 +161,7 @@ export class PwaNotificationSchedulerService {
                 count: ending.length,
                 unit: "건",
                 url: "/clients/filtered?filter=ending-soon",
+                ...(notificationItems.length > 0 ? { notificationItems } : {}),
             });
         }
 
@@ -151,6 +189,10 @@ export class PwaNotificationSchedulerService {
         }
 
         if (undelivered.total > 0) {
+            const notificationItems = undelivered.items.flatMap((job): DailyDigestNotificationItem[] => {
+                const item = this.createUndeliveredNotificationItem(job);
+                return item ? [item] : [];
+            });
             sections.push({
                 key: "undeliveredMessages",
                 label: "자동 전송 실패·취소",
@@ -159,6 +201,11 @@ export class PwaNotificationSchedulerService {
                 unit: "건",
                 url: "/messages",
                 details: undelivered.items.map((job) => this.formatUndeliveredMessageDetail(job)),
+                // NotificationService excludes itemized sections from its aggregate row.
+                // Only itemize when every counted failure has an exact item; otherwise keep
+                // this section aggregate so the total remains visible before the watermark
+                // advances, even when the detail query is capped.
+                ...(notificationItems.length === undelivered.total ? { notificationItems } : {}),
             });
         }
 
@@ -234,6 +281,61 @@ export class PwaNotificationSchedulerService {
         const templateLabel = MESSAGE_TRIGGER_TEMPLATE_CATALOG[job.templateKey]?.name ?? "메시지";
         const reason = job.cancelReason ?? "사유 미상";
         return `${recipientName} · ${templateLabel} — ${reason}`;
+    }
+
+    private createUndeliveredNotificationItem(
+        job: MessageTriggerJobEntity,
+    ): DailyDigestNotificationItem | null {
+        const recipientName = job.payload.recipientName?.trim();
+        if (!job.id || !recipientName || (job.status !== "failed" && job.status !== "canceled")) {
+            return null;
+        }
+
+        const isEmployeeRecipient =
+            job.templateKey === MessageTriggerTemplateKey.SERVICE_RECORD_LINK ||
+            job.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE ||
+            job.recipientType === MessageTriggerRecipientType.SECONDARY_EMPLOYEE;
+        const recipientRole = isEmployeeRecipient
+            ? "관리사"
+            : job.recipientType === MessageTriggerRecipientType.CLIENT
+                ? "산모"
+                : null;
+        const recipient = recipientRole
+            ? `${recipientName} ${recipientRole}님`
+            : `${recipientName}님`;
+        const templateLabel = job.templateKey === MessageTriggerTemplateKey.SERVICE_RECORD_LINK
+            ? "제공기록지"
+            : MESSAGE_TRIGGER_TEMPLATE_CATALOG[job.templateKey]?.name ?? "안내";
+        const deliveryResult = job.status === "failed" ? "실패했습니다" : "취소되었습니다";
+
+        return {
+            title: job.status === "failed" ? "메시지 전송 실패" : "메시지 전송 취소",
+            body: `${recipient}에게 보낸 ${templateLabel} 메시지 전송이 ${deliveryResult}.`,
+            data: {
+                type: "daily-summary-item",
+                category: "message-undelivered",
+                jobId: job.id,
+                url: "/messages",
+            },
+        };
+    }
+
+    private formatScheduleDay(target: Date, reference: Date): string {
+        const targetDate = KST_DATE_FORMATTER.format(target);
+        const referenceDate = KST_DATE_FORMATTER.format(reference);
+        const tomorrowDate = KST_DATE_FORMATTER.format(
+            new Date(reference.getTime() + ONE_DAY_MS),
+        );
+
+        if (targetDate === referenceDate) {
+            return "오늘";
+        }
+
+        if (targetDate === tomorrowDate) {
+            return "내일";
+        }
+
+        return `${KST_MONTH_DAY_FORMATTER.format(target)}에`;
     }
 
     /**

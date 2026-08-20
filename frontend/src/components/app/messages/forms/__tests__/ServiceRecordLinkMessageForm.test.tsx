@@ -154,6 +154,7 @@ const serviceRecordLinkTemplate = `[사회서비스 제공자 품질평가 A등�
 안녕하세요, 인천 아이미래로 입니다 :)
 
 {{employeeName}} 관리사님, {{clientName}} 산모님의 서비스 제공기록지 작성 링크입니다.
+서비스 시작일은 {{serviceStartDate}}입니다.
 매일 서비스 제공 완료 직전에 서비스 세부사항 기록 후에, 산모님께 승인을 받으시면 됩니다.
 
 최초 접속 시에 관리사님의 전화번호 인증이 필요합니다. 링크 접속 후 휴대폰 번호로 본인확인하고, 방문일마다 기록을 남겨주세요.
@@ -171,6 +172,7 @@ describe("ServiceRecordLinkMessageForm", () => {
       data: {
         assignments: [{
           scheduleId: 11,
+          startDate: "2026-07-03T00:00:00.000Z",
           replaced: false,
           employee: {
             id: 30,
@@ -242,6 +244,15 @@ describe("ServiceRecordLinkMessageForm", () => {
       expect(screen.getByTestId("generated-message")).toHaveTextContent(
         "https://mobile.test/service-record/efl_prepared",
       );
+      expect(screen.getByTestId("generated-message")).toHaveTextContent(
+        "서비스 시작일은 2026-07-03입니다.",
+      );
+      expect(screen.getByTestId("generated-message")).not.toHaveTextContent(
+        "{{serviceStartDate}}",
+      );
+      expect(screen.getByTestId("generated-message")).not.toHaveTextContent(
+        "{{serviceRecordUrl}}",
+      );
       expect(onPreviewMessageChange).toHaveBeenLastCalledWith(
         expect.stringContaining("https://mobile.test/service-record/efl_prepared"),
       );
@@ -255,6 +266,7 @@ describe("ServiceRecordLinkMessageForm", () => {
     expect(document.querySelector('[data-delivery-mode="service-feedback-link"]')).toBeInTheDocument();
     expect(screen.getByText("{{employeeName}}")).toBeInTheDocument();
     expect(screen.getByText("{{clientName}}")).toBeInTheDocument();
+    expect(screen.getByText("{{serviceStartDate}}")).toBeInTheDocument();
     expect(screen.getByText("{{serviceRecordUrl}}")).toBeInTheDocument();
   });
 
@@ -263,6 +275,7 @@ describe("ServiceRecordLinkMessageForm", () => {
       data: {
         assignments: [{
           scheduleId: 11,
+          startDate: "2026-07-03T00:00:00.000Z",
           replaced: false,
           employee: {
             id: 30,
@@ -334,7 +347,9 @@ describe("ServiceRecordLinkMessageForm", () => {
             {fields}
             {messageCard}
             <output data-testid="prepared-link-state">
-              {serviceRecordLinkPreparation?.preparedLinkToken ?? ""}
+              {serviceRecordLinkPreparation
+                ? `${serviceRecordLinkPreparation.preparedLinkToken}|${serviceRecordLinkPreparation.serviceStartDate}`
+                : ""}
             </output>
           </div>
         )}
@@ -345,7 +360,9 @@ describe("ServiceRecordLinkMessageForm", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "산모님 성함" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("prepared-link-state")).toHaveTextContent("efl_prepared");
+      expect(screen.getByTestId("prepared-link-state")).toHaveTextContent(
+        "efl_prepared|2026-07-03",
+      );
     });
   });
 });

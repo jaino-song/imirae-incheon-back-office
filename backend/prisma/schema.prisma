@@ -266,7 +266,7 @@ model document {
   tags             String[]
   mimeType         String            @map("mime_type")
   fileSize         Int               @map("file_size")
-  storagePath      String            @map("storage_path")
+  storagePath      String            @unique(map: "document_storage_path_key") @map("storage_path")
   storageUrl       String?           @map("storage_url")
   orgId            String?           @map("org_id")
   uploadedBy       String            @map("uploaded_by")
@@ -274,6 +274,7 @@ model document {
   updatedAt        DateTime          @map("updated_at") @db.Timestamptz(6)
   categoryId       String            @map("category_id")
   branchId         String?           @map("branch_id") @db.Uuid
+  visibilityScope  String            @default("branch") @map("visibility_scope") @db.VarChar(32)
   documentCategory document_category @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   branch           branch?           @relation(fields: [branchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -281,6 +282,7 @@ model document {
   @@index([orgId])
   @@index([uploadedBy])
   @@index([branchId], map: "idx_document_branch")
+  @@index([visibilityScope], map: "idx_document_visibility_scope")
 }
 
 /// Database note: partial unique index `document_category_value_global_key` on

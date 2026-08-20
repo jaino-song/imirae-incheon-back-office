@@ -1,8 +1,9 @@
 import { Prisma, document as PrismaDocument } from '@prisma/client';
 import { DocumentEntity } from 'domain/entities/document.entity';
 
-// Use Prisma's generated type directly
-type DocumentRow = PrismaDocument;
+type DocumentRow = PrismaDocument & {
+    documentCategory?: { label: string } | null;
+};
 
 export class DocumentMapper {
     static toDomain(row: DocumentRow): DocumentEntity {
@@ -20,6 +21,9 @@ export class DocumentMapper {
             row.uploadedBy,
             row.createdAt,
             row.updatedAt,
+            row.branchId ?? null,
+            row.visibilityScope === "all_branches" ? "all_branches" : "branch",
+            row.documentCategory?.label ?? null,
         );
     }
 
@@ -36,6 +40,7 @@ export class DocumentMapper {
             storageUrl: entity.storageUrl,
             orgId: entity.orgId,
             uploadedBy: entity.uploadedBy,
+            visibilityScope: entity.visibilityScope,
             updatedAt: now,
         };
     }

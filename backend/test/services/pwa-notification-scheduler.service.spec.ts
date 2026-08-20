@@ -6,6 +6,7 @@ import { IMessageTriggerJobRepository } from "domain/repositories/message-trigge
 import { SystemSettingService } from "application/services/system-setting.service";
 import {
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
+    MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
 
@@ -143,6 +144,59 @@ describe("PwaNotificationSchedulerService", () => {
         ]);
     });
 
+    it("should attach one exact notification item per ending client and undelivered message", async () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-08-20T00:00:00.000Z").getTime());
+        clientRepository.findStartingWithinDays.mockResolvedValue([]);
+        clientRepository.findEndingWithinDays.mockResolvedValue([
+            { id: 10, name: "김민지", endDate: new Date("2026-08-21T00:00:00.000Z") },
+        ]);
+        clientRepository.findWithIncompleteContractsStartingWithinDays.mockResolvedValue([]);
+        clientRepository.findWithoutContractSentStartingWithinDays.mockResolvedValue([]);
+        messageTriggerJobRepository.findRecentUndeliveredByBranch.mockResolvedValue([
+            {
+                id: "job-1",
+                status: "failed",
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                payload: { recipientName: "강하은" },
+                templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+                cancelReason: "발송 실패",
+            },
+        ]);
+        messageTriggerJobRepository.countRecentUndeliveredByBranch.mockResolvedValue(1);
+
+        await service.sendDailySummaryNotifications();
+
+        const [, , sections] = digestCall();
+        expect(sections).toEqual([
+            expect.objectContaining({
+                key: "ending",
+                notificationItems: [{
+                    title: "서비스 종료 예정",
+                    body: "김민지 산모님의 서비스가 내일 종료됩니다.",
+                    data: {
+                        type: "daily-summary-item",
+                        category: "service-ending",
+                        clientId: 10,
+                        url: "/clients/filtered?filter=ending-soon",
+                    },
+                }],
+            }),
+            expect.objectContaining({
+                key: "undeliveredMessages",
+                notificationItems: [{
+                    title: "메시지 전송 실패",
+                    body: "강하은 관리사님에게 보낸 제공기록지 메시지 전송이 실패했습니다.",
+                    data: {
+                        type: "daily-summary-item",
+                        category: "message-undelivered",
+                        jobId: "job-1",
+                        url: "/messages",
+                    },
+                }],
+            }),
+        ]);
+    });
+
     it("should not send anything when every query comes back empty", async () => {
         clientRepository.findStartingWithinDays.mockResolvedValue([]);
         clientRepository.findEndingWithinDays.mockResolvedValue([]);
@@ -268,9 +322,14 @@ describe("PwaNotificationSchedulerService", () => {
             });
         });
 
-        it("should preserve the total count while capping rendered details at 50", async () => {
+        it("should preserve the total count as an aggregate while capping rendered details at 50", async () => {
+            const runStartedAt = new Date("2026-08-20T00:00:00.000Z");
+            jest.spyOn(Date, "now").mockReturnValue(runStartedAt.getTime());
             messageTriggerJobRepository.findRecentUndeliveredByBranch.mockResolvedValue(
                 Array.from({ length: 50 }, (_, index) => ({
+                    id: `job-${index + 1}`,
+                    status: "failed",
+                    recipientType: MessageTriggerRecipientType.CLIENT,
                     payload: { recipientName: `이용자 ${index + 1}` },
                     templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
                     cancelReason: "발송 실패",
@@ -285,6 +344,11 @@ describe("PwaNotificationSchedulerService", () => {
             expect(section?.count).toBe(73);
             expect(section?.description).toContain("73건");
             expect(section?.details).toHaveLength(50);
+            expect(section?.notificationItems).toBeUndefined();
+            expect(systemSettingService.setPwaUndeliveredDigestWatermark).toHaveBeenCalledWith(
+                "branch-1",
+                runStartedAt,
+            );
         });
 
         it("should fall back to 사용자 when a job's payload is missing a recipient name", async () => {

@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { Prisma } from "@prisma/client";
 
 import { MessageTriggerService } from "application/services/message-trigger.service";
+import { persistClientMessageAutomationIntent } from "application/services/message-automation-intent-writer";
+import { fulfillClientMessageAutomationIntent } from "application/services/client-message-automation-intent-fulfiller";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { SystemSettingService } from "application/services/system-setting.service";
 import {
@@ -77,6 +79,7 @@ export interface LinkMirroredEformsignDocOptions {
 export interface ExpectedEformsignMirrorGeneration {
     detailSourceUpdatedDate: Date;
     detailSyncedAt: Date;
+    readiness?: "complete" | "detail";
 }
 
 interface TransactionResult {
@@ -203,6 +206,8 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             canCreate,
             creationBranchId,
             suppressGreetingSms,
+            applyMessageAutomation: !options.suppressOutboundAutomation,
+            intentAt: new Date(),
             expectedMirrorGeneration,
         });
         if (
@@ -277,6 +282,8 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
         canCreate: boolean;
         creationBranchId: string | null;
         suppressGreetingSms: boolean;
+        applyMessageAutomation: boolean;
+        intentAt: Date;
         expectedMirrorGeneration?: ExpectedEformsignMirrorGeneration;
     }): Promise<TransactionResult> {
         let lastError: unknown;
@@ -437,6 +444,15 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
                                 `Eformsign document ${document.documentId} was claimed concurrently`,
                             );
                         }
+                        if (params.applyMessageAutomation) {
+                            await persistClientMessageAutomationIntent(transaction, {
+                                branchId: creationBranchId,
+                                clientId: client.id,
+                                includePast: true,
+                                suppressGreeting: params.suppressGreetingSms,
+                                intentAt: params.intentAt,
+                            });
+                        }
                         return {
                             status: "created",
                             createdClientId: client.id,
@@ -498,28 +514,33 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
         expectedMirrorGeneration?: ExpectedEformsignMirrorGeneration,
     ): Promise<boolean> {
         if (!expectedMirrorGeneration) return true;
+        const readinessFence = expectedMirrorGeneration.readiness === "detail"
+            ? Prisma.sql`AND doc.detail_payload IS NOT NULL`
+            : Prisma.sql`
+                AND doc.sync_status = 'ready'
+                AND EXISTS (
+                    SELECT 1
+                    FROM eformsign_doc_file AS document_file
+                    WHERE document_file.eformsign_doc_id = doc.id
+                      AND document_file.file_type = 'document'
+                      AND document_file.source_updated_date = doc.detail_source_updated_date
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM eformsign_doc_file AS audit_trail_file
+                    WHERE audit_trail_file.eformsign_doc_id = doc.id
+                      AND audit_trail_file.file_type = 'audit_trail'
+                      AND audit_trail_file.source_updated_date = doc.detail_source_updated_date
+                )
+            `;
         const locked = await transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
             SELECT doc.id
             FROM eformsign_doc AS doc
             WHERE doc.document_id = ${documentId}
               AND doc.detail_source_updated_date = ${expectedMirrorGeneration.detailSourceUpdatedDate}
               AND doc.detail_synced_at = ${expectedMirrorGeneration.detailSyncedAt}
-              AND doc.sync_status = 'ready'
               AND doc.permanent_purge_requested_at IS NULL
-              AND EXISTS (
-                  SELECT 1
-                  FROM eformsign_doc_file AS document_file
-                  WHERE document_file.eformsign_doc_id = doc.id
-                    AND document_file.file_type = 'document'
-                    AND document_file.source_updated_date = doc.detail_source_updated_date
-              )
-              AND EXISTS (
-                  SELECT 1
-                  FROM eformsign_doc_file AS audit_trail_file
-                  WHERE audit_trail_file.eformsign_doc_id = doc.id
-                    AND audit_trail_file.file_type = 'audit_trail'
-                    AND audit_trail_file.source_updated_date = doc.detail_source_updated_date
-              )
+              ${readinessFence}
             FOR UPDATE
         `);
         return locked.length === 1;
@@ -720,13 +741,14 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
     ): Promise<void> {
         if (!this.messageTriggerService) return;
         try {
-            await this.messageTriggerService.ensureDefaultRulesForBranch(branchId);
-            await this.messageTriggerService.syncClientRulesForClient(
+            await fulfillClientMessageAutomationIntent({
+                prisma: this.prisma,
+                triggerService: this.messageTriggerService,
                 branchId,
                 clientId,
-                true,
-                suppressGreetingSms,
-            );
+                includePast: true,
+                suppressGreeting: suppressGreetingSms,
+            });
         } catch (error) {
             const errorType = error instanceof Error ? error.name : "UnknownError";
             this.logger.error(
@@ -734,6 +756,7 @@ export class LinkMirroredEformsignDocByPhoneUsecase {
             );
         }
     }
+
 }
 
 function singleLegacyPhone(value: string, hasDetail: boolean): string | null {

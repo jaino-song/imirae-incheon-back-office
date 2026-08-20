@@ -1,6 +1,16 @@
+import { DOCUMENT_MAX_FILE_SIZE_BYTES } from "domain/constants/document-storage.constants";
+
 // maximum file size (25mb in bytes)
-export const max_file_size = 25 * 1024 * 1024;
+export const max_file_size = DOCUMENT_MAX_FILE_SIZE_BYTES;
 export const MAX_FILE_SIZE = max_file_size;
+
+export const DOCUMENT_VISIBILITY_SCOPE = {
+    BRANCH: "branch",
+    ALL_BRANCHES: "all_branches",
+} as const;
+
+export type DocumentVisibilityScope =
+    typeof DOCUMENT_VISIBILITY_SCOPE[keyof typeof DOCUMENT_VISIBILITY_SCOPE];
 
 // predefined document categories
 export const predefined_categories = [
@@ -29,6 +39,8 @@ export interface CreateDocumentProps {
     storageUrl?: string | null;
     orgId?: string | null;
     uploadedBy: string;
+    branchId: string;
+    visibilityScope?: DocumentVisibilityScope;
 }
 
 interface UpdateDocumentProps {
@@ -53,6 +65,9 @@ export class DocumentEntity {
         public readonly uploadedBy: string,
         public readonly createdAt: Date,
         public updatedAt: Date,
+        public readonly branchId: string | null = null,
+        public readonly visibilityScope: DocumentVisibilityScope = DOCUMENT_VISIBILITY_SCOPE.BRANCH,
+        public readonly categoryLabel: string | null = null,
     ) {}
 
     // Lowercase accessors for controller compatibility
@@ -120,6 +135,8 @@ export class DocumentEntity {
             props.uploadedBy,
             now,
             now,
+            props.branchId,
+            props.visibilityScope ?? DOCUMENT_VISIBILITY_SCOPE.BRANCH,
         );
     }
 
@@ -138,6 +155,9 @@ export class DocumentEntity {
         uploadedBy: string,
         createdAt: Date,
         updatedAt: Date,
+        branchId: string | null = null,
+        visibilityScope: DocumentVisibilityScope = DOCUMENT_VISIBILITY_SCOPE.BRANCH,
+        categoryLabel: string | null = null,
     ): DocumentEntity {
         return new DocumentEntity(
             id,
@@ -153,6 +173,9 @@ export class DocumentEntity {
             uploadedBy,
             createdAt,
             updatedAt,
+            branchId,
+            visibilityScope,
+            categoryLabel,
         );
     }
 }

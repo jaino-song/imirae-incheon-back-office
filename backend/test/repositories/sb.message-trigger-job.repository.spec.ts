@@ -3,10 +3,12 @@ import {
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
 import {
+    MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON,
     TRIGGER_JOB_CONFIG_RETRY_DELAY_MS,
     TRIGGER_JOB_MAX_ATTEMPTS,
     TRIGGER_JOB_RETRY_DELAY_MS,
 } from "domain/constants/message-automation-policy";
+import { MESSAGE_AUTOMATION_INTENT_RULE_ID } from "domain/constants/message-automation-intent";
 import {
     MessageTriggerJobEntity,
     MessageTriggerJobPayload,
@@ -346,6 +348,7 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
             where: {
                 branchId: "branch-1",
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
                 status: { in: ["failed", "canceled"] },
             },
             orderBy: { updatedAt: "desc" },
@@ -382,6 +385,7 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
             where: expect.objectContaining({
                 branchId: "branch-1",
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
                 OR: [
                     { status: "canceled", canceledAt: { gte: since, lt: until } },
                     { status: "failed", updatedAt: { gte: since, lt: until } },
@@ -423,12 +427,28 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(messageTriggerJobModel.count).toHaveBeenCalledWith({
             where: {
                 branchId: "branch-1",
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
                 canceledByUser: false,
                 OR: [
                     { status: "canceled", canceledAt: { gte: since, lt: until } },
                     { status: "failed", updatedAt: { gte: since, lt: until } },
                 ],
             },
+        });
+    });
+
+    it("findHistoryByBranch excludes internal intent rows before applying the history limit", async () => {
+        messageTriggerJobModel.findMany.mockResolvedValue([]);
+
+        await repository.findHistoryByBranch("branch-1", 25);
+
+        expect(messageTriggerJobModel.findMany).toHaveBeenCalledWith({
+            where: {
+                branchId: "branch-1",
+                ruleId: { not: MESSAGE_AUTOMATION_INTENT_RULE_ID },
+            },
+            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            take: 25,
         });
     });
 
@@ -568,6 +588,47 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(getSqlText(queryRaw.mock.calls[0][0])).toContain('FROM "message_trigger_rule"');
         expect(getSqlText(queryRaw.mock.calls[0][0])).toContain("FOR UPDATE");
         expect(getSqlText(queryRaw.mock.calls[1][0])).toContain('INSERT INTO "message_trigger_job"');
+    });
+
+    it("preserves an existing intent-generated job while narrowly reactivating approval cancellation", async () => {
+        const job = createJob();
+        const expectedUpdatedAt = new Date("2026-07-09T00:00:00.123Z");
+        const existingPending = createRow({
+            id: "existing-job",
+            dedupeKey: job.dedupeKey,
+            status: "pending",
+        });
+        queryRaw
+            .mockResolvedValueOnce([{
+                id: "rule-1",
+                branch_id: "branch-1",
+                jobs_stale: false,
+                updated_at: expectedUpdatedAt,
+            }])
+            .mockResolvedValueOnce([]);
+        messageTriggerJobModel.findUnique.mockResolvedValue(existingPending);
+
+        const result = await repository.upsertPendingForRuleGeneration(
+            job,
+            expectedUpdatedAt,
+            false,
+            true,
+        );
+
+        expect(result?.id).toBe("existing-job");
+        expect(result?.status).toBe("pending");
+        const conflictQuery = queryRaw.mock.calls[1][0] as {
+            strings?: readonly string[];
+            values?: readonly unknown[];
+        };
+        const sqlText = getSqlText(conflictQuery).replace(/\s+/g, " ");
+        expect(sqlText).toContain('ON CONFLICT ("dedupe_key") DO UPDATE SET');
+        expect(sqlText).toContain(
+            'WHERE "message_trigger_job"."status" = \'canceled\' '
+            + 'AND "message_trigger_job"."canceled_by_user" = false '
+            + 'AND "message_trigger_job"."cancel_reason" =',
+        );
+        expect(conflictQuery.values).toContain(MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON);
     });
 
     it.each([

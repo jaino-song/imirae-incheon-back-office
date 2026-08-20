@@ -2,9 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
+    SERVICE_RECORD_LINK_RESCHEDULED_REASON,
     SERVICE_RECORD_LINK_RULE_ID,
+    SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
     SERVICE_RECORD_LINK_SMS_AUTOMATION_KEY,
     SERVICE_RECORD_LINK_SMS_LOG_TEMPLATE_KEY,
     SERVICE_RECORD_LINK_SMS_TITLE,
@@ -18,6 +21,7 @@ import {
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON } from "domain/constants/message-automation-policy";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { MessageLogEntity } from "domain/entities/message-log.entity";
 import {
@@ -31,6 +35,9 @@ import {
 import { ServiceRecordTokenService } from "./service-record-token.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
+
+const AUTOMATIC_SCHEDULING_LEASE_MINUTES = 10;
+const AUTOMATIC_SCHEDULING_RETRY_DELAY_MS = AUTOMATIC_SCHEDULING_LEASE_MINUTES * 60 * 1000;
 
 /**
  * Issues / revokes the no-login 제공기록지 link for an assignment (BJJ-247).
@@ -54,11 +61,11 @@ export class ServiceRecordLinkService {
 
     /** Backward-compatible wrapper: now schedules the SMS instead of sending immediately. */
     async issueAndSend(scheduleId: number): Promise<void> {
-        return this.scheduleForServiceStart(scheduleId);
+        await this.scheduleForServiceStart(scheduleId);
     }
 
     /** Ensure the assignment link exists and schedule the SMS for service-start day 15:00 KST. */
-    async scheduleForServiceStart(scheduleId: number): Promise<void> {
+    async scheduleForServiceStart(scheduleId: number): Promise<boolean> {
         try {
             const { scheduledFor, employeeId, jobEnqueued } = await this.issueServiceRecordLinkJob(scheduleId, {
                 scheduledFor: null,
@@ -70,15 +77,17 @@ export class ServiceRecordLinkService {
                     `Service record link SMS scheduled for provider ${employeeId} schedule ${scheduleId} at ${scheduledFor.toISOString()}`
                 );
             }
+            return jobEnqueued;
         } catch (error) {
             // Missing/legacy no-branch schedules were a silent no-op before the refactor; keep them log-free.
-            if (error instanceof NotFoundException) return;
+            if (error instanceof NotFoundException) return false;
             captureServiceRecordError(error, {
                 operation: "link-schedule",
-                handled: true,
+                handled: false,
                 scheduleId,
             });
             this.logger.error(`Failed to schedule service-record link for schedule ${scheduleId}: ${error}`);
+            throw error;
         }
     }
 
@@ -260,86 +269,120 @@ export class ServiceRecordLinkService {
         }
 
         await this.ensureSystemRule();
-        const serviceRecordCase = await this.lifecycleService?.ensureForClient(schedule.clientId);
-
         const employee = schedule.primaryEmployee;
         const resolvedRecipientPhone = this.resolveRecipientPhone(
             employee.phone,
             options.recipientPhone,
         );
-        if (options.preparedLinkToken) {
-            if (!resolvedRecipientPhone) {
-                throw new BadRequestException("제공인력 전화번호가 없습니다");
-            }
 
-            const activated = await this.tokenService.activatePreparedLink({
-                linkToken: options.preparedLinkToken,
-                branchId: schedule.branchId,
-                scheduleId,
-                employeeId: employee.id,
-                expectedPhone: resolvedRecipientPhone,
-                expiresAt: this.resolveExpiry(
-                    serviceRecordCase?.endDate ?? schedule.endDate,
-                    options.allowLateReissue === true,
-                ),
-            });
-            if (!activated) {
-                throw new BadRequestException("준비된 제공기록지 링크가 만료되었거나 유효하지 않습니다");
-            }
-        }
-
-        await this.cancelPendingServiceRecordJobs(scheduleId, "Service record link rescheduled");
-        await this.supersedeRetryableServiceRecordSmsLogs(scheduleId, "Service record link rescheduled");
-
-        if (!resolvedRecipientPhone) {
-            if (!options.recordMissingPhoneFailure) {
-                throw new BadRequestException("제공인력 전화번호가 없습니다");
-            }
-
-            this.logger.warn(
-                `Schedule ${scheduleId}: provider ${employee.id} has no phone on file; service-record link NOT sent. Set the employee's phone first.`
-            );
-            await this.recordPermanentFailure({
+        const scheduledFor = options.scheduledFor ?? getServiceRecordLinkScheduledFor(schedule.startDate);
+        const automaticDedupeKey = this.buildDedupeKey(scheduleId, false);
+        let automaticSchedulingClaimed = false;
+        if (!options.isManualSend) {
+            automaticSchedulingClaimed = await this.claimAutomaticScheduling({
                 branchId: schedule.branchId,
                 scheduleId,
                 clientId: schedule.clientId,
                 clientName: schedule.client?.name ?? "고객",
                 employeeId: employee.id,
                 employeeName: employee.name,
-                receiver: options.recipientPhone ?? employee.phone,
-                reason: "제공인력 전화번호 누락",
+                recipientPhone: resolvedRecipientPhone,
+                scheduledFor,
+                dedupeKey: automaticDedupeKey,
+                serviceStartDate: this.formatDate(schedule.startDate),
+                serviceEndDate: this.formatDate(schedule.endDate),
             });
-            return {
-                scheduledFor: options.scheduledFor ?? getServiceRecordLinkScheduledFor(schedule.startDate),
-                employeeId: employee.id,
-                jobEnqueued: false,
-                jobId: null,
-            };
+            if (!automaticSchedulingClaimed) {
+                return {
+                    scheduledFor,
+                    employeeId: employee.id,
+                    jobEnqueued: false,
+                    jobId: null,
+                };
+            }
         }
 
-        let linkToken: string;
-        if (options.preparedLinkToken) {
-            linkToken = options.preparedLinkToken;
-        } else {
-            const expiresAt = this.resolveExpiry(
-                serviceRecordCase?.endDate ?? schedule.endDate,
-                options.allowLateReissue === true,
-            );
-            const tokenParams = {
-                branchId: schedule.branchId,
+        try {
+            const serviceRecordCase = await this.lifecycleService?.ensureForClient(schedule.clientId);
+            if (options.preparedLinkToken) {
+                if (!resolvedRecipientPhone) {
+                    throw new BadRequestException("제공인력 전화번호가 없습니다");
+                }
+
+                const activated = await this.tokenService.activatePreparedLink({
+                    linkToken: options.preparedLinkToken,
+                    branchId: schedule.branchId,
+                    scheduleId,
+                    employeeId: employee.id,
+                    expectedPhone: resolvedRecipientPhone,
+                    expiresAt: this.resolveExpiry(
+                        serviceRecordCase?.endDate ?? schedule.endDate,
+                        options.allowLateReissue === true,
+                    ),
+                });
+                if (!activated) {
+                    throw new BadRequestException("준비된 제공기록지 링크가 만료되었거나 유효하지 않습니다");
+                }
+            }
+
+            await this.cancelPendingServiceRecordJobs(
                 scheduleId,
-                employeeId: employee.id,
-                ...(serviceRecordCase ? { serviceRecordCaseId: serviceRecordCase.id } : {}),
-                expectedPhone: resolvedRecipientPhone,
-                expiresAt,
-            };
-            ({ linkToken } = await this.tokenService.reuseActiveLink(tokenParams)
-                ?? await this.tokenService.issueLink(tokenParams));
-        }
+                SERVICE_RECORD_LINK_RESCHEDULED_REASON,
+            );
+            await this.supersedeRetryableServiceRecordSmsLogs(
+                scheduleId,
+                SERVICE_RECORD_LINK_RESCHEDULED_REASON,
+            );
 
-        const url = this.buildServiceRecordUrl(linkToken);
-        const clientName = schedule.client?.name ?? "고객";
-        const message = `[사회서비스 제공자 품질평가 A등급]
+            if (!resolvedRecipientPhone) {
+                if (!options.recordMissingPhoneFailure) {
+                    throw new BadRequestException("제공인력 전화번호가 없습니다");
+                }
+
+                this.logger.warn(
+                    `Schedule ${scheduleId}: provider ${employee.id} has no phone on file; service-record link NOT sent. Set the employee's phone first.`,
+                );
+                await this.recordPermanentFailure({
+                    branchId: schedule.branchId,
+                    scheduleId,
+                    clientId: schedule.clientId,
+                    clientName: schedule.client?.name ?? "고객",
+                    employeeId: employee.id,
+                    employeeName: employee.name,
+                    receiver: options.recipientPhone ?? employee.phone,
+                    reason: "제공인력 전화번호 누락",
+                });
+                return {
+                    scheduledFor,
+                    employeeId: employee.id,
+                    jobEnqueued: false,
+                    jobId: null,
+                };
+            }
+
+            let linkToken: string;
+            if (options.preparedLinkToken) {
+                linkToken = options.preparedLinkToken;
+            } else {
+                const expiresAt = this.resolveExpiry(
+                    serviceRecordCase?.endDate ?? schedule.endDate,
+                    options.allowLateReissue === true,
+                );
+                const tokenParams = {
+                    branchId: schedule.branchId,
+                    scheduleId,
+                    employeeId: employee.id,
+                    ...(serviceRecordCase ? { serviceRecordCaseId: serviceRecordCase.id } : {}),
+                    expectedPhone: resolvedRecipientPhone,
+                    expiresAt,
+                };
+                ({ linkToken } = await this.tokenService.reuseActiveLink(tokenParams)
+                    ?? await this.tokenService.issueLink(tokenParams));
+            }
+
+            const url = this.buildServiceRecordUrl(linkToken);
+            const clientName = schedule.client?.name ?? "고객";
+            const message = `[사회서비스 제공자 품질평가 A등급]
 안녕하세요, 인천 아이미래로 입니다 :)
 
 ${employee.name} 관리사님, ${clientName} 산모님의 서비스 제공기록지 작성 링크입니다.
@@ -352,45 +395,193 @@ ${employee.name} 관리사님, ${clientName} 산모님의 서비스 제공기록
 제공기록지 링크
 ${url}`;
 
-        const scheduledFor = options.scheduledFor ?? getServiceRecordLinkScheduledFor(schedule.startDate);
-        const persistedJob = await this.jobRepository.upsertPending(
-            MessageTriggerJobEntity.create({
-                branchId: schedule.branchId,
-                ruleId: SERVICE_RECORD_LINK_RULE_ID,
-                scheduledFor,
-                clientId: schedule.clientId,
-                employeeScheduleId: scheduleId,
-                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
-                recipientPhone: resolvedRecipientPhone,
-                templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
-                dedupeKey: this.buildDedupeKey(scheduleId, options.isManualSend),
-                payload: {
+            const persistedJob = await this.jobRepository.upsertPending(
+                MessageTriggerJobEntity.create({
+                    branchId: schedule.branchId,
+                    ruleId: SERVICE_RECORD_LINK_RULE_ID,
+                    scheduledFor,
                     clientId: schedule.clientId,
-                    clientName,
-                    employeeId: employee.id,
-                    employeeName: employee.name,
-                    memberId: `employee:${employee.id}`,
-                    recipientName: employee.name,
+                    employeeScheduleId: scheduleId,
+                    recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
                     recipientPhone: resolvedRecipientPhone,
-                    buttonUrl: url,
-                    messageBody: message,
-                    templateVariables: {
+                    templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+                    dedupeKey: options.isManualSend
+                        ? this.buildDedupeKey(scheduleId, true)
+                        : automaticDedupeKey,
+                    payload: {
+                        clientId: schedule.clientId,
                         clientName,
+                        employeeId: employee.id,
                         employeeName: employee.name,
-                        serviceRecordUrl: url,
-                        serviceStartDate: this.formatDate(schedule.startDate),
-                        serviceEndDate: this.formatDate(schedule.endDate),
+                        memberId: `employee:${employee.id}`,
+                        recipientName: employee.name,
+                        recipientPhone: resolvedRecipientPhone,
+                        buttonUrl: url,
+                        messageBody: message,
+                        templateVariables: {
+                            clientName,
+                            employeeName: employee.name,
+                            serviceRecordUrl: url,
+                            serviceStartDate: this.formatDate(schedule.startDate),
+                            serviceEndDate: this.formatDate(schedule.endDate),
+                        },
                     },
-                },
-            }),
-        );
+                }),
+            );
 
-        return {
-            scheduledFor,
-            employeeId: employee.id,
-            jobEnqueued: true,
-            jobId: persistedJob.id,
+            return {
+                scheduledFor,
+                employeeId: employee.id,
+                jobEnqueued: true,
+                jobId: persistedJob.id,
+            };
+        } finally {
+            if (automaticSchedulingClaimed) {
+                await this.releaseAutomaticSchedulingClaim(automaticDedupeKey);
+            }
+        }
+    }
+
+    private async claimAutomaticScheduling(params: {
+        branchId: string;
+        scheduleId: number;
+        clientId: number;
+        clientName: string;
+        employeeId: number;
+        employeeName: string;
+        recipientPhone: string | null;
+        scheduledFor: Date;
+        dedupeKey: string;
+        serviceStartDate: string;
+        serviceEndDate: string;
+    }): Promise<boolean> {
+        const payload = {
+            clientId: params.clientId,
+            clientName: params.clientName,
+            employeeId: params.employeeId,
+            employeeName: params.employeeName,
+            memberId: `employee:${params.employeeId}`,
+            recipientName: params.employeeName,
+            recipientPhone: params.recipientPhone ?? "",
+            buttonUrl: null,
+            messageBody: null,
+            templateVariables: {
+                clientName: params.clientName,
+                employeeName: params.employeeName,
+                serviceRecordUrl: "",
+                serviceStartDate: params.serviceStartDate,
+                serviceEndDate: params.serviceEndDate,
+            },
         };
+        const claimed = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+            INSERT INTO "message_trigger_job" (
+                branch_id,
+                rule_id,
+                status,
+                scheduled_for,
+                canceled_at,
+                cancel_reason,
+                canceled_by_user,
+                client_id,
+                employee_schedule_id,
+                recipient_type,
+                recipient_phone,
+                template_key,
+                dedupe_key,
+                payload,
+                attempts,
+                next_attempt_at,
+                updated_at
+            )
+            SELECT
+                ${params.branchId}::uuid,
+                ${SERVICE_RECORD_LINK_RULE_ID},
+                'failed',
+                ${params.scheduledFor},
+                NULL,
+                ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON},
+                false,
+                ${params.clientId},
+                ${params.scheduleId},
+                ${MessageTriggerRecipientType.PRIMARY_EMPLOYEE},
+                ${params.recipientPhone},
+                ${MessageTriggerTemplateKey.SERVICE_RECORD_LINK},
+                ${params.dedupeKey},
+                ${JSON.stringify(payload)}::jsonb,
+                0,
+                clock_timestamp() + (${AUTOMATIC_SCHEDULING_LEASE_MINUTES} * interval '1 minute'),
+                date_trunc('milliseconds', clock_timestamp())
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM "message_trigger_job" AS blocker
+                WHERE blocker."employee_schedule_id" = ${params.scheduleId}
+                  AND blocker."rule_id" = ${SERVICE_RECORD_LINK_RULE_ID}
+                  AND (
+                      blocker."status" IN ('pending', 'processing', 'sent')
+                      OR (
+                          blocker."status" = 'failed'
+                          AND blocker."cancel_reason" IS DISTINCT FROM ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON}
+                      )
+                      OR (
+                          blocker."status" = 'canceled'
+                          AND (
+                              blocker."canceled_by_user" = true
+                              OR blocker."cancel_reason" IS NULL
+                              OR blocker."cancel_reason" NOT IN (
+                                  ${SERVICE_RECORD_LINK_RESCHEDULED_REASON},
+                                  ${MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON}
+                              )
+                          )
+                      )
+                  )
+            )
+            ON CONFLICT ("dedupe_key") DO UPDATE SET
+                status = 'failed',
+                scheduled_for = EXCLUDED.scheduled_for,
+                canceled_at = NULL,
+                cancel_reason = ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON},
+                canceled_by_user = false,
+                recipient_phone = EXCLUDED.recipient_phone,
+                payload = EXCLUDED.payload,
+                attempts = 0,
+                next_attempt_at = clock_timestamp() + (${AUTOMATIC_SCHEDULING_LEASE_MINUTES} * interval '1 minute'),
+                updated_at = date_trunc('milliseconds', clock_timestamp())
+            WHERE (
+                "message_trigger_job"."status" = 'failed'
+                AND "message_trigger_job"."cancel_reason" = ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON}
+                AND (
+                    "message_trigger_job"."next_attempt_at" IS NULL
+                    OR "message_trigger_job"."next_attempt_at" <= clock_timestamp()
+                )
+            ) OR (
+                "message_trigger_job"."status" = 'canceled'
+                AND "message_trigger_job"."canceled_by_user" = false
+                AND "message_trigger_job"."cancel_reason" IN (
+                    ${SERVICE_RECORD_LINK_RESCHEDULED_REASON},
+                    ${MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON}
+                )
+            )
+            RETURNING id;
+        `);
+
+        return claimed.length > 0;
+    }
+
+    private async releaseAutomaticSchedulingClaim(dedupeKey: string): Promise<void> {
+        await this.prisma.message_trigger_job.updateMany({
+            where: {
+                dedupeKey,
+                status: "failed",
+                cancelReason: SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON,
+                canceledByUser: false,
+            },
+            data: {
+                // Keep failed markers out of the next five-minute scan. Without
+                // this durable backoff, the first batch of persistently failing
+                // schedules can monopolize every reconciliation cycle.
+                nextAttemptAt: new Date(Date.now() + AUTOMATIC_SCHEDULING_RETRY_DELAY_MS),
+            },
+        });
     }
 
     private async ensureSystemRule(): Promise<void> {

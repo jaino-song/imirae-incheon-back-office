@@ -97,6 +97,7 @@ export interface IMessageTriggerJobRepository {
         job: MessageTriggerJobEntity,
         expectedUpdatedAt: Date,
         expectedJobsStale: boolean,
+        preserveExisting?: boolean,
     ): Promise<MessageTriggerJobEntity | null>;
     /**
      * Lock and compare a rejected source job, then create the action-bound

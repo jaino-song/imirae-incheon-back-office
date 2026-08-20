@@ -15,6 +15,14 @@ const HANGUL_DOCUMENT_MIME_TYPES = new Set([
   "application/x-hwpx",
 ]);
 
+const INLINE_PREVIEW_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/gif",
+  "image/webp",
+]);
+
 const MIME_TO_EXTENSION: Record<string, string> = {
   "application/pdf": ".pdf",
   "image/jpeg": ".jpg",
@@ -60,7 +68,7 @@ export function getPreviewKind(doc: PreviewableDocument): PreviewKind {
     return "pdf";
   }
 
-  if (doc.mimeType.startsWith("image/")) {
+  if (INLINE_PREVIEW_IMAGE_MIME_TYPES.has(doc.mimeType.toLowerCase())) {
     return "image";
   }
 

@@ -546,7 +546,10 @@ describe("SbEformsignDocRepository", () => {
                 permanentPurgeRequestedAt: null,
                 statusType: { notIn: ["047", "049", "099"] },
             },
-            data: { clientId: 12 },
+            data: {
+                clientId: 12,
+                autoRegisteredClient: false,
+            },
         });
     });
 

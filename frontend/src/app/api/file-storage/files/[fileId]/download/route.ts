@@ -80,9 +80,8 @@ export async function GET(
     }
 }
 
-// Desktop-only: answers metadata preflights without transferring the file
-// body. Mobile has no HEAD equivalent; keep it. HEAD responses stay body-less
-// on every path, including errors.
+// Answers metadata preflights without transferring the file body. HEAD
+// responses stay body-less on every path, including errors.
 export async function HEAD(
     request: NextRequest,
     { params }: { params: Promise<{ fileId: string }> }

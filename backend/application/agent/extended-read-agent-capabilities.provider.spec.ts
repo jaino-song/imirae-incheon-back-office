@@ -65,6 +65,19 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
         expect(draft).toEqual([{ id: "draft-a", status: "PENDING" }]);
         expect(JSON.stringify(files)).not.toContain("secret/path");
         expect(JSON.stringify(files)).not.toContain("https://signed");
+        expect(models.document.findMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: {
+                AND: [
+                    {
+                        OR: [
+                            { branchId: "branch-a" },
+                            { visibilityScope: "all_branches" },
+                        ],
+                    },
+                    {},
+                ],
+            },
+        }));
         expect(records).toEqual([{ id: "case-a", status: "WAITING" }]);
         const serviceSelect = models.service_record_case.findMany.mock.calls[0]?.[0]?.select;
         expect(serviceSelect).not.toHaveProperty("momBirth");

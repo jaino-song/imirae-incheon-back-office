@@ -584,15 +584,29 @@ export class EformsignDocumentMirrorService {
             try {
                 const canCreateFromPartialDetail =
                     isDetailReadyForEarlyClientReconciliation(state);
-                const result = await this.linkDocumentByPhoneUsecase.execute(
-                    documentId,
+                const expectedMirrorGeneration: ExpectedEformsignMirrorGeneration | undefined =
                     canCreateFromPartialDetail
-                        ? linkOptions
-                        : {
+                    && state?.detailSourceUpdatedDate
+                    && state.detailSyncedAt
+                        ? {
+                            detailSourceUpdatedDate: state.detailSourceUpdatedDate,
+                            detailSyncedAt: state.detailSyncedAt,
+                            readiness: "detail",
+                        }
+                        : undefined;
+                const result = expectedMirrorGeneration
+                    ? await this.linkDocumentByPhoneUsecase.execute(
+                        documentId,
+                        linkOptions,
+                        expectedMirrorGeneration,
+                    )
+                    : await this.linkDocumentByPhoneUsecase.execute(
+                        documentId,
+                        {
                             ...linkOptions,
                             linkExistingOnly: true,
                         },
-                );
+                    );
                 if (result === "created" || result === "linked") {
                     await this.invalidateDocumentSnapshots([documentId]);
                     return true;

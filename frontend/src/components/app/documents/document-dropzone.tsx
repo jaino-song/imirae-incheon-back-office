@@ -19,15 +19,29 @@ import {
   TemplateFieldGridItem,
 } from "@/components/app/messages/forms/form-components/TemplateFieldGrid";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
+  documentUploadAcceptValue,
+  formatFileSizeLimit,
+  validateDocumentUploadCandidate,
+  type DocumentUploadCapabilities,
+} from "@babyjamjam/shared/file-storage";
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const HANGUL_DOCUMENT_EXTENSIONS = new Set(["hwp", "hwpx"]);
+const MAX_DOCUMENT_TAGS = 50;
+const MAX_DOCUMENT_TAG_LENGTH = 100;
+const INLINE_PREVIEW_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/gif",
+  "image/webp",
+]);
 const DOCUMENT_FIELD_LABEL_CLASS_NAME =
   "text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-v3-text-muted";
 const DOCUMENT_UPLOAD_CARD_CLASS_NAME = "rounded-[20px] bg-v3-dim-white p-5";
 const DOCUMENT_TEXTAREA_CLASS_NAME =
   "min-h-[calc(72px*var(--glint-ui-scale,1))] rounded-[16px] border-[1.5px] border-v3-border bg-white px-4 py-3 text-[0.85rem] text-v3-dark shadow-none transition-all focus-visible:border-v3-primary focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:shadow-[0_0_0_3px_hsla(214,100%,34%,0.08)]";
-const UPLOAD_FORMAT_LABELS = ["PNG", "JPG", "PDF", "HWP", "HWPX"];
 const FILE_FORMAT_LABEL_OVERRIDES: Record<string, string> = {
   jpeg: "JPG",
 };
@@ -38,6 +52,8 @@ export interface DocumentDropzoneUploadState {
 }
 
 interface DocumentDropzoneProps {
+  /** Canonical caller-context component id. */
+  "data-component"?: string;
   onUpload: (params: {
     file: File;
     name: string;
@@ -50,15 +66,18 @@ interface DocumentDropzoneProps {
   formId?: string;
   showInlineSubmitButton?: boolean;
   onUploadStateChange?: (state: DocumentDropzoneUploadState) => void;
+  capabilities?: DocumentUploadCapabilities;
 }
 
 export function DocumentDropzone({
+  "data-component": dataComponent = "desktop_contracts_document-dropzone",
   onUpload,
   isLoading = false,
   uploadProgress = 0,
   formId,
   showInlineSubmitButton = true,
   onUploadStateChange,
+  capabilities = DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
 }: DocumentDropzoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -83,13 +102,8 @@ export function DocumentDropzone({
   }, [previewUrl]);
 
   const validateFile = useCallback((file: File): string | null => {
-    if (file.size > MAX_FILE_SIZE) {
-      const sizeMB = (file.size / 1024 / 1024).toFixed(2);
-      return `파일 크기가 25MB를 초과합니다. 현재 크기: ${sizeMB}MB`;
-    }
-
-    return null;
-  }, []);
+    return validateDocumentUploadCandidate(file, capabilities);
+  }, [capabilities]);
 
   const handleFile = useCallback(
     (file: File) => {
@@ -106,7 +120,7 @@ export function DocumentDropzone({
         file.name.substring(0, file.name.lastIndexOf(".")) || file.name;
       setName(fileNameWithoutExt);
 
-      if (file.type.startsWith("image/")) {
+      if (INLINE_PREVIEW_IMAGE_MIME_TYPES.has(file.type.toLowerCase())) {
         const url = URL.createObjectURL(file);
         setPreviewUrl(url);
       } else {
@@ -176,8 +190,9 @@ export function DocumentDropzone({
   const handleAddTag = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && tagInput.trim()) {
       e.preventDefault();
-      if (!tags.includes(tagInput.trim())) {
-        setTags([...tags, tagInput.trim()]);
+      const nextTag = tagInput.trim().slice(0, MAX_DOCUMENT_TAG_LENGTH);
+      if (!tags.includes(nextTag) && tags.length < MAX_DOCUMENT_TAGS) {
+        setTags([...tags, nextTag]);
       }
       setTagInput("");
     }
@@ -284,9 +299,18 @@ export function DocumentDropzone({
 
   return (
     <div
-      data-component="desktop_contracts_document-dropzone"
+      data-component={dataComponent}
+      data-source-component="DocumentDropzone"
       className="w-full space-y-5"
     >
+      <div
+        data-component={`${dataComponent}_visibility-notice`}
+        className="rounded-[16px] border border-v3-border bg-v3-primary-light px-4 py-3 text-[0.76rem] font-semibold leading-5 text-v3-primary"
+      >
+        {capabilities.uploadVisibilityScope === "all_branches"
+          ? "오너가 올리는 파일은 모든 지점에서 볼 수 있습니다."
+          : "이 파일은 현재 지점에서만 볼 수 있습니다."}
+      </div>
       {validationError && (
         <Alert
           variant="destructive"
@@ -298,7 +322,7 @@ export function DocumentDropzone({
 
       {!selectedFile ? (
         <label
-          data-component="desktop_contracts_document-dropzone_empty"
+          data-component={`${dataComponent}_empty`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -314,6 +338,7 @@ export function DocumentDropzone({
         >
           <input
             type="file"
+            accept={documentUploadAcceptValue(capabilities)}
             onChange={handleFileInputChange}
             disabled={isLoading}
             className="sr-only"
@@ -327,13 +352,13 @@ export function DocumentDropzone({
               파일을 끌어다 놓거나 클릭해 선택하세요
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2">
-              {UPLOAD_FORMAT_LABELS.map((format) => (
+              {capabilities.formatGroups.map((group) => (
                 <Badge
-                  key={format}
+                  key={group.label}
                   variant="outline"
                   className="border-v3-primary/20 bg-v3-primary-light px-3 py-1 text-[0.68rem] font-semibold text-v3-primary"
                 >
-                  {format}
+                  {group.label} · {group.formats.join(" · ")}
                 </Badge>
               ))}
             </div>
@@ -343,9 +368,25 @@ export function DocumentDropzone({
               variant="outline"
               className="border-v3-border bg-white/90 px-3 py-1 text-[0.68rem] font-semibold text-v3-text-muted"
             >
-              최대 25MB
+              최대 {formatFileSizeLimit(capabilities.maxFileSizeBytes)} · 한 번에 파일 1개
             </Badge>
           </div>
+          <p className="max-w-xl text-[0.74rem] leading-5 text-v3-text-muted">
+            PDF·이미지·한글은 화면에서 확인할 수 있고, 오피스·압축 파일은 안전하게 내려받아 확인합니다.
+          </p>
+          <Badge
+            variant="outline"
+            className={cn(
+              "border-v3-border bg-v3-dim-white px-3 py-1 text-[0.68rem] font-semibold",
+              capabilities.uploadVisibilityScope === "all_branches"
+                ? "text-v3-primary"
+                : "text-v3-text-muted"
+            )}
+          >
+            {capabilities.uploadVisibilityScope === "all_branches"
+              ? "오너 업로드 · 모든 지점에 공개"
+              : "현재 지점에만 공개"}
+          </Badge>
         </label>
       ) : (
         <div className="space-y-5">
@@ -409,7 +450,7 @@ export function DocumentDropzone({
           <form
             id={formId}
             className="contents"
-            data-component="desktop_contracts_document-dropzone_upload-form"
+            data-component={`${dataComponent}_upload-form`}
             onSubmit={handleSubmit}
           >
             <TitleDescChildrenMolecule
@@ -417,27 +458,28 @@ export function DocumentDropzone({
               description="문서 제목, 카테고리, 태그, 설명을 입력해 업로드 기준 정보를 함께 저장합니다."
               className={DOCUMENT_UPLOAD_CARD_CLASS_NAME}
               bodyClassName="space-y-5"
-              data-component="desktop_contracts_document-dropzone_upload-form_details"
+              data-component={`${dataComponent}_upload-form_details`}
             >
               <TemplateFieldGrid
-                dataComponent="desktop_contracts_document-dropzone_upload-form_details_grid"
+                dataComponent={`${dataComponent}_upload-form_details_grid`}
                 layout="stack"
               >
-                <TemplateFieldGridItem dataComponent="desktop_contracts_document-dropzone_upload-form_details_name-field">
+                <TemplateFieldGridItem dataComponent={`${dataComponent}_upload-form_details_name-field`}>
                   <TitleTextInputMolecule
                     id="doc-name"
                     label="문서 제목"
                     value={name}
+                    maxLength={255}
                     onValueChange={setName}
                     disabled={isLoading}
                     required
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
-                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_name-molecule"
-                    inputDataComponent="desktop_contracts_document-dropzone_upload-form_details_name-input"
+                    dataComponent={`${dataComponent}_upload-form_details_name-molecule`}
+                    inputDataComponent={`${dataComponent}_upload-form_details_name-input`}
                   />
                 </TemplateFieldGridItem>
 
-                <TemplateFieldGridItem dataComponent="desktop_contracts_document-dropzone_upload-form_details_category-field">
+                <TemplateFieldGridItem dataComponent={`${dataComponent}_upload-form_details_category-field`}>
                   <TitleSelectMolecule
                     id="doc-category"
                     label="카테고리"
@@ -451,21 +493,22 @@ export function DocumentDropzone({
                     disabled={isLoading}
                     required
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
-                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_category-molecule"
-                    triggerDataComponent="desktop_contracts_document-dropzone_upload-form_details_category-trigger"
-                    contentDataComponent="desktop_contracts_document-dropzone_upload-form_details_category-options"
-                    optionDataComponent="desktop_contracts_document-dropzone_upload-form_details_category-option"
+                    dataComponent={`${dataComponent}_upload-form_details_category-molecule`}
+                    triggerDataComponent={`${dataComponent}_upload-form_details_category-trigger`}
+                    contentDataComponent={`${dataComponent}_upload-form_details_category-options`}
+                    optionDataComponent={`${dataComponent}_upload-form_details_category-option`}
                   />
                 </TemplateFieldGridItem>
 
                 <TemplateFieldGridItem
                   className="sm:col-span-2"
-                  dataComponent="desktop_contracts_document-dropzone_upload-form_details_tags-field"
+                  dataComponent={`${dataComponent}_upload-form_details_tags-field`}
                 >
                   <TitleTextInputMolecule
                     id="doc-tags"
                     label="태그"
                     value={tagInput}
+                    maxLength={MAX_DOCUMENT_TAG_LENGTH}
                     onValueChange={setTagInput}
                     onKeyDown={handleAddTag}
                     placeholder="태그를 입력하고 Enter를 눌러 추가"
@@ -473,19 +516,20 @@ export function DocumentDropzone({
                     helperText="검색에 자주 쓰는 키워드를 등록해 두면 문서를 더 빨리 찾을 수 있습니다."
                     helperTextClassName="text-[0.75rem] leading-5 text-v3-text-muted"
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
-                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_tags-molecule"
-                    inputDataComponent="desktop_contracts_document-dropzone_upload-form_details_tags-input"
+                    dataComponent={`${dataComponent}_upload-form_details_tags-molecule`}
+                    inputDataComponent={`${dataComponent}_upload-form_details_tags-input`}
                   />
                   {tags.length > 0 && (
                     <div
                       className="flex flex-wrap gap-2"
-                      data-component="desktop_contracts_document-dropzone_upload-form_details_tags-list"
+                      data-component={`${dataComponent}_upload-form_details_tags-list`}
                     >
                       {tags.map((tag) => (
                         <button
                           key={tag}
                           type="button"
                           onClick={() => !isLoading && handleDeleteTag(tag)}
+                          data-component={`${dataComponent}_upload-form_details_tags-list_remove`}
                           className="inline-flex items-center gap-1 rounded-full border border-v3-primary/20 bg-v3-primary-light px-3 py-1 text-[0.72rem] font-semibold text-v3-primary transition-colors hover:border-v3-primary/40 hover:bg-v3-primary-light/80"
                         >
                           #{tag}
@@ -498,19 +542,20 @@ export function DocumentDropzone({
 
                 <TemplateFieldGridItem
                   className="sm:col-span-2"
-                  dataComponent="desktop_contracts_document-dropzone_upload-form_details_description-field"
+                  dataComponent={`${dataComponent}_upload-form_details_description-field`}
                 >
                   <TitleTextareaMolecule
                     id="doc-description"
                   label="설명"
-                  value={description}
+                    value={description}
+                    maxLength={2000}
                   onValueChange={setDescription}
                     rows={2}
                   disabled={isLoading}
                     labelClassName={DOCUMENT_FIELD_LABEL_CLASS_NAME}
                     textareaClassName={DOCUMENT_TEXTAREA_CLASS_NAME}
-                    dataComponent="desktop_contracts_document-dropzone_upload-form_details_description-molecule"
-                    textareaDataComponent="desktop_contracts_document-dropzone_upload-form_details_description-textarea"
+                    dataComponent={`${dataComponent}_upload-form_details_description-molecule`}
+                    textareaDataComponent={`${dataComponent}_upload-form_details_description-textarea`}
                   />
                 </TemplateFieldGridItem>
               </TemplateFieldGrid>

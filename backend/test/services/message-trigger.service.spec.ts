@@ -2178,6 +2178,124 @@ describe("MessageTriggerService", () => {
         }
     });
 
+    it("replays a client intent with stable keys without canceling an existing pending job", async () => {
+        jest.useFakeTimers().setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
+        try {
+            const stableBatchAt = new Date("2026-07-09T11:58:00.000Z");
+            const greetingRule = createRule({
+                id: "rule-greeting-intent",
+                eventType: MessageTriggerEventType.CLIENT_CREATED,
+                offsetType: MessageTriggerOffsetType.IMMEDIATE,
+                offsetDays: 0,
+                templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
+            });
+            const serviceInfoRule = createRule({
+                id: "rule-service-info-intent",
+                eventType: MessageTriggerEventType.SERVICE_START,
+                offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
+                offsetDays: 7,
+                templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
+            });
+            const existingServiceInfo = createJob({
+                id: "job-service-info-existing",
+                ruleId: serviceInfoRule.id,
+                clientId: 1,
+                templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
+            });
+            const sync = createSyncService({
+                startDate: new Date("2026-07-14T00:00:00.000Z"),
+                createdAt: new Date("2026-07-09T00:00:00.000Z"),
+            });
+            sync.ruleRepository.findActiveByEventTypes.mockResolvedValue([
+                greetingRule,
+                serviceInfoRule,
+            ]);
+            sync.jobRepository.findPendingByRuleIdsAndClientId.mockResolvedValue([
+                existingServiceInfo,
+            ]);
+
+            await sync.service.syncClientRulesForClient(
+                branchId,
+                1,
+                true,
+                false,
+                { stableBatchAt, preserveExisting: true },
+            );
+            await sync.service.syncClientRulesForClient(
+                branchId,
+                1,
+                true,
+                false,
+                { stableBatchAt, preserveExisting: true },
+            );
+
+            expect(sync.jobRepository.cancelPendingForRuleGeneration).not.toHaveBeenCalled();
+            expect(sync.jobRepository.findPendingByRuleIdsAndClientId).not.toHaveBeenCalled();
+            expect(existingServiceInfo.status).toBe("pending");
+            expect(sync.jobRepository.upsertPendingForRuleGeneration).toHaveBeenCalledTimes(4);
+
+            const firstAttempt = sync.jobRepository.upsertPendingForRuleGeneration.mock.calls
+                .slice(0, 2)
+                .map(([job, , , preserveExisting]) => ({
+                    dedupeKey: job.dedupeKey,
+                    scheduledFor: job.scheduledFor,
+                    preserveExisting,
+                }));
+            const secondAttempt = sync.jobRepository.upsertPendingForRuleGeneration.mock.calls
+                .slice(2, 4)
+                .map(([job, , , preserveExisting]) => ({
+                    dedupeKey: job.dedupeKey,
+                    scheduledFor: job.scheduledFor,
+                    preserveExisting,
+                }));
+            expect(secondAttempt).toEqual(firstAttempt);
+            expect(firstAttempt.every(({ preserveExisting }) => preserveExisting === true)).toBe(true);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it("replays an employee-assignment intent without canceling its stable job", async () => {
+        const employeeRule = createRule({
+            id: "rule-employee-intent",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const existingAssignment = createJob({
+            id: "job-employee-existing",
+            ruleId: employeeRule.id,
+            employeeScheduleId: 77,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const sync = createEmployeeSyncService();
+        sync.ruleRepository.findActiveByEventTypes.mockResolvedValue([employeeRule]);
+        sync.jobRepository.findPendingByRuleIdsAndEmployeeScheduleId.mockResolvedValue([
+            existingAssignment,
+        ]);
+
+        await sync.service.syncEmployeeAssignmentRulesForSchedule(
+            branchId,
+            77,
+            true,
+            { preserveExisting: true },
+        );
+
+        expect(sync.jobRepository.cancelPendingForRuleGeneration).not.toHaveBeenCalled();
+        expect(sync.jobRepository.findPendingByRuleIdsAndEmployeeScheduleId).not.toHaveBeenCalled();
+        expect(existingAssignment.status).toBe("pending");
+        expect(sync.jobRepository.upsertPendingForRuleGeneration).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dedupeKey: "rule-employee-intent:schedule:77:employee:30:PRIMARY_EMPLOYEE",
+            }),
+            employeeRule.updatedAt,
+            false,
+            true,
+        );
+    });
+
     it("re-approving a schedule change for the same employee does not create a second assignment job", async () => {
         const employeeRule = createRule({
             id: "rule-employee-assigned",

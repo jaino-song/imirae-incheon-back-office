@@ -265,6 +265,7 @@ export function SidebarNotifications() {
                     slotClassName={({ item }) =>
                       cn(
                         "hover:!border-transparent hover:!bg-v3-primary-light/55",
+                        item && "h-auto min-h-[calc(94px*var(--glint-ui-scale,1))] items-start overflow-visible",
                         item?.unread && "border-v3-primary/20 bg-v3-primary-light/20 hover:!border-v3-primary/20 hover:!bg-v3-primary-light/65",
                       )
                     }
@@ -280,8 +281,9 @@ export function SidebarNotifications() {
                           iconContainerClassName={getNotificationIconContainerClassName(item)}
                           title={item.name}
                           subtitle={item.message}
+                          subtitleTextClassName="overflow-visible whitespace-normal break-words text-clip leading-[calc(16px*var(--glint-ui-scale,1))]"
                           status={
-                            <div className="relative flex shrink-0 items-center justify-center">
+                            <div className="flex shrink-0 flex-col items-end gap-[calc(4px*var(--glint-ui-scale,1))]">
                               {item.actionReason ? (
                                 <StatusPill
                                   variant={getNotificationStatusVariant(item.actionPriority)}
@@ -290,7 +292,10 @@ export function SidebarNotifications() {
                                   {item.actionReason}
                                 </StatusPill>
                               ) : null}
-                              <span className="absolute left-1/2 top-full mt-[calc(4px*var(--glint-ui-scale,1))] inline-flex -translate-x-1/2 items-center whitespace-nowrap text-center text-[calc(10.4px*var(--glint-ui-scale,1))] font-medium text-v3-text-muted">
+                              <span
+                                data-component="desktop_chrome_sidebar_notifications-modal_item_time"
+                                className="inline-flex items-center whitespace-nowrap text-right text-[calc(10.4px*var(--glint-ui-scale,1))] font-medium text-v3-text-muted"
+                              >
                                 {item.timeLabel}
                               </span>
                             </div>

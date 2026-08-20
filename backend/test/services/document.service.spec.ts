@@ -27,14 +27,15 @@ function createDocumentEntity(branchId: string, storagePath = "documents/contrac
 function createRepository(): MockDocumentRepository {
     return {
         findById: jest.fn(),
+        findBranchById: jest.fn(),
         findByOrgId: jest.fn(),
         findByCategoryId: jest.fn(),
         findAll: jest.fn(),
-        existsByStoragePathOutsideBranch: jest.fn(),
+        existsByStoragePath: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
-    };
+    } as MockDocumentRepository;
 }
 
 describe("DocumentService", () => {
@@ -46,8 +47,8 @@ describe("DocumentService", () => {
         service = new DocumentService(documentRepository);
     });
 
-    it("rejects document creation when another branch already claims the storage path", async () => {
-        documentRepository.existsByStoragePathOutsideBranch.mockResolvedValue(true);
+    it("rejects document creation when any document already claims the storage path", async () => {
+        documentRepository.existsByStoragePath.mockResolvedValue(true);
 
         await expect(service.create("branch-1", {
             name: "Contract",
@@ -61,16 +62,13 @@ describe("DocumentService", () => {
             uploadedby: "user-1",
         })).rejects.toThrow(new ForbiddenException("storage path unavailable"));
 
-        expect(documentRepository.existsByStoragePathOutsideBranch).toHaveBeenCalledWith(
-            "branch-1",
-            "documents/shared.pdf",
-        );
+        expect(documentRepository.existsByStoragePath).toHaveBeenCalledWith("documents/shared.pdf");
         expect(documentRepository.create).not.toHaveBeenCalled();
     });
 
-    it("preserves same-branch storage path re-creation behavior", async () => {
+    it("creates a document only when the server-generated storage path is unclaimed", async () => {
         const createdEntity = createDocumentEntity("branch-1");
-        documentRepository.existsByStoragePathOutsideBranch.mockResolvedValue(false);
+        documentRepository.existsByStoragePath.mockResolvedValue(false);
         documentRepository.create.mockResolvedValue(createdEntity);
 
         const result = await service.create("branch-1", {
@@ -86,10 +84,7 @@ describe("DocumentService", () => {
         });
 
         expect(result).toBe(createdEntity);
-        expect(documentRepository.existsByStoragePathOutsideBranch).toHaveBeenCalledWith(
-            "branch-1",
-            "documents/contract.pdf",
-        );
+        expect(documentRepository.existsByStoragePath).toHaveBeenCalledWith("documents/contract.pdf");
         expect(documentRepository.create).toHaveBeenCalledWith(
             "branch-1",
             expect.objectContaining({
@@ -99,10 +94,44 @@ describe("DocumentService", () => {
         );
     });
 
+    it("persists the server-derived all-branches visibility on an owner upload", async () => {
+        const createdEntity = createDocumentEntity("branch-1");
+        documentRepository.existsByStoragePath.mockResolvedValue(false);
+        documentRepository.create.mockResolvedValue(createdEntity);
+
+        await service.create("branch-1", {
+            name: "Owner notice",
+            categoryId: "notice",
+            tags: [],
+            mimetype: "application/pdf",
+            filesize: 100,
+            storagepath: "documents/owner-notice.pdf",
+            branchid: "branch-1",
+            uploadedby: "owner-1",
+            visibilityScope: "all_branches",
+        } as never);
+
+        expect(documentRepository.create).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ visibilityScope: "all_branches" }),
+        );
+    });
+
+    it("does not let a globally readable document become writable from another branch", async () => {
+        const globallyReadable = createDocumentEntity("branch-origin");
+        documentRepository.findById.mockResolvedValue(globallyReadable);
+        documentRepository.findBranchById.mockResolvedValue(null);
+
+        await expect(service.update("branch-reader", globallyReadable.id, { name: "tampered" }))
+            .rejects.toThrow("not found");
+
+        expect(documentRepository.update).not.toHaveBeenCalled();
+    });
+
     it("deletes the storage object before removing branch-owned metadata", async () => {
         const document = createDocumentEntity("branch-1");
         const storage = { delete: jest.fn().mockResolvedValue(undefined) };
-        documentRepository.findById.mockResolvedValue(document);
+        documentRepository.findBranchById.mockResolvedValue(document);
         documentRepository.delete.mockResolvedValue(undefined);
         service = new DocumentService(documentRepository, storage as never);
 
@@ -116,7 +145,7 @@ describe("DocumentService", () => {
     it("finishes staged metadata cleanup without replaying storage deletion", async () => {
         const document = createDocumentEntity("branch-1");
         const storage = { delete: jest.fn().mockResolvedValue(undefined) };
-        documentRepository.findById.mockResolvedValueOnce(document).mockResolvedValueOnce(document);
+        documentRepository.findBranchById.mockResolvedValueOnce(document).mockResolvedValueOnce(document);
         documentRepository.delete.mockResolvedValue(undefined);
         service = new DocumentService(documentRepository, storage as never);
 
@@ -130,7 +159,7 @@ describe("DocumentService", () => {
     it("repeats a staged delete safely and becomes a no-op after metadata is gone", async () => {
         const document = createDocumentEntity("branch-1");
         const storage = { delete: jest.fn().mockResolvedValue(undefined) };
-        documentRepository.findById.mockResolvedValueOnce(document).mockResolvedValueOnce(null);
+        documentRepository.findBranchById.mockResolvedValueOnce(document).mockResolvedValueOnce(null);
         documentRepository.delete.mockResolvedValue(undefined);
         service = new DocumentService(documentRepository, storage as never);
 
@@ -155,7 +184,7 @@ describe("DocumentService", () => {
 
     it("treats already-missing metadata as a completed staged deletion", async () => {
         const storage = { delete: jest.fn() };
-        documentRepository.findById.mockResolvedValue(null);
+        documentRepository.findBranchById.mockResolvedValue(null);
         service = new DocumentService(documentRepository, storage as never);
 
         await expect(service.recoverStagedDeletion("branch-1", "doc-1")).resolves.toBeUndefined();

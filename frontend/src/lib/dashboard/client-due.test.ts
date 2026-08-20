@@ -1,4 +1,7 @@
-import { getDashboardClientDueLabel } from "./client-due";
+import {
+  getDashboardClientDueLabel,
+  isServiceEndingNextBusinessDay,
+} from "./client-due";
 
 const TODAY = new Date(2026, 6, 7, 12, 0, 0);
 
@@ -62,5 +65,47 @@ describe("getDashboardClientDueLabel", () => {
         { today: TODAY },
       ),
     ).toBe("교체 요청 2 영업일 경과");
+  });
+});
+
+describe("isServiceEndingNextBusinessDay", () => {
+  it("includes a service ending on the next business day", () => {
+    expect(
+      isServiceEndingNextBusinessDay({ ...BASE_CLIENT, endDate: "2026-07-08" }, TODAY),
+    ).toBe(true);
+  });
+
+  it("skips a weekend between today and the service end date", () => {
+    const friday = new Date(2026, 6, 10, 12, 0, 0);
+
+    expect(
+      isServiceEndingNextBusinessDay({ ...BASE_CLIENT, endDate: "2026-07-13" }, friday),
+    ).toBe(true);
+  });
+
+  it("does not treat a holiday as the preceding business day", () => {
+    const electionDay = new Date(2026, 5, 3, 12, 0, 0);
+
+    expect(
+      isServiceEndingNextBusinessDay({ ...BASE_CLIENT, endDate: "2026-06-04" }, electionDay),
+    ).toBe(false);
+  });
+
+  it("excludes inactive services and invalid, missing, or non-matching end dates", () => {
+    expect(
+      isServiceEndingNextBusinessDay(
+        { serviceStatus: "completed", endDate: "2026-07-08" },
+        TODAY,
+      ),
+    ).toBe(false);
+    expect(
+      isServiceEndingNextBusinessDay({ ...BASE_CLIENT, endDate: null }, TODAY),
+    ).toBe(false);
+    expect(
+      isServiceEndingNextBusinessDay({ ...BASE_CLIENT, endDate: "not-a-date" }, TODAY),
+    ).toBe(false);
+    expect(
+      isServiceEndingNextBusinessDay({ ...BASE_CLIENT, endDate: "2026-07-09" }, TODAY),
+    ).toBe(false);
   });
 });

@@ -15,6 +15,8 @@ import { ServiceRecordGuard } from "infrastructure/auth/service-record.guard";
 import { ServiceRecordLifecycleService } from "application/services/service-record-lifecycle.service";
 import { ServiceRecordFinalizationService } from "application/services/service-record-finalization.service";
 import { ServiceRecordFinalizationSchedulerService } from "application/services/service-record-finalization-scheduler.service";
+import { ServiceRecordLinkReconciliationService } from "application/services/service-record-link-reconciliation.service";
+import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 
 /**
  * No-login daily service-record capture (BJJ-247).
@@ -33,8 +35,15 @@ import { ServiceRecordFinalizationSchedulerService } from "application/services/
         ServiceRecordLifecycleService,
         ServiceRecordFinalizationService,
         ServiceRecordFinalizationSchedulerService,
+        ServiceRecordLinkReconciliationService,
+        MessageAutomationIntentService,
         ServiceRecordGuard,
     ],
-    exports: [ServiceRecordTokenService, ServiceRecordLinkService, ServiceRecordLifecycleService],
+    exports: [
+        ServiceRecordTokenService,
+        ServiceRecordLinkService,
+        ServiceRecordLifecycleService,
+        MessageAutomationIntentService,
+    ],
 })
 export class ServiceRecordEntryModule {}

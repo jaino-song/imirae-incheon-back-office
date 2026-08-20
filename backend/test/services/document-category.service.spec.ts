@@ -1,4 +1,4 @@
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { DocumentCategoryService } from "application/services/document-category.service";
 import { PrismaService } from "infrastructure/database/prisma.service";
@@ -80,6 +80,25 @@ describe("DocumentCategoryService", () => {
         expect(result.map((c) => c.id)).toEqual(["global-category", "branch-category"]);
         expect(result[0]).toMatchObject({ value: "contract", isCustom: false });
         expect(result[1]).toMatchObject({ value: "branch-only", isCustom: true });
+    });
+
+    it("should reject a category owned by another branch", async () => {
+        prisma.document_category.findFirst.mockResolvedValue(null);
+
+        await expect(
+            service.assertAvailableToBranch("branch-1", "category-from-branch-2"),
+        ).rejects.toThrow(new NotFoundException("Document category not found"));
+
+        expect(prisma.document_category.findFirst).toHaveBeenCalledWith({
+            where: {
+                id: "category-from-branch-2",
+                OR: [
+                    { branchId: "branch-1" },
+                    { branchId: null },
+                ],
+            },
+            select: { id: true },
+        });
     });
 
     it("should persist custom categories under the selected branch", async () => {
