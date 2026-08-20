@@ -1,6 +1,7 @@
 import {
     eformsignCustomerPhone,
     extractEformsignContractClientCandidate,
+    extractEformsignContractClientPrefillCandidate,
 } from "application/utils/eformsign-contract-client-candidate";
 import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.client.interface";
 
@@ -71,6 +72,27 @@ describe("extractEformsignContractClientCandidate", () => {
         }));
         expect(candidate?.startDate?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
         expect(candidate?.endDate?.toISOString()).toBe("2026-08-14T00:00:00.000Z");
+    });
+
+    it("extracts both provider identities for branch-scoped employee resolution", () => {
+        const detail = documentDetail({
+            fields: [
+                ...(documentDetail().fields ?? []),
+                { id: "제공인력 1 성명", value: "김희선", type: "text" },
+                { id: "제공인력 1 연락처", value: "82 10 5330 9359", type: "text" },
+                { id: "제공인력2 성명", value: "이보조", type: "text" },
+                { id: "제공인력2 연락처", value: "010-2222-3333", type: "text" },
+            ],
+        });
+
+        expect(extractEformsignContractClientPrefillCandidate(detail)).toEqual(
+            expect.objectContaining({
+                primaryProviderName: "김희선",
+                primaryProviderPhone: "01053309359",
+                secondaryProviderName: "이보조",
+                secondaryProviderPhone: "01022223333",
+            }),
+        );
     });
 
     it("does not guess when the same named recipient has conflicting phones", () => {

@@ -19,11 +19,16 @@ const base: EformsignContractClientCandidateResponse = {
     careCenter: true,
     voucherClient: true,
     breastPump: false,
+    primaryEmployeeId: 17,
+    secondaryEmployeeId: 23,
 };
 
 describe("contractCandidateToClientPrefill", () => {
     it("후보의 모든 필드를 폼 프리필로 매핑한다", () => {
-        expect(contractCandidateToClientPrefill(base)).toEqual({
+        expect(contractCandidateToClientPrefill(
+            base,
+            new Date("2026-08-20T12:00:00+09:00"),
+        )).toEqual({
             name: "홍길동",
             phone: "010-1234-5678",
             address: "서울시 강남구",
@@ -39,6 +44,9 @@ describe("contractCandidateToClientPrefill", () => {
             careCenter: true,
             voucherClient: true,
             breastPump: false,
+            primaryEmployeeId: 17,
+            secondaryEmployeeId: 23,
+            serviceStatus: "active",
         });
     });
 
@@ -61,6 +69,8 @@ describe("contractCandidateToClientPrefill", () => {
             careCenter: null,
             voucherClient: false,
             breastPump: false,
+            primaryEmployeeId: 17,
+            secondaryEmployeeId: 23,
         });
         expect(result).toEqual({
             name: "김산모",
@@ -78,8 +88,32 @@ describe("contractCandidateToClientPrefill", () => {
             careCenter: false,
             voucherClient: false,
             breastPump: false,
+            primaryEmployeeId: 17,
+            secondaryEmployeeId: 23,
+            serviceStatus: "pre_booking",
         });
 
         expect(contractCandidateToClientPrefill({ ...base, name: null }).name).toBe("");
+    });
+
+    it("normalizes an international phone and selects active for a past start date", () => {
+        const result = contractCandidateToClientPrefill(
+            {
+                ...base,
+                phone: "82 10 9876 5432",
+                startDate: "2026-08-19",
+            },
+            new Date("2026-08-20T12:00:00+09:00"),
+        );
+
+        expect(result.phone).toBe("010-9876-5432");
+        expect(result.serviceStatus).toBe("active");
+    });
+
+    it("keeps pre-booking when the service starts today", () => {
+        expect(contractCandidateToClientPrefill(
+            { ...base, startDate: "2026-08-20" },
+            new Date("2026-08-20T12:00:00+09:00"),
+        ).serviceStatus).toBe("pre_booking");
     });
 });

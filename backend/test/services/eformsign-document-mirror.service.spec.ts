@@ -1781,6 +1781,48 @@ describe("EformsignDocumentMirrorService", () => {
             });
     });
 
+    it("returns a current document PDF while status 060 is still syncing its audit trail", async () => {
+        const sourceUpdatedDate = new Date(UPDATED_AT);
+        const detail = richDetail();
+        detail.current_status.status_type = "060";
+        const repository = {
+            findState: jest.fn().mockResolvedValue({
+                documentId: "doc-1",
+                branchId: "branch-1",
+                detailPayload: detail,
+                detailSourceUpdatedDate: sourceUpdatedDate,
+                detailSyncedAt: sourceUpdatedDate,
+                syncStatus: "partial",
+                syncError: "audit trail unavailable before provider review",
+                permanentPurgeRequestedAt: null,
+                files: [{
+                    fileType: "document",
+                    contentType: "application/pdf",
+                    contentDisposition: "inline",
+                    byteSize: PDF.length,
+                    sha256: "hash",
+                    sourceUpdatedDate,
+                    syncedAt: sourceUpdatedDate,
+                }],
+            }),
+            findFile: jest.fn(),
+        };
+        const service = new EformsignDocumentMirrorService(
+            {} as never,
+            repository as never,
+            {} as never,
+            {} as never,
+            {} as never,
+        );
+
+        await expect(service.getStoredFileMetadata("doc-1", "document"))
+            .resolves.toMatchObject({
+                status: 200,
+                contentType: "application/pdf",
+                byteSize: PDF.length,
+            });
+    });
+
     it("repairs an integrity-failed current version with both PDFs", async () => {
         const detail = richDetail();
         const previousAttempt = new Date(UPDATED_AT);
