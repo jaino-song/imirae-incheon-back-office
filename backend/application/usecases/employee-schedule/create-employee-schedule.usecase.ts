@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
+import type { Prisma } from "@prisma/client";
 
 type CreateEmployeeScheduleParams = {
     clientId: number;
@@ -19,7 +20,11 @@ export class CreateEmployeeScheduleUsecase {
         private readonly employeeScheduleRepository: IEmployeeScheduleRepository,
     ) {}
 
-    execute(branchid: string, params: CreateEmployeeScheduleParams): Promise<EmployeeScheduleEntity> {
+    execute(
+        branchid: string,
+        params: CreateEmployeeScheduleParams,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<EmployeeScheduleEntity> {
         const schedule = EmployeeScheduleEntity.create(
             params.clientId,
             params.primaryEmployeeId,
@@ -29,6 +34,6 @@ export class CreateEmployeeScheduleUsecase {
             params.endDate,
             params.replaced ?? false,
         );
-        return this.employeeScheduleRepository.create(branchid, schedule);
+        return this.employeeScheduleRepository.create(branchid, schedule, transaction);
     }
 }

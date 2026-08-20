@@ -1,4 +1,5 @@
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
+import type { Prisma } from "@prisma/client";
 
 export interface IEmployeeScheduleRepository {
     findById(branchid: string, id: number): Promise<EmployeeScheduleEntity | null>;
@@ -12,7 +13,11 @@ export interface IEmployeeScheduleRepository {
         secondaryEmployeeId: number
     ): Promise<EmployeeScheduleEntity[]>;
     findAll(branchid: string): Promise<EmployeeScheduleEntity[]>;
-    create(branchid: string, schedule: EmployeeScheduleEntity): Promise<EmployeeScheduleEntity>;
+    create(
+        branchid: string,
+        schedule: EmployeeScheduleEntity,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<EmployeeScheduleEntity>;
     update(branchid: string, schedule: EmployeeScheduleEntity): Promise<EmployeeScheduleEntity>;
     delete(branchid: string, id: number): Promise<void>;
 }

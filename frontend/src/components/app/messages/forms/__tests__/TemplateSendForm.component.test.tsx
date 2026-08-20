@@ -336,6 +336,7 @@ describe("recipient phone input layout", () => {
         deliveryMode="service-feedback-link"
         serviceRecordLinkPreparation={{
           scheduleId: 11,
+          serviceStartDate: "2026-07-03",
           serviceRecordUrl: "https://mobile.test/service-record/efl_prepared",
           preparedLinkToken: "efl_prepared",
           expiresAt: "2026-07-20T00:00:00.000Z",
@@ -426,6 +427,7 @@ describe("recipient phone input layout", () => {
         deliveryMode="service-feedback-link"
         serviceRecordLinkPreparation={{
           scheduleId: 11,
+          serviceStartDate: "2026-07-03",
           serviceRecordUrl: "https://mobile.test/service-record/efl_prepared",
           preparedLinkToken: "efl_prepared",
           expiresAt: "2026-07-20T00:00:00.000Z",

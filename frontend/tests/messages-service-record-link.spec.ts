@@ -3,7 +3,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 const SERVICE_RECORD_URL = "https://mobile.test/service-record/efl_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PREPARED_LINK_TOKEN = SERVICE_RECORD_URL.split("/").at(-1)!;
 
-const serviceRecordTemplate = `송진호 관리사님, 송진호 산모님의 서비스 제공기록지 작성 링크입니다.
+const serviceRecordTemplate = `송진호 관리사님, 송진호 산모님의 {{serviceStartDate}} 시작 서비스 제공기록지 작성 링크입니다.
 
 제공기록지 링크
 {{serviceRecordUrl}}`;
@@ -102,6 +102,7 @@ test("shows the exact prepared service-record URL and sends the same token", asy
                     record: null,
                     assignments: [{
                         scheduleId: 51,
+                        startDate: "2026-07-13T00:00:00.000Z",
                         replaced: false,
                         employee: {
                             id: 30,
@@ -162,7 +163,9 @@ test("shows the exact prepared service-record URL and sends the same token", asy
 
     const messageField = page.locator('[data-component="desktop_messages_sections_msg-field"]');
     await expect(messageField).toBeVisible();
+    await expect(messageField).toHaveValue(/2026-07-13 시작 서비스 제공기록지/);
     await expect(messageField).toHaveValue(new RegExp(SERVICE_RECORD_URL));
+    await expect(messageField).not.toHaveValue(/\{\{serviceStartDate\}\}/);
     await expect(messageField).not.toHaveValue(/\{\{serviceRecordUrl\}\}/);
 
     const renderedStyle = await messageField.evaluate((element) => {

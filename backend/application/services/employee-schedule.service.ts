@@ -9,7 +9,8 @@ import {
     UpdateEmployeeScheduleUsecase,
 } from "application/usecases/employee-schedule";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
-import { MessageTriggerService } from "./message-trigger.service";
+import { PrismaService } from "infrastructure/database/prisma.service";
+import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
 
@@ -25,7 +26,8 @@ export class EmployeeScheduleService {
         private readonly listEmployeeSchedulesBySecondaryEmployeeIdUsecase: ListEmployeeSchedulesBySecondaryEmployeeIdUsecase,
         private readonly updateEmployeeScheduleUsecase: UpdateEmployeeScheduleUsecase,
         private readonly deleteEmployeeScheduleUsecase: DeleteEmployeeScheduleUsecase,
-        @Optional() private readonly triggerService?: MessageTriggerService,
+        private readonly prisma: PrismaService,
+        private readonly messageAutomationIntentService: MessageAutomationIntentService,
         @Optional() private readonly serviceRecordLinkService?: ServiceRecordLinkService,
         @Optional() private readonly serviceRecordLifecycleService?: ServiceRecordLifecycleService,
     ) {}
@@ -39,20 +41,39 @@ export class EmployeeScheduleService {
         endDate: string;
         replaced?: boolean;
     }): Promise<EmployeeScheduleEntity> {
-        const schedule = await this.createEmployeeScheduleUsecase.execute(branchid, {
-            clientId: params.clientId,
-            primaryEmployeeId: params.primaryEmployeeId,
-            secondaryEmployeeId: params.secondaryEmployeeId ?? null,
-            workAddress: params.workAddress,
-            startDate: new Date(params.startDate),
-            endDate: new Date(params.endDate),
-            replaced: params.replaced,
+        const intentAt = new Date();
+        const schedule = await this.prisma.$transaction(async (transaction) => {
+            const created = await this.createEmployeeScheduleUsecase.execute(branchid, {
+                clientId: params.clientId,
+                primaryEmployeeId: params.primaryEmployeeId,
+                secondaryEmployeeId: params.secondaryEmployeeId ?? null,
+                workAddress: params.workAddress,
+                startDate: new Date(params.startDate),
+                endDate: new Date(params.endDate),
+                replaced: params.replaced,
+            }, transaction);
+            await this.messageAutomationIntentService.persistScheduleIntent(transaction, {
+                branchId: branchid,
+                clientId: created.clientId,
+                scheduleId: created.id,
+                includePast: true,
+                intentAt,
+            });
+            return created;
         });
-        this.triggerService
-            ?.syncEmployeeAssignmentRulesForSchedule(branchid, schedule.id, true)
-            ?.catch(() => undefined);
         await this.serviceRecordLifecycleService?.ensureForClient(schedule.clientId);
-        this.serviceRecordLinkService?.scheduleForServiceStart(schedule.id)?.catch(() => undefined);
+        await this.messageAutomationIntentService
+            .fulfillScheduleIntent({
+                branchId: branchid,
+                scheduleId: schedule.id,
+                includePast: true,
+            })
+            .catch((error) => {
+                this.logger.error(
+                    `[MESSAGE_AUTOMATION_INTENT_FAILED] scheduleId=${schedule.id} — automatic retry pending`,
+                    error instanceof Error ? error.stack : String(error),
+                );
+            });
         return schedule;
     }
 

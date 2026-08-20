@@ -12,6 +12,7 @@ import {
     UpdateClientUsecase,
 } from "../../application/usecases/client";
 import { LinkMirroredEformsignDocByPhoneUsecase } from "../../application/usecases/eformsign-doc";
+import { MessageAutomationIntentService } from "../../application/services/message-automation-intent.service";
 import { MessageTriggerService } from "../../application/services/message-trigger.service";
 import { EformsignDocumentSnapshotService } from "../../application/services/eformsign-document-snapshot.service";
 import { ServiceRecordLinkService } from "../../application/services/service-record-link.service";
@@ -113,6 +114,42 @@ describe("ClientService", () => {
         revoke: jest.fn().mockResolvedValue(undefined),
     });
 
+    const createMockMessageAutomationIntentService = (
+        triggerService: ReturnType<typeof createMockTriggerService>,
+        serviceRecordLinkService: ReturnType<typeof createMockServiceRecordLinkService>,
+    ) => ({
+        persistClientIntent: jest.fn().mockResolvedValue(undefined),
+        persistScheduleIntent: jest.fn().mockResolvedValue(undefined),
+        fulfillClientIntent: jest.fn().mockImplementation(async (params: {
+            branchId: string;
+            clientId: number;
+            includePast: boolean;
+            suppressGreeting: boolean;
+        }) => {
+            await triggerService.ensureDefaultRulesForBranch(params.branchId);
+            await triggerService.syncClientRulesForClient(
+                params.branchId,
+                params.clientId,
+                params.includePast,
+                params.suppressGreeting,
+            );
+            return true;
+        }),
+        fulfillScheduleIntent: jest.fn().mockImplementation(async (params: {
+            branchId: string;
+            scheduleId: number;
+            includePast: boolean;
+        }) => {
+            await triggerService.syncEmployeeAssignmentRulesForSchedule(
+                params.branchId,
+                params.scheduleId,
+                params.includePast,
+            );
+            await serviceRecordLinkService.scheduleForServiceStart(params.scheduleId);
+            return true;
+        }),
+    });
+
     const createMockServiceRecordLifecycleService = () => ({
         validatePeriodChange: jest.fn().mockResolvedValue(undefined),
         ensureForClient: jest.fn().mockResolvedValue(undefined),
@@ -188,6 +225,7 @@ describe("ClientService", () => {
     let deleteClientUsecase: ReturnType<typeof createMockDeleteClientUsecase>;
     let prismaService: ReturnType<typeof createMockPrismaService>;
     let triggerService: ReturnType<typeof createMockTriggerService>;
+    let messageAutomationIntentService: ReturnType<typeof createMockMessageAutomationIntentService>;
     let serviceRecordLinkService: ReturnType<typeof createMockServiceRecordLinkService>;
     let serviceRecordLifecycleService: ReturnType<typeof createMockServiceRecordLifecycleService>;
     let clientRepository: ReturnType<typeof createMockClientRepository>;
@@ -206,6 +244,10 @@ describe("ClientService", () => {
         prismaService = createMockPrismaService();
         triggerService = createMockTriggerService();
         serviceRecordLinkService = createMockServiceRecordLinkService();
+        messageAutomationIntentService = createMockMessageAutomationIntentService(
+            triggerService,
+            serviceRecordLinkService,
+        );
         serviceRecordLifecycleService = createMockServiceRecordLifecycleService();
         clientRepository = createMockClientRepository();
         systemSettingService = createMockSystemSettingService();
@@ -224,6 +266,7 @@ describe("ClientService", () => {
             clientRepository,
             systemSettingService as unknown as SystemSettingService,
             documentSnapshotService as unknown as EformsignDocumentSnapshotService,
+            messageAutomationIntentService as unknown as MessageAutomationIntentService,
             triggerService as unknown as MessageTriggerService,
             serviceRecordLinkService as unknown as ServiceRecordLinkService,
             serviceRecordLifecycleService as unknown as ServiceRecordLifecycleService,
@@ -300,11 +343,70 @@ describe("ClientService", () => {
                         secondaryEmployeeId: null,
                         workAddress: "123 Main St",
                     }),
+                    expect.anything(),
                 );
                 expect(createClientUsecase.execute).not.toHaveBeenCalled();
                 expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
                 expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(10);
                 expect(result).toBe(mockClient);
+            });
+
+            it("stores client and schedule recovery intents in the creation transaction", async () => {
+                const mockClient = createClientEntity();
+                createClientUsecase.executeWithInitialSchedule.mockResolvedValue({
+                    client: mockClient,
+                    scheduleId: 10,
+                });
+
+                await service.create(branchId, {
+                    name: "New Client",
+                    primaryEmployeeId: 5,
+                    phone: "010-1234-5678",
+                    careCenter: false,
+                    voucherClient: true,
+                    breastPump: false,
+                });
+
+                expect(messageAutomationIntentService.persistClientIntent).toHaveBeenCalledWith(
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: mockClient.id,
+                        includePast: true,
+                    }),
+                );
+                expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledWith(
+                    prismaService,
+                    expect.objectContaining({
+                        branchId,
+                        clientId: mockClient.id,
+                        scheduleId: 10,
+                        includePast: true,
+                    }),
+                );
+            });
+
+            it("fails the registration transaction when its recovery intent cannot be stored", async () => {
+                const mockClient = createClientEntity();
+                createClientUsecase.executeWithInitialSchedule.mockResolvedValue({
+                    client: mockClient,
+                    scheduleId: 10,
+                });
+                messageAutomationIntentService.persistScheduleIntent.mockRejectedValue(
+                    new Error("intent storage failed"),
+                );
+
+                await expect(service.create(branchId, {
+                    name: "New Client",
+                    primaryEmployeeId: 5,
+                    phone: "010-1234-5678",
+                    careCenter: false,
+                    voucherClient: true,
+                    breastPump: false,
+                })).rejects.toThrow("intent storage failed");
+
+                expect(messageAutomationIntentService.fulfillClientIntent).not.toHaveBeenCalled();
+                expect(messageAutomationIntentService.fulfillScheduleIntent).not.toHaveBeenCalled();
             });
         });
 
@@ -333,7 +435,8 @@ describe("ClientService", () => {
                     expect.objectContaining({
                         name: "New Client",
                         address: "123 Main St",
-                    })
+                    }),
+                    expect.anything(),
                 );
                 expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
                 expect(result).toBe(mockClient);
@@ -371,6 +474,7 @@ describe("ClientService", () => {
                     areaId: "incheon",
                     careCenter: null,
                 }),
+                expect.anything(),
             );
         });
 
@@ -842,6 +946,8 @@ describe("ClientService", () => {
 
             expect(triggerService.ensureDefaultRulesForBranch).not.toHaveBeenCalled();
             expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistClientIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
         });
 
         it("does not schedule assignment or service-record messages when message automation is false", async () => {
@@ -863,6 +969,8 @@ describe("ClientService", () => {
 
             expect(triggerService.syncEmployeeAssignmentRulesForSchedule).not.toHaveBeenCalled();
             expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistClientIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
         });
 
         it("rejects a duplicate phone unless reuseExistingClient is explicitly enabled", async () => {
@@ -909,9 +1017,11 @@ describe("ClientService", () => {
                 suppressGreetingSms: greetingEnabled,
             });
 
-            expect(createClientUsecase.execute).toHaveBeenCalledWith(branchId, expect.objectContaining({
-                suppressGreetingSms: expectedSuppressed,
-            }));
+            expect(createClientUsecase.execute).toHaveBeenCalledWith(
+                branchId,
+                expect.objectContaining({ suppressGreetingSms: expectedSuppressed }),
+                expect.anything(),
+            );
             expect(triggerService.syncClientRulesForClient).toHaveBeenCalledWith(
                 branchId,
                 client.id,
@@ -992,6 +1102,7 @@ describe("ClientService", () => {
                         primaryEmployeeId: 5,
                         secondaryEmployeeId: 6,
                     }),
+                    expect.anything(),
                 );
                 expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(10);
             });
@@ -1124,6 +1235,31 @@ describe("ClientService", () => {
                 expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledWith(33);
             });
 
+            it("preserves the automation opt-out when reuse creates a missing assignment", async () => {
+                const existingClient = createClientEntity();
+                clientRepository.findByPhone.mockResolvedValue(existingClient);
+                prismaService.employee_schedule.findFirst.mockResolvedValue(null);
+                prismaService.employee_schedule.create.mockResolvedValue({
+                    id: 33,
+                    clientId: existingClient.id,
+                });
+
+                await service.create(branchId, {
+                    name: "Existing Client",
+                    phone: "010-1234-5678",
+                    primaryEmployeeId: 5,
+                    careCenter: false,
+                    voucherClient: true,
+                    breastPump: false,
+                    reuseExistingClient: true,
+                    applyMessageAutomation: false,
+                });
+
+                expect(prismaService.employee_schedule.create).toHaveBeenCalled();
+                expect(triggerService.syncEmployeeAssignmentRulesForSchedule).not.toHaveBeenCalled();
+                expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
+            });
+
             it("rejects an employee that does not belong to the client branch", async () => {
                 prismaService.employee.findMany.mockResolvedValue([]);
 
@@ -1201,6 +1337,7 @@ describe("ClientService", () => {
                 expect(createClientUsecase.execute).toHaveBeenCalledWith(
                     branchId,
                     expect.objectContaining({ suppressGreetingSms: expectedSuppress }),
+                    expect.anything(),
                 );
                 expect(triggerService.syncClientRulesForClient).toHaveBeenCalledWith(
                     branchId,

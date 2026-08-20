@@ -13,6 +13,8 @@ import {
 
 const MAX_RUN_MS = 15 * 60 * 1000;
 const DB_COOLDOWN_MS = 5 * 60 * 1000;
+const UNCERTAIN_RETRY_SUPERSEDED_REASON =
+    "문자 발송 결과가 불확실하여 자동 재전송을 중단했습니다. 제공자 이력 확인 후 수동 확인이 필요합니다.";
 
 @Injectable()
 export class MessageRetrySchedulerService {
@@ -47,6 +49,15 @@ export class MessageRetrySchedulerService {
 
             for (const log of pendingLogs) {
                 try {
+                    if (log.variables["retrySafety"] === "uncertain") {
+                        log.markRetrySuperseded(UNCERTAIN_RETRY_SUPERSEDED_REASON);
+                        await this.logRepository.update(log);
+                        this.logger.warn(
+                            `[Retry] Skipped uncertain SMS log ${log.id}; provider history/manual verification required`,
+                        );
+                        continue;
+                    }
+
                     if (log.provider === "aligo_sms") {
                         await this.smsRetryService.retry(log);
                     } else {

@@ -7,6 +7,7 @@ export type TemplateMessageDeliveryMode = "sms" | "service-feedback-link";
 
 export interface ServiceRecordLinkPreparation {
   scheduleId: number;
+  serviceStartDate: string;
   serviceRecordUrl: string;
   preparedLinkToken: string;
   expiresAt: string;

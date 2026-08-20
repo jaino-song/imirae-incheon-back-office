@@ -35,6 +35,7 @@ describe("SmsRetryService", () => {
                 triggerType: "client_created",
                 msgType: "AUTO",
                 senderPhone: "0212345678",
+                retrySafety: "provider-rejected",
             },
             "failed",
             null,
@@ -132,6 +133,7 @@ describe("SmsRetryService", () => {
                 variables: expect.objectContaining({
                     retryOfLogId: "77",
                     retryAttempt: "2",
+                    retrySafety: "uncertain",
                 }),
             }),
         );
@@ -210,7 +212,7 @@ describe("SmsRetryService", () => {
         expect(aligoService.sendSms).not.toHaveBeenCalled();
     });
 
-    it("schedules another five-minute retry when an automatic SMS retry is still rejected", async () => {
+    it("stops automatic retries when a provider call throws with an uncertain outcome", async () => {
         nowSpy.mockReturnValue(new Date("2026-06-05T10:20:00.000Z").getTime());
         const log = createSmsRetryLog();
         aligoService.sendSms.mockRejectedValue(
@@ -224,8 +226,47 @@ describe("SmsRetryService", () => {
                 id: 78,
                 status: "failed",
                 attempts: 2,
-                errorMessage: "Aligo SMS API error (403): 등록되지 않은 IP 입니다.",
+                errorMessage: expect.stringContaining("제공자 이력 확인 후 수동 확인"),
+                nextRetryAt: null,
+                variables: expect.objectContaining({
+                    retrySafety: "uncertain",
+                }),
+            }),
+        );
+    });
+
+    it("retries again only when Aligo definitively rejects the retry request", async () => {
+        nowSpy.mockReturnValue(new Date("2026-06-05T10:20:00.000Z").getTime());
+        const log = createSmsRetryLog();
+        aligoService.sendSms.mockResolvedValue({
+            request: {
+                senderPhone: "0212345678",
+                receiver: "01012345678",
+                msgType: "LMS",
+                testModeYn: "N",
+            },
+            response: {
+                result_code: -101,
+                message: "등록되지 않은 IP 입니다.",
+                msg_id: 0,
+                success_cnt: 0,
+                error_cnt: 1,
+                msg_type: "LMS",
+            },
+        });
+
+        await service.retry(log);
+
+        expect(logRepository.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 78,
+                status: "failed",
+                attempts: 2,
+                errorMessage: "등록되지 않은 IP 입니다.",
                 nextRetryAt: new Date("2026-06-05T10:25:00.000Z"),
+                variables: expect.objectContaining({
+                    retrySafety: "provider-rejected",
+                }),
             }),
         );
     });
