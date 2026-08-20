@@ -10,6 +10,7 @@
         ".": "./src/index.ts",
         "./api": "./src/api/index.ts",
         "./agent": "./src/agent/index.ts",
+        "./file-storage": "./src/file-storage/capabilities.ts",
         "./tokens/skeleton.css": "./src/tokens/skeleton.css",
         "./tokens/status-badge": "./src/tokens/status-badge.ts",
         "./client/badges": "./src/client/badges.ts",

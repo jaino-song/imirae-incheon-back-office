@@ -1,7 +1,8 @@
-import { ExecutionContext, ForbiddenException, INestApplication, Logger } from "@nestjs/common";
+import { ExecutionContext, ForbiddenException, INestApplication, Logger, NotFoundException } from "@nestjs/common";
 import { GlobalValidationPipe } from "infrastructure/pipes/global-validation.pipe";
 import { Test, TestingModule } from "@nestjs/testing";
 import { DocumentService } from "application/services/document.service";
+import { DocumentCategoryService } from "application/services/document-category.service";
 import { DocumentEntity } from "domain/entities/document.entity";
 import {
     FILE_STORAGE_PORT,
@@ -16,12 +17,19 @@ import request from "supertest";
 describe("DocumentController (Integration)", () => {
     let app: INestApplication;
     let documentService: jest.Mocked<DocumentService>;
+    let documentCategoryService: jest.Mocked<DocumentCategoryService>;
     let fileStorage: jest.Mocked<FileStoragePort>;
 
     function createDocumentEntity(
         orgId: string,
         storageUrl: string | null = "https://example.test/contract.pdf",
-        overrides: { name?: string; mimetype?: string } = {},
+        overrides: {
+            name?: string;
+            mimetype?: string;
+            branchId?: string;
+            visibilityScope?: "branch" | "all_branches";
+            categoryLabel?: string;
+        } = {},
     ): DocumentEntity {
         return DocumentEntity.reconstitute(
             "doc-1",
@@ -37,8 +45,13 @@ describe("DocumentController (Integration)", () => {
             "user-1",
             new Date("2026-01-01T00:00:00.000Z"),
             new Date("2026-01-01T00:00:00.000Z"),
+            overrides.branchId ?? orgId,
+            overrides.visibilityScope ?? "branch",
+            overrides.categoryLabel ?? null,
         );
     }
+
+    let tenantGlobalRole = "owner";
 
     const authGuard = {
         canActivate: (context: ExecutionContext) => {
@@ -52,7 +65,7 @@ describe("DocumentController (Integration)", () => {
             requestContext.tenant = {
                 userId: "user-1",
                 branchId: "branch-1",
-                globalRole: "owner",
+                globalRole: tenantGlobalRole,
                 branchRole: "owner",
             };
             return true;
@@ -60,6 +73,7 @@ describe("DocumentController (Integration)", () => {
     };
 
     beforeEach(async () => {
+        tenantGlobalRole = "owner";
         const moduleFixture: TestingModule = await Test.createTestingModule({
             controllers: [DocumentController],
             providers: [
@@ -74,6 +88,12 @@ describe("DocumentController (Integration)", () => {
                         update: jest.fn(),
                         delete: jest.fn(),
                         deleteStoragePath: jest.fn(),
+                    },
+                },
+                {
+                    provide: DocumentCategoryService,
+                    useValue: {
+                        assertAvailableToBranch: jest.fn(),
                     },
                 },
                 {
@@ -104,6 +124,7 @@ describe("DocumentController (Integration)", () => {
         await app.init();
 
         documentService = moduleFixture.get(DocumentService);
+        documentCategoryService = moduleFixture.get(DocumentCategoryService);
         fileStorage = moduleFixture.get(FILE_STORAGE_PORT);
     });
 
@@ -117,7 +138,7 @@ describe("DocumentController (Integration)", () => {
             .field("name", "Contract")
             .field("categoryId", "contract")
             .field("tags", "not-json")
-            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
 
         expect(response.status).toBe(400);
         expect(response.body.message).toBe("tags must be a valid JSON array");
@@ -125,52 +146,47 @@ describe("DocumentController (Integration)", () => {
         expect(documentService.create).not.toHaveBeenCalled();
     });
 
-    it("should use tenant branch as document metadata branch when creating documents", async () => {
-        fileStorage.createSignedUrl.mockResolvedValue("https://example.test/signed-contract.pdf");
-        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+    it("should reject a category from another branch before uploading storage bytes", async () => {
+        documentCategoryService.assertAvailableToBranch.mockRejectedValue(
+            new NotFoundException("Document category not found"),
+        );
 
         const response = await request(app.getHttpServer())
-            .post("/documents")
-            .send({
-                name: "Contract",
-                categoryId: "contract",
-                tags: ["signed"],
-                mimetype: "application/pdf",
-                filesize: 100,
-                storagepath: "documents/contract.pdf",
-                storageurl: "https://example.test/contract.pdf",
-                branchid: "branch-2",
-            });
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "category-from-branch-2")
+            .field("tags", JSON.stringify([]))
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
 
-        expect(response.status).toBe(201);
-        expect(response.body.orgId).toBe("branch-1");
-        expect(response.body.storageUrl).toBe("https://example.test/signed-contract.pdf");
-        expect(documentService.create).toHaveBeenCalledWith(
-            "branch-1",
-            expect.objectContaining({
-                branchid: "branch-1",
-            }),
-        );
-        expect(documentService.create.mock.calls[0]?.[1]).not.toHaveProperty("storageurl");
-        expect(fileStorage.createSignedUrl).toHaveBeenCalledWith("documents/contract.pdf");
+        expect(response.status).toBe(404);
+        expect(fileStorage.upload).not.toHaveBeenCalled();
+        expect(documentService.create).not.toHaveBeenCalled();
     });
 
-    it("should reject unavailable storage paths before signing a URL", async () => {
-        documentService.create.mockRejectedValue(new ForbiddenException("storage path unavailable"));
+    it("should reject moving document metadata into another branch's category", async () => {
+        documentCategoryService.assertAvailableToBranch.mockRejectedValue(
+            new NotFoundException("Document category not found"),
+        );
 
         const response = await request(app.getHttpServer())
-            .post("/documents")
-            .send({
-                name: "Contract",
-                categoryId: "contract",
-                tags: ["signed"],
-                mimetype: "application/pdf",
-                filesize: 100,
-                storagepath: "documents/shared.pdf",
-            });
+            .put("/documents/doc-1")
+            .send({ categoryId: "category-from-branch-2" });
 
-        expect(response.status).toBe(403);
-        expect(response.body.message).toBe("storage path unavailable");
+        expect(response.status).toBe(404);
+        expect(documentCategoryService.assertAvailableToBranch).toHaveBeenCalledWith(
+            "branch-1",
+            "category-from-branch-2",
+        );
+        expect(documentService.update).not.toHaveBeenCalled();
+    });
+
+    it("should not expose the metadata-only document registration endpoint", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/documents")
+            .send({ storagepath: "documents/another-branch/orphan.pdf" });
+
+        expect(response.status).toBe(404);
+        expect(documentService.create).not.toHaveBeenCalled();
         expect(fileStorage.createSignedUrl).not.toHaveBeenCalled();
     });
 
@@ -183,8 +199,7 @@ describe("DocumentController (Integration)", () => {
             .field("name", "Contract")
             .field("categoryId", "contract")
             .field("tags", JSON.stringify(["signed"]))
-            .field("branchid", "branch-2")
-            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
 
         expect(response.status).toBe(201);
         expect(response.body.orgId).toBe("branch-1");
@@ -215,7 +230,7 @@ describe("DocumentController (Integration)", () => {
             .field("tags", JSON.stringify(["signed"]))
             .field("uploadedby", "attacker-user")
             .field("uploadedBy", "camel-attacker-user")
-            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
 
         expect(response.status).toBe(400);
         expect(fileStorage.upload).not.toHaveBeenCalled();
@@ -231,13 +246,79 @@ describe("DocumentController (Integration)", () => {
             .field("name", "Contract")
             .field("categoryId", "contract")
             .field("tags", JSON.stringify(["signed"]))
-            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
 
         expect(response.status).toBe(201);
         expect(documentService.create).toHaveBeenCalledWith(
             "branch-1",
-            expect.objectContaining({ uploadedby: "user-1" }),
+            expect.objectContaining({
+                uploadedby: "user-1",
+                visibilityScope: "all_branches",
+            }),
         );
+    });
+
+    it("should keep a non-owner upload scoped to the current branch", async () => {
+        tenantGlobalRole = "admin";
+        fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "contract")
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
+
+        expect(response.status).toBe(201);
+        expect(documentService.create).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ visibilityScope: "branch" }),
+        );
+    });
+
+    it("should expose the authoritative storage capabilities", async () => {
+        const response = await request(app.getHttpServer()).get("/documents/capabilities");
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual(expect.objectContaining({
+            maxFileSizeBytes: 25 * 1024 * 1024,
+            multiple: false,
+            uploadVisibilityScope: "all_branches",
+            acceptedExtensions: expect.arrayContaining([
+                ".pdf", ".hwp", ".hwpx", ".docx", ".xlsx", ".pptx", ".zip", ".csv",
+            ]),
+        }));
+    });
+
+    it("should refuse an upload that tries to choose its own branch", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "contract")
+            .field("branchid", "branch-2")
+            .attach("file", Buffer.from("%PDF-1.4"), {
+                filename: "contract.pdf",
+                contentType: "application/pdf",
+            });
+
+        expect(response.status).toBe(400);
+        expect(fileStorage.upload).not.toHaveBeenCalled();
+        expect(documentService.create).not.toHaveBeenCalled();
+    });
+
+    it("should reject browser-scriptable bytes disguised as an inline PDF", async () => {
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Payload")
+            .field("categoryId", "contract")
+            .attach("file", Buffer.from("<html><script>alert(1)</script></html>"), {
+                filename: "payload.pdf",
+                contentType: "application/pdf",
+            });
+
+        expect(response.status).toBe(400);
+        expect(response.body.message).toBe("file content does not match its format");
+        expect(fileStorage.upload).not.toHaveBeenCalled();
     });
 
     it("should return document list metadata without signing storage URLs", async () => {
@@ -258,6 +339,25 @@ describe("DocumentController (Integration)", () => {
         ]);
         expect(documentService.findAll).toHaveBeenCalledWith("branch-1");
         expect(fileStorage.createSignedUrl).not.toHaveBeenCalled();
+    });
+
+    it("should mark another branch's owner publication as read-only", async () => {
+        documentService.findAll.mockResolvedValue([
+            createDocumentEntity("branch-2", null, {
+                branchId: "branch-2",
+                visibilityScope: "all_branches",
+                categoryLabel: "원본 지점 분류",
+            }),
+        ]);
+
+        const response = await request(app.getHttpServer()).get("/documents");
+
+        expect(response.status).toBe(200);
+        expect(response.body[0]).toEqual(expect.objectContaining({
+            visibilityScope: "all_branches",
+            canManage: false,
+            categoryLabel: "원본 지점 분류",
+        }));
     });
 
     it("should sign stored document paths when returning a document detail", async () => {
@@ -378,7 +478,7 @@ describe("DocumentController (Integration)", () => {
             .field("name", "Contract")
             .field("categoryId", "contract")
             .field("tags", JSON.stringify(["signed"]))
-            .attach("file", Buffer.from("fake-file"), "contract.pdf");
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
 
         expect(response.status).toBe(403);
         expect(response.body.message).toBe("storage path unavailable");
@@ -398,7 +498,7 @@ describe("DocumentController (Integration)", () => {
                 .post("/documents/upload")
                 .field("name", "Contract")
                 .field("categoryId", "contract")
-                .attach("file", Buffer.from("fake-file"), "contract.pdf");
+                .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
 
             expect(response.status).toBe(403);
             expect(response.body.message).toBe("storage path unavailable");
@@ -442,65 +542,4 @@ describe("DocumentController (Integration)", () => {
         expect(disposition).not.toMatch(/[\r\n]/);
     });
 
-    // POST /documents registers a row against an object that is already in
-    // storage. No client calls it, but a token is enough to reach it, so it must
-    // not take the caller's word for who uploaded the file or what it is.
-    it("should stamp POST /documents with the tenant's user, not the body's", async () => {
-        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
-
-        const response = await request(app.getHttpServer())
-            .post("/documents")
-            .send({
-                name: "Contract",
-                categoryId: "contract",
-                tags: [],
-                mimetype: "application/pdf",
-                filesize: 1024,
-                storagepath: "already-there.pdf",
-                uploadedby: "somebody-else",
-            });
-
-        // uploadedby is no longer part of the DTO, so forbidNonWhitelisted
-        // rejects it outright rather than accepting a value with no effect.
-        expect(response.status).toBe(400);
-        expect(documentService.create).not.toHaveBeenCalled();
-    });
-
-    it("should derive uploadedby from the tenant on POST /documents", async () => {
-        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
-
-        const response = await request(app.getHttpServer())
-            .post("/documents")
-            .send({
-                name: "Contract",
-                categoryId: "contract",
-                tags: [],
-                mimetype: "application/pdf",
-                filesize: 1024,
-                storagepath: "already-there.pdf",
-            });
-
-        expect(response.status).toBe(201);
-        expect(documentService.create).toHaveBeenCalledWith(
-            "branch-1",
-            expect.objectContaining({ uploadedby: "user-1" }),
-        );
-    });
-
-    it("should apply the upload allowlist to POST /documents too", async () => {
-        const response = await request(app.getHttpServer())
-            .post("/documents")
-            .send({
-                name: "Payload",
-                categoryId: "contract",
-                tags: [],
-                mimetype: "text/html",
-                filesize: 10,
-                storagepath: "already-there.html",
-            });
-
-        expect(response.status).toBe(400);
-        expect(response.body.message).toBe("unsupported file type: text/html");
-        expect(documentService.create).not.toHaveBeenCalled();
-    });
 });

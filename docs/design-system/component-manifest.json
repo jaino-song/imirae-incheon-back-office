@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-12",
+  "updated": "2026-08-20",
   "purpose": "Machine-readable inventory of BabyJamJam design-system components. Agents MUST consult this before any UI work and compose ONLY these components in pages. See docs/design-system/AGENT_UI_RULES.md.",
   "docs": {
     "rules": "docs/design-system/AGENT_UI_RULES.md",
@@ -1316,6 +1316,31 @@
         ]
       },
       {
+        "name": "DocumentDropzone",
+        "layer": "organism",
+        "import": "@/components/app/documents/document-dropzone",
+        "file": "frontend/src/components/app/documents/document-dropzone.tsx",
+        "exports": [
+          "DocumentDropzone",
+          "DocumentDropzoneUploadState"
+        ],
+        "requiredFor": [
+          "document uploads"
+        ]
+      },
+      {
+        "name": "FileStoragePage",
+        "layer": "template",
+        "import": "@/components/app/documents/file-storage-page",
+        "file": "frontend/src/components/app/documents/file-storage-page.tsx",
+        "exports": [
+          "FileStoragePage"
+        ],
+        "requiredFor": [
+          "desktop file storage route"
+        ]
+      },
+      {
         "name": "useV3UiScaleStyle",
         "layer": "hook",
         "import": "@/components/app/v3",
@@ -2006,6 +2031,30 @@
         "file": "mobile/src/components/app/v3/V3Sidebar.tsx",
         "exports": [
           "V3Sidebar"
+        ]
+      },
+      {
+        "name": "FileStorageScreen",
+        "layer": "template",
+        "import": "@/components/app/files/file-storage-screen",
+        "file": "mobile/src/components/app/files/file-storage-screen.tsx",
+        "exports": [
+          "FileStorageScreen"
+        ],
+        "requiredFor": [
+          "mobile file storage route"
+        ]
+      },
+      {
+        "name": "FileUploadScreen",
+        "layer": "organism",
+        "import": "@/components/app/files/file-upload-screen",
+        "file": "mobile/src/components/app/files/file-upload-screen.tsx",
+        "exports": [
+          "FileUploadScreen"
+        ],
+        "requiredFor": [
+          "mobile document uploads"
         ]
       }
     ]

@@ -94,6 +94,8 @@ const baseDocument: Document = {
   uploadedBy: "tester",
   createdAt: "2026-01-29T00:00:00.000Z",
   updatedAt: "2026-01-29T00:00:00.000Z",
+  visibilityScope: "branch",
+  canManage: true,
 };
 
 const contractDocument: EformsignDocument = {
@@ -219,6 +221,28 @@ describe("DocumentPreviewModal", () => {
     expect(screen.getByRole("button", { name: "문서 작업 더보기" })).toBeInTheDocument();
     await screen.findByTestId("pdf-page-1");
     expect(screen.getByText("1 / 2")).toBeInTheDocument();
+  });
+
+  it("shows the source category label for a document published from another branch", async () => {
+    render(
+      <DocumentPreviewModal
+        data-component="desktop_contracts_document-preview"
+        open={true}
+        onClose={jest.fn()}
+        doc={{
+          ...baseDocument,
+          categoryId: "origin-branch-custom",
+          categoryLabel: "원본 지점 분류",
+          visibilityScope: "all_branches",
+          canManage: false,
+        }}
+        categories={[]}
+      />
+    );
+
+    await screen.findByTestId("pdf-page-1");
+    expect(screen.getByText("원본 지점 분류")).toBeInTheDocument();
+    expect(screen.getByText("모든 지점 공개")).toBeInTheDocument();
   });
 
   it("keeps the print frame mounted until the print preview closes", async () => {

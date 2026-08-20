@@ -4,64 +4,32 @@ import {
   IsArray,
   IsNumber,
   IsDateString,
-  Min,
+  IsBoolean,
+  MaxLength,
+  ArrayMaxSize,
 } from "class-validator";
-
-export class CreateDocumentDto {
-    @IsString()
-    name!: string;
-
-    @IsOptional()
-    @IsString()
-    description?: string;
-
-    @IsString()
-    categoryId!: string;
-
-    @IsArray()
-    @IsString({ each: true })
-    tags!: string[];
-
-    @IsString()
-    mimetype!: string;
-
-    @IsNumber()
-    @Min(0)
-    filesize!: number;
-
-    @IsString()
-    storagepath!: string;
-
-    @IsOptional()
-    @IsString()
-    storageurl?: string;
-
-    @IsOptional()
-    @IsString()
-    branchid?: string;
-
-    // No uploadedby: the controller takes it from the verified tenant. Leaving
-    // it declared would make it a required field the handler then discards, and
-    // forbidNonWhitelisted now rejects it outright rather than accepting a
-    // value that has no effect.
-}
 
 export class UpdateDocumentDto {
     @IsOptional()
     @IsString()
+    @MaxLength(255)
     name?: string;
 
     @IsOptional()
     @IsString()
+    @MaxLength(2000)
     description?: string;
 
     @IsOptional()
     @IsString()
+    @MaxLength(100)
     categoryId?: string;
 
     @IsOptional()
     @IsArray()
+    @ArrayMaxSize(50)
     @IsString({ each: true })
+    @MaxLength(100, { each: true })
     tags?: string[];
 }
 
@@ -104,6 +72,10 @@ export class DocumentResponseDto {
     @IsString()
     categoryId!: string;
 
+    @IsOptional()
+    @IsString()
+    categoryLabel!: string | null;
+
     @IsArray()
     @IsString({ each: true })
     tags!: string[];
@@ -128,6 +100,12 @@ export class DocumentResponseDto {
     @IsString()
     uploadedBy!: string;
 
+    @IsString()
+    visibilityScope!: string;
+
+    @IsBoolean()
+    canManage!: boolean;
+
     @IsDateString()
     createdAt!: Date;
 
@@ -138,23 +116,18 @@ export class DocumentResponseDto {
 export class UploadDocumentDto {
     @IsOptional()
     @IsString()
+    @MaxLength(255)
     name?: string;
 
     @IsOptional()
     @IsString()
+    @MaxLength(2000)
     description?: string;
 
     @IsString()
+    @MaxLength(100)
     categoryId!: string;
 
     @IsOptional()
     tags?: string[] | string;
-
-    @IsOptional()
-    @IsString()
-    branchid?: string;
-
-    @IsOptional()
-    @IsString()
-    uploadedby?: string;
 }

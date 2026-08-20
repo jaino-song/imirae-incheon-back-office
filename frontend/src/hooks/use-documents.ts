@@ -8,21 +8,28 @@ import {
     snapshotAndTransformQueries,
     type QuerySnapshot,
 } from "@/lib/query/optimistic-list-cache";
+import {
+    DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
+    type DocumentUploadCapabilities,
+} from "@babyjamjam/shared/file-storage";
 
 export interface Document {
     id: string;
     name: string;
-    description?: string;
+    description?: string | null;
     categoryId: string;
+    categoryLabel?: string | null;
     tags: string[];
     mimeType: string;
     fileSize: number;
     storagePath: string;
-    storageUrl?: string;
-    orgId?: string;
+    storageUrl?: string | null;
+    orgId?: string | null;
     uploadedBy: string;
     createdAt: string;
     updatedAt: string;
+    visibilityScope: "branch" | "all_branches";
+    canManage: boolean;
 }
 
 // orgId/uploadedBy are deliberately absent: the backend derives both from the
@@ -51,7 +58,20 @@ export const documentQueryKeys = {
     list: (filters: Record<string, unknown>) => [...documentQueryKeys.lists(), filters] as const,
     details: () => [...documentQueryKeys.all, "detail"] as const,
     detail: (id: string) => [...documentQueryKeys.details(), id] as const,
+    capabilities: () => [...documentQueryKeys.all, "upload-capabilities"] as const,
 };
+
+export function useDocumentUploadCapabilities() {
+    return useQuery<DocumentUploadCapabilities>({
+        queryKey: documentQueryKeys.capabilities(),
+        queryFn: async () => {
+            const { data } = await api.get<DocumentUploadCapabilities>("/file-storage/capabilities");
+            return data;
+        },
+        placeholderData: DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
+        staleTime: 1000 * 60 * 5,
+    });
+}
 
 export function useDocuments(categoryId?: string) {
     return useQuery<Document[]>({
