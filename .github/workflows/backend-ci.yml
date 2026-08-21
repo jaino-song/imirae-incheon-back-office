@@ -17,6 +17,9 @@ on:
   pull_request:
     branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: backend · type-check · lint · test
@@ -40,15 +43,17 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -71,6 +76,9 @@ jobs:
       # Fail fast on the cheapest, most deterministic gate first.
       - name: Type check
         run: pnpm --filter ./backend run type-check
+
+      - name: Build
+        run: pnpm --filter ./backend run build
 
       - name: Agent capability manifest and drift gates
         run: pnpm --filter ./backend run agent:manifest:check
@@ -148,11 +156,13 @@ jobs:
           - 8025:8025
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           run_install: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           cache: 'pnpm'
@@ -173,3 +183,209 @@ jobs:
           AGENT_ENABLED: 'true'
           AGENT_READ_ENABLED: 'true'
           AGENT_RATE_LIMIT_PER_MINUTE: '100'
+
+  build-lightsail-image:
+    name: build immutable Lightsail image
+    if: github.event_name == 'push' && (github.ref_name == 'preview' || github.ref_name == 'main')
+    needs: [verify, auth-e2e]
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: lightsail-image-${{ github.ref_name }}
+      cancel-in-progress: true
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build and publish commit image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: backend/Dockerfile.lightsail
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/jaino-song/babyjamjam-admin-backend:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=backend-lightsail
+          cache-to: type=gha,mode=max,scope=backend-lightsail
+          provenance: true
+          sbom: true
+
+  deploy-lightsail:
+    name: deploy Lightsail backend
+    if: github.event_name == 'push' && (github.ref_name == 'preview' || github.ref_name == 'main')
+    needs: build-lightsail-image
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: lightsail-deploy-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ap-northeast-2
+      DEPLOY_ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
+      EXPECTED_SCHEDULERS_ENABLED: ${{ github.ref_name == 'main' && 'true' || 'false' }}
+      IMAGE_DIGEST: ${{ needs.build-lightsail-image.outputs.digest }}
+
+    steps:
+      - name: Validate deployment configuration
+        env:
+          AWS_DEPLOY_DOCUMENT_NAME: ${{ vars.AWS_DEPLOY_DOCUMENT_NAME }}
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          LIGHTSAIL_SSM_TARGET_TAG: ${{ vars.LIGHTSAIL_SSM_TARGET_TAG }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$AWS_DEPLOY_DOCUMENT_NAME" =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
+          [[ "$AWS_DEPLOY_ROLE_ARN" =~ ^arn:[a-z0-9-]+:iam::[0-9]{12}:role/.+$ ]]
+          [[ "$LIGHTSAIL_SSM_TARGET_TAG" =~ ^[A-Za-z0-9._:/=+@-]{1,128}$ ]]
+
+      - name: Authenticate to AWS with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Deploy through AWS Systems Manager
+        env:
+          AWS_DEPLOY_DOCUMENT_NAME: ${{ vars.AWS_DEPLOY_DOCUMENT_NAME }}
+          LIGHTSAIL_SSM_TARGET_TAG: ${{ vars.LIGHTSAIL_SSM_TARGET_TAG }}
+        run: |
+          set -euo pipefail
+
+          parameters="$(jq -cn \
+            --arg commit_sha "$GITHUB_SHA" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            '{CommitSha:[$commit_sha],ImageDigest:[$image_digest]}')"
+          targets="$(jq -cn \
+            --arg tag_value "$LIGHTSAIL_SSM_TARGET_TAG" \
+            '[{Key:"tag:DeploymentTarget",Values:[$tag_value]}]')"
+          managed_nodes="$(aws ssm describe-instance-information \
+            --filters "Key=tag:DeploymentTarget,Values=$LIGHTSAIL_SSM_TARGET_TAG" \
+            --output json)"
+          managed_node_count="$(jq '.InstanceInformationList | length' <<<"$managed_nodes")"
+          online_node_count="$(jq '[.InstanceInformationList[] | select(.PingStatus == "Online")] | length' \
+            <<<"$managed_nodes")"
+          if [[ "$managed_node_count" -ne 1 || "$online_node_count" -ne 1 ]]; then
+            echo "Deployment requires exactly one online managed node for the target tag." >&2
+            exit 1
+          fi
+          expected_node_id="$(jq -r '.InstanceInformationList[0].InstanceId' <<<"$managed_nodes")"
+
+          command_id="$(aws ssm send-command \
+            --document-name "$AWS_DEPLOY_DOCUMENT_NAME" \
+            --parameters "$parameters" \
+            --targets "$targets" \
+            --max-concurrency 1 \
+            --max-errors 0 \
+            --timeout-seconds 1800 \
+            --comment "GitHub ${GITHUB_REPOSITORY}@${GITHUB_SHA}" \
+            --query 'Command.CommandId' \
+            --output text)"
+
+          [[ "$command_id" =~ ^[0-9a-f-]{36}$ ]]
+          managed_node_id=""
+          final_status="TimedOut"
+
+          for _attempt in $(seq 1 360); do
+            invocation_json="$(aws ssm list-command-invocations \
+              --command-id "$command_id" \
+              --details \
+              --output json)"
+            invocation_count="$(jq '.CommandInvocations | length' <<<"$invocation_json")"
+            if [[ "$invocation_count" -gt 1 ]]; then
+              echo "Deployment target resolved to more than one managed node." >&2
+              exit 1
+            fi
+            if [[ "$invocation_count" -eq 0 ]]; then
+              sleep 5
+              continue
+            fi
+
+            managed_node_id="$(jq -r '.CommandInvocations[0].InstanceId' <<<"$invocation_json")"
+            final_status="$(jq -r '.CommandInvocations[0].Status' <<<"$invocation_json")"
+            case "$final_status" in
+              Pending|InProgress|Delayed)
+                sleep 5
+                ;;
+              Success)
+                break
+                ;;
+              *)
+                echo "SSM deployment ended with status: $final_status" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          if [[ "$final_status" != "Success" || -z "$managed_node_id" ]]; then
+            echo "SSM deployment did not finish successfully before the timeout." >&2
+            exit 1
+          fi
+          if [[ "$managed_node_id" != "$expected_node_id" ]]; then
+            echo "SSM deployment completed on an unexpected managed node." >&2
+            exit 1
+          fi
+
+          status_output="$(aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$managed_node_id" \
+            --query 'StandardOutputContent' \
+            --output text)"
+
+          read_status_value() {
+            local wanted_key="$1"
+            awk -F= -v wanted_key="$wanted_key" '$1 == wanted_key { print substr($0, length($1) + 2) }' \
+              <<<"$status_output"
+          }
+
+          deployed_environment="$(read_status_value environment)"
+          deployed_tag="$(read_status_value current_tag)"
+          deployed_digest="$(read_status_value current_digest)"
+          container_health="$(read_status_value container_health)"
+          restart_count="$(read_status_value restart_count)"
+          schedulers_enabled="$(read_status_value schedulers_enabled)"
+          public_health="$(read_status_value public_health)"
+
+          [[ "$deployed_environment" == "$DEPLOY_ENVIRONMENT" ]]
+          [[ "$deployed_tag" == "$GITHUB_SHA" ]]
+          [[ "$deployed_digest" == "$IMAGE_DIGEST" ]]
+          [[ "$container_health" == "healthy" ]]
+          [[ "$restart_count" == "0" ]]
+          [[ "$schedulers_enabled" == "$EXPECTED_SCHEDULERS_ENABLED" ]]
+          [[ "$public_health" == "ok" ]]
+
+          printf '%s\n' \
+            "environment=$deployed_environment" \
+            "current_tag=$deployed_tag" \
+            "current_digest=$deployed_digest" \
+            "container_health=$container_health" \
+            "restart_count=$restart_count" \
+            "schedulers_enabled=$schedulers_enabled" \
+            "public_health=$public_health"

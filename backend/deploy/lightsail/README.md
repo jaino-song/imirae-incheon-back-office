@@ -81,6 +81,14 @@ APIs therefore do not share a Docker network with each other.
 
 ## Routine deployment
 
+Environment-branch automation is documented in
+[`CI_AUTOMATION.md`](./CI_AUTOMATION.md). It builds immutable images on GitHub,
+uses short-lived GitHub OIDC credentials to invoke fixed AWS Systems Manager
+documents, and keeps production behind a GitHub environment approval gate.
+
+The restricted SSH operator below remains available for approved diagnostics
+and manual preview recovery. It is independent of the root-only SSM operator.
+
 ### Restricted agent operator
 
 Install the preview-only operator once from an administrative shell on the
