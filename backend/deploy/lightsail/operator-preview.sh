@@ -59,7 +59,9 @@ run_sanitized() {
 
 acquire_lock() {
     [[ -d "$STATE_DIRECTORY" ]] || die "Preview state directory is missing."
-    exec 9>"$LOCK_FILE"
+    [[ -f "$LOCK_FILE" && ! -L "$LOCK_FILE" && -w "$LOCK_FILE" ]] \
+        || die "Preview deployment lock is missing or not writable."
+    exec 9>>"$LOCK_FILE"
     /usr/bin/flock -n 9 || die "Another preview operator command is already running."
 }
 

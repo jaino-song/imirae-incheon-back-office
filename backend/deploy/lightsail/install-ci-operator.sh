@@ -7,7 +7,9 @@ readonly SCRIPT_DIR
 readonly SOURCE_OPERATOR="$SCRIPT_DIR/ci-operator.sh"
 readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-ci-operator"
 readonly LOG_DIRECTORY="/var/log/babyjamjam-deploy"
+readonly STATE_ROOT="/opt/babyjamjam/environments"
 readonly DEPLOY_USER="ubuntu"
+readonly DEPLOY_GROUP="ubuntu"
 
 usage() {
     cat >&2 <<'EOF'
@@ -50,7 +52,29 @@ verify_host_prerequisites() {
     /bin/bash -n "$SOURCE_OPERATOR"
 }
 
+ensure_deployment_locks() {
+    local environment
+    local lock_file
+    local state_directory
+
+    for environment in preview production; do
+        state_directory="$STATE_ROOT/$environment"
+        lock_file="$state_directory/operator.lock"
+        [[ -d "$state_directory" ]] || die "Deployment state directory is missing: $state_directory"
+        [[ ! -L "$lock_file" ]] || die "Deployment lock must not be a symbolic link: $lock_file"
+        if [[ ! -e "$lock_file" ]]; then
+            /usr/bin/install -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 0640 /dev/null "$lock_file"
+        fi
+        [[ -f "$lock_file" ]] || die "Deployment lock is not a regular file: $lock_file"
+        /bin/chown "$DEPLOY_USER:$DEPLOY_GROUP" "$lock_file"
+        /bin/chmod 0640 "$lock_file"
+    done
+}
+
 verify_installed_files() {
+    local environment
+    local lock_file
+    local lock_metadata
     local log_metadata
     local operator_metadata
 
@@ -63,6 +87,15 @@ verify_installed_files() {
         || die "Unexpected CI operator ownership or mode: $operator_metadata"
     [[ "$log_metadata" == "root:root:700" ]] \
         || die "Unexpected CI log directory ownership or mode: $log_metadata"
+
+    for environment in preview production; do
+        lock_file="$STATE_ROOT/$environment/operator.lock"
+        [[ -f "$lock_file" && ! -L "$lock_file" ]] \
+            || die "Deployment lock is missing or invalid: $lock_file"
+        lock_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$lock_file")"
+        [[ "$lock_metadata" == "ubuntu:ubuntu:640" ]] \
+            || die "Unexpected deployment lock ownership or mode: $lock_metadata"
+    done
 
     /bin/bash -n "$INSTALLED_OPERATOR"
     echo "Lightsail CI operator installation is valid."
@@ -81,6 +114,7 @@ install_operator() (
 
     require_root
     verify_host_prerequisites
+    ensure_deployment_locks
     temporary_directory="$(/usr/bin/mktemp -d /var/tmp/babyjamjam-ci-operator.XXXXXX)"
     operator_candidate="$temporary_directory/operator"
     trap '/bin/rm -rf "$temporary_directory"' EXIT

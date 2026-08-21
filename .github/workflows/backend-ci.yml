@@ -231,14 +231,32 @@ jobs:
           provenance: true
           sbom: true
 
-  deploy-lightsail:
-    name: deploy Lightsail backend
-    if: github.event_name == 'push' && (github.ref_name == 'preview' || github.ref_name == 'main')
+  approve-lightsail-production:
+    name: approve production Lightsail deployment
+    if: github.event_name == 'push' && github.ref_name == 'main'
     needs: build-lightsail-image
-    timeout-minutes: 40
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
+      name: production
+    permissions:
+      contents: read
+
+    steps:
+      - name: Record production approval
+        run: echo "Production deployment approved."
+
+  deploy-lightsail:
+    name: deploy Lightsail backend
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      (github.ref_name == 'preview' || github.ref_name == 'main') &&
+      needs.build-lightsail-image.result == 'success' &&
+      (github.ref_name == 'preview' || needs.approve-lightsail-production.result == 'success')
+    needs: [build-lightsail-image, approve-lightsail-production]
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
@@ -250,32 +268,28 @@ jobs:
       DEPLOY_ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
       EXPECTED_SCHEDULERS_ENABLED: ${{ github.ref_name == 'main' && 'true' || 'false' }}
       IMAGE_DIGEST: ${{ needs.build-lightsail-image.outputs.digest }}
+      AWS_DEPLOY_ROLE_ARN: ${{ github.ref_name == 'main' && vars.AWS_PRODUCTION_DEPLOY_ROLE_ARN || vars.AWS_PREVIEW_DEPLOY_ROLE_ARN }}
+      AWS_DEPLOY_DOCUMENT_NAME: ${{ github.ref_name == 'main' && vars.AWS_PRODUCTION_DEPLOY_DOCUMENT_NAME || vars.AWS_PREVIEW_DEPLOY_DOCUMENT_NAME }}
+      LIGHTSAIL_SSM_TARGET_TAG: ${{ vars.LIGHTSAIL_SSM_TARGET_TAG }}
 
     steps:
       - name: Validate deployment configuration
-        env:
-          AWS_DEPLOY_DOCUMENT_NAME: ${{ vars.AWS_DEPLOY_DOCUMENT_NAME }}
-          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          LIGHTSAIL_SSM_TARGET_TAG: ${{ vars.LIGHTSAIL_SSM_TARGET_TAG }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$AWS_DEPLOY_DOCUMENT_NAME" =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
-          [[ "$AWS_DEPLOY_ROLE_ARN" =~ ^arn:[a-z0-9-]+:iam::[0-9]{12}:role/.+$ ]]
+          [[ "$AWS_DEPLOY_ROLE_ARN" =~ ^arn:[a-z0-9-]+:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$ ]]
           [[ "$LIGHTSAIL_SSM_TARGET_TAG" =~ ^[A-Za-z0-9._:/=+@-]{1,128}$ ]]
 
       - name: Authenticate to AWS with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
 
       - name: Deploy through AWS Systems Manager
-        env:
-          AWS_DEPLOY_DOCUMENT_NAME: ${{ vars.AWS_DEPLOY_DOCUMENT_NAME }}
-          LIGHTSAIL_SSM_TARGET_TAG: ${{ vars.LIGHTSAIL_SSM_TARGET_TAG }}
         run: |
           set -euo pipefail
 
