@@ -93,11 +93,12 @@ configure_environment() {
     DEPLOY_REF="refs/remotes/origin/$DEPLOY_BRANCH"
     DEPLOY_WORKTREE="$DEPLOY_WORKTREE_ROOT/$environment-ci"
     STATE_DIRECTORY="$STATE_ROOT/$environment"
+    DEPLOY_LOCK_FILE="$STATE_DIRECTORY/operator.lock"
 }
 
 acquire_lock() {
     [[ -d "$STATE_DIRECTORY" ]] || die "Deployment state directory is missing: $STATE_DIRECTORY"
-    exec 9>"$STATE_DIRECTORY/ci-operator.lock"
+    exec 9>"$DEPLOY_LOCK_FILE"
     /usr/bin/flock -n 9 || die "Another $DEPLOY_ENVIRONMENT deployment is already running."
 }
 
@@ -154,6 +155,17 @@ pull_release_image() {
 
     run_as_deployer /usr/bin/docker tag \
         "$immutable_reference" "$LOCAL_IMAGE_REPOSITORY:$requested_sha"
+}
+
+run_release_migrations() {
+    local requested_sha="$1"
+
+    run_as_deployer /usr/bin/docker run --rm \
+        --env-file "$STATE_DIRECTORY/backend.env" \
+        --entrypoint /usr/local/bin/node \
+        "$LOCAL_IMAGE_REPOSITORY:$requested_sha" \
+        node_modules/prisma/build/index.js migrate deploy \
+        --schema prisma/schema.prisma
 }
 
 read_optional_state() {
@@ -297,6 +309,7 @@ run_rollback_script() {
 
     run_as_deployer /usr/bin/env \
         BACKEND_IMAGE="$LOCAL_IMAGE_REPOSITORY" \
+        BACKEND_ROLLBACK_PRESERVE_PREVIOUS_TAG=true \
         "$DEPLOY_WORKTREE/backend/deploy/lightsail/rollback.sh" \
         "$DEPLOY_ENVIRONMENT" "$rollback_tag"
 }
@@ -327,6 +340,10 @@ deploy_environment() {
 
     if ! pull_release_image "$requested_sha" "$requested_digest" >>"$log_file" 2>&1; then
         die "Image pull or provenance validation failed. Diagnostic log retained at $log_file"
+    fi
+
+    if ! run_release_migrations "$requested_sha" >>"$log_file" 2>&1; then
+        die "Database migration failed before image activation. Diagnostic log retained at $log_file"
     fi
 
     if run_deploy_script >"$log_file" 2>&1 \

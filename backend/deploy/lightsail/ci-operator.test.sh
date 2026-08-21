@@ -47,6 +47,7 @@ configure_environment preview
 assert_equals "preview" "$DEPLOY_BRANCH"
 assert_equals "false" "$EXPECTED_SCHEDULERS_ENABLED"
 assert_equals "https://preview.api.babyjamjam.com/health" "$PUBLIC_HEALTH_URL"
+assert_equals "$STATE_DIRECTORY/operator.lock" "$DEPLOY_LOCK_FILE"
 
 configure_environment production
 assert_equals "main" "$DEPLOY_BRANCH"
@@ -76,5 +77,25 @@ run_as_deployer() {
 pull_release_image "$valid_sha" "$valid_digest"
 [[ "$image_invocations" == *"pull $IMAGE_REPOSITORY@$valid_digest"* ]] || fail "immutable image was not pulled"
 [[ "$image_invocations" == *"tag $IMAGE_REPOSITORY@$valid_digest $LOCAL_IMAGE_REPOSITORY:$valid_sha"* ]] || fail "verified image was not tagged locally"
+
+migration_invocation=""
+
+run_as_deployer() {
+    migration_invocation="$*"
+}
+
+configure_environment preview
+run_release_migrations "$valid_sha"
+assert_equals "/usr/bin/docker run --rm --env-file $STATE_DIRECTORY/backend.env --entrypoint /usr/local/bin/node $LOCAL_IMAGE_REPOSITORY:$valid_sha node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma" "$migration_invocation"
+
+rollback_invocation=""
+
+run_as_deployer() {
+    rollback_invocation="$*"
+}
+
+run_rollback_script "$valid_sha"
+[[ "$rollback_invocation" == *"BACKEND_ROLLBACK_PRESERVE_PREVIOUS_TAG=true"* ]] \
+    || fail "automatic recovery must preserve the prior known-good rollback tag"
 
 echo "ci-operator tests passed"

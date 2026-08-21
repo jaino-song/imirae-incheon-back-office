@@ -5,13 +5,18 @@ The workflow publishes an immutable commit image to the public GHCR package and
 asks AWS Systems Manager to activate that exact image on the existing Lightsail
 host. The host does not build application images.
 
-| Branch | GitHub environment | Runtime | Approval |
+| Branch | Deployment credential | Runtime | Approval |
 |---|---|---|---|
-| `preview` | `preview` | preview backend | automatic after CI |
-| `main` | `production` | production backend | GitHub required reviewer |
+| `preview` | branch-scoped preview role | preview backend | automatic after CI |
+| `main` | branch-scoped production role | production backend | `production` environment required reviewer |
 
-The deploy job receives temporary AWS credentials through GitHub OIDC. It does
-not use an AWS access key, SSH key, or a remotely supplied shell command. The
+The deploy job receives temporary AWS credentials through GitHub OIDC. Its
+trust policy pins preview access to `refs/heads/preview` and production access
+to `refs/heads/main`; a feature branch cannot gain deployment authority by
+referencing an environment. Production approval runs in a separate
+`production` environment job that has no AWS token, and the branch-scoped
+deployment job starts only after that approval succeeds. The workflow does not
+use an AWS access key, SSH key, or a remotely supplied shell command. The
 preview and production roles can each invoke only their fixed SSM document on a
 managed node with the configured `DeploymentTarget` tag. The workflow refuses
 to send a command unless that tag resolves to exactly one online managed node.
@@ -44,16 +49,18 @@ approval gate before execution.
    set the package visibility to public. Public visibility is required because
    the host deliberately has no registry credential. Confirm anonymous pull of
    the exact digest before enabling deployment.
-6. Create GitHub environments named exactly `preview` and `production`. Add
-   these environment variables from the matching CloudFormation outputs:
+6. Create a GitHub environment named exactly `production`, then add a required
+   reviewer. This environment is only the approval gate and contains no AWS
+   deployment credentials.
+7. Add these GitHub repository variables from the matching CloudFormation
+   outputs:
 
-   - `AWS_DEPLOY_ROLE_ARN`
-   - `AWS_DEPLOY_DOCUMENT_NAME`
+   - `AWS_PREVIEW_DEPLOY_ROLE_ARN`
+   - `AWS_PREVIEW_DEPLOY_DOCUMENT_NAME`
+   - `AWS_PRODUCTION_DEPLOY_ROLE_ARN`
+   - `AWS_PRODUCTION_DEPLOY_DOCUMENT_NAME`
    - `LIGHTSAIL_SSM_TARGET_TAG`
 
-7. Add a required reviewer to the `production` GitHub environment. Do not add a
-   required reviewer to `preview` unless preview deployments should become
-   manual.
 8. Run the workflow manually on a non-deploying branch to validate CI, then
    merge through `dev` to `preview`. Verify image provenance, container health,
    restart count, scheduler ownership, and the public health route. Rehearse a
@@ -70,20 +77,27 @@ started is never cancelled by concurrency handling.
 The root-only host operator accepts only an environment, a lowercase 40-byte
 commit SHA, and a lowercase SHA-256 image digest. It verifies that the commit is
 the current tip of the corresponding environment branch and that the pulled
-image label matches that commit. It records digest state only after deployment,
-container checks, scheduler checks, and the public health check succeed.
+image label matches that commit. Before changing the running container, it runs
+`prisma migrate deploy` from that exact image using the target environment's
+database configuration. A migration failure leaves the current application
+image running. Release migrations must remain backward-compatible because a
+successful database migration cannot be automatically undone if later runtime
+activation fails. It records digest state only after deployment, container
+checks, scheduler checks, and the public health check succeed.
 
 If deployment or verification fails, the operator immediately invokes the
-existing rollback script with the recorded known-good commit image, restores
-the prior digest state, and verifies the recovered runtime. Detailed output is
-kept in a root-only host log; GitHub receives only a failure status and safe
-release fields.
+existing rollback script with the recorded known-good commit image, preserves
+the prior rollback-tag history, restores the prior digest state, and verifies
+the recovered runtime. CI deployment and the existing preview operator share
+one per-environment lock so they cannot change the same runtime concurrently.
+Detailed output is kept in a root-only host log; GitHub receives only a failure
+status and safe release fields.
 
 ## Disable and roll back the automation
 
 To stop new deployments without changing the running service, disable the
-GitHub workflow or remove the environment's OIDC role variable. To remove host
-execution capability, run:
+GitHub workflow or remove the branch's OIDC role repository variable. To remove
+host execution capability, run:
 
 ```bash
 sudo backend/deploy/lightsail/install-ci-operator.sh uninstall
