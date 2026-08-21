@@ -58,6 +58,16 @@ assert_equals "" "$(printf '%s\n' "$sanitized_environment" | grep -E '^(BACKEND_
 assert_equals "/home/ubuntu" "$(printf '%s\n' "$sanitized_environment" | awk -F= '$1 == "HOME" { print $2 }')"
 assert_equals "ubuntu" "$(printf '%s\n' "$sanitized_environment" | awk -F= '$1 == "USER" { print $2 }')"
 
+fetch_invocation=""
+
+run_sanitized() {
+    fetch_invocation="$*"
+}
+
+fetch_preview_ref
+
+assert_equals "/usr/bin/git -C $REPOSITORY_ROOT fetch --quiet --prune origin +refs/heads/preview:refs/remotes/origin/preview" "$fetch_invocation"
+
 mock_current_tag="$valid_sha"
 mock_image_name="babyjamjam-backend:$valid_sha"
 mock_public_health='{"status":"ok"}'

@@ -71,13 +71,18 @@ require_clean_worktree() {
     [[ -z "$dirty_state" ]] || die "Refusing to use a dirty deployment worktree: $worktree_path"
 }
 
+fetch_preview_ref() {
+    run_sanitized /usr/bin/git -C "$REPOSITORY_ROOT" fetch --quiet --prune origin \
+        "+refs/heads/preview:$PREVIEW_REF"
+}
+
 prepare_preview_worktree() {
     local requested_sha="$1"
     local resolved_sha
 
     [[ -d "$REPOSITORY_ROOT/.git" ]] || die "Lightsail repository is missing."
 
-    run_sanitized /usr/bin/git -C "$REPOSITORY_ROOT" fetch --quiet --prune origin preview
+    fetch_preview_ref
     resolved_sha="$(run_sanitized /usr/bin/git -C "$REPOSITORY_ROOT" rev-parse --verify "$PREVIEW_REF^{commit}")"
     [[ "$resolved_sha" == "$requested_sha" ]] || die "Requested commit is not the current origin/preview commit."
 
