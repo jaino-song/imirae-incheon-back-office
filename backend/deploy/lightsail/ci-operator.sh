@@ -77,12 +77,20 @@ configure_environment() {
             EXPECTED_SCHEDULERS_ENABLED="false"
             PUBLIC_HEALTH_URL="https://preview.api.babyjamjam.com/health"
             COMPOSE_PROJECT="babyjamjam-backend-preview"
+            BACKEND_CPU_LIMIT="0.5"
+            BACKEND_MEMORY_LIMIT="1g"
+            EDGE_NETWORK="babyjamjam-edge-preview"
+            VALKEY_DATA_VOLUME="babyjamjam-backend-preview_valkey_data"
             ;;
         production)
             DEPLOY_BRANCH="main"
             EXPECTED_SCHEDULERS_ENABLED="true"
             PUBLIC_HEALTH_URL="https://api.babyjamjam.com/health"
             COMPOSE_PROJECT="babyjamjam-backend-production"
+            BACKEND_CPU_LIMIT="1.5"
+            BACKEND_MEMORY_LIMIT="2g"
+            EDGE_NETWORK="babyjamjam-edge-production"
+            VALKEY_DATA_VOLUME="babyjamjam-backend-production_valkey_data"
             ;;
         *)
             die "Unsupported deployment environment: $environment"
@@ -97,8 +105,15 @@ configure_environment() {
 }
 
 acquire_lock() {
+    local lock_metadata
+
     [[ -d "$STATE_DIRECTORY" ]] || die "Deployment state directory is missing: $STATE_DIRECTORY"
-    exec 9>"$DEPLOY_LOCK_FILE"
+    [[ -f "$DEPLOY_LOCK_FILE" && ! -L "$DEPLOY_LOCK_FILE" ]] \
+        || die "Deployment lock is missing or invalid; reinstall the CI operator."
+    lock_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$DEPLOY_LOCK_FILE")"
+    [[ "$lock_metadata" == "ubuntu:ubuntu:640" ]] \
+        || die "Unexpected deployment lock ownership or mode: $lock_metadata"
+    exec 9>>"$DEPLOY_LOCK_FILE"
     /usr/bin/flock -n 9 || die "Another $DEPLOY_ENVIRONMENT deployment is already running."
 }
 
@@ -160,10 +175,19 @@ pull_release_image() {
 run_release_migrations() {
     local requested_sha="$1"
 
-    run_as_deployer /usr/bin/docker run --rm \
-        --env-file "$STATE_DIRECTORY/backend.env" \
-        --entrypoint /usr/local/bin/node \
-        "$LOCAL_IMAGE_REPOSITORY:$requested_sha" \
+    run_as_deployer /usr/bin/env \
+        BACKEND_ENV_FILE="$STATE_DIRECTORY/backend.env" \
+        BACKEND_IMAGE="$LOCAL_IMAGE_REPOSITORY" \
+        BACKEND_IMAGE_TAG="$requested_sha" \
+        BACKEND_CPU_LIMIT="$BACKEND_CPU_LIMIT" \
+        BACKEND_MEMORY_LIMIT="$BACKEND_MEMORY_LIMIT" \
+        BACKEND_NETWORK_ALIAS="api-$DEPLOY_ENVIRONMENT" \
+        COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" \
+        LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK" \
+        VALKEY_DATA_VOLUME="$VALKEY_DATA_VOLUME" \
+        /usr/bin/docker compose \
+        -f "$DEPLOY_WORKTREE/backend/compose.lightsail.yml" \
+        run --rm --no-deps --entrypoint /usr/local/bin/node api \
         node_modules/prisma/build/index.js migrate deploy \
         --schema prisma/schema.prisma
 }
@@ -321,6 +345,7 @@ deploy_environment() {
     local current_tag
     local log_file
     local previous_digest
+    local previous_tag
     local status_output
 
     acquire_lock
@@ -333,6 +358,7 @@ deploy_environment() {
 
     current_digest="$(read_recorded_digest "$STATE_DIRECTORY/current-image-digest")"
     previous_digest="$(read_recorded_digest "$STATE_DIRECTORY/previous-image-digest")"
+    previous_tag="$(read_recorded_tag "$STATE_DIRECTORY/previous-image-tag")"
 
     /usr/bin/install -d -o root -g root -m 0700 "$LOG_ROOT"
     log_file="$(/usr/bin/mktemp "$LOG_ROOT/$DEPLOY_ENVIRONMENT.XXXXXX.log")"
@@ -357,6 +383,7 @@ deploy_environment() {
     if run_rollback_script "$current_tag" >>"$log_file" 2>&1 \
         && restore_state_value "$STATE_DIRECTORY/current-image-digest" "$current_digest" \
         && restore_state_value "$STATE_DIRECTORY/previous-image-digest" "$previous_digest" \
+        && restore_state_value "$STATE_DIRECTORY/previous-image-tag" "$previous_tag" \
         && status_environment >>"$log_file" 2>&1; then
         die "Deployment failed and the previous healthy image was restored. Diagnostic log retained at $log_file"
     fi

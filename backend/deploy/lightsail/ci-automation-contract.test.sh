@@ -96,8 +96,11 @@ assert_contains "$INFRASTRUCTURE_TEMPLATE" '/usr/local/sbin/babyjamjam-ci-operat
 
 assert_contains "$INSTALLER" 'root:root' "CI operator must remain root-owned"
 assert_contains "$INSTALLER" '0750' "CI operator must not be executable by unprivileged users"
+assert_contains "$INSTALLER" 'ubuntu:ubuntu:640' "shared deployment locks must be writable by the deploy user"
 assert_not_contains "$INSTALLER" 'sudoers' "CI operator must not grant a new sudo path"
 assert_contains "$ROLLBACK_SCRIPT" 'PRESERVE_PREVIOUS_TAG.*==.*false.*current_tag' "automatic recovery must be able to preserve known-good tag history"
+assert_contains "$CI_OPERATOR" 'restore_state_value.*previous-image-tag.*previous_tag' "automatic recovery must restore the rollback tag captured before deployment"
+assert_not_contains "$CI_OPERATOR" 'docker run --rm.*--env-file' "migrations must use Compose-compatible environment parsing"
 assert_not_contains "$INFRASTRUCTURE_TEMPLATE" 'Action:[[:space:]]*[\"]?[*]' "IAM actions must not use wildcards"
 assert_not_contains "$INFRASTRUCTURE_TEMPLATE" 'Principal:[[:space:]]*[\"]?[*]' "IAM trust must not use a wildcard principal"
 

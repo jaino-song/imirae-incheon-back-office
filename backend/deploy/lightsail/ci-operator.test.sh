@@ -86,7 +86,7 @@ run_as_deployer() {
 
 configure_environment preview
 run_release_migrations "$valid_sha"
-assert_equals "/usr/bin/docker run --rm --env-file $STATE_DIRECTORY/backend.env --entrypoint /usr/local/bin/node $LOCAL_IMAGE_REPOSITORY:$valid_sha node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma" "$migration_invocation"
+assert_equals "/usr/bin/env BACKEND_ENV_FILE=$STATE_DIRECTORY/backend.env BACKEND_IMAGE=$LOCAL_IMAGE_REPOSITORY BACKEND_IMAGE_TAG=$valid_sha BACKEND_CPU_LIMIT=0.5 BACKEND_MEMORY_LIMIT=1g BACKEND_NETWORK_ALIAS=api-preview COMPOSE_PROJECT_NAME=babyjamjam-backend-preview LIGHTSAIL_EDGE_NETWORK=babyjamjam-edge-preview VALKEY_DATA_VOLUME=babyjamjam-backend-preview_valkey_data /usr/bin/docker compose -f $DEPLOY_WORKTREE/backend/compose.lightsail.yml run --rm --no-deps --entrypoint /usr/local/bin/node api node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma" "$migration_invocation"
 
 rollback_invocation=""
 

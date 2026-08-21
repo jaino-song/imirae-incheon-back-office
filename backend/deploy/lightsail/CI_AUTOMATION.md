@@ -45,6 +45,10 @@ approval gate before execution.
    sudo backend/deploy/lightsail/install-ci-operator.sh check
    ```
 
+   Installation also creates or repairs the shared per-environment lock files
+   as `ubuntu:ubuntu` mode `0640`; both the restricted preview operator and the
+   root CI operator refuse to deploy when that lock contract is invalid.
+
 5. Publish the first image, connect the GHCR package to this repository, and
    set the package visibility to public. Public visibility is required because
    the host deliberately has no registry credential. Confirm anonymous pull of
