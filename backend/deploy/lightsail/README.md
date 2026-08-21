@@ -81,6 +81,56 @@ APIs therefore do not share a Docker network with each other.
 
 ## Routine deployment
 
+### Restricted agent operator
+
+Install the preview-only operator once from an administrative shell on the
+Lightsail host:
+
+```bash
+sudo gpasswd --delete agent-lightsail-operator docker
+sudo backend/deploy/lightsail/install-operator.sh install
+sudo backend/deploy/lightsail/install-operator.sh check
+```
+
+The installer copies a root-owned command to
+`/usr/local/sbin/babyjamjam-preview-operator` and adds one sudoers rule. The
+`agent-lightsail-operator` Linux user may run only that command as `ubuntu`; it
+does not receive general sudo, Docker group membership, or direct access to
+`backend.env`. Removing the Docker group membership is mandatory because direct
+Docker access is equivalent to host administrative access.
+
+Agents use the fixed SSH alias and the restricted command:
+
+```bash
+ssh agent-lightsail-operator \
+  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator status'
+
+ssh agent-lightsail-operator \
+  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator deploy <full-preview-commit-sha>'
+
+ssh agent-lightsail-operator \
+  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator rollback'
+```
+
+The deploy command accepts exactly one 40-character commit and requires it to
+equal the freshly fetched `origin/preview` commit. It builds from a clean,
+detached preview deployment worktree, clears caller-controlled Git, Docker,
+Compose, and Lightsail environment variables, runs the existing health-gated
+deployment script, and reports only non-secret status fields. Rollback is
+limited to the previously recorded healthy preview image. Production is not a
+valid operator command.
+
+Removing this capability requires the same administrative access used for
+installation:
+
+```bash
+sudo backend/deploy/lightsail/install-operator.sh uninstall
+```
+
+Installing, replacing, uninstalling, deploying, or rolling back is a
+state-changing operation and still requires the approval gate in the shared
+Lightsail agent-operator runbook.
+
 Run from a clean repository checkout at the exact commit to deploy:
 
 ```bash
