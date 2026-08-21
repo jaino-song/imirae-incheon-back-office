@@ -1,0 +1,176 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Least-privilege GitHub OIDC and SSM deployment roles for BabyJamJam Lightsail.
+
+Parameters:
+  GitHubOidcProviderArn:
+    Type: String
+    Description: ARN of the existing token.actions.githubusercontent.com OIDC provider.
+    AllowedPattern: "^arn:[a-z0-9-]+:iam::[0-9]{12}:oidc-provider/token\\.actions\\.githubusercontent\\.com$"
+  ManagedNodeTagValue:
+    Type: String
+    Default: babyjamjam-admin-server
+    Description: DeploymentTarget tag on the single SSM managed Lightsail node.
+    AllowedPattern: "^[A-Za-z0-9._:/=+@-]{1,128}$"
+
+Resources:
+  ManagedNodeServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Lets the registered Lightsail hybrid node communicate with AWS Systems Manager.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  PreviewDeployDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Deploy one validated BabyJamJam preview backend image.
+        parameters:
+          CommitSha:
+            type: String
+            allowedPattern: "^[0-9a-f]{40}$"
+          ImageDigest:
+            type: String
+            allowedPattern: "^sha256:[0-9a-f]{64}$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: deployPreview
+            inputs:
+              timeoutSeconds: "1800"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator deploy preview "{{ CommitSha }}" "{{ ImageDigest }}"'
+
+  ProductionDeployDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Deploy one validated BabyJamJam production backend image.
+        parameters:
+          CommitSha:
+            type: String
+            allowedPattern: "^[0-9a-f]{40}$"
+          ImageDigest:
+            type: String
+            allowedPattern: "^sha256:[0-9a-f]{64}$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: deployProduction
+            inputs:
+              timeoutSeconds: "1800"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator deploy production "{{ CommitSha }}" "{{ ImageDigest }}"'
+
+  PreviewDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: GitHub preview environment may invoke only the preview SSM deployment document.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+                "token.actions.githubusercontent.com:sub": repo:jaino-song/babyjamjam-admin:environment:preview
+      Policies:
+        - PolicyName: InvokePreviewDeployment
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: UsePreviewDocument
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewDeployDocument}
+              - Sid: TargetDeploymentNode
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:managed-instance/*
+                Condition:
+                  StringEquals:
+                    "ssm:resourceTag/DeploymentTarget": !Ref ManagedNodeTagValue
+              - Sid: ObserveOwnCommand
+                Effect: Allow
+                Action:
+                  - ssm:DescribeInstanceInformation
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+
+  ProductionDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: GitHub production environment may invoke only the production SSM deployment document.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+                "token.actions.githubusercontent.com:sub": repo:jaino-song/babyjamjam-admin:environment:production
+      Policies:
+        - PolicyName: InvokeProductionDeployment
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: UseProductionDocument
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${ProductionDeployDocument}
+              - Sid: TargetDeploymentNode
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:managed-instance/*
+                Condition:
+                  StringEquals:
+                    "ssm:resourceTag/DeploymentTarget": !Ref ManagedNodeTagValue
+              - Sid: ObserveOwnCommand
+                Effect: Allow
+                Action:
+                  - ssm:DescribeInstanceInformation
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+
+Outputs:
+  DeploymentTargetTagValue:
+    Description: Set as LIGHTSAIL_SSM_TARGET_TAG in both GitHub environments.
+    Value: !Ref ManagedNodeTagValue
+  ManagedNodeServiceRoleName:
+    Description: Use this role when creating the one-time SSM hybrid activation.
+    Value: !Ref ManagedNodeServiceRole
+  PreviewDeployRoleArn:
+    Description: Set as AWS_DEPLOY_ROLE_ARN in the GitHub preview environment.
+    Value: !GetAtt PreviewDeployRole.Arn
+  PreviewDeployDocumentName:
+    Description: Set as AWS_DEPLOY_DOCUMENT_NAME in the GitHub preview environment.
+    Value: !Ref PreviewDeployDocument
+  ProductionDeployRoleArn:
+    Description: Set as AWS_DEPLOY_ROLE_ARN in the GitHub production environment.
+    Value: !GetAtt ProductionDeployRole.Arn
+  ProductionDeployDocumentName:
+    Description: Set as AWS_DEPLOY_DOCUMENT_NAME in the GitHub production environment.
+    Value: !Ref ProductionDeployDocument
