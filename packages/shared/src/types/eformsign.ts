@@ -245,6 +245,8 @@ export interface EformsignContractClientCandidateResponse {
   dueDate: string | null;
   startDate: string | null;
   endDate: string | null;
+  primaryEmployeeId: number | null;
+  secondaryEmployeeId: number | null;
   type: string | null;
   duration: number | null;
   fullPrice: string | null;

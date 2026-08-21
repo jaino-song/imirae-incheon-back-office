@@ -234,14 +234,18 @@ export class EformsignDocumentMirrorService {
             && candidate.sourceUpdatedDate.getTime()
                 === state.detailSourceUpdatedDate.getTime(),
         );
-        const canReadReviewStageDocument = fileType === "document"
-            && isUnassignedReviewStageStatus(
-                state?.detailPayload?.current_status?.status_type,
+        const normalizedStatus = normalizeEformsignStatusCode(
+            state?.detailPayload?.current_status?.status_type,
+        );
+        const canReadActivePartialDocument = fileType === "document"
+            && (
+                normalizedStatus === "060"
+                || isUnassignedReviewStageStatus(normalizedStatus)
             );
         if (
             !state?.detailPayload
             || !state.detailSourceUpdatedDate
-            || (state.syncStatus !== "ready" && !canReadReviewStageDocument)
+            || (state.syncStatus !== "ready" && !canReadActivePartialDocument)
             || Boolean(state.permanentPurgeRequestedAt)
             || !file
         ) {

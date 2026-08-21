@@ -856,7 +856,10 @@ export class EformsignController {
             }
 
             const candidate =
-                await this.getContractClientCandidateUsecase.execute(documentId);
+                await this.getContractClientCandidateUsecase.execute(
+                    documentId,
+                    tenant.branchId ?? "",
+                );
             if (!candidate) {
                 throw new HttpException(
                     { error: "Document not found" },

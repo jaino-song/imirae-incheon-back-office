@@ -980,6 +980,8 @@ describe("EformsignController (Integration)", () => {
             dueDate: "2026-07-20",
             startDate: "2026-08-10",
             endDate: "2026-08-24",
+            primaryEmployeeId: 17,
+            secondaryEmployeeId: 23,
             type: "A-가형",
             duration: 10,
             fullPrice: "1234000",
@@ -999,7 +1001,10 @@ describe("EformsignController (Integration)", () => {
 
         expect(response.status).toBe(200);
         expect(response.body).toEqual(candidate);
-        expect(getContractClientCandidateUsecase.execute).toHaveBeenCalledWith("branch-1-doc");
+        expect(getContractClientCandidateUsecase.execute).toHaveBeenCalledWith(
+            "branch-1-doc",
+            "branch-1",
+        );
     });
 
     describe("local source-of-truth document reads", () => {
