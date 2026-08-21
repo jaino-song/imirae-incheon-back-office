@@ -40,6 +40,7 @@ PROJECT_NAME="${COMPOSE_PROJECT_NAME:-babyjamjam-backend-$ENVIRONMENT}"
 NETWORK_ALIAS="${BACKEND_NETWORK_ALIAS:-api-$ENVIRONMENT}"
 VALKEY_DATA_VOLUME="${VALKEY_DATA_VOLUME:-$DEFAULT_VALKEY_DATA_VOLUME}"
 EDGE_NETWORK="${LIGHTSAIL_EDGE_NETWORK:-$DEFAULT_EDGE_NETWORK}"
+PRESERVE_PREVIOUS_TAG="${BACKEND_ROLLBACK_PRESERVE_PREVIOUS_TAG:-false}"
 
 read_environment_value() {
     local wanted_key="$1"
@@ -87,6 +88,11 @@ fi
 
 if [[ "$PUBLIC_HEALTH_URL" != http://* && "$PUBLIC_HEALTH_URL" != https://* ]]; then
     echo "BACKEND_PUBLIC_HEALTH_URL must use http:// or https://: $PUBLIC_HEALTH_URL" >&2
+    exit 1
+fi
+
+if [[ "$PRESERVE_PREVIOUS_TAG" != "true" && "$PRESERVE_PREVIOUS_TAG" != "false" ]]; then
+    echo "BACKEND_ROLLBACK_PRESERVE_PREVIOUS_TAG must be true or false." >&2
     exit 1
 fi
 
@@ -173,7 +179,7 @@ if [[ "$public_route_is_healthy" != "true" ]]; then
     exit 1
 fi
 
-if [[ -n "$current_tag" && "$current_tag" != "$TARGET_TAG" ]]; then
+if [[ "$PRESERVE_PREVIOUS_TAG" == "false" && -n "$current_tag" && "$current_tag" != "$TARGET_TAG" ]]; then
     printf '%s\n' "$current_tag" > "$PREVIOUS_TAG_FILE"
 fi
 
