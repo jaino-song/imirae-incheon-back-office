@@ -85,6 +85,12 @@ export const SMS_TRIGGER_TEMPLATE_KEYS: MessageTriggerTemplateKey[] = [
   "INFO",
 ];
 
+// SERVICE_RECORD_LINK is scheduled by the dedicated service-record lifecycle
+// (it needs a signed URL and an assigned employee). Exposing it in the generic
+// rule builder would create a rule that cannot supply those values safely.
+export const CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS: MessageTriggerTemplateKey[] =
+  SMS_TRIGGER_TEMPLATE_KEYS.filter((key) => key !== "SERVICE_RECORD_LINK");
+
 export function getTriggerTemplateChannel(
   key: MessageTriggerTemplateKey,
 ): "sms" | "unsupported" {

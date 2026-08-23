@@ -16,12 +16,15 @@ import {
     EVENT_OFFSET_OPTIONS,
     EVENT_RECIPIENT_OPTIONS,
     getMessageTriggerTemplateCatalog,
+    isConfigurableSmsTriggerTemplate,
     isCompatibleMessageTriggerTemplate,
     MessageTriggerEventType,
     MessageTriggerOffsetType,
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { findUnsupportedRequiredMessageTriggerVariables } from "domain/constants/message-trigger-variable-sources";
+import { SystemTemplateKey } from "domain/constants/system-template-registry";
 import {
     MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON,
     PAST_OCCURRENCE_GRACE_MS,
@@ -50,6 +53,8 @@ import { MessageSenderApprovalService } from "./message-sender-approval.service"
 import { buildSmsClientVariables } from "./sms-client-variables";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { SystemSettingService } from "./system-setting.service";
+import { SystemTemplateService } from "./system-template.service";
+import { MessageTemplateAutomationLockService } from "./message-template-automation-lock.service";
 import {
     DEFAULT_MESSAGE_AUTOMATION_PAST_TRIGGER_CONFIG,
     MessageAutomationPastTriggerConfig,
@@ -115,7 +120,10 @@ function normalizeMessageTriggerOffsetDays(
     return offsetDays ?? 0;
 }
 
-export function validateMessageTriggerRule(params: MessageTriggerRuleValidationParams): void {
+export function validateMessageTriggerRule(
+    params: MessageTriggerRuleValidationParams,
+    allowedExistingTemplateKey?: MessageTriggerTemplateKey,
+): void {
     const template = MESSAGE_TRIGGER_TEMPLATE_CATALOG[params.templateKey];
     if (!template) {
         throw new BadRequestException("Unknown template key");
@@ -123,6 +131,13 @@ export function validateMessageTriggerRule(params: MessageTriggerRuleValidationP
 
     if (!template.providers.sms) {
         throw new BadRequestException("SMS 발송 채널이 없는 템플릿입니다.");
+    }
+
+    if (
+        !isConfigurableSmsTriggerTemplate(params.templateKey)
+        && params.templateKey !== allowedExistingTemplateKey
+    ) {
+        throw new BadRequestException("일반 자동 전송 규칙에서 사용할 수 없는 템플릿입니다.");
     }
 
     if (!EVENT_RECIPIENT_OPTIONS[params.eventType].includes(params.recipientType)) {
@@ -243,6 +258,8 @@ export class MessageTriggerService {
         private readonly jobRepository: IMessageTriggerJobRepository,
         @Inject(MESSAGE_LOG_REPOSITORY)
         private readonly messageLogRepository: IMessageLogRepository,
+        private readonly systemTemplateService: SystemTemplateService,
+        private readonly templateAutomationLock: MessageTemplateAutomationLockService,
         @Optional()
         private readonly systemSettingService?: SystemSettingService,
     ) {}
@@ -455,6 +472,7 @@ export class MessageTriggerService {
         recipientType?: MessageTriggerRecipientType;
     }) {
         return getMessageTriggerTemplateCatalog("sms").filter((item) => {
+            if (!isConfigurableSmsTriggerTemplate(item.key)) return false;
             if (params.eventType && !item.allowedEventTypes.includes(params.eventType)) return false;
             if (
                 params.recipientType &&
@@ -474,17 +492,26 @@ export class MessageTriggerService {
         await this.ensureTriggerSchemaReady();
         await this.messageSenderApprovalService.ensureApproved(branchId);
         this.validateRule(params);
-        const rule = await this.ruleRepository.create(
-            branchId,
-            MessageTriggerRuleEntity.create({
+        const persistRule = async (writeTransaction: Prisma.TransactionClient) => {
+            const rule = await this.ruleRepository.create(
                 branchId,
-                ...params,
-                offsetDays: this.normalizeOffsetDays(params.offsetType, params.offsetDays),
-            }),
-            transaction,
-        );
-        await this.ruleRepository.markJobsStale(rule.id, transaction);
-        return rule;
+                MessageTriggerRuleEntity.create({
+                    branchId,
+                    ...params,
+                    offsetDays: this.normalizeOffsetDays(params.offsetType, params.offsetDays),
+                }),
+                writeTransaction,
+            );
+            await this.ruleRepository.markJobsStale(rule.id, writeTransaction);
+            return rule;
+        };
+        const rule = await this.runRuleTemplateMutation(params, persistRule, transaction);
+        // Agent capability creates may still be inside their caller-owned
+        // transaction, so the global repositories cannot safely observe that
+        // row until commit. HTTP/admin creates have no transaction and can
+        // converge the generation before the success response is returned.
+        if (transaction) return rule;
+        return await this.reconcileRuleGenerationAfterMutation(branchId, rule.id) ?? rule;
     }
 
     async updateRule(
@@ -505,15 +532,18 @@ export class MessageTriggerService {
             templateKey: params.templateKey ?? rule.templateKey,
         };
 
-        this.validateRule(nextState);
-        rule.update({
-            ...nextState,
-            offsetDays: this.normalizeOffsetDays(nextState.offsetType, nextState.offsetDays),
+        this.validateRule(nextState, rule.templateKey);
+        const updated = await this.runRuleTemplateMutation(nextState, async (transaction) => {
+            rule.update({
+                ...nextState,
+                offsetDays: this.normalizeOffsetDays(nextState.offsetType, nextState.offsetDays),
+            });
+            const persisted = await this.ruleRepository.update(branchId, rule, transaction);
+            await this.ruleRepository.markJobsStale(persisted.id, transaction);
+            return persisted;
         });
-        const updated = await this.ruleRepository.update(branchId, rule);
         await this.cancelPendingJobsForRule(branchId, updated, "Rule updated", false);
-        await this.ruleRepository.markJobsStale(updated.id);
-        return updated;
+        return await this.reconcileRuleGenerationAfterMutation(branchId, updated.id) ?? updated;
     }
 
     /**
@@ -550,7 +580,7 @@ export class MessageTriggerService {
             recipientType: params.recipientType ?? expected.recipientType,
             templateKey: params.templateKey ?? expected.templateKey,
         };
-        this.validateRule(nextState);
+        this.validateRule(nextState, expected.templateKey);
         const next = MessageTriggerRuleEntity.reconstitute(
             expected.id,
             expected.branchId,
@@ -571,12 +601,16 @@ export class MessageTriggerService {
             offsetDays: this.normalizeOffsetDays(nextState.offsetType, nextState.offsetDays),
         });
 
-        const updated = await this.ruleRepository.updateIfTargetMatchesAndFenceJobs(
-            branchId,
-            expected,
-            next,
-            "Rule updated",
-            mutationStartedAt,
+        const updated = await this.runRuleTemplateMutation(
+            nextState,
+            (transaction) => this.ruleRepository.updateIfTargetMatchesAndFenceJobs(
+                branchId,
+                expected,
+                next,
+                "Rule updated",
+                mutationStartedAt,
+                transaction,
+            ),
         );
         if (!updated) {
             throw new BadRequestException("Automation rule changed after approval");
@@ -647,6 +681,10 @@ export class MessageTriggerService {
 
         await this.jobRepository.cancelOrphanedPending(ORPHANED_TRIGGER_JOB_CANCEL_REASON);
         await this.reclaimStaleProcessingJobs();
+        await this.recoverApprovedBranches();
+        // Rebuild before querying due rows so a rule saved immediately before
+        // this tick can dispatch on this tick instead of waiting another minute.
+        await this.processStaleRuleRebuilds();
         const jobs = await this.jobRepository.findDuePending(100);
 
         if (jobs.length > 0) {
@@ -668,8 +706,6 @@ export class MessageTriggerService {
             }
         }
 
-        await this.recoverApprovedBranches();
-        await this.processStaleRuleRebuilds();
     }
 
     async dispatchPendingJobNow(jobId: string): Promise<MessageTriggerJobEntity> {
@@ -974,13 +1010,17 @@ export class MessageTriggerService {
 
         let created: MessageTriggerRuleEntity;
         try {
-            created = await this.ruleRepository.create(
-                branchId,
-                MessageTriggerRuleEntity.create({
+            created = await this.runRuleTemplateMutation(
+                defaults,
+                (transaction) => this.ruleRepository.create(
                     branchId,
-                    ...defaults,
-                    isDefault: true,
-                }),
+                    MessageTriggerRuleEntity.create({
+                        branchId,
+                        ...defaults,
+                        isDefault: true,
+                    }),
+                    transaction,
+                ),
             );
         } catch (error) {
             if (!isPrismaUniqueViolation(error)) {
@@ -1529,8 +1569,66 @@ export class MessageTriggerService {
         );
     }
 
-    private validateRule(params: UpsertRuleParams): void {
-        validateMessageTriggerRule(params);
+    private validateRule(
+        params: UpsertRuleParams,
+        allowedExistingTemplateKey?: MessageTriggerTemplateKey,
+    ): void {
+        validateMessageTriggerRule(params, allowedExistingTemplateKey);
+    }
+
+    private async ensureActiveRuleTemplateVariablesSupported(
+        params: UpsertRuleParams,
+    ): Promise<void> {
+        if (params.isActive === false) return;
+
+        const systemTemplateKey = MESSAGE_TRIGGER_TEMPLATE_CATALOG[params.templateKey]
+            .providers.sms?.templateKey;
+        if (!systemTemplateKey) return;
+
+        const template = await this.systemTemplateService.getByKey(systemTemplateKey);
+        const unsupportedVariables = findUnsupportedRequiredMessageTriggerVariables(
+            params.templateKey,
+            template.customVariables ?? [],
+        );
+        if (unsupportedVariables.length === 0) return;
+
+        throw new BadRequestException({
+            message: "자동 발송에서 입력할 수 없는 필수 템플릿 변수가 있습니다.",
+            unsupportedVariables,
+        });
+    }
+
+    private getRuleSystemTemplateKey(
+        templateKey: MessageTriggerTemplateKey,
+    ): SystemTemplateKey | null {
+        const systemTemplateKey =
+            MESSAGE_TRIGGER_TEMPLATE_CATALOG[templateKey].providers.sms?.templateKey;
+        return systemTemplateKey ? systemTemplateKey as SystemTemplateKey : null;
+    }
+
+    private async runRuleTemplateMutation<T>(
+        params: UpsertRuleParams,
+        work: (transaction: Prisma.TransactionClient) => Promise<T>,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<T> {
+        if (params.isActive === false) {
+            return transaction
+                ? work(transaction)
+                : this.prisma.$transaction(work);
+        }
+
+        const systemTemplateKey = this.getRuleSystemTemplateKey(params.templateKey);
+        if (!systemTemplateKey) {
+            throw new BadRequestException("SMS 발송 채널이 없는 템플릿입니다.");
+        }
+        return this.templateAutomationLock.runExclusive(
+            systemTemplateKey,
+            async (writeTransaction) => {
+                await this.ensureActiveRuleTemplateVariablesSupported(params);
+                return work(writeTransaction);
+            },
+            transaction,
+        );
     }
 
     private async cancelPendingJobsForRule(
@@ -1797,32 +1895,57 @@ export class MessageTriggerService {
         return false;
     }
 
+    private async processStaleRule(rule: MessageTriggerRuleEntity): Promise<void> {
+        if (!rule.branchId) return;
+
+        const readUpdatedAt = rule.updatedAt;
+        const canceled = await this.jobRepository.cancelPendingForRuleGeneration(
+            rule.branchId,
+            rule.id,
+            readUpdatedAt,
+            true,
+            rule.isActive ? "규칙 재생성" : "Rule deactivated",
+        );
+        // Another worker may have already rebuilt and cleared this generation.
+        // Never rebuild or clear a newer generation.
+        if (canceled === null) return;
+
+        if (rule.isActive) {
+            await this.rebuildJobsForRule(rule.branchId, rule, false);
+        }
+
+        await this.ruleRepository.clearJobsStaleIfUnchanged(rule.id, readUpdatedAt);
+    }
+
+    private async reconcileRuleGenerationAfterMutation(
+        branchId: string,
+        ruleId: string,
+    ): Promise<MessageTriggerRuleEntity | null> {
+        try {
+            const staleRule = await this.ruleRepository.findById(branchId, ruleId);
+            if (!staleRule || !staleRule.jobsStale) return staleRule;
+
+            await this.processStaleRule(staleRule);
+            return await this.ruleRepository.findById(branchId, ruleId);
+        } catch (error) {
+            // Rule persistence and its durable stale marker already succeeded.
+            // Treat every post-write reconciliation read/write as best effort so
+            // a transient repository failure cannot invite a duplicate retry.
+            // The scheduler will recover the still-stale generation.
+            this.logger.error(
+                `[Message Automation] Failed to reconcile trigger rule ${ruleId} after mutation`,
+                error instanceof Error ? error.stack : String(error),
+            );
+            return null;
+        }
+    }
+
     private async processStaleRuleRebuilds(): Promise<void> {
         const staleRules = await this.ruleRepository.findStaleRules(10);
 
         for (const rule of staleRules) {
-            const readUpdatedAt = rule.updatedAt;
             try {
-                if (!rule.branchId) {
-                    continue;
-                }
-                const canceled = await this.jobRepository.cancelPendingForRuleGeneration(
-                    rule.branchId,
-                    rule.id,
-                    readUpdatedAt,
-                    true,
-                    rule.isActive ? "규칙 재생성" : "Rule deactivated",
-                );
-                // Another worker may have already rebuilt and cleared this
-                // generation. Never rebuild or clear a newer generation.
-                if (canceled === null) {
-                    continue;
-                }
-                if (rule.isActive) {
-                    await this.rebuildJobsForRule(rule.branchId, rule, false);
-                }
-
-                await this.ruleRepository.clearJobsStaleIfUnchanged(rule.id, readUpdatedAt);
+                await this.processStaleRule(rule);
             } catch (error) {
                 this.logger.error(
                     `[Message Automation] Failed to process stale trigger rule ${rule.id}`,
@@ -1858,9 +1981,20 @@ export class MessageTriggerService {
             }
 
             try {
-                rule.update({ isActive: true });
-                await this.ruleRepository.update(rule.branchId, rule);
-                await this.ruleRepository.markJobsStale(rule.id);
+                const nextState: UpsertRuleParams = {
+                    name: rule.name,
+                    isActive: true,
+                    eventType: rule.eventType,
+                    offsetType: rule.offsetType,
+                    offsetDays: rule.offsetDays,
+                    recipientType: rule.recipientType,
+                    templateKey: rule.templateKey,
+                };
+                await this.runRuleTemplateMutation(nextState, async (transaction) => {
+                    rule.update({ isActive: true });
+                    await this.ruleRepository.update(rule.branchId!, rule, transaction);
+                    await this.ruleRepository.markJobsStale(rule.id, transaction);
+                });
             } catch (error) {
                 this.logger.error(
                     `[Message Automation] Failed to recover approved default trigger rule ${rule.id}`,

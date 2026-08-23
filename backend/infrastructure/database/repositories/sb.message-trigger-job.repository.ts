@@ -660,7 +660,7 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
                 attempts = 0,
                 next_attempt_at = NULL,
                 updated_at = date_trunc('milliseconds', clock_timestamp())
-            WHERE "message_trigger_job"."status" NOT IN ('sent', 'processing')
+            WHERE "message_trigger_job"."status" IN ('pending', 'canceled')
               AND NOT ("message_trigger_job"."status" = 'canceled' AND "message_trigger_job"."canceled_by_user" = true)`;
         const rows = await client.$queryRaw<MessageTriggerJobRawRow[]>(Prisma.sql`
             INSERT INTO "message_trigger_job" (

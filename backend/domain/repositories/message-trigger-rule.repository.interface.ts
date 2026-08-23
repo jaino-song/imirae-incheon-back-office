@@ -1,4 +1,5 @@
 import { MessageTriggerEventType } from "domain/constants/message-trigger-catalog";
+import { MessageTriggerTemplateKey } from "domain/constants/message-trigger-catalog";
 import { MessageTriggerRuleEntity } from "domain/entities/message-trigger-rule.entity";
 import type { Prisma } from "@prisma/client";
 
@@ -9,10 +10,19 @@ export interface IMessageTriggerRuleRepository {
         branchId: string,
         eventTypes: MessageTriggerEventType[],
     ): Promise<MessageTriggerRuleEntity[]>;
+    /** Minimal global read used to prevent a shared template edit from breaking active tenant rules. */
+    findActiveTemplateKeys(
+        templateKeys: MessageTriggerTemplateKey[],
+        transaction?: Prisma.TransactionClient,
+    ): Promise<MessageTriggerTemplateKey[]>;
     findInactiveDefaultRules(limit?: number): Promise<MessageTriggerRuleEntity[]>;
     findStaleRules(limit?: number): Promise<MessageTriggerRuleEntity[]>;
     create(branchId: string, rule: MessageTriggerRuleEntity, transaction?: Prisma.TransactionClient): Promise<MessageTriggerRuleEntity>;
-    update(branchId: string, rule: MessageTriggerRuleEntity): Promise<MessageTriggerRuleEntity>;
+    update(
+        branchId: string,
+        rule: MessageTriggerRuleEntity,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<MessageTriggerRuleEntity>;
     /**
      * Compare the complete branch-scoped rule snapshot and update it in one
      * conditional mutation. A null result means the approved target drifted.
@@ -33,6 +43,7 @@ export interface IMessageTriggerRuleRepository {
         next: MessageTriggerRuleEntity,
         reason: string,
         fenceStartedAt?: Date,
+        transaction?: Prisma.TransactionClient,
     ): Promise<MessageTriggerRuleEntity | null>;
     markJobsStale(ruleId: string, transaction?: Prisma.TransactionClient): Promise<void>;
     clearJobsStaleIfUnchanged(ruleId: string, updatedAtAtReadTime: Date): Promise<boolean>;

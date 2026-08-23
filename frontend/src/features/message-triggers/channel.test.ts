@@ -1,4 +1,5 @@
 import {
+  CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
   SMS_TRIGGER_TEMPLATE_KEYS,
   deriveAvailableTemplates,
   deriveEventTypesFromTemplates,
@@ -60,12 +61,17 @@ describe("SMS trigger channel routing", () => {
     expect(isTriggerTemplateInChannel("CLIENT_WELCOME", "sms")).toBe(false);
     expect(getTriggerTemplateChannel("CLIENT_WELCOME")).toBe("unsupported");
     expect(SMS_TRIGGER_TEMPLATE_KEYS).toContain("SERVICE_RECORD_LINK");
+    expect(CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS).not.toContain("SERVICE_RECORD_LINK");
   });
 
   it("derives form options from the SMS catalog", () => {
     const templates = [
       template("SERVICE_INFO", "SERVICE_START"),
       template("CLIENT_GREETING", "CLIENT_CREATED"),
+      {
+        ...template("SERVICE_RECORD_LINK", "SERVICE_START"),
+        allowedRecipientTypes: ["PRIMARY_EMPLOYEE" as const],
+      },
     ];
     const smsTemplates = getChannelTemplates(templates, "sms");
 
@@ -77,6 +83,7 @@ describe("SMS trigger channel routing", () => {
     expect(deriveAvailableTemplates(smsTemplates, "CLIENT_CREATED", "CLIENT")).toEqual([
       templates[1],
     ]);
+    expect(smsTemplates.map((item) => item.key)).not.toContain("SERVICE_RECORD_LINK");
   });
 
   it("keeps only SMS records in message history", () => {

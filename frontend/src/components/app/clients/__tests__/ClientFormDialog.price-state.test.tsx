@@ -33,6 +33,7 @@ jest.mock("@/hooks/useClients", () => ({
 }));
 
 jest.mock("@/hooks/useVoucherData", () => ({
+  useAreaTemplates: () => ({ data: [], isLoading: false }),
   useVoucherPriceInfos: (type: string) => ({
     data: type ? mockVoucherPriceInfos : [],
     isLoading: false,

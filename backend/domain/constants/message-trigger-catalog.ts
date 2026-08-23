@@ -33,6 +33,23 @@ export enum MessageTriggerTemplateKey {
     INFO = "INFO",
 }
 
+/** Templates whose variables and recipient can be produced by the generic rule engine. */
+export const CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS: readonly MessageTriggerTemplateKey[] = [
+    MessageTriggerTemplateKey.SERVICE_INFO,
+    MessageTriggerTemplateKey.CLIENT_GREETING,
+    MessageTriggerTemplateKey.PRICE_INFO,
+    MessageTriggerTemplateKey.REMINDER,
+    MessageTriggerTemplateKey.THANKS,
+    MessageTriggerTemplateKey.SURVEY,
+    MessageTriggerTemplateKey.INFO,
+];
+
+export function isConfigurableSmsTriggerTemplate(
+    templateKey: MessageTriggerTemplateKey,
+): boolean {
+    return CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS.includes(templateKey);
+}
+
 export const AGENT_SMS_RULE_ID_PREFIX = "agent-sms:";
 
 export type SupportedTriggerProvider = "sms";
@@ -197,7 +214,7 @@ export const MESSAGE_TRIGGER_TEMPLATE_CATALOG: Record<
         allowedRecipientTypes: [MessageTriggerRecipientType.CLIENT],
         requiredVariables: [],
         providers: {
-            sms: { templateKey: "CLIENT_GREETING" },
+            sms: { templateKey: "GREETING" },
         },
     },
     [MessageTriggerTemplateKey.PRICE_INFO]: {

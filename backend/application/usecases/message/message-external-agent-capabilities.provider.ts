@@ -384,7 +384,10 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
     private automationUpdate(common: Record<string, unknown>): CapabilityDefinition {
         return this.automationExistingRuleCapability(common, "automation.update", "Update a message automation rule after strong approval", AutomationRuleUpdateSchema, async (branchId, input) => {
             const existing = await this.messageTriggerService.getRule(branchId, input.id);
-            validateMessageTriggerRule(mergedAutomationRuleValidationInput(existing, input));
+            validateMessageTriggerRule(
+                mergedAutomationRuleValidationInput(existing, input),
+                existing.templateKey,
+            );
             const { id, ...updates } = input;
             const rule = await this.messageTriggerService.updateRule(branchId, id, updates);
             return { status: "updated", id: rule.id, isActive: rule.isActive };
@@ -437,10 +440,13 @@ export class MessageExternalAgentCapabilitiesProvider implements AgentCapability
                 const input = inputSchema.parse(rawInput);
                 const rule = await this.messageTriggerService.getRule(context.principal.branchId, input.id);
                 if (name === "automation.update") {
-                    validateMessageTriggerRule(mergedAutomationRuleValidationInput(
-                        rule,
-                        input as Partial<MessageTriggerRuleValidationParams>,
-                    ));
+                    validateMessageTriggerRule(
+                        mergedAutomationRuleValidationInput(
+                            rule,
+                            input as Partial<MessageTriggerRuleValidationParams>,
+                        ),
+                        rule.templateKey,
+                    );
                 }
                 return {
                     targetVersion: this.ruleTargetVersion(rule),

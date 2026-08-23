@@ -60,6 +60,22 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
         return rows.map((row) => this.toDomain(row));
     }
 
+    async findActiveTemplateKeys(
+        templateKeys: MessageTriggerTemplateKey[],
+        transaction?: Prisma.TransactionClient,
+    ): Promise<MessageTriggerTemplateKey[]> {
+        if (templateKeys.length === 0) return [];
+        const rows = await (transaction ?? this.prisma).message_trigger_rule.findMany({
+            where: {
+                isActive: true,
+                templateKey: { in: templateKeys },
+            },
+            select: { templateKey: true },
+            distinct: ["templateKey"],
+        });
+        return rows.map((row) => row.templateKey as MessageTriggerTemplateKey);
+    }
+
     async findInactiveDefaultRules(limit = 50): Promise<MessageTriggerRuleEntity[]> {
         const rows = await this.prisma.message_trigger_rule.findMany({
             where: {
@@ -106,8 +122,9 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
     async update(
         branchId: string,
         rule: MessageTriggerRuleEntity,
+        transaction?: Prisma.TransactionClient,
     ): Promise<MessageTriggerRuleEntity> {
-        const row = await this.prisma.message_trigger_rule.update({
+        const row = await (transaction ?? this.prisma).message_trigger_rule.update({
             where: { id: rule.id },
             data: {
                 branchId,
@@ -166,9 +183,10 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
         next: MessageTriggerRuleEntity,
         reason: string,
         fenceStartedAt?: Date,
+        transaction?: Prisma.TransactionClient,
     ): Promise<MessageTriggerRuleEntity | null> {
-        return this.prisma.$transaction(async (transaction) => {
-            const rows = await transaction.$queryRaw<MessageTriggerRuleRawRow[]>(Prisma.sql`
+        const update = async (writeTransaction: Prisma.TransactionClient) => {
+            const rows = await writeTransaction.$queryRaw<MessageTriggerRuleRawRow[]>(Prisma.sql`
                 SELECT
                     id,
                     branch_id,
@@ -200,7 +218,7 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
             const activeJobStatusPredicate = fenceStartedAt
                 ? Prisma.sql`status IN ('pending', 'processing') OR (status = 'sent' AND sent_at >= ${fenceStartedAt})`
                 : Prisma.sql`status IN ('pending', 'processing')`;
-            const activeJobs = await transaction.$queryRaw<Array<{ status: string }>>(Prisma.sql`
+            const activeJobs = await writeTransaction.$queryRaw<Array<{ status: string }>>(Prisma.sql`
                 SELECT status
                 FROM "message_trigger_job"
                 WHERE rule_id = ${expected.id}
@@ -212,7 +230,7 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
                 return null;
             }
 
-            const updatedRows = await transaction.$queryRaw<MessageTriggerRuleRawRow[]>(Prisma.sql`
+            const updatedRows = await writeTransaction.$queryRaw<MessageTriggerRuleRawRow[]>(Prisma.sql`
                 UPDATE "message_trigger_rule"
                 SET
                     name = ${next.name},
@@ -244,7 +262,7 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
             `);
             if (!updatedRows[0]) return null;
 
-            await transaction.$executeRaw(Prisma.sql`
+            await writeTransaction.$executeRaw(Prisma.sql`
                 UPDATE "message_trigger_job"
                 SET
                     status = 'canceled',
@@ -257,7 +275,10 @@ export class SbMessageTriggerRuleRepository implements IMessageTriggerRuleReposi
             `);
 
             return this.rawToDomain(updatedRows[0]);
-        });
+        };
+        return transaction
+            ? update(transaction)
+            : this.prisma.$transaction(update);
     }
 
     async markJobsStale(ruleId: string, transaction?: Prisma.TransactionClient): Promise<void> {
