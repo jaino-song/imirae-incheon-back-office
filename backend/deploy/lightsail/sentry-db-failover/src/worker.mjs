@@ -14,6 +14,7 @@ import {
 } from './constants.mjs';
 import {
   ConditionalStateWriteError,
+  ReplayFingerprintExistsError,
   createDynamoStateStore,
 } from './state-store.mjs';
 import {
@@ -91,8 +92,6 @@ function parseQueueMessage(record) {
     || !message.resource
     || !message.environment
     || !message.ruleId
-    || message.eventAt === undefined
-    || message.eventAt === null
   ) {
     throw new InvalidQueueMessageError();
   }
@@ -116,10 +115,6 @@ function messageAlreadyProcessed(message, state) {
   const fingerprint = message.bodyFingerprint;
   if (fingerprint && state.lastSentryEventFingerprint === fingerprint) return 'duplicate_event';
   if (fingerprint && state.recentSentryEventFingerprints.includes(fingerprint)) return 'duplicate_event';
-  const eventAt = numericTimestamp(message.eventAt);
-  if (eventAt > 0 && state.lastSentryEventAt > 0 && eventAt < state.lastSentryEventAt) {
-    return 'out_of_order';
-  }
   return null;
 }
 
@@ -267,6 +262,9 @@ async function processMessage({
   logger,
 }) {
   if (!isEligibleAlert(message, config)) return { status: 'ignored', reason: 'ineligible' };
+  if (await stateStore.hasProcessedFingerprint(message.bodyFingerprint)) {
+    return { status: 'ignored', reason: 'duplicate_event' };
+  }
   const loaded = (await stateStore.get()) ?? normalizeState(undefined, now());
   if (loaded.phase === PHASES.BLOCKED) return { status: 'ignored', reason: 'blocked' };
   if (loaded.activeRoute !== ROUTES.SHARED) return { status: 'ignored', reason: 'current_route_not_shared' };
@@ -286,6 +284,10 @@ async function processMessage({
   if (afterLeaseReason) {
     await stateStore.releaseLease({ owner, generation, now: now() });
     return { status: 'ignored', reason: afterLeaseReason };
+  }
+  if (await stateStore.hasProcessedFingerprint(message.bodyFingerprint)) {
+    await stateStore.releaseLease({ owner, generation, now: now() });
+    return { status: 'ignored', reason: 'duplicate_event' };
   }
   if (state.phase === PHASES.BLOCKED) {
     await stateStore.releaseLease({ owner, generation, now: now() });
@@ -327,7 +329,29 @@ async function processMessage({
   result.state.ssmCommandId = observation?.commandComplete
     ? null
     : (observation?.commandId ?? result.state.ssmCommandId);
-  await stateStore.save(result.state, { owner, generation, now: now() });
+  try {
+    await stateStore.saveAndMarkFingerprint(result.state, {
+      owner,
+      generation,
+      now: now(),
+      fingerprint: message.bodyFingerprint,
+    });
+  } catch (error) {
+    if (error instanceof ReplayFingerprintExistsError) {
+      try {
+        await stateStore.releaseLease({ owner, generation, now: now() });
+      } catch {
+        // A competing owner may have released or replaced the lease already.
+      }
+      return { status: 'ignored', reason: 'duplicate_event' };
+    }
+    try {
+      await stateStore.releaseLease({ owner, generation, now: now() });
+    } catch {
+      // The conditional transaction may already have lost the lease owner.
+    }
+    throw error;
+  }
   await stateStore.releaseLease({ owner, generation, now: now() });
   safeLog(logger, 'info', 'failover_reconciled', {
     requestId: ssmRequestId,
@@ -464,7 +488,13 @@ export function createWorkerHandler({
 
 async function createDefaultWorkerHandler() {
   const [
-    { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand },
+    {
+      DynamoDBClient,
+      GetItemCommand,
+      PutItemCommand,
+      UpdateItemCommand,
+      TransactWriteItemsCommand,
+    },
     { SSMClient, SendCommandCommand, ListCommandInvocationsCommand },
   ] = await Promise.all([
     import('@aws-sdk/client-dynamodb'),
@@ -473,7 +503,12 @@ async function createDefaultWorkerHandler() {
   const config = readWorkerConfig();
   const stateStore = createDynamoStateStore({
     client: new DynamoDBClient({}),
-    commands: { GetItemCommand, PutItemCommand, UpdateItemCommand },
+    commands: {
+      GetItemCommand,
+      PutItemCommand,
+      UpdateItemCommand,
+      TransactWriteItemsCommand,
+    },
     tableName: process.env.FAILOVER_STATE_TABLE_NAME,
     stateKey: config.stateKey,
   });

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { PHASES, ROUTES, createInitialState } from '../src/constants.mjs';
-import { createMemoryStateStore } from '../src/state-store.mjs';
+import {
+  ConditionalStateWriteError,
+  createMemoryStateStore,
+} from '../src/state-store.mjs';
 import { createWorkerHandler, createSsmObserver } from '../src/worker.mjs';
 
 const BASE_TIME = Date.parse('2026-08-24T00:00:00.000Z');
@@ -119,7 +122,110 @@ test('deduplicates a body fingerprint even when Request-ID and timestamp change'
       eventAt: BASE_TIME - 1,
     })) },
   ] });
-  assert.equal(older.results[0].reason, 'out_of_order');
+  assert.equal(older.results[0].status, 'processed');
+  assert.equal(observed.length, 2);
+});
+
+test('keeps durable replay protection after more than 32 unique events', async () => {
+  const { handler, store, observed } = harness();
+  for (let index = 0; index < 33; index += 1) {
+    const fingerprint = index.toString(16).padStart(2, '0').repeat(32);
+    const result = await handler({ Records: [record({
+      messageId: `sqs-${index}`,
+      body: JSON.stringify(message({
+        eventId: fingerprint,
+        bodyFingerprint: fingerprint,
+        eventAt: BASE_TIME + index,
+        requestId: `sentry-request-${index}`,
+      })),
+    })] });
+    assert.equal(result.batchItemFailures.length, 0);
+  }
+  assert.equal(store.snapshot().recentSentryEventFingerprints.length, 32);
+  const duplicate = await handler({ Records: [record({
+    messageId: 'sqs-replay-after-eviction',
+    body: JSON.stringify(message({
+      eventId: '00'.repeat(32),
+      bodyFingerprint: '00'.repeat(32),
+      eventAt: BASE_TIME + 10_000,
+      requestId: 'changed-request-id',
+    })),
+  })] });
+  assert.equal(duplicate.results[0].reason, 'duplicate_event');
+  assert.equal(observed.length, 33);
+});
+
+test('does not leave state or replay residue when the atomic transaction fails, then retries', async () => {
+  const baseStore = createMemoryStateStore({ now: BASE_TIME });
+  let failTransaction = true;
+  const store = {
+    ...baseStore,
+    async saveAndMarkFingerprint(...args) {
+      if (failTransaction) {
+        failTransaction = false;
+        throw new ConditionalStateWriteError('simulated transaction failure');
+      }
+      return baseStore.saveAndMarkFingerprint(...args);
+    },
+  };
+  const observed = [];
+  let ownerCounter = 0;
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: async (input) => {
+      observed.push(input);
+      return { controlPlaneOk: true, sharedOk: true, directOk: true };
+    },
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => `worker-owner-${ownerCounter += 1}`,
+    idFactory: () => IDS[0],
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const first = await handler({ Records: [record()] });
+  assert.equal(first.batchItemFailures.length, 1);
+  assert.equal(store.snapshot().lastSentryEventFingerprint, null);
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  const retried = await handler({ Records: [record({ messageId: 'sqs-retry' })] });
+  assert.equal(retried.batchItemFailures.length, 0);
+  assert.equal(retried.results[0].status, 'processed');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), true);
+  assert.equal(observed.length, 2);
+});
+
+test('serializes a duplicate race and performs no second host observation', async () => {
+  const baseStore = createMemoryStateStore({ now: BASE_TIME });
+  const observed = [];
+  let ownerCounter = 0;
+  let releaseObservation;
+  let observationStarted;
+  const observationGate = new Promise((resolve) => { releaseObservation = resolve; });
+  const started = new Promise((resolve) => { observationStarted = resolve; });
+  const handler = createWorkerHandler({
+    stateStore: baseStore,
+    observe: async (input) => {
+      observed.push(input);
+      observationStarted();
+      await observationGate;
+      return { controlPlaneOk: true, sharedOk: true, directOk: true };
+    },
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => `worker-owner-${ownerCounter += 1}`,
+    idFactory: () => IDS[0],
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const firstPromise = handler({ Records: [record()] });
+  await started;
+  const concurrent = await handler({ Records: [record({ messageId: 'sqs-concurrent' })] });
+  assert.equal(concurrent.batchItemFailures.length, 1);
+  releaseObservation();
+  const first = await firstPromise;
+  assert.equal(first.batchItemFailures.length, 0);
+
+  const retried = await handler({ Records: [record({ messageId: 'sqs-concurrent' })] });
+  assert.equal(retried.results[0].reason, 'duplicate_event');
   assert.equal(observed.length, 1);
 });
 

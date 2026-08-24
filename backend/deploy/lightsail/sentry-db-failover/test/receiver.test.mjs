@@ -42,6 +42,9 @@ function payload({ metricAlert = {}, alertRule = {}, installation = {}, ...overr
           projects: [{ id: 'project-1' }],
           environment: 'preview',
           query: DB_FAILOVER_QUERY,
+          aggregate: 'count()',
+          time_window: 1,
+          triggers: [{ label: 'critical', alert_threshold: 5 }],
           ...alertRule,
         },
         ...metricAlert,
@@ -211,9 +214,12 @@ test('requires the metric-alert resource header and fixed action allowlists', as
   }
 });
 
-test('rejects P2024 queries and queries missing either eligibility marker', async (t) => {
+test('rejects empty, mixed, and ineligible Prisma code queries or missing markers', async (t) => {
   const cases = [
+    ['no Prisma code', 'db.failover_eligible:true db.route:shared'],
     ['P2024 query', 'prisma.code:P2024 db.failover_eligible:true db.route:shared'],
+    ['mixed Prisma codes', 'prisma.code:[P1001,P2024] db.failover_eligible:true db.route:shared'],
+    ['other Prisma code', 'prisma.code:P2002 db.failover_eligible:true db.route:shared'],
     ['missing eligibility marker', 'prisma.code:[P1001,P1017] db.route:shared'],
     ['missing shared-route marker', 'prisma.code:[P1001,P1017] db.failover_eligible:true'],
   ];
@@ -221,6 +227,30 @@ test('rejects P2024 queries and queries missing either eligibility marker', asyn
     await t.test(name, async () => {
       const { handler, calls } = createHarness();
       const result = await handler(request(payload({ alertRule: { query } })));
+      assert.equal(result.statusCode, 202);
+      assert.equal(JSON.parse(result.body).accepted, false);
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test('requires the signed metric alert aggregate, one-minute window, critical threshold, and exact project scope', async (t) => {
+  const cases = [
+    ['missing aggregate', { alertRule: { aggregate: undefined } }],
+    ['wrong aggregate', { alertRule: { aggregate: 'sum(quantity)' } }],
+    ['missing time window', { alertRule: { time_window: undefined } }],
+    ['wrong time window', { alertRule: { time_window: 5 } }],
+    ['missing triggers', { alertRule: { triggers: undefined } }],
+    ['wrong critical threshold', { alertRule: { triggers: [{ label: 'critical', alert_threshold: 4 }] } }],
+    ['missing critical threshold', { alertRule: { triggers: [{ label: 'critical' }] } }],
+    ['wrong trigger label', { alertRule: { triggers: [{ label: 'warning', alert_threshold: 5 }] } }],
+    ['multiple metric projects', { metricAlert: { projects: [{ id: 'project-1' }, { id: 'other-project' }] } }],
+    ['multiple rule projects', { alertRule: { projects: [{ id: 'project-1' }, { id: 'other-project' }] } }],
+  ];
+  for (const [name, overrides] of cases) {
+    await t.test(name, async () => {
+      const { handler, calls } = createHarness();
+      const result = await handler(request(payload(overrides)));
       assert.equal(result.statusCode, 202);
       assert.equal(JSON.parse(result.body).accepted, false);
       assert.equal(calls.length, 0);
@@ -254,7 +284,7 @@ test('returns 503 when the configured secret has no usable value', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('keeps the one-second webhook budget by timing out a slow queue send', async () => {
+test('keeps the 750 ms end-to-end budget by timing out a slow queue send', async () => {
   const { handler } = createHarness({
     sendMessage: () => new Promise(() => {}),
   });
@@ -262,7 +292,24 @@ test('keeps the one-second webhook budget by timing out a slow queue send', asyn
   const result = await handler(request(payload()));
   const elapsed = Date.now() - startedAt;
   assert.equal(result.statusCode, 504);
-  assert.ok(elapsed < 1000, `receiver exceeded one-second budget: ${elapsed}ms`);
+  assert.ok(elapsed < 800, `receiver exceeded total deadline: ${elapsed}ms`);
+});
+
+test('enforces one end-to-end deadline around a never-resolving secret fetch', async () => {
+  const handler = createReceiverHandler({
+    config: config(),
+    queueUrl: 'https://sqs.example.invalid/failover.fifo',
+    getClientSecret: () => new Promise(() => {}),
+    sendMessage: async () => {},
+    now: () => NOW,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const startedAt = Date.now();
+  const result = await handler(request(payload()));
+  const elapsed = Date.now() - startedAt;
+  assert.equal(result.statusCode, 504);
+  assert.deepEqual(JSON.parse(result.body), { accepted: false });
+  assert.ok(elapsed < 800, `receiver exceeded total deadline: ${elapsed}ms`);
 });
 
 test('does not enqueue when the kill switch is disabled after authentication', async () => {

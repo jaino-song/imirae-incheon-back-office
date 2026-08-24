@@ -30,6 +30,11 @@ on:
         type: boolean
         required: true
         default: false
+      confirm_sentry_rule_audit:
+        description: Confirm the documented read-only live Sentry metric-rule audit passed
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -113,6 +118,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       inputs.enable_deploy == true &&
       inputs.enable_failover == true &&
+      inputs.confirm_sentry_rule_audit == true &&
       inputs.environment == 'preview'
     needs: validate-build-package
     runs-on: ubuntu-latest
@@ -126,7 +132,7 @@ jobs:
       STACK_NAME: babyjamjam-preview-db-failover
       AWS_ROLE_ARN: ${{ vars.AWS_FAILOVER_PREVIEW_ROLE_ARN }}
       SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
-      SENTRY_CLIENT_SECRET_ARN: ${{ secrets.SENTRY_CLIENT_SECRET_ARN }}
+      SENTRY_CLIENT_SECRET_NAME: ${{ secrets.SENTRY_CLIENT_SECRET_NAME }}
       SENTRY_INSTALLATION_ID: ${{ vars.SENTRY_INSTALLATION_ID }}
       SENTRY_ORGANIZATION_ID: ${{ vars.SENTRY_ORGANIZATION_ID }}
       SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
@@ -146,6 +152,13 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
+      - name: Enforce read-only live Sentry rule audit gate
+        env:
+          RULE_AUDIT_CONFIRMED: ${{ inputs.confirm_sentry_rule_audit }}
+        run: |
+          set -euo pipefail
+          test "$RULE_AUDIT_CONFIRMED" = true
+          echo 'Read-only live Sentry rule audit confirmed; no Sentry mutation is performed by this workflow.'
       - name: Build and deploy preview stack
         working-directory: ${{ env.CONTROL_PLANE_DIR }}
         run: |
@@ -161,7 +174,7 @@ jobs:
             --parameter-overrides \
               EnvironmentType=preview \
               EnableFailover=true \
-              SentryClientSecretArn="$SENTRY_CLIENT_SECRET_ARN" \
+              SentryClientSecretName="$SENTRY_CLIENT_SECRET_NAME" \
               SentryInstallationId="$SENTRY_INSTALLATION_ID" \
               SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \
               SentryProjectId="$SENTRY_PROJECT_ID" \
@@ -173,6 +186,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       inputs.enable_deploy == true &&
       inputs.enable_failover == true &&
+      inputs.confirm_sentry_rule_audit == true &&
       inputs.environment == 'production'
     needs: validate-build-package
     runs-on: ubuntu-latest
@@ -186,7 +200,7 @@ jobs:
       STACK_NAME: babyjamjam-production-db-failover
       AWS_ROLE_ARN: ${{ vars.AWS_FAILOVER_PRODUCTION_ROLE_ARN }}
       SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
-      SENTRY_CLIENT_SECRET_ARN: ${{ secrets.SENTRY_CLIENT_SECRET_ARN }}
+      SENTRY_CLIENT_SECRET_NAME: ${{ secrets.SENTRY_CLIENT_SECRET_NAME }}
       SENTRY_INSTALLATION_ID: ${{ vars.SENTRY_INSTALLATION_ID }}
       SENTRY_ORGANIZATION_ID: ${{ vars.SENTRY_ORGANIZATION_ID }}
       SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
@@ -206,6 +220,13 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
+      - name: Enforce read-only live Sentry rule audit gate
+        env:
+          RULE_AUDIT_CONFIRMED: ${{ inputs.confirm_sentry_rule_audit }}
+        run: |
+          set -euo pipefail
+          test "$RULE_AUDIT_CONFIRMED" = true
+          echo 'Read-only live Sentry rule audit confirmed; no Sentry mutation is performed by this workflow.'
       - name: Build and deploy production stack
         working-directory: ${{ env.CONTROL_PLANE_DIR }}
         run: |
@@ -221,7 +242,7 @@ jobs:
             --parameter-overrides \
               EnvironmentType=production \
               EnableFailover=true \
-              SentryClientSecretArn="$SENTRY_CLIENT_SECRET_ARN" \
+              SentryClientSecretName="$SENTRY_CLIENT_SECRET_NAME" \
               SentryInstallationId="$SENTRY_INSTALLATION_ID" \
               SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \
               SentryProjectId="$SENTRY_PROJECT_ID" \

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 export const MAX_WEBHOOK_BYTES = 64 * 1024;
 export const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
+export const RECEIVER_DEADLINE_MS = 750;
 export const RECEIVER_QUEUE_TIMEOUT_MS = 700;
 export const DEFAULT_LEASE_MS = 55 * 1000;
 export const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
@@ -32,6 +33,9 @@ export const ELIGIBLE_ISSUE_CODES = Object.freeze(['P1001', 'P1017']);
 export const REJECTED_ISSUE_CODES = Object.freeze(['P2024']);
 export const ELIGIBLE_ACTION = 'critical';
 export const ELIGIBLE_RESOURCE = 'metric_alert';
+export const EXPECTED_METRIC_AGGREGATE = 'count()';
+export const EXPECTED_METRIC_TIME_WINDOW_MINUTES = 1;
+export const EXPECTED_METRIC_THRESHOLD = 5;
 export const FAILOVER_SIGNAL_CLASS = 'db_failover';
 export const REQUIRED_QUERY_MARKERS = Object.freeze([
   'db.failover_eligible:true',

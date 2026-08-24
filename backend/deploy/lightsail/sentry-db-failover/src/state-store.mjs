@@ -1,7 +1,16 @@
 import { createInitialState } from './constants.mjs';
 
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+export function replayStateKey(fingerprint) {
+  if (typeof fingerprint !== 'string' || !SHA256_HEX_PATTERN.test(fingerprint)) {
+    throw new TypeError('replay fingerprint must be a SHA-256 hex digest');
+  }
+  return `replay/${fingerprint.toLowerCase()}`;
 }
 export function marshallValue(value) {
   if (value === null || value === undefined) return { NULL: true };
@@ -50,6 +59,15 @@ export class ConditionalStateWriteError extends Error {
   }
 }
 
+export class ReplayFingerprintExistsError extends Error {
+  constructor() {
+    super('replay fingerprint already exists');
+    this.name = 'ReplayFingerprintExistsError';
+    this.code = 'REPLAY_FINGERPRINT_EXISTS';
+    this.retryable = false;
+  }
+}
+
 function isConditionalFailure(error) {
   return error?.name === 'ConditionalCheckFailedException'
     || error?.code === 'ConditionalCheckFailedException';
@@ -57,20 +75,33 @@ function isConditionalFailure(error) {
 
 export function createDynamoStateStore({ client, commands, tableName, stateKey }) {
   if (!client || typeof client.send !== 'function') throw new TypeError('DynamoDB client is required');
-  if (!commands?.GetItemCommand || !commands?.PutItemCommand || !commands?.UpdateItemCommand) {
+  if (
+    !commands?.GetItemCommand
+    || !commands?.PutItemCommand
+    || !commands?.UpdateItemCommand
+    || !commands?.TransactWriteItemsCommand
+  ) {
     throw new TypeError('DynamoDB command constructors are required');
   }
   if (!tableName || !stateKey) throw new TypeError('state table name and key are required');
 
   const key = { stateKey: { S: stateKey } };
 
-  async function get() {
+  async function getByKey(itemKey) {
     const response = await client.send(new commands.GetItemCommand({
       TableName: tableName,
-      Key: key,
+      Key: { stateKey: { S: itemKey } },
       ConsistentRead: true,
     }));
     return unmarshallItem(response.Item);
+  }
+
+  async function get() {
+    return getByKey(stateKey);
+  }
+
+  async function hasProcessedFingerprint(fingerprint) {
+    return Boolean(await getByKey(replayStateKey(fingerprint)));
   }
 
   async function acquireLease({ owner, now, leaseMs }) {
@@ -136,6 +167,58 @@ export function createDynamoStateStore({ client, commands, tableName, stateKey }
     }
   }
 
+  async function saveAndMarkFingerprint(
+    state,
+    { owner, generation, now: at = Date.now(), fingerprint },
+  ) {
+    const replayKey = replayStateKey(fingerprint);
+    const next = { ...state, stateKey };
+    try {
+      await client.send(new commands.TransactWriteItemsCommand({
+        ReturnCancellationReasons: true,
+        TransactItems: [
+          {
+            Put: {
+              TableName: tableName,
+              Item: marshallItem(next),
+              ConditionExpression: '#generation = :generation AND #leaseOwner = :owner AND #leaseExpiresAt > :now',
+              ExpressionAttributeNames: {
+                '#generation': 'generation',
+                '#leaseOwner': 'leaseOwner',
+                '#leaseExpiresAt': 'leaseExpiresAt',
+              },
+              ExpressionAttributeValues: {
+                ':generation': { N: String(generation) },
+                ':owner': { S: owner },
+                ':now': { N: String(at) },
+              },
+            },
+          },
+          {
+            Put: {
+              TableName: tableName,
+              Item: {
+                stateKey: { S: replayKey },
+                replayFingerprint: { S: fingerprint.toLowerCase() },
+              },
+              ConditionExpression: 'attribute_not_exists(#stateKey)',
+              ExpressionAttributeNames: { '#stateKey': 'stateKey' },
+            },
+          },
+        ],
+      }));
+    } catch (error) {
+      const replayReason = error?.CancellationReasons?.[1];
+      if (replayReason?.Code === 'ConditionalCheckFailed') {
+        throw new ReplayFingerprintExistsError();
+      }
+      if (isConditionalFailure(error) || error?.name === 'TransactionCanceledException') {
+        throw new ConditionalStateWriteError();
+      }
+      throw error;
+    }
+  }
+
   async function releaseLease({ owner, generation, now }) {
     try {
       await client.send(new commands.UpdateItemCommand({
@@ -163,11 +246,19 @@ export function createDynamoStateStore({ client, commands, tableName, stateKey }
     }
   }
 
-  return { get, acquireLease, save, releaseLease };
+  return {
+    get,
+    hasProcessedFingerprint,
+    acquireLease,
+    save,
+    saveAndMarkFingerprint,
+    releaseLease,
+  };
 }
 
 export function createMemoryStateStore({ initialState, now = Date.now() } = {}) {
   let current = clone(initialState ?? { ...createInitialState(now), stateKey: 'db-failover' });
+  const replayFingerprints = new Set();
 
   return {
     async get() {
@@ -195,6 +286,28 @@ export function createMemoryStateStore({ initialState, now = Date.now() } = {}) 
         throw new ConditionalStateWriteError();
       }
       current = clone(state);
+    },
+    async hasProcessedFingerprint(fingerprint) {
+      const key = replayStateKey(fingerprint);
+      return replayFingerprints.has(key.slice('replay/'.length));
+    },
+    async saveAndMarkFingerprint(
+      state,
+      { owner, generation, now: at = Date.now(), fingerprint },
+    ) {
+      const normalizedFingerprint = replayStateKey(fingerprint).slice('replay/'.length);
+      if (replayFingerprints.has(normalizedFingerprint)) {
+        throw new ReplayFingerprintExistsError();
+      }
+      if (
+        current.generation !== generation
+        || current.leaseOwner !== owner
+        || current.leaseExpiresAt <= at
+      ) {
+        throw new ConditionalStateWriteError();
+      }
+      current = clone(state);
+      replayFingerprints.add(normalizedFingerprint);
     },
     async releaseLease({ owner, generation, now: at }) {
       if (current.generation !== generation || current.leaseOwner !== owner) {

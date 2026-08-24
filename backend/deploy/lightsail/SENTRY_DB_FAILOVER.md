@@ -44,12 +44,14 @@ parameters. The worker role still receives only the selected document ARN and
 the selected environment tag condition.
 
 `EnableFailover` defaults to `false`. Keep it false while validating a stack or
-deploying infrastructure. The GitHub workflow requires both a manual dispatch
-and explicit `enable_deploy=true` plus `enable_failover=true`; the target GitHub
-environment must have protected reviewers configured.
+deploying infrastructure. The GitHub workflow requires a manual dispatch,
+explicit `enable_deploy=true`, `enable_failover=true`, and a confirmed
+read-only live Sentry rule audit; the target GitHub environment must have
+protected reviewers configured.
 
 The receiver is the only principal with `secretsmanager:GetSecretValue`, and
-only for `SentryClientSecretArn`. The worker has no Secrets Manager, database,
+only for the same-account, same-region secret named by `SentryClientSecretName`.
+The worker has no Secrets Manager, database,
 Lightsail, deploy-document, document-mutation, or arbitrary-shell permission.
 
 ## Receiver contract
@@ -68,14 +70,18 @@ The receiver deliberately keeps its Lambda/API Gateway path small:
    shape: top-level `action`, `installation.uuid`, and
    `data.metric_alert.id`, `organization_id`, and `projects[]`; its nested
    `alert_rule` must provide `id`, `organization_id`, `projects[]`,
-   `environment`, and `query`. The configured project must be present in both
-   signed project arrays, and both signed organization IDs must match the
-   configured organization. The exact rule ID and configured environment are
-   mandatory. The `Sentry-Hook-Resource` header must be exactly `metric_alert`,
-   and the action must be the allowlisted `critical` value.
+   `environment`, `query`, `aggregate`, `time_window`, and `triggers`. The
+   configured project must be the only project in both signed project arrays,
+   and both signed organization IDs must match the configured organization.
+   The exact rule ID and configured environment are mandatory. The signed rule
+   scope must use `aggregate: count()`, `time_window: 1`, and exactly one
+   `critical` trigger with `alert_threshold: 5`. The `Sentry-Hook-Resource`
+   header must be exactly `metric_alert`, and the action must be the allowlisted
+   `critical` value.
 5. The signed alert-rule query must contain the exact terms
-   `db.failover_eligible:true` and `db.route:shared`. A query containing
-   `P2024`, or any non-allowlisted Prisma code term, is rejected. This is a
+   `db.failover_eligible:true` and `db.route:shared`. A query containing no
+   Prisma code, `P2024`, or any non-allowlisted Prisma code term is rejected.
+   Mixed eligible/ineligible Prisma code sets are rejected. This is a
    boundary check only; the application remains authoritative for the
    P1001/P1017-only `db.failover_eligible` tag taxonomy. The receiver does not
    require or trust an individual Prisma `issueCode` or a `route` field in the
@@ -87,12 +93,14 @@ The receiver deliberately keeps its Lambda/API Gateway path small:
    ID for correlation. It never contains the raw body, secret, DB URL, DB host,
    or shell text. The body fingerprint is the FIFO deduplication ID.
 
-The queue send has a 700 ms timeout to preserve the Sentry one-second webhook
-contract and the local p99 gate of 800 ms. A successful durable enqueue returns
-`202`; invalid input returns `4xx`; a missing secret or queue failure returns a
-`5xx`; a queue timeout returns `504`. A valid event while the kill switch is
-off is acknowledged with `202` and is not queued, avoiding Sentry retries while
-the stack is intentionally disabled.
+The receiver has one 750 ms end-to-end deadline from handler entry through raw
+body decoding, secret retrieval, authentication, allowlists, and durable SQS
+enqueue. Remaining budget is passed as an abort signal to Secrets Manager and
+SQS; a deadline returns generic `504`, while other secret or queue failures
+return generic `503`. A successful durable enqueue returns `202`; invalid input
+returns `4xx`. A valid event while the kill switch is off is acknowledged with
+`202` and is not queued, avoiding Sentry retries while the stack is
+intentionally disabled.
 
 The receiver logs only a correlation/request ID, body fingerprint, and a stable
 rejection reason. It never logs the body, signature, secret, queue URL, route
@@ -103,10 +111,12 @@ command, or status output.
 The worker uses a conditional DynamoDB lease. A competing invocation returns an
 SQS partial-batch failure so the FIFO message can be retried; an expired lease
 can be claimed by the next invocation. State writes are conditional on both
-`generation` and lease owner. The body-derived event fingerprint and event
-timestamps provide replay and out-of-order suppression, in addition to FIFO
-deduplication. Request-ID is only correlation metadata and is never a
-deduplication key.
+`generation` and lease owner. Each authenticated body fingerprint is stored as
+one separate item in the existing state table with no TTL. The fingerprint item
+and the mirrored state update are written together with DynamoDB
+`TransactWriteItems`; a failed transaction leaves neither durable claim nor
+state update. The body-derived fingerprint is the replay authority. FIFO
+deduplication and request IDs are only optimization/correlation metadata.
 
 The state record includes these operational fields:
 
@@ -185,8 +195,9 @@ node --test test/*.test.mjs
 
 The tests cover HMAC and timestamp boundaries, raw-body and size handling,
 official metric-alert parsing, installation/organization/project/environment/rule
-allowlists, query-marker rejection, FIFO enqueue failures and time budget,
-body-fingerprint replay and out-of-order messages, lease expiry/retry,
+allowlists, signed aggregate/window/threshold scope, query-marker rejection,
+FIFO enqueue failures and the end-to-end time budget, durable body-fingerprint
+replay beyond 32 events, transaction failure/retry, duplicate races, lease expiry/retry,
 conditional state transitions, P1001/P1017 query eligibility, P2024 rejection,
 switch/failback budgets, both-down blocking, control-plane preservation, fixed
 SSM parameters, and static SAM/IAM contracts.
@@ -194,12 +205,19 @@ SSM parameters, and static SAM/IAM contracts.
 The GitHub workflow validates, tests, builds, and packages SAM artifacts on
 repository changes. It has no automatic deployment path. Preview and production
 deployment jobs run only from manual dispatch, require both explicit enable
-inputs, and use the corresponding protected GitHub environment.
+inputs plus `confirm_sentry_rule_audit=true`, and use the corresponding
+protected GitHub environment. The confirmation is a deployment-time, read-only
+live Sentry rule audit gate; it does not mutate Sentry. Before checking it,
+operators must inspect the exact configured installation, organization, single
+project, environment, rule ID, `metric_alert` resource, `critical` action,
+`count()` aggregate, one-minute window, critical threshold `5`, and the two
+signed query markers. If any property differs or cannot be verified, leave the
+kill switch disabled and do not deploy with `enable_failover=true`.
 
 The non-deploying package upload gate uses repository variables
 `SAM_PACKAGE_BUCKET` and `AWS_FAILOVER_PACKAGE_ROLE_ARN` on trusted branch
 runs; pull requests never receive package-upload OIDC credentials. Manual
 deployment additionally requires environment-scoped role variables
 `AWS_FAILOVER_PREVIEW_ROLE_ARN` or `AWS_FAILOVER_PRODUCTION_ROLE_ARN`, the
-environment's `SENTRY_CLIENT_SECRET_ARN` secret, and the allowlist variables
+environment's `SENTRY_CLIENT_SECRET_NAME` secret name, and the allowlist variables
 shown in the workflow.

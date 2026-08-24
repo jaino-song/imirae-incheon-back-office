@@ -22,8 +22,12 @@ class UpdateItemCommand {
   constructor(input) { this.input = input; }
 }
 
+class TransactWriteItemsCommand {
+  constructor(input) { this.input = input; }
+}
+
 function commands() {
-  return { GetItemCommand, PutItemCommand, UpdateItemCommand };
+  return { GetItemCommand, PutItemCommand, UpdateItemCommand, TransactWriteItemsCommand };
 }
 
 test('Dynamo state store uses generation and lease-owner conditions for every write', async () => {
@@ -103,4 +107,95 @@ test('Dynamo conditional lease races fail closed and expose the current holder',
   const result = await store.acquireLease({ owner: 'worker-1', now: NOW, leaseMs: 1_000 });
   assert.equal(result.acquired, false);
   assert.equal(result.state.leaseOwner, 'worker-2');
+});
+
+test('Dynamo replay claim and mirrored state are one transaction with no TTL', async () => {
+  const fingerprint = 'a'.repeat(64);
+  const calls = [];
+  const current = {
+    ...createInitialState(NOW),
+    stateKey: 'db-failover/preview',
+    generation: 1,
+    leaseOwner: 'worker-1',
+    leaseExpiresAt: NOW + 1_000,
+  };
+  const client = {
+    async send(command) {
+      calls.push(command);
+      if (command instanceof TransactWriteItemsCommand) return {};
+      if (command instanceof GetItemCommand) {
+        const requestedKey = command.input.Key.stateKey.S;
+        return requestedKey === current.stateKey ? { Item: marshallItem(current) } : {};
+      }
+      throw new Error('unexpected command');
+    },
+  };
+  const store = createDynamoStateStore({
+    client,
+    commands: commands(),
+    tableName: 'state-table',
+    stateKey: current.stateKey,
+  });
+  const next = { ...current, lastSentryEventFingerprint: fingerprint };
+  await store.saveAndMarkFingerprint(next, {
+    owner: 'worker-1',
+    generation: 1,
+    now: NOW,
+    fingerprint,
+  });
+  const transaction = calls.find((call) => call instanceof TransactWriteItemsCommand);
+  assert.equal(transaction.input.ReturnCancellationReasons, true);
+  assert.equal(transaction.input.TransactItems.length, 2);
+  assert.match(transaction.input.TransactItems[0].Put.ConditionExpression, /#leaseOwner = :owner/);
+  assert.match(transaction.input.TransactItems[1].Put.ConditionExpression, /attribute_not_exists/);
+  assert.equal('ttl' in transaction.input.TransactItems[1].Put.Item, false);
+  assert.equal(transaction.input.TransactItems[1].Put.Item.replayFingerprint.S, fingerprint);
+});
+
+test('Dynamo replay transaction cancellation distinguishes duplicate claims from retryable state races', async () => {
+  const fingerprint = 'b'.repeat(64);
+  let mode = 'duplicate';
+  const client = {
+    async send(command) {
+      if (command instanceof TransactWriteItemsCommand) {
+        if (mode === 'duplicate') {
+          throw Object.assign(new Error('duplicate'), {
+            name: 'TransactionCanceledException',
+            CancellationReasons: [{ Code: 'None' }, { Code: 'ConditionalCheckFailed' }],
+          });
+        }
+        throw Object.assign(new Error('lease race'), {
+          name: 'TransactionCanceledException',
+          CancellationReasons: [{ Code: 'ConditionalCheckFailed' }, { Code: 'None' }],
+        });
+      }
+      throw new Error('unexpected command');
+    },
+  };
+  const store = createDynamoStateStore({
+    client,
+    commands: commands(),
+    tableName: 'state-table',
+    stateKey: 'db-failover/preview',
+  });
+  const state = { ...createInitialState(NOW), stateKey: 'db-failover/preview' };
+  await assert.rejects(
+    store.saveAndMarkFingerprint(state, {
+      owner: 'worker-1',
+      generation: 1,
+      now: NOW,
+      fingerprint,
+    }),
+    (error) => error.name === 'ReplayFingerprintExistsError',
+  );
+  mode = 'lease';
+  await assert.rejects(
+    store.saveAndMarkFingerprint(state, {
+      owner: 'worker-1',
+      generation: 1,
+      now: NOW,
+      fingerprint,
+    }),
+    (error) => error.name === 'ConditionalStateWriteError' && error.retryable === true,
+  );
 });
