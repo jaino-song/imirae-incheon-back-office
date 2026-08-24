@@ -156,7 +156,7 @@ function queryContainsMarker(query, marker) {
   return new RegExp(`(?:^|[^A-Za-z0-9_.:-])${escapedMarker}(?=$|[^A-Za-z0-9_.:-])`).test(query);
 }
 
-function isFailoverEligibleQuery(query) {
+export function isFailoverEligibleQuery(query) {
   if (typeof query !== 'string' || query.trim() === '') return false;
   if (!REQUIRED_QUERY_MARKERS.every((marker) => queryContainsMarker(query, marker))) return false;
 

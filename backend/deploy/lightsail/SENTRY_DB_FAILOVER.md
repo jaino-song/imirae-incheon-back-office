@@ -50,7 +50,10 @@ the selected environment tag condition.
 deploying infrastructure. The GitHub workflow requires a manual dispatch,
 explicit `enable_deploy=true`, `enable_failover=true`, and a confirmed
 read-only live Sentry rule audit; the target GitHub environment must have
-protected reviewers configured.
+protected reviewers configured. The confirmation is only an additional human
+approval. Before AWS credentials are issued, the workflow itself performs an
+authenticated read-only fetch of every configured rule and fails closed on any
+unavailable or mismatched response.
 
 The receiver is the only principal with `secretsmanager:GetSecretValue`, and
 only for the same-account, same-region secret named by `SentryClientSecretName`.
@@ -238,13 +241,27 @@ The GitHub workflow validates, tests, builds, and packages SAM artifacts on
 repository changes. It has no automatic deployment path. Preview and production
 deployment jobs run only from manual dispatch, require both explicit enable
 inputs plus `confirm_sentry_rule_audit=true`, and use the corresponding
-protected GitHub environment. The confirmation is a deployment-time, read-only
-live Sentry rule audit gate; it does not mutate Sentry. Before checking it,
-operators must inspect the exact configured installation, organization, single
-project, environment, rule ID, `metric_alert` resource, `critical` action,
-`count()` aggregate, one-minute window, critical threshold `5`, and the two
-signed query markers. If any property differs or cannot be verified, leave the
-kill switch disabled and do not deploy with `enable_failover=true`.
+protected GitHub environment. The workflow then calls Sentry's read-only
+organization alert-rule detail endpoint with an environment-scoped
+`SENTRY_API_TOKEN` that has only `alerts:read` and `project:read` (or equivalent
+read-only) access. It first proves that `SENTRY_PROJECT_SLUG` maps to the exact
+active `SENTRY_PROJECT_ID` in the configured numeric organization. It then
+validates every `SENTRY_RULE_IDS` entry against that single project,
+environment, unsnoozed state, `count()` aggregate, one-minute window, one
+critical trigger at threshold `5`, the exact `SENTRY_INSTALLATION_ID` Sentry
+App action, and the failover query grammar before AWS authentication or
+deployment. A timeout, non-2xx response, malformed/oversized JSON, missing
+field, or mismatch blocks deployment. The human confirmation cannot replace
+this fetch and the workflow never mutates Sentry.
+
+Sentry currently marks this legacy alert-rule detail API as private and
+deprecated while it migrates metric alerts to its workflow engine. That makes
+the audit deliberately fail closed if Sentry changes the endpoint or response
+shape; update and re-review the validator before deploying rather than
+bypassing it. Operators must still inspect the `metric_alert` resource,
+`critical` webhook action, and client-secret association because those
+webhook-only fields are not returned by the read-only rule endpoint. If any
+property cannot be verified, keep the kill switch disabled.
 
 The non-deploying package upload gate uses repository variables
 `SAM_PACKAGE_BUCKET` and `AWS_FAILOVER_PACKAGE_ROLE_ARN` on trusted branch
@@ -252,4 +269,7 @@ runs; pull requests never receive package-upload OIDC credentials. Manual
 deployment additionally requires environment-scoped role variables
 `AWS_FAILOVER_PREVIEW_ROLE_ARN` or `AWS_FAILOVER_PRODUCTION_ROLE_ARN`, the
 environment's `SENTRY_CLIENT_SECRET_NAME` secret name, and the allowlist variables
-shown in the workflow.
+shown in the workflow. Each protected environment also needs the read-only
+`SENTRY_API_TOKEN` secret and exact `SENTRY_PROJECT_SLUG` variable for the live
+rule audit. The API token is scoped only to its audit step and is never passed
+to SAM, AWS, Lambda, or shell arguments.
