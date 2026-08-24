@@ -103,8 +103,19 @@ run_as_root() {
 }
 
 configure_environment preview
+hostile_compose_cwd="$(mktemp -d)"
+printf '%s\n' \
+    'BACKEND_IMAGE_TAG=hostile' \
+    'VALKEY_MEMORY_LIMIT=99g' \
+    >"$hostile_compose_cwd/.env"
+original_test_cwd="$PWD"
+cd "$hostile_compose_cwd"
 run_release_migrations "$valid_sha"
-assert_equals "/usr/bin/env BACKEND_ENV_FILE=$STATE_DIRECTORY/backend.env BACKEND_IMAGE=$LOCAL_IMAGE_REPOSITORY BACKEND_IMAGE_TAG=$valid_sha BACKEND_CPU_LIMIT=0.5 BACKEND_MEMORY_LIMIT=1g BACKEND_NETWORK_ALIAS=api-preview COMPOSE_PROJECT_NAME=babyjamjam-backend-preview LIGHTSAIL_EDGE_NETWORK=babyjamjam-edge-preview VALKEY_DATA_VOLUME=babyjamjam-backend-preview_valkey_data /usr/bin/docker compose -f $ROOT_COMPOSE_ARTIFACT run --rm --no-deps --entrypoint /usr/local/bin/node api node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma" "$migration_invocation"
+cd "$original_test_cwd"
+rm -rf "$hostile_compose_cwd"
+assert_equals "/usr/bin/env BACKEND_ENV_FILE=$STATE_DIRECTORY/backend.env BACKEND_IMAGE=$LOCAL_IMAGE_REPOSITORY BACKEND_IMAGE_TAG=$valid_sha BACKEND_CPU_LIMIT=0.5 BACKEND_MEMORY_LIMIT=1g BACKEND_NETWORK_ALIAS=api-preview COMPOSE_PROJECT_NAME=babyjamjam-backend-preview LIGHTSAIL_EDGE_NETWORK=babyjamjam-edge-preview VALKEY_DATA_VOLUME=babyjamjam-backend-preview_valkey_data /usr/bin/docker compose --env-file $ROOT_COMPOSE_ENV_FILE --project-directory $ROOT_ARTIFACT_DIRECTORY -f $ROOT_COMPOSE_ARTIFACT run --rm --no-deps --entrypoint /usr/local/bin/node api node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma" "$migration_invocation"
+[[ "$migration_invocation" != *hostile* && "$migration_invocation" != *99g* ]] \
+    || fail "working-directory .env values reached the protected Compose invocation"
 
 rollback_invocation=""
 

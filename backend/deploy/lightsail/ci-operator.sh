@@ -10,6 +10,7 @@ readonly ROOT_OPERATOR_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/ci-operator.sh"
 readonly ROOT_DEPLOY_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/deploy.sh"
 readonly ROOT_ROLLBACK_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/rollback.sh"
 readonly ROOT_COMPOSE_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/compose.lightsail.yml"
+readonly ROOT_COMPOSE_ENV_FILE="/dev/null"
 readonly STATE_ROOT="/opt/babyjamjam/environments"
 readonly ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
 readonly LOG_ROOT="/var/log/babyjamjam-deploy"
@@ -177,6 +178,8 @@ require_root() {
     [[ " $deploy_groups " != *" docker "* ]] \
         || die "ubuntu must not belong to the docker group; root CI Docker execution requires its removal."
     validate_root_artifacts
+    cd "$ROOT_ARTIFACT_DIRECTORY" \
+        || die "Unable to enter the protected root artifact directory."
 }
 
 run_as_deployer() {
@@ -868,8 +871,9 @@ recreate_api_for_route() {
         DATABASE_CONNECTION_MODE="$route" \
         LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK" \
         VALKEY_DATA_VOLUME="$VALKEY_DATA_VOLUME" \
-        /usr/bin/docker compose -f "$COMPOSE_FILE" \
-        up -d --no-deps --force-recreate api \
+        /usr/bin/docker compose --env-file "$ROOT_COMPOSE_ENV_FILE" \
+        --project-directory "$ROOT_ARTIFACT_DIRECTORY" -f "$COMPOSE_FILE" \
+        up -d --no-build --no-deps --force-recreate api \
         >/dev/null 2>&1
 }
 
@@ -946,8 +950,8 @@ run_release_migrations() {
         COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" \
         LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK" \
         VALKEY_DATA_VOLUME="$VALKEY_DATA_VOLUME" \
-        /usr/bin/docker compose \
-        -f "$ROOT_COMPOSE_ARTIFACT" \
+        /usr/bin/docker compose --env-file "$ROOT_COMPOSE_ENV_FILE" \
+        --project-directory "$ROOT_ARTIFACT_DIRECTORY" -f "$ROOT_COMPOSE_ARTIFACT" \
         run --rm --no-deps --entrypoint /usr/local/bin/node api \
         node_modules/prisma/build/index.js migrate deploy \
         --schema prisma/schema.prisma \

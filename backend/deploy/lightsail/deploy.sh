@@ -12,6 +12,7 @@ fi
 
 readonly PROTECTED_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"
 readonly PROTECTED_COMPOSE_FILE="$PROTECTED_ARTIFACT_DIRECTORY/compose.lightsail.yml"
+readonly PROTECTED_COMPOSE_ENV_FILE="/dev/null"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 if [[ "$SCRIPT_DIR" != "$PROTECTED_ARTIFACT_DIRECTORY" ]]; then
     echo "The repository deployment helper is retired; invoke the installed CI operator or protected bundle." >&2
@@ -79,6 +80,7 @@ validate_protected_runtime_bundle() {
 }
 
 validate_protected_runtime_bundle
+cd "$PROTECTED_ARTIFACT_DIRECTORY"
 
 if [[ -n "${BACKEND_COMPOSE_FILE:-}" && "$BACKEND_COMPOSE_FILE" != "$PROTECTED_COMPOSE_FILE" ]]; then
     echo "BACKEND_COMPOSE_FILE must reference the protected CI operator Compose artifact." >&2
@@ -88,7 +90,7 @@ COMPOSE_FILE="$PROTECTED_COMPOSE_FILE"
 ENVIRONMENT="${1:-${LIGHTSAIL_ENVIRONMENT:-}}"
 STATE_ROOT="${LIGHTSAIL_STATE_ROOT:-/opt/babyjamjam}"
 PUBLIC_HEALTH_REQUIRED="${BACKEND_PUBLIC_HEALTH_REQUIRED:-true}"
-BUILD_IMAGE="${BACKEND_BUILD_IMAGE:-true}"
+BUILD_IMAGE="${BACKEND_BUILD_IMAGE:-false}"
 
 case "$ENVIRONMENT" in
     production)
@@ -237,8 +239,8 @@ if [[ "$PUBLIC_HEALTH_REQUIRED" != "true" && "$PUBLIC_HEALTH_REQUIRED" != "false
     exit 1
 fi
 
-if [[ "$BUILD_IMAGE" != "true" && "$BUILD_IMAGE" != "false" ]]; then
-    echo "BACKEND_BUILD_IMAGE must be true or false." >&2
+if [[ "$BUILD_IMAGE" != "false" ]]; then
+    echo "The protected deployment helper requires BACKEND_BUILD_IMAGE=false and a preloaded image." >&2
     exit 1
 fi
 
@@ -272,16 +274,20 @@ if ! docker volume inspect "$VALKEY_DATA_VOLUME" >/dev/null 2>&1; then
     docker volume create "$VALKEY_DATA_VOLUME" >/dev/null 2>&1
 fi
 
-docker compose -f "$COMPOSE_FILE" config --quiet >/dev/null 2>&1
-if [[ "$BUILD_IMAGE" == "true" ]]; then
-    docker compose -f "$COMPOSE_FILE" build --pull api >/dev/null 2>&1
-elif ! docker image inspect "${BACKEND_IMAGE:-babyjamjam-backend}:$IMAGE_TAG" >/dev/null 2>&1; then
+docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" config --quiet >/dev/null 2>&1
+if ! docker image inspect "${BACKEND_IMAGE:-babyjamjam-backend}:$IMAGE_TAG" >/dev/null 2>&1; then
     echo "BACKEND_BUILD_IMAGE=false requires a local image: ${BACKEND_IMAGE:-babyjamjam-backend}:$IMAGE_TAG" >&2
     exit 1
 fi
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans >/dev/null 2>&1
+docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" up -d --no-build --remove-orphans >/dev/null 2>&1
 
-api_container_id="$(docker compose -f "$COMPOSE_FILE" ps -q api)"
+api_container_id="$(docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" ps -q api)"
 if [[ -z "$api_container_id" ]]; then
     echo "The API container was not created." >&2
     exit 1

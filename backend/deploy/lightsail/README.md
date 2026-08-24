@@ -137,70 +137,31 @@ Each application deployment:
 5. waits for the container health check and matching public `/health` route;
 6. records current and previous healthy tags only after both checks pass.
 
-Deploy the shared edge only when the routing configuration changes:
-
-```bash
-backend/deploy/lightsail/deploy-edge.sh
-```
-
-The edge script validates the Caddyfile before replacement and requires both
-production and preview public health routes to pass afterward.
+The repository `deploy-edge.sh`, edge Compose file, and Caddyfile are not root
+runtime inputs. That legacy helper is retired and fails closed. Database route
+failover does not redeploy the edge: both public routes keep their existing API
+upstreams. Any future Caddy or edge-network change requires its own reviewed,
+root-owned protected bundle and rollback procedure before execution.
 
 Use `BACKEND_PUBLIC_HEALTH_REQUIRED=false` only for the one-time bootstrap
 before Caddy can route to a new environment. That mode verifies internal API
 health but deliberately does not record a healthy deployment.
 
-Use `BACKEND_BUILD_IMAGE=false` only when the exact commit-tagged image has
-already been built locally. The script refuses the request if that image is
-missing.
+The protected helper always requires `BACKEND_BUILD_IMAGE=false` and an exact
+commit-tagged image that is already present locally. It never builds from the
+repository or from the installed Compose file's relative build context. Normal
+releases pull and verify the immutable image through the CI operator first.
+Every protected Compose call also uses `/dev/null` as its explicit interpolation
+env file and pins the protected artifact directory as the Compose project
+directory, so an inherited working-directory `.env` cannot alter the runtime.
 
-## One-time migration from the single stack
+## Legacy single-stack migration
 
-Perform this in a low-traffic window. Keep the legacy production stack and its
-environment file intact until the new production and preview routes are proven.
-
-1. Create both environment directories and populate their `backend.env` files.
-   Start with schedulers disabled in both new files while the legacy production
-   API remains the scheduler owner.
-2. Start both isolated app stacks without changing public routing:
-
-   ```bash
-   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false BACKEND_BUILD_IMAGE=false \
-     BACKEND_IMAGE_TAG=<git-commit-sha> \
-     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh production
-   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false BACKEND_BUILD_IMAGE=false \
-     BACKEND_IMAGE_TAG=<git-commit-sha> \
-     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh preview
-   ```
-
-3. Identify the legacy Caddy container by its Compose project and service
-   labels. Require exactly one match, stop only that container, then run
-   `deploy-edge.sh`. If the shared edge does not pass both health checks, stop
-   it and restart the identified legacy Caddy container immediately.
-4. Once both new public routes are healthy, identify and stop only the legacy
-   production API container. This ends its scheduler ownership without deleting
-   the legacy production Valkey or TLS volumes.
-5. Set `SCHEDULERS_ENABLED=true` in the new production file, then activate the
-   already-built image and record both environments:
-
-   ```bash
-   sudo BACKEND_BUILD_IMAGE=false BACKEND_IMAGE_TAG=<git-commit-sha> \
-     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh production
-   sudo BACKEND_BUILD_IMAGE=false BACKEND_IMAGE_TAG=<git-commit-sha> \
-     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh preview
-   ```
-
-6. Verify scheduler activity only on production, confirm both public routes,
-   and observe CPU, memory, restarts, and application errors before removing any
-   stopped legacy containers. The new production Valkey starts with a cold
-   cache; durable jobs remain in PostgreSQL. Never delete the legacy production
-   Valkey or Caddy volumes during this migration.
-
-The production API is briefly recreated when scheduler ownership is enabled.
-The production CPU limit is `1.5` cores and `2 GB`; preview is capped at
-`0.5` core and `1 GB`. Each Valkey and Caddy is capped separately. These are
-guardrails against preview starving production, not separate capacity. Avoid
-simultaneous environment builds during peak traffic.
+The old repository-driven edge migration procedure is retired and must not be
+replayed. The current failover work assumes the production and preview edge
+routes already exist. Rebuilding or migrating that edge is a separate,
+externally approved infrastructure task because it changes public routing and
+requires a protected Caddy artifact plus an independently rehearsed rollback.
 
 ## Rollback
 

@@ -9,6 +9,7 @@ INFRASTRUCTURE_TEMPLATE="$SCRIPT_DIR/github-oidc-ssm.yaml"
 INSTALLER="$SCRIPT_DIR/install-ci-operator.sh"
 ROLLBACK_SCRIPT="$SCRIPT_DIR/rollback.sh"
 DEPLOY_SCRIPT="$SCRIPT_DIR/deploy.sh"
+EDGE_SCRIPT="$SCRIPT_DIR/deploy-edge.sh"
 CI_OPERATOR="$SCRIPT_DIR/ci-operator.sh"
 PREVIEW_OPERATOR="$SCRIPT_DIR/operator-preview.sh"
 
@@ -50,6 +51,19 @@ assert_text_not_contains() {
 
     if grep -Eq -- "$pattern" <<<"$text"; then
         fail "$description"
+    fi
+}
+
+assert_compose_env_isolation() {
+    local file="$1"
+    local description="$2"
+    local compose_calls
+
+    compose_calls="$(grep -E '(^|/usr/bin/)docker compose' "$file" || true)"
+    [[ -n "$compose_calls" ]] || fail "$description: no Compose calls found"
+    if grep -Ev -- '--env-file "\$(PROTECTED_COMPOSE_ENV_FILE|ROOT_COMPOSE_ENV_FILE)"' \
+        <<<"$compose_calls" >/dev/null; then
+        fail "$description: a Compose call can load an inherited working-directory .env"
     fi
 }
 
@@ -120,7 +134,7 @@ assert_contains "$INSTALLER" '0750' "CI operator must not be executable by unpri
 assert_contains "$INSTALLER" 'root:root:600' "shared deployment locks must remain root-only"
 assert_contains "$CI_OPERATOR" 'acquire_lock' "deploy and reconcile must use the shared operator lock"
 assert_contains "$CI_OPERATOR" 'db_reconcile()' "reconcile must be implemented by the CI operator"
-assert_contains "$CI_OPERATOR" 'up -d --no-deps --force-recreate api' "route changes must recreate only the API service"
+assert_contains "$CI_OPERATOR" 'up -d --no-build --no-deps --force-recreate api' "route changes must recreate only the API service without a protected-path build"
 assert_contains "$CI_OPERATOR" 'EXPECTED_SCHEDULERS_ENABLED' "route verification must enforce scheduler ownership"
 assert_contains "$CI_OPERATOR" 'run_public_liveness_check' "route verification must preserve the public liveness check"
 assert_contains "$CI_OPERATOR" 'sharedOk' "reconcile output must expose only safe shared probe status"
@@ -164,8 +178,26 @@ assert_contains "$DEPLOY_SCRIPT" 'export PATH="\$SAFE_PATH"' "deployment must di
 assert_contains "$ROLLBACK_SCRIPT" 'export PATH="\$SAFE_PATH"' "rollback must discard inherited PATH entries"
 assert_contains "$DEPLOY_SCRIPT" 'repository deployment helper is retired' "repository deployment entrypoint must fail closed"
 assert_contains "$ROLLBACK_SCRIPT" 'repository rollback helper is retired' "repository rollback entrypoint must fail closed"
+assert_contains "$EDGE_SCRIPT" '^#!/bin/bash$' "retired edge helper must use the fixed root Bash interpreter"
+assert_contains "$EDGE_SCRIPT" 'repository edge deployment helper is retired' "repository edge deployment must fail closed"
+assert_not_contains "$EDGE_SCRIPT" 'docker|compose|Caddyfile|REPOSITORY_ROOT|git -C' "retired edge helper must not retain a root runtime path"
 assert_not_contains "$DEPLOY_SCRIPT" 'REPOSITORY_ROOT' "deployment must not derive a Compose file from the repository"
 assert_not_contains "$ROLLBACK_SCRIPT" 'REPOSITORY_ROOT' "rollback must not derive a Compose file from the repository"
+assert_not_contains "$DEPLOY_SCRIPT" 'compose[^[:space:]]*[[:space:]].*build' "protected deployment must not build from a relative Compose context"
+assert_contains "$DEPLOY_SCRIPT" 'up -d --no-build --remove-orphans' "protected deployment must forbid implicit Compose builds"
+assert_contains "$DEPLOY_SCRIPT" 'requires BACKEND_BUILD_IMAGE=false and a preloaded image' "protected deployment must require a preloaded image"
+assert_contains "$DEPLOY_SCRIPT" 'PROTECTED_COMPOSE_ENV_FILE="/dev/null"' "protected deployment must use a fixed empty interpolation environment"
+assert_contains "$ROLLBACK_SCRIPT" 'PROTECTED_COMPOSE_ENV_FILE="/dev/null"' "protected rollback must use a fixed empty interpolation environment"
+assert_contains "$CI_OPERATOR" 'ROOT_COMPOSE_ENV_FILE="/dev/null"' "root operator must use a fixed empty interpolation environment"
+assert_contains "$DEPLOY_SCRIPT" 'cd "\$PROTECTED_ARTIFACT_DIRECTORY"' "protected deployment must enter the validated artifact directory"
+assert_contains "$ROLLBACK_SCRIPT" 'cd "\$PROTECTED_ARTIFACT_DIRECTORY"' "protected rollback must enter the validated artifact directory"
+assert_contains "$CI_OPERATOR" 'cd "\$ROOT_ARTIFACT_DIRECTORY"' "root operator must enter the validated artifact directory"
+assert_contains "$DEPLOY_SCRIPT" '--project-directory "\$PROTECTED_ARTIFACT_DIRECTORY"' "protected deployment must pin the Compose project directory"
+assert_contains "$ROLLBACK_SCRIPT" '--project-directory "\$PROTECTED_ARTIFACT_DIRECTORY"' "protected rollback must pin the Compose project directory"
+assert_contains "$CI_OPERATOR" '--project-directory "\$ROOT_ARTIFACT_DIRECTORY"' "root operator must pin the Compose project directory"
+assert_compose_env_isolation "$DEPLOY_SCRIPT" "protected deployment Compose isolation"
+assert_compose_env_isolation "$ROLLBACK_SCRIPT" "protected rollback Compose isolation"
+assert_compose_env_isolation "$CI_OPERATOR" "root operator Compose isolation"
 assert_contains "$INSTALLER" 'must not belong to the docker group' "installer must fail closed on ubuntu Docker membership"
 assert_not_contains "$INSTALLER" 'must belong to the docker group' "installer must not require ubuntu Docker membership"
 assert_not_contains "$INSTALLER" 'sudoers' "CI operator must not grant a new sudo path"
@@ -214,6 +246,9 @@ fi
 if PATH="$runtime_probe_root:$PATH" BACKEND_COMPOSE_FILE="$runtime_probe_root/compose.lightsail.yml" \
     "$ROLLBACK_SCRIPT" preview deadbeef >/dev/null 2>&1; then
     fail "repository rollback helper unexpectedly executed"
+fi
+if PATH="$runtime_probe_root:$PATH" "$EDGE_SCRIPT" >/dev/null 2>&1; then
+    fail "repository edge helper unexpectedly executed"
 fi
 [[ ! -e "$runtime_probe_marker" ]] || fail "repository mutation reached Docker"
 

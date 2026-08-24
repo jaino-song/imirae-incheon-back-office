@@ -12,6 +12,7 @@ fi
 
 readonly PROTECTED_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"
 readonly PROTECTED_COMPOSE_FILE="$PROTECTED_ARTIFACT_DIRECTORY/compose.lightsail.yml"
+readonly PROTECTED_COMPOSE_ENV_FILE="/dev/null"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 if [[ "$SCRIPT_DIR" != "$PROTECTED_ARTIFACT_DIRECTORY" ]]; then
     echo "The repository rollback helper is retired; invoke the installed CI operator or protected bundle." >&2
@@ -79,6 +80,7 @@ validate_protected_runtime_bundle() {
 }
 
 validate_protected_runtime_bundle
+cd "$PROTECTED_ARTIFACT_DIRECTORY"
 
 if [[ -n "${BACKEND_COMPOSE_FILE:-}" && "$BACKEND_COMPOSE_FILE" != "$PROTECTED_COMPOSE_FILE" ]]; then
     echo "BACKEND_COMPOSE_FILE must reference the protected CI operator Compose artifact." >&2
@@ -281,10 +283,16 @@ if ! docker volume inspect "$VALKEY_DATA_VOLUME" >/dev/null 2>&1; then
     exit 1
 fi
 
-docker compose -f "$COMPOSE_FILE" config --quiet >/dev/null 2>&1
-docker compose -f "$COMPOSE_FILE" up -d --no-build api >/dev/null 2>&1
+docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" config --quiet >/dev/null 2>&1
+docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" up -d --no-build api >/dev/null 2>&1
 
-api_container_id="$(docker compose -f "$COMPOSE_FILE" ps -q api)"
+api_container_id="$(docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" ps -q api)"
 if [[ -z "$api_container_id" ]]; then
     echo "The API container was not created." >&2
     exit 1
