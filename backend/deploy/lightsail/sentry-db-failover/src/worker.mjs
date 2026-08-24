@@ -26,9 +26,11 @@ import {
 import {
   HostResultReplayError,
   HostEnvelopeValidationError,
+  LockDeferralValidationError,
   isHostTerminalPhase,
   markControlPlaneFailure,
   mirrorHostEnvelope,
+  normalizeLockDeferral,
   normalizeHostEnvelope,
   normalizeState,
 } from './reconciler.mjs';
@@ -78,6 +80,15 @@ class CurrentRequestDeferredError extends Error {
     super('current request was deferred while reconciling another SSM command');
     this.name = 'CurrentRequestDeferredError';
     this.code = 'CURRENT_REQUEST_DEFERRED';
+    this.retryable = true;
+  }
+}
+
+class LockBusyDeferredError extends Error {
+  constructor() {
+    super('host deferred reconciliation because the operator lock is busy');
+    this.name = 'LockBusyDeferredError';
+    this.code = 'LOCK_BUSY_DEFERRED';
     this.retryable = true;
   }
 }
@@ -160,11 +171,27 @@ function emitControlPlaneDegradedSignal({ logger, state, environment, now }) {
   return true;
 }
 
+function hasLockDeferralRetryPending(state) {
+  return state?.ssmRetryPending === true
+    && isOpaqueUuid(state?.ssmRequestId)
+    && typeof state?.ssmRequestIdentity === 'string'
+    && state.ssmRequestIdentity.length > 0
+    && state.ssmRequestIdentity.length <= 512;
+}
+
 function scheduleEligibility(state) {
   const sharedActive = state?.phase === PHASES.SHARED_ACTIVE
     && state?.activeRoute === ROUTES.SHARED;
   if (!sharedActive) {
     return { eligible: true, reason: 'phase_requires_reconciliation' };
+  }
+
+  // A lock deferral is an explicit retry obligation, even when the host
+  // remains in steady Shared. Only a persisted opaque request identity can
+  // authorize this exception; a bare or malformed marker must not manufacture
+  // failover from a quiescent schedule.
+  if (hasLockDeferralRetryPending(state)) {
+    return { eligible: true, reason: 'lock_deferral_retry_pending' };
   }
 
   // Shared failover starts only from an eligible Sentry message. A schedule
@@ -272,6 +299,17 @@ export function parseStatusOutput(output, expected = {}) {
   }
 }
 
+export function parseDeferralOutput(output, expected = {}) {
+  const parsed = oneLineJson(output);
+  if (!parsed) return null;
+  try {
+    return normalizeLockDeferral(parsed, expected);
+  } catch (error) {
+    if (error instanceof LockDeferralValidationError) return null;
+    throw error;
+  }
+}
+
 export function createSsmObserver({
   client,
   commands,
@@ -350,6 +388,22 @@ export function createSsmObserver({
         ?? invocation?.CommandPlugins?.[0]?.OutputContent
         ?? invocation?.StandardOutputContent;
       const terminal = TERMINAL_COMMAND_STATUSES.has(invocation?.Status);
+      const deferral = terminal
+        ? parseDeferralOutput(status, {
+          environment,
+          requestId: expectedRequestId,
+        })
+        : null;
+      if (deferral) {
+        return {
+          controlPlaneOk: true,
+          deferral,
+          commandId: state.ssmCommandId,
+          requestId: expectedRequestId,
+          commandComplete: true,
+          identity: expectedIdentity,
+        };
+      }
       const envelope = parseStatusOutput(status, {
         environment,
         requestId: expectedRequestId,
@@ -555,6 +609,7 @@ async function prepareTransitionRecovery({
     ssmRequestId: null,
     ssmRequestIdentity: null,
     ssmDispatchAttempted: false,
+    ssmRetryPending: false,
     ssmRecoveryRequestId: requestId,
     ssmRecoveryIdentity: identity,
   };
@@ -588,6 +643,46 @@ function applyObservation(state, observation, { now, environment, requestId }) {
     ?? requestId;
   const ownerIdentity = state.ssmRequestIdentity
     ?? (state.ssmCommandId ? undefined : observation?.identity);
+  if (Object.prototype.hasOwnProperty.call(observation ?? {}, 'deferral')) {
+    let deferral;
+    try {
+      deferral = normalizeLockDeferral(observation.deferral, {
+        environment,
+        requestId: ownerRequestId,
+      });
+    } catch (error) {
+      if (!(error instanceof LockDeferralValidationError)) throw error;
+      return {
+        state: {
+          ...markControlPlaneFailure(state, {
+            status: observation?.commandComplete
+              ? CONTROL_PLANE_STATUS.BLOCKED
+              : CONTROL_PLANE_STATUS.DEGRADED,
+            error: 'INVALID_LOCK_DEFERRAL',
+            now,
+          }),
+          ssmRetryPending: false,
+        },
+        reason: 'invalid_lock_deferral',
+      };
+    }
+    return {
+      state: {
+        ...state,
+        ssmRequestId: ownerRequestId,
+        ssmRequestIdentity: ownerIdentity,
+        ssmCommandId: null,
+        ssmDispatchAttempted: false,
+        ssmRetryPending: true,
+        controlPlaneStatus: CONTROL_PLANE_STATUS.OK,
+        controlPlaneError: null,
+        updatedAt: now,
+      },
+      reason: deferral.reason,
+      deferred: true,
+      retryAfterSeconds: deferral.retryAfterSeconds,
+    };
+  }
   if (observation?.hostEnvelope) {
     let mirrored;
     try {
@@ -600,13 +695,16 @@ function applyObservation(state, observation, { now, environment, requestId }) {
         throw error;
       }
       return {
-        state: markControlPlaneFailure(state, {
-          status: observation?.commandComplete
-            ? CONTROL_PLANE_STATUS.BLOCKED
-            : CONTROL_PLANE_STATUS.DEGRADED,
-          error: error instanceof HostResultReplayError ? 'HOST_RESULT_REPLAY' : 'INVALID_HOST_RESULT',
-          now,
-        }),
+        state: {
+          ...markControlPlaneFailure(state, {
+            status: observation?.commandComplete
+              ? CONTROL_PLANE_STATUS.BLOCKED
+              : CONTROL_PLANE_STATUS.DEGRADED,
+            error: error instanceof HostResultReplayError ? 'HOST_RESULT_REPLAY' : 'INVALID_HOST_RESULT',
+            now,
+          }),
+          ssmRetryPending: false,
+        },
         reason: error instanceof HostResultReplayError ? 'host_result_rejected' : 'invalid_host_result',
       };
     }
@@ -616,6 +714,7 @@ function applyObservation(state, observation, { now, environment, requestId }) {
       ssmRequestId: ownerRequestId,
       ssmRequestIdentity: ownerIdentity,
       ssmDispatchAttempted: false,
+      ssmRetryPending: false,
       ssmRecoveryRequestId: null,
       ssmRecoveryIdentity: null,
       ssmCommandId: observation.commandComplete || hostTerminal
@@ -642,6 +741,7 @@ function applyObservation(state, observation, { now, environment, requestId }) {
           ssmRequestId: ownerRequestId,
           ssmRequestIdentity: ownerIdentity,
           ssmDispatchAttempted: true,
+          ssmRetryPending: false,
           ssmCommandId: null,
         },
         reason: UNCERTAIN_SSM_STATE_REASON,
@@ -660,6 +760,9 @@ function applyObservation(state, observation, { now, environment, requestId }) {
         ssmRequestId: ownerRequestId,
         ssmRequestIdentity: ownerIdentity,
         ssmDispatchAttempted: false,
+        ssmRetryPending: observation.controlPlaneTerminal
+          ? false
+          : state.ssmRetryPending === true,
         ssmCommandId: observation.commandId ?? state.ssmCommandId,
       },
       reason: observation.controlPlaneTerminal ? 'invalid_host_result' : 'control_plane_failure',
@@ -674,6 +777,9 @@ function applyObservation(state, observation, { now, environment, requestId }) {
       ssmDispatchAttempted: observation.commandId || state.ssmCommandId
         ? false
         : state.ssmDispatchAttempted === true,
+      ssmRetryPending: observation.commandId || state.ssmCommandId
+        ? false
+        : state.ssmRetryPending === true,
       ssmCommandId: observation.commandId ?? state.ssmCommandId,
       controlPlaneStatus: observation.commandComplete
         ? CONTROL_PLANE_STATUS.OK
@@ -878,6 +984,15 @@ async function processMessage({
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
       throw new CurrentRequestDeferredError();
     }
+    if (reconciled.applied.deferred === true) {
+      await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+      safeLog(logger, 'info', 'failover_deferred', {
+        requestId,
+        reason: reconciled.applied.reason,
+        retryAfterSeconds: reconciled.applied.retryAfterSeconds,
+      });
+      throw new LockBusyDeferredError();
+    }
     if (reconciled.dispatchAttemptPersisted || (reconciled.observation?.commandId && state.ssmCommandId)) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
     }
@@ -957,8 +1072,16 @@ async function processScheduled({
       return { status: 'ignored', reason: leasedEligibility.reason };
     }
 
-    const identity = identityForSchedule(event);
-    const requestId = requestIdForSchedule(event);
+    const retryPending = hasLockDeferralRetryPending(state);
+    const commandRequestRetained = typeof state.ssmCommandId === 'string'
+      && state.ssmCommandId.length > 0
+      && isOpaqueUuid(state.ssmRequestId)
+      && typeof state.ssmRequestIdentity === 'string'
+      && state.ssmRequestIdentity.length > 0
+      && state.ssmRequestIdentity.length <= 512;
+    const reuseRequest = retryPending || commandRequestRetained;
+    const identity = reuseRequest ? state.ssmRequestIdentity : identityForSchedule(event);
+    const requestId = reuseRequest ? state.ssmRequestId : requestIdForSchedule(event);
     state = await prepareRequest({
       state,
       stateStore,
@@ -995,6 +1118,23 @@ async function processScheduled({
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
       emitTerminalStateSignal({ logger, state, environment: config.environment, now });
       throw new UncertainSsmStateError();
+    }
+    if (reconciled.applied.deferred === true) {
+      await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+      safeLog(logger, 'info', 'failover_deferred', {
+        requestId,
+        reason: reconciled.applied.reason,
+        retryAfterSeconds: reconciled.applied.retryAfterSeconds,
+      });
+      return {
+        status: 'processed',
+        phase: state.phase,
+        activeRoute: state.activeRoute,
+        hostGeneration: state.hostGeneration,
+        reason: reconciled.applied.reason,
+        deferred: true,
+        retryAfterSeconds: reconciled.applied.retryAfterSeconds,
+      };
     }
     if (reconciled.dispatchAttemptPersisted || (reconciled.observation?.commandId && state.ssmCommandId)) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
@@ -1146,6 +1286,7 @@ export async function handler(event, context) {
 export {
   InvalidQueueMessageError,
   LeaseUnavailableError,
+  LockBusyDeferredError,
   identityForMessage,
   identityForSchedule,
   processMessage,

@@ -12,6 +12,20 @@ export const HOST_RESULT_MAX_TOKEN_LENGTH = 64;
 export const HOST_RESULT_MAX_HISTORY_LENGTH = 128;
 export const HOST_RESULT_MAX_NUMBER = 99_999_999_999;
 
+export const LOCK_DEFERRED_SCHEMA_VERSION = 1;
+export const LOCK_DEFERRED_SOURCE = 'babyjamjam-db-failover-lock';
+export const LOCK_DEFERRED_MAX_RETRY_AFTER_SECONDS = 60;
+export const LOCK_DEFERRED_KEYS = Object.freeze([
+  'schemaVersion',
+  'source',
+  'controlPlaneOk',
+  'environment',
+  'requestId',
+  'status',
+  'reason',
+  'retryAfterSeconds',
+]);
+
 export const CONTROL_PLANE_STATUS = Object.freeze({
   OK: 'OK',
   IN_FLIGHT: 'IN_FLIGHT',
@@ -158,6 +172,7 @@ export function createInitialState(now = Date.now()) {
     ssmRequestId: null,
     ssmRequestIdentity: null,
     ssmDispatchAttempted: false,
+    ssmRetryPending: false,
     ssmRecoveryRequestId: null,
     ssmRecoveryIdentity: null,
     lastObservedAt: now,

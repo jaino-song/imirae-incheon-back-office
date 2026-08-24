@@ -22,6 +22,7 @@ import {
   TERMINAL_STATE_METRIC_DIMENSIONS,
   TERMINAL_STATE_METRIC_NAME,
   TERMINAL_STATE_METRIC_NAMESPACE,
+  parseDeferralOutput,
 } from '../src/worker.mjs';
 
 const BASE_TIME = Date.parse('2026-08-24T00:00:00.000Z');
@@ -96,6 +97,20 @@ function hostEnvelope(requestId, overrides = {}) {
       terminalReason: null,
     },
     terminalReason: null,
+    ...overrides,
+  };
+}
+
+function lockDeferral(requestId, overrides = {}) {
+  return {
+    schemaVersion: 1,
+    source: 'babyjamjam-db-failover-lock',
+    controlPlaneOk: true,
+    environment: 'preview',
+    requestId,
+    status: 'DEFERRED',
+    reason: 'operator_lock_busy',
+    retryAfterSeconds: 5,
     ...overrides,
   };
 }
@@ -316,6 +331,104 @@ test('a scheduled tick polls an SSM command already started by Sentry without se
   assert.equal(store.snapshot().hostGeneration, 1);
 });
 
+test('a Sentry command deferral is retried by schedule with the original request identity', async () => {
+  const requestId = makeDeterministicRequestId('a'.repeat(64));
+  const firstCommandId = '00000000-0000-4000-8000-0000000000f2';
+  const retryCommandId = '00000000-0000-4000-8000-0000000000f3';
+  const sendRequestIds = [];
+  const listCommandIds = [];
+  let sendCount = 0;
+  let listCount = 0;
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        sendCount += 1;
+        sendRequestIds.push(command.input.Parameters.RequestId[0]);
+        return { Command: { CommandId: sendCount === 1 ? firstCommandId : retryCommandId } };
+      }
+      listCount += 1;
+      listCommandIds.push(command.input.CommandId);
+      const output = listCount === 1
+        ? lockDeferral(requestId)
+        : hostEnvelope(requestId, { hostGeneration: 1, result: 'shared_healthy' });
+      return {
+        CommandInvocations: [{
+          Status: 'Success',
+          CommandPlugins: [{ Output: `${JSON.stringify(output)}\n` }],
+        }],
+      };
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-admin-server',
+    environment: 'preview',
+  });
+  const store = createMemoryStateStore({ now: BASE_TIME });
+  const observed = [];
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: async (input) => {
+      observed.push(input);
+      return observer.observe(input);
+    },
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const sentry = await handler({ Records: [record()] });
+  assert.equal(sentry.batchItemFailures.length, 0);
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), true);
+  assert.equal(store.snapshot().ssmCommandId, firstCommandId);
+  assert.equal(store.snapshot().ssmRetryPending, false);
+
+  const deferred = await handler({ id: 'eventbridge-lock-busy', time: '2026-08-24T00:01:00Z' });
+  assert.equal(deferred.results[0].status, 'processed');
+  assert.equal(deferred.results[0].reason, 'operator_lock_busy');
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.equal(store.snapshot().ssmRetryPending, true);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(store.snapshot().phase, PHASES.SHARED_ACTIVE);
+  assert.equal(store.snapshot().activeRoute, ROUTES.SHARED);
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), true);
+
+  const retried = await handler({ id: 'eventbridge-retry', time: '2026-08-24T00:02:00Z' });
+  assert.equal(retried.results[0].status, 'processed');
+  assert.equal(retried.results[0].reason, 'host_request_started');
+  assert.equal(store.snapshot().ssmCommandId, retryCommandId);
+  assert.equal(store.snapshot().ssmRetryPending, false);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.IN_FLIGHT);
+
+  const mirrored = await handler({ id: 'eventbridge-mirror', time: '2026-08-24T00:03:00Z' });
+  assert.equal(mirrored.results[0].status, 'processed');
+  assert.equal(mirrored.results[0].reason, 'host_result_mirrored');
+  assert.equal(sendCount, 2);
+  assert.equal(listCount, 2);
+  assert.deepEqual(sendRequestIds, [requestId, requestId]);
+  assert.deepEqual(listCommandIds, [firstCommandId, retryCommandId]);
+  assert.deepEqual(observed.map((input) => input.requestId), [requestId, requestId, requestId, requestId]);
+  assert.deepEqual(observed.map((input) => input.identity), [
+    'sentry:' + 'a'.repeat(64),
+    'sentry:' + 'a'.repeat(64),
+    'sentry:' + 'a'.repeat(64),
+    'sentry:' + 'a'.repeat(64),
+  ]);
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.equal(store.snapshot().ssmRetryPending, false);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(store.snapshot().controlPlaneError, null);
+  assert.equal(store.snapshot().phase, PHASES.SHARED_ACTIVE);
+  assert.equal(store.snapshot().activeRoute, ROUTES.SHARED);
+  assert.equal(store.snapshot().hostGeneration, 1);
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), true);
+});
+
 test('scheduled reconciliation remains active for Direct health and failback phases', async () => {
   const { handler, store, observed } = harness({
     initialState: {
@@ -376,6 +489,180 @@ test('Sentry wakes host reconciliation and mirrors the complete host result with
   assert.equal('action' in result.results[0], false);
   assert.equal(store.snapshot().hostGeneration, 1);
   assert.equal(store.snapshot().phase, PHASES.SHARED_ACTIVE);
+});
+
+test('accepts only the exact secret-free lock deferral schema', () => {
+  const requestId = makeDeterministicRequestId('lock-deferral');
+  const valid = lockDeferral(requestId);
+
+  assert.deepEqual(
+    parseDeferralOutput(`${JSON.stringify(valid)}\n`, {
+      environment: 'preview',
+      requestId,
+    }),
+    valid,
+  );
+
+  const rejected = [
+    ['missing reason', (value) => { delete value.reason; }],
+    ['extra key', (value) => { value.hostGeneration = 1; }],
+    ['spoofed source', (value) => { value.source = 'babyjamjam-db-failover-host'; }],
+    ['wrong environment', (value) => { value.environment = 'production'; }],
+    ['wrong request', (value) => { value.requestId = makeDeterministicRequestId('other'); }],
+    ['unbounded retry', (value) => { value.retryAfterSeconds = 61; }],
+    ['wrong status', (value) => { value.status = 'SUCCESS'; }],
+  ];
+  for (const [name, mutate] of rejected) {
+    const value = structuredClone(valid);
+    mutate(value);
+    assert.equal(parseDeferralOutput(JSON.stringify(value), {
+      environment: 'preview',
+      requestId,
+    }), null, name);
+  }
+});
+
+test('Sentry lock contention clears transient SSM state, preserves host evidence, and retries without a fingerprint', async () => {
+  const requestId = makeDeterministicRequestId('a'.repeat(64));
+  const priorHostEnvelope = hostEnvelope(requestId, {
+    hostGeneration: 7,
+    result: 'shared_healthy',
+  });
+  let observationCount = 0;
+  const { handler, store, observed } = harness({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 7,
+      result: 'shared_healthy',
+      lastHostResult: 'shared_healthy',
+      lastHostEnvelope: priorHostEnvelope,
+    },
+    observe: async (input) => {
+      observationCount += 1;
+      if (observationCount === 1) return { deferral: lockDeferral(input.requestId) };
+      return {
+        hostEnvelope: hostEnvelope(input.requestId, {
+          hostGeneration: input.state.hostGeneration + 1,
+          result: 'shared_healthy',
+        }),
+        commandComplete: true,
+      };
+    },
+  });
+
+  const first = await handler({ Records: [record()] });
+  assert.equal(first.batchItemFailures.length, 1);
+  assert.equal(first.batchItemFailures[0].itemIdentifier, 'sqs-message-1');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  const deferred = store.snapshot();
+  assert.equal(deferred.controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(deferred.controlPlaneError, null);
+  assert.equal(deferred.ssmCommandId, null);
+  assert.equal(deferred.ssmDispatchAttempted, false);
+  assert.equal(deferred.ssmRetryPending, true);
+  assert.equal(deferred.ssmRequestId, requestId);
+  assert.equal(deferred.ssmRequestIdentity, 'sentry:' + 'a'.repeat(64));
+  assert.equal(deferred.hostGeneration, 7);
+  assert.equal(deferred.phase, PHASES.SHARED_ACTIVE);
+  assert.equal(deferred.activeRoute, ROUTES.SHARED);
+  assert.deepEqual(deferred.lastHostEnvelope, priorHostEnvelope);
+
+  const retry = await handler({ Records: [record({ messageId: 'sqs-retry' })] });
+  assert.equal(retry.batchItemFailures.length, 0);
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), true);
+  assert.equal(store.snapshot().hostGeneration, 8);
+  assert.equal(store.snapshot().ssmRetryPending, false);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(store.snapshot().controlPlaneError, null);
+  assert.deepEqual(observed.map((input) => input.requestId), [requestId, requestId]);
+});
+
+test('Direct scheduled lock contention leaves a healthy safe state and retries on the next eligible tick', async () => {
+  const priorHostEnvelope = hostEnvelope(makeDeterministicRequestId('direct-prior'), {
+    hostGeneration: 5,
+    activeRoute: ROUTES.DIRECT,
+    phase: PHASES.DIRECT_ACTIVE,
+    result: 'direct_healthy',
+    sharedOk: null,
+    directOk: true,
+  });
+  let observationCount = 0;
+  const { handler, store, observed } = harness({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 5,
+      activeRoute: ROUTES.DIRECT,
+      phase: PHASES.DIRECT_ACTIVE,
+      result: 'direct_healthy',
+      lastHostResult: 'direct_healthy',
+      lastHostEnvelope: priorHostEnvelope,
+      directOk: true,
+    },
+    observe: async (input) => {
+      observationCount += 1;
+      if (observationCount === 1) {
+        return { deferral: lockDeferral(input.requestId) };
+      }
+      return {
+        hostEnvelope: hostEnvelope(input.requestId, {
+          hostGeneration: input.state.hostGeneration + 1,
+          activeRoute: ROUTES.DIRECT,
+          phase: PHASES.DIRECT_ACTIVE,
+          result: 'direct_healthy',
+          sharedOk: null,
+          directOk: true,
+        }),
+        commandComplete: true,
+      };
+    },
+  });
+
+  const first = await handler({ id: 'direct-lock-busy-1', time: '2026-08-24T00:01:00Z' });
+  assert.equal(first.results[0].status, 'processed');
+  assert.equal(first.results[0].reason, 'operator_lock_busy');
+  assert.equal(first.results[0].deferred, true);
+  const deferred = store.snapshot();
+  assert.equal(deferred.controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(deferred.controlPlaneError, null);
+  assert.equal(deferred.ssmCommandId, null);
+  assert.equal(deferred.ssmDispatchAttempted, false);
+  assert.equal(deferred.ssmRetryPending, true);
+  assert.equal(deferred.hostGeneration, 5);
+  assert.equal(deferred.activeRoute, ROUTES.DIRECT);
+  assert.equal(deferred.phase, PHASES.DIRECT_ACTIVE);
+  assert.deepEqual(deferred.lastHostEnvelope, priorHostEnvelope);
+
+  const retry = await handler({ id: 'direct-lock-busy-2', time: '2026-08-24T00:02:00Z' });
+  assert.equal(retry.results[0].status, 'processed');
+  assert.equal(retry.results[0].reason, 'host_result_mirrored');
+  assert.equal(store.snapshot().hostGeneration, 6);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(observed.length, 2);
+  assert.equal(observed[0].requestId, observed[1].requestId);
+  assert.equal(observed[0].identity, observed[1].identity);
+  assert.equal(store.snapshot().ssmRetryPending, false);
+});
+
+test('malformed retry markers cannot manufacture a Shared scheduled dispatch', async () => {
+  const requestId = makeDeterministicRequestId('malformed-retry-marker');
+  const { handler, store, observed } = harness({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      ssmRequestId: requestId,
+      ssmRequestIdentity: 'sentry:' + 'b'.repeat(64),
+      ssmRetryPending: 'true',
+    },
+    observe: async () => {
+      throw new Error('malformed retry marker must not dispatch');
+    },
+  });
+
+  const result = await handler({ id: 'malformed-marker', time: '2026-08-24T00:03:00Z' });
+  assert.equal(result.results[0].status, 'ignored');
+  assert.equal(result.results[0].reason, SHARED_ACTIVE_SCHEDULE_SKIP_REASON);
+  assert.equal(observed.length, 0);
+  assert.equal(store.snapshot().ssmRetryPending, 'true');
 });
 
 test('derives the same opaque request UUID from the same authenticated body fingerprint', async () => {
@@ -1318,6 +1605,53 @@ test('terminal failed SSM commands mirror valid host BLOCKED results', async () 
   assert.equal(result.controlPlaneOk, true);
   assert.equal(result.commandComplete, true);
   assert.equal(result.hostEnvelope.phase, PHASES.BLOCKED);
+});
+
+test('SSM observer recognizes only a terminal exact lock deferral and rejects spoofed output', async (t) => {
+  const requestId = makeDeterministicRequestId('observer-lock-deferral');
+  const outputs = [
+    ['valid', lockDeferral(requestId), true],
+    ['extra host field', { ...lockDeferral(requestId), hostGeneration: 1 }, false],
+    ['wrong request', lockDeferral(makeDeterministicRequestId('spoofed')), false],
+    ['wrong source', lockDeferral(requestId, { source: 'spoofed-source' }), false],
+  ];
+
+  for (const [name, value, accepted] of outputs) {
+    await t.test(name, async () => {
+      const client = {
+        async send() {
+          return {
+            CommandInvocations: [{
+              Status: 'Success',
+              CommandPlugins: [{ Output: JSON.stringify(value) }],
+            }],
+          };
+        },
+      };
+      class SendCommandCommand { constructor(input) { this.input = input; } }
+      class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+      const observer = createSsmObserver({
+        client,
+        commands: { SendCommandCommand, ListCommandInvocationsCommand },
+        documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+        tagValue: 'babyjamjam-admin-server',
+        environment: 'preview',
+      });
+      const result = await observer.observe({
+        state: { ...createInitialState(BASE_TIME), ssmCommandId: COMMAND_ID, ssmRequestId: requestId },
+        requestId,
+      });
+      if (accepted) {
+        assert.equal(result.controlPlaneOk, true);
+        assert.deepEqual(result.deferral, value);
+        assert.equal(result.commandComplete, true);
+      } else {
+        assert.equal(result.controlPlaneOk, false);
+        assert.equal(result.controlPlaneTerminal, true);
+        assert.equal(result.controlPlaneError, 'INVALID_HOST_RESULT');
+      }
+    });
+  }
 });
 
 test('terminal SSM command without a complete valid host result fails closed', async () => {

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -euo pipefail
 
@@ -19,6 +19,9 @@ readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 readonly ROUTE_STATE_FILE_NAME="db-route-state"
 readonly ROUTE_STATE_FORMAT_VERSION="2"
 readonly DB_PROBE_TIMEOUT_SECONDS="5"
+readonly DB_RECONCILE_LOCK_WAIT_SECONDS="2"
+readonly DB_RECONCILE_RETRY_AFTER_SECONDS="5"
+readonly LOCK_CONTENTION_EXIT_STATUS="75"
 readonly DIRECT_MINIMUM_HOLD_SECONDS="3600"
 readonly SHARED_FAILBACK_SUCCESS_LIMIT="30"
 readonly EMERGENCY_SHARED_SUCCESS_LIMIT="3"
@@ -242,8 +245,11 @@ configure_environment() {
 }
 
 acquire_lock() {
+    local wait_seconds="${1:-0}"
     local lock_metadata
+    local lock_status
 
+    [[ "$wait_seconds" =~ ^[0-9]+$ ]] || die "Invalid deployment lock wait interval."
     [[ -d "$STATE_DIRECTORY" ]] || die "Deployment state directory is missing: $STATE_DIRECTORY"
     [[ -f "$DEPLOY_LOCK_FILE" && ! -L "$DEPLOY_LOCK_FILE" ]] \
         || die "Deployment lock is missing or invalid; reinstall the CI operator."
@@ -251,7 +257,19 @@ acquire_lock() {
     [[ "$lock_metadata" == "root:root:600" ]] \
         || die "Unexpected deployment lock ownership or mode: $lock_metadata"
     exec 9>>"$DEPLOY_LOCK_FILE"
-    /usr/bin/flock -n 9 || die "Another $DEPLOY_ENVIRONMENT deployment is already running."
+    if [[ "$wait_seconds" == "0" ]]; then
+        /usr/bin/flock -n 9 || die "Another $DEPLOY_ENVIRONMENT deployment is already running."
+        return 0
+    fi
+
+    if /usr/bin/flock -E "$LOCK_CONTENTION_EXIT_STATUS" -w "$wait_seconds" 9; then
+        return 0
+    else
+        lock_status=$?
+    fi
+    [[ "$lock_status" -eq "$LOCK_CONTENTION_EXIT_STATUS" ]] \
+        || die "Unable to acquire the $DEPLOY_ENVIRONMENT deployment lock."
+    return "$LOCK_CONTENTION_EXIT_STATUS"
 }
 
 current_epoch() {
@@ -1096,6 +1114,14 @@ reconcile_output() {
         "$terminal_reason_json"
 }
 
+lock_deferred_output() {
+    local request_id="$1"
+
+    is_uuid "$request_id" || die "Invalid lock deferral request ID."
+    printf '{"schemaVersion":1,"source":"babyjamjam-db-failover-lock","controlPlaneOk":true,"environment":"%s","requestId":"%s","status":"DEFERRED","reason":"operator_lock_busy","retryAfterSeconds":%s}\n' \
+        "$DEPLOY_ENVIRONMENT" "$request_id" "$DB_RECONCILE_RETRY_AFTER_SECONDS"
+}
+
 clear_transition_metadata() {
     ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE=""
     ROUTE_STATE_TRANSITION_TARGET_ROUTE=""
@@ -1574,10 +1600,20 @@ db_probe() {
 db_reconcile() {
     local request_id="$1"
     local now
+    local lock_status
 
     is_uuid "$request_id" || die "Invalid reconcile request ID."
     RECONCILE_REQUEST_ID="$request_id"
-    acquire_lock
+    if acquire_lock "$DB_RECONCILE_LOCK_WAIT_SECONDS"; then
+        :
+    else
+        lock_status=$?
+        if [[ "$lock_status" -eq "$LOCK_CONTENTION_EXIT_STATUS" ]]; then
+            lock_deferred_output "$request_id"
+            return 0
+        fi
+        return "$lock_status"
+    fi
     ensure_route_state
     load_route_state
     RECONCILE_SHARED_OK=null
