@@ -65,7 +65,10 @@ unavailable or mismatched response.
 
 The receiver is the only principal with `secretsmanager:GetSecretValue`, and
 only for the same-account, same-region secret named by `SentryClientSecretName`.
-The worker has no Secrets Manager, database,
+The receiver has only `dynamodb:GetItem` and `dynamodb:PutItem` on the retained
+state table, with `dynamodb:LeadingKeys` restricted to `replay/*`, so it can
+read and conditionally claim disabled-mode replay fingerprints but cannot touch
+the `db-failover/<environment>` state item. The worker has no Secrets Manager, database,
 Lightsail, deploy-document, document-mutation, or arbitrary-shell permission.
 
 ## Receiver contract
@@ -74,8 +77,14 @@ The receiver deliberately keeps its Lambda/API Gateway path small:
 
 1. Require an unparsed string body. Decode API Gateway base64 only when the
    proxy flag says it is encoded, then reject the decoded body above 64 KiB.
-2. Require `Sentry-Hook-Timestamp` and reject an absolute age above five
-   minutes. The raw body is the exact HMAC input.
+2. Require and parse `Sentry-Hook-Timestamp`, but treat it only as unsigned
+   transport sanity. The signed body must provide exactly one current-event
+   time from `data.metric_alert.date_detected`, falling back only to
+   `date_started` and then `date_created` when an earlier field is absent. Both
+   the signed provider time and the header must be within five minutes of
+   receipt, and they must agree within that tolerance. A fresh replacement
+   header cannot make a stale signed body fresh. The raw body is the exact HMAC
+   input; the header is never added to the HMAC input.
 3. Compute HMAC-SHA256 with the Secrets Manager client secret and compare the
    32-byte digest with `Sentry-Hook-Signature` using a fixed-size
    `timingSafeEqual` comparison. Missing, malformed, or tampered signatures are
@@ -104,22 +113,28 @@ The receiver deliberately keeps its Lambda/API Gateway path small:
    application remains authoritative for the P1001/P1017-only
    `db.failover_eligible` tag taxonomy. The receiver does not require or trust
    an individual Prisma `issueCode` or a `route` field in the webhook body.
-   `Sentry-Hook-Timestamp` freshness is checked independently; the timestamp
-   header is not assumed to be covered by the raw-body HMAC.
-6. Send a FIFO message before returning `202`. The message contains only the
+   The signed provider time and durable replay record are the freshness and
+   replay authorities; `Sentry-Hook-Timestamp` is not assumed to be covered by
+   the raw-body HMAC.
+6. When the kill switch is disabled, conditionally persist the authenticated
+   body fingerprint in the retained table before returning `202`; duplicate
+   conditional claims are idempotent. When enabled, read that same replay
+   namespace before queueing and ignore a fingerprint already recorded while
+   disabled. Otherwise send a FIFO message before returning `202`. The message contains only the
    body-derived SHA-256 fingerprint, the fixed `db_failover` signal with
    `failoverEligible=true`, allowlisted alert fields, timestamps, and a request
    ID for correlation. It never contains the raw body, secret, DB URL, DB host,
    or shell text. The body fingerprint is the FIFO deduplication ID.
 
 The receiver has one 750 ms end-to-end deadline from handler entry through raw
-body decoding, secret retrieval, authentication, allowlists, and durable SQS
-enqueue. Remaining budget is passed as an abort signal to Secrets Manager and
-SQS; a deadline returns generic `504`, while other secret or queue failures
-return generic `503`. A successful durable enqueue returns `202`; invalid input
-returns `4xx`. A valid event while the kill switch is off is acknowledged with
-`202` and is not queued, avoiding Sentry retries while the stack is
-intentionally disabled.
+body decoding, secret retrieval, authentication, allowlists, durable replay
+read/claim, and durable SQS enqueue. Remaining budget is passed as an abort
+signal to Secrets Manager, DynamoDB, and SQS; a deadline returns generic `504`,
+while other secret, replay-store, or queue failures return generic `503`. A
+successful durable enqueue or duplicate disabled replay claim returns `202`;
+invalid input returns `4xx`. A valid event while the kill switch is off is
+durably recorded and acknowledged with `202` without being queued, avoiding
+Sentry retries while the stack is intentionally disabled.
 
 Unexpected receiver failures are converted to a generic `503` response with no
 internal detail. The API Gateway `5XXError` alarm uses the stable API name
@@ -137,11 +152,14 @@ The worker uses a conditional DynamoDB lease. A competing invocation returns an
 SQS partial-batch failure so the FIFO message can be retried; an expired lease
 can be claimed by the next invocation. State writes are conditional on both
 `generation` and lease owner. Each authenticated body fingerprint is stored as
-one separate item in the existing state table with no TTL. The fingerprint item
-and the mirrored state update are written together with DynamoDB
-`TransactWriteItems`; a failed transaction leaves neither durable claim nor
-state update. The body-derived fingerprint is the replay authority. FIFO
-deduplication and request IDs are only optimization/correlation metadata.
+one separate item in the existing state table with no TTL. A disabled receiver
+claim is a standalone conditional `PutItem`; an enabled receiver performs only
+a consistent `GetItem` before queueing and never pre-claims a legitimate
+enabled message. The worker's fingerprint item and mirrored state update are
+written together with DynamoDB `TransactWriteItems`; a failed transaction leaves
+neither durable claim nor state update. The body-derived fingerprint is the
+replay authority. FIFO deduplication and request IDs are only
+optimization/correlation metadata.
 
 The state record includes these operational fields:
 

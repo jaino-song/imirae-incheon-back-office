@@ -5,13 +5,15 @@ import {
   FAILOVER_SIGNAL_CLASS,
   RECEIVER_DEADLINE_MS,
   RECEIVER_QUEUE_TIMEOUT_MS,
+  WEBHOOK_TIMESTAMP_TOLERANCE_MS,
   safeLog,
 } from './constants.mjs';
 import {
   WebhookValidationError,
   extractRawBody,
-  getEventTimestamp,
+  getHookTimestamp,
   getRequestHeader,
+  getSignedEventTimestamp,
   isAllowedSentryEvent,
   isSafeIdentifier,
   isTimestampFresh,
@@ -20,6 +22,7 @@ import {
   readReceiverConfig,
   verifySignature,
 } from './security.mjs';
+import { createDynamoReplayStore } from './state-store.mjs';
 
 function response(statusCode, body = {}) {
   return {
@@ -144,6 +147,7 @@ export function createReceiverHandler({
   config = readReceiverConfig(),
   getClientSecret,
   sendMessage,
+  replayStore,
   queueUrl = process.env.FAILOVER_QUEUE_URL,
   now = () => Date.now(),
   idFactory = randomUUID,
@@ -154,6 +158,13 @@ export function createReceiverHandler({
 } = {}) {
   if (typeof getClientSecret !== 'function') throw new TypeError('getClientSecret is required');
   if (typeof sendMessage !== 'function') throw new TypeError('sendMessage is required');
+  if (
+    !replayStore
+    || typeof replayStore.hasProcessedFingerprint !== 'function'
+    || typeof replayStore.claimReplayFingerprint !== 'function'
+  ) {
+    throw new TypeError('replay store is required');
+  }
   const defaults = readReceiverConfig();
   const effectiveConfig = {
     ...defaults,
@@ -265,20 +276,18 @@ export function createReceiverHandler({
       safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'timestamp_required' });
       return response(401, { accepted: false });
     }
-    const timestampMs = getEventTimestamp(payload, event?.headers);
+    const headerTimestampMs = getHookTimestamp(event?.headers);
     try {
       ensureBudget();
     } catch {
       safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
       return response(504, { accepted: false });
     }
-    if (!isTimestampFresh(timestampMs, receivedAt)) {
-      safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'stale_timestamp' });
+    if (!isTimestampFresh(headerTimestampMs, receivedAt)) {
+      safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'stale_header_timestamp' });
       return response(401, { accepted: false });
     }
-
     const normalized = normalizeSentryEvent(payload, rawBody);
-    normalized.timestamp = timestampMs;
     normalized.eventAt = normalized.signedTimestamp;
     try {
       ensureBudget();
@@ -307,9 +316,55 @@ export function createReceiverHandler({
       return response(202, { accepted: false });
     }
 
-    if (!effectiveConfig.enabled) {
-      safeLog(logger, 'info', 'sentry_webhook_disabled', { requestId });
-      return response(202, { accepted: false });
+    const signedTimestampMs = getSignedEventTimestamp(payload);
+    if (!isTimestampFresh(signedTimestampMs, receivedAt)) {
+      safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'stale_event_timestamp' });
+      return response(401, { accepted: false });
+    }
+    if (Math.abs(headerTimestampMs - signedTimestampMs) > WEBHOOK_TIMESTAMP_TOLERANCE_MS) {
+      safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'timestamp_mismatch' });
+      return response(401, { accepted: false });
+    }
+    normalized.timestamp = signedTimestampMs;
+
+    try {
+      ensureBudget();
+      const replayCheckBudget = remainingMs();
+      if (effectiveConfig.enabled) {
+        const alreadyRecorded = await withRemainingBudget(
+          () => replayStore.hasProcessedFingerprint(normalized.bodyFingerprint, {
+            abortSignal: deadlineController.signal,
+            remainingMs: replayCheckBudget,
+          }),
+          { controller: deadlineController, remainingMs: replayCheckBudget },
+        );
+        ensureBudget();
+        if (alreadyRecorded) {
+          safeLog(logger, 'info', 'sentry_webhook_ignored', { requestId, reason: 'duplicate_event' });
+          return response(202, { accepted: false });
+        }
+      } else {
+        const recorded = await withRemainingBudget(
+          () => replayStore.claimReplayFingerprint(normalized.bodyFingerprint, {
+            abortSignal: deadlineController.signal,
+            remainingMs: replayCheckBudget,
+          }),
+          { controller: deadlineController, remainingMs: replayCheckBudget },
+        );
+        ensureBudget();
+        safeLog(logger, 'info', 'sentry_webhook_disabled', {
+          requestId,
+          replayRecorded: recorded === true,
+        });
+        return response(202, { accepted: false });
+      }
+    } catch (error) {
+      if (isDeadlineExceeded(error, deadlineController)) {
+        safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+        return response(504, { accepted: false });
+      }
+      safeLog(logger, 'error', 'sentry_replay_store_failed', { requestId });
+      return response(503, { accepted: false });
     }
 
     if (typeof queueUrl !== 'string' || queueUrl.length === 0) {
@@ -368,20 +423,31 @@ export function createReceiverHandler({
 }
 
 async function createDefaultReceiverHandler({ signal } = {}) {
-  const [{ SQSClient, SendMessageCommand }, { SecretsManagerClient, GetSecretValueCommand }] = await Promise.all([
+  const [
+    { SQSClient, SendMessageCommand },
+    { SecretsManagerClient, GetSecretValueCommand },
+    { DynamoDBClient, GetItemCommand, PutItemCommand },
+  ] = await Promise.all([
     import('@aws-sdk/client-sqs'),
     import('@aws-sdk/client-secrets-manager'),
+    import('@aws-sdk/client-dynamodb'),
   ]);
   if (signal?.aborted) throw new ReceiverDeadlineError();
   const sqs = new SQSClient({});
   if (signal?.aborted) throw new ReceiverDeadlineError();
   const secrets = new SecretsManagerClient({});
   if (signal?.aborted) throw new ReceiverDeadlineError();
+  const replayStore = createDynamoReplayStore({
+    client: new DynamoDBClient({}),
+    commands: { GetItemCommand, PutItemCommand },
+    tableName: process.env.FAILOVER_STATE_TABLE_NAME,
+  });
   const secretName = process.env.SENTRY_CLIENT_SECRET_NAME;
   const queueUrl = process.env.FAILOVER_QUEUE_URL;
   let cachedSecret;
   let cachedSecretExpiresAt = 0;
   return createReceiverHandler({
+    replayStore,
     queueUrl,
     getClientSecret: async ({ signal } = {}) => {
       const now = Date.now();

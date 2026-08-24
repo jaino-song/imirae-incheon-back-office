@@ -102,6 +102,32 @@ recovery and switching phases, stale-transition compensation, and emergency
 Direct-to-Shared recovery. The host operator reads only the root-owned route
 state and existing environment secrets.
 
+### Sentry freshness and disabled-mode replay
+
+The receiver preserves Sentry compatibility by calculating HMAC-SHA256 over
+the raw request body only. `Sentry-Hook-Timestamp` is an unsigned transport
+sanity signal, not a cryptographic freshness authority. The receiver requires
+the signed metric-alert body to contain a current-event time at
+`data.metric_alert.date_detected`, with the exact fallbacks
+`date_started` and `date_created` only when an earlier field is absent. The
+selected signed provider time and the header must each be parseable and within
+the existing five-minute receipt tolerance, and must agree within that same
+tolerance. A changed or future header therefore cannot make a stale signed
+body eligible.
+
+Before acknowledging an eligible delivery while `FAILOVER_ENABLED=false`, the
+receiver conditionally records the body SHA-256 fingerprint as
+`replay/<fingerprint>` in the retained per-environment DynamoDB table. Its role
+allows only `GetItem` and `PutItem` with `dynamodb:LeadingKeys` restricted to
+`replay/*`, excluding the `db-failover/<environment>` state item. A duplicate
+conditional claim is an idempotent `202`; a replay-store failure is a sanitized
+`5xx`. When enabled, the receiver performs a consistent read of that namespace
+before queueing and ignores a body already recorded while disabled. It does not
+claim enabled messages, so SQS durable-before-`202`, FIFO deduplication, and the
+worker's lease-bound transactional replay claim remain unchanged. The
+fingerprint is the replay authority; request IDs and the unsigned header are
+not.
+
 ### Detection and probe policy
 
 The normal route is Shared and the emergency route is Direct. The approved

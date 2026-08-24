@@ -181,6 +181,16 @@ Resources:
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SentryClientSecretName}-??????
+              - Sid: ReadWriteOnlyDisabledReplayFingerprints
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !GetAtt FailoverStateTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys:
+                      - replay/*
 
   WorkerRole:
     Type: AWS::IAM::Role
@@ -263,6 +273,7 @@ Resources:
       Environment:
         Variables:
           FAILOVER_QUEUE_URL: !Ref FailoverQueue
+          FAILOVER_STATE_TABLE_NAME: !Ref FailoverStateTable
           SENTRY_CLIENT_SECRET_NAME: !Ref SentryClientSecretName
       Events:
         SentryWebhook:
