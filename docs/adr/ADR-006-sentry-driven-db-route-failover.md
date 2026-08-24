@@ -21,8 +21,11 @@ An automatic route change is a production control-plane operation. An
 individual Sentry event must not mutate a database route: events can be
 duplicated, delayed, or resolved without proving that the failed route has
 recovered. Sentry therefore supplies an authenticated signal to an external
-reconciler, while the reconciler owns durable state, probes both routes, and
-serializes the host-level environment change.
+reconciler, while the Lightsail host operator owns the authoritative runtime,
+phase, counter, and transition policy. The fixed SSM document accepts only the
+environment selected by its document identity and an opaque request UUID. The
+external reconciler/DynamoDB record validates and mirrors the host's complete
+safe result; it never independently chooses or commands a route.
 
 ## Decision
 
@@ -44,8 +47,9 @@ serializes the host-level environment change.
 
 ### State machine and ownership
 
-The reconciler persists one state record per environment and allows only the
-following active phases:
+The host operator persists one authoritative root-owned state record per
+environment, and the external reconciler keeps a validated DynamoDB mirror.
+The host allows only the following active phases:
 
 ```text
 SHARED_ACTIVE
@@ -62,22 +66,30 @@ passed the required probe or the transition budget is exhausted. `DEGRADED`
 means that a route change was attempted but its compensating restoration also
 failed. Neither state starts an unbounded restart loop.
 
-The state record contains:
+The root-owned host state record is format version 2 and contains:
 
-- `generation` for stale-event and stale-command rejection;
+- `generation` for stale-event and stale-command rejection. The host advances
+  it exactly once for every new reconcile request UUID, including healthy,
+  no-switch, and terminal outcomes. A duplicate UUID returns the persisted
+  generation and result without reapplying counters or route operations;
 - `phase` and the active route;
-- transition lease expiry;
-- the most recent Sentry request ID;
+- persisted previous/target route, transition start, and transition generation;
+- the most recent reconcile request ID and the last safe probe booleans;
 - Direct activation time;
-- the beginning of the current continuous Shared-health interval;
+- the beginning and last accepted sample of the current continuous Shared
+  health interval;
 - cooldown expiry;
-- the count of normal route transitions in the preceding six hours; and
-- the SSM command ID.
+- a rolling timestamp history of normal Shared-to-Direct starts; and
+- bounded probe counters and the terminal reason.
 
 Conditional state updates and the existing environment `operator.lock` make a
-transition single-owner and idempotent. Sentry wakes reconciliation; it never
-selects, writes, or commands a route. The host operator reads only the
-root-owned route state and existing environment secrets.
+transition single-owner and idempotent. A v1 or malformed state file is
+rejected; no implicit migration can reinterpret the old fixed-bucket fields.
+Every reconcile outcome is one single-line versioned JSON envelope containing
+only safe route, phase, counter, timestamp, transition, and request fields.
+Sentry wakes reconciliation; it never selects, writes, or commands a route.
+The host operator reads only the root-owned route state and existing
+environment secrets.
 
 ### Detection and probe policy
 
@@ -93,11 +105,19 @@ thresholds are fixed:
 - Each probe is read-only, uses `SELECT 1`, sets `connection_limit=1`, and has
   a five-second timeout.
 - Direct must remain active for at least one hour before ordinary failback.
-- Shared failback requires thirty consecutive successful probes at one-minute
-  intervals (thirty minutes of continuous evidence). A timeout, failure, or
-  excessive probe gap resets the continuous interval.
-- Within any six-hour window, at most two normal failover/failback round trips
-  are allowed. A third normal transition enters `BLOCKED`.
+- Shared recovery evidence accepts only 45-90 second gaps. A faster call is a
+  duplicate and does not increment the count; a gap above 90 seconds resets the
+  interval to one. Ordinary failback requires thirty accepted successful
+  probes and at least 1740 seconds between the first and last accepted sample,
+  in addition to the one-hour Direct hold.
+- A host route cooldown of 300 seconds is persisted after a successful route
+  switch. A normal new Shared-to-Direct failover cannot start during cooldown;
+  emergency Direct-to-Shared recovery bypasses both cooldown and the Direct
+  minimum hold.
+- The host prunes normal failover start timestamps against the inclusive
+  `now-21600` cutoff. Before a normal Shared-to-Direct failover, two remaining
+  timestamps block the attempt; otherwise the current timestamp is appended.
+  A third normal failover in the preceding six-hour history enters `BLOCKED`.
 
 Sentry `resolved` status is only a reconciliation hint. It is never proof that
 Shared is healthy. Shared recovery is proved by the independent probes issued
@@ -110,10 +130,13 @@ restarting the application.
 
 Each route change is a compensating operation:
 
-1. Acquire the per-environment lease and existing operator lock; reject stale
-   generations or an active competing transition.
-2. Update the phase to the corresponding `SWITCHING_*` phase and record the
-   request/command identity without recording a URL.
+1. Acquire the existing per-environment operator lock; the external
+   reconciler's lease and the host generation reject stale or competing
+   requests.
+2. Persist the phase to the corresponding `SWITCHING_*` phase, previous and
+   target route, transition start, and transition generation before any
+   recreation. No URL, host, image reference, or shell output is part of the
+   state or response envelope.
 3. Change only the API container's route mode, then recreate it with the same
    image and digest using `--no-deps --force-recreate`. A process restart is
    insufficient because Prisma resolves its URL when the process is created.
@@ -123,6 +146,16 @@ Each route change is a compensating operation:
 5. On failure, restore the previous mode, recreate the API container, and probe
    the previous route. If compensation fails, persist `DEGRADED`; do not keep
    retrying restarts.
+
+If the process is interrupted while a `SWITCHING_*` record is persisted, the
+next request performs one bounded compensation under the shared deploy lock.
+It validates the transition metadata, restores/recreates the persisted
+previous route, and reruns the full runtime, readiness, scheduler, and digest
+invariants. Successful restoration clears the transition and emits
+`stale_transition_compensated`; a failed restoration clears the transition and
+persists terminal `DEGRADED` with
+`stale_transition_compensation_failed`. The target route is never promoted
+from state alone, and a terminal result does not start a restart loop.
 
 Preview keeps scheduler ownership disabled; Production keeps its existing
 single scheduler owner enabled. The route state is not considered active until
