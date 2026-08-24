@@ -1,0 +1,228 @@
+name: Database failover control plane
+
+on:
+  pull_request:
+    paths:
+      - 'backend/deploy/lightsail/sentry-db-failover/**'
+      - 'backend/deploy/lightsail/SENTRY_DB_FAILOVER.md'
+      - '.github/workflows/db-failover-infra.yml'
+  push:
+    branches: [main, dev, preview]
+    paths:
+      - 'backend/deploy/lightsail/sentry-db-failover/**'
+      - 'backend/deploy/lightsail/SENTRY_DB_FAILOVER.md'
+      - '.github/workflows/db-failover-infra.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected environment to deploy after validation
+        type: choice
+        required: true
+        default: preview
+        options: [preview, production]
+      enable_deploy:
+        description: Explicitly permit SAM deployment (default remains validation only)
+        type: boolean
+        required: true
+        default: false
+      enable_failover:
+        description: Explicitly turn on the failover kill switch in the deployed stack
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-failover-infra-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONTROL_PLANE_DIR: backend/deploy/lightsail/sentry-db-failover
+  AWS_REGION: ap-northeast-2
+
+jobs:
+  validate-build-package:
+    name: validate, test, build, and package SAM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
+      SAM_PACKAGE_ROLE_ARN: ${{ vars.AWS_FAILOVER_PACKAGE_ROLE_ARN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Run dependency-free control-plane tests
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        run: node --test test/*.test.mjs
+
+      - name: Require AWS SAM CLI
+        run: |
+          set -euo pipefail
+          command -v sam
+          sam --version
+
+      - name: Validate SAM template with lint
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        run: sam validate --lint --template-file template.yaml
+
+      - name: Build SAM artifacts
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        run: sam build --template-file template.yaml --cached --parallel
+
+      - name: Authenticate package-only AWS session
+        if: github.event_name != 'pull_request' && env.SAM_PACKAGE_BUCKET != '' && env.SAM_PACKAGE_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ env.SAM_PACKAGE_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Package SAM artifacts without deployment
+        if: github.event_name != 'pull_request' && env.SAM_PACKAGE_BUCKET != '' && env.SAM_PACKAGE_ROLE_ARN != ''
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        env:
+          PACKAGED_TEMPLATE: ${{ runner.temp }}/db-failover-packaged.yaml
+        run: >-
+          sam package
+          --template-file .aws-sam/build/template.yaml
+          --s3-bucket "$SAM_PACKAGE_BUCKET"
+          --output-template-file "$PACKAGED_TEMPLATE"
+
+      - name: Report missing package-only configuration
+        if: env.SAM_PACKAGE_BUCKET == '' || env.SAM_PACKAGE_ROLE_ARN == ''
+        run: |
+          echo 'SAM_PACKAGE_BUCKET and AWS_FAILOVER_PACKAGE_ROLE_ARN repository variables are required for the package upload gate.' >&2
+          echo 'Validation and build completed; no deploy or package upload was attempted.'
+
+  deploy-preview:
+    name: deploy failover control plane · preview
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.enable_deploy == true &&
+      inputs.enable_failover == true &&
+      inputs.environment == 'preview'
+    needs: validate-build-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: preview
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      STACK_NAME: babyjamjam-preview-db-failover
+      AWS_ROLE_ARN: ${{ vars.AWS_FAILOVER_PREVIEW_ROLE_ARN }}
+      SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
+      SENTRY_CLIENT_SECRET_ARN: ${{ secrets.SENTRY_CLIENT_SECRET_ARN }}
+      SENTRY_INSTALLATION_ID: ${{ vars.SENTRY_INSTALLATION_ID }}
+      SENTRY_ORGANIZATION_ID: ${{ vars.SENTRY_ORGANIZATION_ID }}
+      SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
+      SENTRY_RULE_IDS: ${{ vars.SENTRY_RULE_IDS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - name: Authenticate to the protected preview environment
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+      - name: Build and deploy preview stack
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        run: |
+          set -euo pipefail
+          sam build --template-file template.yaml --cached --parallel
+          sam deploy \
+            --template-file .aws-sam/build/template.yaml \
+            --stack-name "$STACK_NAME" \
+            --s3-bucket "$SAM_PACKAGE_BUCKET" \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              EnvironmentType=preview \
+              EnableFailover=true \
+              SentryClientSecretArn="$SENTRY_CLIENT_SECRET_ARN" \
+              SentryInstallationId="$SENTRY_INSTALLATION_ID" \
+              SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \
+              SentryProjectId="$SENTRY_PROJECT_ID" \
+              SentryRuleIds="$SENTRY_RULE_IDS"
+
+  deploy-production:
+    name: deploy failover control plane · production
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.enable_deploy == true &&
+      inputs.enable_failover == true &&
+      inputs.environment == 'production'
+    needs: validate-build-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      STACK_NAME: babyjamjam-production-db-failover
+      AWS_ROLE_ARN: ${{ vars.AWS_FAILOVER_PRODUCTION_ROLE_ARN }}
+      SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
+      SENTRY_CLIENT_SECRET_ARN: ${{ secrets.SENTRY_CLIENT_SECRET_ARN }}
+      SENTRY_INSTALLATION_ID: ${{ vars.SENTRY_INSTALLATION_ID }}
+      SENTRY_ORGANIZATION_ID: ${{ vars.SENTRY_ORGANIZATION_ID }}
+      SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
+      SENTRY_RULE_IDS: ${{ vars.SENTRY_RULE_IDS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - name: Authenticate to the protected production environment
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+      - name: Build and deploy production stack
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        run: |
+          set -euo pipefail
+          sam build --template-file template.yaml --cached --parallel
+          sam deploy \
+            --template-file .aws-sam/build/template.yaml \
+            --stack-name "$STACK_NAME" \
+            --s3-bucket "$SAM_PACKAGE_BUCKET" \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              EnvironmentType=production \
+              EnableFailover=true \
+              SentryClientSecretArn="$SENTRY_CLIENT_SECRET_ARN" \
+              SentryInstallationId="$SENTRY_INSTALLATION_ID" \
+              SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \
+              SentryProjectId="$SENTRY_PROJECT_ID" \
+              SentryRuleIds="$SENTRY_RULE_IDS"
