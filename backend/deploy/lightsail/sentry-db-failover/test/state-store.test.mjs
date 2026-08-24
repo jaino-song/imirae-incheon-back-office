@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { createInitialState } from '../src/constants.mjs';
 import {
+  createDynamoReplayStore,
   createDynamoStateStore,
   createMemoryStateStore,
   marshallItem,
@@ -151,6 +152,42 @@ test('Dynamo replay claim and mirrored state are one transaction with no TTL', a
   assert.match(transaction.input.TransactItems[1].Put.ConditionExpression, /attribute_not_exists/);
   assert.equal('ttl' in transaction.input.TransactItems[1].Put.Item, false);
   assert.equal(transaction.input.TransactItems[1].Put.Item.replayFingerprint.S, fingerprint);
+});
+
+test('Dynamo disabled replay claim uses only conditional GetItem/PutItem and stores no payload metadata', async () => {
+  const fingerprint = 'd'.repeat(64);
+  const calls = [];
+  let item;
+  const client = {
+    async send(command) {
+      calls.push(command);
+      if (command instanceof GetItemCommand) return { Item: item };
+      if (command instanceof PutItemCommand) {
+        if (item) throw Object.assign(new Error('duplicate'), { name: 'ConditionalCheckFailedException' });
+        item = command.input.Item;
+        return {};
+      }
+      throw new Error('unexpected command');
+    },
+  };
+  const store = createDynamoReplayStore({
+    client,
+    commands: commands(),
+    tableName: 'state-table',
+  });
+
+  assert.equal(await store.claimReplayFingerprint(fingerprint), true);
+  assert.equal(await store.claimReplayFingerprint(fingerprint), false);
+  assert.equal(await store.hasProcessedFingerprint(fingerprint), true);
+  const put = calls.find((call) => call instanceof PutItemCommand);
+  assert.equal(put.input.TableName, 'state-table');
+  assert.equal(put.input.Item.stateKey.S, `replay/${fingerprint}`);
+  assert.equal(put.input.Item.replayFingerprint.S, fingerprint);
+  assert.equal('ttl' in put.input.Item, false);
+  assert.deepEqual(Object.keys(put.input.Item).sort(), ['replayFingerprint', 'stateKey']);
+  assert.match(put.input.ConditionExpression, /attribute_not_exists/);
+  assert.equal(calls.filter((call) => call instanceof UpdateItemCommand).length, 0);
+  assert.equal(calls.filter((call) => call instanceof TransactWriteItemsCommand).length, 0);
 });
 
 test('Dynamo replay transaction cancellation distinguishes duplicate claims from retryable state races', async () => {

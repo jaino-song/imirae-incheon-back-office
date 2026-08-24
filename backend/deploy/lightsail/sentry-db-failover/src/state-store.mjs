@@ -73,6 +73,47 @@ function isConditionalFailure(error) {
     || error?.code === 'ConditionalCheckFailedException';
 }
 
+function createReplayStoreMethods({ client, commands, tableName }) {
+  async function hasProcessedFingerprint(fingerprint, { abortSignal } = {}) {
+    const response = await client.send(new commands.GetItemCommand({
+      TableName: tableName,
+      Key: { stateKey: { S: replayStateKey(fingerprint) } },
+      ConsistentRead: true,
+    }), { abortSignal });
+    return Boolean(response.Item);
+  }
+
+  async function claimReplayFingerprint(fingerprint, { abortSignal } = {}) {
+    const normalizedFingerprint = fingerprint.toLowerCase();
+    try {
+      await client.send(new commands.PutItemCommand({
+        TableName: tableName,
+        Item: {
+          stateKey: { S: replayStateKey(normalizedFingerprint) },
+          replayFingerprint: { S: normalizedFingerprint },
+        },
+        ConditionExpression: 'attribute_not_exists(#stateKey)',
+        ExpressionAttributeNames: { '#stateKey': 'stateKey' },
+      }), { abortSignal });
+      return true;
+    } catch (error) {
+      if (isConditionalFailure(error)) return false;
+      throw error;
+    }
+  }
+
+  return { hasProcessedFingerprint, claimReplayFingerprint };
+}
+
+export function createDynamoReplayStore({ client, commands, tableName }) {
+  if (!client || typeof client.send !== 'function') throw new TypeError('DynamoDB client is required');
+  if (!commands?.GetItemCommand || !commands?.PutItemCommand) {
+    throw new TypeError('DynamoDB replay command constructors are required');
+  }
+  if (!tableName) throw new TypeError('state table name is required');
+  return createReplayStoreMethods({ client, commands, tableName });
+}
+
 export function createDynamoStateStore({ client, commands, tableName, stateKey }) {
   if (!client || typeof client.send !== 'function') throw new TypeError('DynamoDB client is required');
   if (
@@ -86,6 +127,7 @@ export function createDynamoStateStore({ client, commands, tableName, stateKey }
   if (!tableName || !stateKey) throw new TypeError('state table name and key are required');
 
   const key = { stateKey: { S: stateKey } };
+  const replayStore = createReplayStoreMethods({ client, commands, tableName });
 
   async function getByKey(itemKey) {
     const response = await client.send(new commands.GetItemCommand({
@@ -100,8 +142,12 @@ export function createDynamoStateStore({ client, commands, tableName, stateKey }
     return getByKey(stateKey);
   }
 
-  async function hasProcessedFingerprint(fingerprint) {
-    return Boolean(await getByKey(replayStateKey(fingerprint)));
+  async function hasProcessedFingerprint(fingerprint, options) {
+    return replayStore.hasProcessedFingerprint(fingerprint, options);
+  }
+
+  async function claimReplayFingerprint(fingerprint, options) {
+    return replayStore.claimReplayFingerprint(fingerprint, options);
   }
 
   async function acquireLease({ owner, now, leaseMs }) {
@@ -260,6 +306,7 @@ export function createDynamoStateStore({ client, commands, tableName, stateKey }
   return {
     get,
     hasProcessedFingerprint,
+    claimReplayFingerprint,
     acquireLease,
     save,
     saveAndMarkFingerprint,
@@ -306,6 +353,12 @@ export function createMemoryStateStore({ initialState, now = Date.now() } = {}) 
     async hasProcessedFingerprint(fingerprint) {
       const key = replayStateKey(fingerprint);
       return replayFingerprints.has(key.slice('replay/'.length));
+    },
+    async claimReplayFingerprint(fingerprint) {
+      const normalizedFingerprint = replayStateKey(fingerprint).slice('replay/'.length);
+      if (replayFingerprints.has(normalizedFingerprint)) return false;
+      replayFingerprints.add(normalizedFingerprint);
+      return true;
     },
     async saveAndMarkFingerprint(
       state,

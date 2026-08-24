@@ -60,14 +60,27 @@ test('SAM control-plane package metadata is npm-pack compatible for Node.js 22',
   assert.equal(packageMetadata.engines?.node, '>=22');
 });
 
-test('receiver IAM can enqueue and read only the configured Sentry secret', () => {
+test('receiver IAM can enqueue, read the secret, and claim only durable replay fingerprints', () => {
   const receiver = section('ReceiverRole', 'WorkerRole');
   assert.match(receiver, /sqs:SendMessage/);
   assert.match(receiver, /Resource: !GetAtt FailoverQueue\.Arn/);
   assert.match(receiver, /secretsmanager:GetSecretValue/);
   assert.match(receiver, /Resource: !Sub arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:\$\{SentryClientSecretName\}-\?\?\?\?\?\?/);
+  assert.match(receiver, /dynamodb:GetItem/);
+  assert.match(receiver, /dynamodb:PutItem/);
+  assert.match(receiver, /Resource: !GetAtt FailoverStateTable\.Arn/);
+  const replayAccess = receiver
+    .split(/\n\s+- Sid: /)
+    .find((statement) => statement.includes('ReadWriteOnlyDisabledReplayFingerprints'));
+  assert.ok(replayAccess, 'receiver replay access statement is present');
+  assert.match(
+    replayAccess,
+    /Condition:\s*\n\s+ForAllValues:StringLike:\s*\n\s+dynamodb:LeadingKeys:\s*\n\s+- replay\/\*/,
+  );
+  assert.doesNotMatch(replayAccess, /db-failover\/(?:preview|production)/);
+  assert.doesNotMatch(receiver, /dynamodb:UpdateItem/);
+  assert.doesNotMatch(receiver, /dynamodb:TransactWriteItems/);
   assert.doesNotMatch(receiver, /ssm:SendCommand/);
-  assert.doesNotMatch(receiver, /dynamodb:/);
 });
 
 test('worker IAM is restricted to state, fixed SSM invocation, status read, and logs', () => {
@@ -102,6 +115,7 @@ test('worker Lambda has no Sentry secret environment variable', () => {
   const receiver = section('ReceiverFunction', 'WorkerFunction');
   const worker = section('WorkerFunction', 'ReceiverErrorsAlarm');
   assert.match(receiver, /SENTRY_CLIENT_SECRET_NAME: !Ref SentryClientSecretName/);
+  assert.match(receiver, /FAILOVER_STATE_TABLE_NAME: !Ref FailoverStateTable/);
   assert.doesNotMatch(receiver, /SENTRY_CLIENT_SECRET_ARN/);
   assert.doesNotMatch(worker, /SENTRY_CLIENT_SECRET_ARN/);
   assert.match(worker, /FAILOVER_DOCUMENT_ARN:/);

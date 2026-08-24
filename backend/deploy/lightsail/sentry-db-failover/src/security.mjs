@@ -19,6 +19,11 @@ const TIMESTAMP_HEADERS = Object.freeze([
   'sentry-hook-timestamp',
   'x-sentry-hook-timestamp',
 ]);
+const SIGNED_EVENT_TIMESTAMP_PATHS = Object.freeze([
+  ['data', 'metric_alert', 'date_detected'],
+  ['data', 'metric_alert', 'date_started'],
+  ['data', 'metric_alert', 'date_created'],
+]);
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 const EXACT_FAILOVER_QUERIES = new Set([
@@ -123,11 +128,13 @@ function readPath(object, path) {
   return value;
 }
 
-function firstString(object, paths) {
+function firstTimestampValue(object, paths) {
   for (const path of paths) {
     const value = readPath(object, path);
+    if (value === undefined || value === null) continue;
     if (typeof value === 'string' && value.trim()) return value.trim();
     if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return undefined;
   }
   return undefined;
 }
@@ -196,11 +203,7 @@ export function normalizeSentryEvent(payload, rawBody) {
   const timeWindow = consistentScopeValue(scopeObjects, 'time_window');
   const triggers = consistentScopeArray(scopeObjects, 'triggers');
   const bodyFingerprint = createHash('sha256').update(rawBody).digest('hex');
-  const signedTimestamp = firstString(payload, [
-    ['timestamp'],
-    ['sent_at'],
-    ['sentAt'],
-  ]);
+  const signedTimestamp = firstTimestampValue(payload, SIGNED_EVENT_TIMESTAMP_PATHS);
 
   return {
     eventId: bodyFingerprint,
@@ -235,17 +238,15 @@ export function parseTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : NaN;
 }
 
-export function getEventTimestamp(payload, headers) {
+export function getSignedEventTimestamp(payload) {
+  return parseTimestamp(firstTimestampValue(payload, SIGNED_EVENT_TIMESTAMP_PATHS));
+}
+
+export function getHookTimestamp(headers) {
   const headerValue = TIMESTAMP_HEADERS
     .map((name) => getHeader(headers, name))
     .find((value) => typeof value === 'string' && value.trim());
-  const payloadValue = firstString(payload, [
-    ['timestamp'],
-    ['sent_at'],
-    ['sentAt'],
-    ['data', 'timestamp'],
-  ]);
-  return parseTimestamp(headerValue ?? payloadValue);
+  return parseTimestamp(headerValue);
 }
 
 export function isTimestampFresh(timestampMs, nowMs = Date.now()) {

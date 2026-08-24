@@ -42,6 +42,7 @@ function payload({ metricAlert = {}, alertRule = {}, installation = {}, ...overr
         id: 'metric-alert-1',
         organization_id: 'org-1',
         projects: [{ id: 'project-1' }],
+        date_detected: new Date(NOW).toISOString(),
         alert_rule: {
           id: 'rule-1',
           organization_id: 'org-1',
@@ -57,6 +58,20 @@ function payload({ metricAlert = {}, alertRule = {}, installation = {}, ...overr
       },
     },
     ...overrides,
+  };
+}
+
+function createMemoryReplayStore() {
+  const fingerprints = new Set();
+  return {
+    async hasProcessedFingerprint(fingerprint) {
+      return fingerprints.has(fingerprint);
+    },
+    async claimReplayFingerprint(fingerprint) {
+      if (fingerprints.has(fingerprint)) return false;
+      fingerprints.add(fingerprint);
+      return true;
+    },
   };
 }
 
@@ -78,10 +93,15 @@ function request(body, { headers = {}, signature, ...overrides } = {}) {
   };
 }
 
-function createHarness({ sendMessage = async () => {}, handlerConfig = config() } = {}) {
+function createHarness({
+  sendMessage = async () => {},
+  handlerConfig = config(),
+  replayStore = createMemoryReplayStore(),
+} = {}) {
   const calls = [];
   const handler = createReceiverHandler({
     config: handlerConfig,
+    replayStore,
     queueUrl: 'https://sqs.example.invalid/failover.fifo',
     getClientSecret: async () => SECRET,
     sendMessage: async (input) => {
@@ -100,7 +120,7 @@ function coldAwsLoaderSource({ delayMs, neverResolve }) {
     ? 'await new Promise(() => {});'
     : `await new Promise((resolve) => setTimeout(resolve, ${delayMs}));`;
   const sqsModule = `${delay}
-globalThis.__receiverInitCounts = globalThis.__receiverInitCounts ?? { sqs: 0, secrets: 0 };
+  globalThis.__receiverInitCounts = globalThis.__receiverInitCounts ?? { sqs: 0, secrets: 0, dynamodb: 0 };
 export class SQSClient {
   constructor() {
     globalThis.__receiverInitCounts.sqs += 1;
@@ -115,7 +135,7 @@ export class SendMessageCommand {
   }
 }`;
   const secretsModule = `${delay}
-globalThis.__receiverInitCounts = globalThis.__receiverInitCounts ?? { sqs: 0, secrets: 0 };
+  globalThis.__receiverInitCounts = globalThis.__receiverInitCounts ?? { sqs: 0, secrets: 0, dynamodb: 0 };
 export class SecretsManagerClient {
   constructor() {
     globalThis.__receiverInitCounts.secrets += 1;
@@ -128,11 +148,32 @@ export class GetSecretValueCommand {
   constructor(input) {
     this.input = input;
   }
+  }`;
+  const dynamodbModule = `${delay}
+globalThis.__receiverInitCounts = globalThis.__receiverInitCounts ?? { sqs: 0, secrets: 0, dynamodb: 0 };
+export class DynamoDBClient {
+  constructor() {
+    globalThis.__receiverInitCounts.dynamodb += 1;
+  }
+  send() {
+    return Promise.resolve({});
+  }
+}
+export class GetItemCommand {
+  constructor(input) {
+    this.input = input;
+  }
+}
+export class PutItemCommand {
+  constructor(input) {
+    this.input = input;
+  }
 }`;
   return `
 const modules = new Map([
   ['@aws-sdk/client-sqs', ${JSON.stringify(sqsModule)}],
   ['@aws-sdk/client-secrets-manager', ${JSON.stringify(secretsModule)}],
+  ['@aws-sdk/client-dynamodb', ${JSON.stringify(dynamodbModule)}],
 ]);
 
 export async function resolve(specifier, context, nextResolve) {
@@ -159,7 +200,8 @@ async function runExportedColdPath({
   const requestCount = concurrent ? 2 : 1;
   await writeFile(loaderPath, coldAwsLoaderSource({ delayMs, neverResolve }));
   await writeFile(scriptPath, `
-import { handler } from ${JSON.stringify(receiverUrl)};
+process.env.FAILOVER_STATE_TABLE_NAME = 'state-table';
+const { handler } = await import(${JSON.stringify(receiverUrl)});
 
 const startedAt = Date.now();
 const results = await Promise.all(Array.from({ length: ${requestCount} }, () => (
@@ -433,6 +475,7 @@ test('returns 503 when the configured secret has no usable value', async () => {
   const calls = [];
   const handler = createReceiverHandler({
     config: config(),
+    replayStore: createMemoryReplayStore(),
     queueUrl: 'https://sqs.example.invalid/failover.fifo',
     getClientSecret: async () => null,
     sendMessage: async (input) => calls.push(input),
@@ -448,6 +491,7 @@ test('returns a sanitized 5xx response when an unexpected receiver failure is ha
   const logs = [];
   const handler = createReceiverHandler({
     config: config(),
+    replayStore: createMemoryReplayStore(),
     queueUrl: 'https://sqs.example.invalid/failover.fifo',
     getClientSecret: async () => SECRET,
     sendMessage: async () => {},
@@ -470,6 +514,7 @@ test('keeps the 750 ms end-to-end budget by timing out a slow queue send', async
   let abortSignal;
   const handler = createReceiverHandler({
     config: config(),
+    replayStore: createMemoryReplayStore(),
     queueUrl: 'https://sqs.example.invalid/failover.fifo',
     getClientSecret: async () => SECRET,
     sendMessage: (_input, { abortSignal: signal } = {}) => {
@@ -491,6 +536,7 @@ test('enforces one end-to-end deadline around a never-resolving secret fetch', a
   let abortSignal;
   const handler = createReceiverHandler({
     config: config(),
+    replayStore: createMemoryReplayStore(),
     queueUrl: 'https://sqs.example.invalid/failover.fifo',
     getClientSecret: ({ signal } = {}) => {
       abortSignal = signal;
@@ -514,7 +560,7 @@ test('bounds the exported handler when cold AWS client initialization is delayed
 
   assert.deepEqual(result.statuses, [504]);
   assert.deepEqual(result.bodies, [{ accepted: false }]);
-  assert.deepEqual(result.initCounts, { sqs: 0, secrets: 0 });
+  assert.deepEqual(result.initCounts, { sqs: 0, secrets: 0, dynamodb: 0 });
   assert.ok(result.elapsed < 800, `exported receiver exceeded total deadline: ${result.elapsed}ms`);
 });
 
@@ -531,19 +577,171 @@ test('shares one cold initialization promise across concurrent exported requests
   const result = await runExportedColdPath({ delayMs: 10, concurrent: true });
 
   assert.deepEqual(result.statuses, [401, 401]);
-  assert.deepEqual(result.initCounts, { sqs: 1, secrets: 1 });
+  assert.deepEqual(result.initCounts, { sqs: 1, secrets: 1, dynamodb: 1 });
   assert.ok(result.elapsed < 800, `concurrent cold requests exceeded total deadline: ${result.elapsed}ms`);
 });
 
-test('does not enqueue when the kill switch is disabled after authentication', async () => {
-  const { handler, calls } = createHarness({ handlerConfig: config({ enabled: false }) });
-  const result = await handler(request(payload()));
+test('records an eligible body while disabled and rejects it after enablement despite fresh unsigned metadata', async () => {
+  const replayStore = createMemoryReplayStore();
+  const disabled = createHarness({
+    handlerConfig: config({ enabled: false }),
+    replayStore,
+  });
+  const enabled = createHarness({ replayStore });
+  const first = request(payload());
+  const replay = request(first.body, {
+    signature: first.headers['Sentry-Hook-Signature'],
+    headers: {
+      'Request-ID': 'request-2',
+      'Sentry-Hook-Timestamp': String(NOW + 1_000),
+    },
+  });
+
+  const disabledResult = await disabled.handler(first);
+  const duplicateDisabledResult = await disabled.handler(replay);
+  const enabledResult = await enabled.handler(replay);
+  assert.equal(disabledResult.statusCode, 202);
+  assert.equal(duplicateDisabledResult.statusCode, 202);
+  assert.equal(enabledResult.statusCode, 202);
+  assert.equal(JSON.parse(disabledResult.body).accepted, false);
+  assert.equal(JSON.parse(duplicateDisabledResult.body).accepted, false);
+  assert.equal(JSON.parse(enabledResult.body).accepted, false);
+  assert.equal(disabled.calls.length, 0);
+  assert.equal(enabled.calls.length, 0);
+});
+
+test('checks the durable replay record before queueing an enabled body', async () => {
+  const replayStore = createMemoryReplayStore();
+  const { handler, calls } = createHarness({ replayStore });
+  const first = request(payload());
+  const firstResult = await handler(first);
+  assert.equal(firstResult.statusCode, 202);
+  assert.equal(calls.length, 1);
+
+  await replayStore.claimReplayFingerprint(createHash('sha256').update(first.body).digest('hex'));
+  const replay = request(first.body, {
+    signature: first.headers['Sentry-Hook-Signature'],
+    headers: {
+      'Request-ID': 'request-2',
+      'Sentry-Hook-Timestamp': String(NOW + 1_000),
+    },
+  });
+  const replayResult = await handler(replay);
+  assert.equal(replayResult.statusCode, 202);
+  assert.equal(JSON.parse(replayResult.body).accepted, false);
+  assert.equal(calls.length, 1);
+});
+
+test('rejects stale, missing, and mismatched signed event timestamps', async (t) => {
+  const cases = [
+    ['stale signed event time', payload({
+      metricAlert: { date_detected: new Date(NOW - (5 * 60 * 1000) - 1).toISOString() },
+    }), {}],
+    ['missing signed event time', payload({
+      metricAlert: { date_detected: undefined, date_started: undefined, date_created: undefined },
+    }), {}],
+    ['header older than signed event', payload({
+      metricAlert: { date_detected: new Date(NOW - (4 * 60 * 1000)).toISOString() },
+    }), { 'Sentry-Hook-Timestamp': String(NOW + (4 * 60 * 1000)) }],
+    ['future header', payload(), { 'Sentry-Hook-Timestamp': String(NOW + (5 * 60 * 1000) + 1) }],
+  ];
+  for (const [name, body, headers] of cases) {
+    await t.test(name, async () => {
+      const { handler, calls } = createHarness();
+      const result = await handler(request(body, { headers }));
+      assert.equal(result.statusCode, 401);
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test('does not require a signed event time for an ineligible non-critical delivery', async () => {
+  const { handler, calls } = createHarness();
+  const body = payload({
+    action: 'resolved',
+    metricAlert: { date_detected: undefined, date_started: undefined, date_created: undefined },
+  });
+  const result = await handler(request(body));
   assert.equal(result.statusCode, 202);
   assert.equal(JSON.parse(result.body).accepted, false);
   assert.equal(calls.length, 0);
 });
 
-test('reuses the signed body fingerprint when Request-ID and timestamp headers change', async () => {
+test('uses the exact date_started fallback when date_detected is absent', async () => {
+  const { handler, calls } = createHarness();
+  const body = payload({
+    metricAlert: {
+      date_detected: undefined,
+      date_started: new Date(NOW).toISOString(),
+    },
+  });
+  const result = await handler(request(body));
+  assert.equal(result.statusCode, 202);
+  assert.equal(JSON.parse(result.body).accepted, true);
+  assert.equal(calls.length, 1);
+});
+
+test('rejects an invalid preferred signed event time instead of falling back', async () => {
+  const { handler, calls } = createHarness();
+  const body = payload({
+    metricAlert: {
+      date_detected: 'not-a-timestamp',
+      date_started: new Date(NOW).toISOString(),
+    },
+  });
+  const result = await handler(request(body));
+  assert.equal(result.statusCode, 401);
+  assert.equal(JSON.parse(result.body).accepted, false);
+  assert.equal(calls.length, 0);
+});
+
+test('returns a sanitized 5xx when durable disabled replay storage fails', async () => {
+  const logs = [];
+  const { handler, calls } = createHarness({
+    handlerConfig: config({ enabled: false }),
+    replayStore: {
+      async hasProcessedFingerprint() { return false; },
+      async claimReplayFingerprint() { throw new Error('secret-bearing storage detail'); },
+    },
+    logger: {
+      info() {},
+      warn() {},
+      error(fields) { logs.push(fields); },
+    },
+  });
+  const result = await handler(request(payload()));
+  assert.equal(result.statusCode, 503);
+  assert.deepEqual(JSON.parse(result.body), { accepted: false });
+  assert.equal(calls.length, 0);
+  assert.doesNotMatch(JSON.stringify(logs), /secret-bearing storage detail/);
+});
+
+test('keeps the 750 ms deadline when disabled replay storage never resolves', async () => {
+  let abortSignal;
+  const handler = createReceiverHandler({
+    config: config({ enabled: false }),
+    replayStore: {
+      async hasProcessedFingerprint() { return false; },
+      claimReplayFingerprint(_fingerprint, { abortSignal: signal } = {}) {
+        abortSignal = signal;
+        return new Promise(() => {});
+      },
+    },
+    queueUrl: 'https://sqs.example.invalid/failover.fifo',
+    getClientSecret: async () => SECRET,
+    sendMessage: async () => {},
+    now: () => NOW,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const startedAt = Date.now();
+  const result = await handler(request(payload()));
+  const elapsed = Date.now() - startedAt;
+  assert.equal(result.statusCode, 504);
+  assert.equal(abortSignal?.aborted, true);
+  assert.ok(elapsed < 800, `receiver exceeded total deadline: ${elapsed}ms`);
+});
+
+test('reuses the signed body fingerprint for FIFO deduplication when metadata changes', async () => {
   const { handler, calls } = createHarness();
   const first = request(payload());
   const replay = request(first.body, {
