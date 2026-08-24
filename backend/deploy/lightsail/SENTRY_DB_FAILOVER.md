@@ -92,12 +92,15 @@ The receiver deliberately keeps its Lambda/API Gateway path small:
    `critical` trigger with `alert_threshold: 5`. The `Sentry-Hook-Resource`
    header must be exactly `metric_alert`, and the action must be the allowlisted
    `critical` value.
-5. The signed alert-rule query must contain the exact terms
-   `db.failover_eligible:true` and `db.route:shared`, plus at least one exact
-   Prisma tag term: `prisma.code:P1001` and/or `prisma.code:P1017`. Every
-   Prisma-code field or `P####` token must be one of those exact terms;
+5. The signed alert-rule query must match one closed canonical form (runs of
+   whitespace are normalized):
+   `prisma.code:P1001 db.failover_eligible:true db.route:shared`,
+   `prisma.code:P1017 db.failover_eligible:true db.route:shared`, or
+   `(prisma.code:P1001 OR prisma.code:P1017) db.failover_eligible:true db.route:shared`.
+   The grouped form is mandatory when both codes are used because Sentry gives
+   `AND` higher precedence than `OR`. Extra clauses, ungrouped or nested `OR`,
    bracketed, wildcard, negated, malformed, aliased, ineligible, or mixed
-   code expressions are rejected. This is a boundary check only; the
+   expressions are rejected. This is a boundary check only; the
    application remains authoritative for the P1001/P1017-only
    `db.failover_eligible` tag taxonomy. The receiver does not require or trust
    an individual Prisma `issueCode` or a `route` field in the webhook body.

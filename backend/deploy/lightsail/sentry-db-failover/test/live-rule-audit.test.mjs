@@ -28,7 +28,7 @@ function validRule(overrides = {}) {
     snooze: false,
     aggregate: 'count()',
     timeWindow: 1,
-    query: 'event.type:error db.failover_eligible:true db.route:shared prisma.code:P1001 OR prisma.code:P1017',
+    query: '(prisma.code:P1001 OR prisma.code:P1017) db.failover_eligible:true db.route:shared',
     triggers: [{
       label: 'critical',
       alertThreshold: 5,
@@ -117,6 +117,12 @@ test('accepts the exact live metric alert rule contract', () => {
       { label: 'warning', alertThreshold: 3 },
     ],
   }), expected()));
+  for (const query of [
+    'prisma.code:P1001 db.failover_eligible:true db.route:shared',
+    'prisma.code:P1017 db.failover_eligible:true db.route:shared',
+  ]) {
+    assert.doesNotThrow(() => validateLiveMetricAlertRule(validRule({ query }), expected()));
+  }
 });
 
 test('fails closed on identity, scope, enabled state, metric, trigger, and query drift', async (t) => {
@@ -138,6 +144,14 @@ test('fails closed on identity, scope, enabled state, metric, trigger, and query
     ['P2024', { query: 'db.failover_eligible:true db.route:shared prisma.code:P2024' }],
     ['free text P1001', { query: 'db.failover_eligible:true db.route:shared message:P1001' }],
     ['aliased P1001', { query: 'db.failover_eligible:true db.route:shared not_prisma_code:P1001' }],
+    ['old ungrouped eligible OR', { query: 'prisma.code:P1001 OR prisma.code:P1017 db.failover_eligible:true db.route:shared' }],
+    ['trailing unconstrained OR', { query: 'prisma.code:P1001 db.failover_eligible:true db.route:shared OR level:error' }],
+    ['leading unconstrained OR', { query: 'level:error OR prisma.code:P1001 db.failover_eligible:true db.route:shared' }],
+    ['middle unconstrained OR', { query: 'prisma.code:P1001 OR level:error db.failover_eligible:true db.route:shared' }],
+    ['marker-only OR branch', { query: '(prisma.code:P1001 db.failover_eligible:true) OR db.route:shared' }],
+    ['extra query term', { query: 'event.type:error prisma.code:P1001 db.failover_eligible:true db.route:shared' }],
+    ['nested parentheses', { query: '((prisma.code:P1001 OR prisma.code:P1017)) db.failover_eligible:true db.route:shared' }],
+    ['imbalanced parentheses', { query: '(prisma.code:P1001 OR prisma.code:P1017 db.failover_eligible:true db.route:shared' }],
   ];
   for (const [name, overrides] of cases) {
     await t.test(name, () => {

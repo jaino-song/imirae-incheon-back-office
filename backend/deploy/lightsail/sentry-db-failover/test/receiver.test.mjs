@@ -13,7 +13,7 @@ const NOW = Date.parse('2026-08-24T00:00:00.000Z');
 const SECRET = 'local-test-client-secret';
 const INSTALLATION_UUID = '00000000-0000-4000-8000-000000000010';
 const DB_FAILOVER_QUERY = 'prisma.code:P1001 db.failover_eligible:true db.route:shared';
-const DB_FAILOVER_QUERY_BOTH = 'prisma.code:P1001 OR prisma.code:P1017 db.failover_eligible:true db.route:shared';
+const DB_FAILOVER_QUERY_BOTH = '(prisma.code:P1001 OR prisma.code:P1017) db.failover_eligible:true db.route:shared';
 
 function config(overrides = {}) {
   return {
@@ -237,10 +237,11 @@ test('accepts the official metric-alert shape after signed boundary checks', asy
   assert.equal(Object.values(message).some((value) => String(value).includes(SECRET)), false);
 });
 
-test('accepts one or both exact eligible Prisma code tag terms', async (t) => {
+test('accepts only the closed canonical Prisma-code query forms', async (t) => {
   const cases = [
+    ['P1001 with collapsed whitespace', '  prisma.code:P1001\t db.failover_eligible:true   db.route:shared  '],
     ['P1017', 'prisma.code:P1017 db.failover_eligible:true db.route:shared'],
-    ['both eligible codes', DB_FAILOVER_QUERY_BOTH],
+    ['both eligible codes with a grouped OR', DB_FAILOVER_QUERY_BOTH],
   ];
   for (const [name, query] of cases) {
     await t.test(name, async () => {
@@ -370,6 +371,14 @@ test('rejects bypasses, malformed Prisma code expressions, ineligible codes, or 
     ['lowercase code alias', 'prisma.code:p1001 db.failover_eligible:true db.route:shared'],
     ['quoted code expression', 'prisma.code:"P1001" db.failover_eligible:true db.route:shared'],
     ['parenthesized code expression', '(prisma.code:P1001) db.failover_eligible:true db.route:shared'],
+    ['old ungrouped eligible OR', 'prisma.code:P1001 OR prisma.code:P1017 db.failover_eligible:true db.route:shared'],
+    ['trailing unconstrained OR', 'prisma.code:P1001 db.failover_eligible:true db.route:shared OR level:error'],
+    ['leading unconstrained OR', 'level:error OR prisma.code:P1001 db.failover_eligible:true db.route:shared'],
+    ['middle unconstrained OR', 'prisma.code:P1001 OR level:error db.failover_eligible:true db.route:shared'],
+    ['marker-only OR branch', '(prisma.code:P1001 db.failover_eligible:true) OR db.route:shared'],
+    ['extra narrowing term', 'event.type:error prisma.code:P1001 db.failover_eligible:true db.route:shared'],
+    ['nested parentheses', '((prisma.code:P1001 OR prisma.code:P1017)) db.failover_eligible:true db.route:shared'],
+    ['imbalanced parentheses', '(prisma.code:P1001 OR prisma.code:P1017 db.failover_eligible:true db.route:shared'],
     ['other Prisma code', 'prisma.code:P2002 db.failover_eligible:true db.route:shared'],
     ['missing eligibility marker', 'prisma.code:P1001 db.route:shared'],
     ['missing shared-route marker', 'prisma.code:P1001 db.failover_eligible:true'],
