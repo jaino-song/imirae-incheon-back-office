@@ -861,6 +861,16 @@ install_operator() (
         return 1
     fi
     trap 'install_lock_prepare_exit "$?"' EXIT
+
+    # Recheck after acquiring both environment locks.  A concurrent
+    # authorized installer may have changed the installed operator after the
+    # early comparison; plain install must not overwrite that newer binary.
+    if [[ "$replace_existing" != "--replace" && -e "$INSTALLED_OPERATOR" ]]; then
+        if ! "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR"; then
+            die "The CI operator already exists; inspect it before using install --replace."
+        fi
+    fi
+
     INSTALL_TRANSACTION_SNAPSHOT_PATHS=()
     capture_install_snapshot "$INSTALLED_OPERATOR"
     capture_install_snapshot "$LOG_DIRECTORY"

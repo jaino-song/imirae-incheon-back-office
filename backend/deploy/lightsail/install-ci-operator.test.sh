@@ -163,6 +163,12 @@ test_flock_trace() {
     printf '%s\n' "$2" >>"$TEST_FLOCK_TRACE"
 }
 
+test_flock_mutate_operator() {
+    if [[ "$2" == 201 ]]; then
+        printf '%s\n' '# concurrent authorized installer mutation' >>"$INSTALLED_OPERATOR"
+    fi
+}
+
 CMD_STAT=test_stat
 CMD_CHOWN=test_chown
 CMD_INSTALL=test_install
@@ -796,6 +802,43 @@ run_operator_reconcile "$(route_state_file preview)" "323e4567-e89b-42d3-a456-42
 run_operator_reconcile "$(route_state_file production)" "323e4567-e89b-42d3-a456-426614174000" production
 main install >/dev/null
 main check >/dev/null
+
+# A plain install must recheck after locking: if a concurrent authorized
+# installer changes the byte-identical operator before the snapshot phase, the
+# newer binary remains in place and legacy states are not migrated.
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks false
+for environment in preview production; do
+    race_state_temp="$TEST_ROOT/$environment-race-legacy-state"
+    /usr/bin/sed '/^request_history=/d' "$(route_state_file "$environment")" >"$race_state_temp"
+    /bin/mv "$race_state_temp" "$(route_state_file "$environment")"
+    /bin/chmod 0600 "$(route_state_file "$environment")"
+done
+/bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
+/bin/chmod 0750 "$INSTALLED_OPERATOR"
+race_preview_snapshot="$TEST_ROOT/race-preview.snapshot"
+race_production_snapshot="$TEST_ROOT/race-production.snapshot"
+race_operator_expected="$TEST_ROOT/race-operator.expected"
+/bin/cp "$(route_state_file preview)" "$race_preview_snapshot"
+/bin/cp "$(route_state_file production)" "$race_production_snapshot"
+/bin/cp "$INSTALLED_OPERATOR" "$race_operator_expected"
+printf '%s\n' '# concurrent authorized installer mutation' >>"$race_operator_expected"
+race_preview_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file preview)")"
+race_production_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file production)")"
+race_operator_metadata="$(test_stat -c '%U:%G:%a' "$INSTALLED_OPERATOR")"
+CMD_FLOCK=test_flock_mutate_operator
+assert_refusal_message "already exists" main install
+CMD_FLOCK=test_flock
+assert_file_unchanged "$race_preview_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$race_production_snapshot" "$(route_state_file production)"
+assert_file_unchanged "$race_operator_expected" "$INSTALLED_OPERATOR"
+assert_path_metadata_unchanged "$race_preview_metadata" "$(route_state_file preview)"
+assert_path_metadata_unchanged "$race_production_metadata" "$(route_state_file production)"
+assert_path_metadata_unchanged "$race_operator_metadata" "$INSTALLED_OPERATOR"
+assert_path_absent "$LOG_DIRECTORY"
+assert_no_temporary_route_state
 
 # A failure after migration must restore the old operator, both state
 # snapshots, and the intentionally missing production file as one unit.
