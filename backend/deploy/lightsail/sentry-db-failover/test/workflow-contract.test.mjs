@@ -19,6 +19,9 @@ test('workflow validates, tests, builds, and packages without automatic deployme
   assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
   assert.match(workflow, /inputs\.enable_deploy == true/);
   assert.match(workflow, /inputs\.enable_failover == true/);
+  assert.match(workflow, /inputs\.confirm_sentry_rule_audit == true/);
+  assert.match(workflow, /SentryClientSecretName/);
+  assert.doesNotMatch(workflow, /SENTRY_CLIENT_SECRET_ARN|SentryClientSecretArn/);
   assert.match(workflow, /environment:\n\s+name: preview/);
   assert.match(workflow, /environment:\n\s+name: production/);
 });
@@ -31,5 +34,6 @@ test('push and pull request paths contain only validation job triggers', () => {
     assert.match(condition, /workflow_dispatch/);
     assert.match(condition, /enable_deploy/);
     assert.match(condition, /enable_failover/);
+    assert.match(condition, /confirm_sentry_rule_audit/);
   }
 });

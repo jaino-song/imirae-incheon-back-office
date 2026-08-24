@@ -23,7 +23,8 @@ test('SAM template defines the disabled-by-default control-plane topology', () =
   assert.match(template, /FailoverStateTable:[\s\S]*?PointInTimeRecoveryEnabled: true/);
   assert.match(template, /Schedule: rate\(1 minute\)/);
   assert.match(template, /AlarmTopicArn:/);
-  assert.match(template, /SentryClientSecretArn:/);
+  assert.match(template, /SentryClientSecretName:/);
+  assert.doesNotMatch(template, /SentryClientSecretArn/);
   assert.match(template, /SentryAllowedResources:[\s\S]*?Default: metric_alert/);
   assert.match(template, /SentryAllowedActions:[\s\S]*?Default: critical/);
   assert.match(template, /FixedFailoverDocumentArn:/);
@@ -52,7 +53,7 @@ test('receiver IAM can enqueue and read only the configured Sentry secret', () =
   assert.match(receiver, /sqs:SendMessage/);
   assert.match(receiver, /Resource: !GetAtt FailoverQueue\.Arn/);
   assert.match(receiver, /secretsmanager:GetSecretValue/);
-  assert.match(receiver, /Resource: !Ref SentryClientSecretArn/);
+  assert.match(receiver, /Resource: !Sub arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:\$\{SentryClientSecretName\}-\?\?\?\?\?\?/);
   assert.doesNotMatch(receiver, /ssm:SendCommand/);
   assert.doesNotMatch(receiver, /dynamodb:/);
 });
@@ -62,6 +63,7 @@ test('worker IAM is restricted to state, fixed SSM invocation, status read, and 
   assert.match(worker, /dynamodb:GetItem/);
   assert.match(worker, /dynamodb:PutItem/);
   assert.match(worker, /dynamodb:UpdateItem/);
+  assert.match(worker, /dynamodb:TransactWriteItems/);
   assert.match(worker, /sqs:ReceiveMessage/);
   assert.match(worker, /sqs:DeleteMessage/);
   assert.match(worker, /sqs:GetQueueAttributes/);
@@ -87,7 +89,8 @@ test('worker IAM is restricted to state, fixed SSM invocation, status read, and 
 test('worker Lambda has no Sentry secret environment variable', () => {
   const receiver = section('ReceiverFunction', 'WorkerFunction');
   const worker = section('WorkerFunction', 'ReceiverErrorsAlarm');
-  assert.match(receiver, /SENTRY_CLIENT_SECRET_ARN: !Ref SentryClientSecretArn/);
+  assert.match(receiver, /SENTRY_CLIENT_SECRET_NAME: !Ref SentryClientSecretName/);
+  assert.doesNotMatch(receiver, /SENTRY_CLIENT_SECRET_ARN/);
   assert.doesNotMatch(worker, /SENTRY_CLIENT_SECRET_ARN/);
   assert.match(worker, /FAILOVER_DOCUMENT_ARN:/);
 });

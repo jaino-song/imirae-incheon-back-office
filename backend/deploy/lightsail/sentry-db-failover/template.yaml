@@ -15,10 +15,13 @@ Parameters:
     Default: 'false'
     AllowedValues: ['false', 'true']
     Description: Explicit kill switch. Keep false until the environment has been approved.
-  SentryClientSecretArn:
+  SentryClientSecretName:
     Type: String
     NoEcho: true
-    Description: Secrets Manager ARN containing the Sentry client secret.
+    MinLength: 1
+    MaxLength: 512
+    AllowedPattern: '^[A-Za-z0-9/_+=.@-]+$'
+    Description: Same-account, same-region Secrets Manager name containing the Sentry client secret.
   SentryInstallationId:
     Type: String
     Default: ''
@@ -170,7 +173,7 @@ Resources:
               - Sid: ReadOnlySentryClientSecret
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: !Ref SentryClientSecretArn
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SentryClientSecretName}-??????
 
   WorkerRole:
     Type: AWS::IAM::Role
@@ -200,6 +203,7 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
+                  - dynamodb:TransactWriteItems
                 Resource: !GetAtt FailoverStateTable.Arn
               - Sid: ConsumeOnlyFailoverQueue
                 Effect: Allow
@@ -256,7 +260,7 @@ Resources:
       Environment:
         Variables:
           FAILOVER_QUEUE_URL: !Ref FailoverQueue
-          SENTRY_CLIENT_SECRET_ARN: !Ref SentryClientSecretArn
+          SENTRY_CLIENT_SECRET_NAME: !Ref SentryClientSecretName
       Events:
         SentryWebhook:
           Type: Api

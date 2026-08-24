@@ -4,9 +4,11 @@ import {
   ELIGIBLE_ACTION,
   ELIGIBLE_ISSUE_CODES,
   ELIGIBLE_RESOURCE,
+  EXPECTED_METRIC_AGGREGATE,
+  EXPECTED_METRIC_THRESHOLD,
+  EXPECTED_METRIC_TIME_WINDOW_MINUTES,
   FAILOVER_SIGNAL_CLASS,
   MAX_WEBHOOK_BYTES,
-  REJECTED_ISSUE_CODES,
   REQUIRED_QUERY_MARKERS,
   ROUTES,
   UUID_PATTERN,
@@ -43,6 +45,10 @@ export function extractRawBody(event) {
   }
 
   if (event.isBase64Encoded === true) {
+    const maxEncodedBodyChars = Math.ceil(MAX_WEBHOOK_BYTES / 3) * 4;
+    if (event.body.length > maxEncodedBodyChars) {
+      throw new WebhookValidationError('body_too_large', 413);
+    }
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(event.body)) {
       throw new WebhookValidationError('invalid_base64_body', 400);
     }
@@ -58,11 +64,10 @@ export function extractRawBody(event) {
     return decoded;
   }
 
-  const rawBody = Buffer.from(event.body, 'utf8');
-  if (rawBody.length > MAX_WEBHOOK_BYTES) {
+  if (Buffer.byteLength(event.body, 'utf8') > MAX_WEBHOOK_BYTES) {
     throw new WebhookValidationError('body_too_large', 413);
   }
-  return rawBody;
+  return Buffer.from(event.body, 'utf8');
 }
 
 export function normalizeSignatureHeader(value) {
@@ -137,8 +142,7 @@ function projectIdentifiers(value) {
       project && typeof project === 'object'
         ? scalarIdentifier(project.id)
         : scalarIdentifier(project)
-    ))
-    .filter((projectId) => projectId !== undefined);
+    ));
 }
 
 function queryContainsMarker(query, marker) {
@@ -147,18 +151,43 @@ function queryContainsMarker(query, marker) {
   return new RegExp(`(?:^|[^A-Za-z0-9_.:-])${escapedMarker}(?=$|[^A-Za-z0-9_.:-])`).test(query);
 }
 
-function queryContainsPrismaCode(query, code) {
-  if (typeof query !== 'string') return false;
-  return new RegExp(`\\b${code}\\b`, 'i').test(query);
-}
-
 function isFailoverEligibleQuery(query) {
   if (typeof query !== 'string' || query.trim() === '') return false;
   if (!REQUIRED_QUERY_MARKERS.every((marker) => queryContainsMarker(query, marker))) return false;
 
   const prismaCodes = [...query.matchAll(/\bP[0-9]{4}\b/gi)].map(([code]) => code.toUpperCase());
-  return prismaCodes.every((code) => ELIGIBLE_ISSUE_CODES.includes(code))
-    && !REJECTED_ISSUE_CODES.some((code) => queryContainsPrismaCode(query, code));
+  return prismaCodes.length > 0
+    && prismaCodes.every((code) => ELIGIBLE_ISSUE_CODES.includes(code));
+}
+
+function consistentScopeValue(objects, key) {
+  const values = objects
+    .map((object) => object?.[key])
+    .filter((value) => value !== undefined && value !== null);
+  if (values.length === 0) return { value: undefined, conflict: false };
+  return {
+    value: values[0],
+    conflict: values.some((value) => value !== values[0]),
+  };
+}
+
+function sameJson(left, right) {
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function consistentScopeArray(objects, key) {
+  const values = objects
+    .map((object) => object?.[key])
+    .filter((value) => value !== undefined && value !== null);
+  if (values.length === 0) return { value: undefined, conflict: false };
+  return {
+    value: values[0],
+    conflict: values.some((value) => !sameJson(value, values[0])),
+  };
 }
 
 export function normalizeSentryEvent(payload, rawBody) {
@@ -169,7 +198,16 @@ export function normalizeSentryEvent(payload, rawBody) {
   const alertRule = metricAlert.alert_rule && typeof metricAlert.alert_rule === 'object'
     ? metricAlert.alert_rule
     : {};
+  const scopeObjects = [metricAlert, alertRule];
+  const aggregate = consistentScopeValue(scopeObjects, 'aggregate');
+  const timeWindow = consistentScopeValue(scopeObjects, 'time_window');
+  const triggers = consistentScopeArray(scopeObjects, 'triggers');
   const bodyFingerprint = createHash('sha256').update(rawBody).digest('hex');
+  const signedTimestamp = firstString(payload, [
+    ['timestamp'],
+    ['sent_at'],
+    ['sentAt'],
+  ]);
 
   return {
     eventId: bodyFingerprint,
@@ -183,12 +221,13 @@ export function normalizeSentryEvent(payload, rawBody) {
     environment: typeof alertRule.environment === 'string' ? alertRule.environment.trim() : undefined,
     ruleId: scalarIdentifier(alertRule.id),
     query: typeof alertRule.query === 'string' ? alertRule.query.trim() : undefined,
+    metricAggregate: aggregate.value,
+    metricTimeWindowMinutes: timeWindow.value,
+    metricTriggers: triggers.value,
+    metricScopeConflict: aggregate.conflict || timeWindow.conflict || triggers.conflict,
     action: typeof payload.action === 'string' ? payload.action.trim() : undefined,
-    timestamp: firstString(payload, [
-      ['timestamp'],
-      ['sent_at'],
-      ['sentAt'],
-    ]),
+    signedTimestamp,
+    timestamp: signedTimestamp,
   };
 }
 
@@ -260,9 +299,11 @@ export function isAllowedSentryEvent(event, config) {
   if (
     !config.projectId
     || !Array.isArray(event.projectIds)
-    || !event.projectIds.includes(config.projectId)
+    || event.projectIds.length !== 1
+    || event.projectIds[0] !== config.projectId
     || !Array.isArray(event.alertRuleProjectIds)
-    || !event.alertRuleProjectIds.includes(config.projectId)
+    || event.alertRuleProjectIds.length !== 1
+    || event.alertRuleProjectIds[0] !== config.projectId
   ) {
     return { allowed: false, reason: 'project_not_allowed' };
   }
@@ -283,6 +324,27 @@ export function isAllowedSentryEvent(event, config) {
   }
   if (event.action !== ELIGIBLE_ACTION) {
     return { allowed: false, reason: 'action_not_eligible' };
+  }
+  if (event.metricScopeConflict) {
+    return { allowed: false, reason: 'metric_scope_conflict' };
+  }
+  if (event.metricAggregate !== EXPECTED_METRIC_AGGREGATE) {
+    return { allowed: false, reason: 'metric_aggregate_not_allowed' };
+  }
+  if (event.metricTimeWindowMinutes !== EXPECTED_METRIC_TIME_WINDOW_MINUTES) {
+    return { allowed: false, reason: 'metric_time_window_not_allowed' };
+  }
+  if (!Array.isArray(event.metricTriggers)) {
+    return { allowed: false, reason: 'metric_triggers_missing' };
+  }
+  const criticalTriggers = event.metricTriggers.filter((trigger) => (
+    trigger && typeof trigger === 'object' && trigger.label === ELIGIBLE_ACTION
+  ));
+  if (criticalTriggers.length !== 1) {
+    return { allowed: false, reason: 'critical_trigger_missing' };
+  }
+  if (criticalTriggers[0].alert_threshold !== EXPECTED_METRIC_THRESHOLD) {
+    return { allowed: false, reason: 'critical_threshold_not_allowed' };
   }
   const sharedRouteConfigured = !Array.isArray(config.allowedRoutes)
     || config.allowedRoutes.some((route) => String(route).toUpperCase() === ROUTES.SHARED);

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ELIGIBLE_RESOURCE,
   FAILOVER_SIGNAL_CLASS,
+  RECEIVER_DEADLINE_MS,
   RECEIVER_QUEUE_TIMEOUT_MS,
   safeLog,
 } from './constants.mjs';
@@ -45,15 +46,27 @@ function defaultLogger() {
   };
 }
 
-function withTimeout(promise, timeoutMs) {
+class ReceiverDeadlineError extends Error {
+  constructor() {
+    super('receiver deadline exceeded');
+    this.name = 'ReceiverDeadlineError';
+    this.code = 'RECEIVER_DEADLINE_EXCEEDED';
+  }
+}
+
+function withRemainingBudget(operation, { controller, remainingMs }) {
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    controller.abort();
+    return Promise.reject(new ReceiverDeadlineError());
+  }
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
-      const error = new Error('queue send timed out');
-      error.code = 'QUEUE_SEND_TIMEOUT';
-      reject(error);
-    }, timeoutMs);
+      controller.abort();
+      reject(new ReceiverDeadlineError());
+    }, remainingMs);
   });
+  const promise = Promise.resolve().then(operation);
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
@@ -85,7 +98,7 @@ export function buildQueueMessage(event, { requestId, receivedAt }) {
     resource: event.resource,
     environment: event.environment,
     ruleId: event.ruleId,
-    eventAt: event.timestamp,
+    eventAt: event.eventAt ?? event.signedTimestamp ?? null,
     requestId,
     receivedAt,
   };
@@ -98,6 +111,8 @@ export function createReceiverHandler({
   queueUrl = process.env.FAILOVER_QUEUE_URL,
   now = () => Date.now(),
   idFactory = randomUUID,
+  deadlineMs = RECEIVER_DEADLINE_MS,
+  monotonicNow = () => performance.now(),
   queueTimeoutMs = RECEIVER_QUEUE_TIMEOUT_MS,
   logger = defaultLogger(),
 } = {}) {
@@ -114,6 +129,15 @@ export function createReceiverHandler({
   };
 
   return async function receiverHandler(event, context = {}) {
+    const startedAt = monotonicNow();
+    const deadlineController = new AbortController();
+    const remainingMs = () => Math.max(0, deadlineMs - (monotonicNow() - startedAt));
+    const ensureBudget = () => {
+      if (remainingMs() <= 0 || deadlineController.signal.aborted) {
+        deadlineController.abort();
+        throw new ReceiverDeadlineError();
+      }
+    };
     const receivedAt = now();
     const candidateRequestId = getRequestHeader(
       event?.headers,
@@ -129,8 +153,14 @@ export function createReceiverHandler({
         : (isSafeIdentifier(generatedRequestId) ? generatedRequestId : randomUUID()));
     let rawBody;
     try {
+      ensureBudget();
       rawBody = extractRawBody(event);
+      ensureBudget();
     } catch (error) {
+      if (error instanceof ReceiverDeadlineError) {
+        safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+        return response(504, { accepted: false });
+      }
       const statusCode = error instanceof WebhookValidationError ? error.statusCode : 400;
       safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: error.code ?? 'invalid_body' });
       return response(statusCode, { accepted: false });
@@ -139,14 +169,32 @@ export function createReceiverHandler({
     const signature = getRequestHeader(event?.headers, 'sentry-hook-signature');
     let clientSecret;
     try {
-      clientSecret = secretFromValue(await getClientSecret());
-    } catch {
+      ensureBudget();
+      clientSecret = secretFromValue(await withRemainingBudget(
+        () => getClientSecret({
+          signal: deadlineController.signal,
+          remainingMs: remainingMs(),
+        }),
+        { controller: deadlineController, remainingMs: remainingMs() },
+      ));
+      ensureBudget();
+    } catch (error) {
+      if (error instanceof ReceiverDeadlineError) {
+        safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+        return response(504, { accepted: false });
+      }
       safeLog(logger, 'error', 'sentry_secret_unavailable', { requestId });
       return response(503, { accepted: false });
     }
     if (!clientSecret) {
       safeLog(logger, 'error', 'sentry_secret_unavailable', { requestId });
       return response(503, { accepted: false });
+    }
+    try {
+      ensureBudget();
+    } catch {
+      safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+      return response(504, { accepted: false });
     }
     if (!verifySignature(rawBody, signature, clientSecret)) {
       safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'invalid_signature' });
@@ -155,18 +203,36 @@ export function createReceiverHandler({
 
     let payload;
     try {
+      ensureBudget();
       payload = parseWebhookJson(rawBody);
+      ensureBudget();
     } catch (error) {
+      if (error instanceof ReceiverDeadlineError) {
+        safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+        return response(504, { accepted: false });
+      }
       safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: error.code ?? 'invalid_json' });
       return response(error.statusCode ?? 400, { accepted: false });
     }
 
     const timestampHeader = getRequestHeader(event?.headers, 'sentry-hook-timestamp');
+    try {
+      ensureBudget();
+    } catch {
+      safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+      return response(504, { accepted: false });
+    }
     if (!timestampHeader) {
       safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'timestamp_required' });
       return response(401, { accepted: false });
     }
     const timestampMs = getEventTimestamp(payload, event?.headers);
+    try {
+      ensureBudget();
+    } catch {
+      safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+      return response(504, { accepted: false });
+    }
     if (!isTimestampFresh(timestampMs, receivedAt)) {
       safeLog(logger, 'warn', 'sentry_webhook_rejected', { requestId, reason: 'stale_timestamp' });
       return response(401, { accepted: false });
@@ -174,6 +240,13 @@ export function createReceiverHandler({
 
     const normalized = normalizeSentryEvent(payload, rawBody);
     normalized.timestamp = timestampMs;
+    normalized.eventAt = normalized.signedTimestamp;
+    try {
+      ensureBudget();
+    } catch {
+      safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+      return response(504, { accepted: false });
+    }
     const hookResource = getRequestHeader(event?.headers, 'sentry-hook-resource');
     if (!hookResource || hookResource !== ELIGIBLE_RESOURCE || !effectiveConfig.allowedResources.includes(ELIGIBLE_RESOURCE)) {
       safeLog(logger, 'info', 'sentry_webhook_ignored', { requestId, reason: 'resource_not_allowed' });
@@ -181,6 +254,12 @@ export function createReceiverHandler({
     }
     normalized.resource = hookResource;
     const allowlist = isAllowedSentryEvent(normalized, effectiveConfig);
+    try {
+      ensureBudget();
+    } catch {
+      safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
+      return response(504, { accepted: false });
+    }
     if (!allowlist.allowed) {
       safeLog(logger, 'info', 'sentry_webhook_ignored', {
         requestId,
@@ -204,18 +283,30 @@ export function createReceiverHandler({
       receivedAt,
     });
     try {
-      await withTimeout(sendMessage({
-        QueueUrl: queueUrl,
-        MessageBody: JSON.stringify(queueMessage),
-        MessageGroupId: normalized.environment,
-        MessageDeduplicationId: normalized.eventId,
-      }), queueTimeoutMs);
+      ensureBudget();
+      const queueBudget = Math.min(
+        Number.isFinite(queueTimeoutMs) && queueTimeoutMs > 0 ? queueTimeoutMs : RECEIVER_QUEUE_TIMEOUT_MS,
+        remainingMs(),
+      );
+      await withRemainingBudget(
+        () => sendMessage({
+          QueueUrl: queueUrl,
+          MessageBody: JSON.stringify(queueMessage),
+          MessageGroupId: normalized.environment,
+          MessageDeduplicationId: normalized.eventId,
+        }, {
+          abortSignal: deadlineController.signal,
+          remainingMs: queueBudget,
+        }),
+        { controller: deadlineController, remainingMs: queueBudget },
+      );
+      ensureBudget();
     } catch (error) {
       safeLog(logger, 'error', 'sentry_queue_send_failed', {
         requestId,
-        reason: error.code === 'QUEUE_SEND_TIMEOUT' ? 'timeout' : 'error',
+        reason: error instanceof ReceiverDeadlineError ? 'timeout' : 'error',
       });
-      return response(error.code === 'QUEUE_SEND_TIMEOUT' ? 504 : 503, { accepted: false });
+      return response(error instanceof ReceiverDeadlineError ? 504 : 503, { accepted: false });
     }
 
     safeLog(logger, 'info', 'sentry_webhook_enqueued', {
@@ -233,16 +324,16 @@ async function createDefaultReceiverHandler() {
   ]);
   const sqs = new SQSClient({});
   const secrets = new SecretsManagerClient({});
-  const secretArn = process.env.SENTRY_CLIENT_SECRET_ARN;
+  const secretName = process.env.SENTRY_CLIENT_SECRET_NAME;
   const queueUrl = process.env.FAILOVER_QUEUE_URL;
   let cachedSecret;
   let cachedSecretExpiresAt = 0;
   return createReceiverHandler({
     queueUrl,
-    getClientSecret: async () => {
+    getClientSecret: async ({ signal } = {}) => {
       const now = Date.now();
       if (cachedSecret && cachedSecretExpiresAt > now) return cachedSecret;
-      const result = await secrets.send(new GetSecretValueCommand({ SecretId: secretArn }));
+      const result = await secrets.send(new GetSecretValueCommand({ SecretId: secretName }), { abortSignal: signal });
       const secretValue = result.SecretString
         ?? (result.SecretBinary?.transformToString ? result.SecretBinary.transformToString() : null)
         ?? (result.SecretBinary ? Buffer.from(result.SecretBinary).toString('utf8') : null);
@@ -253,7 +344,7 @@ async function createDefaultReceiverHandler() {
       }
       return normalizedSecret;
     },
-    sendMessage: (input) => sqs.send(new SendMessageCommand(input)),
+    sendMessage: (input, { abortSignal } = {}) => sqs.send(new SendMessageCommand(input), { abortSignal }),
   });
 }
 
