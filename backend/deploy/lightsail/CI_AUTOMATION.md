@@ -30,9 +30,10 @@ approval gate before execution.
    `https://token.actions.githubusercontent.com` with audience
    `sts.amazonaws.com`. Reuse an existing provider rather than creating a
    duplicate.
-2. Deploy `github-oidc-ssm.yaml`, passing the existing provider ARN and one
-   unique `ManagedNodeTagValue`. Keep the CloudFormation stack as the source of
-   truth for roles and SSM documents.
+2. Deploy `github-oidc-ssm.yaml`, passing the existing provider ARN and the
+   fixed `ManagedNodeTagValue=babyjamjam-admin-server`. Keep the CloudFormation
+   stack as the source of truth for roles, the shared managed-node tag, and SSM
+   documents.
 3. Create a short-lived Systems Manager hybrid activation using the stack's
    `ManagedNodeServiceRoleName`. Attach the same `DeploymentTarget` tag, install
    the SSM agent on the Lightsail host, verify exactly one online managed node,

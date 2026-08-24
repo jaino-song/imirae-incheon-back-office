@@ -15,6 +15,9 @@ import {
 import {
   createSsmObserver,
   createWorkerHandler,
+  TERMINAL_STATE_METRIC_DIMENSIONS,
+  TERMINAL_STATE_METRIC_NAME,
+  TERMINAL_STATE_METRIC_NAMESPACE,
 } from '../src/worker.mjs';
 
 const BASE_TIME = Date.parse('2026-08-24T00:00:00.000Z');
@@ -93,7 +96,7 @@ function hostEnvelope(requestId, overrides = {}) {
   };
 }
 
-function harness({ initialState, observe, handlerConfig = config(), clock = () => BASE_TIME } = {}) {
+function harness({ initialState, observe, handlerConfig = config(), clock = () => BASE_TIME, logger } = {}) {
   const store = createMemoryStateStore({ initialState, now: BASE_TIME });
   const observed = [];
   const handler = createWorkerHandler({
@@ -105,7 +108,7 @@ function harness({ initialState, observe, handlerConfig = config(), clock = () =
     config: handlerConfig,
     now: clock,
     ownerFactory: () => 'worker-owner',
-    logger: { info() {}, warn() {}, error() {} },
+    logger: logger ?? { info() {}, warn() {}, error() {} },
   });
   return { handler, store, observed };
 }
@@ -314,7 +317,7 @@ test('persists the command ID before the replay transaction so a failed save pol
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const handler = createWorkerHandler({
@@ -366,7 +369,7 @@ test('process restart after an immediate command-ID save failure does not re-sen
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const handler = createWorkerHandler({
@@ -428,7 +431,7 @@ test('a lost SendCommand response stays uncertain and never re-sends the accepte
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const handler = createWorkerHandler({
@@ -502,7 +505,7 @@ test('defers a Sentry message while reconciling a scheduled command owned by ano
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const handler = createWorkerHandler({
@@ -610,7 +613,7 @@ test('uses one transition-bound recovery command after an envelope-less terminal
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const handler = createWorkerHandler({
@@ -688,7 +691,7 @@ test('does not open a second transition recovery path after recovery is terminal
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const handler = createWorkerHandler({
@@ -743,6 +746,74 @@ test('host terminal BLOCKED or DEGRADED state prevents further SSM calls', async
       assert.equal(observed.length, 0);
     });
   }
+});
+
+test('valid terminal host envelopes emit one monitored secret-free signal after persistence', async (t) => {
+  for (const phase of [PHASES.BLOCKED, PHASES.DEGRADED]) {
+    await t.test(phase, async () => {
+      const warnings = [];
+      const { handler, store } = harness({
+        observe: async ({ requestId }) => ({
+          hostEnvelope: hostEnvelope(requestId, {
+            activeRoute: ROUTES.DIRECT,
+            phase,
+            result: phase === PHASES.BLOCKED ? 'both_routes_failed' : 'reconcile_degraded',
+            sharedOk: false,
+            directOk: phase === PHASES.BLOCKED ? false : true,
+            terminalReason: phase === PHASES.BLOCKED ? 'both_routes_failed' : 'compensation_failed',
+            transition: {
+              previousRoute: null,
+              targetRoute: null,
+              startedAt: 0,
+              generation: 0,
+              terminalReason: phase === PHASES.BLOCKED ? 'both_routes_failed' : 'compensation_failed',
+            },
+          }),
+        }),
+        logger: { info() {}, warn(fields) { warnings.push(fields); }, error() {} },
+      });
+      const result = await handler({ Records: [record()] });
+      assert.equal(result.batchItemFailures.length, 0);
+      assert.equal(store.snapshot().phase, phase);
+      const signals = warnings.filter((entry) => entry.event === 'db_failover_terminal_state');
+      assert.equal(signals.length, 1);
+      assert.deepEqual(signals[0]._aws, {
+        Timestamp: BASE_TIME,
+        CloudWatchMetrics: [{
+          Namespace: TERMINAL_STATE_METRIC_NAMESPACE,
+          Dimensions: [TERMINAL_STATE_METRIC_DIMENSIONS],
+          Metrics: [{ Name: TERMINAL_STATE_METRIC_NAME, Unit: 'Count' }],
+        }],
+      });
+      assert.equal(signals[0].Environment, 'preview');
+      assert.equal(signals[0].StateType, 'HOST');
+      assert.equal(signals[0].TerminalState, 1);
+      assert.equal('secret' in signals[0], false);
+      assert.equal('databaseUrl' in signals[0], false);
+    });
+  }
+});
+
+test('terminal control-plane state emits the same monitored signal without a worker failure', async () => {
+  const warnings = [];
+  const { handler, store } = harness({
+    observe: async () => ({
+      controlPlaneOk: false,
+      controlPlaneTerminal: true,
+      controlPlaneError: 'INVALID_HOST_RESULT',
+    }),
+    logger: { info() {}, warn(fields) { warnings.push(fields); }, error() {} },
+  });
+  const result = await handler({ Records: [record()] });
+  assert.equal(result.batchItemFailures.length, 0);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  const signals = warnings.filter((entry) => entry.event === 'db_failover_terminal_state');
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0].Environment, 'preview');
+  assert.equal(signals[0].StateType, 'CONTROL_PLANE');
+  assert.equal(signals[0].TerminalState, 1);
+  assert.equal(signals[0]._aws.CloudWatchMetrics[0].Namespace, TERMINAL_STATE_METRIC_NAMESPACE);
+  assert.equal(signals[0]._aws.CloudWatchMetrics[0].Metrics[0].Name, TERMINAL_STATE_METRIC_NAME);
 });
 
 test('AWS failure preserves the last host phase, route, counters, and terminal fields', async () => {
@@ -852,7 +923,7 @@ test('SSM observer sends only the fixed document and polls a persisted opaque re
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const requestId = makeDeterministicRequestId('fingerprint');
@@ -865,8 +936,7 @@ test('SSM observer sends only the fixed document and polls a persisted opaque re
   assert.deepEqual(calls[0], {
     DocumentName: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
     Targets: [
-      { Key: 'tag:DeploymentTarget', Values: ['babyjamjam-preview'] },
-      { Key: 'tag:Environment', Values: ['preview'] },
+      { Key: 'tag:DeploymentTarget', Values: ['babyjamjam-admin-server'] },
     ],
     Parameters: { RequestId: [requestId] },
     MaxConcurrency: '1',
@@ -911,7 +981,7 @@ test('terminal failed SSM commands mirror valid host BLOCKED results', async () 
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const result = await observer.observe({
@@ -936,7 +1006,7 @@ test('terminal SSM command without a complete valid host result fails closed', a
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
     documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   });
   const result = await observer.observe({
@@ -955,7 +1025,7 @@ test('SSM observer rejects deploy, cross-environment, and non-fixed tag boundari
   const base = {
     client,
     commands: { SendCommandCommand, ListCommandInvocationsCommand },
-    tagValue: 'babyjamjam-preview',
+    tagValue: 'babyjamjam-admin-server',
     environment: 'preview',
   };
   assert.throws(
@@ -973,5 +1043,13 @@ test('SSM observer rejects deploy, cross-environment, and non-fixed tag boundari
       tagKey: 'OtherTag',
     }),
     /tag key is fixed/,
+  );
+  assert.throws(
+    () => createSsmObserver({
+      ...base,
+      documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+      tagValue: 'babyjamjam-preview',
+    }),
+    /tag value is fixed/,
   );
 });

@@ -9,7 +9,7 @@ Parameters:
     Type: String
     Default: preview
     AllowedValues: [preview, production]
-    Description: Environment whose fixed SSM document and managed-node tag are used.
+    Description: Environment whose fixed SSM document and operator command are used.
   EnableFailover:
     Type: String
     Default: 'false'
@@ -52,11 +52,13 @@ Parameters:
     Description: Optional exact ARN override for the environment's fixed reconcile document.
   ManagedNodeTagValue:
     Type: String
-    Default: ''
-    Description: Optional exact managed-node tag value override.
+    Default: babyjamjam-admin-server
+    AllowedValues: [babyjamjam-admin-server]
+    Description: Fixed DeploymentTarget tag on the single shared SSM managed Lightsail node.
   AlarmTopicArn:
     Type: String
     Default: ''
+    AllowedPattern: '^$|^arn:[A-Za-z0-9-]+:sns:[A-Za-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}$'
     Description: Optional SNS topic ARN for control-plane alarms.
 
 Mappings:
@@ -64,18 +66,22 @@ Mappings:
     preview:
       SentryEnvironment: preview
       FailoverDocumentName: babyjamjam-preview-db-failover
-      ManagedNodeTagValue: babyjamjam-preview
       StateKey: db-failover/preview
     production:
       SentryEnvironment: production
       FailoverDocumentName: babyjamjam-production-db-failover
-      ManagedNodeTagValue: babyjamjam-production
       StateKey: db-failover/production
 
 Conditions:
   HasFailoverDocumentArn: !Not [!Equals [!Ref FailoverDocumentArn, '']]
-  HasManagedNodeTagValue: !Not [!Equals [!Ref ManagedNodeTagValue, '']]
   HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, '']]
+
+Rules:
+  AlarmTopicRequiredWhenFailoverEnabled:
+    RuleCondition: !Equals [!Ref EnableFailover, 'true']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AlarmTopicArn, '']]
+        AssertDescription: AlarmTopicArn must be configured before enabling failover.
 
 Globals:
   Function:
@@ -138,6 +144,7 @@ Resources:
   FailoverApi:
     Type: AWS::Serverless::Api
     Properties:
+      Name: !Sub babyjamjam-${EnvironmentType}-db-failover
       StageName: !Ref EnvironmentType
       EndpointConfiguration:
         Type: REGIONAL
@@ -222,17 +229,13 @@ Resources:
                     - !Sub
                       - arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${DocumentName}
                       - DocumentName: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, FailoverDocumentName]
-              - Sid: InvokeOnlyTaggedEnvironmentNode
+              - Sid: InvokeOnlySharedDeploymentTarget
                 Effect: Allow
                 Action: ssm:SendCommand
                 Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:managed-instance/*
                 Condition:
                   StringEquals:
-                    ssm:resourceTag/Environment: !Ref EnvironmentType
-                    ssm:resourceTag/DeploymentTarget: !If
-                      - HasManagedNodeTagValue
-                      - !Ref ManagedNodeTagValue
-                      - !FindInMap [EnvironmentConfig, !Ref EnvironmentType, ManagedNodeTagValue]
+                    ssm:resourceTag/DeploymentTarget: !Ref ManagedNodeTagValue
               - Sid: ObserveOnlyCommandStatus
                 Effect: Allow
                 Action: ssm:ListCommandInvocations
@@ -287,10 +290,7 @@ Resources:
             - !Sub
               - arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${DocumentName}
               - DocumentName: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, FailoverDocumentName]
-          FAILOVER_MANAGED_NODE_TAG_VALUE: !If
-            - HasManagedNodeTagValue
-            - !Ref ManagedNodeTagValue
-            - !FindInMap [EnvironmentConfig, !Ref EnvironmentType, ManagedNodeTagValue]
+          FAILOVER_MANAGED_NODE_TAG_VALUE: !Ref ManagedNodeTagValue
       Events:
         FailoverMessages:
           Type: SQS
@@ -307,6 +307,25 @@ Resources:
             Enabled: true
             Name: !Sub babyjamjam-${EnvironmentType}-db-failover-reconciler
 
+  ReceiverApi5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: API Gateway returned a 5XX response from the Sentry receiver.
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub babyjamjam-${EnvironmentType}-db-failover
+        - Name: Stage
+          Value: !Ref EnvironmentType
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
   ReceiverErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -316,6 +335,44 @@ Resources:
       Dimensions:
         - Name: FunctionName
           Value: !Ref ReceiverFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  HostTerminalStateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Host persisted a terminal BLOCKED or DEGRADED database failover state.
+      Namespace: BabyJamJam/DbFailover
+      MetricName: TerminalState
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentType
+        - Name: StateType
+          Value: HOST
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  ControlPlaneTerminalStateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Control plane persisted a terminal blocked database failover state.
+      Namespace: BabyJamJam/DbFailover
+      MetricName: TerminalState
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentType
+        - Name: StateType
+          Value: CONTROL_PLANE
       Statistic: Sum
       Period: 60
       EvaluationPeriods: 1
@@ -397,8 +454,5 @@ Outputs:
         - arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${DocumentName}
         - DocumentName: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, FailoverDocumentName]
   ManagedNodeTagValue:
-    Description: Exact managed-node DeploymentTarget tag value used by the worker.
-    Value: !If
-      - HasManagedNodeTagValue
-      - !Ref ManagedNodeTagValue
-      - !FindInMap [EnvironmentConfig, !Ref EnvironmentType, ManagedNodeTagValue]
+    Description: Fixed shared managed-node DeploymentTarget tag value used by the worker.
+    Value: !Ref ManagedNodeTagValue

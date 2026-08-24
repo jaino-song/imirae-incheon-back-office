@@ -32,6 +32,12 @@ function response(statusCode, body = {}) {
   };
 }
 
+function safeFailureReason(error) {
+  return typeof error?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(error.code)
+    ? error.code
+    : 'internal_error';
+}
+
 function defaultLogger() {
   return {
     info(fields) {
@@ -158,7 +164,7 @@ export function createReceiverHandler({
     ruleIds: Array.isArray(config?.ruleIds) ? config.ruleIds : defaults.ruleIds,
   };
 
-  return async function receiverHandler(event, context = {}, invocation = {}) {
+  const receiverHandler = async function receiverHandler(event, context = {}, invocation = {}) {
     const deadline = createReceiverDeadline({
       deadlineMs,
       monotonicNow,
@@ -347,6 +353,17 @@ export function createReceiverHandler({
       eventId: normalized.eventId,
     });
     return response(202, { accepted: true, requestId });
+  };
+
+  return async function guardedReceiverHandler(event, context = {}, invocation = {}) {
+    try {
+      return await receiverHandler(event, context, invocation);
+    } catch (error) {
+      safeLog(logger, 'error', 'sentry_receiver_failed', {
+        reason: safeFailureReason(error),
+      });
+      return response(503, { accepted: false });
+    }
   };
 }
 

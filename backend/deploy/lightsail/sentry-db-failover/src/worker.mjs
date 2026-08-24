@@ -48,6 +48,10 @@ const SWITCHING_PHASES = new Set([
 ]);
 const UNCERTAIN_SSM_STATE_REASON = 'ssm_command_state_uncertain';
 const UNCERTAIN_SSM_STATE_ERROR = 'SSM_COMMAND_STATE_UNCERTAIN';
+export const TERMINAL_STATE_METRIC_NAMESPACE = 'BabyJamJam/DbFailover';
+export const TERMINAL_STATE_METRIC_NAME = 'TerminalState';
+export const TERMINAL_STATE_METRIC_DIMENSIONS = Object.freeze(['Environment', 'StateType']);
+export const SHARED_MANAGED_NODE_TAG_VALUE = 'babyjamjam-admin-server';
 
 class LeaseUnavailableError extends Error {
   constructor() {
@@ -95,6 +99,37 @@ function defaultLogger() {
       console.error(JSON.stringify(fields));
     },
   };
+}
+
+function terminalStateType(state) {
+  if (isHostTerminalPhase(state?.phase)) return 'HOST';
+  if (state?.controlPlaneStatus === CONTROL_PLANE_STATUS.BLOCKED) return 'CONTROL_PLANE';
+  return null;
+}
+
+function emitTerminalStateSignal({ logger, state, environment, now }) {
+  const stateType = terminalStateType(state);
+  if (!stateType) return false;
+  const metricEnvironment = environment === 'preview' || environment === 'production'
+    ? environment
+    : 'unknown';
+  const timestamp = typeof now === 'function' ? now() : Date.now();
+  safeLog(logger, 'warn', 'db_failover_terminal_state', {
+    _aws: {
+      Timestamp: timestamp,
+      CloudWatchMetrics: [{
+        Namespace: TERMINAL_STATE_METRIC_NAMESPACE,
+        Dimensions: [TERMINAL_STATE_METRIC_DIMENSIONS],
+        Metrics: [{ Name: TERMINAL_STATE_METRIC_NAME, Unit: 'Count' }],
+      }],
+    },
+    Environment: metricEnvironment,
+    StateType: stateType,
+    TerminalState: 1,
+    phase: state?.phase ?? null,
+    controlPlaneStatus: state?.controlPlaneStatus ?? null,
+  });
+  return true;
 }
 
 function readWorkerConfig(env = process.env) {
@@ -209,6 +244,7 @@ export function createSsmObserver({
     throw new TypeError('fixed SSM document ARN is required');
   }
   if (typeof tagValue !== 'string' || tagValue.length === 0) throw new TypeError('managed node tag value is required');
+  if (tagValue !== SHARED_MANAGED_NODE_TAG_VALUE) throw new TypeError('managed node tag value is fixed');
   if (typeof environment !== 'string' || environment.length === 0) throw new TypeError('managed node environment is required');
   if (!['preview', 'production'].includes(environment)) throw new TypeError('unsupported managed node environment');
   if (tagKey !== 'DeploymentTarget') throw new TypeError('managed node tag key is fixed');
@@ -223,7 +259,6 @@ export function createSsmObserver({
       DocumentName: documentArn,
       Targets: [
         { Key: `tag:${tagKey}`, Values: [tagValue] },
-        { Key: 'tag:Environment', Values: [environment] },
       ],
       Parameters: { RequestId: [requestId] },
       MaxConcurrency: '1',
@@ -344,9 +379,10 @@ function markUncertainSsmState(state, now) {
   });
 }
 
-async function failClosedForUncertainSsmState({ stateStore, state, owner, generation, now }) {
+async function failClosedForUncertainSsmState({ stateStore, state, owner, generation, now, logger, environment }) {
   const blocked = markUncertainSsmState(state, now());
   await saveHostMirror(stateStore, blocked, { owner, generation, now: now() });
+  emitTerminalStateSignal({ logger, state: blocked, environment, now });
   throw new UncertainSsmStateError();
 }
 
@@ -707,6 +743,7 @@ async function processMessage({
   const loaded = normalizeState((await stateStore.get()) ?? undefined, now());
   const loadedStopReason = stopReason(loaded);
   if (loadedStopReason && loadedStopReason !== UNCERTAIN_SSM_STATE_REASON) {
+    emitTerminalStateSignal({ logger, state: loaded, environment: config.environment, now });
     return { status: 'ignored', reason: loadedStopReason };
   }
   if (loadedStopReason !== UNCERTAIN_SSM_STATE_REASON) {
@@ -727,9 +764,20 @@ async function processMessage({
     }
     const afterLeaseStopReason = stopReason(state);
     if (afterLeaseStopReason === UNCERTAIN_SSM_STATE_REASON) {
-      await failClosedForUncertainSsmState({ stateStore, state, owner, generation, now });
+      await failClosedForUncertainSsmState({
+        stateStore,
+        state,
+        owner,
+        generation,
+        now,
+        logger,
+        environment: config.environment,
+      });
     }
-    if (afterLeaseStopReason) return { status: 'ignored', reason: afterLeaseStopReason };
+    if (afterLeaseStopReason) {
+      emitTerminalStateSignal({ logger, state, environment: config.environment, now });
+      return { status: 'ignored', reason: afterLeaseStopReason };
+    }
     if (state.activeRoute !== ROUTES.SHARED) return { status: 'ignored', reason: 'current_route_not_shared' };
 
     const identity = identityForMessage(message);
@@ -778,6 +826,7 @@ async function processMessage({
     state = reconciled.state;
     if (reconciled.applied.uncertain === true) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+      emitTerminalStateSignal({ logger, state, environment: config.environment, now });
       throw new UncertainSsmStateError();
     }
     if (!observationBelongsToRequest(reconciled.observation, { requestId, identity })) {
@@ -794,6 +843,7 @@ async function processMessage({
       now: now(),
       fingerprint: message.bodyFingerprint,
     });
+    emitTerminalStateSignal({ logger, state, environment: config.environment, now });
     safeLog(logger, 'info', 'failover_reconciled', {
       requestId,
       phase: state.phase,
@@ -833,9 +883,20 @@ async function processScheduled({
     let state = normalizeState(lease.state, now());
     const terminalReason = stopReason(state);
     if (terminalReason === UNCERTAIN_SSM_STATE_REASON) {
-      await failClosedForUncertainSsmState({ stateStore, state, owner, generation, now });
+      await failClosedForUncertainSsmState({
+        stateStore,
+        state,
+        owner,
+        generation,
+        now,
+        logger,
+        environment: config.environment,
+      });
     }
-    if (terminalReason) return { status: 'ignored', reason: terminalReason };
+    if (terminalReason) {
+      emitTerminalStateSignal({ logger, state, environment: config.environment, now });
+      return { status: 'ignored', reason: terminalReason };
+    }
 
     const identity = identityForSchedule(event);
     const requestId = requestIdForSchedule(event);
@@ -873,12 +934,14 @@ async function processScheduled({
     state = reconciled.state;
     if (reconciled.applied.uncertain === true) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+      emitTerminalStateSignal({ logger, state, environment: config.environment, now });
       throw new UncertainSsmStateError();
     }
     if (reconciled.dispatchAttemptPersisted || (reconciled.observation?.commandId && state.ssmCommandId)) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
     }
     await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+    emitTerminalStateSignal({ logger, state, environment: config.environment, now });
     safeLog(logger, 'info', 'failover_reconciled', {
       requestId,
       phase: state.phase,
