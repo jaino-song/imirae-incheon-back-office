@@ -6,7 +6,6 @@ import {
   ELIGIBLE_ACTION,
   ELIGIBLE_RESOURCE,
   FAILOVER_SIGNAL_CLASS,
-  PHASES,
   ROUTES,
   makeDeterministicRequestId,
   parseBoolean,
