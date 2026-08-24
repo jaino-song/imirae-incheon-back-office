@@ -410,6 +410,62 @@ test('process restart after an immediate command-ID save failure does not re-sen
   assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
 });
 
+test('a lost SendCommand response stays uncertain and never re-sends the accepted command', async () => {
+  const store = createMemoryStateStore({ now: BASE_TIME });
+  let sendCount = 0;
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        sendCount += 1;
+        throw new Error('SSM accepted command but response was lost');
+      }
+      throw new Error('the uncertain command must not be polled without a persisted ID');
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-preview',
+    environment: 'preview',
+  });
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: observer.observe,
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const first = await handler({ Records: [record()] });
+  assert.equal(first.batchItemFailures.length, 1);
+  assert.equal(first.batchItemFailures[0].itemIdentifier, 'sqs-message-1');
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().ssmDispatchAttempted, true);
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  const retry = await handler({ Records: [record({ messageId: 'sqs-retry' })] });
+  assert.equal(retry.batchItemFailures.length, 1);
+  assert.equal(retry.batchItemFailures[0].itemIdentifier, 'sqs-retry');
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  await assert.rejects(
+    () => handler({ id: 'schedule-after-lost-response', time: '2026-08-24T00:01:00Z' }),
+    (error) => error.name === 'UncertainSsmStateError'
+      && error.code === 'SSM_COMMAND_STATE_UNCERTAIN',
+  );
+  assert.equal(sendCount, 1);
+});
+
 test('defers a Sentry message while reconciling a scheduled command owned by another request', async () => {
   const store = createMemoryStateStore({ now: BASE_TIME });
   const sentRequestIds = [];

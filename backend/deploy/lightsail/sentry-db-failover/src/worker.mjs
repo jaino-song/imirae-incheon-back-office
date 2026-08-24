@@ -554,6 +554,19 @@ function applyObservation(state, observation, { now, environment, requestId }) {
   }
 
   if (observation?.controlPlaneOk !== true) {
+    if (state.ssmDispatchAttempted === true && !state.ssmCommandId) {
+      return {
+        state: {
+          ...markUncertainSsmState(state, now),
+          ssmRequestId: ownerRequestId,
+          ssmRequestIdentity: ownerIdentity,
+          ssmDispatchAttempted: true,
+          ssmCommandId: null,
+        },
+        reason: UNCERTAIN_SSM_STATE_REASON,
+        uncertain: true,
+      };
+    }
     return {
       state: {
         ...markControlPlaneFailure(state, {
@@ -605,6 +618,7 @@ async function observeRequest({ observe, state, requestId, identity, trigger, me
       requestId: state.ssmRequestId ?? requestId,
       identity: state.ssmRequestIdentity ?? identity,
       commandId: state.ssmCommandId ?? undefined,
+      dispatchUncertain: state.ssmDispatchAttempted === true && !state.ssmCommandId,
     };
   }
 }
@@ -762,6 +776,10 @@ async function processMessage({
       logger,
     });
     state = reconciled.state;
+    if (reconciled.applied.uncertain === true) {
+      await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+      throw new UncertainSsmStateError();
+    }
     if (!observationBelongsToRequest(reconciled.observation, { requestId, identity })) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
       throw new CurrentRequestDeferredError();
@@ -853,6 +871,10 @@ async function processScheduled({
       logger,
     });
     state = reconciled.state;
+    if (reconciled.applied.uncertain === true) {
+      await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+      throw new UncertainSsmStateError();
+    }
     if (reconciled.dispatchAttemptPersisted || (reconciled.observation?.commandId && state.ssmCommandId)) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
     }
