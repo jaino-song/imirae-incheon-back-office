@@ -17,6 +17,7 @@ ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
 readonly ROUTE_STATE_FILE_NAME="db-route-state"
 readonly DEPLOY_USER="ubuntu"
 readonly DEPLOY_GROUP="ubuntu"
+readonly REQUEST_HISTORY_LIMIT="32"
 
 CMD_BASH="/bin/bash"
 CMD_CHMOD="/bin/chmod"
@@ -232,6 +233,9 @@ validate_route_state_value() {
         last_request_id)
             [[ -z "$state_value" ]] || is_route_state_uuid "$state_value"
             ;;
+        request_history)
+            validate_request_history "$state_value"
+            ;;
         last_probe_result|last_result|terminal_reason)
             [[ -z "$state_value" ]] || is_route_state_token "$state_value"
             ;;
@@ -257,6 +261,20 @@ validate_route_state_history() {
     done
 }
 
+validate_request_history() {
+    local history="${1:-}"
+    local request_id
+    local history_count=0
+
+    [[ -z "$history" ]] && return 0
+    IFS=',' read -r -a request_history_items <<<"$history"
+    history_count="${#request_history_items[@]}"
+    (( history_count <= REQUEST_HISTORY_LIMIT )) || return 1
+    for request_id in "${request_history_items[@]}"; do
+        is_route_state_uuid "$request_id" || return 1
+    done
+}
+
 validate_route_state_file() {
     local route_state_file="$1"
     local state_key
@@ -265,6 +283,8 @@ validate_route_state_file() {
     local seen_state_keys=" "
     local required_key
 
+    ROUTE_STATE_REQUEST_HISTORY_PRESENT=false
+    ROUTE_STATE_LAST_REQUEST_ID=""
     while IFS= read -r state_line || [[ -n "$state_line" ]]; do
         [[ -z "$state_line" ]] && continue
         [[ "$state_line" == *=* ]] || die "Malformed route state."
@@ -275,6 +295,14 @@ validate_route_state_file() {
         seen_state_keys+="$state_key "
         validate_route_state_value "$state_key" "$state_value" \
             || die "Invalid route state value."
+        case "$state_key" in
+            last_request_id)
+                ROUTE_STATE_LAST_REQUEST_ID="$state_value"
+                ;;
+            request_history)
+                ROUTE_STATE_REQUEST_HISTORY_PRESENT=true
+                ;;
+        esac
     done <"$route_state_file"
 
     for required_key in \
@@ -303,12 +331,67 @@ route_state_creation_failed() {
     die "Unable to create route state."
 }
 
+route_state_migration_failed() {
+    cleanup_route_state_temp
+    trap - RETURN
+    die "Unable to migrate legacy route state."
+}
+
+migrate_legacy_route_state_file() {
+    local route_state_file="$1"
+    local route_state_directory
+    local route_state_metadata
+    local state_line
+    local temporary_file
+
+    [[ "${ROUTE_STATE_REQUEST_HISTORY_PRESENT:-false}" == false ]] || return 0
+    validate_no_symlink_path "$route_state_file"
+    [[ -f "$route_state_file" && ! -L "$route_state_file" ]] \
+        || die "Route state file is missing or invalid: $route_state_file"
+    route_state_directory="$("$CMD_DIRNAME" "$route_state_file")"
+    validate_no_symlink_path "$route_state_directory"
+    [[ -d "$route_state_directory" && ! -L "$route_state_directory" ]] \
+        || die "Route state directory is missing or invalid: $route_state_directory"
+    route_state_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$route_state_file")"
+    [[ "$route_state_metadata" == "root:root:600" ]] \
+        || die "Unexpected route state ownership or mode: $route_state_metadata"
+
+    temporary_file="$("$CMD_MKTEMP" "$route_state_directory/.db-route-state.XXXXXX")" \
+        || die "Unable to create temporary route state migration."
+    trap cleanup_route_state_temp RETURN
+    "$CMD_CHOWN" root:root "$temporary_file" || route_state_migration_failed
+    "$CMD_CHMOD" 0600 "$temporary_file" || route_state_migration_failed
+    if ! {
+        while IFS= read -r state_line || [[ -n "$state_line" ]]; do
+            printf '%s\n' "$state_line"
+            if [[ "$state_line" == last_request_id=* ]]; then
+                printf 'request_history=%s\n' "${ROUTE_STATE_LAST_REQUEST_ID:-}"
+            fi
+        done <"$route_state_file"
+    } >"$temporary_file"; then
+        route_state_migration_failed
+    fi
+    "$CMD_CHOWN" root:root "$temporary_file" || route_state_migration_failed
+    "$CMD_CHMOD" 0600 "$temporary_file" || route_state_migration_failed
+    [[ ! -L "$route_state_file" ]] || route_state_migration_failed
+    [[ -f "$route_state_file" ]] || route_state_migration_failed
+    "$CMD_MV" "$temporary_file" "$route_state_file" || route_state_migration_failed
+    temporary_file=""
+    "$CMD_CHOWN" root:root "$route_state_file" || die "Unable to set route state ownership."
+    "$CMD_CHMOD" 0600 "$route_state_file" || die "Unable to set route state mode."
+    trap - RETURN
+}
+
 ensure_route_state_file() {
     local environment="$1"
+    local migrate_legacy_state="${2:-false}"
     local route_state_directory="$ROUTE_STATE_ROOT/$environment"
     local route_state_file="$route_state_directory/$ROUTE_STATE_FILE_NAME"
     local temporary_file
     local route_state_metadata
+
+    [[ "$migrate_legacy_state" == true || "$migrate_legacy_state" == false ]] \
+        || die "Invalid route state migration mode."
 
     ensure_route_state_directory "$environment"
     validate_no_symlink_path "$route_state_file"
@@ -319,6 +402,11 @@ ensure_route_state_file() {
         [[ "$route_state_metadata" == "root:root:600" ]] \
             || die "Unexpected route state ownership or mode: $route_state_metadata"
         validate_route_state_file "$route_state_file"
+        if [[ "$migrate_legacy_state" == true \
+            && "$ROUTE_STATE_REQUEST_HISTORY_PRESENT" == false ]]; then
+            migrate_legacy_route_state_file "$route_state_file"
+            validate_route_state_file "$route_state_file"
+        fi
         return 0
     fi
 
@@ -348,6 +436,7 @@ ensure_route_state_file() {
             'normal_roundtrip_history=' \
             'cooldown_until=0' \
             'last_request_id=' \
+            'request_history=' \
             'last_probe_route=' \
             'last_probe_result=none' \
             'last_probe_at=0' \
@@ -370,9 +459,13 @@ ensure_route_state_file() {
 }
 
 ensure_deployment_locks() {
+    local migrate_legacy_state="${1:-false}"
     local environment
     local lock_file
     local state_directory
+
+    [[ "$migrate_legacy_state" == true || "$migrate_legacy_state" == false ]] \
+        || die "Invalid route state migration mode."
 
     for environment in preview production; do
         state_directory="$STATE_ROOT/$environment"
@@ -385,7 +478,7 @@ ensure_deployment_locks() {
         [[ -f "$lock_file" ]] || die "Deployment lock is not a regular file: $lock_file"
         "$CMD_CHOWN" "$DEPLOY_USER:$DEPLOY_GROUP" "$lock_file"
         "$CMD_CHMOD" 0640 "$lock_file"
-        ensure_route_state_file "$environment"
+        ensure_route_state_file "$environment" "$migrate_legacy_state"
     done
 }
 
@@ -436,6 +529,7 @@ verify_installed_files() {
         route_state_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$route_state_file")"
         [[ "$route_state_metadata" == "root:root:600" ]] \
             || die "Unexpected route state ownership or mode: $route_state_metadata"
+        validate_route_state_file "$route_state_file"
     done
 
     "$CMD_BASH" -n "$INSTALLED_OPERATOR"
@@ -455,7 +549,7 @@ install_operator() (
 
     require_root
     verify_host_prerequisites
-    ensure_deployment_locks
+    ensure_deployment_locks true
     temporary_directory="$("$CMD_MKTEMP" -d /var/tmp/babyjamjam-ci-operator.XXXXXX)"
     operator_candidate="$temporary_directory/operator"
     trap '"$CMD_RM" -rf "$temporary_directory"' EXIT

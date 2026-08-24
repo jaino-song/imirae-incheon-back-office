@@ -57,6 +57,10 @@ REAL_CHOWN="$(command -v chown)"
 REAL_STAT="$(command -v stat)"
 VALID_REQUEST_ID="123e4567-e89b-12d3-a456-426614174000"
 
+request_id_for_index() {
+    printf '423e4567-e89b-42d3-a456-%012x\n' "$1"
+}
+
 test_stat() {
     local format_flag="$1"
     local format="$2"
@@ -81,6 +85,10 @@ test_stat() {
     if [[ "$path" == "${TEST_STAT_OVERRIDE_PATH:-}" ]]; then
         owner="${TEST_STAT_OVERRIDE_OWNER%%:*}"
         group="${TEST_STAT_OVERRIDE_OWNER#*:}"
+    elif [[ "${TEST_STAT_FAKE_LOCK_OWNER:-0}" == "1" \
+        && "$path" == "$STATE_ROOT"/*/operator.lock ]]; then
+        owner="ubuntu"
+        group="ubuntu"
     elif [[ "${TEST_STAT_FAKE_OWNER:-0}" == "1" ]]; then
         owner="root"
         group="root"
@@ -118,11 +126,16 @@ test_install() {
     /usr/bin/install "${arguments[@]}"
 }
 
+test_mv_failure() {
+    return 1
+}
+
 CMD_STAT=test_stat
 CMD_CHOWN=test_chown
 CMD_INSTALL=test_install
 CMD_DATE="$(command -v date)"
 CMD_MV="$(command -v mv)"
+CMD_RM="$(command -v rm)"
 CMD_UNLINK="$(command -v unlink)"
 TEST_STAT_FAKE_OWNER=0
 if [[ "$EUID" -ne 0 ]]; then
@@ -191,6 +204,7 @@ assert_v2_initial_state() {
         'normal_roundtrip_history=' \
         'cooldown_until=0' \
         'last_request_id=' \
+        'request_history=' \
         'last_probe_route=' \
         'last_probe_result=none' \
         'last_probe_at=0' \
@@ -345,6 +359,72 @@ assert_file_unchanged "$missing_key_snapshot" "$(route_state_file preview)"
 /bin/cp "$preview_snapshot" "$(route_state_file preview)"
 /bin/chmod 0600 "$(route_state_file preview)"
 ensure_route_state_file preview
+invalid_history_snapshot="$TEST_ROOT/invalid-history.snapshot"
+/usr/bin/sed "s/^request_history=.*/request_history=not-a-uuid/" "$(route_state_file preview)" >"$invalid_history_snapshot"
+/bin/mv "$invalid_history_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+/bin/cp "$(route_state_file preview)" "$invalid_history_snapshot"
+assert_refusal_message "Invalid route state value." ensure_route_state_file preview
+assert_file_unchanged "$invalid_history_snapshot" "$(route_state_file preview)"
+
+/bin/cp "$preview_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+oversized_history=""
+for request_index in $(seq 0 32); do
+    if [[ -n "$oversized_history" ]]; then
+        oversized_history="${oversized_history},"
+    fi
+    oversized_history+="$(request_id_for_index "$request_index")"
+done
+oversized_history_snapshot="$TEST_ROOT/oversized-history.snapshot"
+/usr/bin/sed "s/^request_history=.*/request_history=$oversized_history/" "$(route_state_file preview)" >"$oversized_history_snapshot"
+/bin/mv "$oversized_history_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+/bin/cp "$(route_state_file preview)" "$oversized_history_snapshot"
+assert_refusal_message "Invalid route state value." ensure_route_state_file preview
+assert_file_unchanged "$oversized_history_snapshot" "$(route_state_file preview)"
+
+/bin/cp "$preview_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+legacy_snapshot="$TEST_ROOT/legacy-v2.snapshot"
+/usr/bin/sed \
+    -e '/^request_history=/d' \
+    -e "s/^last_request_id=.*/last_request_id=$VALID_REQUEST_ID/" \
+    "$(route_state_file preview)" >"$legacy_snapshot"
+/bin/mv "$legacy_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+/bin/cp "$(route_state_file preview)" "$legacy_snapshot"
+
+/bin/mkdir -p "$STATE_ROOT/preview" "$STATE_ROOT/production" "$LOG_DIRECTORY"
+/bin/chmod 0700 "$STATE_ROOT/preview" "$STATE_ROOT/production" "$LOG_DIRECTORY"
+/bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
+/bin/chmod 0750 "$INSTALLED_OPERATOR"
+TEST_STAT_FAKE_LOCK_OWNER=1
+ensure_deployment_locks false
+
+# A read-only validation/check accepts the pre-history v2 shape but does not
+# rewrite it. Installation/replacement explicitly performs the fail-safe
+# migration and seeds history from the durable last-request marker.
+ensure_route_state_file preview
+assert_file_unchanged "$legacy_snapshot" "$(route_state_file preview)"
+verify_installed_files >/dev/null
+assert_file_unchanged "$legacy_snapshot" "$(route_state_file preview)"
+ensure_route_state_file preview true
+grep -Fxq "request_history=$VALID_REQUEST_ID" "$(route_state_file preview)" \
+    || fail "legacy v2 migration did not preserve last_request_id as history"
+assert_route_state_structure preview
+
+/bin/cp "$legacy_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+CMD_MV=test_mv_failure
+assert_refusal_message "Unable to migrate legacy route state." ensure_route_state_file preview true
+CMD_MV="$(command -v mv)"
+assert_file_unchanged "$legacy_snapshot" "$(route_state_file preview)"
+assert_no_temporary_route_state
+
+/bin/cp "$preview_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+ensure_route_state_file preview
 duplicate_key_snapshot="$TEST_ROOT/duplicate-key.snapshot"
 printf 'cooldown_until=0\n' >>"$(route_state_file preview)"
 /bin/chmod 0600 "$(route_state_file preview)"
@@ -437,9 +517,6 @@ assert_equals "file-target" "$(/bin/cat "$file_target")"
 
 reset_route_state_root
 CMD_MV=test_mv_failure
-test_mv_failure() {
-    return 1
-}
 assert_fails ensure_route_state_file preview
 CMD_MV="$(command -v mv)"
 [[ ! -e "$(route_state_file preview)" ]] || fail "state file was created after an atomic move failure"
@@ -470,5 +547,105 @@ if [[ "$EUID" -eq 0 ]] && /usr/bin/id "$DEPLOY_USER" >/dev/null 2>&1 && [[ -x "$
 else
     echo "deploy-user write check skipped: no root-owned ubuntu account in this local harness"
 fi
+
+# Integration-style compatibility path: the installer creates the v2 state,
+# the real sourced operator reconcile persists a request history entry, and
+# installer check/reinstall/replace preserve that durable history.
+run_operator_reconcile() {
+    local state_path="$1"
+    local request_id="$2"
+
+    /bin/bash -s -- "$HOST_OPERATOR" "$state_path" "$request_id" <<'EOF'
+set -Eeuo pipefail
+
+operator_source="$1"
+state_path="$2"
+request_id="$3"
+source "$operator_source"
+configure_environment preview
+ROUTE_STATE_DIRECTORY="$(/usr/bin/dirname "$state_path")"
+ROUTE_STATE_FILE="$state_path"
+
+ensure_route_state() { :; }
+acquire_lock() { :; }
+validate_backend_env_file() { :; }
+current_epoch() { printf '1700000000\n'; }
+probe_route() { [[ "$1" == "shared" ]]; }
+
+# Keep the operator's real db_reconcile/load/remember/reconcile path while
+# replacing only the root-owned writer for this unprivileged shell harness.
+write_route_state() {
+    local temporary_file
+
+    temporary_file="$(/usr/bin/mktemp "$ROUTE_STATE_DIRECTORY/.db-route-state.test.XXXXXX")"
+    {
+        printf 'version=%s\n' "$ROUTE_STATE_VERSION"
+        printf 'generation=%s\n' "$ROUTE_STATE_GENERATION"
+        printf 'active_route=%s\n' "$ROUTE_STATE_ACTIVE_ROUTE"
+        printf 'phase=%s\n' "$ROUTE_STATE_PHASE"
+        printf 'transition_previous_route=%s\n' "$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE"
+        printf 'transition_target_route=%s\n' "$ROUTE_STATE_TRANSITION_TARGET_ROUTE"
+        printf 'transition_started_at=%s\n' "$ROUTE_STATE_TRANSITION_STARTED_AT"
+        printf 'transition_generation=%s\n' "$ROUTE_STATE_TRANSITION_GENERATION"
+        printf 'direct_activated_at=%s\n' "$ROUTE_STATE_DIRECT_ACTIVATED_AT"
+        printf 'shared_failure_count=%s\n' "$ROUTE_STATE_SHARED_FAILURE_COUNT"
+        printf 'direct_success_count=%s\n' "$ROUTE_STATE_DIRECT_SUCCESS_COUNT"
+        printf 'direct_failure_count=%s\n' "$ROUTE_STATE_DIRECT_FAILURE_COUNT"
+        printf 'emergency_shared_success_count=%s\n' "$ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT"
+        printf 'shared_healthy_count=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_COUNT"
+        printf 'shared_healthy_started_at=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_STARTED_AT"
+        printf 'shared_healthy_last_at=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_LAST_AT"
+        printf 'normal_roundtrip_history=%s\n' "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY"
+        printf 'cooldown_until=%s\n' "$ROUTE_STATE_COOLDOWN_UNTIL"
+        printf 'last_request_id=%s\n' "$ROUTE_STATE_LAST_REQUEST_ID"
+        printf 'request_history=%s\n' "$ROUTE_STATE_REQUEST_HISTORY"
+        printf 'last_probe_route=%s\n' "$ROUTE_STATE_LAST_PROBE_ROUTE"
+        printf 'last_probe_result=%s\n' "$ROUTE_STATE_LAST_PROBE_RESULT"
+        printf 'last_probe_at=%s\n' "$ROUTE_STATE_LAST_PROBE_AT"
+        printf 'last_shared_ok=%s\n' "$ROUTE_STATE_LAST_SHARED_OK"
+        printf 'last_direct_ok=%s\n' "$ROUTE_STATE_LAST_DIRECT_OK"
+        printf 'last_result=%s\n' "$ROUTE_STATE_LAST_RESULT"
+        printf 'terminal_reason=%s\n' "$ROUTE_STATE_TERMINAL_REASON"
+    } >"$temporary_file"
+    /bin/mv -f "$temporary_file" "$ROUTE_STATE_FILE"
+}
+
+db_reconcile "$request_id" >/dev/null
+EOF
+}
+
+reset_route_state_root
+ensure_route_state_file preview
+ensure_route_state_file production
+/bin/mkdir -p "$STATE_ROOT/preview" "$STATE_ROOT/production"
+/bin/chmod 0700 "$STATE_ROOT/preview" "$STATE_ROOT/production"
+run_operator_reconcile "$(route_state_file preview)" "$VALID_REQUEST_ID"
+history_before_install="$(/usr/bin/sed -n 's/^request_history=//p' "$(route_state_file preview)")"
+[[ -n "$history_before_install" ]] || fail "operator reconcile did not persist request history"
+[[ "$history_before_install" == "$VALID_REQUEST_ID" ]] \
+    || fail "unexpected operator request history: $history_before_install"
+preview_after_reconcile_snapshot="$TEST_ROOT/preview-after-reconcile.snapshot"
+/bin/cp "$(route_state_file preview)" "$preview_after_reconcile_snapshot"
+
+/bin/mkdir -p "$LOG_DIRECTORY"
+/bin/chmod 0700 "$LOG_DIRECTORY"
+/bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
+/bin/chmod 0750 "$INSTALLED_OPERATOR"
+TEST_STAT_FAKE_LOCK_OWNER=1
+ensure_deployment_locks true
+
+# The command entry points are exercised with only the host/root probes
+# bypassed; all route-state validation and install/replace behavior is real.
+require_root() { :; }
+verify_host_prerequisites() { :; }
+main check >/dev/null
+assert_file_unchanged "$preview_after_reconcile_snapshot" "$(route_state_file preview)"
+main install >/dev/null
+assert_file_unchanged "$preview_after_reconcile_snapshot" "$(route_state_file preview)"
+
+printf '# replacement marker\n' >>"$INSTALLED_OPERATOR"
+main install --replace >/dev/null
+assert_file_unchanged "$preview_after_reconcile_snapshot" "$(route_state_file preview)"
+assert_equals "$history_before_install" "$(/usr/bin/sed -n 's/^request_history=//p' "$(route_state_file preview)")"
 
 echo "install-ci-operator tests passed"
