@@ -32,6 +32,11 @@ export const ELIGIBLE_ISSUE_CODES = Object.freeze(['P1001', 'P1017']);
 export const REJECTED_ISSUE_CODES = Object.freeze(['P2024']);
 export const ELIGIBLE_ACTION = 'critical';
 export const ELIGIBLE_RESOURCE = 'metric_alert';
+export const FAILOVER_SIGNAL_CLASS = 'db_failover';
+export const REQUIRED_QUERY_MARKERS = Object.freeze([
+  'db.failover_eligible:true',
+  'db.route:shared',
+]);
 
 export const DEFAULT_RECONCILE_CONFIG = Object.freeze({
   sharedFailureThreshold: SHARED_FAILURE_THRESHOLD,
@@ -63,7 +68,7 @@ export function createInitialState(now = Date.now()) {
     activeRoute: ROUTES.SHARED,
     leaseOwner: null,
     leaseExpiresAt: 0,
-    lastSentryRequestId: null,
+    lastSentryEventFingerprint: null,
     lastSentryEventAt: 0,
     directActivatedAt: null,
     sharedHealthySince: null,
@@ -75,7 +80,7 @@ export function createInitialState(now = Date.now()) {
     cooldownUntil: 0,
     recentRoundTripCount: 0,
     recentRoundTripHistory: [],
-    recentSentryRequestIds: [],
+    recentSentryEventFingerprints: [],
     ssmCommandId: null,
     errorTerminalPhase: null,
     lastErrorCode: null,

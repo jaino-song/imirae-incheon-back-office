@@ -33,9 +33,14 @@ export function normalizeState(state, now = Date.now()) {
   normalized.recentRoundTripHistory = Array.isArray(normalized.recentRoundTripHistory)
     ? normalized.recentRoundTripHistory
     : [];
-  normalized.recentSentryRequestIds = Array.isArray(normalized.recentSentryRequestIds)
-    ? normalized.recentSentryRequestIds
+  normalized.lastSentryEventFingerprint = typeof normalized.lastSentryEventFingerprint === 'string'
+    ? normalized.lastSentryEventFingerprint
+    : null;
+  normalized.recentSentryEventFingerprints = Array.isArray(normalized.recentSentryEventFingerprints)
+    ? normalized.recentSentryEventFingerprints
     : [];
+  delete normalized.lastSentryRequestId;
+  delete normalized.recentSentryRequestIds;
   if (!Object.values(PHASES).includes(normalized.phase)) normalized.phase = PHASES.SHARED_ACTIVE;
   if (!Object.values(ROUTES).includes(normalized.activeRoute)) normalized.activeRoute = ROUTES.SHARED;
   return normalized;

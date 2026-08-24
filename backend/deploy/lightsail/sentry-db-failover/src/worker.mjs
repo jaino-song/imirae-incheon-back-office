@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import {
   DEFAULT_RECONCILE_CONFIG,
+  ELIGIBLE_ACTION,
   ELIGIBLE_RESOURCE,
+  FAILOVER_SIGNAL_CLASS,
   PHASES,
   ROUTES,
   makeOpaqueRequestId,
@@ -15,6 +17,7 @@ import {
   createDynamoStateStore,
 } from './state-store.mjs';
 import {
+  isBodyFingerprint,
   isEligibleAlert,
   isOpaqueUuid,
 } from './security.mjs';
@@ -59,6 +62,9 @@ function readWorkerConfig(env = process.env) {
     enabled,
     environment: env.FAILOVER_ENVIRONMENT?.trim(),
     allowedResources: parseCsv(env.SENTRY_ALLOWED_RESOURCES, [ELIGIBLE_RESOURCE]),
+    allowedActions: parseCsv(env.SENTRY_ALLOWED_ACTIONS, [ELIGIBLE_ACTION]),
+    allowedRoutes: parseCsv(env.SENTRY_ALLOWED_ROUTES, [ROUTES.SHARED]),
+    ruleIds: parseCsv(env.SENTRY_RULE_IDS),
     stateKey: env.FAILOVER_STATE_KEY ?? `db-failover/${env.FAILOVER_ENVIRONMENT ?? 'unknown'}`,
     ...DEFAULT_RECONCILE_CONFIG,
   };
@@ -76,17 +82,22 @@ function parseQueueMessage(record) {
   if (!message || typeof message !== 'object' || Array.isArray(message)) {
     throw new InvalidQueueMessageError();
   }
+  const bodyFingerprint = message.bodyFingerprint ?? message.eventId;
   if (
-    !message.eventId
-    || !message.issueCode
+    !isBodyFingerprint(bodyFingerprint)
+    || message.failoverEligible !== true
+    || message.signalClass !== FAILOVER_SIGNAL_CLASS
     || !message.action
     || !message.resource
-    || !message.requestId
+    || !message.environment
+    || !message.ruleId
     || message.eventAt === undefined
     || message.eventAt === null
   ) {
     throw new InvalidQueueMessageError();
   }
+  message.bodyFingerprint = bodyFingerprint;
+  message.eventId ??= bodyFingerprint;
   return message;
 }
 
@@ -102,23 +113,23 @@ function numericTimestamp(value) {
 }
 
 function messageAlreadyProcessed(message, state) {
-  const requestId = message.requestId;
-  if (requestId && state.lastSentryRequestId === requestId) return 'duplicate_request';
-  if (requestId && state.recentSentryRequestIds.includes(requestId)) return 'duplicate_request';
+  const fingerprint = message.bodyFingerprint;
+  if (fingerprint && state.lastSentryEventFingerprint === fingerprint) return 'duplicate_event';
+  if (fingerprint && state.recentSentryEventFingerprints.includes(fingerprint)) return 'duplicate_event';
   const eventAt = numericTimestamp(message.eventAt);
-  if (eventAt > 0 && state.lastSentryEventAt > 0 && eventAt <= state.lastSentryEventAt) {
+  if (eventAt > 0 && state.lastSentryEventAt > 0 && eventAt < state.lastSentryEventAt) {
     return 'out_of_order';
   }
   return null;
 }
 
 function rememberMessage(state, message) {
-  const requestId = typeof message.requestId === 'string' ? message.requestId : null;
-  if (requestId) {
-    state.lastSentryRequestId = requestId;
-    state.recentSentryRequestIds = [
-      ...state.recentSentryRequestIds.filter((value) => value !== requestId),
-      requestId,
+  const fingerprint = isBodyFingerprint(message.bodyFingerprint) ? message.bodyFingerprint : null;
+  if (fingerprint) {
+    state.lastSentryEventFingerprint = fingerprint;
+    state.recentSentryEventFingerprints = [
+      ...state.recentSentryEventFingerprints.filter((value) => value !== fingerprint),
+      fingerprint,
     ].slice(-32);
   }
   const eventAt = numericTimestamp(message.eventAt);
@@ -280,6 +291,10 @@ async function processMessage({
     await stateStore.releaseLease({ owner, generation, now: now() });
     return { status: 'ignored', reason: 'blocked' };
   }
+  if (state.activeRoute !== ROUTES.SHARED) {
+    await stateStore.releaseLease({ owner, generation, now: now() });
+    return { status: 'ignored', reason: 'current_route_not_shared' };
+  }
 
   const ssmRequestId = makeOpaqueRequestId(idFactory);
   let observation;
@@ -290,9 +305,13 @@ async function processMessage({
       trigger: 'sentry',
       message: {
         eventId: message.eventId,
-        issueCode: message.issueCode,
+        bodyFingerprint: message.bodyFingerprint,
+        failoverEligible: message.failoverEligible,
+        signalClass: message.signalClass,
         action: message.action,
         resource: message.resource,
+        environment: message.environment,
+        ruleId: message.ruleId,
       },
     });
   } catch (error) {

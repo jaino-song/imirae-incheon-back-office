@@ -4,8 +4,10 @@ import {
   ELIGIBLE_ACTION,
   ELIGIBLE_ISSUE_CODES,
   ELIGIBLE_RESOURCE,
+  FAILOVER_SIGNAL_CLASS,
   MAX_WEBHOOK_BYTES,
   REJECTED_ISSUE_CODES,
+  REQUIRED_QUERY_MARKERS,
   ROUTES,
   UUID_PATTERN,
   WEBHOOK_TIMESTAMP_TOLERANCE_MS,
@@ -18,6 +20,7 @@ const TIMESTAMP_HEADERS = Object.freeze([
   'x-sentry-hook-timestamp',
 ]);
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 
 function getHeader(headers, name) {
   if (!headers || typeof headers !== 'object') return undefined;
@@ -121,121 +124,70 @@ function firstString(object, paths) {
   return undefined;
 }
 
+function scalarIdentifier(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function projectIdentifiers(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((project) => (
+      project && typeof project === 'object'
+        ? scalarIdentifier(project.id)
+        : scalarIdentifier(project)
+    ))
+    .filter((projectId) => projectId !== undefined);
+}
+
+function queryContainsMarker(query, marker) {
+  if (typeof query !== 'string') return false;
+  const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^A-Za-z0-9_.:-])${escapedMarker}(?=$|[^A-Za-z0-9_.:-])`).test(query);
+}
+
+function queryContainsPrismaCode(query, code) {
+  if (typeof query !== 'string') return false;
+  return new RegExp(`\\b${code}\\b`, 'i').test(query);
+}
+
+function isFailoverEligibleQuery(query) {
+  if (typeof query !== 'string' || query.trim() === '') return false;
+  if (!REQUIRED_QUERY_MARKERS.every((marker) => queryContainsMarker(query, marker))) return false;
+
+  const prismaCodes = [...query.matchAll(/\bP[0-9]{4}\b/gi)].map(([code]) => code.toUpperCase());
+  return prismaCodes.every((code) => ELIGIBLE_ISSUE_CODES.includes(code))
+    && !REJECTED_ISSUE_CODES.some((code) => queryContainsPrismaCode(query, code));
+}
+
 export function normalizeSentryEvent(payload, rawBody) {
   const data = payload.data && typeof payload.data === 'object' ? payload.data : {};
-  const alert = payload.alert && typeof payload.alert === 'object' ? payload.alert : {};
-  const event = payload.event && typeof payload.event === 'object' ? payload.event : {};
   const metricAlert = data.metric_alert && typeof data.metric_alert === 'object'
     ? data.metric_alert
-    : (payload.metric_alert && typeof payload.metric_alert === 'object' ? payload.metric_alert : {});
+    : {};
   const alertRule = metricAlert.alert_rule && typeof metricAlert.alert_rule === 'object'
     ? metricAlert.alert_rule
     : {};
-  const incident = metricAlert.incident && typeof metricAlert.incident === 'object'
-    ? metricAlert.incident
-    : (data.incident && typeof data.incident === 'object' ? data.incident : {});
-  const sources = [payload, data, metricAlert, alertRule, incident, alert, event];
-  const fromSources = (paths) => {
-    for (const source of sources) {
-      const value = firstString(source, paths);
-      if (value !== undefined) return value;
-    }
-    return undefined;
-  };
-
-  const candidateEventId = fromSources([
-    ['event_id'],
-    ['eventId'],
-    ['id'],
-    ['alert_id'],
-    ['alertId'],
-  ]);
-  const eventId = candidateEventId && SAFE_IDENTIFIER_PATTERN.test(candidateEventId)
-    ? candidateEventId
-    : createHash('sha256').update(rawBody).digest('hex');
+  const bodyFingerprint = createHash('sha256').update(rawBody).digest('hex');
 
   return {
-    eventId,
-    installationId: fromSources([
-      ['installation_id'],
-      ['installationId'],
-      ['installation', 'id'],
-      ['metric_alert', 'installation_id'],
-    ]),
-    organizationId: fromSources([
-      ['organization_id'],
-      ['organizationId'],
-      ['organization', 'id'],
-      ['org_id'],
-      ['orgId'],
-      ['metric_alert', 'organization', 'id'],
-      ['alert_rule', 'organization', 'id'],
-    ]),
-    projectId: fromSources([
-      ['project_id'],
-      ['projectId'],
-      ['project', 'id'],
-      ['metric_alert', 'project', 'id'],
-      ['alert_rule', 'project', 'id'],
-    ]),
-    environment: fromSources([
-      ['environment'],
-      ['data', 'environment'],
-      ['tags', 'environment'],
-      ['metric_alert', 'environment'],
-      ['alert_rule', 'environment'],
-    ]),
-    ruleId: fromSources([
-      ['rule_id'],
-      ['ruleId'],
-      ['rule', 'id'],
-      ['alert_rule_id'],
-      ['alertRuleId'],
-      ['metric_alert', 'alert_rule', 'id'],
-      ['alert_rule', 'id'],
-    ]),
-    resource: fromSources([
-      ['resource'],
-      ['resource_type'],
-      ['resourceType'],
-      ['alert', 'resource'],
-      ['metric_alert', 'resource'],
-    ]),
-    action: fromSources([
-      ['action'],
-      ['alert_action'],
-      ['alertAction'],
-      ['metric_alert', 'action'],
-    ]),
-    issueCode: fromSources([
-      ['issue_code'],
-      ['issueCode'],
-      ['short_id'],
-      ['shortId'],
-      ['issue', 'short_id'],
-      ['issue', 'shortId'],
-      ['alert', 'short_id'],
-      ['alert', 'shortId'],
-      ['metric_alert', 'incident', 'short_id'],
-      ['metric_alert', 'incident', 'shortId'],
-      ['metric_alert', 'incident', 'issue', 'short_id'],
-      ['metric_alert', 'incident', 'issue', 'shortId'],
-      ['incident', 'short_id'],
-      ['incident', 'shortId'],
-      ['incident', 'issue', 'short_id'],
-      ['incident', 'issue', 'shortId'],
-    ]),
-    route: fromSources([
-      ['route'],
-      ['active_route'],
-      ['activeRoute'],
-      ['tags', 'route'],
-    ]),
-    timestamp: fromSources([
+    eventId: bodyFingerprint,
+    bodyFingerprint,
+    metricAlertId: scalarIdentifier(metricAlert.id),
+    installationId: scalarIdentifier(readPath(payload, ['installation', 'uuid'])),
+    organizationId: scalarIdentifier(metricAlert.organization_id),
+    alertRuleOrganizationId: scalarIdentifier(alertRule.organization_id),
+    projectIds: projectIdentifiers(metricAlert.projects),
+    alertRuleProjectIds: projectIdentifiers(alertRule.projects),
+    environment: typeof alertRule.environment === 'string' ? alertRule.environment.trim() : undefined,
+    ruleId: scalarIdentifier(alertRule.id),
+    query: typeof alertRule.query === 'string' ? alertRule.query.trim() : undefined,
+    action: typeof payload.action === 'string' ? payload.action.trim() : undefined,
+    timestamp: firstString(payload, [
       ['timestamp'],
       ['sent_at'],
       ['sentAt'],
-      ['alert', 'timestamp'],
     ]),
   };
 }
@@ -284,19 +236,34 @@ export function readReceiverConfig(env = process.env) {
     allowedResources,
     allowedActions,
     allowedRoutes,
-    issueCodes: [...ELIGIBLE_ISSUE_CODES],
   };
 }
 
 export function isAllowedSentryEvent(event, config) {
   if (!event || !config) return { allowed: false, reason: 'invalid_event' };
+  if (!event.bodyFingerprint || !SHA256_HEX_PATTERN.test(event.bodyFingerprint)) {
+    return { allowed: false, reason: 'event_fingerprint_missing' };
+  }
+  if (!event.metricAlertId) {
+    return { allowed: false, reason: 'metric_alert_id_missing' };
+  }
   if (!config.installationId || event.installationId !== config.installationId) {
     return { allowed: false, reason: 'installation_not_allowed' };
   }
-  if (!config.organizationId || event.organizationId !== config.organizationId) {
+  if (
+    !config.organizationId
+    || event.organizationId !== config.organizationId
+    || event.alertRuleOrganizationId !== config.organizationId
+  ) {
     return { allowed: false, reason: 'organization_not_allowed' };
   }
-  if (!config.projectId || event.projectId !== config.projectId) {
+  if (
+    !config.projectId
+    || !Array.isArray(event.projectIds)
+    || !event.projectIds.includes(config.projectId)
+    || !Array.isArray(event.alertRuleProjectIds)
+    || !event.alertRuleProjectIds.includes(config.projectId)
+  ) {
     return { allowed: false, reason: 'project_not_allowed' };
   }
   if (!config.environment || event.environment !== config.environment) {
@@ -319,43 +286,45 @@ export function isAllowedSentryEvent(event, config) {
   }
   const sharedRouteConfigured = !Array.isArray(config.allowedRoutes)
     || config.allowedRoutes.some((route) => String(route).toUpperCase() === ROUTES.SHARED);
-  const routeAllowed = sharedRouteConfigured && (
-    event.route === undefined
-    || event.route === null
-    || event.route === ''
-    || String(event.route).toUpperCase() === ROUTES.SHARED
-  );
-  if (!routeAllowed) {
+  if (!sharedRouteConfigured) {
     return { allowed: false, reason: 'route_not_allowed' };
   }
-  if (!ELIGIBLE_ISSUE_CODES.includes(event.issueCode)
-    || !Array.isArray(config.issueCodes)
-    || !config.issueCodes.includes(event.issueCode)) {
-    return {
-      allowed: false,
-      reason: REJECTED_ISSUE_CODES.includes(event.issueCode) ? 'issue_not_eligible' : 'issue_not_allowed',
-    };
+  if (!isFailoverEligibleQuery(event.query)) {
+    return { allowed: false, reason: 'query_not_eligible' };
   }
   return { allowed: true, reason: 'eligible' };
 }
 
 export function isEligibleAlert(message, config = {}) {
-  const issueCode = message?.issueCode ?? message?.issue_code;
   const action = message?.action;
   const resource = message?.resource;
   const environment = message?.environment;
-  const route = String(message?.route ?? '').toUpperCase();
   const allowedEnvironment = config.environment;
   const resources = config.allowedResources ?? [ELIGIBLE_RESOURCE];
+  const actions = config.allowedActions ?? [ELIGIBLE_ACTION];
+  const ruleIds = config.ruleIds ?? [];
+  const routes = config.allowedRoutes ?? [ROUTES.SHARED];
   return Boolean(
-    (ELIGIBLE_ISSUE_CODES.includes(issueCode))
-    && !REJECTED_ISSUE_CODES.includes(issueCode)
+    message?.failoverEligible === true
+    && message?.signalClass === FAILOVER_SIGNAL_CLASS
+    && typeof message?.bodyFingerprint === 'string'
+    && SHA256_HEX_PATTERN.test(message.bodyFingerprint)
     && action === ELIGIBLE_ACTION
+    && Array.isArray(actions)
+    && actions.includes(ELIGIBLE_ACTION)
     && resource === ELIGIBLE_RESOURCE
+    && Array.isArray(resources)
     && resources.includes(ELIGIBLE_RESOURCE)
     && environment === allowedEnvironment
-    && (route === '' || route === ROUTES.SHARED),
+    && Array.isArray(ruleIds)
+    && ruleIds.includes(message?.ruleId)
+    && Array.isArray(routes)
+    && routes.some((route) => String(route).toUpperCase() === ROUTES.SHARED),
   );
+}
+
+export function isBodyFingerprint(value) {
+  return typeof value === 'string' && SHA256_HEX_PATTERN.test(value);
 }
 
 export function isOpaqueUuid(value) {

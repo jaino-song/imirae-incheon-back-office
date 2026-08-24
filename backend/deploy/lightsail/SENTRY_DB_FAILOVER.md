@@ -64,18 +64,28 @@ The receiver deliberately keeps its Lambda/API Gateway path small:
    32-byte digest with `Sentry-Hook-Signature` using a fixed-size
    `timingSafeEqual` comparison. Missing, malformed, or tampered signatures are
    rejected.
-4. Parse JSON only after authentication, then require exact installation,
-   organization, project, Sentry environment, and DB rule ID allowlists. The
-   `Sentry-Hook-Resource` header must be exactly `metric_alert`; only the
-   allowlisted trigger action `critical` and issue codes `P1001`/`P1017` are
-   eligible. `warning`, `resolved`, `P2024`, non-DB rule IDs, direct-route
-   events, and wrong environments are ignored. An explicit route in the event
-   must be `SHARED`; when Sentry omits route metadata, the worker checks the
-   DynamoDB active route before waking reconcile.
-5. Send a FIFO message before returning `202`. The message contains only event
-   identity, allowlisted alert fields, timestamps, and a request ID. It never
-   contains the raw body, secret, DB URL, DB host, or shell text. The event ID
-   is the FIFO deduplication ID.
+4. Parse JSON only after authentication, then require the official metric-alert
+   shape: top-level `action`, `installation.uuid`, and
+   `data.metric_alert.id`, `organization_id`, and `projects[]`; its nested
+   `alert_rule` must provide `id`, `organization_id`, `projects[]`,
+   `environment`, and `query`. The configured project must be present in both
+   signed project arrays, and both signed organization IDs must match the
+   configured organization. The exact rule ID and configured environment are
+   mandatory. The `Sentry-Hook-Resource` header must be exactly `metric_alert`,
+   and the action must be the allowlisted `critical` value.
+5. The signed alert-rule query must contain the exact terms
+   `db.failover_eligible:true` and `db.route:shared`. A query containing
+   `P2024`, or any non-allowlisted Prisma code term, is rejected. This is a
+   boundary check only; the application remains authoritative for the
+   P1001/P1017-only `db.failover_eligible` tag taxonomy. The receiver does not
+   require or trust an individual Prisma `issueCode` or a `route` field in the
+   webhook body. `Sentry-Hook-Timestamp` freshness is checked independently;
+   the timestamp header is not assumed to be covered by the raw-body HMAC.
+6. Send a FIFO message before returning `202`. The message contains only the
+   body-derived SHA-256 fingerprint, the fixed `db_failover` signal with
+   `failoverEligible=true`, allowlisted alert fields, timestamps, and a request
+   ID for correlation. It never contains the raw body, secret, DB URL, DB host,
+   or shell text. The body fingerprint is the FIFO deduplication ID.
 
 The queue send has a 700 ms timeout to preserve the Sentry one-second webhook
 contract and the local p99 gate of 800 ms. A successful durable enqueue returns
@@ -84,17 +94,19 @@ contract and the local p99 gate of 800 ms. A successful durable enqueue returns
 off is acknowledged with `202` and is not queued, avoiding Sentry retries while
 the stack is intentionally disabled.
 
-The receiver logs only a correlation/request ID, event ID, issue code, and a
-stable rejection reason. It never logs the body, signature, secret, queue URL,
-route command, or status output.
+The receiver logs only a correlation/request ID, body fingerprint, and a stable
+rejection reason. It never logs the body, signature, secret, queue URL, route
+command, or status output.
 
 ## Worker and state contract
 
 The worker uses a conditional DynamoDB lease. A competing invocation returns an
 SQS partial-batch failure so the FIFO message can be retried; an expired lease
 can be claimed by the next invocation. State writes are conditional on both
-`generation` and lease owner. Sentry request IDs and event timestamps provide
-replay and out-of-order suppression, in addition to FIFO deduplication.
+`generation` and lease owner. The body-derived event fingerprint and event
+timestamps provide replay and out-of-order suppression, in addition to FIFO
+deduplication. Request-ID is only correlation metadata and is never a
+deduplication key.
 
 The state record includes these operational fields:
 
@@ -103,7 +115,8 @@ generation
 phase
 activeRoute
 leaseExpiresAt
-lastSentryRequestId
+lastSentryEventFingerprint
+recentSentryEventFingerprints
 directActivatedAt
 sharedHealthySince
 sharedHealthyCount
@@ -114,7 +127,7 @@ ssmCommandId
 errorTerminalPhase
 ```
 
-The full implementation also records bounded request-id history, probe failure
+The full implementation also records bounded fingerprint history, probe failure
 counters, last observation time, and a safe error code. The only terminal state
 is `BLOCKED`; an operator must investigate and explicitly clear the state
 before another automatic switch is possible.
@@ -171,11 +184,12 @@ node --test test/*.test.mjs
 ```
 
 The tests cover HMAC and timestamp boundaries, raw-body and size handling,
-allowlist rejection, FIFO enqueue failures and time budget, replay and
-out-of-order messages, lease expiry/retry, conditional state transitions,
-P1001/P1017 eligibility, P2024 rejection, switch/failback budgets, both-down
-blocking, control-plane preservation, fixed SSM parameters, and static SAM/IAM
-contracts.
+official metric-alert parsing, installation/organization/project/environment/rule
+allowlists, query-marker rejection, FIFO enqueue failures and time budget,
+body-fingerprint replay and out-of-order messages, lease expiry/retry,
+conditional state transitions, P1001/P1017 query eligibility, P2024 rejection,
+switch/failback budgets, both-down blocking, control-plane preservation, fixed
+SSM parameters, and static SAM/IAM contracts.
 
 The GitHub workflow validates, tests, builds, and packages SAM artifacts on
 repository changes. It has no automatic deployment path. Preview and production
