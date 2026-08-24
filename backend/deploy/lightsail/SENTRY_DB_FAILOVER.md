@@ -82,14 +82,16 @@ The receiver deliberately keeps its Lambda/API Gateway path small:
    header must be exactly `metric_alert`, and the action must be the allowlisted
    `critical` value.
 5. The signed alert-rule query must contain the exact terms
-   `db.failover_eligible:true` and `db.route:shared`. A query containing no
-   Prisma code, `P2024`, or any non-allowlisted Prisma code term is rejected.
-   Mixed eligible/ineligible Prisma code sets are rejected. This is a
-   boundary check only; the application remains authoritative for the
-   P1001/P1017-only `db.failover_eligible` tag taxonomy. The receiver does not
-   require or trust an individual Prisma `issueCode` or a `route` field in the
-   webhook body. `Sentry-Hook-Timestamp` freshness is checked independently;
-   the timestamp header is not assumed to be covered by the raw-body HMAC.
+   `db.failover_eligible:true` and `db.route:shared`, plus at least one exact
+   Prisma tag term: `prisma.code:P1001` and/or `prisma.code:P1017`. Every
+   Prisma-code field or `P####` token must be one of those exact terms;
+   bracketed, wildcard, negated, malformed, aliased, ineligible, or mixed
+   code expressions are rejected. This is a boundary check only; the
+   application remains authoritative for the P1001/P1017-only
+   `db.failover_eligible` tag taxonomy. The receiver does not require or trust
+   an individual Prisma `issueCode` or a `route` field in the webhook body.
+   `Sentry-Hook-Timestamp` freshness is checked independently; the timestamp
+   header is not assumed to be covered by the raw-body HMAC.
 6. Send a FIFO message before returning `202`. The message contains only the
    body-derived SHA-256 fingerprint, the fixed `db_failover` signal with
    `failoverEligible=true`, allowlisted alert fields, timestamps, and a request
@@ -227,7 +229,8 @@ official metric-alert parsing, installation/organization/project/environment/rul
 allowlists, signed aggregate/window/threshold scope, query-marker rejection,
 FIFO enqueue failures and the end-to-end time budget, durable body-fingerprint
 replay beyond 32 events, transaction failure/retry, duplicate races, lease expiry/retry,
-conditional state transitions, P1001/P1017 query eligibility, P2024 rejection,
+conditional state transitions, exact P1001/P1017 query eligibility and bypass
+rejection, P2024 rejection,
 switch/failback budgets, both-down blocking, control-plane preservation, fixed
 SSM parameters, and static SAM/IAM contracts.
 

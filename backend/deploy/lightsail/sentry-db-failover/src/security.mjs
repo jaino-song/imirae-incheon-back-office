@@ -23,6 +23,11 @@ const TIMESTAMP_HEADERS = Object.freeze([
 ]);
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
+const EXACT_ELIGIBLE_PRISMA_TERMS = new Set(
+  ELIGIBLE_ISSUE_CODES.map((code) => `prisma.code:${code}`),
+);
+const PRISMA_CODE_FIELD_PATTERN = /prisma[._-]?code\s*[:=]/i;
+const PRISMA_CODE_TOKEN_PATTERN = /P[0-9]{4}/i;
 
 function getHeader(headers, name) {
   if (!headers || typeof headers !== 'object') return undefined;
@@ -155,9 +160,12 @@ function isFailoverEligibleQuery(query) {
   if (typeof query !== 'string' || query.trim() === '') return false;
   if (!REQUIRED_QUERY_MARKERS.every((marker) => queryContainsMarker(query, marker))) return false;
 
-  const prismaCodes = [...query.matchAll(/\bP[0-9]{4}\b/gi)].map(([code]) => code.toUpperCase());
-  return prismaCodes.length > 0
-    && prismaCodes.every((code) => ELIGIBLE_ISSUE_CODES.includes(code));
+  const queryTerms = query.trim().split(/\s+/);
+  const prismaCodeTerms = queryTerms.filter((term) => (
+    PRISMA_CODE_FIELD_PATTERN.test(term) || PRISMA_CODE_TOKEN_PATTERN.test(term)
+  ));
+  return prismaCodeTerms.length > 0
+    && prismaCodeTerms.every((term) => EXACT_ELIGIBLE_PRISMA_TERMS.has(term));
 }
 
 function consistentScopeValue(objects, key) {
