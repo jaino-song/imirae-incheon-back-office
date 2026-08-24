@@ -23,3 +23,11 @@ export class AreaTemplateEntity {
         return new AreaTemplateEntity(id, areaId, templateId, templateName);
     }
 }
+
+export class AvailableAreaEntity {
+    constructor(
+        public readonly id: string,
+        public readonly name: string,
+        public readonly koreanName: string,
+    ) {}
+}

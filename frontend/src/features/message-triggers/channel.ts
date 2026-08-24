@@ -10,6 +10,7 @@ import type {
 // channel filters, and the backend delivery drift guard all agree.
 import {
   CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+  MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
   SMS_TRIGGER_TEMPLATE_KEYS,
   SMS_TRIGGER_TO_SYSTEM_TEMPLATE,
   getTriggerTemplateChannel,
@@ -23,6 +24,7 @@ import {
 
 export {
   CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+  MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
   SMS_TRIGGER_TEMPLATE_KEYS,
   SMS_TRIGGER_TO_SYSTEM_TEMPLATE,
   getTriggerTemplateChannel,

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 import { NotificationTestSection } from "@/components/app/settings/NotificationTestSection";
-import { SystemAdminAccountEditDialog } from "@/components/app/system-admin/SystemAdminAccountEditDialog";
+import { SystemAdminAccountEditDialog } from "@/components/app/ui/SystemAdminAccountEditDialog";
 import { SystemAdminBranchForm } from "@/components/app/system-admin/SystemAdminBranchForm";
 import { FormNativeSelect } from "@/components/app/ui/form-section";
 import { TagPill } from "@/components/app/ui/tag-pill";

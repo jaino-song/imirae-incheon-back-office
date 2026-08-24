@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { api } from "@/lib/api/client";
 import type { Client } from "@/lib/client/types";
@@ -19,6 +19,15 @@ jest.mock("@/hooks/useClients", () => ({
 }));
 
 jest.mock("@/hooks/useVoucherData", () => ({
+  useAvailableClientAreas: () => ({
+    data: [
+      { id: "Namdonggu", name: "Namdong-gu", koreanName: "남동구" },
+      { id: "Seogu", name: "Seo-gu", koreanName: "서구" },
+      { id: "Yeonsugu", name: "Yeonsu-gu", koreanName: "연수구" },
+      { id: "GlobalSupport", name: "Global support", koreanName: "공통 지원 지역" },
+    ],
+    isLoading: false,
+  }),
   useAreaTemplates: () => ({
     data: [
       { id: "area-template-1", areaId: "Namdonggu", templateId: "template-1", templateName: "남동구 계약서" },
@@ -96,6 +105,14 @@ describe("ClientFormDialog area persistence", () => {
     mockCreateClient.mockResolvedValue({ id: 156 });
     mockUpdateClient.mockReset();
     mockUpdateClient.mockResolvedValue(existingClient);
+  });
+
+  it("lists branch-local and global areas even when they have no document template", async () => {
+    render(<ClientFormDialog open onClose={jest.fn()} />);
+
+    const areaSelect = await screen.findByLabelText("관할 지역");
+    expect(within(areaSelect).getByRole("option", { name: "연수구" })).toHaveValue("Yeonsugu");
+    expect(within(areaSelect).getByRole("option", { name: "공통 지원 지역" })).toHaveValue("GlobalSupport");
   });
 
   it("submits the selected area when creating a client", async () => {

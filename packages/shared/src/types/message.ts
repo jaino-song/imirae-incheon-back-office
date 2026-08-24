@@ -55,6 +55,47 @@ export type MessageTriggerTemplateKey =
   | "SURVEY"
   | "INFO";
 
+/**
+ * Variables each scheduler can derive without operator input.
+ * Backend parity is enforced by message-trigger-template-consistency.spec.ts.
+ */
+export const MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS: Readonly<
+  Record<MessageTriggerTemplateKey, readonly string[]>
+> = {
+  CLIENT_WELCOME: ["name", "clientName", "registrationDate", "serviceType"],
+  SERVICE_START_REMINDER: ["name", "clientName", "serviceStartDate", "timingText"],
+  SERVICE_INFO: ["name", "clientName", "phone"],
+  SERVICE_END_REMINDER: ["name", "clientName", "serviceEndDate", "timingText"],
+  EMPLOYEE_ASSIGNED: ["name", "employeeName", "clientName", "serviceStartDate"],
+  SERVICE_RECORD_LINK: [
+    "name",
+    "employeeName",
+    "clientName",
+    "serviceStartDate",
+    "serviceEndDate",
+    "buttonUrl",
+    "serviceRecordUrl",
+  ],
+  CLIENT_GREETING: ["name", "clientName", "phone"],
+  PRICE_INFO: [
+    "name",
+    "clientName",
+    "phone",
+    "weeks",
+    "duration",
+    "type",
+    "fullPrice",
+    "grant",
+    "actualPrice",
+    "bankName",
+    "accNum",
+  ],
+  REMINDER: ["name", "clientName", "phone"],
+  THANKS: ["name", "clientName", "phone"],
+  SURVEY: ["name", "clientName", "phone"],
+  INFO: ["name", "clientName", "phone"],
+};
+
 // Which system template's body each SMS trigger template renders. One source of
 // truth for both the backend SMS delivery and the form preview.
 export const SMS_TRIGGER_TO_SYSTEM_TEMPLATE: Partial<

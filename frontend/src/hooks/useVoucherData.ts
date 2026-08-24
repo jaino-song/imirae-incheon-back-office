@@ -27,6 +27,12 @@ export interface AreaTemplate {
   templateName: string | null;
 }
 
+export interface AvailableClientArea {
+  id: string;
+  name: string;
+  koreanName: string;
+}
+
 // Query keys - centralized for consistency
 export const voucherQueryKeys = {
   bankAccountInfos: ["bank-account-infos"] as const,
@@ -35,6 +41,7 @@ export const voucherQueryKeys = {
   voucherYears: ["voucher-years"] as const,
   outOfPocketPriceInfos: ["out-of-pocket-price-infos"] as const,
   areaTemplates: ["area-templates"] as const,
+  availableClientAreas: ["area-templates", "available-areas"] as const,
 };
 
 // Hooks
@@ -109,6 +116,18 @@ export function useAreaTemplates() {
     queryFn: async () => {
       const { data } = await api.get("/area-templates");
       return data as AreaTemplate[];
+    },
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 60 * 24, // 24 hours
+  });
+}
+
+export function useAvailableClientAreas() {
+  return useQuery<AvailableClientArea[]>({
+    queryKey: voucherQueryKeys.availableClientAreas,
+    queryFn: async () => {
+      const { data } = await api.get("/area-templates/available-areas");
+      return data as AvailableClientArea[];
     },
     staleTime: Infinity,
     gcTime: 1000 * 60 * 60 * 24, // 24 hours

@@ -3,6 +3,7 @@ import {
     CreateAreaTemplateUsecase,
     FindAreaTemplateByAreaUsecase,
     ListAreaTemplatesUsecase,
+    ListAvailableAreasUsecase,
     UpdateAreaTemplateUsecase,
     DeleteAreaTemplateUsecase,
 } from "application/usecases/area-template";
@@ -21,6 +22,7 @@ import { DatabaseModule } from "infrastructure/database/database.module";
         CreateAreaTemplateUsecase,
         FindAreaTemplateByAreaUsecase,
         ListAreaTemplatesUsecase,
+        ListAvailableAreasUsecase,
         UpdateAreaTemplateUsecase,
         DeleteAreaTemplateUsecase,
         AreaTemplateService,

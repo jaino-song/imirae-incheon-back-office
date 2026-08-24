@@ -15,12 +15,19 @@ import { SYSTEM_TEMPLATE_REGISTRY } from "domain/constants/system-template-regis
 import { MESSAGE_TEMPLATE_LABELS } from "../../../packages/shared/src/message/presentation";
 import {
     CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS as SHARED_CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+    MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS as SHARED_MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
 } from "../../../packages/shared/src/types/message";
 
 describe("SMS trigger template consistency", () => {
     it("keeps the frontend and backend configurable SMS template lists identical", () => {
         expect(BACKEND_CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS).toEqual(
             SHARED_CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+        );
+    });
+
+    it("keeps the frontend and backend automatic variable sources identical", () => {
+        expect(MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS).toEqual(
+            SHARED_MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
         );
     });
 

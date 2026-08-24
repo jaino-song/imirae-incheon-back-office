@@ -322,8 +322,11 @@ describe("TriggerRulesManager", () => {
       systemTemplate: {
         id: "template-service-record-link",
         templateKey: "SERVICE_RECORD_LINK",
-        content: "{{employeeName}}님 {{serviceRecordUrl}}",
-        customVariables: [],
+        content: "{{employeeName}}님 {{serviceRecordUrl}} {{buttonUrl}} {{serviceEndDate}}",
+        customVariables: [
+          { key: "buttonUrl", label: "버튼 링크", required: true },
+          { key: "serviceEndDate", label: "서비스 종료일", required: true },
+        ],
         requiredVariables: [
           { key: "employeeName", label: "제공인력명", required: true, type: "string" },
           { key: "serviceRecordUrl", label: "제공기록지 링크", required: true, type: "string" },
@@ -382,6 +385,8 @@ describe("TriggerRulesManager", () => {
     expect(screen.getByLabelText("발송 템플릿")).toHaveTextContent("제공기록지 작성 링크");
     expect(screen.getByText("제공인력명")).toBeInTheDocument();
     expect(screen.getByText("제공기록지 링크")).toBeInTheDocument();
+    expect(screen.getByText("버튼 링크")).toBeInTheDocument();
+    expect(screen.getByText("서비스 종료일")).toBeInTheDocument();
 
     fireEvent.change(nameInput, { target: { value: "제공기록지 링크 발송" } });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));

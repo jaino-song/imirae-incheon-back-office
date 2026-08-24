@@ -185,6 +185,36 @@ describeE2E("System-admin account assignment E2E", () => {
         expect(session.revokedReason).toBe("account_assignment_changed");
     });
 
+    it("preserves retained per-branch roles when the global role changes", async () => {
+        await prisma.user_branch.create({
+            data: {
+                userId: TARGET_USER_ID,
+                branchId: BRANCH_B_ID,
+                role: "admin",
+            },
+        });
+
+        const response = await request(app.getHttpServer())
+            .patch(`/users/${TARGET_USER_ID}/account-assignment`)
+            .send({
+                role: "user",
+                branchIds: [BRANCH_A_ID, BRANCH_B_ID],
+                expectedRole: "manager",
+                expectedBranchIds: [BRANCH_A_ID, BRANCH_B_ID],
+            });
+
+        expect(response.status).toBe(200);
+        const memberships = await prisma.user_branch.findMany({
+            where: { userId: TARGET_USER_ID },
+            orderBy: { branchId: "asc" },
+            select: { branchId: true, role: true },
+        });
+        expect(memberships).toEqual([
+            { branchId: BRANCH_A_ID, role: "manager" },
+            { branchId: BRANCH_B_ID, role: "admin" },
+        ]);
+    });
+
     it("rejects a stale admin-demotion snapshot with no durable residue", async () => {
         await prisma.user.update({
             where: { id: TARGET_USER_ID },

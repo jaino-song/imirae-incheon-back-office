@@ -159,6 +159,11 @@ export class UserService {
                 (membership) => membership.branchId,
             );
             const currentBranchIdSet = new Set(currentBranchIds);
+            const currentMembershipRoleByBranchId = new Map(
+                target.userBranches.map(
+                    (membership) => [membership.branchId, membership.role] as const,
+                ),
+            );
             const expectedSnapshotMatches = target.role === params.expectedRole
                 && currentBranchIds.length === params.expectedBranchIds.length
                 && params.expectedBranchIds.every(
@@ -232,13 +237,9 @@ export class UserService {
                 && currentBranchIds.every(
                     (branchId) => effectiveBranchIdSet.has(branchId),
                 );
-            const membershipRolesMatch = target.userBranches.every(
-                (membership) => membership.role === params.role,
-            );
             if (
                 target.role === params.role
                 && membershipSetMatches
-                && membershipRolesMatch
             ) {
                 return {
                     id: target.id,
@@ -286,15 +287,17 @@ export class UserService {
                 },
             });
             for (const branchId of effectiveBranchIds) {
+                const membershipRole = currentMembershipRoleByBranchId.get(branchId)
+                    ?? params.role;
                 await tx.user_branch.upsert({
                     where: {
                         userId_branchId: { userId: id, branchId },
                     },
-                    update: { role: params.role },
+                    update: { role: membershipRole },
                     create: {
                         userId: id,
                         branchId,
-                        role: params.role,
+                        role: membershipRole,
                     },
                 });
             }

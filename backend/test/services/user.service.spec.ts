@@ -351,7 +351,7 @@ describe("UserService", () => {
             });
         });
 
-        it("replaces the exact branch membership set and role atomically, then revokes active sessions", async () => {
+        it("replaces the exact branch membership set while preserving retained branch roles, then revokes active sessions", async () => {
             const result = await service.updateAccountAssignment(
                 "u1",
                 assignmentParams(),
@@ -392,15 +392,15 @@ describe("UserService", () => {
                 where: {
                     userId_branchId: { userId: "u1", branchId: branchIds[0] },
                 },
-                update: { role: "manager" },
-                create: { userId: "u1", branchId: branchIds[0], role: "manager" },
+                update: { role: "admin" },
+                create: { userId: "u1", branchId: branchIds[0], role: "admin" },
             });
             expect(prismaService.user_branch.upsert).toHaveBeenNthCalledWith(2, {
                 where: {
                     userId_branchId: { userId: "u1", branchId: branchIds[1] },
                 },
-                update: { role: "manager" },
-                create: { userId: "u1", branchId: branchIds[1], role: "manager" },
+                update: { role: "admin" },
+                create: { userId: "u1", branchId: branchIds[1], role: "admin" },
             });
             expect(prismaService.auth_session.updateMany).toHaveBeenCalledWith({
                 where: { userId: "u1", revokedAt: null },
@@ -466,7 +466,7 @@ describe("UserService", () => {
             prismaService.user.findUnique.mockResolvedValue(approvedTarget({
                 role: "manager",
                 ownedBranches: [],
-                userBranches: [membership(branchIds[0], "manager")],
+                userBranches: [membership(branchIds[0], "user")],
             }));
             prismaService.branch.findMany.mockResolvedValue([{ id: branchIds[0] }]);
 
@@ -611,11 +611,11 @@ describe("UserService", () => {
                         branchId: inactiveMembershipBranchId,
                     },
                 },
-                update: { role: "user" },
+                update: { role: "manager" },
                 create: {
                     userId: "u1",
                     branchId: inactiveMembershipBranchId,
-                    role: "user",
+                    role: "manager",
                 },
             });
         });

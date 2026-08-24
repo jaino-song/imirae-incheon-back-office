@@ -43,6 +43,7 @@ import {
 } from "@/features/message-triggers/hooks/use-message-triggers";
 import {
   CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+  MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
   deriveAvailableTemplates,
   deriveEventTypesFromTemplates,
   deriveRecipientTypesFromTemplates,
@@ -395,16 +396,13 @@ export function TriggerRulesManager({
     return variables;
   }, [selectedSystemTemplate?.customVariables, selectedTemplate?.requiredVariables]);
   const unsupportedRequiredCustomVariables = useMemo(() => {
-    const automaticallyAvailableKeys = new Set([
-      "name",
-      "clientName",
-      "phone",
-      ...(selectedTemplate?.requiredVariables ?? []).map((variable) => variable.key),
-    ]);
+    const automaticallyAvailableKeys = new Set(
+      MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS[formState.templateKey] ?? [],
+    );
     return (selectedSystemTemplate?.customVariables ?? []).filter(
       (variable) => variable.required && !automaticallyAvailableKeys.has(variable.key),
     );
-  }, [selectedSystemTemplate?.customVariables, selectedTemplate?.requiredVariables]);
+  }, [formState.templateKey, selectedSystemTemplate?.customVariables]);
   const selectedTemplateMessage = selectedSystemTemplate?.content?.trim()
     ? selectedSystemTemplate.content
     : TRIGGER_TEMPLATE_MESSAGE_FALLBACKS[formState.templateKey];

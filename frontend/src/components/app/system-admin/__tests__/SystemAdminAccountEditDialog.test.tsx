@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import type { SystemAdminUser } from "@/lib/api/users";
 
-import { SystemAdminAccountEditDialog } from "../SystemAdminAccountEditDialog";
+import { SystemAdminAccountEditDialog } from "@/components/app/ui/SystemAdminAccountEditDialog";
 
 const account: SystemAdminUser = {
   id: "approved-user",

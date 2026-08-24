@@ -565,8 +565,8 @@
       {
         "name": "SystemAdminAccountEditDialog",
         "layer": "organism",
-        "import": "@/components/app/system-admin/SystemAdminAccountEditDialog",
-        "file": "frontend/src/components/app/system-admin/SystemAdminAccountEditDialog.tsx",
+        "import": "@/components/app/ui/SystemAdminAccountEditDialog",
+        "file": "frontend/src/components/app/ui/SystemAdminAccountEditDialog.tsx",
         "exports": [
           "SystemAdminAccountEditDialog",
           "SystemAdminAccountEditInput",
