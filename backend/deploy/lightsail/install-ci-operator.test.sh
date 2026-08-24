@@ -29,6 +29,11 @@ grep -Fq 'root:root:750' "$INSTALLER" || fail "operator mode check must be root:
 grep -Fq 'root:root:700' "$INSTALLER" || fail "log directory mode check must be root:root:700"
 grep -Fq 'ubuntu:ubuntu:640' "$INSTALLER" || fail "shared lock mode check must allow the deploy user"
 grep -Fq 'db-route-state' "$INSTALLER" || fail "route state path must be installed per environment"
+grep -Fq 'ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"' "$INSTALLER" \
+    || fail "route state must use a dedicated root-only state root"
+grep -Fq 'ensure_route_state_directory' "$INSTALLER" \
+    || fail "installer must create and validate dedicated route state directories"
+grep -Fq 'root:root:700' "$INSTALLER" || fail "route state directories must remain root-owned and mode 0700"
 grep -Fq 'root:root:600' "$INSTALLER" || fail "route state must remain root-owned and mode 0600"
 if grep -Eq 'sudoers|NOPASSWD' "$INSTALLER"; then
     fail "CI operator installer must not create a sudo path"

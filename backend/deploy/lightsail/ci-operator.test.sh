@@ -59,11 +59,13 @@ assert_equals "preview" "$DEPLOY_BRANCH"
 assert_equals "false" "$EXPECTED_SCHEDULERS_ENABLED"
 assert_equals "https://preview.api.babyjamjam.com/health" "$PUBLIC_HEALTH_URL"
 assert_equals "$STATE_DIRECTORY/operator.lock" "$DEPLOY_LOCK_FILE"
+assert_equals "$ROUTE_STATE_ROOT/preview/$ROUTE_STATE_FILE_NAME" "$ROUTE_STATE_FILE"
 
 configure_environment production
 assert_equals "main" "$DEPLOY_BRANCH"
 assert_equals "true" "$EXPECTED_SCHEDULERS_ENABLED"
 assert_equals "https://api.babyjamjam.com/health" "$PUBLIC_HEALTH_URL"
+assert_equals "$ROUTE_STATE_ROOT/production/$ROUTE_STATE_FILE_NAME" "$ROUTE_STATE_FILE"
 
 fetch_invocation=""
 
