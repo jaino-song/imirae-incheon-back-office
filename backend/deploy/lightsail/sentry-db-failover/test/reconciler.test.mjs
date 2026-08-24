@@ -1,162 +1,239 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { PHASES, ROUTES, createInitialState } from '../src/constants.mjs';
 import {
-  DEFAULT_RECONCILE_CONFIG,
-  PHASES,
-  ROUTES,
-  createInitialState,
-} from '../src/constants.mjs';
-import { reconcileState } from '../src/reconciler.mjs';
+  HostEnvelopeValidationError,
+  HostResultReplayError,
+  markControlPlaneFailure,
+  mirrorHostEnvelope,
+  normalizeHostEnvelope,
+} from '../src/reconciler.mjs';
 
-const HOUR = 60 * 60 * 1000;
-const MINUTE = 60 * 1000;
+const NOW = Date.parse('2026-08-24T00:00:00.000Z');
+const REQUEST_ID = '00000000-0000-4000-8000-000000000001';
 
-function initial(overrides = {}) {
+function envelope(overrides = {}) {
   return {
-    ...createInitialState(0),
+    schemaVersion: 1,
+    source: 'babyjamjam-db-failover-host',
+    controlPlaneOk: true,
+    environment: 'preview',
+    requestId: REQUEST_ID,
+    hostGeneration: 1,
+    activeRoute: ROUTES.SHARED,
+    phase: PHASES.SHARED_ACTIVE,
+    result: 'shared_healthy',
+    sharedOk: true,
+    directOk: null,
+    sharedFailureCount: 0,
+    directSuccessCount: 0,
+    directFailureCount: 0,
+    emergencySharedSuccessCount: 0,
+    sharedHealthyCount: 0,
+    directActivatedAt: 0,
+    sharedHealthyStartedAt: 0,
+    sharedHealthyLastAt: 0,
+    cooldownUntil: 0,
+    recentNormalRoundTrips: [],
+    transition: {
+      previousRoute: null,
+      targetRoute: null,
+      startedAt: 0,
+      generation: 0,
+      terminalReason: null,
+    },
+    terminalReason: null,
     ...overrides,
   };
 }
 
-test('requires three shared failures and three direct successes before switching', () => {
-  let state = initial();
-  for (let index = 0; index < 2; index += 1) {
-    const result = reconcileState(state, { sharedOk: false, directOk: true }, (index + 1) * MINUTE);
-    state = result.state;
-    assert.equal(state.phase, PHASES.DEGRADED);
-    assert.equal(result.action, 'none');
-  }
-  const result = reconcileState(state, { sharedOk: false, directOk: true }, 3 * MINUTE);
-  assert.equal(result.state.phase, PHASES.SWITCHING_TO_DIRECT);
-  assert.equal(result.state.activeRoute, ROUTES.SHARED);
-  assert.equal(result.action, 'switch_to_direct');
+function initial(overrides = {}) {
+  return {
+    ...createInitialState(NOW),
+    ...overrides,
+  };
+}
 
-  const confirmed = reconcileState(
-    result.state,
-    { sharedOk: false, directOk: true, activeRoute: ROUTES.DIRECT },
-    4 * MINUTE,
-  );
-  assert.equal(confirmed.state.phase, PHASES.DIRECT_ACTIVE);
-  assert.equal(confirmed.state.activeRoute, ROUTES.DIRECT);
-  assert.equal(confirmed.state.directActivatedAt, 4 * MINUTE);
-});
-test('blocks when both routes fail and never chooses a new route on control-plane failure', () => {
-  const direct = initial({
-    phase: PHASES.DIRECT_ACTIVE,
-    activeRoute: ROUTES.DIRECT,
-    directActivatedAt: 0,
+test('normalizes the complete host result envelope without dropping fields', () => {
+  const value = envelope({
+    hostGeneration: 4,
+    sharedFailureCount: 2,
+    directSuccessCount: 3,
+    recentNormalRoundTrips: [100, 200],
   });
-  const bothDown = reconcileState(direct, { sharedOk: false, directOk: false }, MINUTE);
-  assert.equal(bothDown.state.phase, PHASES.BLOCKED);
-  assert.equal(bothDown.state.errorTerminalPhase, PHASES.BLOCKED);
-  assert.equal(bothDown.state.activeRoute, ROUTES.DIRECT);
-
-  const controlPlaneFailure = reconcileState(
-    direct,
-    { controlPlaneOk: false, sharedOk: true, directOk: false },
-    2 * MINUTE,
-  );
-  assert.equal(controlPlaneFailure.state.activeRoute, ROUTES.DIRECT);
-  assert.equal(controlPlaneFailure.state.phase, PHASES.DEGRADED);
-  assert.equal(controlPlaneFailure.reason, 'control_plane_failure');
+  const normalized = normalizeHostEnvelope(value, { environment: 'preview', requestId: REQUEST_ID });
+  assert.deepEqual(normalized, value);
+  assert.notEqual(normalized.transition, value.transition);
+  assert.notEqual(normalized.recentNormalRoundTrips, value.recentNormalRoundTrips);
 });
 
-test('requires one hour and thirty consecutive shared successes for normal failback', () => {
-  let state = initial({
-    phase: PHASES.DIRECT_ACTIVE,
-    activeRoute: ROUTES.DIRECT,
-    directActivatedAt: 0,
-    cooldownUntil: 0,
-    sharedHealthySince: 0,
-    sharedHealthyCount: 29,
-  });
-  const tooSoon = reconcileState(state, { sharedOk: true, directOk: true }, HOUR - MINUTE);
-  assert.equal(tooSoon.state.phase, PHASES.DIRECT_ACTIVE);
-  assert.equal(tooSoon.state.sharedHealthyCount, 30);
-
-  state = tooSoon.state;
-  const ready = reconcileState(state, { sharedOk: true, directOk: true }, HOUR);
-  assert.equal(ready.state.phase, PHASES.SWITCHING_TO_SHARED);
-  assert.equal(ready.state.pendingRoundTripKind, 'normal');
-  assert.equal(ready.action, 'switch_to_shared');
-
-  const confirmed = reconcileState(
-    ready.state,
-    { sharedOk: true, directOk: true, activeRoute: ROUTES.SHARED },
-    HOUR + MINUTE,
-  );
-  assert.equal(confirmed.state.phase, PHASES.SHARED_ACTIVE);
-  assert.equal(confirmed.state.activeRoute, ROUTES.SHARED);
-  assert.equal(confirmed.state.recentRoundTripCount, 1);
-});
-
-test('uses emergency failback after three direct failures with shared success', () => {
-  let state = initial({
-    phase: PHASES.DIRECT_ACTIVE,
-    activeRoute: ROUTES.DIRECT,
-    directActivatedAt: 0,
-  });
-  for (let index = 0; index < 2; index += 1) {
-    state = reconcileState(state, { sharedOk: true, directOk: false }, HOUR + index * MINUTE).state;
-    assert.equal(state.phase, PHASES.DEGRADED);
-  }
-  const emergency = reconcileState(state, { sharedOk: true, directOk: false }, HOUR + 2 * MINUTE);
-  assert.equal(emergency.state.phase, PHASES.RECOVERING_SHARED);
-  assert.equal(emergency.state.pendingRoundTripKind, 'emergency');
-  assert.equal(emergency.action, 'switch_to_shared');
-
-  const confirmed = reconcileState(
-    emergency.state,
-    { sharedOk: true, directOk: false, activeRoute: ROUTES.SHARED },
-    HOUR + 3 * MINUTE,
-  );
-  assert.equal(confirmed.state.phase, PHASES.SHARED_ACTIVE);
-  assert.equal(confirmed.state.recentRoundTripCount, 0);
-});
-
-test('blocks the third normal round trip within six hours', () => {
-  const state = initial({
-    phase: PHASES.DIRECT_ACTIVE,
-    activeRoute: ROUTES.DIRECT,
-    directActivatedAt: 0,
-    cooldownUntil: 0,
-    sharedHealthyCount: DEFAULT_RECONCILE_CONFIG.sharedHealthyThreshold - 1,
-    recentRoundTripHistory: [
-      { at: 0, kind: 'normal', from: ROUTES.DIRECT, to: ROUTES.SHARED },
-      { at: HOUR, kind: 'normal', from: ROUTES.DIRECT, to: ROUTES.SHARED },
-    ],
-  });
-  const result = reconcileState(
-    state,
-    { sharedOk: true, directOk: true },
-    2 * HOUR,
-  );
-  assert.equal(result.state.phase, PHASES.BLOCKED);
-  assert.equal(result.state.errorTerminalPhase, PHASES.BLOCKED);
-  assert.equal(result.reason, 'NORMAL_ROUND_TRIP_BUDGET_EXHAUSTED');
-});
-
-test('honors the post-switch cooldown before starting another direct switch', () => {
-  let state = initial({ cooldownUntil: 10 * MINUTE });
-  for (let index = 1; index <= 3; index += 1) {
-    const result = reconcileState(
-      state,
-      { sharedOk: false, directOk: true },
-      index * MINUTE,
+test('rejects partial, extra, wrong-identity, and malformed host results', () => {
+  for (const mutate of [
+    (value) => { delete value.result; },
+    (value) => { value.untrusted = 'shell'; },
+    (value) => { value.schemaVersion = 2; },
+    (value) => { value.source = 'lambda'; },
+    (value) => { value.environment = 'production'; },
+    (value) => { value.requestId = '10000000-0000-4000-8000-000000000001'; },
+    (value) => { value.hostGeneration = -1; },
+    (value) => { value.sharedFailureCount = 1.5; },
+    (value) => { value.recentNormalRoundTrips = [2, 1]; },
+    (value) => { value.transition.targetRoute = ROUTES.DIRECT; },
+  ]) {
+    const value = envelope();
+    mutate(value);
+    assert.throws(
+      () => normalizeHostEnvelope(value, { environment: 'preview', requestId: REQUEST_ID }),
+      HostEnvelopeValidationError,
     );
-    state = result.state;
   }
-  assert.equal(state.phase, PHASES.DEGRADED);
-  assert.equal(state.sharedFailureCount, 3);
-  assert.equal(state.directSuccessCount, 3);
-  assert.equal(state.pendingTransition, null);
+});
 
-  const afterCooldown = reconcileState(
-    state,
-    { sharedOk: false, directOk: true },
-    11 * MINUTE,
+test('rejects secret-like and oversized result tokens or history arrays', () => {
+  assert.throws(
+    () => normalizeHostEnvelope(envelope({ result: 'https://attacker.invalid' })),
+    HostEnvelopeValidationError,
   );
-  assert.equal(afterCooldown.state.phase, PHASES.SWITCHING_TO_DIRECT);
-  assert.equal(afterCooldown.action, 'switch_to_direct');
+  assert.throws(
+    () => normalizeHostEnvelope(envelope({ result: 'x'.repeat(65) })),
+    HostEnvelopeValidationError,
+  );
+  assert.throws(
+    () => normalizeHostEnvelope(envelope({ recentNormalRoundTrips: Array.from({ length: 129 }, (_, i) => i) })),
+    HostEnvelopeValidationError,
+  );
+});
+
+test('enforces host phase, route, transition, and terminal-reason combinations', () => {
+  const switching = envelope({
+    activeRoute: ROUTES.SHARED,
+    phase: PHASES.SWITCHING_TO_DIRECT,
+    result: 'transition_started',
+    transition: {
+      previousRoute: ROUTES.SHARED,
+      targetRoute: ROUTES.DIRECT,
+      startedAt: 100,
+      generation: 1,
+      terminalReason: null,
+    },
+  });
+  assert.doesNotThrow(() => normalizeHostEnvelope(switching));
+
+  assert.doesNotThrow(() => normalizeHostEnvelope(envelope({
+    activeRoute: ROUTES.DIRECT,
+    phase: PHASES.RECOVERING_SHARED,
+    result: 'shared_healthy_emergency_wait',
+    directOk: false,
+  })));
+
+  assert.throws(
+    () => normalizeHostEnvelope({ ...switching, activeRoute: ROUTES.DIRECT }),
+    HostEnvelopeValidationError,
+  );
+  assert.throws(
+    () => normalizeHostEnvelope({ ...switching, transition: { ...switching.transition, generation: 2 } }),
+    HostEnvelopeValidationError,
+  );
+
+  const degraded = envelope({
+    phase: PHASES.DEGRADED,
+    result: 'compensation_failed',
+    terminalReason: 'compensation_failed',
+    transition: {
+      previousRoute: null,
+      targetRoute: null,
+      startedAt: 0,
+      generation: 0,
+      terminalReason: 'compensation_failed',
+    },
+  });
+  assert.doesNotThrow(() => normalizeHostEnvelope(degraded));
+  assert.throws(
+    () => normalizeHostEnvelope({ ...degraded, terminalReason: null }),
+    HostEnvelopeValidationError,
+  );
+});
+
+test('mirrors a newer host result losslessly, including terminal result fields', () => {
+  const host = envelope({
+    hostGeneration: 3,
+    phase: PHASES.BLOCKED,
+    activeRoute: ROUTES.DIRECT,
+    result: 'both_routes_failed',
+    sharedOk: false,
+    directOk: false,
+    sharedFailureCount: 3,
+    directFailureCount: 3,
+    recentNormalRoundTrips: [100, 200],
+    terminalReason: 'both_routes_failed',
+    transition: {
+      previousRoute: null,
+      targetRoute: null,
+      startedAt: 0,
+      generation: 0,
+      terminalReason: 'both_routes_failed',
+    },
+  });
+  const result = mirrorHostEnvelope(initial(), host, NOW, {
+    environment: 'preview',
+    requestId: REQUEST_ID,
+  });
+  assert.equal(result.status, 'mirrored');
+  assert.equal(result.state.hostGeneration, 3);
+  assert.equal(result.state.phase, PHASES.BLOCKED);
+  assert.equal(result.state.activeRoute, ROUTES.DIRECT);
+  assert.equal(result.state.terminalPhase, PHASES.BLOCKED);
+  assert.equal(result.state.terminalReason, 'both_routes_failed');
+  assert.equal(result.state.lastHostResult, 'both_routes_failed');
+  assert.equal(result.state.lastHostObservedAt, NOW);
+  assert.deepEqual(result.state.recentNormalRoundTrips, [100, 200]);
+  assert.deepEqual(result.state.transition, host.transition);
+});
+
+test('rejects out-of-order or conflicting duplicate generations without state residue', () => {
+  const first = envelope({ hostGeneration: 2 });
+  const mirrored = mirrorHostEnvelope(initial(), first, NOW, { environment: 'preview', requestId: REQUEST_ID });
+  const duplicate = mirrorHostEnvelope(mirrored.state, first, NOW + 1, {
+    environment: 'preview',
+    requestId: REQUEST_ID,
+  });
+  assert.equal(duplicate.status, 'duplicate');
+  assert.deepEqual(duplicate.state, mirrored.state);
+
+  assert.throws(
+    () => mirrorHostEnvelope(mirrored.state, envelope({ hostGeneration: 1 }), NOW + 2, {
+      environment: 'preview',
+      requestId: REQUEST_ID,
+    }),
+    HostResultReplayError,
+  );
+  assert.throws(
+    () => mirrorHostEnvelope(mirrored.state, envelope({ hostGeneration: 2, result: 'different' }), NOW + 2, {
+      environment: 'preview',
+      requestId: REQUEST_ID,
+    }),
+    HostResultReplayError,
+  );
+});
+
+test('control-plane failure changes only control-plane status and preserves host route and phase', () => {
+  const state = initial({
+    activeRoute: ROUTES.DIRECT,
+    phase: PHASES.DIRECT_ACTIVE,
+    hostGeneration: 7,
+    sharedFailureCount: 2,
+    lastHostResult: 'direct_healthy',
+  });
+  const failed = markControlPlaneFailure(state, {
+    status: 'DEGRADED',
+    error: 'AWS_CONTROL_PLANE_FAILURE',
+    now: NOW + 1,
+  });
+  assert.equal(failed.phase, PHASES.DIRECT_ACTIVE);
+  assert.equal(failed.activeRoute, ROUTES.DIRECT);
+  assert.equal(failed.hostGeneration, 7);
+  assert.equal(failed.sharedFailureCount, 2);
+  assert.equal(failed.controlPlaneStatus, 'DEGRADED');
+  assert.equal(failed.controlPlaneError, 'AWS_CONTROL_PLANE_FAILURE');
 });

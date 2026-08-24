@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createInitialState } from '../src/constants.mjs';
 import {
   createDynamoStateStore,
+  createMemoryStateStore,
   marshallItem,
   unmarshallItem,
 } from '../src/state-store.mjs';
@@ -72,7 +73,7 @@ test('Dynamo state store uses generation and lease-owner conditions for every wr
   assert.match(putForLease.input.ConditionExpression, /#leaseExpiresAt <= :now/);
   assert.match(putForLease.input.ConditionExpression, /#leaseOwner = :owner/);
 
-  await store.save({ ...lease.state, lastErrorCode: 'TEST' }, { owner: 'worker-1', generation: 1, now: NOW + 10 });
+  await store.save({ ...lease.state, controlPlaneError: 'TEST' }, { owner: 'worker-1', generation: 1, now: NOW + 10 });
   const putForSave = calls.filter((call) => call instanceof PutItemCommand).at(-1);
   assert.match(putForSave.input.ConditionExpression, /#generation = :generation/);
   assert.match(putForSave.input.ConditionExpression, /#leaseOwner = :owner/);
@@ -198,4 +199,66 @@ test('Dynamo replay transaction cancellation distinguishes duplicate claims from
     }),
     (error) => error.name === 'ConditionalStateWriteError' && error.retryable === true,
   );
+});
+
+test('host mirror save alias preserves the lease-only conditional write boundary', async () => {
+  let item = marshallItem({
+    ...createInitialState(NOW),
+    stateKey: 'db-failover/preview',
+    generation: 1,
+    leaseOwner: 'worker-1',
+    leaseExpiresAt: NOW + 1_000,
+  });
+  const calls = [];
+  const client = {
+    async send(command) {
+      calls.push(command);
+      if (command instanceof PutItemCommand) {
+        item = command.input.Item;
+        return {};
+      }
+      if (command instanceof GetItemCommand) return { Item: item };
+      throw new Error('unexpected command');
+    },
+  };
+  const store = createDynamoStateStore({
+    client,
+    commands: commands(),
+    tableName: 'state-table',
+    stateKey: 'db-failover/preview',
+  });
+  await store.saveHostMirror({
+    ...createInitialState(NOW),
+    stateKey: 'db-failover/preview',
+    generation: 1,
+    leaseOwner: 'worker-1',
+    leaseExpiresAt: NOW + 1_000,
+    hostGeneration: 4,
+    phase: 'DIRECT_ACTIVE',
+    activeRoute: 'DIRECT',
+  }, { owner: 'worker-1', generation: 1, now: NOW });
+  const write = calls.find((call) => call instanceof PutItemCommand);
+  assert.match(write.input.ConditionExpression, /#generation = :generation/);
+  assert.equal(write.input.Item.hostGeneration.N, '4');
+  assert.equal(write.input.Item.activeRoute.S, 'DIRECT');
+});
+
+test('memory host mirror transaction alias retains replay atomicity', async () => {
+  const store = createMemoryStateStore({ now: NOW });
+  const current = store.snapshot();
+  const lease = await store.acquireLease({ owner: 'worker-1', now: NOW, leaseMs: 1_000 });
+  const fingerprint = 'c'.repeat(64);
+  await store.saveHostMirrorAndMarkFingerprint({
+    ...current,
+    ...lease.state,
+    hostGeneration: 1,
+    lastHostResult: 'shared_healthy',
+  }, {
+    owner: 'worker-1',
+    generation: lease.generation,
+    now: NOW,
+    fingerprint,
+  });
+  assert.equal(store.snapshot().hostGeneration, 1);
+  assert.equal(await store.hasProcessedFingerprint(fingerprint), true);
 });

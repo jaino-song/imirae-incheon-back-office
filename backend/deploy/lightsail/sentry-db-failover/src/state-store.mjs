@@ -246,12 +246,25 @@ export function createDynamoStateStore({ client, commands, tableName, stateKey }
     }
   }
 
+  // Host mirrors use the same lease-conditional writes as every other control
+  // update. The Sentry path additionally uses the replay transaction below so
+  // a host mirror and its durable body claim commit or roll back together.
+  async function saveHostMirror(state, options) {
+    return save(state, options);
+  }
+
+  async function saveHostMirrorAndMarkFingerprint(state, options) {
+    return saveAndMarkFingerprint(state, options);
+  }
+
   return {
     get,
     hasProcessedFingerprint,
     acquireLease,
     save,
     saveAndMarkFingerprint,
+    saveHostMirror,
+    saveHostMirrorAndMarkFingerprint,
     releaseLease,
   };
 }
@@ -287,6 +300,9 @@ export function createMemoryStateStore({ initialState, now = Date.now() } = {}) 
       }
       current = clone(state);
     },
+    async saveHostMirror(state, options) {
+      return this.save(state, options);
+    },
     async hasProcessedFingerprint(fingerprint) {
       const key = replayStateKey(fingerprint);
       return replayFingerprints.has(key.slice('replay/'.length));
@@ -308,6 +324,9 @@ export function createMemoryStateStore({ initialState, now = Date.now() } = {}) 
       }
       current = clone(state);
       replayFingerprints.add(normalizedFingerprint);
+    },
+    async saveHostMirrorAndMarkFingerprint(state, options) {
+      return this.saveAndMarkFingerprint(state, options);
     },
     async releaseLease({ owner, generation, now: at }) {
       if (current.generation !== generation || current.leaseOwner !== owner) {
