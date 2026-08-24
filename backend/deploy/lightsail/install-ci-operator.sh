@@ -203,19 +203,22 @@ validate_route_state_value() {
 
     case "$state_key" in
         version)
-            [[ "$state_value" == "1" ]]
+            [[ "$state_value" == "2" ]]
             ;;
-        generation|shared_failure_count|direct_success_count|direct_failure_count|shared_success_count|emergency_shared_success_count|normal_roundtrip_count)
+        generation|transition_generation|shared_failure_count|direct_success_count|direct_failure_count|emergency_shared_success_count|shared_healthy_count)
             is_route_state_counter "$state_value"
             ;;
-        transition_started_at|direct_activated_at|shared_success_started_at|shared_success_last_at|roundtrip_window_started_at|last_probe_at)
+        transition_started_at|direct_activated_at|shared_healthy_started_at|shared_healthy_last_at|cooldown_until|last_probe_at)
             is_route_state_timestamp "$state_value"
             ;;
-        active_route)
-            [[ "$state_value" == "shared" || "$state_value" == "direct" ]]
-            ;;
-        last_probe_route)
+        transition_previous_route|transition_target_route|active_route|last_probe_route)
             [[ -z "$state_value" || "$state_value" == "shared" || "$state_value" == "direct" ]]
+            ;;
+        normal_roundtrip_history)
+            validate_route_state_history "$state_value"
+            ;;
+        last_shared_ok|last_direct_ok)
+            [[ "$state_value" == "true" || "$state_value" == "false" || "$state_value" == "null" ]]
             ;;
         phase)
             [[ "$state_value" == "SHARED_ACTIVE" \
@@ -229,16 +232,29 @@ validate_route_state_value() {
         last_request_id)
             [[ -z "$state_value" ]] || is_route_state_uuid "$state_value"
             ;;
-        last_probe_result|last_result)
-            is_route_state_token "$state_value"
-            ;;
-        terminal_reason)
+        last_probe_result|last_result|terminal_reason)
             [[ -z "$state_value" ]] || is_route_state_token "$state_value"
             ;;
         *)
             return 1
             ;;
     esac
+}
+
+validate_route_state_history() {
+    local history="${1:-}"
+    local item
+    local previous="0"
+    local -a history_items
+
+    [[ -z "$history" ]] && return 0
+    [[ "$history" =~ ^(0|[1-9][0-9]{0,11})(,(0|[1-9][0-9]{0,11}))*$ ]] || return 1
+    IFS=',' read -r -a history_items <<<"$history"
+    for item in "${history_items[@]}"; do
+        is_route_state_timestamp "$item" || return 1
+        (( item >= previous )) || return 1
+        previous="$item"
+    done
 }
 
 validate_route_state_file() {
@@ -262,11 +278,13 @@ validate_route_state_file() {
     done <"$route_state_file"
 
     for required_key in \
-        version generation active_route phase transition_started_at direct_activated_at \
-        shared_failure_count direct_success_count direct_failure_count shared_success_count \
-        emergency_shared_success_count shared_success_started_at shared_success_last_at \
-        normal_roundtrip_count roundtrip_window_started_at last_request_id last_probe_route \
-        last_probe_result last_probe_at last_result terminal_reason; do
+        version generation active_route phase transition_previous_route \
+        transition_target_route transition_started_at transition_generation \
+        direct_activated_at shared_failure_count direct_success_count \
+        direct_failure_count emergency_shared_success_count shared_healthy_count \
+        shared_healthy_started_at shared_healthy_last_at normal_roundtrip_history \
+        cooldown_until last_request_id last_probe_route last_probe_result \
+        last_probe_at last_shared_ok last_direct_ok last_result terminal_reason; do
         [[ "$seen_state_keys" == *" $required_key "* ]] \
             || die "Route state is incomplete."
     done
@@ -290,7 +308,6 @@ ensure_route_state_file() {
     local route_state_directory="$ROUTE_STATE_ROOT/$environment"
     local route_state_file="$route_state_directory/$ROUTE_STATE_FILE_NAME"
     local temporary_file
-    local now
     local route_state_metadata
 
     ensure_route_state_directory "$environment"
@@ -305,7 +322,6 @@ ensure_route_state_file() {
         return 0
     fi
 
-    now="$("$CMD_DATE" +%s)"
     temporary_file="$("$CMD_MKTEMP" "$route_state_directory/.db-route-state.XXXXXX")" \
         || die "Unable to create temporary route state."
     trap cleanup_route_state_temp RETURN
@@ -313,25 +329,30 @@ ensure_route_state_file() {
     "$CMD_CHMOD" 0600 "$temporary_file" || route_state_creation_failed
     if ! {
         printf '%s\n' \
-            'version=1' \
+            'version=2' \
             'generation=0' \
             'active_route=shared' \
             'phase=SHARED_ACTIVE' \
+            'transition_previous_route=' \
+            'transition_target_route=' \
             'transition_started_at=0' \
+            'transition_generation=0' \
             'direct_activated_at=0' \
             'shared_failure_count=0' \
             'direct_success_count=0' \
             'direct_failure_count=0' \
-            'shared_success_count=0' \
             'emergency_shared_success_count=0' \
-            'shared_success_started_at=0' \
-            'shared_success_last_at=0' \
-            'normal_roundtrip_count=0' \
-            "roundtrip_window_started_at=$now" \
+            'shared_healthy_count=0' \
+            'shared_healthy_started_at=0' \
+            'shared_healthy_last_at=0' \
+            'normal_roundtrip_history=' \
+            'cooldown_until=0' \
             'last_request_id=' \
             'last_probe_route=' \
             'last_probe_result=none' \
             'last_probe_at=0' \
+            'last_shared_ok=null' \
+            'last_direct_ok=null' \
             'last_result=initialized' \
             'terminal_reason='
     } >"$temporary_file"; then
