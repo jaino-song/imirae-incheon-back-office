@@ -60,6 +60,8 @@ INSTALLED_COMPOSE_ARTIFACT="$ARTIFACT_DIRECTORY/compose.lightsail.yml"
 
 REAL_CHOWN="$(command -v chown)"
 REAL_STAT="$(command -v stat)"
+REAL_UNLINK="$(command -v unlink)"
+REAL_FLOCK="$(command -v flock || true)"
 VALID_REQUEST_ID="123e4567-e89b-12d3-a456-426614174000"
 
 request_id_for_index() {
@@ -185,6 +187,25 @@ test_flock_mutate_operator() {
     fi
 }
 
+test_unlink_failure_after_removal() {
+    local path="$1"
+
+    /usr/bin/unlink "$path"
+    if [[ "$path" == "${TEST_UNLINK_FAILURE_TARGET:-}" ]]; then
+        return 1
+    fi
+}
+
+test_rmdir_failure_after_removal() {
+    /bin/rmdir "$1"
+    return 1
+}
+
+test_flock_uninstall_order() {
+    printf '%s\n' "$2" >>"$TEST_UNINSTALL_FLOCK_TRACE"
+    return 0
+}
+
 CMD_STAT=test_stat
 CMD_CHOWN=test_chown
 CMD_INSTALL=test_install
@@ -222,6 +243,62 @@ install_current_test_bundle() {
         "$INSTALLED_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT" \
         "$INSTALLED_DEPLOY_ARTIFACT" "$INSTALLED_ROLLBACK_ARTIFACT"
     /bin/chmod 0640 "$INSTALLED_COMPOSE_ARTIFACT"
+}
+
+prepare_complete_test_bundle() {
+    reset_installation_targets
+    ensure_route_state_file preview
+    ensure_route_state_file production
+    ensure_deployment_locks true
+    install_current_test_bundle
+}
+
+save_bundle_snapshot() {
+    local prefix="$1"
+    local bundle_path
+    local name
+
+    for bundle_path in \
+        "$INSTALLED_OPERATOR" \
+        "$INSTALLED_OPERATOR_ARTIFACT" \
+        "$INSTALLED_DEPLOY_ARTIFACT" \
+        "$INSTALLED_ROLLBACK_ARTIFACT" \
+        "$INSTALLED_COMPOSE_ARTIFACT"; do
+        name="$(/usr/bin/basename "$bundle_path")"
+        /bin/cp "$bundle_path" "$prefix.$name"
+        test_stat -c '%U:%G:%a' "$bundle_path" >"$prefix.$name.metadata"
+    done
+    test_stat -c '%U:%G:%a' "$ARTIFACT_DIRECTORY" >"$prefix.directory.metadata"
+}
+
+assert_bundle_snapshot() {
+    local prefix="$1"
+    local bundle_path
+    local name
+
+    for bundle_path in \
+        "$INSTALLED_OPERATOR" \
+        "$INSTALLED_OPERATOR_ARTIFACT" \
+        "$INSTALLED_DEPLOY_ARTIFACT" \
+        "$INSTALLED_ROLLBACK_ARTIFACT" \
+        "$INSTALLED_COMPOSE_ARTIFACT"; do
+        name="$(/usr/bin/basename "$bundle_path")"
+        assert_file_unchanged "$prefix.$name" "$bundle_path"
+        assert_path_metadata_unchanged "$(<"$prefix.$name.metadata")" "$bundle_path"
+    done
+    assert_path_metadata_unchanged "$(<"$prefix.directory.metadata")" "$ARTIFACT_DIRECTORY"
+}
+
+assert_lock_inodes_unchanged() {
+    local preview_inode="$1"
+    local production_inode="$2"
+
+    assert_equals "$preview_inode" "$(test_inode "$STATE_ROOT/preview/operator.lock")"
+    assert_equals "$production_inode" "$(test_inode "$STATE_ROOT/production/operator.lock")"
+    [[ -f "$STATE_ROOT/preview/operator.lock" && ! -L "$STATE_ROOT/preview/operator.lock" ]] \
+        || fail "preview lock was removed or replaced"
+    [[ -f "$STATE_ROOT/production/operator.lock" && ! -L "$STATE_ROOT/production/operator.lock" ]] \
+        || fail "production lock was removed or replaced"
 }
 
 route_state_file() {
@@ -1021,5 +1098,108 @@ assert_file_unchanged "$failure_deploy_snapshot" "$INSTALLED_DEPLOY_ARTIFACT"
 assert_file_unchanged "$failure_rollback_snapshot" "$INSTALLED_ROLLBACK_ARTIFACT"
 assert_file_unchanged "$failure_compose_snapshot" "$INSTALLED_COMPOSE_ARTIFACT"
 assert_path_absent "$LOG_DIRECTORY"
+
+# Uninstall acquires both environment locks before touching the bundle, and a
+# successful removal leaves the lock inodes and route state available for a
+# later explicit installation. The order is part of the cross-environment
+# transaction contract.
+prepare_complete_test_bundle
+uninstall_order_trace="$TEST_ROOT/uninstall-lock-order.trace"
+: >"$uninstall_order_trace"
+printf '200\n201\n' >"$TEST_ROOT/uninstall-lock-order.expected"
+TEST_UNINSTALL_FLOCK_TRACE="$uninstall_order_trace"
+CMD_FLOCK=test_flock_uninstall_order
+preview_uninstall_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+production_uninstall_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+main uninstall >/dev/null
+CMD_FLOCK=test_flock
+assert_file_unchanged "$TEST_ROOT/uninstall-lock-order.expected" "$uninstall_order_trace"
+assert_path_absent "$INSTALLED_OPERATOR"
+assert_path_absent "$ARTIFACT_DIRECTORY"
+assert_lock_inodes_unchanged "$preview_uninstall_lock_inode" "$production_uninstall_lock_inode"
+[[ -f "$(route_state_file preview)" && -f "$(route_state_file production)" ]] \
+    || fail "successful uninstall removed route state"
+main uninstall >/dev/null
+
+# Every unlink stage must compensate a failure even when the injected command
+# removes its target before returning failure. The final rmdir stage receives
+# the same treatment, proving the snapshot restores the complete bundle.
+uninstall_failure_index=0
+for TEST_UNLINK_FAILURE_TARGET in \
+    "$INSTALLED_OPERATOR" \
+    "$INSTALLED_OPERATOR_ARTIFACT" \
+    "$INSTALLED_DEPLOY_ARTIFACT" \
+    "$INSTALLED_ROLLBACK_ARTIFACT" \
+    "$INSTALLED_COMPOSE_ARTIFACT"; do
+    prepare_complete_test_bundle
+    uninstall_snapshot_prefix="$TEST_ROOT/uninstall-failure-$uninstall_failure_index"
+    save_bundle_snapshot "$uninstall_snapshot_prefix"
+    preview_uninstall_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+    production_uninstall_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+    CMD_UNLINK=test_unlink_failure_after_removal
+    assert_fails main uninstall
+    CMD_UNLINK="$REAL_UNLINK"
+    assert_bundle_snapshot "$uninstall_snapshot_prefix"
+    assert_lock_inodes_unchanged "$preview_uninstall_lock_inode" "$production_uninstall_lock_inode"
+    uninstall_failure_index=$((uninstall_failure_index + 1))
+done
+unset TEST_UNLINK_FAILURE_TARGET
+
+prepare_complete_test_bundle
+uninstall_snapshot_prefix="$TEST_ROOT/uninstall-rmdir-failure"
+save_bundle_snapshot "$uninstall_snapshot_prefix"
+preview_uninstall_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+production_uninstall_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+CMD_RMDIR=test_rmdir_failure_after_removal
+assert_fails main uninstall
+CMD_RMDIR=/bin/rmdir
+assert_bundle_snapshot "$uninstall_snapshot_prefix"
+assert_lock_inodes_unchanged "$preview_uninstall_lock_inode" "$production_uninstall_lock_inode"
+
+# A real competing deployment/reconcile lock prevents uninstall before any
+# bundle mutation. The held inode remains the same after the refusal.
+if [[ -n "$REAL_FLOCK" ]]; then
+    prepare_complete_test_bundle
+    save_bundle_snapshot "$TEST_ROOT/uninstall-busy"
+    preview_uninstall_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+    production_uninstall_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+    exec 210>>"$STATE_ROOT/preview/operator.lock"
+    "$REAL_FLOCK" -n 210 || fail "test could not hold preview deployment lock"
+    CMD_FLOCK="$REAL_FLOCK"
+    assert_fails main uninstall
+    CMD_FLOCK=test_flock
+    exec 210>&-
+    assert_bundle_snapshot "$TEST_ROOT/uninstall-busy"
+    assert_lock_inodes_unchanged "$preview_uninstall_lock_inode" "$production_uninstall_lock_inode"
+else
+    echo "concurrent lock test skipped: flock is unavailable on this host"
+fi
+
+# Partial and dangling bundle states fail closed and are never treated as an
+# idempotent no-op.
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks true
+/bin/ln -s "$TEST_ROOT/missing-entrypoint" "$INSTALLED_OPERATOR"
+assert_fails main uninstall
+[[ -L "$INSTALLED_OPERATOR" ]] || fail "dangling entrypoint was removed"
+
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks true
+/bin/ln -s "$TEST_ROOT/missing-artifacts" "$ARTIFACT_DIRECTORY"
+assert_fails main uninstall
+[[ -L "$ARTIFACT_DIRECTORY" ]] || fail "dangling artifact directory was removed"
+
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks true
+/bin/mkdir -p "$ARTIFACT_DIRECTORY"
+/bin/chmod 0700 "$ARTIFACT_DIRECTORY"
+assert_fails main uninstall
+[[ -d "$ARTIFACT_DIRECTORY" ]] || fail "partial artifact directory was removed"
 
 echo "install-ci-operator tests passed"

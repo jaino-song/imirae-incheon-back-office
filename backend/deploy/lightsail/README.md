@@ -114,6 +114,12 @@ status includes matching `db_route` and `runtime_route` values plus
 image tag/digest identity, internal and public `/health/ready`, and public
 liveness.
 
+The repository copies of `deploy.sh` and `rollback.sh` are source material for
+installation only. They fail closed when invoked from the checkout. Root
+Docker/Compose execution must use the installed operator or, for the approved
+bootstrap procedure below, the matching helper under
+`/usr/local/libexec/babyjamjam-ci-operator`.
+
 Removing stale legacy files, if present, requires the same administrative
 access:
 
@@ -121,16 +127,6 @@ access:
 sudo backend/deploy/lightsail/install-operator.sh uninstall
 sudo backend/deploy/lightsail/install-ci-operator.sh uninstall
 ```
-
-Run from a clean repository checkout at the exact commit to deploy:
-
-```bash
-sudo backend/deploy/lightsail/deploy.sh preview
-sudo backend/deploy/lightsail/deploy.sh production
-```
-
-These manual bootstrap scripts are root-only and are not an alternate CI
-deploy, rollback, or status path.
 
 Each application deployment:
 
@@ -169,8 +165,12 @@ environment file intact until the new production and preview routes are proven.
 2. Start both isolated app stacks without changing public routing:
 
    ```bash
-   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh production
-   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh preview
+   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false BACKEND_BUILD_IMAGE=false \
+     BACKEND_IMAGE_TAG=<git-commit-sha> \
+     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh production
+   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false BACKEND_BUILD_IMAGE=false \
+     BACKEND_IMAGE_TAG=<git-commit-sha> \
+     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh preview
    ```
 
 3. Identify the legacy Caddy container by its Compose project and service
@@ -184,8 +184,10 @@ environment file intact until the new production and preview routes are proven.
    already-built image and record both environments:
 
    ```bash
-   sudo BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh production
-   sudo BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh preview
+   sudo BACKEND_BUILD_IMAGE=false BACKEND_IMAGE_TAG=<git-commit-sha> \
+     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh production
+   sudo BACKEND_BUILD_IMAGE=false BACKEND_IMAGE_TAG=<git-commit-sha> \
+     /usr/local/libexec/babyjamjam-ci-operator/deploy.sh preview
    ```
 
 6. Verify scheduler activity only on production, confirm both public routes,
@@ -205,15 +207,15 @@ simultaneous environment builds during peak traffic.
 Roll back one environment to its previously recorded healthy image:
 
 ```bash
-backend/deploy/lightsail/rollback.sh production
-backend/deploy/lightsail/rollback.sh preview
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh production
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh preview
 ```
 
 Or choose a locally available image tag:
 
 ```bash
-backend/deploy/lightsail/rollback.sh production <git-commit-sha>
-backend/deploy/lightsail/rollback.sh preview <git-commit-sha>
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh production <git-commit-sha>
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh preview <git-commit-sha>
 ```
 
 Rollback changes only the selected API container and verifies its matching
