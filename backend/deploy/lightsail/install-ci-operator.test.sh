@@ -52,6 +52,11 @@ STATE_ROOT="$TEST_ROOT/environments"
 ROUTE_STATE_ROOT="$TEST_ROUTE_PARENT/db-failover-state"
 LOG_DIRECTORY="$TEST_ROOT/logs"
 INSTALLED_OPERATOR="$TEST_ROOT/operator"
+ARTIFACT_DIRECTORY="$TEST_ROOT/artifacts"
+INSTALLED_OPERATOR_ARTIFACT="$ARTIFACT_DIRECTORY/ci-operator.sh"
+INSTALLED_DEPLOY_ARTIFACT="$ARTIFACT_DIRECTORY/deploy.sh"
+INSTALLED_ROLLBACK_ARTIFACT="$ARTIFACT_DIRECTORY/rollback.sh"
+INSTALLED_COMPOSE_ARTIFACT="$ARTIFACT_DIRECTORY/compose.lightsail.yml"
 
 REAL_CHOWN="$(command -v chown)"
 REAL_STAT="$(command -v stat)"
@@ -87,8 +92,8 @@ test_stat() {
         group="${TEST_STAT_OVERRIDE_OWNER#*:}"
     elif [[ "${TEST_STAT_FAKE_LOCK_OWNER:-0}" == "1" \
         && "$path" == "$STATE_ROOT"/*/operator.lock ]]; then
-        owner="ubuntu"
-        group="ubuntu"
+        owner="root"
+        group="root"
     elif [[ "${TEST_STAT_FAKE_OWNER:-0}" == "1" ]]; then
         owner="root"
         group="root"
@@ -147,6 +152,17 @@ test_install_operator_failure() {
     test_install "$@"
 }
 
+test_install_target_failure() {
+    local last_argument=""
+    local argument
+
+    for argument in "$@"; do
+        last_argument="$argument"
+    done
+    [[ "$last_argument" == "$TEST_INSTALL_FAILURE_TARGET" ]] && return 1
+    test_install "$@"
+}
+
 test_mv_failure() {
     return 1
 }
@@ -187,9 +203,25 @@ reset_route_state_root() {
 }
 
 reset_installation_targets() {
-    /bin/rm -rf "$ROUTE_STATE_ROOT" "$STATE_ROOT" "$LOG_DIRECTORY" "$INSTALLED_OPERATOR"
+    /bin/rm -rf \
+        "$ROUTE_STATE_ROOT" "$STATE_ROOT" "$LOG_DIRECTORY" \
+        "$INSTALLED_OPERATOR" "$ARTIFACT_DIRECTORY"
     /bin/mkdir -p "$STATE_ROOT/preview" "$STATE_ROOT/production"
     /bin/chmod 0700 "$STATE_ROOT/preview" "$STATE_ROOT/production"
+}
+
+install_current_test_bundle() {
+    /bin/mkdir -p "$ARTIFACT_DIRECTORY"
+    /bin/chmod 0700 "$ARTIFACT_DIRECTORY"
+    /bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
+    /bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT"
+    /bin/cp "$SOURCE_DEPLOY_HELPER" "$INSTALLED_DEPLOY_ARTIFACT"
+    /bin/cp "$SOURCE_ROLLBACK_HELPER" "$INSTALLED_ROLLBACK_ARTIFACT"
+    /bin/cp "$SOURCE_COMPOSE_FILE" "$INSTALLED_COMPOSE_ARTIFACT"
+    /bin/chmod 0750 \
+        "$INSTALLED_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT" \
+        "$INSTALLED_DEPLOY_ARTIFACT" "$INSTALLED_ROLLBACK_ARTIFACT"
+    /bin/chmod 0640 "$INSTALLED_COMPOSE_ARTIFACT"
 }
 
 route_state_file() {
@@ -379,12 +411,17 @@ assert_fails group_list_contains dock "ubuntu docker"
 
 grep -Fq '[[ "$EUID" -eq 0 ]]' "$INSTALLER" \
     || fail "installer must retain its root requirement"
+grep -Fq 'must not belong to the docker group' "$INSTALLER" \
+    || fail "installer must reject ubuntu Docker membership"
+if grep -Fq 'must belong to the docker group' "$INSTALLER"; then
+    fail "installer must not require ubuntu Docker membership"
+fi
 grep -Fq 'root:root:750' "$INSTALLER" \
     || fail "operator mode check must be root:root:750"
 grep -Fq 'root:root:700' "$INSTALLER" \
     || fail "log and route-state directories must be root-owned and mode 0700"
-grep -Fq 'ubuntu:ubuntu:640' "$INSTALLER" \
-    || fail "shared lock mode check must allow the deploy user"
+grep -Fq 'root:root:600' "$INSTALLER" \
+    || fail "shared lock mode check must remain root-only"
 grep -Fq 'db-route-state' "$INSTALLER" \
     || fail "route state path must be installed per environment"
 grep -Fq 'ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"' "$INSTALLER" \
@@ -470,8 +507,7 @@ legacy_snapshot="$TEST_ROOT/legacy-v2.snapshot"
 
 /bin/mkdir -p "$STATE_ROOT/preview" "$STATE_ROOT/production" "$LOG_DIRECTORY"
 /bin/chmod 0700 "$STATE_ROOT/preview" "$STATE_ROOT/production" "$LOG_DIRECTORY"
-/bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
-/bin/chmod 0750 "$INSTALLED_OPERATOR"
+install_current_test_bundle
 TEST_STAT_FAKE_LOCK_OWNER=1
 ensure_deployment_locks false
 
@@ -704,8 +740,7 @@ preview_after_reconcile_snapshot="$TEST_ROOT/preview-after-reconcile.snapshot"
 
 /bin/mkdir -p "$LOG_DIRECTORY"
 /bin/chmod 0700 "$LOG_DIRECTORY"
-/bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
-/bin/chmod 0750 "$INSTALLED_OPERATOR"
+install_current_test_bundle
 TEST_STAT_FAKE_LOCK_OWNER=1
 ensure_deployment_locks true
 
@@ -816,8 +851,7 @@ for environment in preview production; do
     /bin/mv "$race_state_temp" "$(route_state_file "$environment")"
     /bin/chmod 0600 "$(route_state_file "$environment")"
 done
-/bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
-/bin/chmod 0750 "$INSTALLED_OPERATOR"
+install_current_test_bundle
 race_preview_snapshot="$TEST_ROOT/race-preview.snapshot"
 race_production_snapshot="$TEST_ROOT/race-production.snapshot"
 race_operator_expected="$TEST_ROOT/race-operator.expected"
@@ -926,16 +960,66 @@ for environment in preview production; do
         fail "rollback did not retain a safe $environment lock file"
     fi
     [[ ! -s "$lock_file" ]] || fail "rollback retained non-empty $environment lock file"
-    assert_equals "ubuntu:ubuntu:640" "$(test_stat -c '%U:%G:%a' "$lock_file")"
+    assert_equals "root:root:600" "$(test_stat -c '%U:%G:%a' "$lock_file")"
 done
+
+# Every protected bundle replacement point participates in the same
+# compensating transaction. A failure at any point must restore both the
+# complete prior bundle and the route-state files.
+failure_index=0
+for TEST_INSTALL_FAILURE_TARGET in \
+    "$ARTIFACT_DIRECTORY" \
+    "$INSTALLED_OPERATOR_ARTIFACT" \
+    "$INSTALLED_DEPLOY_ARTIFACT" \
+    "$INSTALLED_ROLLBACK_ARTIFACT" \
+    "$INSTALLED_COMPOSE_ARTIFACT" \
+    "$INSTALLED_OPERATOR"; do
+    reset_installation_targets
+    ensure_route_state_file preview
+    ensure_route_state_file production
+    ensure_deployment_locks true
+    install_current_test_bundle
+    failure_preview_snapshot="$TEST_ROOT/bundle-failure-$failure_index-preview.snapshot"
+    failure_production_snapshot="$TEST_ROOT/bundle-failure-$failure_index-production.snapshot"
+    failure_operator_snapshot="$TEST_ROOT/bundle-failure-$failure_index-operator.snapshot"
+    failure_operator_artifact_snapshot="$TEST_ROOT/bundle-failure-$failure_index-operator-artifact.snapshot"
+    failure_deploy_snapshot="$TEST_ROOT/bundle-failure-$failure_index-deploy.snapshot"
+    failure_rollback_snapshot="$TEST_ROOT/bundle-failure-$failure_index-rollback.snapshot"
+    failure_compose_snapshot="$TEST_ROOT/bundle-failure-$failure_index-compose.snapshot"
+    /bin/cp "$(route_state_file preview)" "$failure_preview_snapshot"
+    /bin/cp "$(route_state_file production)" "$failure_production_snapshot"
+    /bin/cp "$INSTALLED_OPERATOR" "$failure_operator_snapshot"
+    /bin/cp "$INSTALLED_OPERATOR_ARTIFACT" "$failure_operator_artifact_snapshot"
+    /bin/cp "$INSTALLED_DEPLOY_ARTIFACT" "$failure_deploy_snapshot"
+    /bin/cp "$INSTALLED_ROLLBACK_ARTIFACT" "$failure_rollback_snapshot"
+    /bin/cp "$INSTALLED_COMPOSE_ARTIFACT" "$failure_compose_snapshot"
+
+    CMD_INSTALL=test_install_target_failure
+    assert_fails main install --replace
+    CMD_INSTALL=test_install
+    assert_file_unchanged "$failure_preview_snapshot" "$(route_state_file preview)"
+    assert_file_unchanged "$failure_production_snapshot" "$(route_state_file production)"
+    assert_file_unchanged "$failure_operator_snapshot" "$INSTALLED_OPERATOR"
+    assert_file_unchanged "$failure_operator_artifact_snapshot" "$INSTALLED_OPERATOR_ARTIFACT"
+    assert_file_unchanged "$failure_deploy_snapshot" "$INSTALLED_DEPLOY_ARTIFACT"
+    assert_file_unchanged "$failure_rollback_snapshot" "$INSTALLED_ROLLBACK_ARTIFACT"
+    assert_file_unchanged "$failure_compose_snapshot" "$INSTALLED_COMPOSE_ARTIFACT"
+    assert_path_absent "$LOG_DIRECTORY"
+    failure_index=$((failure_index + 1))
+done
+unset TEST_INSTALL_FAILURE_TARGET
 
 # A busy environment lock fails closed before any snapshot migration.
 CMD_FLOCK=test_flock_failure
 assert_fails main install --replace
 CMD_FLOCK=test_flock
-assert_file_unchanged "$install_failure_preview_snapshot" "$(route_state_file preview)"
-assert_file_unchanged "$install_failure_operator_snapshot" "$INSTALLED_OPERATOR"
-assert_path_absent "$(route_state_file production)"
+assert_file_unchanged "$failure_preview_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$failure_production_snapshot" "$(route_state_file production)"
+assert_file_unchanged "$failure_operator_snapshot" "$INSTALLED_OPERATOR"
+assert_file_unchanged "$failure_operator_artifact_snapshot" "$INSTALLED_OPERATOR_ARTIFACT"
+assert_file_unchanged "$failure_deploy_snapshot" "$INSTALLED_DEPLOY_ARTIFACT"
+assert_file_unchanged "$failure_rollback_snapshot" "$INSTALLED_ROLLBACK_ARTIFACT"
+assert_file_unchanged "$failure_compose_snapshot" "$INSTALLED_COMPOSE_ARTIFACT"
 assert_path_absent "$LOG_DIRECTORY"
 
 echo "install-ci-operator tests passed"

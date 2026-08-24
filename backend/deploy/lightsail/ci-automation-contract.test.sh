@@ -115,7 +115,7 @@ assert_text_not_contains "$production_deploy_role_section" 'DbReconcileDocument'
 
 assert_contains "$INSTALLER" 'root:root' "CI operator must remain root-owned"
 assert_contains "$INSTALLER" '0750' "CI operator must not be executable by unprivileged users"
-assert_contains "$INSTALLER" 'ubuntu:ubuntu:640' "shared deployment locks must be writable by the deploy user"
+assert_contains "$INSTALLER" 'root:root:600' "shared deployment locks must remain root-only"
 assert_contains "$CI_OPERATOR" 'acquire_lock' "deploy and reconcile must use the shared operator lock"
 assert_contains "$CI_OPERATOR" 'db_reconcile()' "reconcile must be implemented by the CI operator"
 assert_contains "$CI_OPERATOR" 'up -d --no-deps --force-recreate api' "route changes must recreate only the API service"
@@ -126,18 +126,62 @@ assert_contains "$CI_OPERATOR" 'directOk' "reconcile output must expose only saf
 assert_not_contains "$CI_OPERATOR" 'docker[[:space:]]+restart' "route changes must not use docker restart"
 assert_not_contains "$CI_OPERATOR" 'docker[[:space:]]+compose[[:space:]]+run' "probes must not create a second Compose API instance"
 assert_not_contains "$CI_OPERATOR" 'postgres(ql)?://' "operator source must not contain database URLs"
-assert_contains "$PREVIEW_OPERATOR" 'DATABASE_CONNECTION_MODE' "preview deploys must preserve the active database route"
-assert_contains "$PREVIEW_OPERATOR" 'docker inspect' "preview deploys must verify the active database route before recreation"
+assert_not_contains "$CI_OPERATOR" '{{range \.Config\.Env}}{{println \.}}{{end}}' "operator must not print the full container environment"
+assert_contains "$PREVIEW_OPERATOR" 'legacy preview operator is retired' "legacy preview operator must fail closed"
+assert_not_contains "$PREVIEW_OPERATOR" 'docker|compose|BACKEND_ENV_FILE|DATABASE_CONNECTION_MODE|deploy\.sh|rollback\.sh' "legacy preview operator must not retain an unsafe alternate path"
+assert_contains "$CI_OPERATOR" 'run_as_root' "fixed Docker/Compose operations must run from the root operator"
+assert_contains "$CI_OPERATOR" 'id -nG ubuntu' "operator must inspect ubuntu Docker membership before automation"
+assert_contains "$CI_OPERATOR" 'ubuntu must not belong to the docker group' "operator must fail closed on ubuntu Docker membership"
+assert_contains "$CI_OPERATOR" 'root:root:600' "root operator must require an exact root-owned environment file"
+assert_contains "$CI_OPERATOR" 'db_route=' "status must expose the authoritative database route"
+assert_contains "$CI_OPERATOR" 'runtime_route=' "status must expose the verified runtime route"
+assert_contains "$CI_OPERATOR" 'db_readiness=ok' "status must expose database readiness"
+assert_contains "$CI_OPERATOR" 'verify_api_runtime "\$ROUTE_STATE_ACTIVE_ROUTE"' "status must verify the persisted route"
+assert_contains "$CI_OPERATOR" 'run_internal_ready_check' "runtime invariant must include internal readiness"
+assert_contains "$CI_OPERATOR" 'run_public_ready_check' "runtime invariant must include public readiness"
+assert_contains "$CI_OPERATOR" 'run_public_liveness_check' "runtime invariant must include public liveness"
+assert_contains "$CI_OPERATOR" '&& status_output="\$\(status_environment' "deploy success must require the full status invariant"
+assert_contains "$CI_OPERATOR" '&& status_environment >>' "rollback recovery must require the full status invariant"
+assert_not_contains "$CI_OPERATOR" 'run_as_deployer /usr/bin/docker' "Docker must not run as the ubuntu deployer"
+assert_not_contains "$CI_OPERATOR" 'run_as_deployer /usr/bin/docker compose' "Compose must not run as the ubuntu deployer"
 assert_contains "$DEPLOY_SCRIPT" 'DATABASE_CONNECTION_MODE' "deploy script must accept the persisted route mode"
 assert_contains "$ROLLBACK_SCRIPT" 'DATABASE_CONNECTION_MODE' "rollback script must accept the persisted route mode"
 assert_contains "$DEPLOY_SCRIPT" 'group/world accessible' "deploy script must reject exposed backend environment files"
 assert_contains "$ROLLBACK_SCRIPT" 'group/world accessible' "rollback script must reject exposed backend environment files"
+assert_contains "$DEPLOY_SCRIPT" 'root:root mode 0600' "deploy script must require root-owned 0600 environment files"
+assert_contains "$ROLLBACK_SCRIPT" 'root:root mode 0600' "rollback script must require root-owned 0600 environment files"
+assert_contains "$DEPLOY_SCRIPT" 'must run as root' "manual deployment script must not expose an ubuntu Docker path"
+assert_contains "$ROLLBACK_SCRIPT" 'must run as root' "manual rollback script must not expose an ubuntu Docker path"
+assert_contains "$INSTALLER" 'must not belong to the docker group' "installer must fail closed on ubuntu Docker membership"
+assert_not_contains "$INSTALLER" 'must belong to the docker group' "installer must not require ubuntu Docker membership"
 assert_not_contains "$INSTALLER" 'sudoers' "CI operator must not grant a new sudo path"
+assert_contains "$CI_OPERATOR" 'ROOT_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"' "root operations must use a protected artifact bundle"
+assert_contains "$CI_OPERATOR" 'validate_root_artifacts' "operator must validate the protected artifact bundle on every invocation"
+assert_contains "$INSTALLER" 'INSTALLED_DEPLOY_ARTIFACT' "installer must own the protected deploy helper"
+assert_contains "$INSTALLER" 'INSTALLED_ROLLBACK_ARTIFACT' "installer must own the protected rollback helper"
+assert_contains "$INSTALLER" 'INSTALLED_COMPOSE_ARTIFACT' "installer must own the protected Compose definition"
+assert_contains "$INSTALLER" 'capture_install_snapshot "\$INSTALLED_COMPOSE_ARTIFACT"' "protected artifacts must join the compensating install transaction"
 assert_contains "$ROLLBACK_SCRIPT" 'PRESERVE_PREVIOUS_TAG.*==.*false.*current_tag' "automatic recovery must be able to preserve known-good tag history"
 assert_contains "$CI_OPERATOR" 'restore_state_value.*previous-image-tag.*previous_tag' "automatic recovery must restore the rollback tag captured before deployment"
-assert_not_contains "$CI_OPERATOR" 'docker run --rm.*--env-file' "migrations must use Compose-compatible environment parsing"
 assert_not_contains "$INFRASTRUCTURE_TEMPLATE" 'Action:[[:space:]]*[\"]?[*]' "IAM actions must not use wildcards"
 assert_not_contains "$INFRASTRUCTURE_TEMPLATE" 'Principal:[[:space:]]*[\"]?[*]' "IAM trust must not use a wildcard principal"
+
+protected_runtime_functions="$(
+    /usr/bin/awk '
+        /^(recreate_api_for_route|run_release_migrations|run_deploy_script|run_rollback_script)\(\)/ { capture = 1 }
+        capture { print }
+        capture && /^}/ { capture = 0 }
+    ' "$CI_OPERATOR"
+)"
+if printf '%s\n' "$protected_runtime_functions" | /usr/bin/grep -Eq 'DEPLOY_WORKTREE|REPOSITORY_ROOT'; then
+    fail "root Docker/Compose paths must not read or execute ubuntu-owned repository/worktree files"
+fi
+[[ "$protected_runtime_functions" == *ROOT_COMPOSE_ARTIFACT* ]] \
+    || fail "root runtime functions must use the protected Compose artifact"
+[[ "$protected_runtime_functions" == *ROOT_DEPLOY_ARTIFACT* ]] \
+    || fail "root deployment must execute the protected deploy artifact"
+[[ "$protected_runtime_functions" == *ROOT_ROLLBACK_ARTIFACT* ]] \
+    || fail "root recovery must execute the protected rollback artifact"
 
 migration_line="$(grep -n 'if ! run_release_migrations' "$CI_OPERATOR" | cut -d: -f1)"
 activation_line="$(grep -n 'if run_deploy_script' "$CI_OPERATOR" | cut -d: -f1)"

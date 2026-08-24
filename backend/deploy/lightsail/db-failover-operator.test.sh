@@ -118,7 +118,7 @@ probe_secret_url="postgres""ql://db-user:db-password@example.invalid/db?sslmode=
 probe_image_id="sha256:probe-image"
 probe_docker_mode="valid"
 probe_invocations=()
-run_as_deployer() {
+run_as_root() {
     local invocation="$*"
 
     probe_invocations+=("$invocation")

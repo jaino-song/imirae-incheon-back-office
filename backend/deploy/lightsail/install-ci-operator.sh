@@ -5,12 +5,20 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly SOURCE_OPERATOR="$SCRIPT_DIR/ci-operator.sh"
+readonly SOURCE_DEPLOY_HELPER="$SCRIPT_DIR/deploy.sh"
+readonly SOURCE_ROLLBACK_HELPER="$SCRIPT_DIR/rollback.sh"
+readonly SOURCE_COMPOSE_FILE="$SCRIPT_DIR/../../compose.lightsail.yml"
 #
 # These are fixed production defaults.  They remain mutable only after this
 # file is sourced, which lets the isolated shell harness inject temporary
 # paths and command wrappers without making the executable read test values
 # from its environment.
 INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-ci-operator"
+ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"
+INSTALLED_OPERATOR_ARTIFACT="$ARTIFACT_DIRECTORY/ci-operator.sh"
+INSTALLED_DEPLOY_ARTIFACT="$ARTIFACT_DIRECTORY/deploy.sh"
+INSTALLED_ROLLBACK_ARTIFACT="$ARTIFACT_DIRECTORY/rollback.sh"
+INSTALLED_COMPOSE_ARTIFACT="$ARTIFACT_DIRECTORY/compose.lightsail.yml"
 LOG_DIRECTORY="/var/log/babyjamjam-deploy"
 STATE_ROOT="/opt/babyjamjam/environments"
 ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
@@ -43,7 +51,9 @@ CMD_TIMEOUT="/usr/bin/timeout"
 CMD_UNLINK="/usr/bin/unlink"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    readonly INSTALLED_OPERATOR LOG_DIRECTORY STATE_ROOT ROUTE_STATE_ROOT
+    readonly INSTALLED_OPERATOR ARTIFACT_DIRECTORY INSTALLED_OPERATOR_ARTIFACT
+    readonly INSTALLED_DEPLOY_ARTIFACT INSTALLED_ROLLBACK_ARTIFACT INSTALLED_COMPOSE_ARTIFACT
+    readonly LOG_DIRECTORY STATE_ROOT ROUTE_STATE_ROOT
     readonly CMD_BASH CMD_CAT CMD_CHMOD CMD_CHOWN CMD_CMP CMD_CP CMD_DATE CMD_DIRNAME
     readonly CMD_DOCKER CMD_GIT CMD_CURL CMD_FLOCK CMD_INSTALL CMD_MKTEMP CMD_MV
     readonly CMD_MKDIR CMD_RM CMD_RMDIR CMD_RUNUSER CMD_STAT CMD_TIMEOUT CMD_UNLINK
@@ -77,17 +87,25 @@ group_list_contains() {
 verify_host_prerequisites() {
     local deploy_groups
     local required_command
+    local source_script
 
     /usr/bin/id "$DEPLOY_USER" >/dev/null 2>&1 || die "Missing deploy user: $DEPLOY_USER"
     deploy_groups="$(/usr/bin/id -nG "$DEPLOY_USER")"
-    group_list_contains docker "$deploy_groups" || die "$DEPLOY_USER must belong to the docker group."
+    if group_list_contains docker "$deploy_groups"; then
+        die "$DEPLOY_USER must not belong to the docker group; root CI Docker execution requires its removal."
+    fi
 
     for required_command in "$CMD_RUNUSER" "$CMD_DOCKER" "$CMD_GIT" "$CMD_CURL" "$CMD_FLOCK" "$CMD_TIMEOUT" "$CMD_STAT" "$CMD_DATE" "$CMD_MKTEMP" "$CMD_DIRNAME"; do
         [[ -x "$required_command" ]] || die "Required command is missing: $required_command"
     done
 
-    [[ -r "$SOURCE_OPERATOR" ]] || die "Missing operator source: $SOURCE_OPERATOR"
-    "$CMD_BASH" -n "$SOURCE_OPERATOR" || die "Operator source is not valid Bash."
+    for source_script in "$SOURCE_OPERATOR" "$SOURCE_DEPLOY_HELPER" "$SOURCE_ROLLBACK_HELPER"; do
+        [[ -f "$source_script" && ! -L "$source_script" && -r "$source_script" ]] \
+            || die "A required operator source is missing or invalid."
+        "$CMD_BASH" -n "$source_script" || die "An operator source is not valid Bash."
+    done
+    [[ -f "$SOURCE_COMPOSE_FILE" && ! -L "$SOURCE_COMPOSE_FILE" && -r "$SOURCE_COMPOSE_FILE" ]] \
+        || die "The required Compose source is missing or invalid."
 }
 
 validate_no_symlink_path() {
@@ -476,24 +494,33 @@ ensure_deployment_locks() {
         [[ -d "$state_directory" ]] || die "Deployment state directory is missing: $state_directory"
         [[ ! -L "$lock_file" ]] || die "Deployment lock must not be a symbolic link: $lock_file"
         if [[ ! -e "$lock_file" ]]; then
-            "$CMD_INSTALL" -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 0640 /dev/null "$lock_file" \
+            "$CMD_INSTALL" -o root -g root -m 0600 /dev/null "$lock_file" \
                 || die "Unable to create deployment lock: $lock_file"
         fi
         [[ -f "$lock_file" ]] || die "Deployment lock is not a regular file: $lock_file"
-        "$CMD_CHOWN" "$DEPLOY_USER:$DEPLOY_GROUP" "$lock_file" \
+        "$CMD_CHOWN" root:root "$lock_file" \
             || die "Unable to set deployment lock ownership: $lock_file"
-        "$CMD_CHMOD" 0640 "$lock_file" \
+        "$CMD_CHMOD" 0600 "$lock_file" \
             || die "Unable to set deployment lock mode: $lock_file"
         ensure_route_state_file "$environment" "$migrate_legacy_state"
     done
 }
 
 verify_installed_files() {
+    local artifact_directory_metadata
+    local artifact_parent_directory
+    local artifact_parent_metadata
+    local artifact_parent_mode
+    local artifact_parent_permissions
+    local compose_metadata
+    local deploy_metadata
     local environment
     local lock_file
     local lock_metadata
     local log_metadata
     local operator_metadata
+    local operator_artifact_metadata
+    local rollback_metadata
     local route_state_directory
     local route_state_directory_metadata
     local route_state_file
@@ -501,12 +528,48 @@ verify_installed_files() {
     local route_state_metadata
 
     [[ -x "$INSTALLED_OPERATOR" ]] || die "Installed CI operator is missing."
+    artifact_parent_directory="$("$CMD_DIRNAME" "$ARTIFACT_DIRECTORY")"
+    validate_no_symlink_path "$artifact_parent_directory"
+    [[ -d "$artifact_parent_directory" && ! -L "$artifact_parent_directory" ]] \
+        || die "CI operator artifact parent is missing or invalid."
+    artifact_parent_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$artifact_parent_directory")"
+    artifact_parent_mode="${artifact_parent_metadata##*:}"
+    artifact_parent_permissions="${artifact_parent_mode: -3}"
+    [[ "${artifact_parent_metadata%%:*}" == "root" \
+        && "${artifact_parent_permissions:1:1}" != [2367] \
+        && "${artifact_parent_permissions:2:1}" != [2367] ]] \
+        || die "CI operator artifact parent is not a protected root boundary."
+    validate_no_symlink_path "$ARTIFACT_DIRECTORY"
+    [[ -d "$ARTIFACT_DIRECTORY" && ! -L "$ARTIFACT_DIRECTORY" ]] \
+        || die "CI operator artifact directory is missing or invalid."
+    [[ -f "$INSTALLED_OPERATOR_ARTIFACT" && ! -L "$INSTALLED_OPERATOR_ARTIFACT" ]] \
+        || die "Protected CI operator artifact is missing or invalid."
+    [[ -f "$INSTALLED_DEPLOY_ARTIFACT" && ! -L "$INSTALLED_DEPLOY_ARTIFACT" ]] \
+        || die "Protected deploy artifact is missing or invalid."
+    [[ -f "$INSTALLED_ROLLBACK_ARTIFACT" && ! -L "$INSTALLED_ROLLBACK_ARTIFACT" ]] \
+        || die "Protected rollback artifact is missing or invalid."
+    [[ -f "$INSTALLED_COMPOSE_ARTIFACT" && ! -L "$INSTALLED_COMPOSE_ARTIFACT" ]] \
+        || die "Protected Compose artifact is missing or invalid."
     [[ -d "$LOG_DIRECTORY" ]] || die "CI deployment log directory is missing."
 
+    artifact_directory_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$ARTIFACT_DIRECTORY")"
     operator_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_OPERATOR")"
+    operator_artifact_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_OPERATOR_ARTIFACT")"
+    deploy_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_DEPLOY_ARTIFACT")"
+    rollback_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_ROLLBACK_ARTIFACT")"
+    compose_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$INSTALLED_COMPOSE_ARTIFACT")"
     log_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$LOG_DIRECTORY")"
+    [[ "$artifact_directory_metadata" == "root:root:700" ]] \
+        || die "Unexpected CI artifact directory ownership or mode: $artifact_directory_metadata"
     [[ "$operator_metadata" == "root:root:750" ]] \
         || die "Unexpected CI operator ownership or mode: $operator_metadata"
+    [[ "$operator_artifact_metadata" == "root:root:750" \
+        && "$deploy_metadata" == "root:root:750" \
+        && "$rollback_metadata" == "root:root:750" \
+        && "$compose_metadata" == "root:root:640" ]] \
+        || die "Unexpected protected deployment artifact ownership or mode."
+    "$CMD_CMP" -s "$INSTALLED_OPERATOR" "$INSTALLED_OPERATOR_ARTIFACT" \
+        || die "Installed operator does not match its protected artifact."
     [[ "$log_metadata" == "root:root:700" ]] \
         || die "Unexpected CI log directory ownership or mode: $log_metadata"
     validate_route_state_parent
@@ -523,7 +586,7 @@ verify_installed_files() {
         [[ -f "$lock_file" && ! -L "$lock_file" ]] \
             || die "Deployment lock is missing or invalid: $lock_file"
         lock_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$lock_file")"
-        [[ "$lock_metadata" == "ubuntu:ubuntu:640" ]] \
+        [[ "$lock_metadata" == "root:root:600" ]] \
             || die "Unexpected deployment lock ownership or mode: $lock_metadata"
         [[ -d "$route_state_directory" && ! -L "$route_state_directory" ]] \
             || die "Route state directory is missing or invalid: $route_state_directory"
@@ -539,6 +602,8 @@ verify_installed_files() {
     done
 
     "$CMD_BASH" -n "$INSTALLED_OPERATOR" || die "Installed CI operator is not valid Bash."
+    "$CMD_BASH" -n "$INSTALLED_DEPLOY_ARTIFACT" || die "Installed deploy artifact is not valid Bash."
+    "$CMD_BASH" -n "$INSTALLED_ROLLBACK_ARTIFACT" || die "Installed rollback artifact is not valid Bash."
     echo "Lightsail CI operator installation is valid."
 }
 
@@ -564,7 +629,7 @@ prepare_install_transaction_locks() {
                 INSTALL_TRANSACTION_PREEXISTING_PRODUCTION_LOCK=true
             fi
         else
-            "$CMD_INSTALL" -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 0640 /dev/null "$lock_file" \
+            "$CMD_INSTALL" -o root -g root -m 0600 /dev/null "$lock_file" \
                 || return 1
         fi
 
@@ -827,11 +892,39 @@ install_transaction_exit() {
     exit "$exit_status"
 }
 
+installed_bundle_exists() {
+    [[ -e "$INSTALLED_OPERATOR" || -L "$INSTALLED_OPERATOR" \
+        || -e "$ARTIFACT_DIRECTORY" || -L "$ARTIFACT_DIRECTORY" ]]
+}
+
+installed_bundle_matches_candidates() {
+    local operator_candidate="$1"
+    local deploy_candidate="$2"
+    local rollback_candidate="$3"
+    local compose_candidate="$4"
+
+    [[ -f "$INSTALLED_OPERATOR" && ! -L "$INSTALLED_OPERATOR" \
+        && -d "$ARTIFACT_DIRECTORY" && ! -L "$ARTIFACT_DIRECTORY" \
+        && -f "$INSTALLED_OPERATOR_ARTIFACT" && ! -L "$INSTALLED_OPERATOR_ARTIFACT" \
+        && -f "$INSTALLED_DEPLOY_ARTIFACT" && ! -L "$INSTALLED_DEPLOY_ARTIFACT" \
+        && -f "$INSTALLED_ROLLBACK_ARTIFACT" && ! -L "$INSTALLED_ROLLBACK_ARTIFACT" \
+        && -f "$INSTALLED_COMPOSE_ARTIFACT" && ! -L "$INSTALLED_COMPOSE_ARTIFACT" ]] \
+        || return 1
+    "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR" \
+        && "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR_ARTIFACT" \
+        && "$CMD_CMP" -s "$deploy_candidate" "$INSTALLED_DEPLOY_ARTIFACT" \
+        && "$CMD_CMP" -s "$rollback_candidate" "$INSTALLED_ROLLBACK_ARTIFACT" \
+        && "$CMD_CMP" -s "$compose_candidate" "$INSTALLED_COMPOSE_ARTIFACT"
+}
+
 install_operator() (
     local replace_existing="${1:-}"
     local temporary_directory
     local operator_candidate
-    local had_operator=false
+    local deploy_candidate
+    local rollback_candidate
+    local compose_candidate
+    local artifact_parent_directory
 
     [[ -z "$replace_existing" || "$replace_existing" == "--replace" ]] || {
         usage
@@ -842,16 +935,20 @@ install_operator() (
     verify_host_prerequisites
     temporary_directory="$("$CMD_MKTEMP" -d /var/tmp/babyjamjam-ci-operator.XXXXXX)"
     operator_candidate="$temporary_directory/operator"
+    deploy_candidate="$temporary_directory/deploy"
+    rollback_candidate="$temporary_directory/rollback"
+    compose_candidate="$temporary_directory/compose"
+    artifact_parent_directory="$("$CMD_DIRNAME" "$ARTIFACT_DIRECTORY")"
     trap 'cleanup_install_operator_temp "$?"' EXIT
 
     "$CMD_INSTALL" -o root -g root -m 0750 "$SOURCE_OPERATOR" "$operator_candidate"
+    "$CMD_INSTALL" -o root -g root -m 0750 "$SOURCE_DEPLOY_HELPER" "$deploy_candidate"
+    "$CMD_INSTALL" -o root -g root -m 0750 "$SOURCE_ROLLBACK_HELPER" "$rollback_candidate"
+    "$CMD_INSTALL" -o root -g root -m 0640 "$SOURCE_COMPOSE_FILE" "$compose_candidate"
 
-    if [[ -e "$INSTALLED_OPERATOR" ]]; then
-        had_operator=true
-    fi
-
-    if [[ "$replace_existing" != "--replace" && "$had_operator" == "true" ]]; then
-        "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR" \
+    if [[ "$replace_existing" != "--replace" ]] && installed_bundle_exists; then
+        installed_bundle_matches_candidates \
+            "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate" \
             || die "The CI operator already exists; inspect it before using install --replace."
     fi
 
@@ -863,16 +960,23 @@ install_operator() (
     trap 'install_lock_prepare_exit "$?"' EXIT
 
     # Recheck after acquiring both environment locks.  A concurrent
-    # authorized installer may have changed the installed operator after the
-    # early comparison; plain install must not overwrite that newer binary.
-    if [[ "$replace_existing" != "--replace" && -e "$INSTALLED_OPERATOR" ]]; then
-        if ! "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR"; then
+    # authorized installer may have changed the protected bundle after the
+    # early comparison; plain install must not overwrite that newer bundle.
+    if [[ "$replace_existing" != "--replace" ]] && installed_bundle_exists; then
+        if ! installed_bundle_matches_candidates \
+            "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate"; then
             die "The CI operator already exists; inspect it before using install --replace."
         fi
     fi
 
     INSTALL_TRANSACTION_SNAPSHOT_PATHS=()
     capture_install_snapshot "$INSTALLED_OPERATOR"
+    capture_install_snapshot "$artifact_parent_directory"
+    capture_install_snapshot "$ARTIFACT_DIRECTORY"
+    capture_install_snapshot "$INSTALLED_OPERATOR_ARTIFACT"
+    capture_install_snapshot "$INSTALLED_DEPLOY_ARTIFACT"
+    capture_install_snapshot "$INSTALLED_ROLLBACK_ARTIFACT"
+    capture_install_snapshot "$INSTALLED_COMPOSE_ARTIFACT"
     capture_install_snapshot "$LOG_DIRECTORY"
     capture_install_snapshot "$ROUTE_STATE_ROOT"
     capture_install_snapshot "$ROUTE_STATE_ROOT/preview"
@@ -898,19 +1002,63 @@ install_operator() (
     if ! "$CMD_INSTALL" -d -o root -g root -m 0700 "$LOG_DIRECTORY"; then
         return 1
     fi
+    if [[ ! -e "$artifact_parent_directory" ]]; then
+        if ! "$CMD_INSTALL" -d -o root -g root -m 0755 "$artifact_parent_directory"; then
+            return 1
+        fi
+    elif [[ ! -d "$artifact_parent_directory" || -L "$artifact_parent_directory" ]]; then
+        return 1
+    fi
+    if ! "$CMD_INSTALL" -d -o root -g root -m 0700 "$ARTIFACT_DIRECTORY"; then
+        return 1
+    fi
+    if ! "$CMD_INSTALL" -o root -g root -m 0750 "$operator_candidate" "$INSTALLED_OPERATOR_ARTIFACT"; then
+        return 1
+    fi
+    if ! "$CMD_INSTALL" -o root -g root -m 0750 "$deploy_candidate" "$INSTALLED_DEPLOY_ARTIFACT"; then
+        return 1
+    fi
+    if ! "$CMD_INSTALL" -o root -g root -m 0750 "$rollback_candidate" "$INSTALLED_ROLLBACK_ARTIFACT"; then
+        return 1
+    fi
+    if ! "$CMD_INSTALL" -o root -g root -m 0640 "$compose_candidate" "$INSTALLED_COMPOSE_ARTIFACT"; then
+        return 1
+    fi
     if ! "$CMD_INSTALL" -o root -g root -m 0750 "$operator_candidate" "$INSTALLED_OPERATOR"; then
         return 1
     fi
     if ! verify_installed_files; then
         return 1
     fi
+    if ! installed_bundle_matches_candidates \
+        "$operator_candidate" "$deploy_candidate" "$rollback_candidate" "$compose_candidate"; then
+        return 1
+    fi
     INSTALL_TRANSACTION_ACTIVE=false
 )
 
 uninstall_operator() {
+    local artifact_path
+
     require_root
     if [[ -e "$INSTALLED_OPERATOR" ]]; then
         "$CMD_UNLINK" "$INSTALLED_OPERATOR"
+    fi
+    for artifact_path in \
+        "$INSTALLED_OPERATOR_ARTIFACT" \
+        "$INSTALLED_DEPLOY_ARTIFACT" \
+        "$INSTALLED_ROLLBACK_ARTIFACT" \
+        "$INSTALLED_COMPOSE_ARTIFACT"; do
+        if [[ -f "$artifact_path" || -L "$artifact_path" ]]; then
+            "$CMD_UNLINK" "$artifact_path"
+        elif [[ -e "$artifact_path" ]]; then
+            die "Refusing to remove a non-file operator artifact."
+        fi
+    done
+    if [[ -d "$ARTIFACT_DIRECTORY" && ! -L "$ARTIFACT_DIRECTORY" ]]; then
+        "$CMD_RMDIR" "$ARTIFACT_DIRECTORY"
+    elif [[ -e "$ARTIFACT_DIRECTORY" || -L "$ARTIFACT_DIRECTORY" ]]; then
+        die "Refusing to remove an invalid operator artifact directory."
     fi
     echo "Removed the Lightsail CI operator. Root-only diagnostic logs were retained."
 }
