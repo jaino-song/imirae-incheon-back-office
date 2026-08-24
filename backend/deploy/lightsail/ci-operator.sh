@@ -4,6 +4,12 @@ set -euo pipefail
 
 readonly REPOSITORY_ROOT="/opt/babyjamjam/repository"
 readonly DEPLOY_WORKTREE_ROOT="/opt/babyjamjam/deploy-worktrees"
+readonly ROOT_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"
+readonly INSTALLED_OPERATOR_PATH="/usr/local/sbin/babyjamjam-ci-operator"
+readonly ROOT_OPERATOR_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/ci-operator.sh"
+readonly ROOT_DEPLOY_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/deploy.sh"
+readonly ROOT_ROLLBACK_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/rollback.sh"
+readonly ROOT_COMPOSE_ARTIFACT="$ROOT_ARTIFACT_DIRECTORY/compose.lightsail.yml"
 readonly STATE_ROOT="/opt/babyjamjam/environments"
 readonly ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
 readonly LOG_ROOT="/var/log/babyjamjam-deploy"
@@ -44,6 +50,8 @@ const finish = (exitCode) => {
 };
 const timeout = setTimeout(() => finish(1), 5000);
 prisma.$queryRawUnsafe("SELECT 1").then(() => finish(0)).catch(() => finish(1));'
+readonly SCHEDULERS_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "SCHEDULERS_ENABLED"}}{{println .}}{{end}}{{end}}'
+readonly DATABASE_MODE_ENV_FORMAT='{{range .Config.Env}}{{if eq (index (split . "=") 0) "DATABASE_CONNECTION_MODE"}}{{println .}}{{end}}{{end}}'
 
 usage() {
     cat >&2 <<'EOF'
@@ -110,8 +118,62 @@ validate_invocation() {
     esac
 }
 
+validate_root_artifact_file() {
+    local artifact_path="$1"
+    local expected_mode="$2"
+    local path_component
+    local path_metadata
+    local path_mode
+    local path_permissions
+
+    [[ "$artifact_path" == /* && -f "$artifact_path" && ! -L "$artifact_path" ]] \
+        || die "A required root deployment artifact is missing or invalid."
+    path_component="$artifact_path"
+    while [[ "$path_component" != "/" ]]; do
+        [[ ! -L "$path_component" ]] \
+            || die "A root deployment artifact path contains a symbolic link."
+        path_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$path_component")" \
+            || die "Unable to inspect a root deployment artifact."
+        [[ "${path_metadata%%:*}" == "root" ]] \
+            || die "A root deployment artifact path is not root-owned."
+        path_mode="${path_metadata##*:}"
+        path_permissions="${path_mode: -3}"
+        [[ "${path_permissions:1:1}" != [2367] \
+            && "${path_permissions:2:1}" != [2367] ]] \
+            || die "A root deployment artifact path is group/world writable."
+        path_component="$(/usr/bin/dirname "$path_component")"
+    done
+    [[ "$(/usr/bin/stat -c '%U:%G:%a' "$artifact_path")" == "root:root:$expected_mode" ]] \
+        || die "A root deployment artifact has unexpected ownership or mode."
+}
+
+validate_root_artifacts() {
+    local artifact_directory_metadata
+
+    [[ -d "$ROOT_ARTIFACT_DIRECTORY" && ! -L "$ROOT_ARTIFACT_DIRECTORY" ]] \
+        || die "The root deployment artifact directory is missing or invalid."
+    artifact_directory_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$ROOT_ARTIFACT_DIRECTORY")" \
+        || die "Unable to inspect the root deployment artifact directory."
+    [[ "$artifact_directory_metadata" == "root:root:700" ]] \
+        || die "The root deployment artifact directory has unexpected ownership or mode."
+    validate_root_artifact_file "$ROOT_OPERATOR_ARTIFACT" 750
+    validate_root_artifact_file "$ROOT_DEPLOY_ARTIFACT" 750
+    validate_root_artifact_file "$ROOT_ROLLBACK_ARTIFACT" 750
+    validate_root_artifact_file "$ROOT_COMPOSE_ARTIFACT" 640
+    validate_root_artifact_file "$INSTALLED_OPERATOR_PATH" 750
+    /usr/bin/cmp -s "$ROOT_OPERATOR_ARTIFACT" "$INSTALLED_OPERATOR_PATH" \
+        || die "The installed operator does not match its protected artifact."
+}
+
 require_root() {
     [[ "$EUID" -eq 0 ]] || die "The CI operator must run as root through AWS Systems Manager."
+    local deploy_groups
+
+    deploy_groups="$(/usr/bin/id -nG ubuntu 2>/dev/null)" \
+        || die "Unable to inspect ubuntu group membership."
+    [[ " $deploy_groups " != *" docker "* ]] \
+        || die "ubuntu must not belong to the docker group; root CI Docker execution requires its removal."
+    validate_root_artifacts
 }
 
 run_as_deployer() {
@@ -119,6 +181,17 @@ run_as_deployer() {
         HOME=/home/ubuntu \
         USER=ubuntu \
         LOGNAME=ubuntu \
+        SHELL=/bin/bash \
+        LC_ALL=C \
+        PATH="$SAFE_PATH" \
+        "$@"
+}
+
+run_as_root() {
+    /usr/bin/env -i \
+        HOME=/root \
+        USER=root \
+        LOGNAME=root \
         SHELL=/bin/bash \
         LC_ALL=C \
         PATH="$SAFE_PATH" \
@@ -162,7 +235,7 @@ configure_environment() {
     BACKEND_ENV_FILE="$STATE_DIRECTORY/backend.env"
     ROUTE_STATE_DIRECTORY="$ROUTE_STATE_ROOT/$environment"
     ROUTE_STATE_FILE="$ROUTE_STATE_DIRECTORY/$ROUTE_STATE_FILE_NAME"
-    COMPOSE_FILE="$REPOSITORY_ROOT/backend/compose.lightsail.yml"
+    COMPOSE_FILE="$ROOT_COMPOSE_ARTIFACT"
     CURRENT_TAG_FILE="$STATE_DIRECTORY/current-image-tag"
     CURRENT_DIGEST_FILE="$STATE_DIRECTORY/current-image-digest"
     PUBLIC_READY_URL="${PUBLIC_HEALTH_URL%/}/ready"
@@ -175,7 +248,7 @@ acquire_lock() {
     [[ -f "$DEPLOY_LOCK_FILE" && ! -L "$DEPLOY_LOCK_FILE" ]] \
         || die "Deployment lock is missing or invalid; reinstall the CI operator."
     lock_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$DEPLOY_LOCK_FILE")"
-    [[ "$lock_metadata" == "ubuntu:ubuntu:640" ]] \
+    [[ "$lock_metadata" == "root:root:600" ]] \
         || die "Unexpected deployment lock ownership or mode: $lock_metadata"
     exec 9>>"$DEPLOY_LOCK_FILE"
     /usr/bin/flock -n 9 || die "Another $DEPLOY_ENVIRONMENT deployment is already running."
@@ -186,20 +259,60 @@ current_epoch() {
 }
 
 validate_backend_env_file() {
-    local environment_mode
-    local file_mode
-    local permission_bits
+    local path_prefix
+    local path_without_root
+    local path_component
+    local path_type
+    local path_metadata
+    local path_owner
+    local path_group
+    local path_mode
+    local path_permissions
+    local -a path_components
 
-    [[ -f "$BACKEND_ENV_FILE" && ! -L "$BACKEND_ENV_FILE" ]] \
-        || die "Backend environment file is missing or invalid."
-    environment_mode="$(/usr/bin/stat -c '%F' "$BACKEND_ENV_FILE")"
-    [[ "$environment_mode" == "regular file" ]] \
-        || die "Backend environment file is not a regular file."
-    file_mode="$(/usr/bin/stat -c '%a' "$BACKEND_ENV_FILE")"
-    [[ "$file_mode" =~ ^0?[0-7]{3}$ ]] || die "Backend environment file mode is invalid."
-    permission_bits="${file_mode: -3}"
-    [[ "${permission_bits:1:1}" == "0" && "${permission_bits:2:1}" == "0" ]] \
-        || die "Backend environment file is group/world accessible."
+    [[ "$BACKEND_ENV_FILE" == /* ]] \
+        || die "Backend environment file path must be absolute."
+    path_without_root="${BACKEND_ENV_FILE#/}"
+    [[ -n "$path_without_root" ]] \
+        || die "Backend environment file path must name a regular file."
+    IFS='/' read -r -a path_components <<<"$path_without_root"
+    path_prefix="/"
+    for path_component in "${path_components[@]}"; do
+        case "$path_component" in
+            ''|.)
+                continue
+                ;;
+            ..)
+                die "Backend environment file path must not contain '..'."
+                ;;
+        esac
+        path_prefix="${path_prefix%/}/$path_component"
+        [[ -e "$path_prefix" && ! -L "$path_prefix" ]] \
+            || die "Backend environment path component is missing or invalid: $path_prefix"
+        path_type="$(/usr/bin/stat -c '%F' "$path_prefix")" \
+            || die "Unable to inspect backend environment path component."
+        path_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$path_prefix")" \
+            || die "Unable to inspect backend environment path ownership."
+        path_owner="${path_metadata%%:*}"
+        path_group="${path_metadata#*:}"
+        path_group="${path_group%%:*}"
+        path_mode="${path_metadata##*:}"
+        [[ "$path_owner:$path_group" == "root:root" ]] \
+            || die "Backend environment path component is not root-owned: $path_prefix"
+        if [[ "$path_prefix" == "$BACKEND_ENV_FILE" ]]; then
+            [[ "$path_type" == "regular file" && "$path_metadata" == "root:root:600" ]] \
+                || die "Backend environment file must be root:root mode 0600."
+        else
+            [[ "$path_type" == "directory" ]] \
+                || die "Backend environment ancestor is not a directory: $path_prefix"
+            path_permissions="${path_mode: -3}"
+            [[ "${path_permissions:1:1}" != [2367] \
+                && "${path_permissions:2:1}" != [2367] ]] \
+                || die "Backend environment ancestor is group/world writable: $path_prefix"
+        fi
+    done
+    [[ "$path_prefix" == "$BACKEND_ENV_FILE" ]] \
+        || die "Backend environment file path must name a regular file."
 }
 
 write_route_state() {
@@ -592,13 +705,13 @@ prepare_probe_image() {
 
     tagged_image_name="$LOCAL_IMAGE_REPOSITORY:$CURRENT_ROUTE_IMAGE_TAG"
     immutable_image_name="$IMAGE_REPOSITORY@$CURRENT_ROUTE_IMAGE_DIGEST"
-    tagged_image_id="$(run_as_deployer /usr/bin/docker image inspect \
+    tagged_image_id="$(run_as_root /usr/bin/docker image inspect \
         --format '{{.Id}}' "$tagged_image_name" 2>/dev/null)" || return 1
     [[ -n "$tagged_image_id" ]] || return 1
-    tagged_repository_digests="$(run_as_deployer /usr/bin/docker image inspect \
+    tagged_repository_digests="$(run_as_root /usr/bin/docker image inspect \
         --format '{{join .RepoDigests "\\n"}}' "$tagged_image_name" 2>/dev/null)" || return 1
     [[ "$tagged_repository_digests" == *"@$CURRENT_ROUTE_IMAGE_DIGEST"* ]] || return 1
-    immutable_image_id="$(run_as_deployer /usr/bin/docker image inspect \
+    immutable_image_id="$(run_as_root /usr/bin/docker image inspect \
         --format '{{.Id}}' "$immutable_image_name" 2>/dev/null)" || return 1
     [[ "$immutable_image_id" == "$tagged_image_id" ]] || return 1
 
@@ -611,7 +724,7 @@ run_probe_query() {
     is_route "$route" || return 1
     validate_backend_env_file || return 1
     prepare_probe_image || return 1
-    run_as_deployer /usr/bin/timeout --kill-after=1s "${DB_PROBE_TIMEOUT_SECONDS}s" \
+    run_as_root /usr/bin/timeout --kill-after=1s "${DB_PROBE_TIMEOUT_SECONDS}s" \
         /usr/bin/docker run --rm --pull=never \
         --network "${COMPOSE_PROJECT}_backend" \
         --env-file "$BACKEND_ENV_FILE" \
@@ -634,20 +747,20 @@ probe_route() {
 run_internal_ready_check() {
     local api_container_id="$1"
 
-    run_as_deployer /usr/bin/timeout --kill-after=1s 10s \
+    run_as_root /usr/bin/timeout --kill-after=1s 10s \
         /usr/bin/docker exec "$api_container_id" /usr/local/bin/node -e "$READY_NODE_SCRIPT" \
         >/dev/null 2>&1
 }
 
 run_public_ready_check() {
-    run_as_deployer /usr/bin/curl --fail --silent --show-error --location \
+    run_as_root /usr/bin/curl --fail --silent --show-error --location \
         --proto '=https' --proto-redir '=https' \
         --connect-timeout 5 --max-time 10 "$PUBLIC_READY_URL" \
         >/dev/null 2>&1
 }
 
 run_public_liveness_check() {
-    run_as_deployer /usr/bin/curl --fail --silent --show-error --location \
+    run_as_root /usr/bin/curl --fail --silent --show-error --location \
         --proto '=https' --proto-redir '=https' \
         --connect-timeout 5 --max-time 10 "$PUBLIC_HEALTH_URL" \
         >/dev/null 2>&1
@@ -663,18 +776,18 @@ verify_api_image_identity() {
     local repository_digests
 
     expected_image_name="$LOCAL_IMAGE_REPOSITORY:$CURRENT_ROUTE_IMAGE_TAG"
-    expected_image_id="$(run_as_deployer /usr/bin/docker image inspect \
+    expected_image_id="$(run_as_root /usr/bin/docker image inspect \
         --format '{{.Id}}' "$expected_image_name")" || return 1
-    actual_image_name="$(run_as_deployer /usr/bin/docker inspect \
+    actual_image_name="$(run_as_root /usr/bin/docker inspect \
         --format '{{.Config.Image}}' "$api_container_id")" || return 1
-    actual_image_id="$(run_as_deployer /usr/bin/docker inspect \
+    actual_image_id="$(run_as_root /usr/bin/docker inspect \
         --format '{{.Image}}' "$api_container_id")" || return 1
     [[ "$actual_image_name" == "$expected_image_name" ]] || return 1
     [[ "$actual_image_id" == "$expected_image_id" ]] || return 1
 
     recorded_digest="$(read_recorded_digest "$CURRENT_DIGEST_FILE")" || return 1
     [[ "$recorded_digest" != "missing" ]] || return 1
-    repository_digests="$(run_as_deployer /usr/bin/docker image inspect \
+    repository_digests="$(run_as_root /usr/bin/docker image inspect \
         --format '{{join .RepoDigests "\\n"}}' "$expected_image_name")" || return 1
     [[ "$repository_digests" == *"@$recorded_digest"* ]] || return 1
 }
@@ -686,30 +799,33 @@ verify_api_runtime() {
     local container_health
     local restart_count
     local schedulers_enabled
+    local runtime_route
 
     is_route "$route" || die "Invalid route for runtime verification."
     api_container_id="$(find_api_container_optional)" || return 1
-    container_count="$(run_as_deployer /usr/bin/docker ps \
+    container_count="$(run_as_root /usr/bin/docker ps \
         --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
         --filter "label=com.docker.compose.service=api" \
         --format '{{.ID}}' | /usr/bin/wc -l | /usr/bin/tr -d ' ')" || return 1
     [[ "$container_count" == "1" ]] || return 1
-    container_health="$(run_as_deployer /usr/bin/docker inspect \
+    container_health="$(run_as_root /usr/bin/docker inspect \
         --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
         "$api_container_id")" || return 1
-    restart_count="$(run_as_deployer /usr/bin/docker inspect \
+    restart_count="$(run_as_root /usr/bin/docker inspect \
         --format '{{.RestartCount}}' "$api_container_id")" || return 1
-    schedulers_enabled="$(run_as_deployer /usr/bin/docker inspect \
-        --format '{{range .Config.Env}}{{println .}}{{end}}' "$api_container_id" \
-        | /usr/bin/awk -F= '$1 == "SCHEDULERS_ENABLED" { count += 1; value = tolower($2) } END { if (count == 1) print value; else exit 1 }')" || return 1
+    schedulers_enabled="$(run_as_root /usr/bin/docker inspect \
+        --format "$SCHEDULERS_ENV_FORMAT" "$api_container_id" \
+        | /usr/bin/awk -F= '$1 == "SCHEDULERS_ENABLED" { count += 1; if (NF == 2) value = tolower($2); else malformed = 1 } END { if (count == 1 && malformed != 1) print value; else exit 1 }')" || return 1
     [[ "$container_health" == "healthy" ]] || return 1
     [[ "$restart_count" == "0" ]] || return 1
     [[ "$schedulers_enabled" == "$EXPECTED_SCHEDULERS_ENABLED" ]] || return 1
-    run_as_deployer /usr/bin/docker inspect \
-        --format '{{range .Config.Env}}{{println .}}{{end}}' "$api_container_id" \
-        | /usr/bin/awk -F= -v expected="$route" \
-            '$1 == "DATABASE_CONNECTION_MODE" { count += 1; found = tolower($2) == expected } END { exit(count == 1 && found ? 0 : 1) }' \
+    runtime_route="$(run_as_root /usr/bin/docker inspect \
+        --format "$DATABASE_MODE_ENV_FORMAT" "$api_container_id" \
+        | /usr/bin/awk -F= \
+            '$1 == "DATABASE_CONNECTION_MODE" { count += 1; if (NF == 2) value = tolower($2); else malformed = 1 } END { if (count == 1 && malformed != 1) print value; else exit 1 }')" \
         || return 1
+    [[ "$runtime_route" == "$route" ]] || return 1
+    RUNTIME_ROUTE="$runtime_route"
     verify_api_image_identity "$api_container_id" || return 1
     run_internal_ready_check "$api_container_id" || return 1
     run_public_ready_check || return 1
@@ -723,7 +839,7 @@ recreate_api_for_route() {
     validate_backend_env_file
     [[ "$CURRENT_ROUTE_IMAGE_TAG" != "missing" ]] || die "Current image tag is missing."
     [[ "$CURRENT_ROUTE_IMAGE_DIGEST" != "missing" ]] || die "Current image digest is missing."
-    run_as_deployer /usr/bin/env \
+    run_as_root /usr/bin/env \
         BACKEND_ENV_FILE="$BACKEND_ENV_FILE" \
         BACKEND_IMAGE="$LOCAL_IMAGE_REPOSITORY" \
         BACKEND_IMAGE_TAG="$CURRENT_ROUTE_IMAGE_TAG" \
@@ -788,21 +904,21 @@ pull_release_image() {
     local immutable_reference="$IMAGE_REPOSITORY@$requested_digest"
     local image_revision
 
-    run_as_deployer /usr/bin/docker pull "$immutable_reference"
-    image_revision="$(run_as_deployer /usr/bin/docker image inspect \
+    run_as_root /usr/bin/docker pull "$immutable_reference" >/dev/null 2>&1
+    image_revision="$(run_as_root /usr/bin/docker image inspect \
         --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
         "$immutable_reference")"
     [[ "$image_revision" == "$requested_sha" ]] \
         || die "Pulled image revision does not match the requested commit."
 
-    run_as_deployer /usr/bin/docker tag \
+    run_as_root /usr/bin/docker tag \
         "$immutable_reference" "$LOCAL_IMAGE_REPOSITORY:$requested_sha"
 }
 
 run_release_migrations() {
     local requested_sha="$1"
 
-    run_as_deployer /usr/bin/env \
+    run_as_root /usr/bin/env \
         BACKEND_ENV_FILE="$STATE_DIRECTORY/backend.env" \
         BACKEND_IMAGE="$LOCAL_IMAGE_REPOSITORY" \
         BACKEND_IMAGE_TAG="$requested_sha" \
@@ -813,10 +929,11 @@ run_release_migrations() {
         LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK" \
         VALKEY_DATA_VOLUME="$VALKEY_DATA_VOLUME" \
         /usr/bin/docker compose \
-        -f "$DEPLOY_WORKTREE/backend/compose.lightsail.yml" \
+        -f "$ROOT_COMPOSE_ARTIFACT" \
         run --rm --no-deps --entrypoint /usr/local/bin/node api \
         node_modules/prisma/build/index.js migrate deploy \
-        --schema prisma/schema.prisma
+        --schema prisma/schema.prisma \
+        >/dev/null 2>&1
 }
 
 read_optional_state() {
@@ -890,7 +1007,7 @@ record_release_digest() {
 find_api_container() {
     local container_ids
 
-    container_ids="$(run_as_deployer /usr/bin/docker ps \
+    container_ids="$(run_as_root /usr/bin/docker ps \
         --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
         --filter "label=com.docker.compose.service=api" \
         --format '{{.ID}}')"
@@ -903,7 +1020,7 @@ find_api_container() {
 find_api_container_optional() {
     local container_ids
 
-    container_ids="$(run_as_deployer /usr/bin/docker ps \
+    container_ids="$(run_as_root /usr/bin/docker ps \
         --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
         --filter "label=com.docker.compose.service=api" \
         --format '{{.ID}}')" || return 1
@@ -1526,16 +1643,26 @@ status_environment() {
     local public_health_body
     local restart_count
     local schedulers_enabled
+    local runtime_route
+
+    ensure_route_state
+    load_route_state
+    validate_backend_env_file
+    load_current_release_identity
+    RUNTIME_ROUTE=""
+    verify_api_runtime "$ROUTE_STATE_ACTIVE_ROUTE" \
+        || die "$DEPLOY_ENVIRONMENT API runtime invariant is not satisfied."
+    runtime_route="${RUNTIME_ROUTE:-$ROUTE_STATE_ACTIVE_ROUTE}"
 
     api_container_id="$(find_api_container)"
-    container_health="$(run_as_deployer /usr/bin/docker inspect \
+    container_health="$(run_as_root /usr/bin/docker inspect \
         --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
         "$api_container_id")"
-    image_name="$(run_as_deployer /usr/bin/docker inspect --format '{{.Config.Image}}' "$api_container_id")"
-    restart_count="$(run_as_deployer /usr/bin/docker inspect --format '{{.RestartCount}}' "$api_container_id")"
+    image_name="$(run_as_root /usr/bin/docker inspect --format '{{.Config.Image}}' "$api_container_id")"
+    restart_count="$(run_as_root /usr/bin/docker inspect --format '{{.RestartCount}}' "$api_container_id")"
     schedulers_enabled="$(
-        run_as_deployer /usr/bin/docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$api_container_id" \
-            | /usr/bin/awk -F= '$1 == "SCHEDULERS_ENABLED" { print tolower($2) }'
+        run_as_root /usr/bin/docker inspect --format "$SCHEDULERS_ENV_FORMAT" "$api_container_id" \
+            | /usr/bin/awk -F= '$1 == "SCHEDULERS_ENABLED" { count += 1; if (NF == 2) value = tolower($2); else malformed = 1 } END { if (count == 1 && malformed != 1) print value; else exit 1 }'
     )"
     current_tag="$(read_recorded_tag "$STATE_DIRECTORY/current-image-tag")"
     current_digest="$(read_recorded_digest "$STATE_DIRECTORY/current-image-digest")"
@@ -1548,7 +1675,7 @@ status_environment() {
     [[ "$image_name" == "$LOCAL_IMAGE_REPOSITORY:$current_tag" ]] \
         || die "$DEPLOY_ENVIRONMENT API image does not match the recorded deployment tag."
 
-    public_health_body="$(run_as_deployer /usr/bin/curl --fail --silent --location \
+    public_health_body="$(run_as_root /usr/bin/curl --fail --silent --location \
         --proto '=https' --proto-redir '=https' \
         --connect-timeout 5 --max-time 10 \
         "$PUBLIC_HEALTH_URL")" || die "$DEPLOY_ENVIRONMENT public health check failed."
@@ -1559,6 +1686,9 @@ status_environment() {
     echo "environment=$DEPLOY_ENVIRONMENT"
     echo "current_tag=$current_tag"
     echo "current_digest=$current_digest"
+    echo "db_route=$ROUTE_STATE_ACTIVE_ROUTE"
+    echo "runtime_route=$runtime_route"
+    echo "db_readiness=ok"
     echo "container_health=$container_health"
     echo "restart_count=$restart_count"
     echo "schedulers_enabled=$schedulers_enabled"
@@ -1566,17 +1696,21 @@ status_environment() {
 }
 
 run_deploy_script() {
+    local requested_sha="$1"
     local route_mode="shared"
 
     if [[ -e "$ROUTE_STATE_FILE" ]]; then
         load_route_state
         route_mode="$ROUTE_STATE_ACTIVE_ROUTE"
     fi
-    run_as_deployer /usr/bin/env \
+    run_as_root /usr/bin/env \
         BACKEND_BUILD_IMAGE=false \
+        BACKEND_COMPOSE_FILE="$ROOT_COMPOSE_ARTIFACT" \
         BACKEND_IMAGE="$LOCAL_IMAGE_REPOSITORY" \
+        BACKEND_IMAGE_TAG="$requested_sha" \
+        BACKEND_SKIP_REPOSITORY_GIT_CHECK=true \
         DATABASE_CONNECTION_MODE="$route_mode" \
-        "$DEPLOY_WORKTREE/backend/deploy/lightsail/deploy.sh" "$DEPLOY_ENVIRONMENT"
+        "$ROOT_DEPLOY_ARTIFACT" "$DEPLOY_ENVIRONMENT"
 }
 
 run_rollback_script() {
@@ -1588,11 +1722,12 @@ run_rollback_script() {
         route_mode="$ROUTE_STATE_ACTIVE_ROUTE"
     fi
 
-    run_as_deployer /usr/bin/env \
+    run_as_root /usr/bin/env \
+        BACKEND_COMPOSE_FILE="$ROOT_COMPOSE_ARTIFACT" \
         BACKEND_IMAGE="$LOCAL_IMAGE_REPOSITORY" \
         BACKEND_ROLLBACK_PRESERVE_PREVIOUS_TAG=true \
         DATABASE_CONNECTION_MODE="$route_mode" \
-        "$DEPLOY_WORKTREE/backend/deploy/lightsail/rollback.sh" \
+        "$ROOT_ROLLBACK_ARTIFACT" \
         "$DEPLOY_ENVIRONMENT" "$rollback_tag"
 }
 
@@ -1613,7 +1748,7 @@ deploy_environment() {
 
     current_tag="$(read_recorded_tag "$STATE_DIRECTORY/current-image-tag")"
     [[ "$current_tag" != "missing" ]] || die "A known-good current image is required before CI deployment."
-    run_as_deployer /usr/bin/docker image inspect "$LOCAL_IMAGE_REPOSITORY:$current_tag" >/dev/null \
+    run_as_root /usr/bin/docker image inspect "$LOCAL_IMAGE_REPOSITORY:$current_tag" >/dev/null 2>&1 \
         || die "The recorded rollback image is not available locally."
 
     current_digest="$(read_recorded_digest "$STATE_DIRECTORY/current-image-digest")"
@@ -1632,7 +1767,7 @@ deploy_environment() {
         die "Database migration failed before image activation. Diagnostic log retained at $log_file"
     fi
 
-    if run_deploy_script >"$log_file" 2>&1 \
+    if run_deploy_script "$requested_sha" >"$log_file" 2>&1 \
         && record_release_digest "$current_digest" "$requested_digest" >>"$log_file" 2>&1 \
         && status_output="$(status_environment 2>>"$log_file")"; then
         /usr/bin/unlink "$log_file"
@@ -1661,6 +1796,7 @@ main() {
 
     case "$1" in
         status)
+            acquire_lock
             status_environment
             ;;
         deploy)

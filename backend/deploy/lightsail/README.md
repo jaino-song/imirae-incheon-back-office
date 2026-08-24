@@ -41,9 +41,10 @@ Keep the repository and environment state in these locations:
         └── previous-image-tag
 ```
 
-Create the environment directories for the dedicated deployment account and
-keep each `backend.env` file at mode `0600`. The account that runs the deploy
-scripts must be able to read them. Never commit either file or print its full
+Create the environment directories as a root-owned, non-writable boundary and
+keep each `backend.env` file exactly `root:root` mode `0600`. The root-only CI
+operator reads the files for fixed Docker/Compose operations; Git and worktree
+maintenance remains under `ubuntu`. Never commit either file or print its full
 contents into a terminal transcript.
 
 Production and preview must use their corresponding Railway environment values,
@@ -86,65 +87,50 @@ Environment-branch automation is documented in
 uses short-lived GitHub OIDC credentials to invoke fixed AWS Systems Manager
 documents, and keeps production behind a GitHub environment approval gate.
 
-The restricted SSH operator below remains available for approved diagnostics
-and manual preview recovery. It is independent of the root-only SSM operator.
+The former ubuntu/Docker-group preview operator is retired. Do not install or
+use `install-operator.sh`; its install and check commands fail closed, and its
+uninstall command only removes stale legacy files. There is no alternate SSH
+deploy, rollback, or status path.
 
-### Restricted agent operator
-
-Install the preview-only operator once from an administrative shell on the
+Install the root-only operator once from an administrative shell on the
 Lightsail host:
 
 ```bash
-sudo gpasswd --delete agent-lightsail-operator docker
-sudo backend/deploy/lightsail/install-operator.sh install
-sudo backend/deploy/lightsail/install-operator.sh check
+sudo backend/deploy/lightsail/install-ci-operator.sh install
+sudo backend/deploy/lightsail/install-ci-operator.sh check
 ```
 
-The installer copies a root-owned command to
-`/usr/local/sbin/babyjamjam-preview-operator` and adds one sudoers rule. The
-`agent-lightsail-operator` Linux user may run only that command as `ubuntu`; it
-does not receive general sudo, Docker group membership, or direct access to
-`backend.env`. Removing the Docker group membership is mandatory because direct
-Docker access is equivalent to host administrative access.
+The CI operator refuses to run while `ubuntu` belongs to the Docker group.
+Git fetch/worktree operations run with a sanitized `ubuntu` environment, while
+fixed Docker, Compose, and environment-file operations use only the atomically
+installed `root:root` artifact bundle under
+`/usr/local/libexec/babyjamjam-ci-operator`; the operator never executes or
+parses a deployment helper or Compose definition from the `ubuntu`-owned
+repository/worktree. Installation, replacement, validation, rollback, and
+uninstall cover the complete bundle. Status and deployment output contains
+only secret-free release, route, readiness, and health fields. A successful
+status includes matching `db_route` and `runtime_route` values plus
+`db_readiness=ok`; it also verifies one API container, scheduler ownership,
+image tag/digest identity, internal and public `/health/ready`, and public
+liveness.
 
-Agents use the fixed SSH alias and the restricted command:
-
-```bash
-ssh agent-lightsail-operator \
-  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator status'
-
-ssh agent-lightsail-operator \
-  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator deploy <full-preview-commit-sha>'
-
-ssh agent-lightsail-operator \
-  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator rollback'
-```
-
-The deploy command accepts exactly one 40-character commit and requires it to
-equal the freshly fetched `origin/preview` commit. It builds from a clean,
-detached preview deployment worktree, clears caller-controlled Git, Docker,
-Compose, and Lightsail environment variables, runs the existing health-gated
-deployment script, and reports only non-secret status fields. Rollback is
-limited to the previously recorded healthy preview image. Production is not a
-valid operator command.
-
-Removing this capability requires the same administrative access used for
-installation:
+Removing stale legacy files, if present, requires the same administrative
+access:
 
 ```bash
 sudo backend/deploy/lightsail/install-operator.sh uninstall
+sudo backend/deploy/lightsail/install-ci-operator.sh uninstall
 ```
-
-Installing, replacing, uninstalling, deploying, or rolling back is a
-state-changing operation and still requires the approval gate in the shared
-Lightsail agent-operator runbook.
 
 Run from a clean repository checkout at the exact commit to deploy:
 
 ```bash
-backend/deploy/lightsail/deploy.sh preview
-backend/deploy/lightsail/deploy.sh production
+sudo backend/deploy/lightsail/deploy.sh preview
+sudo backend/deploy/lightsail/deploy.sh production
 ```
+
+These manual bootstrap scripts are root-only and are not an alternate CI
+deploy, rollback, or status path.
 
 Each application deployment:
 
@@ -183,8 +169,8 @@ environment file intact until the new production and preview routes are proven.
 2. Start both isolated app stacks without changing public routing:
 
    ```bash
-   BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh production
-   BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh preview
+   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh production
+   sudo BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh preview
    ```
 
 3. Identify the legacy Caddy container by its Compose project and service
@@ -198,8 +184,8 @@ environment file intact until the new production and preview routes are proven.
    already-built image and record both environments:
 
    ```bash
-   BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh production
-   BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh preview
+   sudo BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh production
+   sudo BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh preview
    ```
 
 6. Verify scheduler activity only on production, confirm both public routes,
