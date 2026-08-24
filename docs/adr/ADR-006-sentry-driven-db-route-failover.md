@@ -60,11 +60,15 @@ SHARED_ACTIVE
   -> SHARED_ACTIVE
 ```
 
-`BLOCKED` and `DEGRADED` are terminal failure states until an operator performs
-an explicitly authorized recovery. `BLOCKED` means that neither route has
-passed the required probe or the transition budget is exhausted. `DEGRADED`
-means that a route change was attempted but its compensating restoration also
-failed. Neither state starts an unbounded restart loop.
+Host phases `BLOCKED` and `DEGRADED` are terminal failure states until an
+operator performs an explicitly authorized recovery. `BLOCKED` means that
+neither route has passed the required probe or the transition budget is
+exhausted. Host phase `DEGRADED` means that a route change was attempted but
+its compensating restoration also failed. Neither host phase starts an
+unbounded restart loop. This is distinct from the external reconciler's
+`controlPlaneStatus=DEGRADED`, which records a handled AWS/SSM observation
+failure while preserving the last host phase and route; it is nonterminal and
+can be retried by a later eligible reconciliation.
 
 The root-owned host state record is format version 2 and contains:
 
@@ -88,8 +92,15 @@ rejected; no implicit migration can reinterpret the old fixed-bucket fields.
 Every reconcile outcome is one single-line versioned JSON envelope containing
 only safe route, phase, counter, timestamp, transition, and request fields.
 Sentry wakes reconciliation; it never selects, writes, or commands a route.
-The host operator reads only the root-owned route state and existing
-environment secrets.
+The minute EventBridge schedule is a reconciliation poll, not a failover
+trigger: when the mirrored host is quiescent in `SHARED_ACTIVE` with no
+persisted SSM command already started by Sentry, the worker returns an
+explicit ignored result and leaves the host mirror unchanged. Only an
+eligible Sentry signal may start the Shared-to-Direct command. The schedule
+still polls a Sentry-started command and drives Direct health/failback,
+recovery and switching phases, stale-transition compensation, and emergency
+Direct-to-Shared recovery. The host operator reads only the root-owned route
+state and existing environment secrets.
 
 ### Detection and probe policy
 
@@ -174,6 +185,18 @@ redaction remain in force.
 `GET /health/ready` executes `SELECT 1`, returns 200 only when it succeeds,
 returns a generic detail-free 503 otherwise, and sends `Cache-Control:
 no-store`.
+
+After a host terminal state or control-plane `BLOCKED` state is persisted, the
+worker emits a secret-free CloudWatch Embedded Metric Format record in
+namespace `BabyJamJam/DbFailover`, metric `TerminalState`, with dimensions
+`Environment` and `StateType` (`HOST` or `CONTROL_PLANE`). A handled AWS/SSM
+failure that persists nonterminal `controlPlaneStatus=DEGRADED` emits a
+separate top-level EMF metric named `ControlPlaneDegraded`, dimensioned by
+`Environment`; its CloudWatch alarm has the same SNS action. The separate
+metric and alarm avoid treating a retryable control-plane condition as a
+terminal state. Valid terminal results and handled nonterminal failures are
+successful Lambda invocations and do not rely on Lambda `Errors` to become
+visible.
 
 ## Consequences
 

@@ -381,6 +381,23 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
 
+  ControlPlaneDegradedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Control-plane reconciliation entered a nonterminal DEGRADED state; inspect AWS/SSM access.
+      Namespace: BabyJamJam/DbFailover
+      MetricName: ControlPlaneDegraded
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentType
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
   WorkerErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:

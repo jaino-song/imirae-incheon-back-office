@@ -48,9 +48,13 @@ const SWITCHING_PHASES = new Set([
 ]);
 const UNCERTAIN_SSM_STATE_REASON = 'ssm_command_state_uncertain';
 const UNCERTAIN_SSM_STATE_ERROR = 'SSM_COMMAND_STATE_UNCERTAIN';
+export const SHARED_ACTIVE_SCHEDULE_SKIP_REASON = 'shared_active_without_sentry_command';
 export const TERMINAL_STATE_METRIC_NAMESPACE = 'BabyJamJam/DbFailover';
 export const TERMINAL_STATE_METRIC_NAME = 'TerminalState';
 export const TERMINAL_STATE_METRIC_DIMENSIONS = Object.freeze(['Environment', 'StateType']);
+export const CONTROL_PLANE_DEGRADED_METRIC_NAMESPACE = TERMINAL_STATE_METRIC_NAMESPACE;
+export const CONTROL_PLANE_DEGRADED_METRIC_NAME = 'ControlPlaneDegraded';
+export const CONTROL_PLANE_DEGRADED_METRIC_DIMENSIONS = Object.freeze(['Environment']);
 export const SHARED_MANAGED_NODE_TAG_VALUE = 'babyjamjam-admin-server';
 
 class LeaseUnavailableError extends Error {
@@ -130,6 +134,47 @@ function emitTerminalStateSignal({ logger, state, environment, now }) {
     controlPlaneStatus: state?.controlPlaneStatus ?? null,
   });
   return true;
+}
+
+function emitControlPlaneDegradedSignal({ logger, state, environment, now }) {
+  if (state?.controlPlaneStatus !== CONTROL_PLANE_STATUS.DEGRADED) return false;
+  const metricEnvironment = environment === 'preview' || environment === 'production'
+    ? environment
+    : 'unknown';
+  const timestamp = typeof now === 'function' ? now() : Date.now();
+  safeLog(logger, 'warn', 'db_failover_control_plane_degraded', {
+    _aws: {
+      Timestamp: timestamp,
+      CloudWatchMetrics: [{
+        Namespace: CONTROL_PLANE_DEGRADED_METRIC_NAMESPACE,
+        Dimensions: [CONTROL_PLANE_DEGRADED_METRIC_DIMENSIONS],
+        Metrics: [{ Name: CONTROL_PLANE_DEGRADED_METRIC_NAME, Unit: 'Count' }],
+      }],
+    },
+    Environment: metricEnvironment,
+    ControlPlaneDegraded: 1,
+    phase: state?.phase ?? null,
+    controlPlaneStatus: state?.controlPlaneStatus ?? null,
+    controlPlaneError: state?.controlPlaneError ?? null,
+  });
+  return true;
+}
+
+function scheduleEligibility(state) {
+  const sharedActive = state?.phase === PHASES.SHARED_ACTIVE
+    && state?.activeRoute === ROUTES.SHARED;
+  if (!sharedActive) {
+    return { eligible: true, reason: 'phase_requires_reconciliation' };
+  }
+
+  // Shared failover starts only from an eligible Sentry message. A schedule
+  // may poll a command that Sentry already started, but it must never create
+  // the first command from a quiescent Shared state.
+  if (typeof state?.ssmCommandId === 'string' && state.ssmCommandId.length > 0) {
+    return { eligible: true, reason: 'sentry_command_in_flight' };
+  }
+
+  return { eligible: false, reason: SHARED_ACTIVE_SCHEDULE_SKIP_REASON };
 }
 
 function readWorkerConfig(env = process.env) {
@@ -843,6 +888,7 @@ async function processMessage({
       now: now(),
       fingerprint: message.bodyFingerprint,
     });
+    emitControlPlaneDegradedSignal({ logger, state, environment: config.environment, now });
     emitTerminalStateSignal({ logger, state, environment: config.environment, now });
     safeLog(logger, 'info', 'failover_reconciled', {
       requestId,
@@ -876,6 +922,14 @@ async function processScheduled({
   owner,
   logger,
 }) {
+  const loaded = normalizeState((await stateStore.get()) ?? undefined, now());
+  if (!stopReason(loaded)) {
+    const loadedEligibility = scheduleEligibility(loaded);
+    if (!loadedEligibility.eligible) {
+      return { status: 'ignored', reason: loadedEligibility.reason };
+    }
+  }
+
   const lease = await stateStore.acquireLease({ owner, now: now(), leaseMs: config.leaseMs });
   if (!lease?.acquired) throw new LeaseUnavailableError();
   const generation = lease.generation ?? lease.state.generation;
@@ -896,6 +950,11 @@ async function processScheduled({
     if (terminalReason) {
       emitTerminalStateSignal({ logger, state, environment: config.environment, now });
       return { status: 'ignored', reason: terminalReason };
+    }
+
+    const leasedEligibility = scheduleEligibility(state);
+    if (!leasedEligibility.eligible) {
+      return { status: 'ignored', reason: leasedEligibility.reason };
     }
 
     const identity = identityForSchedule(event);
@@ -941,6 +1000,7 @@ async function processScheduled({
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
     }
     await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+    emitControlPlaneDegradedSignal({ logger, state, environment: config.environment, now });
     emitTerminalStateSignal({ logger, state, environment: config.environment, now });
     safeLog(logger, 'info', 'failover_reconciled', {
       requestId,
