@@ -8,6 +8,7 @@ const MAX_RESPONSE_BYTES = 128 * 1024;
 const ALLOWED_ENVIRONMENTS = new Set(['preview', 'production']);
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const NUMERIC_IDENTIFIER_PATTERN = /^\d+$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function fail(reason) {
   throw new Error(`Sentry metric alert rule audit failed: ${reason}`);
@@ -38,6 +39,16 @@ export function parseAuditConfig(env = process.env) {
     NUMERIC_IDENTIFIER_PATTERN,
   );
   const projectSlug = requireSafeIdentifier(env.SENTRY_PROJECT_SLUG, 'SENTRY_PROJECT_SLUG');
+  const projectId = requireSafeIdentifier(
+    env.SENTRY_PROJECT_ID,
+    'SENTRY_PROJECT_ID',
+    NUMERIC_IDENTIFIER_PATTERN,
+  );
+  const installationId = requireSafeIdentifier(
+    env.SENTRY_INSTALLATION_ID,
+    'SENTRY_INSTALLATION_ID',
+    UUID_PATTERN,
+  );
   const environment = requireSafeIdentifier(
     env.SENTRY_EXPECTED_ENVIRONMENT,
     'SENTRY_EXPECTED_ENVIRONMENT',
@@ -59,6 +70,8 @@ export function parseAuditConfig(env = process.env) {
   return {
     authToken,
     organizationId,
+    installationId,
+    projectId,
     projectSlug,
     environment,
     ruleIds: rawRuleIds,
@@ -87,6 +100,41 @@ function requireCriticalTrigger(triggers) {
   if (criticalTriggers.length !== 1 || criticalTriggers[0].alertThreshold !== 5) {
     fail('the critical trigger must have threshold 5');
   }
+  return criticalTriggers[0];
+}
+
+function requireSentryAppInstallation(criticalTrigger, installationId) {
+  if (!Array.isArray(criticalTrigger.actions)) {
+    fail('critical trigger actions are missing');
+  }
+  const matchingActions = criticalTrigger.actions.filter((action) => (
+    isRecord(action)
+    && action.type === 'sentry_app'
+    && action.sentryAppInstallationUuid === installationId
+  ));
+  if (matchingActions.length !== 1) {
+    fail('critical trigger Sentry App installation does not match');
+  }
+}
+
+export function validateLiveProject(project, expected) {
+  if (!isRecord(project)) {
+    fail('project response is not an object');
+  }
+  if (String(project.id ?? '') !== expected.projectId || project.slug !== expected.projectSlug) {
+    fail('project identity does not match');
+  }
+  if (!isRecord(project.organization) || String(project.organization.id ?? '') !== expected.organizationId) {
+    fail('project organization does not match');
+  }
+  if (project.status !== 'active') {
+    fail('project is not active');
+  }
+
+  return {
+    projectId: expected.projectId,
+    projectSlug: expected.projectSlug,
+  };
 }
 
 export function validateLiveMetricAlertRule(rule, expected) {
@@ -112,7 +160,8 @@ export function validateLiveMetricAlertRule(rule, expected) {
   if (rule.timeWindow !== 1) {
     fail('time window must be one minute');
   }
-  requireCriticalTrigger(rule.triggers);
+  const criticalTrigger = requireCriticalTrigger(rule.triggers);
+  requireSentryAppInstallation(criticalTrigger, expected.installationId);
   if (typeof rule.query !== 'string' || !isFailoverEligibleQuery(rule.query)) {
     fail('query is not failover eligible');
   }
@@ -123,11 +172,10 @@ export function validateLiveMetricAlertRule(rule, expected) {
   };
 }
 
-async function fetchRuleJson({
+async function fetchBoundedJson({
   authToken,
+  endpoint,
   fetchImpl,
-  organizationId,
-  ruleId,
   timeoutMs,
 }) {
   const controller = new AbortController();
@@ -138,11 +186,6 @@ async function fetchRuleJson({
       reject(new Error('timeout'));
     }, timeoutMs);
   });
-  const endpoint = new URL(
-    `/api/0/organizations/${encodeURIComponent(organizationId)}/alert-rules/${encodeURIComponent(ruleId)}/`,
-    SENTRY_API_ORIGIN,
-  );
-
   try {
     const request = (async () => {
       const response = await fetchImpl(endpoint, {
@@ -188,16 +231,36 @@ export async function auditLiveMetricAlertRules({
   }
 
   const results = [];
+  const projectEndpoint = new URL(
+    `/api/0/projects/${encodeURIComponent(config.organizationId)}/${encodeURIComponent(config.projectSlug)}/`,
+    SENTRY_API_ORIGIN,
+  );
+  const project = await fetchBoundedJson({
+    authToken: config.authToken,
+    endpoint: projectEndpoint,
+    fetchImpl,
+    timeoutMs,
+  });
+  validateLiveProject(project, {
+    organizationId: config.organizationId,
+    projectId: config.projectId,
+    projectSlug: config.projectSlug,
+  });
+
   for (const ruleId of config.ruleIds) {
-    const rule = await fetchRuleJson({
+    const ruleEndpoint = new URL(
+      `/api/0/organizations/${encodeURIComponent(config.organizationId)}/alert-rules/${encodeURIComponent(ruleId)}/`,
+      SENTRY_API_ORIGIN,
+    );
+    const rule = await fetchBoundedJson({
       authToken: config.authToken,
+      endpoint: ruleEndpoint,
       fetchImpl,
-      organizationId: config.organizationId,
-      ruleId,
       timeoutMs,
     });
     results.push(validateLiveMetricAlertRule(rule, {
       environment: config.environment,
+      installationId: config.installationId,
       organizationId: config.organizationId,
       projectSlug: config.projectSlug,
       ruleId,

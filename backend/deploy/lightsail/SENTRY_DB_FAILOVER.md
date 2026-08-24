@@ -243,23 +243,25 @@ deployment jobs run only from manual dispatch, require both explicit enable
 inputs plus `confirm_sentry_rule_audit=true`, and use the corresponding
 protected GitHub environment. The workflow then calls Sentry's read-only
 organization alert-rule detail endpoint with an environment-scoped
-`SENTRY_API_TOKEN` that has only `alerts:read` (or equivalent read-only)
-access. It validates every `SENTRY_RULE_IDS` entry against the exact numeric
-organization ID, single `SENTRY_PROJECT_SLUG`, environment, unsnoozed state,
-`count()` aggregate, one-minute window, one critical trigger at threshold `5`,
-and the failover query grammar before AWS authentication or deployment. A
-timeout, non-2xx response, malformed/oversized JSON, missing field, or mismatch
-blocks deployment. The human confirmation cannot replace this fetch and the
-workflow never mutates Sentry.
+`SENTRY_API_TOKEN` that has only `alerts:read` and `project:read` (or equivalent
+read-only) access. It first proves that `SENTRY_PROJECT_SLUG` maps to the exact
+active `SENTRY_PROJECT_ID` in the configured numeric organization. It then
+validates every `SENTRY_RULE_IDS` entry against that single project,
+environment, unsnoozed state, `count()` aggregate, one-minute window, one
+critical trigger at threshold `5`, the exact `SENTRY_INSTALLATION_ID` Sentry
+App action, and the failover query grammar before AWS authentication or
+deployment. A timeout, non-2xx response, malformed/oversized JSON, missing
+field, or mismatch blocks deployment. The human confirmation cannot replace
+this fetch and the workflow never mutates Sentry.
 
 Sentry currently marks this legacy alert-rule detail API as private and
 deprecated while it migrates metric alerts to its workflow engine. That makes
 the audit deliberately fail closed if Sentry changes the endpoint or response
 shape; update and re-review the validator before deploying rather than
-bypassing it. Operators must still inspect the installation, `metric_alert`
-resource, `critical` webhook action, and client-secret association because
-those webhook-only fields are not returned by the read-only rule endpoint. If
-any property cannot be verified, keep the kill switch disabled.
+bypassing it. Operators must still inspect the `metric_alert` resource,
+`critical` webhook action, and client-secret association because those
+webhook-only fields are not returned by the read-only rule endpoint. If any
+property cannot be verified, keep the kill switch disabled.
 
 The non-deploying package upload gate uses repository variables
 `SAM_PACKAGE_BUCKET` and `AWS_FAILOVER_PACKAGE_ROLE_ARN` on trusted branch
