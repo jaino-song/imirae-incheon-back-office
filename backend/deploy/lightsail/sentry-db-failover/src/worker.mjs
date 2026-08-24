@@ -952,6 +952,11 @@ async function processScheduled({
       return { status: 'ignored', reason: terminalReason };
     }
 
+    const leasedEligibility = scheduleEligibility(state);
+    if (!leasedEligibility.eligible) {
+      return { status: 'ignored', reason: leasedEligibility.reason };
+    }
+
     const identity = identityForSchedule(event);
     const requestId = requestIdForSchedule(event);
     state = await prepareRequest({

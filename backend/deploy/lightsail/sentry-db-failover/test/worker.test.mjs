@@ -171,6 +171,83 @@ test('repeated Shared schedules cannot initiate failover without Sentry', async 
   assert.deepEqual(store.snapshot(), before);
 });
 
+test('scheduled eligibility is rechecked after a race changes the leased state to quiescent Shared', async () => {
+  const baseStore = createMemoryStateStore({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 7,
+      phase: PHASES.DIRECT_ACTIVE,
+      activeRoute: ROUTES.DIRECT,
+      result: 'direct_healthy',
+      lastHostResult: 'direct_healthy',
+      directOk: true,
+    },
+    now: BASE_TIME,
+  });
+  let acquireCalls = 0;
+  let observeCalls = 0;
+  const stateStore = {
+    ...baseStore,
+    async acquireLease(options) {
+      const lease = await baseStore.acquireLease(options);
+      acquireCalls += 1;
+      const quiescentSharedState = {
+        ...lease.state,
+        phase: PHASES.SHARED_ACTIVE,
+        activeRoute: ROUTES.SHARED,
+        result: 'shared_healthy',
+        lastHostResult: 'shared_healthy',
+        sharedOk: true,
+        directOk: null,
+        ssmCommandId: null,
+        ssmRequestId: null,
+        ssmRequestIdentity: null,
+        ssmDispatchAttempted: false,
+        ssmRecoveryRequestId: null,
+        ssmRecoveryIdentity: null,
+        controlPlaneStatus: CONTROL_PLANE_STATUS.OK,
+        controlPlaneError: null,
+      };
+      await baseStore.saveHostMirror(quiescentSharedState, {
+        ...options,
+        generation: lease.generation,
+      });
+      return { ...lease, state: quiescentSharedState };
+    },
+  };
+  const handler = createWorkerHandler({
+    stateStore,
+    observe: async () => {
+      observeCalls += 1;
+      throw new Error('raced quiescent Shared schedule must not observe');
+    },
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const result = await handler({ id: 'race-to-shared', time: '2026-08-24T00:02:00Z' });
+
+  assert.equal(result.results[0].status, 'ignored');
+  assert.equal(result.results[0].reason, SHARED_ACTIVE_SCHEDULE_SKIP_REASON);
+  assert.equal(acquireCalls, 1);
+  assert.equal(observeCalls, 0);
+  const finalState = baseStore.snapshot();
+  assert.equal(finalState.phase, PHASES.SHARED_ACTIVE);
+  assert.equal(finalState.activeRoute, ROUTES.SHARED);
+  assert.equal(finalState.hostGeneration, 7);
+  assert.equal(finalState.ssmCommandId, null);
+  assert.equal(finalState.ssmRequestId, null);
+  assert.equal(finalState.ssmRequestIdentity, null);
+  assert.equal(finalState.ssmRecoveryRequestId, null);
+  assert.equal(finalState.ssmRecoveryIdentity, null);
+  assert.equal(finalState.controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(finalState.controlPlaneError, null);
+  assert.equal(finalState.leaseOwner, null);
+  assert.equal(finalState.leaseExpiresAt, 0);
+});
+
 test('a scheduled tick polls an SSM command already started by Sentry without sending another command', async () => {
   const sentryRequestId = makeDeterministicRequestId('a'.repeat(64));
   const sendCommandId = '00000000-0000-4000-8000-0000000000f1';
