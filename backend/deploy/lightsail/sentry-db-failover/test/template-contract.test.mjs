@@ -7,6 +7,9 @@ const oidcTemplate = await readFile(new URL('../../github-oidc-ssm.yaml', import
 const workflow = await readFile(new URL('../../../../../.github/workflows/db-failover-infra.yml', import.meta.url), 'utf8');
 const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const {
+  CONTROL_PLANE_DEGRADED_METRIC_DIMENSIONS,
+  CONTROL_PLANE_DEGRADED_METRIC_NAME,
+  CONTROL_PLANE_DEGRADED_METRIC_NAMESPACE,
   TERMINAL_STATE_METRIC_DIMENSIONS,
   TERMINAL_STATE_METRIC_NAME,
   TERMINAL_STATE_METRIC_NAMESPACE,
@@ -122,7 +125,7 @@ test('SAM and the shared OIDC stack target only the one managed Lightsail node',
   assert.match(workflow, /github-oidc-ssm\.yaml/);
 });
 
-test('receiver and terminal-state monitoring alarms use stable, secret-free signals', () => {
+test('receiver, terminal-state, and control-plane degradation alarms use stable, secret-free signals', () => {
   const api = section('FailoverApi', 'ReceiverRole');
   assert.match(api, /Name: !Sub babyjamjam-\$\{EnvironmentType\}-db-failover/);
   assert.match(api, /StageName: !Ref EnvironmentType/);
@@ -139,7 +142,10 @@ test('receiver and terminal-state monitoring alarms use stable, secret-free sign
     ['HostTerminalStateAlarm', 'HOST'],
     ['ControlPlaneTerminalStateAlarm', 'CONTROL_PLANE'],
   ]) {
-    const alarm = section(resource, resource === 'HostTerminalStateAlarm' ? 'ControlPlaneTerminalStateAlarm' : 'WorkerErrorsAlarm');
+    const nextResource = resource === 'HostTerminalStateAlarm'
+      ? 'ControlPlaneTerminalStateAlarm'
+      : 'ControlPlaneDegradedAlarm';
+    const alarm = section(resource, nextResource);
     assert.match(alarm, /Namespace: BabyJamJam\/DbFailover/);
     assert.match(alarm, /MetricName: TerminalState/);
     assert.match(alarm, /Name: Environment/);
@@ -147,13 +153,29 @@ test('receiver and terminal-state monitoring alarms use stable, secret-free sign
     assert.match(alarm, new RegExp(`Value: ${stateType}`));
     assert.match(alarm, /AlarmActions: !If \[HasAlarmTopic/);
   }
+  const degradedAlarm = section('ControlPlaneDegradedAlarm', 'WorkerErrorsAlarm');
+  assert.match(degradedAlarm, /Namespace: BabyJamJam\/DbFailover/);
+  assert.match(degradedAlarm, /MetricName: ControlPlaneDegraded/);
+  assert.match(degradedAlarm, /Name: Environment/);
+  assert.match(degradedAlarm, /Value: !Ref EnvironmentType/);
+  assert.match(degradedAlarm, /Statistic: Sum/);
+  assert.match(degradedAlarm, /Period: 60/);
+  assert.match(degradedAlarm, /EvaluationPeriods: 1/);
+  assert.match(degradedAlarm, /Threshold: 1/);
+  assert.match(degradedAlarm, /AlarmActions: !If \[HasAlarmTopic, \[!Ref AlarmTopicArn\], !Ref 'AWS::NoValue'\]/);
   assert.match(template, new RegExp(`Namespace: ${TERMINAL_STATE_METRIC_NAMESPACE.replace('/', '\\/')}`));
   assert.match(template, new RegExp(`MetricName: ${TERMINAL_STATE_METRIC_NAME}`));
   for (const dimension of TERMINAL_STATE_METRIC_DIMENSIONS) {
     assert.match(template, new RegExp(`Name: ${dimension}`));
   }
+  assert.match(template, new RegExp(`Namespace: ${CONTROL_PLANE_DEGRADED_METRIC_NAMESPACE.replace('/', '\\/')}`));
+  assert.match(template, new RegExp(`MetricName: ${CONTROL_PLANE_DEGRADED_METRIC_NAME}`));
+  for (const dimension of CONTROL_PLANE_DEGRADED_METRIC_DIMENSIONS) {
+    assert.match(degradedAlarm, new RegExp(`Name: ${dimension}`));
+  }
   assert.match(template, /ReceiverErrorsAlarm:/);
   assert.match(template, /WorkerErrorsAlarm:/);
+  assert.match(template, /ControlPlaneDegradedAlarm:/);
   assert.match(template, /QueueAgeAlarm:/);
   assert.match(template, /DeadLetterAlarm:/);
 });

@@ -15,6 +15,10 @@ import {
 import {
   createSsmObserver,
   createWorkerHandler,
+  CONTROL_PLANE_DEGRADED_METRIC_DIMENSIONS,
+  CONTROL_PLANE_DEGRADED_METRIC_NAME,
+  CONTROL_PLANE_DEGRADED_METRIC_NAMESPACE,
+  SHARED_ACTIVE_SCHEDULE_SKIP_REASON,
   TERMINAL_STATE_METRIC_DIMENSIONS,
   TERMINAL_STATE_METRIC_NAME,
   TERMINAL_STATE_METRIC_NAMESPACE,
@@ -112,6 +116,176 @@ function harness({ initialState, observe, handlerConfig = config(), clock = () =
   });
   return { handler, store, observed };
 }
+
+test('fresh and steady Shared schedules are ignored without host-state residue', async (t) => {
+  const initialStates = [
+    undefined,
+    {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 4,
+      result: 'shared_healthy',
+      lastHostResult: 'shared_healthy',
+      sharedOk: true,
+    },
+  ];
+
+  for (const [index, initialState] of initialStates.entries()) {
+    await t.test(index === 0 ? 'fresh' : 'steady', async () => {
+      const { handler, store, observed } = harness({
+        initialState,
+        observe: async () => {
+          throw new Error('quiescent Shared schedules must not observe');
+        },
+      });
+      const before = store.snapshot();
+      const result = await handler({ id: `shared-active-${index}`, time: '2026-08-24T00:00:00Z' });
+
+      assert.equal(result.results[0].status, 'ignored');
+      assert.equal(result.results[0].reason, SHARED_ACTIVE_SCHEDULE_SKIP_REASON);
+      assert.equal(observed.length, 0);
+      assert.deepEqual(store.snapshot(), before);
+      assert.equal(store.snapshot().phase, PHASES.SHARED_ACTIVE);
+      assert.equal(store.snapshot().activeRoute, ROUTES.SHARED);
+      assert.equal(store.snapshot().ssmCommandId, null);
+      assert.equal(store.snapshot().ssmRequestId, null);
+      assert.equal(store.snapshot().ssmRecoveryRequestId, null);
+    });
+  }
+});
+
+test('repeated Shared schedules cannot initiate failover without Sentry', async () => {
+  const { handler, store, observed } = harness({
+    observe: async () => {
+      throw new Error('repeated quiescent schedules must not observe');
+    },
+  });
+  const before = store.snapshot();
+
+  for (let index = 0; index < 3; index += 1) {
+    const result = await handler({ id: `shared-active-repeat-${index}`, time: `2026-08-24T00:0${index}:00Z` });
+    assert.equal(result.results[0].status, 'ignored');
+    assert.equal(result.results[0].reason, SHARED_ACTIVE_SCHEDULE_SKIP_REASON);
+  }
+
+  assert.equal(observed.length, 0);
+  assert.deepEqual(store.snapshot(), before);
+});
+
+test('a scheduled tick polls an SSM command already started by Sentry without sending another command', async () => {
+  const sentryRequestId = makeDeterministicRequestId('a'.repeat(64));
+  const sendCommandId = '00000000-0000-4000-8000-0000000000f1';
+  let sendCount = 0;
+  let listCount = 0;
+  let sentryCommandRequestId;
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        sendCount += 1;
+        sentryCommandRequestId = command.input.Parameters.RequestId[0];
+        return { Command: { CommandId: sendCommandId } };
+      }
+      listCount += 1;
+      return {
+        CommandInvocations: [{
+          Status: 'Success',
+          CommandPlugins: [{
+            Output: `${JSON.stringify(hostEnvelope(sentryRequestId, {
+              hostGeneration: 1,
+              result: 'shared_healthy',
+            }))}\n`,
+          }],
+        }],
+      };
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-admin-server',
+    environment: 'preview',
+  });
+  const store = createMemoryStateStore({ now: BASE_TIME });
+  const observed = [];
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: async (input) => {
+      observed.push(input);
+      return observer.observe(input);
+    },
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const sentryResult = await handler({ Records: [record()] });
+  assert.equal(sentryResult.batchItemFailures.length, 0);
+  assert.equal(sentryCommandRequestId, sentryRequestId);
+  assert.equal(observed[0].requestId, makeDeterministicRequestId('a'.repeat(64)));
+  assert.equal(observed[0].identity, 'sentry:' + 'a'.repeat(64));
+  assert.equal(store.snapshot().ssmCommandId, sendCommandId);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.IN_FLIGHT);
+
+  const scheduledResult = await handler({ id: 'eventbridge-after-sentry', time: '2026-08-24T00:01:00Z' });
+  assert.equal(scheduledResult.results[0].status, 'processed');
+  assert.equal(scheduledResult.results[0].reason, 'host_result_mirrored');
+  assert.equal(sendCount, 1);
+  assert.equal(listCount, 1);
+  assert.deepEqual(observed.map((input) => input.trigger), ['sentry', 'schedule']);
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.equal(store.snapshot().hostGeneration, 1);
+});
+
+test('scheduled reconciliation remains active for Direct health and failback phases', async () => {
+  const { handler, store, observed } = harness({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 4,
+      phase: PHASES.DIRECT_ACTIVE,
+      activeRoute: ROUTES.DIRECT,
+      directOk: true,
+    },
+    observe: async ({ requestId, state }) => {
+      if (state.phase === PHASES.DIRECT_ACTIVE) {
+        return {
+          hostEnvelope: hostEnvelope(requestId, {
+            hostGeneration: state.hostGeneration + 1,
+            activeRoute: ROUTES.DIRECT,
+            phase: PHASES.RECOVERING_SHARED,
+            result: 'recovering_shared',
+            sharedOk: true,
+            directOk: true,
+            sharedHealthyCount: 1,
+          }),
+        };
+      }
+      return {
+        hostEnvelope: hostEnvelope(requestId, {
+          hostGeneration: state.hostGeneration + 1,
+          activeRoute: ROUTES.SHARED,
+          phase: PHASES.SHARED_ACTIVE,
+          result: 'emergency_shared_recovery',
+          sharedOk: true,
+          directOk: null,
+        }),
+      };
+    },
+  });
+
+  const first = await handler({ id: 'direct-health', time: '2026-08-24T00:01:00Z' });
+  assert.equal(first.results[0].status, 'processed');
+  assert.equal(store.snapshot().phase, PHASES.RECOVERING_SHARED);
+  assert.equal(store.snapshot().activeRoute, ROUTES.DIRECT);
+
+  const second = await handler({ id: 'direct-failback', time: '2026-08-24T00:02:00Z' });
+  assert.equal(second.results[0].status, 'processed');
+  assert.equal(store.snapshot().phase, PHASES.SHARED_ACTIVE);
+  assert.equal(store.snapshot().activeRoute, ROUTES.SHARED);
+  assert.deepEqual(observed.map((input) => input.trigger), ['schedule', 'schedule']);
+});
 
 test('Sentry wakes host reconciliation and mirrors the complete host result without a route action', async () => {
   const { handler, observed, store } = harness();
@@ -470,31 +644,48 @@ test('a lost SendCommand response stays uncertain and never re-sends the accepte
 });
 
 test('defers a Sentry message while reconciling a scheduled command owned by another request', async () => {
-  const store = createMemoryStateStore({ now: BASE_TIME });
   const sentRequestIds = [];
   const polledCommandIds = [];
   const commandIds = [
     '00000000-0000-4000-8000-0000000000b1',
     '00000000-0000-4000-8000-0000000000a1',
   ];
-  const requestIds = new Map();
+  const schedule = { id: 'schedule-b', time: '2026-08-24T00:00:00Z' };
+  const scheduleRequestId = makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z');
+  const requestIds = new Map([[commandIds[0], scheduleRequestId]]);
+  const store = createMemoryStateStore({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      ssmCommandId: commandIds[0],
+      ssmRequestId: scheduleRequestId,
+      ssmRequestIdentity: 'schedule:schedule-b:2026-08-24T00:00:00Z',
+      controlPlaneStatus: CONTROL_PLANE_STATUS.IN_FLIGHT,
+    },
+    now: BASE_TIME,
+  });
   const client = {
     async send(command) {
       if (command.input?.Parameters) {
         const requestId = command.input.Parameters.RequestId[0];
         sentRequestIds.push(requestId);
-        const commandId = commandIds[sentRequestIds.length - 1];
+        const commandId = commandIds[sentRequestIds.length];
         requestIds.set(commandId, requestId);
         return { Command: { CommandId: commandId } };
       }
       polledCommandIds.push(command.input.CommandId);
       const requestId = requestIds.get(command.input.CommandId);
+      const commandStillRunning = command.input.CommandId === commandIds[0]
+        && polledCommandIds.filter((value) => value === commandIds[0]).length === 1;
       return {
         CommandInvocations: [{
-          Status: 'Success',
-          CommandPlugins: [{ Output: `${JSON.stringify(hostEnvelope(requestId, {
-            hostGeneration: command.input.CommandId.endsWith('b1') ? 1 : 2,
-          }))}\n` }],
+          Status: commandStillRunning ? 'InProgress' : 'Success',
+          CommandPlugins: [{
+            Output: commandStillRunning
+              ? ''
+              : `${JSON.stringify(hostEnvelope(requestId, {
+                hostGeneration: command.input.CommandId.endsWith('b1') ? 1 : 2,
+              }))}\n`,
+          }],
         }],
       };
     },
@@ -516,7 +707,6 @@ test('defers a Sentry message while reconciling a scheduled command owned by ano
     ownerFactory: () => 'worker-owner',
     logger: { info() {}, warn() {}, error() {} },
   });
-  const schedule = { id: 'schedule-b', time: '2026-08-24T00:00:00Z' };
   const sentryRecord = record({
     messageId: 'sqs-a',
     body: JSON.stringify(message({
@@ -526,7 +716,8 @@ test('defers a Sentry message while reconciling a scheduled command owned by ano
   });
   const scheduled = await handler(schedule);
   assert.equal(scheduled.batchItemFailures.length, 0);
-  assert.equal(store.snapshot().ssmRequestId, makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z'));
+  assert.equal(scheduled.results[0].reason, 'control_plane_failure');
+  assert.equal(store.snapshot().ssmRequestId, scheduleRequestId);
   assert.equal(store.snapshot().ssmCommandId, commandIds[0]);
 
   const premature = await handler({ Records: [sentryRecord] });
@@ -536,27 +727,24 @@ test('defers a Sentry message while reconciling a scheduled command owned by ano
   assert.equal(store.snapshot().hostGeneration, 1);
   assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
   assert.equal(store.snapshot().controlPlaneError, null);
-  assert.equal(store.snapshot().ssmRequestId, makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z'));
+  assert.equal(store.snapshot().ssmRequestId, scheduleRequestId);
   assert.equal(store.snapshot().ssmRequestIdentity, 'schedule:schedule-b:2026-08-24T00:00:00Z');
   assert.equal(store.snapshot().ssmCommandId, null);
-  assert.deepEqual(sentRequestIds, [makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z')]);
-  assert.deepEqual(polledCommandIds, [commandIds[0]]);
+  assert.deepEqual(sentRequestIds, []);
+  assert.deepEqual(polledCommandIds, [commandIds[0], commandIds[0]]);
 
   const retried = await handler({ Records: [sentryRecord] });
   assert.equal(retried.batchItemFailures.length, 0);
   assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), true);
   assert.equal(store.snapshot().ssmRequestId, makeDeterministicRequestId('a'.repeat(64)));
   assert.equal(store.snapshot().ssmCommandId, commandIds[1]);
-  assert.deepEqual(sentRequestIds, [
-    makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z'),
-    makeDeterministicRequestId('a'.repeat(64)),
-  ]);
+  assert.deepEqual(sentRequestIds, [makeDeterministicRequestId('a'.repeat(64))]);
 
   const completed = await handler({ id: 'schedule-a', time: '2026-08-24T00:01:00Z' });
   assert.equal(completed.batchItemFailures.length, 0);
   assert.equal(store.snapshot().hostGeneration, 2);
   assert.equal(store.snapshot().ssmCommandId, null);
-  assert.deepEqual(polledCommandIds, [commandIds[0], commandIds[1]]);
+  assert.deepEqual(polledCommandIds, [commandIds[0], commandIds[0], commandIds[1]]);
 });
 
 test('uses one transition-bound recovery command after an envelope-less terminal result', async () => {
@@ -841,6 +1029,52 @@ test('AWS failure preserves the last host phase, route, counters, and terminal f
   assert.equal(state.terminalPhase, null);
 });
 
+test('persisted control-plane DEGRADED state emits a secret-free top-level EMF signal', async () => {
+  const warnings = [];
+  let store;
+  const harnessResult = harness({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 6,
+      activeRoute: ROUTES.DIRECT,
+      phase: PHASES.DIRECT_ACTIVE,
+      lastHostResult: 'direct_healthy',
+    },
+    observe: async () => { throw new Error('ssm unavailable'); },
+    logger: {
+      info() {},
+      warn(fields) {
+        warnings.push({ fields, persistedStatus: store?.snapshot().controlPlaneStatus });
+      },
+      error() {},
+    },
+  });
+  store = harnessResult.store;
+
+  const result = await harnessResult.handler({ id: 'degraded-schedule', time: '2026-08-24T00:00:00Z' });
+  assert.equal(result.results[0].status, 'processed');
+  assert.equal(result.results[0].reason, 'control_plane_failure');
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.DEGRADED);
+
+  const signals = warnings.filter((entry) => entry.fields.event === 'db_failover_control_plane_degraded');
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0].persistedStatus, CONTROL_PLANE_STATUS.DEGRADED);
+  assert.deepEqual(signals[0].fields._aws, {
+    Timestamp: BASE_TIME,
+    CloudWatchMetrics: [{
+      Namespace: CONTROL_PLANE_DEGRADED_METRIC_NAMESPACE,
+      Dimensions: [CONTROL_PLANE_DEGRADED_METRIC_DIMENSIONS],
+      Metrics: [{ Name: CONTROL_PLANE_DEGRADED_METRIC_NAME, Unit: 'Count' }],
+    }],
+  });
+  assert.equal(signals[0].fields.Environment, 'preview');
+  assert.equal(signals[0].fields.ControlPlaneDegraded, 1);
+  assert.equal(signals[0].fields.controlPlaneStatus, CONTROL_PLANE_STATUS.DEGRADED);
+  assert.equal('secret' in signals[0].fields, false);
+  assert.equal('databaseUrl' in signals[0].fields, false);
+  assert.doesNotMatch(JSON.stringify(signals[0].fields), /postgres|password|bearer|access[_-]?token/i);
+});
+
 test('rejected host envelopes leave the prior host evidence unchanged', async (t) => {
   const cases = [
     ['partial', (value) => { delete value.result; }],
@@ -887,13 +1121,29 @@ test('rejected host envelopes leave the prior host evidence unchanged', async (t
 });
 
 test('scheduled retries reuse the EventBridge id/time identity', async () => {
-  const store = createMemoryStateStore({ now: BASE_TIME });
+  const store = createMemoryStateStore({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      phase: PHASES.DIRECT_ACTIVE,
+      activeRoute: ROUTES.DIRECT,
+    },
+    now: BASE_TIME,
+  });
   const observed = [];
   const handler = createWorkerHandler({
     stateStore: store,
     observe: async (input) => {
       observed.push(input);
-      return { hostEnvelope: hostEnvelope(input.requestId, { hostGeneration: 1 }) };
+      return {
+        hostEnvelope: hostEnvelope(input.requestId, {
+          hostGeneration: 1,
+          activeRoute: ROUTES.DIRECT,
+          phase: PHASES.DIRECT_ACTIVE,
+          result: 'direct_healthy',
+          sharedOk: null,
+          directOk: true,
+        }),
+      };
     },
     config: config(),
     now: () => BASE_TIME,
