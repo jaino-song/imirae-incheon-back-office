@@ -206,6 +206,16 @@ test_flock_uninstall_order() {
     return 0
 }
 
+test_flock_uninstall_preview_busy() {
+    printf '%s\n' "$2" >>"$TEST_UNINSTALL_FLOCK_TRACE"
+    [[ "$2" != 200 ]]
+}
+
+test_flock_uninstall_production_busy() {
+    printf '%s\n' "$2" >>"$TEST_UNINSTALL_FLOCK_TRACE"
+    [[ "$2" != 201 ]]
+}
+
 CMD_STAT=test_stat
 CMD_CHOWN=test_chown
 CMD_INSTALL=test_install
@@ -1120,6 +1130,32 @@ assert_lock_inodes_unchanged "$preview_uninstall_lock_inode" "$production_uninst
 [[ -f "$(route_state_file preview)" && -f "$(route_state_file production)" ]] \
     || fail "successful uninstall removed route state"
 main uninstall >/dev/null
+
+# A mocked competing deployment/reconcile lock must fail closed before any
+# snapshot or bundle mutation. Exercise both lock acquisition points: preview
+# refusal, then production refusal after preview has been acquired.
+for uninstall_busy_lock in preview production; do
+    prepare_complete_test_bundle
+    uninstall_snapshot_prefix="$TEST_ROOT/uninstall-busy-$uninstall_busy_lock"
+    save_bundle_snapshot "$uninstall_snapshot_prefix"
+    preview_uninstall_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+    production_uninstall_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+    uninstall_order_trace="$TEST_ROOT/uninstall-busy-$uninstall_busy_lock.trace"
+    TEST_UNINSTALL_FLOCK_TRACE="$uninstall_order_trace"
+    : >"$uninstall_order_trace"
+    if [[ "$uninstall_busy_lock" == preview ]]; then
+        printf '200\n' >"$TEST_ROOT/uninstall-busy-$uninstall_busy_lock.expected"
+        CMD_FLOCK=test_flock_uninstall_preview_busy
+    else
+        printf '200\n201\n' >"$TEST_ROOT/uninstall-busy-$uninstall_busy_lock.expected"
+        CMD_FLOCK=test_flock_uninstall_production_busy
+    fi
+    assert_fails main uninstall
+    CMD_FLOCK=test_flock
+    assert_file_unchanged "$TEST_ROOT/uninstall-busy-$uninstall_busy_lock.expected" "$uninstall_order_trace"
+    assert_bundle_snapshot "$uninstall_snapshot_prefix"
+    assert_lock_inodes_unchanged "$preview_uninstall_lock_inode" "$production_uninstall_lock_inode"
+done
 
 # Every unlink stage must compensate a failure even when the injected command
 # removes its target before returning failure. The final rmdir stage receives

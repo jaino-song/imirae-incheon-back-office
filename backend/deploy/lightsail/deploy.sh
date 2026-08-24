@@ -1,6 +1,9 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -euo pipefail
+
+readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$SAFE_PATH"
 
 if [[ "$EUID" -ne 0 ]]; then
     echo "The Lightsail deployment script must run as root." >&2
