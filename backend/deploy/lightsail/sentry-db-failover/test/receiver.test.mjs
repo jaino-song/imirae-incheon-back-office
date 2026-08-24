@@ -7,7 +7,8 @@ import { createReceiverHandler } from '../src/receiver.mjs';
 const NOW = Date.parse('2026-08-24T00:00:00.000Z');
 const SECRET = 'local-test-client-secret';
 const INSTALLATION_UUID = '00000000-0000-4000-8000-000000000010';
-const DB_FAILOVER_QUERY = 'prisma.code:[P1001,P1017] db.failover_eligible:true db.route:shared';
+const DB_FAILOVER_QUERY = 'prisma.code:P1001 db.failover_eligible:true db.route:shared';
+const DB_FAILOVER_QUERY_BOTH = 'prisma.code:P1001 OR prisma.code:P1017 db.failover_eligible:true db.route:shared';
 
 function config(overrides = {}) {
   return {
@@ -117,6 +118,22 @@ test('accepts the official metric-alert shape after signed boundary checks', asy
   assert.equal(Object.values(message).some((value) => String(value).includes(SECRET)), false);
 });
 
+test('accepts one or both exact eligible Prisma code tag terms', async (t) => {
+  const cases = [
+    ['P1017', 'prisma.code:P1017 db.failover_eligible:true db.route:shared'],
+    ['both eligible codes', DB_FAILOVER_QUERY_BOTH],
+  ];
+  for (const [name, query] of cases) {
+    await t.test(name, async () => {
+      const { handler, calls } = createHarness();
+      const result = await handler(request(payload({ alertRule: { query } })));
+      assert.equal(result.statusCode, 202);
+      assert.equal(JSON.parse(result.body).accepted, true);
+      assert.equal(calls.length, 1);
+    });
+  }
+});
+
 test('rejects a missing or tampered HMAC before parsing the event', async (t) => {
   for (const [name, headers] of [
     ['missing', { 'Sentry-Hook-Signature': undefined }],
@@ -214,14 +231,29 @@ test('requires the metric-alert resource header and fixed action allowlists', as
   }
 });
 
-test('rejects empty, mixed, and ineligible Prisma code queries or missing markers', async (t) => {
+test('rejects bypasses, malformed Prisma code expressions, ineligible codes, or missing markers', async (t) => {
   const cases = [
     ['no Prisma code', 'db.failover_eligible:true db.route:shared'],
+    ['message P1001 bypass', 'message:P1001 db.failover_eligible:true db.route:shared'],
+    ['aliased tag field bypass', 'not_prisma_code:P1001 db.failover_eligible:true db.route:shared'],
+    ['bare P1001 token', 'P1001 db.failover_eligible:true db.route:shared'],
+    ['code outside exact term', 'prisma.code:P1001 message:P1017 db.failover_eligible:true db.route:shared'],
     ['P2024 query', 'prisma.code:P2024 db.failover_eligible:true db.route:shared'],
-    ['mixed Prisma codes', 'prisma.code:[P1001,P2024] db.failover_eligible:true db.route:shared'],
+    ['mixed exact Prisma codes', 'prisma.code:P1001 prisma.code:P2024 db.failover_eligible:true db.route:shared'],
+    ['mixed bracket Prisma codes', 'prisma.code:[P1001,P2024] db.failover_eligible:true db.route:shared'],
+    ['bracketed eligible codes', 'prisma.code:[P1001,P1017] db.failover_eligible:true db.route:shared'],
+    ['wildcard code', 'prisma.code:P1001* db.failover_eligible:true db.route:shared'],
+    ['negated code', '-prisma.code:P1001 db.failover_eligible:true db.route:shared'],
+    ['malformed tag field', 'prisma_code:P1001 db.failover_eligible:true db.route:shared'],
+    ['malformed equality field', 'prisma.code=P1001 db.failover_eligible:true db.route:shared'],
+    ['unknown Prisma code value', 'prisma.code:unknown prisma.code:P1001 db.failover_eligible:true db.route:shared'],
+    ['aliased field without a code token', 'not_prisma_code:unknown prisma.code:P1001 db.failover_eligible:true db.route:shared'],
+    ['lowercase code alias', 'prisma.code:p1001 db.failover_eligible:true db.route:shared'],
+    ['quoted code expression', 'prisma.code:"P1001" db.failover_eligible:true db.route:shared'],
+    ['parenthesized code expression', '(prisma.code:P1001) db.failover_eligible:true db.route:shared'],
     ['other Prisma code', 'prisma.code:P2002 db.failover_eligible:true db.route:shared'],
-    ['missing eligibility marker', 'prisma.code:[P1001,P1017] db.route:shared'],
-    ['missing shared-route marker', 'prisma.code:[P1001,P1017] db.failover_eligible:true'],
+    ['missing eligibility marker', 'prisma.code:P1001 db.route:shared'],
+    ['missing shared-route marker', 'prisma.code:P1001 db.failover_eligible:true'],
   ];
   for (const [name, query] of cases) {
     await t.test(name, async () => {

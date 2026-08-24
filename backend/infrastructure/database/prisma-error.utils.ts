@@ -25,6 +25,12 @@ function toErrorWithMessage(error: unknown): { code?: string; message: string } 
         return { code: error.code, message: error.message };
     }
 
+    if (error instanceof Prisma.PrismaClientInitializationError) {
+        return error.errorCode
+            ? { code: error.errorCode, message: error.message }
+            : { message: error.message };
+    }
+
     if (error instanceof Error) {
         const maybeCode = "code" in error && typeof error.code === "string" ? error.code : undefined;
         return { code: maybeCode, message: error.message };
