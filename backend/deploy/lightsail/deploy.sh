@@ -36,6 +36,7 @@ ENV_FILE="${BACKEND_ENV_FILE:-$STATE_DIRECTORY/backend.env}"
 CURRENT_TAG_FILE="$STATE_DIRECTORY/current-image-tag"
 PREVIOUS_TAG_FILE="$STATE_DIRECTORY/previous-image-tag"
 IMAGE_TAG="$(git -C "$REPOSITORY_ROOT" rev-parse --verify HEAD)"
+DATABASE_CONNECTION_MODE="${DATABASE_CONNECTION_MODE:-shared}"
 PUBLIC_HEALTH_URL="${BACKEND_PUBLIC_HEALTH_URL:-$DEFAULT_PUBLIC_HEALTH_URL}"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-babyjamjam-backend-$ENVIRONMENT}"
 NETWORK_ALIAS="${BACKEND_NETWORK_ALIAS:-api-$ENVIRONMENT}"
@@ -67,10 +68,31 @@ read_environment_value() {
     ' "$ENV_FILE"
 }
 
-if [[ ! -r "$ENV_FILE" ]]; then
-    echo "Backend environment file is not readable: $ENV_FILE" >&2
-    exit 1
-fi
+validate_env_file_permissions() {
+    local env_file_mode
+    local permission_bits
+
+    if [[ ! -f "$ENV_FILE" || -L "$ENV_FILE" ]]; then
+        echo "Backend environment file is missing or invalid: $ENV_FILE" >&2
+        exit 1
+    fi
+    if [[ ! -r "$ENV_FILE" ]]; then
+        echo "Backend environment file is not readable: $ENV_FILE" >&2
+        exit 1
+    fi
+    env_file_mode="$(/usr/bin/stat -c '%a' "$ENV_FILE")"
+    if [[ ! "$env_file_mode" =~ ^0?[0-7]{3}$ ]]; then
+        echo "Backend environment file mode is invalid: $ENV_FILE" >&2
+        exit 1
+    fi
+    permission_bits="${env_file_mode: -3}"
+    if [[ "${permission_bits:1:1}" != "0" || "${permission_bits:2:1}" != "0" ]]; then
+        echo "Backend environment file is group/world accessible: $ENV_FILE" >&2
+        exit 1
+    fi
+}
+
+validate_env_file_permissions
 
 if ! command -v curl >/dev/null 2>&1; then
     echo "curl is required to verify the public backend health route." >&2
@@ -89,6 +111,11 @@ fi
 
 if [[ "$BUILD_IMAGE" != "true" && "$BUILD_IMAGE" != "false" ]]; then
     echo "BACKEND_BUILD_IMAGE must be true or false." >&2
+    exit 1
+fi
+
+if [[ "$DATABASE_CONNECTION_MODE" != "shared" && "$DATABASE_CONNECTION_MODE" != "direct" ]]; then
+    echo "DATABASE_CONNECTION_MODE must be shared or direct." >&2
     exit 1
 fi
 
@@ -113,6 +140,7 @@ export BACKEND_NETWORK_ALIAS="$NETWORK_ALIAS"
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 export LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK"
 export VALKEY_DATA_VOLUME
+export DATABASE_CONNECTION_MODE
 
 if ! docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1; then
     docker network create "$EDGE_NETWORK" >/dev/null

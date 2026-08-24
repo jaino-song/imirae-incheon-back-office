@@ -32,16 +32,27 @@ source "$OPERATOR_SCRIPT"
 
 valid_sha="432bc4840b9a44a3357a442c9ef93b7cc9f41459"
 valid_digest="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+valid_uuid="123e4567-e89b-12d3-a456-426614174000"
 
 validate_invocation status preview
 validate_invocation status production
 validate_invocation deploy preview "$valid_sha" "$valid_digest"
 validate_invocation deploy production "$valid_sha" "$valid_digest"
+validate_invocation db-probe preview shared "$valid_uuid"
+validate_invocation db-probe production direct "$valid_uuid"
+validate_invocation db-reconcile preview "$valid_uuid"
+validate_invocation db-reconcile production "$valid_uuid"
 
 assert_fails validate_invocation deploy preview preview "$valid_digest"
 assert_fails validate_invocation deploy preview "$valid_sha" sha256:short
 assert_fails validate_invocation deploy development "$valid_sha" "$valid_digest"
 assert_fails validate_invocation rollback production
+assert_fails validate_invocation db-probe preview invalid-route "$valid_uuid"
+assert_fails validate_invocation db-probe preview shared invalid-uuid
+assert_fails validate_invocation db-probe preview shared 00000000-0000-0000-0000-000000000000
+assert_fails validate_invocation db-reconcile preview invalid-uuid
+assert_fails validate_invocation db-reconcile preview 123e4567-e89b-02d3-a456-426614174000
+assert_fails validate_invocation db-reconcile development "$valid_uuid"
 
 configure_environment preview
 assert_equals "preview" "$DEPLOY_BRANCH"

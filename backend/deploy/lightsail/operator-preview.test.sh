@@ -68,6 +68,18 @@ fetch_preview_ref
 
 assert_equals "/usr/bin/git -C $REPOSITORY_ROOT fetch --quiet --prune origin +refs/heads/preview:refs/remotes/origin/preview" "$fetch_invocation"
 
+run_sanitized() {
+    if [[ "$1" == "/usr/bin/docker" && "$2" == "ps" ]]; then
+        echo "preview-api-container"
+    elif [[ "$1" == "/usr/bin/docker" && "$2" == "inspect" ]]; then
+        echo "DATABASE_CONNECTION_MODE=direct"
+    else
+        fail "unexpected route inspection invocation: $*"
+    fi
+}
+
+assert_equals "direct" "$(read_active_route)"
+
 mock_current_tag="$valid_sha"
 mock_image_name="babyjamjam-backend:$valid_sha"
 mock_public_health='{"status":"ok"}'
