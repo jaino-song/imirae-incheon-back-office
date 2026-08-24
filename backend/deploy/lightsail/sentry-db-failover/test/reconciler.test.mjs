@@ -191,6 +191,35 @@ test('mirrors a newer host result losslessly, including terminal result fields',
   assert.deepEqual(result.state.transition, host.transition);
 });
 
+test('mirrors stale-transition compensation as the host-provided prior active phase', () => {
+  const state = initial({
+    hostGeneration: 2,
+    phase: PHASES.SWITCHING_TO_DIRECT,
+    activeRoute: ROUTES.SHARED,
+    transition: {
+      previousRoute: ROUTES.SHARED,
+      targetRoute: ROUTES.DIRECT,
+      startedAt: 100,
+      generation: 2,
+      terminalReason: null,
+    },
+  });
+  const host = envelope({
+    hostGeneration: 3,
+    phase: PHASES.SHARED_ACTIVE,
+    activeRoute: ROUTES.SHARED,
+    result: 'stale_transition_compensated',
+  });
+  const result = mirrorHostEnvelope(state, host, NOW, {
+    environment: 'preview',
+    requestId: REQUEST_ID,
+  });
+  assert.equal(result.state.phase, PHASES.SHARED_ACTIVE);
+  assert.equal(result.state.activeRoute, ROUTES.SHARED);
+  assert.equal(result.state.result, 'stale_transition_compensated');
+  assert.deepEqual(result.state.transition, host.transition);
+});
+
 test('rejects out-of-order or conflicting duplicate generations without state residue', () => {
   const first = envelope({ hostGeneration: 2 });
   const mirrored = mirrorHostEnvelope(initial(), first, NOW, { environment: 'preview', requestId: REQUEST_ID });
