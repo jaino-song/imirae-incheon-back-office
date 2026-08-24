@@ -8,6 +8,7 @@ readonly SOURCE_OPERATOR="$SCRIPT_DIR/ci-operator.sh"
 readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-ci-operator"
 readonly LOG_DIRECTORY="/var/log/babyjamjam-deploy"
 readonly STATE_ROOT="/opt/babyjamjam/environments"
+readonly ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
 readonly ROUTE_STATE_FILE_NAME="db-route-state"
 readonly DEPLOY_USER="ubuntu"
 readonly DEPLOY_GROUP="ubuntu"
@@ -45,7 +46,7 @@ verify_host_prerequisites() {
     deploy_groups="$(/usr/bin/id -nG "$DEPLOY_USER")"
     group_list_contains docker "$deploy_groups" || die "$DEPLOY_USER must belong to the docker group."
 
-    for required_command in /usr/sbin/runuser /usr/bin/docker /usr/bin/git /usr/bin/curl /usr/bin/flock /usr/bin/timeout /usr/bin/stat /usr/bin/date /usr/bin/mktemp; do
+    for required_command in /usr/sbin/runuser /usr/bin/docker /usr/bin/git /usr/bin/curl /usr/bin/flock /usr/bin/timeout /usr/bin/stat /usr/bin/date /usr/bin/mktemp /usr/bin/dirname; do
         [[ -x "$required_command" ]] || die "Required command is missing: $required_command"
     done
 
@@ -53,13 +54,61 @@ verify_host_prerequisites() {
     /bin/bash -n "$SOURCE_OPERATOR"
 }
 
+validate_route_state_parent() {
+    local parent_directory
+    local parent_metadata
+    local parent_mode
+    local parent_permissions
+
+    parent_directory="$(/usr/bin/dirname "$ROUTE_STATE_ROOT")"
+    [[ -d "$parent_directory" && ! -L "$parent_directory" ]] \
+        || die "Route state parent directory is missing or invalid: $parent_directory"
+    parent_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$parent_directory")"
+    parent_mode="${parent_metadata##*:}"
+    parent_permissions="${parent_mode: -3}"
+    [[ "${parent_metadata%%:*}" == "root" ]] \
+        || die "Route state parent directory must be root-owned: $parent_metadata"
+    [[ "${parent_permissions:1:1}" != [2367] && "${parent_permissions:2:1}" != [2367] ]] \
+        || die "Route state parent directory must not be group/world writable: $parent_metadata"
+}
+
+ensure_route_state_directory() {
+    local environment="$1"
+    local route_state_directory="$ROUTE_STATE_ROOT/$environment"
+    local route_state_root_metadata
+    local route_state_directory_metadata
+
+    [[ "$environment" == "preview" || "$environment" == "production" ]] \
+        || die "Unsupported route state environment: $environment"
+    validate_route_state_parent
+    if [[ ! -e "$ROUTE_STATE_ROOT" ]]; then
+        /usr/bin/install -d -o root -g root -m 0700 "$ROUTE_STATE_ROOT"
+    fi
+    [[ -d "$ROUTE_STATE_ROOT" && ! -L "$ROUTE_STATE_ROOT" ]] \
+        || die "Route state root is missing or invalid: $ROUTE_STATE_ROOT"
+    route_state_root_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$ROUTE_STATE_ROOT")"
+    [[ "$route_state_root_metadata" == "root:root:700" ]] \
+        || die "Unexpected route state root ownership or mode: $route_state_root_metadata"
+
+    if [[ ! -e "$route_state_directory" ]]; then
+        /usr/bin/install -d -o root -g root -m 0700 "$route_state_directory"
+    fi
+    [[ -d "$route_state_directory" && ! -L "$route_state_directory" ]] \
+        || die "Route state directory is missing or invalid: $route_state_directory"
+    route_state_directory_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$route_state_directory")"
+    [[ "$route_state_directory_metadata" == "root:root:700" ]] \
+        || die "Unexpected route state directory ownership or mode: $route_state_directory_metadata"
+}
+
 ensure_route_state_file() {
-    local state_directory="$1"
-    local route_state_file="$state_directory/$ROUTE_STATE_FILE_NAME"
+    local environment="$1"
+    local route_state_directory="$ROUTE_STATE_ROOT/$environment"
+    local route_state_file="$route_state_directory/$ROUTE_STATE_FILE_NAME"
     local temporary_file
     local now
     local route_state_metadata
 
+    ensure_route_state_directory "$environment"
     [[ ! -L "$route_state_file" ]] || die "Route state file must not be a symbolic link: $route_state_file"
     if [[ -e "$route_state_file" ]]; then
         [[ -f "$route_state_file" ]] || die "Route state file is not regular: $route_state_file"
@@ -122,7 +171,7 @@ ensure_deployment_locks() {
         [[ -f "$lock_file" ]] || die "Deployment lock is not a regular file: $lock_file"
         /bin/chown "$DEPLOY_USER:$DEPLOY_GROUP" "$lock_file"
         /bin/chmod 0640 "$lock_file"
-        ensure_route_state_file "$state_directory"
+        ensure_route_state_file "$environment"
     done
 }
 
@@ -132,7 +181,10 @@ verify_installed_files() {
     local lock_metadata
     local log_metadata
     local operator_metadata
+    local route_state_directory
+    local route_state_directory_metadata
     local route_state_file
+    local route_state_root_metadata
     local route_state_metadata
 
     [[ -x "$INSTALLED_OPERATOR" ]] || die "Installed CI operator is missing."
@@ -144,15 +196,27 @@ verify_installed_files() {
         || die "Unexpected CI operator ownership or mode: $operator_metadata"
     [[ "$log_metadata" == "root:root:700" ]] \
         || die "Unexpected CI log directory ownership or mode: $log_metadata"
+    validate_route_state_parent
+    [[ -d "$ROUTE_STATE_ROOT" && ! -L "$ROUTE_STATE_ROOT" ]] \
+        || die "Route state root is missing or invalid: $ROUTE_STATE_ROOT"
+    route_state_root_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$ROUTE_STATE_ROOT")"
+    [[ "$route_state_root_metadata" == "root:root:700" ]] \
+        || die "Unexpected route state root ownership or mode: $route_state_root_metadata"
 
     for environment in preview production; do
         lock_file="$STATE_ROOT/$environment/operator.lock"
-        route_state_file="$STATE_ROOT/$environment/$ROUTE_STATE_FILE_NAME"
+        route_state_directory="$ROUTE_STATE_ROOT/$environment"
+        route_state_file="$ROUTE_STATE_ROOT/$environment/$ROUTE_STATE_FILE_NAME"
         [[ -f "$lock_file" && ! -L "$lock_file" ]] \
             || die "Deployment lock is missing or invalid: $lock_file"
         lock_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$lock_file")"
         [[ "$lock_metadata" == "ubuntu:ubuntu:640" ]] \
             || die "Unexpected deployment lock ownership or mode: $lock_metadata"
+        [[ -d "$route_state_directory" && ! -L "$route_state_directory" ]] \
+            || die "Route state directory is missing or invalid: $route_state_directory"
+        route_state_directory_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$route_state_directory")"
+        [[ "$route_state_directory_metadata" == "root:root:700" ]] \
+            || die "Unexpected route state directory ownership or mode: $route_state_directory_metadata"
         [[ -f "$route_state_file" && ! -L "$route_state_file" ]] \
             || die "Route state file is missing or invalid: $route_state_file"
         route_state_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$route_state_file")"

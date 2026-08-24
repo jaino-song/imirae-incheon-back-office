@@ -38,13 +38,43 @@ valid_uuid="123e4567-e89b-12d3-a456-426614174000"
 configure_environment preview
 
 acquire_lock() { :; }
-validate_backend_env_file() { :; }
+probe_env_mode="valid"
+validate_backend_env_file() { [[ "$probe_env_mode" == "valid" ]]; }
 ensure_route_state() { :; }
 write_route_state() { write_count=$((write_count + 1)); }
 current_epoch() { echo "$test_now"; }
 load_current_release_identity() {
     CURRENT_ROUTE_IMAGE_TAG="known-good"
-    CURRENT_ROUTE_IMAGE_DIGEST="sha256:known-good"
+    CURRENT_ROUTE_IMAGE_DIGEST="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+
+probe_image_id="sha256:probe-image"
+probe_secret_url="postgres""ql://db-user:db-password@example.invalid/db?sslmode=require"
+probe_docker_mode="valid"
+probe_invocations=()
+run_as_deployer() {
+    local invocation="$*"
+
+    probe_invocations+=("$invocation")
+    if [[ "$invocation" == *"image inspect --format {{.Id}} babyjamjam-backend:known-good"* ]]; then
+        printf '%s\n' "$probe_image_id"
+    elif [[ "$invocation" == *"image inspect --format {{join .RepoDigests"* ]]; then
+        if [[ "$probe_docker_mode" == "valid" ]]; then
+            printf '%s\n' "ghcr.io/jaino-song/babyjamjam-admin-backend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        else
+            printf '%s\n' "ghcr.io/jaino-song/babyjamjam-admin-backend@sha256:bad"
+        fi
+    elif [[ "$invocation" == *"image inspect --format {{.Id}} ghcr.io/jaino-song/babyjamjam-admin-backend@sha256:"* ]]; then
+        printf '%s\n' "$probe_image_id"
+    elif [[ "$invocation" == *"docker run --rm --pull=never"* ]]; then
+        printf '%s\n' "$probe_secret_url"
+    else
+        fail "unexpected probe docker invocation: $invocation"
+    fi
+}
+
+find_api_container_optional() {
+    fail "database probes must not require a running API container"
 }
 
 probe_shared_outcomes=()
@@ -52,7 +82,6 @@ probe_direct_outcomes=()
 probe_shared_index=0
 probe_direct_index=0
 probe_secret_output=false
-probe_secret_url="postgres""ql://db-user:db-password@example.invalid/db?sslmode=require"
 verify_outcomes=()
 probe_route() {
     local route="$1"
@@ -98,6 +127,9 @@ reset_state() {
     probe_shared_index=0
     probe_direct_index=0
     probe_secret_output=false
+    probe_docker_mode=valid
+    probe_env_mode=valid
+    probe_invocations=()
     recreate_result=0
     verify_result=0
     ROUTE_STATE_VERSION=1
@@ -125,16 +157,59 @@ reset_state() {
 
 reset_state
 rm -f /tmp/db-failover-test-output
-probe_shared_outcomes=(fail fail fail fail fail)
-probe_direct_outcomes=(ok ok ok ok ok)
+probe_shared_outcomes=(fail fail fail)
+probe_direct_outcomes=(ok ok ok)
 RECONCILE_REQUEST_ID="$valid_uuid"
-for _attempt in 1 2 3 4 5; do
+for _attempt in 1 2; do
     reconcile_shared_active "$test_now" >>/tmp/db-failover-test-output
 done
+[[ "$ROUTE_STATE_ACTIVE_ROUTE" == "shared" ]] || fail "shared-to-direct transition happened before three paired results"
+[[ "$ROUTE_STATE_DIRECT_SUCCESS_COUNT" == "2" ]] || fail "direct success evidence did not count each paired result"
+[[ -z "${recreate_calls[*]-}" ]] || fail "unexpected recreate before the third paired result"
+reconcile_shared_active "$test_now" >>/tmp/db-failover-test-output
 [[ "$ROUTE_STATE_ACTIVE_ROUTE" == "direct" ]] || fail "shared-to-direct transition did not activate direct"
 [[ "${recreate_calls[*]}" == "direct" ]] || fail "unexpected recreate sequence: ${recreate_calls[*]}"
 assert_contains "$(< /tmp/db-failover-test-output)" '"result":"route_switched"'
 assert_contains "$(< /tmp/db-failover-test-output)" '"activeRoute":"DIRECT"'
+
+reset_state
+route_before="$ROUTE_STATE_ACTIVE_ROUTE"
+generation_before="$ROUTE_STATE_GENERATION"
+probe_invocations=()
+run_probe_query direct >/tmp/db-failover-probe-output 2>&1
+probe_output="$(</tmp/db-failover-probe-output)"
+[[ -z "$probe_output" ]] || fail "database probe emitted output: $probe_output"
+[[ "$ROUTE_STATE_ACTIVE_ROUTE" == "$route_before" ]] || fail "database probe mutated the active route"
+[[ "$ROUTE_STATE_GENERATION" == "$generation_before" ]] || fail "database probe mutated route generation"
+[[ "$write_count" == "0" ]] || fail "database probe wrote route state"
+probe_run_invocation="${probe_invocations[*]}"
+assert_contains "$probe_run_invocation" "docker run --rm --pull=never"
+assert_contains "$probe_run_invocation" "--network babyjamjam-backend-preview_backend"
+assert_contains "$probe_run_invocation" "--env-file $BACKEND_ENV_FILE"
+assert_contains "$probe_run_invocation" "--env DATABASE_CONNECTION_MODE=direct"
+assert_contains "$probe_run_invocation" "--entrypoint /usr/local/bin/node"
+assert_contains "$probe_run_invocation" "ghcr.io/jaino-song/babyjamjam-admin-backend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+assert_contains "$PROBE_NODE_SCRIPT" 'searchParams.set("connection_limit", "1")'
+assert_contains "$PROBE_NODE_SCRIPT" 'setTimeout(() => finish(1), 5000)'
+assert_contains "$PROBE_NODE_SCRIPT" 'SELECT 1'
+[[ "$probe_run_invocation" != *"docker exec"* ]] || fail "database probe used docker exec"
+[[ "$probe_run_invocation" != *"docker compose"* ]] || fail "database probe used Compose"
+[[ "$probe_run_invocation" != *"dist/main.js"* ]] || fail "database probe started the application"
+[[ "$probe_run_invocation" != *"SCHEDULERS_ENABLED"* ]] || fail "database probe passed scheduler configuration"
+[[ "$probe_run_invocation" != *"VALKEY"* ]] || fail "database probe passed dependency configuration"
+[[ "$probe_run_invocation" != *"postgresql://"* ]] || fail "database probe logged a database URL"
+
+reset_state
+probe_docker_mode=invalid
+assert_fails run_probe_query direct
+[[ "${probe_invocations[*]-}" != *"docker run --rm --pull=never"* ]] \
+    || fail "database probe ran with an unproven image digest"
+
+reset_state
+probe_env_mode=invalid
+assert_fails run_probe_query direct
+[[ "${probe_invocations[*]-}" != *"docker run --rm --pull=never"* ]] \
+    || fail "database probe ran with an unproven environment file"
 
 reset_state
 ROUTE_STATE_SHARED_FAILURE_COUNT=5

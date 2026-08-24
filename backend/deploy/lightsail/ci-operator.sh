@@ -5,6 +5,7 @@ set -euo pipefail
 readonly REPOSITORY_ROOT="/opt/babyjamjam/repository"
 readonly DEPLOY_WORKTREE_ROOT="/opt/babyjamjam/deploy-worktrees"
 readonly STATE_ROOT="/opt/babyjamjam/environments"
+readonly ROUTE_STATE_ROOT="/opt/babyjamjam/db-failover-state"
 readonly LOG_ROOT="/var/log/babyjamjam-deploy"
 readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
@@ -28,11 +29,17 @@ const rawUrl = mode === "direct" ? process.env["DIRECT_URL"] : process.env["DATA
 if (mode !== "shared" && mode !== "direct" || !rawUrl) process.exit(2);
 let parsedUrl;
 try { parsedUrl = new URL(rawUrl); } catch { process.exit(2); }
-if (mode === "direct" && (parsedUrl.searchParams.getAll("connection_limit").length !== 1 || parsedUrl.searchParams.get("connection_limit") !== "5")) process.exit(2);
 parsedUrl.searchParams.set("connection_limit", "1");
 const prisma = new PrismaClient({ datasources: { db: { url: parsedUrl.toString() } } });
-const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("probe timeout")), 5000));
-Promise.race([prisma.$queryRawUnsafe("SELECT 1"), timeout]).then(() => process.exit(0)).catch(() => process.exit(1)).finally(() => prisma.$disconnect().catch(() => undefined));'
+let finished = false;
+const finish = (exitCode) => {
+  if (finished) return;
+  finished = true;
+  clearTimeout(timeout);
+  prisma.$disconnect().catch(() => undefined).finally(() => process.exit(exitCode));
+};
+const timeout = setTimeout(() => finish(1), 5000);
+prisma.$queryRawUnsafe("SELECT 1").then(() => finish(0)).catch(() => finish(1));'
 
 usage() {
     cat >&2 <<'EOF'
@@ -149,7 +156,8 @@ configure_environment() {
     STATE_DIRECTORY="$STATE_ROOT/$environment"
     DEPLOY_LOCK_FILE="$STATE_DIRECTORY/operator.lock"
     BACKEND_ENV_FILE="$STATE_DIRECTORY/backend.env"
-    ROUTE_STATE_FILE="$STATE_DIRECTORY/$ROUTE_STATE_FILE_NAME"
+    ROUTE_STATE_DIRECTORY="$ROUTE_STATE_ROOT/$environment"
+    ROUTE_STATE_FILE="$ROUTE_STATE_DIRECTORY/$ROUTE_STATE_FILE_NAME"
     COMPOSE_FILE="$REPOSITORY_ROOT/backend/compose.lightsail.yml"
     CURRENT_TAG_FILE="$STATE_DIRECTORY/current-image-tag"
     CURRENT_DIGEST_FILE="$STATE_DIRECTORY/current-image-digest"
@@ -192,12 +200,16 @@ validate_backend_env_file() {
 
 write_route_state() {
     local temporary_file
+    local route_state_directory_metadata
 
-    [[ -d "$STATE_DIRECTORY" && ! -L "$STATE_DIRECTORY" ]] \
+    [[ -d "$ROUTE_STATE_DIRECTORY" && ! -L "$ROUTE_STATE_DIRECTORY" ]] \
         || die "Route state directory is missing or invalid."
+    route_state_directory_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$ROUTE_STATE_DIRECTORY")"
+    [[ "$route_state_directory_metadata" == "root:root:700" ]] \
+        || die "Unexpected route state directory ownership or mode: $route_state_directory_metadata"
     [[ ! -L "$ROUTE_STATE_FILE" ]] || die "Route state file must not be a symbolic link."
 
-    temporary_file="$(/usr/bin/mktemp "$STATE_DIRECTORY/.db-route-state.XXXXXX")"
+    temporary_file="$(/usr/bin/mktemp "$ROUTE_STATE_DIRECTORY/.db-route-state.XXXXXX")"
     if ! {
         /usr/bin/chown root:root "$temporary_file"
         /usr/bin/chmod 0600 "$temporary_file"
@@ -264,9 +276,13 @@ initialize_route_state() {
 
 ensure_route_state() {
     local route_state_metadata
+    local route_state_directory_metadata
 
-    [[ -d "$STATE_DIRECTORY" && ! -L "$STATE_DIRECTORY" ]] \
+    [[ -d "$ROUTE_STATE_DIRECTORY" && ! -L "$ROUTE_STATE_DIRECTORY" ]] \
         || die "Route state directory is missing or invalid."
+    route_state_directory_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$ROUTE_STATE_DIRECTORY")"
+    [[ "$route_state_directory_metadata" == "root:root:700" ]] \
+        || die "Unexpected route state directory ownership or mode: $route_state_directory_metadata"
     if [[ ! -e "$ROUTE_STATE_FILE" ]]; then
         initialize_route_state
         return 0
@@ -435,15 +451,45 @@ record_probe_result() {
     ROUTE_STATE_LAST_PROBE_AT="$now"
 }
 
+prepare_probe_image() {
+    local tagged_image_name
+    local tagged_image_id
+    local tagged_repository_digests
+    local immutable_image_name
+    local immutable_image_id
+
+    load_current_release_identity
+    [[ "$CURRENT_ROUTE_IMAGE_TAG" != "missing" ]] || return 1
+    [[ "$CURRENT_ROUTE_IMAGE_DIGEST" != "missing" ]] || return 1
+
+    tagged_image_name="$LOCAL_IMAGE_REPOSITORY:$CURRENT_ROUTE_IMAGE_TAG"
+    immutable_image_name="$IMAGE_REPOSITORY@$CURRENT_ROUTE_IMAGE_DIGEST"
+    tagged_image_id="$(run_as_deployer /usr/bin/docker image inspect \
+        --format '{{.Id}}' "$tagged_image_name" 2>/dev/null)" || return 1
+    [[ -n "$tagged_image_id" ]] || return 1
+    tagged_repository_digests="$(run_as_deployer /usr/bin/docker image inspect \
+        --format '{{join .RepoDigests "\\n"}}' "$tagged_image_name" 2>/dev/null)" || return 1
+    [[ "$tagged_repository_digests" == *"@$CURRENT_ROUTE_IMAGE_DIGEST"* ]] || return 1
+    immutable_image_id="$(run_as_deployer /usr/bin/docker image inspect \
+        --format '{{.Id}}' "$immutable_image_name" 2>/dev/null)" || return 1
+    [[ "$immutable_image_id" == "$tagged_image_id" ]] || return 1
+
+    PROBE_IMAGE_REFERENCE="$immutable_image_name"
+}
+
 run_probe_query() {
     local route="$1"
-    local api_container_id
 
     is_route "$route" || return 1
-    api_container_id="$(find_api_container_optional)" || return 1
+    validate_backend_env_file || return 1
+    prepare_probe_image || return 1
     run_as_deployer /usr/bin/timeout --kill-after=1s "${DB_PROBE_TIMEOUT_SECONDS}s" \
-        /usr/bin/docker exec --env "DATABASE_CONNECTION_MODE=$route" \
-        "$api_container_id" /usr/local/bin/node -e "$PROBE_NODE_SCRIPT" \
+        /usr/bin/docker run --rm --pull=never \
+        --network "${COMPOSE_PROJECT}_backend" \
+        --env-file "$BACKEND_ENV_FILE" \
+        --env "DATABASE_CONNECTION_MODE=$route" \
+        --entrypoint /usr/local/bin/node \
+        "$PROBE_IMAGE_REFERENCE" -e "$PROBE_NODE_SCRIPT" \
         >/dev/null 2>&1
 }
 
@@ -924,6 +970,7 @@ reconcile_shared_active() {
     record_probe_result shared failed "$now"
     if ! probe_route direct >/dev/null 2>&1; then
         RECONCILE_DIRECT_OK=false
+        ROUTE_STATE_DIRECT_SUCCESS_COUNT="0"
         ROUTE_STATE_DIRECT_FAILURE_COUNT=$((ROUTE_STATE_DIRECT_FAILURE_COUNT + 1))
         record_probe_result direct failed "$now"
         mark_reconcile_blocked "both_routes_failed"
@@ -932,14 +979,9 @@ reconcile_shared_active() {
 
     RECONCILE_DIRECT_OK=true
     ROUTE_STATE_DIRECT_FAILURE_COUNT="0"
-    if (( ROUTE_STATE_SHARED_FAILURE_COUNT >= SHARED_FAILURE_LIMIT )); then
-        ROUTE_STATE_DIRECT_SUCCESS_COUNT=$((ROUTE_STATE_DIRECT_SUCCESS_COUNT + 1))
-    else
-        ROUTE_STATE_DIRECT_SUCCESS_COUNT="0"
-    fi
+    ROUTE_STATE_DIRECT_SUCCESS_COUNT=$((ROUTE_STATE_DIRECT_SUCCESS_COUNT + 1))
     record_probe_result direct ok "$now"
-    if (( ROUTE_STATE_SHARED_FAILURE_COUNT >= SHARED_FAILURE_LIMIT \
-        && ROUTE_STATE_DIRECT_SUCCESS_COUNT >= DIRECT_SUCCESS_LIMIT )); then
+    if (( ROUTE_STATE_DIRECT_SUCCESS_COUNT >= DIRECT_SUCCESS_LIMIT )); then
         transition_route shared direct
         return $?
     fi
