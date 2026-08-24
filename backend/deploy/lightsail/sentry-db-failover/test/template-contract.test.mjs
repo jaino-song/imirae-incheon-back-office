@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const template = await readFile(new URL('../template.yaml', import.meta.url), 'utf8');
+const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 
 function section(name, nextName) {
   const start = template.indexOf(`  ${name}:`);
@@ -37,6 +38,13 @@ test('SAM API uses the object endpoint schema and the supported Lambda runtime',
   assert.doesNotMatch(api, /EndpointConfiguration:\s+REGIONAL(?:\s|$)/);
   assert.match(template, /Globals:\n\s+Function:\n\s+Runtime: nodejs22\.x/);
   assert.doesNotMatch(template, /Runtime:\s+nodejs20\.x/);
+});
+
+test('SAM control-plane package metadata is npm-pack compatible for Node.js 22', () => {
+  assert.match(packageMetadata.name, /^[a-z0-9][a-z0-9._-]*$/);
+  assert.equal(packageMetadata.version, '0.0.0');
+  assert.equal(packageMetadata.private, true);
+  assert.equal(packageMetadata.engines?.node, '>=22');
 });
 
 test('receiver IAM can enqueue and read only the configured Sentry secret', () => {
