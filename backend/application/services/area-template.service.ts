@@ -2,16 +2,21 @@ import { Injectable } from "@nestjs/common";
 import {
     CreateAreaTemplateUsecase,
     ListAreaTemplatesUsecase,
+    ListAvailableAreasUsecase,
     FindAreaTemplateByAreaUsecase,
     UpdateAreaTemplateUsecase,
     DeleteAreaTemplateUsecase,
 } from "application/usecases/area-template";
-import { AreaTemplateEntity } from "domain/entities/area-template.entity";
+import {
+    AreaTemplateEntity,
+    AvailableAreaEntity,
+} from "domain/entities/area-template.entity";
 
 @Injectable()
 export class AreaTemplateService {
     constructor(
         private readonly listAreaTemplatesUsecase: ListAreaTemplatesUsecase,
+        private readonly listAvailableAreasUsecase: ListAvailableAreasUsecase,
         private readonly createAreaTemplateUsecase: CreateAreaTemplateUsecase,
         private readonly findAreaTemplateByAreaUsecase: FindAreaTemplateByAreaUsecase,
         private readonly updateAreaTemplateUsecase: UpdateAreaTemplateUsecase,
@@ -32,6 +37,10 @@ export class AreaTemplateService {
 
     findAll(branchid: string): Promise<AreaTemplateEntity[]> {
         return this.listAreaTemplatesUsecase.execute(branchid);
+    }
+
+    findAvailableAreas(branchid: string): Promise<AvailableAreaEntity[]> {
+        return this.listAvailableAreasUsecase.execute(branchid);
     }
 
     findByArea(branchid: string, area: string): Promise<AreaTemplateEntity | null> {

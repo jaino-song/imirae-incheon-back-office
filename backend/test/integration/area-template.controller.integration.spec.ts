@@ -3,7 +3,10 @@ import { ExecutionContext, INestApplication, ValidationPipe } from "@nestjs/comm
 import request from "supertest";
 import { AreaTemplateController } from "interface/controllers/area-template.controller";
 import { AreaTemplateService } from "application/services/area-template.service";
-import { AreaTemplateEntity } from "domain/entities/area-template.entity";
+import {
+    AreaTemplateEntity,
+    AvailableAreaEntity,
+} from "domain/entities/area-template.entity";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { TenantGuard } from "infrastructure/tenant/tenant.guard";
 
@@ -36,6 +39,7 @@ describe("AreaTemplateController (Integration)", () => {
             create: jest.fn(),
             findByArea: jest.fn(),
             findAll: jest.fn(),
+            findAvailableAreas: jest.fn(),
             update: jest.fn(),
             delete: jest.fn(),
         };
@@ -183,6 +187,29 @@ describe("AreaTemplateController (Integration)", () => {
                 expect(response.status).toBe(201);
                 expect(areaTemplateService.create).toHaveBeenCalled();
             });
+        });
+    });
+
+    // ============================================
+    // GET /area-templates/available-areas - List Available Areas
+    // ============================================
+    describe("GET /area-templates/available-areas", () => {
+        it("should return branch-local and global areas for the current tenant", async () => {
+            const areas = [
+                new AvailableAreaEntity("Yeonsugu", "Yeonsu-gu", "연수구"),
+                new AvailableAreaEntity("GlobalSupport", "Global support", "공통 지원 지역"),
+            ];
+            areaTemplateService.findAvailableAreas.mockResolvedValue(areas);
+
+            const response = await request(app.getHttpServer())
+                .get("/area-templates/available-areas");
+
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([
+                { id: "Yeonsugu", name: "Yeonsu-gu", koreanName: "연수구" },
+                { id: "GlobalSupport", name: "Global support", koreanName: "공통 지원 지역" },
+            ]);
+            expect(areaTemplateService.findAvailableAreas).toHaveBeenCalledWith("org-1");
         });
     });
 

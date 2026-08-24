@@ -8,7 +8,12 @@ import {
 } from "@babyjamjam/shared";
 import { useCreateClient, useUpdateClient } from "@/hooks/useClients";
 import { useClientPhoneDuplicateCheck } from "@/hooks/useClientPhoneDuplicateCheck";
-import { useOutOfPocketPriceInfos, useVoucherPriceInfos, useVoucherYears } from "@/hooks/useVoucherData";
+import {
+    useAvailableClientAreas,
+    useOutOfPocketPriceInfos,
+    useVoucherPriceInfos,
+    useVoucherYears,
+} from "@/hooks/useVoucherData";
 import type { ClientFormData } from "@/features/clients/types";
 import { EmployeeAutocomplete } from "./EmployeeAutocomplete";
 import { EmployeeFormDialog } from "@/components/app/employees/EmployeeFormDialog";
@@ -332,6 +337,7 @@ function ClientFormContent({
         breastPump: false,
         serviceStatus: "pre_booking",
         applyMessageAutomation: true,
+        areaId: null,
     });
 
     const {
@@ -395,6 +401,10 @@ function ClientFormContent({
     // Without an end date it defaults to the current year, and either case falls
     // back to the latest server-provided year when the year isn't in the list.
     const { data: voucherYears = [] } = useVoucherYears();
+    const {
+        data: availableClientAreas = [],
+        isLoading: isAvailableClientAreasLoading,
+    } = useAvailableClientAreas();
     const [voucherYear, setVoucherYear] = useState<number | null>(null);
     const resolvedVoucherYear = useMemo(() => {
         if (voucherYear !== null) return voucherYear;
@@ -466,6 +476,22 @@ function ClientFormContent({
         })),
         []
     );
+
+    const areaOptions = useMemo(() => {
+        const optionsByAreaId = new Map<string, string>();
+        for (const area of availableClientAreas) {
+            if (!optionsByAreaId.has(area.id)) {
+                optionsByAreaId.set(
+                    area.id,
+                    area.koreanName.trim() || area.name.trim() || area.id,
+                );
+            }
+        }
+        if (formData.areaId && !optionsByAreaId.has(formData.areaId)) {
+            optionsByAreaId.set(formData.areaId, formData.areaId);
+        }
+        return [...optionsByAreaId].map(([value, label]) => ({ value, label }));
+    }, [availableClientAreas, formData.areaId]);
 
     // Get price info for selected type and duration
     const selectedPriceInfo = useMemo(() => {
@@ -605,6 +631,7 @@ function ClientFormContent({
                     breastPump: client.breastPump,
                     serviceStatus: client.serviceStatus || "pre_booking",
                     applyMessageAutomation: true,
+                    areaId: client.areaId ?? null,
                 };
                 nextPricesManuallyEdited = Boolean(client.fullPrice || client.grant || client.actualPrice);
             }
@@ -631,6 +658,7 @@ function ClientFormContent({
                     breastPump: false,
                     serviceStatus: "pre_booking",
                     applyMessageAutomation: true,
+                    areaId: null,
                     ...Object.fromEntries(
                         Object.entries(prefillRef.current ?? {}).filter(([, value]) => value !== undefined),
                     ),
@@ -843,6 +871,7 @@ function ClientFormContent({
                     voucherClient: formData.voucherClient,
                     breastPump: formData.breastPump,
                     serviceStatus: formData.serviceStatus,
+                    areaId: formData.areaId || null,
                 };
                 const updatedClient = await updateClient.mutateAsync({ id: client.id, dto: updateDto });
                 onSuccess?.(updatedClient);
@@ -868,6 +897,7 @@ function ClientFormContent({
                     breastPump: formData.breastPump,
                     serviceStatus: formData.serviceStatus,
                     applyMessageAutomation: formData.applyMessageAutomation,
+                    areaId: formData.areaId || null,
                 };
                 const newClient = await createClient.mutateAsync(createDto);
                 onSuccess?.(newClient);
@@ -1110,6 +1140,27 @@ function ClientFormContent({
                         error={hasPhoneStatusError}
                         aria-describedby={phoneInlineMessage ? "clients-form-dialog-phone-helper" : undefined}
                     />
+                </FormField>
+
+                <FormField
+                    data-component={`${base}_basic-grid_field-area`}
+                    htmlFor="clients-form-area"
+                    label="관할 지역"
+                >
+                    <FormNativeSelect
+                        id="clients-form-area"
+                        value={formData.areaId ?? ""}
+                        options={areaOptions}
+                        placeholder={isAvailableClientAreasLoading ? "지역을 불러오는 중" : "관할 지역 선택"}
+                        onValueChange={(value) => handleChange("areaId", value || null)}
+                        disabled={isAvailableClientAreasLoading}
+                        wrapDataComponent={`${base}_basic-grid_field-area_select-wrap`}
+                        selectDataComponent={`${base}_basic-grid_field-area_select`}
+                        iconDataComponent={`${base}_basic-grid_field-area_select-icon`}
+                    />
+                    <FormHelperText data-component={`${base}_basic-grid_field-area_helper`}>
+                        비용 안내 자동문자에서 관할 지역에 연결된 입금 계좌를 사용합니다.
+                    </FormHelperText>
                 </FormField>
 
                 <FormField
@@ -1512,6 +1563,27 @@ function ClientFormContent({
                     error={hasPhoneStatusError}
                     aria-describedby={phoneInlineMessage ? "clients-form-panel-phone-helper" : undefined}
                 />
+            </FormField>
+
+            <FormField
+                data-component={`${base}_area-field`}
+                htmlFor="clients-form-panel-area"
+                label="관할 지역"
+            >
+                <FormNativeSelect
+                    id="clients-form-panel-area"
+                    value={formData.areaId ?? ""}
+                    options={areaOptions}
+                    placeholder={isAvailableClientAreasLoading ? "지역을 불러오는 중" : "관할 지역 선택"}
+                    onValueChange={(value) => handleChange("areaId", value || null)}
+                    disabled={isAvailableClientAreasLoading}
+                    wrapDataComponent={`${base}_area-field_select-wrap`}
+                    selectDataComponent={`${base}_area-field_select`}
+                    iconDataComponent={`${base}_area-field_select-icon`}
+                />
+                <FormHelperText data-component={`${base}_area-field_helper`}>
+                    비용 안내 자동문자에서 관할 지역에 연결된 입금 계좌를 사용합니다.
+                </FormHelperText>
             </FormField>
 
             <FormField

@@ -1,11 +1,16 @@
 import { Prisma } from "@prisma/client";
 import { AligoService } from "application/services/aligo.service";
 import {
+    SMS_TEMPLATE_DELIVERY,
     SmsTriggerDeliveryService,
 } from "application/services/sms-trigger-delivery.service";
 import { SystemTemplateService } from "application/services/system-template.service";
-import { SystemTemplateKey } from "domain/constants/system-template-registry";
 import {
+    SYSTEM_TEMPLATE_REGISTRY,
+    SystemTemplateKey,
+} from "domain/constants/system-template-registry";
+import {
+    MESSAGE_TRIGGER_TEMPLATE_CATALOG,
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
@@ -668,6 +673,219 @@ https://mobile.test/service-record/efl_token`;
     });
 });
 
+describe("SMS system-template variable coverage", () => {
+    const allTemplateVariables: Record<string, string> = {
+        name: "fixture-name",
+        clientName: "fixture-clientName",
+        phone: "010-6621-1878",
+        employeeName: "fixture-employeeName",
+        registrationDate: "fixture-registrationDate",
+        serviceType: "fixture-serviceType",
+        serviceStartDate: "fixture-serviceStartDate",
+        serviceEndDate: "fixture-serviceEndDate",
+        timingText: "fixture-timingText",
+        weeks: "fixture-weeks",
+        duration: "fixture-duration",
+        type: "fixture-type",
+        fullPrice: "fixture-fullPrice",
+        grant: "fixture-grant",
+        actualPrice: "fixture-actualPrice",
+        bankName: "fixture-bankName",
+        accNum: "fixture-accNum",
+        serviceRecordUrl: "fixture-serviceRecordUrl",
+    };
+
+    const smsTemplateCases = Object.values(MESSAGE_TRIGGER_TEMPLATE_CATALOG)
+        .filter((item) => item.providers.sms)
+        .map((item) => {
+            const systemTemplateKey = SMS_TEMPLATE_DELIVERY[item.key]?.systemTemplateKey;
+            if (!systemTemplateKey) {
+                throw new Error(`Missing system-template delivery mapping for ${item.key}`);
+            }
+            const recipientType = item.allowedRecipientTypes[0];
+            if (!recipientType) {
+                throw new Error(`Missing recipient type for ${item.key}`);
+            }
+            return [item.key, recipientType, systemTemplateKey] as const;
+        });
+
+    const createJob = (
+        templateKey: MessageTriggerTemplateKey,
+        recipientType: MessageTriggerRecipientType,
+        templateVariables: Record<string, string>,
+    ) => MessageTriggerJobEntity.reconstitute(
+        `job-${templateKey}`,
+        "branch-1",
+        `rule-${templateKey}`,
+        "pending",
+        new Date("2026-08-24T00:00:00.000Z"),
+        null,
+        null,
+        null,
+        155,
+        recipientType === MessageTriggerRecipientType.CLIENT ? null : 77,
+        recipientType,
+        "010-6621-1878",
+        templateKey,
+        `rule-${templateKey}:fixture`,
+        {
+            clientId: 155,
+            clientName: templateVariables["clientName"] ?? "자동발송 테스트",
+            employeeId: recipientType === MessageTriggerRecipientType.CLIENT ? undefined : 0,
+            employeeName: templateVariables["employeeName"],
+            memberId: recipientType === MessageTriggerRecipientType.CLIENT ? "155" : "employee:0",
+            recipientName: templateVariables["name"] ?? templateVariables["employeeName"] ?? "김정인",
+            recipientPhone: "010-6621-1878",
+            buttonUrl: templateVariables["serviceRecordUrl"],
+            templateVariables,
+        },
+        new Date("2026-08-24T00:00:00.000Z"),
+        new Date("2026-08-24T00:00:00.000Z"),
+    );
+
+    const createDeliveryHarness = () => {
+        const aligoService = {
+            sendSms: jest.fn().mockResolvedValue({
+                request: { receiver: "01066211878", msgType: "LMS", testModeYn: "N" },
+                response: { result_code: 1, message: "성공", msg_id: 1878, success_cnt: 1, error_cnt: 0 },
+            }),
+        };
+        const systemTemplateService = {
+            getByKey: jest.fn().mockImplementation(async (key: SystemTemplateKey) => ({
+                id: `template-${key}`,
+                content: SYSTEM_TEMPLATE_REGISTRY[key].defaultContent,
+                requiredVariables: SYSTEM_TEMPLATE_REGISTRY[key].requiredVariables,
+                customVariables: [],
+                updatedAt: new Date("2026-08-24T00:00:00.000Z"),
+            })),
+        };
+        const logRepository = {
+            save: jest.fn().mockImplementation(async (log: MessageLogEntity) => log),
+        };
+        const service = new SmsTriggerDeliveryService(
+            aligoService as unknown as AligoService,
+            systemTemplateService as unknown as SystemTemplateService,
+            logRepository as unknown as IMessageLogRepository,
+        );
+        return { aligoService, logRepository, service };
+    };
+
+    it.each(smsTemplateCases)(
+        "renders %s with every configured variable resolved before the provider call",
+        async (templateKey, recipientType) => {
+            const { aligoService, service } = createDeliveryHarness();
+            const job = createJob(templateKey, recipientType, { ...allTemplateVariables });
+
+            await expect(service.sendJob(job)).resolves.toBe(true);
+
+            const providerRequest = aligoService.sendSms.mock.calls[0]?.[0];
+            expect(providerRequest?.message).not.toMatch(/\{\{\s*\w+\s*\}\}/);
+            expect(providerRequest?.receiver).toBe("010-6621-1878");
+        },
+    );
+
+    it.each(
+        smsTemplateCases.filter(([, , systemTemplateKey]) =>
+            SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey].requiredVariables.some((variable) => variable.required),
+        ),
+    )(
+        "cancels %s without a provider call when a required variable is blank",
+        async (templateKey, recipientType, systemTemplateKey) => {
+            const requiredKey = SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey].requiredVariables
+                .find((variable) => variable.required)?.key;
+            if (!requiredKey) throw new Error(`Missing required-variable fixture for ${templateKey}`);
+            const { aligoService, logRepository, service } = createDeliveryHarness();
+            const job = createJob(templateKey, recipientType, {
+                ...allTemplateVariables,
+                [requiredKey]: "",
+            });
+
+            await expect(service.sendJob(job)).resolves.toBe(false);
+
+            expect(job.status).toBe("canceled");
+            expect(job.cancelReason).toContain(requiredKey);
+            expect(aligoService.sendSms).not.toHaveBeenCalled();
+            expect(logRepository.save).not.toHaveBeenCalled();
+        },
+    );
+
+    it("cancels a template with an unresolved required custom variable", async () => {
+        const { aligoService, logRepository, service } = createDeliveryHarness();
+        const job = createJob(
+            MessageTriggerTemplateKey.SERVICE_INFO,
+            MessageTriggerRecipientType.CLIENT,
+            { ...allTemplateVariables },
+        );
+        const systemTemplateService = (service as unknown as {
+            systemTemplateService: { getByKey: jest.Mock };
+        }).systemTemplateService;
+        systemTemplateService.getByKey.mockResolvedValue({
+            id: "template-service-info-custom",
+            content: "{{name}} 산모님 예약번호 {{reservationCode}}",
+            requiredVariables: SYSTEM_TEMPLATE_REGISTRY[SystemTemplateKey.SERVICE_INFO].requiredVariables,
+            customVariables: [{ key: "reservationCode", label: "예약번호", required: true }],
+            updatedAt: new Date("2026-08-24T00:00:00.000Z"),
+        });
+
+        await expect(service.sendJob(job)).resolves.toBe(false);
+
+        expect(job.status).toBe("canceled");
+        expect(job.cancelReason).toContain("reservationCode");
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+        expect(logRepository.save).not.toHaveBeenCalled();
+    });
+
+    it("renders and sends a required custom variable when the client payload supplies it", async () => {
+        const { aligoService, service } = createDeliveryHarness();
+        const job = createJob(
+            MessageTriggerTemplateKey.SERVICE_INFO,
+            MessageTriggerRecipientType.CLIENT,
+            { ...allTemplateVariables },
+        );
+        const systemTemplateService = (service as unknown as {
+            systemTemplateService: { getByKey: jest.Mock };
+        }).systemTemplateService;
+        systemTemplateService.getByKey.mockResolvedValue({
+            id: "template-service-info-phone",
+            content: "{{name}} 산모님 연락처 {{phone}}",
+            requiredVariables: SYSTEM_TEMPLATE_REGISTRY[SystemTemplateKey.SERVICE_INFO].requiredVariables,
+            customVariables: [{ key: "phone", label: "연락처", required: true }],
+            updatedAt: new Date("2026-08-24T00:00:00.000Z"),
+        });
+
+        await expect(service.sendJob(job)).resolves.toBe(true);
+
+        expect(aligoService.sendSms).toHaveBeenCalledWith(expect.objectContaining({
+            message: "fixture-name 산모님 연락처 010-6621-1878",
+        }));
+    });
+
+    it("keeps registry-required variables enforced when a template response omits its required list", async () => {
+        const { aligoService, service } = createDeliveryHarness();
+        const job = createJob(
+            MessageTriggerTemplateKey.SERVICE_INFO,
+            MessageTriggerRecipientType.CLIENT,
+            { ...allTemplateVariables, name: "" },
+        );
+        const systemTemplateService = (service as unknown as {
+            systemTemplateService: { getByKey: jest.Mock };
+        }).systemTemplateService;
+        systemTemplateService.getByKey.mockResolvedValue({
+            id: "template-service-info-incomplete-contract",
+            content: "{{name}} 산모님 안내",
+            requiredVariables: [],
+            customVariables: [],
+            updatedAt: new Date("2026-08-24T00:00:00.000Z"),
+        });
+
+        await expect(service.sendJob(job)).resolves.toBe(false);
+
+        expect(job.status).toBe("canceled");
+        expect(job.cancelReason).toContain("name");
+        expect(aligoService.sendSms).not.toHaveBeenCalled();
+    });
+});
+
 describe("PRICE_INFO data guard", () => {
     const createPriceInfoJob = (templateVariables: Record<string, string>) =>
         MessageTriggerJobEntity.reconstitute(
@@ -731,6 +949,7 @@ describe("PRICE_INFO data guard", () => {
         const service = buildService({ aligoService, logRepository });
         const job = createPriceInfoJob({
             name: "김지니",
+            weeks: "4",
             fullPrice: "1200000",
             grant: "1080000",
             actualPrice: "120000",

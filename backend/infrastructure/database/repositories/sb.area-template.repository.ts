@@ -1,6 +1,9 @@
 import { IAreaTemplateRepository } from "domain/repositories/area-template.repository.interface";
 import { PrismaService } from "../prisma.service";
-import { AreaTemplateEntity } from "domain/entities/area-template.entity";
+import {
+    AreaTemplateEntity,
+    AvailableAreaEntity,
+} from "domain/entities/area-template.entity";
 import { Injectable } from "@nestjs/common";
 import { AreaTemplateMapper } from "../mapper/area-template.mapper";
 
@@ -13,6 +16,29 @@ export class SbAreaTemplateRepository implements IAreaTemplateRepository {
             where: { area: { branchId: branchid } },
         });
         return docTemplates.map(AreaTemplateMapper.toDomain);
+    }
+
+    async findAvailableAreas(branchid: string): Promise<AvailableAreaEntity[]> {
+        const areas = await this.prismaService.area.findMany({
+            where: {
+                OR: [
+                    { branchId: branchid },
+                    { branchId: null },
+                ],
+            },
+            select: {
+                id: true,
+                name: true,
+                koreanName: true,
+            },
+            orderBy: [
+                { koreanName: "asc" },
+                { id: "asc" },
+            ],
+        });
+        return areas.map(
+            (area) => new AvailableAreaEntity(area.id, area.name, area.koreanName),
+        );
     }
 
     async findByArea(branchid: string, area: string): Promise<AreaTemplateEntity | null> {

@@ -2,12 +2,12 @@
 
 import { useDeferredValue, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import {
   AlertTriangle,
   Bell,
   Building2,
   CheckCircle2,
-  ChevronDown,
   KeyRound,
   MessageCircle,
   Pencil,
@@ -19,7 +19,9 @@ import {
 } from "lucide-react";
 
 import { NotificationTestSection } from "@/components/app/settings/NotificationTestSection";
+import { SystemAdminAccountEditDialog } from "@/components/app/ui/SystemAdminAccountEditDialog";
 import { SystemAdminBranchForm } from "@/components/app/system-admin/SystemAdminBranchForm";
+import { FormNativeSelect } from "@/components/app/ui/form-section";
 import { TagPill } from "@/components/app/ui/tag-pill";
 import {
   AnimatedSlotList,
@@ -53,7 +55,7 @@ import {
   approveUser,
   getSystemAdminUsers,
   rejectUser,
-  updateUserRole,
+  updateSystemAdminUserAccount,
   type SystemAdminUser,
 } from "@/lib/api/users";
 import { REGISTERABLE_ROLE_OPTIONS, ROLES } from "@/lib/constants/roles";
@@ -106,6 +108,7 @@ interface AdminRecord {
   applicantRows?: readonly AdminDetailRow[];
   requests?: readonly AdminRequest[];
   pendingAccountApproval?: PendingAccountApproval;
+  accountApprovalStatus?: SystemAdminUser["approvalStatus"];
   accountRole?: string | null;
 }
 
@@ -498,6 +501,7 @@ function buildAccountRecords(users: readonly SystemAdminUser[]): AdminRecord[] {
         { label: "소속", value: getAccountBranchSummary(user) },
       ],
       pendingAccountApproval,
+      accountApprovalStatus: user.approvalStatus,
       accountRole: user.role,
     };
   });
@@ -797,14 +801,66 @@ export function OwnerAdminConsole() {
   });
   const isPendingApprovalActionRunning = approveUserMutation.isPending || rejectUserMutation.isPending;
   const [accountEditUserId, setAccountEditUserId] = useState<string | null>(null);
-  const [accountRoleSelections, setAccountRoleSelections] = useState<Record<string, string>>({});
-  const updateUserRoleMutation = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: "manager" | "user" }) =>
-      updateUserRole(id, role),
+  const [accountEditFormVersion, setAccountEditFormVersion] = useState(0);
+  const [accountEditErrorMessage, setAccountEditErrorMessage] = useState<string | null>(null);
+  const updateSystemAdminUserAccountMutation = useMutation({
+    mutationFn: ({
+      id,
+      role,
+      branchIds,
+      expectedRole,
+      expectedBranchIds,
+    }: {
+      id: string;
+      role: "admin" | "manager" | "user";
+      branchIds: string[];
+      expectedRole: "admin" | "manager" | "user";
+      expectedBranchIds: string[];
+    }) =>
+      updateSystemAdminUserAccount(id, {
+        role,
+        branchIds,
+        expectedRole,
+        expectedBranchIds,
+      }),
+    onMutate: () => {
+      setAccountEditErrorMessage(null);
+    },
     onSuccess: async () => {
+      setAccountEditErrorMessage(null);
       setAccountEditUserId(null);
       await queryClient.invalidateQueries({ queryKey: ["systemAdminUsers"] });
       await queryClient.invalidateQueries({ queryKey: ["systemAdminBranchRequests"] });
+    },
+    onError: async (error) => {
+      if (!isAxiosError(error) || error.response?.status !== 409) {
+        setAccountEditErrorMessage("계정 수정에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+
+      setAccountEditErrorMessage(
+        "다른 곳에서 계정 정보가 변경되었습니다. 최신 정보를 불러오는 중입니다.",
+      );
+      try {
+        await Promise.all([
+          queryClient.invalidateQueries(
+            { queryKey: ["systemAdminUsers"] },
+            { throwOnError: true },
+          ),
+          queryClient.invalidateQueries(
+            { queryKey: ["systemAdminBranchRequests"] },
+            { throwOnError: true },
+          ),
+        ]);
+        setAccountEditFormVersion((version) => version + 1);
+        setAccountEditErrorMessage(
+          "다른 곳에서 계정 정보가 변경되어 최신 정보를 불러왔습니다. 내용을 다시 확인한 뒤 저장해 주세요.",
+        );
+      } catch {
+        setAccountEditErrorMessage(
+          "다른 곳에서 계정 정보가 변경되었습니다. 창을 닫고 목록을 새로고침한 뒤 다시 시도해 주세요.",
+        );
+      }
     },
   });
 
@@ -855,6 +911,9 @@ export function OwnerAdminConsole() {
     activeSection.id === "branches"
       ? systemAdminBranchRequests.find((branch) => branch.id === selectedRecord?.id) ?? null
       : null;
+  const accountEditUser = accountEditUserId
+    ? systemAdminUsers.find((user) => user.id === accountEditUserId) ?? null
+    : null;
   const branchManagerOptions = useMemo(
     () =>
       systemAdminUsers
@@ -1241,17 +1300,10 @@ export function OwnerAdminConsole() {
                         : "";
                       const isPendingRoleAdmin = selectedPendingRole === ROLES.admin;
                       const isApprovedAccount =
-                        activeSection.id === "accounts" && !pendingAccountApproval;
-                      const canEditAccountRole =
+                        activeSection.id === "accounts" &&
+                        selectedRecord.accountApprovalStatus === "approved";
+                      const canEditAccount =
                         isApprovedAccount && selectedRecord.accountRole !== ROLES.owner;
-                      const isEditingThisAccount =
-                        canEditAccountRole && accountEditUserId === selectedRecord.id;
-                      const isAccountCurrentlyAdmin = selectedRecord.accountRole === ROLES.admin;
-                      const defaultAccountRoleDraft = isAccountCurrentlyAdmin
-                        ? ""
-                        : (selectedRecord.accountRole ?? ROLES.user);
-                      const selectedAccountRoleDraft =
-                        accountRoleSelections[selectedRecord.id] ?? defaultAccountRoleDraft;
                       const infoTitle =
                         activeSection.id === "accounts"
                           ? "계정 정보"
@@ -1286,13 +1338,15 @@ export function OwnerAdminConsole() {
                                     setBranchFormMode("edit");
                                   }}
                                 />
-                              ) : canEditAccountRole ? (
+                              ) : canEditAccount ? (
                                 <HeaderActionButton
                                   icon={Pencil}
                                   label="수정"
                                   className="ml-auto"
                                   onClick={() => {
-                                    updateUserRoleMutation.reset();
+                                    updateSystemAdminUserAccountMutation.reset();
+                                    setAccountEditErrorMessage(null);
+                                    setAccountEditFormVersion(0);
                                     setAccountEditUserId(selectedRecord.id);
                                   }}
                                 />
@@ -1308,179 +1362,69 @@ export function OwnerAdminConsole() {
                               <InfoRow key={row.label} label={row.label} value={row.value} />
                             ))}
                           </InfoCard>
-                          {isEditingThisAccount ? (
-                            <div className="space-y-2">
-                              {isAccountCurrentlyAdmin ? (
-                                <p className="text-sm text-v3-text-muted">
-                                  지점장 권한은 지점 정보의 지점장 임명/해제로 관리되며, 권한을
-                                  변경하면 지점장에서 자동 해제됩니다.
-                                </p>
-                              ) : null}
-                              <div
-                                data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section_account-edit-actions"
-                                className="flex flex-wrap items-center gap-2"
-                              >
-                                <div className="relative">
-                                  <select
-                                    aria-label={`${selectedRecord.listTitle} 권한 선택`}
-                                    data-component="desktop_system-admin_sections_account-edit-role-select"
-                                    value={selectedAccountRoleDraft}
-                                    disabled={updateUserRoleMutation.isPending}
-                                    onChange={(event) =>
-                                      setAccountRoleSelections((previousSelections) => ({
-                                        ...previousSelections,
-                                        [selectedRecord.id]: event.target.value,
-                                      }))
-                                    }
-                                    className="h-9 appearance-none rounded-full border border-v3-border bg-white pl-3 pr-8 text-sm text-v3-dark disabled:opacity-50"
-                                  >
-                                    {isAccountCurrentlyAdmin ? (
-                                      <option value="" disabled>
-                                        권한 선택
-                                      </option>
-                                    ) : null}
-                                    <option value={ROLES.manager}>
-                                      {getAccountRoleLabel(ROLES.manager)}
-                                    </option>
-                                    <option value={ROLES.user}>
-                                      {getAccountRoleLabel(ROLES.user)}
-                                    </option>
-                                  </select>
-                                  <ChevronDown
-                                    className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-v3-text-muted"
-                                    aria-hidden="true"
-                                    strokeWidth={2.2}
-                                  />
-                                </div>
-
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="positive"
-                                  disabled={
-                                    updateUserRoleMutation.isPending || !selectedAccountRoleDraft
-                                  }
-                                  onClick={() =>
-                                    updateUserRoleMutation.mutate({
-                                      id: selectedRecord.id,
-                                      role: selectedAccountRoleDraft as "manager" | "user",
-                                    })
-                                  }
-                                >
-                                  {updateUserRoleMutation.isPending ? "저장 중…" : "저장"}
-                                </Button>
-
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="negative-outline"
-                                  disabled={updateUserRoleMutation.isPending}
-                                  onClick={() => setAccountEditUserId(null)}
-                                >
-                                  취소
-                                </Button>
-                              </div>
-
-                              {updateUserRoleMutation.isError ? (
-                                <p role="alert" className="text-sm text-destructive">
-                                  권한 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
                           {pendingAccountApproval && selectedPendingRole ? (
                             <div className="space-y-2">
                               <div
                                 data-component="desktop_system-admin_sections_split-layout_detail-panel-2_detail-section_pending-approval-actions"
                                 className="flex flex-wrap items-center gap-2"
                               >
-                                <div className="relative">
-                                  <select
-                                    aria-label={`${selectedRecord.listTitle} 승인 지점 선택`}
-                                    data-component="desktop_system-admin_sections_pending-approval-branch-select"
-                                    value={selectedPendingBranchId}
-                                    disabled={isPendingApprovalActionRunning}
-                                    onChange={(event) =>
-                                      setPendingBranchSelections((previousSelections) => ({
-                                        ...previousSelections,
-                                        [pendingAccountApproval.userId]: event.target.value,
-                                      }))
-                                    }
-                                    className="h-9 appearance-none rounded-full border border-v3-border bg-white pl-3 pr-8 text-sm text-v3-dark disabled:opacity-50"
-                                  >
-                                    <option value="">지점 선택</option>
-                                    {systemAdminBranchRequests
-                                      .filter((branch) => branch.isActive)
-                                      .map((branch) => (
-                                        <option key={branch.id} value={branch.id}>
-                                          {branch.name}
-                                        </option>
-                                      ))}
-                                  </select>
-                                  <ChevronDown
-                                    className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-v3-text-muted"
-                                    aria-hidden="true"
-                                    strokeWidth={2.2}
-                                  />
-                                </div>
+                                <FormNativeSelect
+                                  aria-label={`${selectedRecord.listTitle} 승인 지점 선택`}
+                                  data-component="desktop_system-admin_sections_pending-approval_branch-field"
+                                  selectDataComponent="desktop_system-admin_sections_pending-approval_branch-field_select"
+                                  value={selectedPendingBranchId}
+                                  placeholder="지점 선택"
+                                  options={systemAdminBranchRequests
+                                    .filter((branch) => branch.isActive)
+                                    .map((branch) => ({
+                                      value: branch.id,
+                                      label: branch.name,
+                                    }))}
+                                  disabled={isPendingApprovalActionRunning}
+                                  onValueChange={(value) =>
+                                    setPendingBranchSelections((previousSelections) => ({
+                                      ...previousSelections,
+                                      [pendingAccountApproval.userId]: value,
+                                    }))
+                                  }
+                                />
 
-                                <div className="relative">
-                                  <select
-                                    aria-label={`${selectedRecord.listTitle} 승인 권한 선택`}
-                                    data-component="desktop_system-admin_sections_pending-approval-role-select"
-                                    value={selectedPendingRole}
-                                    disabled={isPendingApprovalActionRunning}
-                                    onChange={(event) =>
-                                      setPendingRoleSelections((previousSelections) => ({
-                                        ...previousSelections,
-                                        [pendingAccountApproval.userId]: event.target.value,
-                                      }))
-                                    }
-                                    className="h-9 appearance-none rounded-full border border-v3-border bg-white pl-3 pr-8 text-sm text-v3-dark disabled:opacity-50"
-                                  >
-                                    {REGISTERABLE_ROLE_OPTIONS.map((option) => (
-                                      <option key={option.value} value={option.value}>
-                                        {option.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <ChevronDown
-                                    className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-v3-text-muted"
-                                    aria-hidden="true"
-                                    strokeWidth={2.2}
-                                  />
-                                </div>
+                                <FormNativeSelect
+                                  aria-label={`${selectedRecord.listTitle} 승인 권한 선택`}
+                                  data-component="desktop_system-admin_sections_pending-approval_role-field"
+                                  selectDataComponent="desktop_system-admin_sections_pending-approval_role-field_select"
+                                  value={selectedPendingRole}
+                                  options={REGISTERABLE_ROLE_OPTIONS}
+                                  disabled={isPendingApprovalActionRunning}
+                                  onValueChange={(value) =>
+                                    setPendingRoleSelections((previousSelections) => ({
+                                      ...previousSelections,
+                                      [pendingAccountApproval.userId]: value,
+                                    }))
+                                  }
+                                />
 
                                 {isPendingRoleAdmin ? (
-                                  <div className="relative">
-                                    <select
-                                      aria-label={`${selectedRecord.listTitle} 임명 지점 선택`}
-                                      data-component="desktop_system-admin_sections_pending-approval-owner-branch-select"
-                                      value={selectedPendingOwnerBranchId}
-                                      disabled={isPendingApprovalActionRunning}
-                                      onChange={(event) =>
-                                        setPendingOwnerBranchSelections((previousSelections) => ({
-                                          ...previousSelections,
-                                          [pendingAccountApproval.userId]: event.target.value,
-                                        }))
-                                      }
-                                      className="h-9 appearance-none rounded-full border border-v3-border bg-white pl-3 pr-8 text-sm text-v3-dark disabled:opacity-50"
-                                    >
-                                      <option value="">임명 지점 선택</option>
-                                      {systemAdminBranchRequests
-                                        .filter((branch) => branch.isActive && !branch.owner)
-                                        .map((branch) => (
-                                          <option key={branch.id} value={branch.id}>
-                                            {branch.name}
-                                          </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown
-                                      className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-v3-text-muted"
-                                      aria-hidden="true"
-                                      strokeWidth={2.2}
-                                    />
-                                  </div>
+                                  <FormNativeSelect
+                                    aria-label={`${selectedRecord.listTitle} 임명 지점 선택`}
+                                    data-component="desktop_system-admin_sections_pending-approval_owner-branch-field"
+                                    selectDataComponent="desktop_system-admin_sections_pending-approval_owner-branch-field_select"
+                                    value={selectedPendingOwnerBranchId}
+                                    placeholder="임명 지점 선택"
+                                    options={systemAdminBranchRequests
+                                      .filter((branch) => branch.isActive && !branch.owner)
+                                      .map((branch) => ({
+                                        value: branch.id,
+                                        label: branch.name,
+                                      }))}
+                                    disabled={isPendingApprovalActionRunning}
+                                    onValueChange={(value) =>
+                                      setPendingOwnerBranchSelections((previousSelections) => ({
+                                        ...previousSelections,
+                                        [pendingAccountApproval.userId]: value,
+                                      }))
+                                    }
+                                  />
                                 ) : null}
 
                                 <Button
@@ -1596,6 +1540,48 @@ export function OwnerAdminConsole() {
           </SplitLayout>
         </div>
       </div>
+
+      {accountEditUser &&
+      accountEditUser.approvalStatus === "approved" &&
+      accountEditUser.role !== ROLES.owner ? (
+        <SystemAdminAccountEditDialog
+          key={`${accountEditUser.id}:${accountEditFormVersion}`}
+          data-component="desktop_system-admin_sections_account-edit-dialog"
+          open
+          account={accountEditUser}
+          branches={systemAdminBranchRequests
+            .filter(
+              (branch) => branch.isActive || branch.owner?.id === accountEditUser.id,
+            )
+            .map((branch) => ({
+              id: branch.id,
+              name: branch.name,
+              isActive: branch.isActive,
+            }))}
+          ownedBranchIds={systemAdminBranchRequests
+            .filter((branch) => branch.owner?.id === accountEditUser.id)
+            .map((branch) => branch.id)}
+          isPending={updateSystemAdminUserAccountMutation.isPending}
+          errorMessage={accountEditErrorMessage ?? undefined}
+          onOpenChange={(open) => {
+            if (!open) {
+              updateSystemAdminUserAccountMutation.reset();
+              setAccountEditErrorMessage(null);
+              setAccountEditFormVersion(0);
+              setAccountEditUserId(null);
+            }
+          }}
+          onSubmit={({ role, branchIds, expectedRole, expectedBranchIds }) =>
+            updateSystemAdminUserAccountMutation.mutate({
+              id: accountEditUser.id,
+              role,
+              branchIds,
+              expectedRole,
+              expectedBranchIds,
+            })
+          }
+        />
+      ) : null}
     </PageSection>
   );
 }

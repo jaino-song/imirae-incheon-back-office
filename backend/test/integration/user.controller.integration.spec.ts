@@ -65,6 +65,7 @@ describe("UserController (Integration)", () => {
             findById: jest.fn(),
             findByKakaoId: jest.fn(),
             update: jest.fn(),
+            updateAccountAssignment: jest.fn(),
             delete: jest.fn(),
             approve: jest.fn(),
             reject: jest.fn(),
@@ -581,6 +582,264 @@ describe("UserController (Integration)", () => {
                     }),
                 );
             });
+        });
+    });
+
+    // ============================================
+    // PATCH /users/:id - Backward-compatible global update
+    // ============================================
+    describe("PATCH /users/:id", () => {
+        it("keeps supporting the existing role-only update contract", async () => {
+            userService.update.mockResolvedValue(createMockUser({
+                id: "account-user",
+                role: "manager",
+            }));
+
+            const response = await request(app.getHttpServer())
+                .patch("/users/account-user")
+                .send({ role: "manager" });
+
+            expect(response.status).toBe(200);
+            expect(userService.update).toHaveBeenCalledWith("account-user", {
+                name: undefined,
+                email: undefined,
+                profileImage: undefined,
+                role: "manager",
+                callerRole: "owner",
+            });
+            expect(userService.updateAccountAssignment).not.toHaveBeenCalled();
+        });
+
+        it("keeps supporting existing profile updates", async () => {
+            const profileImage = "https://example.com/updated-profile.png";
+            userService.update.mockResolvedValue(createMockUser({
+                id: "account-user",
+                profileImage,
+            }));
+
+            const response = await request(app.getHttpServer())
+                .patch("/users/account-user")
+                .send({ profileImage });
+
+            expect(response.status).toBe(200);
+            expect(userService.update).toHaveBeenCalledWith("account-user", {
+                name: undefined,
+                email: undefined,
+                profileImage,
+                role: undefined,
+                callerRole: "owner",
+            });
+            expect(userService.updateAccountAssignment).not.toHaveBeenCalled();
+        });
+    });
+
+    // ============================================
+    // PATCH /users/:id/account-assignment
+    // ============================================
+    describe("PATCH /users/:id/account-assignment", () => {
+        const accountUserId = "33333333-3333-4333-8333-333333333333";
+        const existingAdminId = "44444444-4444-4444-8444-444444444444";
+        const branchIds = [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ];
+
+        it("passes the exact branch set and role to the owner-only account update service", async () => {
+            userService.updateAccountAssignment.mockResolvedValue({
+                id: "account-user",
+                name: "Account User",
+                email: "account@example.com",
+                role: "manager",
+                approvalStatus: "approved",
+                approvedAt: new Date("2026-07-13"),
+                approvedBy: "owner-user-id",
+                requestedRole: "manager",
+                tokenVersion: 2,
+            });
+
+            const response = await request(app.getHttpServer())
+                .patch(`/users/${accountUserId}/account-assignment`)
+                .send({
+                    role: "manager",
+                    branchIds,
+                    expectedRole: "admin",
+                    expectedBranchIds: branchIds,
+                });
+
+            expect(response.status).toBe(200);
+            expect(userService.updateAccountAssignment).toHaveBeenCalledWith(
+                accountUserId,
+                {
+                    role: "manager",
+                    branchIds,
+                    expectedRole: "admin",
+                    expectedBranchIds: branchIds,
+                    callerRole: "owner",
+                },
+            );
+            expect(userService.update).not.toHaveBeenCalled();
+        });
+
+        it("accepts admin at the DTO boundary so the service can enforce preserve-only semantics", async () => {
+            userService.updateAccountAssignment.mockResolvedValue({
+                id: "existing-admin",
+                name: "Existing Admin",
+                email: "admin@example.com",
+                role: "admin",
+                approvalStatus: "approved",
+                approvedAt: new Date("2026-07-13"),
+                approvedBy: "owner-user-id",
+                requestedRole: "admin",
+                tokenVersion: 2,
+            });
+
+            const response = await request(app.getHttpServer())
+                .patch(`/users/${existingAdminId}/account-assignment`)
+                .send({
+                    role: "admin",
+                    branchIds,
+                    expectedRole: "admin",
+                    expectedBranchIds: branchIds,
+                });
+
+            expect(response.status).toBe(200);
+            expect(userService.updateAccountAssignment).toHaveBeenCalledWith(
+                existingAdminId,
+                {
+                    role: "admin",
+                    branchIds,
+                    expectedRole: "admin",
+                    expectedBranchIds: branchIds,
+                    callerRole: "owner",
+                },
+            );
+        });
+
+        it("allows an empty expected branch snapshot", async () => {
+            userService.updateAccountAssignment.mockResolvedValue({
+                id: "account-user",
+                name: "Account User",
+                email: "account@example.com",
+                role: "manager",
+                approvalStatus: "approved",
+                approvedAt: new Date("2026-07-13"),
+                approvedBy: "owner-user-id",
+                requestedRole: "manager",
+                tokenVersion: 2,
+            });
+
+            const response = await request(app.getHttpServer())
+                .patch(`/users/${accountUserId}/account-assignment`)
+                .send({
+                    role: "manager",
+                    branchIds: [branchIds[0]],
+                    expectedRole: "user",
+                    expectedBranchIds: [],
+                });
+
+            expect(response.status).toBe(200);
+            expect(userService.updateAccountAssignment).toHaveBeenCalledWith(
+                accountUserId,
+                {
+                    role: "manager",
+                    branchIds: [branchIds[0]],
+                    expectedRole: "user",
+                    expectedBranchIds: [],
+                    callerRole: "owner",
+                },
+            );
+        });
+
+        it.each([
+            ["empty branch set", {
+                role: "manager",
+                branchIds: [],
+                expectedRole: "manager",
+                expectedBranchIds: branchIds,
+            }],
+            ["duplicate branch", {
+                role: "manager",
+                branchIds: [branchIds[0], branchIds[0]],
+                expectedRole: "manager",
+                expectedBranchIds: branchIds,
+            }],
+            ["non-UUID branch", {
+                role: "manager",
+                branchIds: ["not-a-uuid"],
+                expectedRole: "manager",
+                expectedBranchIds: branchIds,
+            }],
+            ["forbidden role", {
+                role: "owner",
+                branchIds: [branchIds[0]],
+                expectedRole: "manager",
+                expectedBranchIds: branchIds,
+            }],
+            ["missing expected role", {
+                role: "manager",
+                branchIds: [branchIds[0]],
+                expectedBranchIds: branchIds,
+            }],
+            ["missing expected branch snapshot", {
+                role: "manager",
+                branchIds: [branchIds[0]],
+                expectedRole: "manager",
+            }],
+            ["duplicate expected branch", {
+                role: "manager",
+                branchIds: [branchIds[0]],
+                expectedRole: "manager",
+                expectedBranchIds: [branchIds[0], branchIds[0]],
+            }],
+            ["non-UUID expected branch", {
+                role: "manager",
+                branchIds: [branchIds[0]],
+                expectedRole: "manager",
+                expectedBranchIds: ["not-a-uuid"],
+            }],
+            ["forbidden expected role", {
+                role: "manager",
+                branchIds: [branchIds[0]],
+                expectedRole: "owner",
+                expectedBranchIds: branchIds,
+            }],
+        ])("rejects %s at the validation boundary", async (_label, body) => {
+            const response = await request(app.getHttpServer())
+                .patch(`/users/${accountUserId}/account-assignment`)
+                .send(body);
+
+            expect(response.status).toBe(400);
+            expect(userService.updateAccountAssignment).not.toHaveBeenCalled();
+        });
+
+        it("rejects a non-UUID account id before invoking the assignment service", async () => {
+            const response = await request(app.getHttpServer())
+                .patch("/users/not-a-uuid/account-assignment")
+                .send({
+                    role: "manager",
+                    branchIds: [branchIds[0]],
+                    expectedRole: "manager",
+                    expectedBranchIds: [branchIds[0]],
+                });
+
+            expect(response.status).toBe(400);
+            expect(userService.updateAccountAssignment).not.toHaveBeenCalled();
+        });
+
+        it("keeps the account assignment route owner-only", async () => {
+            mockOwnerOnlyGuard.canActivate.mockImplementationOnce(() => false);
+
+            const response = await request(app.getHttpServer())
+                .patch(`/users/${accountUserId}/account-assignment`)
+                .send({
+                    role: "user",
+                    branchIds: [branchIds[0]],
+                    expectedRole: "manager",
+                    expectedBranchIds: branchIds,
+                });
+
+            expect(response.status).toBe(403);
+            expect(userService.updateAccountAssignment).not.toHaveBeenCalled();
         });
     });
 

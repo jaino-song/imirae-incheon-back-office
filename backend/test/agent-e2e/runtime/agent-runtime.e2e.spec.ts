@@ -725,11 +725,12 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
             const r1TargetVersion = (triggerService as unknown as {
                 ruleTargetVersion(rule: typeof r1Rule): string;
             }).ruleTargetVersion(r1Rule);
+            const r2TemplateKey = MessageTriggerTemplateKey.INFO;
 
             await expect(triggerService.updateRuleApprovedTarget(
                 BRANCH_ID,
                 ruleId,
-                { templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER },
+                { templateKey: r2TemplateKey },
                 r1TargetVersion,
                 targetSnapshot,
             )).resolves.toEqual(expect.objectContaining({
@@ -746,7 +747,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
             expect(r2Rule).not.toBeNull();
             expect(rebuiltJob).toEqual(expect.objectContaining({
                 status: "pending",
-                templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+                templateKey: r2TemplateKey,
                 dedupeKey,
                 createdAt: oldGenerationAt,
             }));
@@ -796,7 +797,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 clientId: client.id,
                 recipientType: MessageTriggerRecipientType.CLIENT,
                 recipientPhone: clientPhone,
-                templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+                templateKey: r2TemplateKey,
                 dedupeKey,
                 payload: rebuiltJob?.payload as unknown as MessageTriggerJobEntity["payload"],
             });
@@ -805,7 +806,7 @@ describeAgentE2E("Release A runtime with Postgres, Valkey, and the deterministic
                 r2Rule!.updatedAt,
                 false,
             )).resolves.toEqual(expect.objectContaining({
-                templateKey: MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+                templateKey: r2TemplateKey,
             }));
 
             await expect(triggerService.dispatchPendingJobNow(rebuiltJob!.id)).resolves.toEqual(

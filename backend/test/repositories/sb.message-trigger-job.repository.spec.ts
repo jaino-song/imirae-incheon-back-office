@@ -474,7 +474,7 @@ describe("SbMessageTriggerJobRepository", () => {
         const normalizedSqlText = sqlText.replace(/\s+/g, " ");
         expect(normalizedSqlText).toContain('ON CONFLICT ("dedupe_key") DO UPDATE SET');
         expect(normalizedSqlText).toContain(
-            'WHERE "message_trigger_job"."status" NOT IN (\'sent\', \'processing\')',
+            'WHERE "message_trigger_job"."status" IN (\'pending\', \'canceled\')',
         );
         expect(messageTriggerJobModel.findUnique).toHaveBeenCalledWith({
             where: { dedupeKey: "rule-1:client:1" },
@@ -515,7 +515,25 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(result.updatedAt).toEqual(rebuiltAt);
         const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
         expect(sqlText).toContain("date_trunc('milliseconds', clock_timestamp())");
-        expect(sqlText).toContain('WHERE "message_trigger_job"."status" NOT IN (\'sent\', \'processing\')');
+        expect(sqlText).toContain('WHERE "message_trigger_job"."status" IN (\'pending\', \'canceled\')');
+    });
+
+    it("does not resurrect a failed same-dedupe job after its message-log retry path takes ownership", async () => {
+        queryRaw.mockResolvedValueOnce([]);
+        messageTriggerJobModel.findUnique.mockResolvedValueOnce(createRow({
+            status: "failed",
+            attempts: 1,
+            cancelReason: "provider rejected",
+        }));
+
+        const result = await repository.upsertPending(createJob());
+
+        expect(result.status).toBe("failed");
+        expect(result.attempts).toBe(1);
+        const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
+        expect(sqlText).toContain(
+            'WHERE "message_trigger_job"."status" IN (\'pending\', \'canceled\')',
+        );
     });
 
     it("upsertPending's guarded WHERE clause excludes a user-canceled row from resurrection (resurrection guard)", async () => {
@@ -533,14 +551,12 @@ describe("SbMessageTriggerJobRepository", () => {
         expect(result.status).toBe("canceled");
 
         // Mutation-sensitive assertion: pins the guard's exact text so reverting or
-        // weakening the clause fails this test. Verified by hand (truth table) that
-        // this text blocks a status='canceled' AND canceled_by_user=true row (this
-        // guard) while still allowing status='canceled' AND canceled_by_user=false
-        // (internal cancel — see the "reactivates" test above) and status='failed'
-        // rows through, and continues blocking 'sent'/'processing' exactly as before.
+        // weakening the clause fails this test. The rule may refresh pending rows and
+        // reactivate internal cancellations, but failed rows belong exclusively to the
+        // message-log retry path and must not become a second provider submission.
         const sqlText = getSqlText(queryRaw.mock.calls[0][0]).replace(/\s+/g, " ");
         expect(sqlText).toContain(
-            "WHERE \"message_trigger_job\".\"status\" NOT IN ('sent', 'processing') "
+            "WHERE \"message_trigger_job\".\"status\" IN ('pending', 'canceled') "
             + "AND NOT (\"message_trigger_job\".\"status\" = 'canceled' AND \"message_trigger_job\".\"canceled_by_user\" = true)",
         );
     });

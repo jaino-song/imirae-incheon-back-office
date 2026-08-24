@@ -23,11 +23,13 @@ import {
   SteppedWizardPanelContent,
   DetailTabs,
   DetailTabPanels,
+  InfoCard,
   type SplitLayoutMode,
 } from "@/components/app/v3";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { TitleSelectMolecule } from "@/components/ui/title-select-molecule";
 import { TitleTextInputMolecule } from "@/components/ui/title-text-input-molecule";
 import { settingsApi } from "@/services/api";
@@ -40,6 +42,8 @@ import {
   useDeleteMessageTriggerRule,
 } from "@/features/message-triggers/hooks/use-message-triggers";
 import {
+  CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+  MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS,
   deriveAvailableTemplates,
   deriveEventTypesFromTemplates,
   deriveRecipientTypesFromTemplates,
@@ -58,6 +62,7 @@ import type {
   TriggerEventType,
   TriggerOffsetType,
   TriggerRecipientType,
+  TriggerTemplateCatalogItem,
   TriggerTemplateKey,
 } from "@/features/message-triggers/types";
 
@@ -155,6 +160,10 @@ const TRIGGER_RULE_DETAIL_TABS = [
 
 const TRIGGER_RULE_APPROVAL_MESSAGE =
   "메시지 발송 승인 후에 설정 가능합니다. 설정에서 메시지 발송 기능을 신청해 주세요.";
+
+const DEDICATED_TRIGGER_TEMPLATE_LABELS: Partial<Record<TriggerTemplateKey, string>> = {
+  SERVICE_RECORD_LINK: "제공기록지 작성 링크",
+};
 
 const TRIGGER_TEMPLATE_MESSAGE_FALLBACKS: Record<TriggerTemplateKey, string> = {
   CLIENT_WELCOME: `[아이미래 인천]
@@ -291,6 +300,10 @@ export function TriggerRulesManager({
     effectiveSelectedRuleId !== "new"
       ? rules.find((rule) => rule.id === effectiveSelectedRuleId) ?? null
       : null;
+  const isSelectedDedicatedRule = Boolean(
+    selectedRule
+    && !CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS.includes(selectedRule.templateKey),
+  );
 
   // Fetch all SMS templates in one query (no event/recipient filter), then derive
   // the event / recipient / template dropdowns from the catalog so future templates surface
@@ -317,22 +330,79 @@ export function TriggerRulesManager({
     [channelTemplates],
   );
 
-  const recipientOptions = useMemo(
-    () =>
-      getRecipientTypesForEvent(formState.eventType).map((recipientType) => ({
+  const recipientOptions = useMemo(() => {
+    const recipientTypes = isSelectedDedicatedRule && selectedRule
+      ? [selectedRule.recipientType]
+      : getRecipientTypesForEvent(formState.eventType);
+    return recipientTypes.map((recipientType) => ({
         value: recipientType,
         label: RECIPIENT_LABELS[recipientType],
-      })),
-    [getRecipientTypesForEvent, formState.eventType],
-  );
+      }));
+  }, [getRecipientTypesForEvent, formState.eventType, isSelectedDedicatedRule, selectedRule]);
 
-  const availableTemplates = useMemo(
-    () => deriveAvailableTemplates(channelTemplates, formState.eventType, formState.recipientType),
-    [channelTemplates, formState.eventType, formState.recipientType],
-  );
+  const availableTemplates = useMemo<TriggerTemplateCatalogItem[]>(() => {
+    if (isSelectedDedicatedRule && selectedRule) {
+      const currentTemplate = (templateQuery.data ?? []).find(
+        (template) => template.key === selectedRule.templateKey,
+      );
+      if (currentTemplate) return [currentTemplate];
+
+      return [{
+        key: selectedRule.templateKey,
+        name: selectedSystemTemplate?.name
+          ?? DEDICATED_TRIGGER_TEMPLATE_LABELS[selectedRule.templateKey]
+          ?? selectedRule.templateKey,
+        description: selectedSystemTemplate?.description ?? "전용 자동화에서 관리되는 메시지 템플릿입니다.",
+        allowedEventTypes: [selectedRule.eventType],
+        allowedRecipientTypes: [selectedRule.recipientType],
+        requiredVariables: (selectedSystemTemplate?.requiredVariables ?? []).map((variable) => ({
+          key: variable.key,
+          label: variable.label,
+        })),
+        providers: {
+          sms: {
+            templateKey: selectedSystemTemplateKey || selectedRule.templateKey,
+          },
+        },
+      }];
+    }
+    return deriveAvailableTemplates(channelTemplates, formState.eventType, formState.recipientType);
+  }, [
+    channelTemplates,
+    formState.eventType,
+    formState.recipientType,
+    isSelectedDedicatedRule,
+    selectedRule,
+    selectedSystemTemplate?.description,
+    selectedSystemTemplate?.name,
+    selectedSystemTemplate?.requiredVariables,
+    selectedSystemTemplateKey,
+    templateQuery.data,
+  ]);
   const selectedTemplate = useMemo(() => {
     return availableTemplates.find((template) => template.key === formState.templateKey) ?? null;
   }, [availableTemplates, formState.templateKey]);
+  const requiredTemplateVariables = useMemo(() => {
+    const variables = [...(selectedTemplate?.requiredVariables ?? [])];
+    const knownKeys = new Set(variables.map((variable) => variable.key));
+
+    for (const customVariable of selectedSystemTemplate?.customVariables ?? []) {
+      if (customVariable.required && !knownKeys.has(customVariable.key)) {
+        variables.push({ key: customVariable.key, label: customVariable.label });
+        knownKeys.add(customVariable.key);
+      }
+    }
+
+    return variables;
+  }, [selectedSystemTemplate?.customVariables, selectedTemplate?.requiredVariables]);
+  const unsupportedRequiredCustomVariables = useMemo(() => {
+    const automaticallyAvailableKeys = new Set(
+      MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS[formState.templateKey] ?? [],
+    );
+    return (selectedSystemTemplate?.customVariables ?? []).filter(
+      (variable) => variable.required && !automaticallyAvailableKeys.has(variable.key),
+    );
+  }, [formState.templateKey, selectedSystemTemplate?.customVariables]);
   const selectedTemplateMessage = selectedSystemTemplate?.content?.trim()
     ? selectedSystemTemplate.content
     : TRIGGER_TEMPLATE_MESSAGE_FALLBACKS[formState.templateKey];
@@ -386,6 +456,7 @@ export function TriggerRulesManager({
 
   useEffect(() => {
     // Wait until the catalog has loaded before reconciling the form against derived options.
+    if (isSelectedDedicatedRule) return;
     if (eventOptions.length === 0) return;
 
     if (!eventOptions.some((option) => option.value === formState.eventType)) {
@@ -417,9 +488,11 @@ export function TriggerRulesManager({
     formState.eventType,
     formState.recipientType,
     formState.offsetType,
+    isSelectedDedicatedRule,
   ]);
 
   useEffect(() => {
+    if (isSelectedDedicatedRule) return;
     if (availableTemplates.length === 0) return;
     if (!availableTemplates.some((template) => template.key === formState.templateKey)) {
       setFormState((current) => ({
@@ -427,7 +500,7 @@ export function TriggerRulesManager({
         templateKey: availableTemplates[0].key,
       }));
     }
-  }, [availableTemplates, formState.templateKey]);
+  }, [availableTemplates, formState.templateKey, isSelectedDedicatedRule]);
 
   const listItems = useMemo<RuleListItem[]>(() => {
     return filteredRules.map((rule): TriggerRuleListItem => ({
@@ -499,6 +572,14 @@ export function TriggerRulesManager({
   const handleSave = async () => {
     if (isTriggerRulesLocked) return;
     const dto = normalizeDto(formState);
+
+    if (unsupportedRequiredCustomVariables.length > 0) {
+      toast({
+        variant: "destructive",
+        description: "자동 입력할 수 없는 필수 변수가 있어 규칙을 저장할 수 없어요",
+      });
+      return;
+    }
 
     if (!dto.name.trim()) {
       toast({ variant: "destructive", description: "규칙 이름을 입력해 주세요" });
@@ -693,7 +774,7 @@ export function TriggerRulesManager({
                     size="sm"
                     width="sm"
                     onClick={handleSave}
-                    disabled={!hasChanges || isSaving}
+                    disabled={!hasChanges || isSaving || unsupportedRequiredCustomVariables.length > 0}
                     data-component={component("trigger-rules-save")}
                   >
                     {isSaving ? "저장 중..." : "저장"}
@@ -737,6 +818,7 @@ export function TriggerRulesManager({
                             label: option.label,
                             value: option.value,
                           }))}
+                          disabled={isSelectedDedicatedRule}
                           onValueChange={(value) => {
                             const nextEventType = value as TriggerEventType;
                             const nextRecipient =
@@ -760,6 +842,7 @@ export function TriggerRulesManager({
                           label="발송 시점"
                           value={formState.offsetType}
                           options={OFFSET_OPTIONS[formState.eventType]}
+                          disabled={isSelectedDedicatedRule}
                           onValueChange={(value) => {
                             const nextOffsetType = value as TriggerOffsetType;
 
@@ -781,6 +864,7 @@ export function TriggerRulesManager({
                           label="수신 대상"
                           value={formState.recipientType}
                           options={recipientOptions}
+                          disabled={isSelectedDedicatedRule}
                           onValueChange={(value) =>
                             setFormState((current) => ({
                               ...current,
@@ -817,6 +901,7 @@ export function TriggerRulesManager({
                             label: template.name,
                             value: template.key,
                           }))}
+                          disabled={isSelectedDedicatedRule}
                           onValueChange={(value) =>
                             setFormState((current) => ({
                               ...current,
@@ -826,6 +911,62 @@ export function TriggerRulesManager({
                           dataComponent={component("trigger-rules-template")}
                           triggerDataComponent={component("trigger-rules-template-select")}
                         />
+
+                        <InfoCard
+                          title="필수 자동 입력 정보"
+                          description={requiredTemplateVariables.length > 0
+                            ? "발송 전에 아래 정보가 준비되어 있는지 확인해 주세요."
+                            : "이 템플릿은 추가 정보 없이 발송할 수 있습니다."}
+                          data-component={component("trigger-rules-required-variables")}
+                          className="md:col-span-2"
+                        >
+                          <div
+                            data-component={component("trigger-rules-required-variables-content")}
+                            data-slot="required-variables-content"
+                            className="grid gap-[calc(12px*var(--glint-ui-scale,1))]"
+                          >
+                            <p
+                              data-component={component("trigger-rules-required-variables-guidance")}
+                              data-slot="required-variables-guidance"
+                              className="text-[calc(12px*var(--glint-ui-scale,1))] leading-relaxed text-v3-text-muted"
+                            >
+                              {requiredTemplateVariables.length > 0
+                                ? "고객 정보에서 자동으로 입력되며, 필수값이 비어 있으면 잘못된 메시지 대신 발송이 안전하게 중단됩니다."
+                                : "추가 입력 없이 저장된 메시지 내용 그대로 발송됩니다."}
+                              {formState.templateKey === "PRICE_INFO"
+                                ? " 비용 안내는 고객의 관할 지역과 계좌 정보가 모두 필요합니다."
+                                : ""}
+                            </p>
+                            {requiredTemplateVariables.length > 0 ? (
+                              <div
+                                data-component={component("trigger-rules-required-variable-list")}
+                                data-slot="required-variable-list"
+                                className="flex flex-wrap gap-[calc(8px*var(--glint-ui-scale,1))]"
+                              >
+                                {requiredTemplateVariables.map((variable) => (
+                                  <Badge
+                                    key={variable.key}
+                                    variant="outline"
+                                    data-component={component(`trigger-rules-required-variable-${variable.key}`)}
+                                  >
+                                    {variable.label}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : null}
+                            {unsupportedRequiredCustomVariables.length > 0 ? (
+                              <p
+                                data-component={component("trigger-rules-required-custom-variable-warning")}
+                                data-slot="required-custom-variable-warning"
+                                className="text-[calc(12px*var(--glint-ui-scale,1))] leading-relaxed text-v3-burgundy"
+                              >
+                                자동 입력 출처가 없는 필수 변수(
+                                {unsupportedRequiredCustomVariables.map((variable) => variable.label).join(", ")}
+                                )가 있어 이 규칙을 저장할 수 없습니다. 템플릿 변수를 기본 고객 정보에 연결해 주세요.
+                              </p>
+                            ) : null}
+                          </div>
+                        </InfoCard>
                       </SteppedWizardPanelContent>
                     ),
                   },

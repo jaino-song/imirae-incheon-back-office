@@ -87,6 +87,14 @@ type QueryOptions = {
 interface SettingsQueryState {
   providerEnabled?: boolean;
   senderApproved?: boolean;
+  systemTemplate?: {
+    id: string;
+    templateKey: string;
+    content: string;
+    customVariables: Array<{ key: string; label: string; required: boolean }>;
+    requiredVariables: Array<{ key: string; label: string; required: boolean; type: string }>;
+    updatedAt: string;
+  };
 }
 
 function useQueryResult<TData>(data: TData, isLoading = false): ReturnType<typeof useQuery> {
@@ -99,6 +107,7 @@ function useQueryResult<TData>(data: TData, isLoading = false): ReturnType<typeo
 function mockSettingsQueries({
   providerEnabled = false,
   senderApproved = false,
+  systemTemplate,
 }: SettingsQueryState = {}) {
   mockedUseQuery.mockImplementation((options: QueryOptions) => {
     const queryKey = options.queryKey ?? [];
@@ -111,6 +120,10 @@ function mockSettingsQueries({
         requestedAt: null,
         approvedAt: senderApproved ? "2026-06-05T00:00:00.000Z" : null,
       });
+    }
+
+    if (queryKey.includes("system-templates")) {
+      return useQueryResult(systemTemplate);
     }
 
     return useQueryResult({
@@ -300,5 +313,192 @@ describe("TriggerRulesManager", () => {
       "aria-checked",
       "true",
     );
+  });
+
+  it("preserves a dedicated service-record rule while editing its name", async () => {
+    mockSettingsQueries({
+      providerEnabled: true,
+      senderApproved: true,
+      systemTemplate: {
+        id: "template-service-record-link",
+        templateKey: "SERVICE_RECORD_LINK",
+        content: "{{employeeName}}님 {{serviceRecordUrl}} {{buttonUrl}} {{serviceEndDate}}",
+        customVariables: [
+          { key: "buttonUrl", label: "버튼 링크", required: true },
+          { key: "serviceEndDate", label: "서비스 종료일", required: true },
+        ],
+        requiredVariables: [
+          { key: "employeeName", label: "제공인력명", required: true, type: "string" },
+          { key: "serviceRecordUrl", label: "제공기록지 링크", required: true, type: "string" },
+        ],
+        updatedAt: "2026-08-24T00:00:00.000Z",
+      },
+    });
+    const mutateAsync = jest.fn().mockResolvedValue(undefined);
+    mockedUseUpdateMessageTriggerRule.mockReturnValue({
+      isPending: false,
+      mutateAsync,
+    } as unknown as ReturnType<typeof useUpdateMessageTriggerRule>);
+    mockedUseMessageTriggerRules.mockReturnValue({
+      data: [
+        {
+          id: "system:service-record-link",
+          branchId: "org-1",
+          name: "제공기록지 전송 자동화 규칙",
+          isActive: true,
+          eventType: "SERVICE_START",
+          offsetType: "SAME_DAY",
+          offsetDays: 0,
+          recipientType: "PRIMARY_EMPLOYEE",
+          templateKey: "SERVICE_RECORD_LINK",
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMessageTriggerRules>);
+    mockedUseMessageTriggerTemplates.mockReturnValue({
+      data: [
+        {
+          key: "SERVICE_INFO",
+          name: "서비스 안내",
+          description: "서비스 시작 전에 안내합니다.",
+          allowedEventTypes: ["SERVICE_START"],
+          allowedRecipientTypes: ["CLIENT"],
+          requiredVariables: [],
+          providers: { sms: { templateKey: "SERVICE_INFO" } },
+        },
+      ],
+    } as unknown as ReturnType<typeof useMessageTriggerTemplates>);
+
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
+    fireEvent.click(screen.getByText("제공기록지 전송 자동화 규칙"));
+
+    const nameInput = await screen.findByLabelText("규칙 이름");
+    expect(screen.getByLabelText("이벤트 기준")).toBeDisabled();
+    expect(screen.getByLabelText("발송 시점")).toBeDisabled();
+    expect(screen.getByLabelText("수신 대상")).toBeDisabled();
+    expect(screen.getByLabelText("발송 템플릿")).toBeDisabled();
+    expect(screen.getByLabelText("이벤트 기준")).toHaveTextContent("서비스 시작");
+    expect(screen.getByLabelText("발송 시점")).toHaveTextContent("시작 당일");
+    expect(screen.getByLabelText("수신 대상")).toHaveTextContent("주 담당 직원");
+    expect(screen.getByLabelText("발송 템플릿")).toHaveTextContent("제공기록지 작성 링크");
+    expect(screen.getByText("제공인력명")).toBeInTheDocument();
+    expect(screen.getByText("제공기록지 링크")).toBeInTheDocument();
+    expect(screen.getByText("버튼 링크")).toBeInTheDocument();
+    expect(screen.getByText("서비스 종료일")).toBeInTheDocument();
+
+    fireEvent.change(nameInput, { target: { value: "제공기록지 링크 발송" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      id: "system:service-record-link",
+      dto: {
+        name: "제공기록지 링크 발송",
+        isActive: true,
+        eventType: "SERVICE_START",
+        offsetType: "SAME_DAY",
+        offsetDays: 0,
+        recipientType: "PRIMARY_EMPLOYEE",
+        templateKey: "SERVICE_RECORD_LINK",
+      },
+    });
+  });
+
+  it("shows every required auto-filled variable for the selected template", async () => {
+    mockSettingsQueries({ providerEnabled: true, senderApproved: true });
+    mockedUseMessageTriggerTemplates.mockReturnValue({
+      data: [
+        {
+          key: "PRICE_INFO",
+          name: "비용 안내",
+          description: "고객에게 비용과 입금 계좌를 안내합니다.",
+          allowedEventTypes: ["SERVICE_START"],
+          allowedRecipientTypes: ["CLIENT"],
+          requiredVariables: [
+            { key: "name", label: "산모님 성함" },
+            { key: "weeks", label: "주수" },
+            { key: "duration", label: "이용일수" },
+            { key: "type", label: "바우처 유형" },
+            { key: "fullPrice", label: "총 금액" },
+            { key: "grant", label: "정부지원금" },
+            { key: "actualPrice", label: "본인부담금" },
+            { key: "bankName", label: "입금 은행" },
+            { key: "accNum", label: "계좌번호" },
+          ],
+          providers: { sms: { templateKey: "PRICE_INFO" } },
+        },
+      ],
+    } as unknown as ReturnType<typeof useMessageTriggerTemplates>);
+
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
+    fireEvent.click(screen.getByRole("button", { name: "새 규칙" }));
+
+    expect(await screen.findByText("필수 자동 입력 정보")).toBeInTheDocument();
+    for (const label of [
+      "산모님 성함",
+      "주수",
+      "이용일수",
+      "바우처 유형",
+      "총 금액",
+      "정부지원금",
+      "본인부담금",
+      "입금 은행",
+      "계좌번호",
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByText(/고객 정보에서 자동으로 입력/)).toBeInTheDocument();
+    expect(screen.getByText(/관할 지역과 계좌 정보/)).toBeInTheDocument();
+  });
+
+  it("creates a valid catalog-backed rule from the new-rule form", async () => {
+    mockSettingsQueries({ providerEnabled: true, senderApproved: true });
+    const mutateAsync = jest.fn().mockResolvedValue({ id: "rule-created" });
+    mockedUseCreateMessageTriggerRule.mockReturnValue({
+      isPending: false,
+      mutateAsync,
+    } as unknown as ReturnType<typeof useCreateMessageTriggerRule>);
+
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
+    fireEvent.click(screen.getByRole("button", { name: "새 규칙" }));
+    fireEvent.change(screen.getByLabelText("규칙 이름"), {
+      target: { value: "서비스 시작 7일 전 안내" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      name: "서비스 시작 7일 전 안내",
+      isActive: true,
+      eventType: "SERVICE_START",
+      offsetType: "BEFORE_DAYS",
+      offsetDays: 7,
+      recipientType: "CLIENT",
+      templateKey: "SERVICE_INFO",
+    });
+  });
+
+  it("blocks an automation rule when a required custom variable has no automatic source", async () => {
+    mockSettingsQueries({
+      providerEnabled: true,
+      senderApproved: true,
+      systemTemplate: {
+        id: "template-service-info",
+        templateKey: "SERVICE_INFO",
+        content: "{{name}} 산모님 예약번호 {{reservationCode}}",
+        customVariables: [{ key: "reservationCode", label: "예약번호", required: true }],
+        requiredVariables: [{ key: "name", label: "산모님 성함", required: true, type: "string" }],
+        updatedAt: "2026-08-24T00:00:00.000Z",
+      },
+    });
+
+    render(<TriggerRulesManager dataComponent="desktop_messages_sections_section-content_triggers-section_trigger-rules" />);
+    fireEvent.click(screen.getByRole("button", { name: "새 규칙" }));
+    fireEvent.change(screen.getByLabelText("규칙 이름"), {
+      target: { value: "예약번호가 필요한 규칙" },
+    });
+
+    expect(await screen.findByText(/자동 입력 출처가 없는 필수 변수/)).toHaveTextContent("예약번호");
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
   });
 });
