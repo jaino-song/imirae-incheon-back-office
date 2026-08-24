@@ -21,6 +21,7 @@ readonly DIRECT_SUCCESS_LIMIT="3"
 readonly NORMAL_ROUNDTRIP_LIMIT="2"
 readonly NORMAL_ROUNDTRIP_WINDOW_SECONDS="21600"
 readonly HOST_ROUTE_COOLDOWN_SECONDS="300"
+readonly REQUEST_HISTORY_LIMIT="32"
 readonly SHARED_PROBE_MIN_INTERVAL_SECONDS="45"
 readonly SHARED_PROBE_MAX_INTERVAL_SECONDS="90"
 readonly SHARED_FAILBACK_MIN_ELAPSED_SECONDS="1740"
@@ -235,6 +236,7 @@ write_route_state() {
         printf 'normal_roundtrip_history=%s\n' "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY"
         printf 'cooldown_until=%s\n' "$ROUTE_STATE_COOLDOWN_UNTIL"
         printf 'last_request_id=%s\n' "$ROUTE_STATE_LAST_REQUEST_ID"
+        printf 'request_history=%s\n' "$ROUTE_STATE_REQUEST_HISTORY"
         printf 'last_probe_route=%s\n' "$ROUTE_STATE_LAST_PROBE_ROUTE"
         printf 'last_probe_result=%s\n' "$ROUTE_STATE_LAST_PROBE_RESULT"
         printf 'last_probe_at=%s\n' "$ROUTE_STATE_LAST_PROBE_AT"
@@ -277,6 +279,7 @@ initialize_route_state() {
     ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY=""
     ROUTE_STATE_COOLDOWN_UNTIL="0"
     ROUTE_STATE_LAST_REQUEST_ID=""
+    ROUTE_STATE_REQUEST_HISTORY=""
     ROUTE_STATE_LAST_PROBE_ROUTE=""
     ROUTE_STATE_LAST_PROBE_RESULT="none"
     ROUTE_STATE_LAST_PROBE_AT="0"
@@ -327,6 +330,8 @@ set_route_state_defaults() {
     ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY=""
     ROUTE_STATE_COOLDOWN_UNTIL=""
     ROUTE_STATE_LAST_REQUEST_ID=""
+    ROUTE_STATE_REQUEST_HISTORY=""
+    ROUTE_STATE_REQUEST_HISTORY_NEEDS_PERSIST=false
     ROUTE_STATE_LAST_PROBE_ROUTE=""
     ROUTE_STATE_LAST_PROBE_RESULT=""
     ROUTE_STATE_LAST_PROBE_AT=""
@@ -360,6 +365,20 @@ validate_state_history() {
         validate_state_timestamp "$item" || return 1
         (( item >= previous )) || return 1
         previous="$item"
+    done
+}
+
+validate_request_history() {
+    local history="${1:-}"
+    local request_id
+    local history_count=0
+
+    [[ -z "$history" ]] && return 0
+    IFS=',' read -r -a request_history_items <<<"$history"
+    history_count="${#request_history_items[@]}"
+    (( history_count <= REQUEST_HISTORY_LIMIT )) || return 1
+    for request_id in "${request_history_items[@]}"; do
+        is_uuid "$request_id" || return 1
     done
 }
 
@@ -398,6 +417,9 @@ validate_state_value() {
         last_request_id)
             [[ -z "$state_value" ]] || is_uuid "$state_value"
             ;;
+        request_history)
+            validate_request_history "$state_value"
+            ;;
         last_probe_result|last_result|terminal_reason)
             [[ -z "$state_value" ]] || is_state_token "$state_value"
             ;;
@@ -413,6 +435,7 @@ load_route_state() {
     local state_line
     local required_state_key
     local seen_state_keys=" "
+    local request_history_present=false
 
     ensure_route_state
     set_route_state_defaults
@@ -446,6 +469,10 @@ load_route_state() {
             normal_roundtrip_history) ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY="$state_value" ;;
             cooldown_until) ROUTE_STATE_COOLDOWN_UNTIL="$state_value" ;;
             last_request_id) ROUTE_STATE_LAST_REQUEST_ID="$state_value" ;;
+            request_history)
+                ROUTE_STATE_REQUEST_HISTORY="$state_value"
+                request_history_present=true
+                ;;
             last_probe_route) ROUTE_STATE_LAST_PROBE_ROUTE="$state_value" ;;
             last_probe_result) ROUTE_STATE_LAST_PROBE_RESULT="$state_value" ;;
             last_probe_at) ROUTE_STATE_LAST_PROBE_AT="$state_value" ;;
@@ -470,6 +497,16 @@ load_route_state() {
 
     [[ "$ROUTE_STATE_VERSION" == "$ROUTE_STATE_FORMAT_VERSION" ]] \
         || die "Unsupported route state version; refusing implicit migration."
+    if [[ "$request_history_present" != true ]]; then
+        # Version 2 state files written before request history was introduced
+        # have one durable request marker. Preserve it as the initial bounded
+        # history before allowing a reconcile to run. The marker is persisted
+        # by the next reconcile write so read-only status checks remain safe.
+        ROUTE_STATE_REQUEST_HISTORY="$ROUTE_STATE_LAST_REQUEST_ID"
+        validate_request_history "$ROUTE_STATE_REQUEST_HISTORY" \
+            || die "Unable to seed request history from route state."
+        ROUTE_STATE_REQUEST_HISTORY_NEEDS_PERSIST=true
+    fi
     validate_state_counter "$ROUTE_STATE_GENERATION" \
         || die "Route state generation is missing."
     is_route "$ROUTE_STATE_ACTIVE_ROUTE" \
@@ -1000,6 +1037,52 @@ prune_normal_roundtrip_history() {
     ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY="$pruned_history"
 }
 
+request_history_contains() {
+    local request_id="$1"
+    local history_item
+
+    is_uuid "$request_id" || die "Invalid request history lookup ID."
+    validate_request_history "$ROUTE_STATE_REQUEST_HISTORY" \
+        || die "Invalid request history."
+    [[ -n "$ROUTE_STATE_REQUEST_HISTORY" ]] || return 1
+    IFS=',' read -r -a request_history_items <<<"$ROUTE_STATE_REQUEST_HISTORY"
+    for history_item in "${request_history_items[@]}"; do
+        [[ "$history_item" == "$request_id" ]] && return 0
+    done
+    return 1
+}
+
+remember_request_id() {
+    local request_id="$1"
+    local history_item
+    local next_history=""
+
+    is_uuid "$request_id" || die "Invalid request history ID."
+    validate_request_history "$ROUTE_STATE_REQUEST_HISTORY" \
+        || die "Invalid request history."
+    if [[ -n "$ROUTE_STATE_REQUEST_HISTORY" ]]; then
+        IFS=',' read -r -a request_history_items <<<"$ROUTE_STATE_REQUEST_HISTORY"
+        for history_item in "${request_history_items[@]}"; do
+            [[ "$history_item" == "$request_id" ]] && continue
+            if [[ -n "$next_history" ]]; then
+                next_history+=",$history_item"
+            else
+                next_history="$history_item"
+            fi
+        done
+    fi
+    if [[ -n "$next_history" ]]; then
+        next_history+=",$request_id"
+    else
+        next_history="$request_id"
+    fi
+    IFS=',' read -r -a request_history_items <<<"$next_history"
+    while ((${#request_history_items[@]} > REQUEST_HISTORY_LIMIT)); do
+        request_history_items=("${request_history_items[@]:1}")
+    done
+    ROUTE_STATE_REQUEST_HISTORY="$(IFS=','; printf '%s' "${request_history_items[*]}")"
+}
+
 reserve_normal_roundtrip() {
     local now="$1"
     local history_count=0
@@ -1384,10 +1467,14 @@ db_reconcile() {
     RECONCILE_DIRECT_OK=null
     RECONCILE_OUTPUT_PERSIST=true
 
-    if [[ "$ROUTE_STATE_LAST_REQUEST_ID" == "$request_id" ]]; then
+    if request_history_contains "$request_id"; then
         RECONCILE_SHARED_OK="$ROUTE_STATE_LAST_SHARED_OK"
         RECONCILE_DIRECT_OK="$ROUTE_STATE_LAST_DIRECT_OK"
         RECONCILE_OUTPUT_PERSIST=false
+        if [[ "$ROUTE_STATE_REQUEST_HISTORY_NEEDS_PERSIST" == true ]]; then
+            write_route_state
+            ROUTE_STATE_REQUEST_HISTORY_NEEDS_PERSIST=false
+        fi
         reconcile_output "$ROUTE_STATE_LAST_RESULT"
         return 0
     fi
@@ -1397,6 +1484,8 @@ db_reconcile() {
     prune_normal_roundtrip_history "$now"
     ROUTE_STATE_GENERATION=$((ROUTE_STATE_GENERATION + 1))
     ROUTE_STATE_LAST_REQUEST_ID="$request_id"
+    remember_request_id "$request_id"
+    ROUTE_STATE_REQUEST_HISTORY_NEEDS_PERSIST=false
     ROUTE_STATE_LAST_RESULT="reconcile_started"
     write_route_state
 

@@ -75,6 +75,10 @@ source "$OPERATOR_SCRIPT"
 valid_uuid="123e4567-e89b-12d3-a456-426614174000"
 second_uuid="223e4567-e89b-12d3-a456-426614174000"
 third_uuid="323e4567-e89b-12d3-a456-426614174000"
+
+request_id_for_index() {
+    printf '423e4567-e89b-42d3-a456-%012x\n' "$1"
+}
 configure_environment preview
 
 acquire_lock() { :; }
@@ -196,6 +200,7 @@ reset_state() {
     ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY=""
     ROUTE_STATE_COOLDOWN_UNTIL=0
     ROUTE_STATE_LAST_REQUEST_ID=""
+    ROUTE_STATE_REQUEST_HISTORY=""
     ROUTE_STATE_LAST_PROBE_ROUTE=""
     ROUTE_STATE_LAST_PROBE_RESULT=none
     ROUTE_STATE_LAST_PROBE_AT=0
@@ -265,6 +270,30 @@ run_reconcile "$second_uuid" "$output_file"
 [[ "$RUN_OUTPUT" == "$second_output" ]] || fail "duplicate reconcile did not return the prior envelope"
 [[ "$probe_shared_index" == "$probe_count_before_duplicate" ]] || fail "duplicate reconcile re-ran probes"
 [[ "$ROUTE_STATE_SHARED_FAILURE_COUNT" == "$shared_failures_before_duplicate" ]] || fail "duplicate reconcile changed counters"
+
+# A request remains read-only after another request interleaves. The bounded
+# durable history prevents the one-slot last-request marker from re-executing A.
+reset_state
+probe_shared_outcomes=(ok ok ok)
+run_reconcile "$valid_uuid" "$output_file"
+run_reconcile "$second_uuid" "$output_file"
+probe_count_before_interleaved_replay="$probe_shared_index"
+generation_before_interleaved_replay="$ROUTE_STATE_GENERATION"
+run_reconcile "$valid_uuid" "$output_file"
+[[ "$RUN_STATUS" -eq 0 && "$ROUTE_STATE_GENERATION" == "$generation_before_interleaved_replay" \
+    && "$probe_shared_index" == "$probe_count_before_interleaved_replay" ]] \
+    || fail "interleaved old request re-executed host reconciliation"
+assert_complete_envelope "$RUN_OUTPUT"
+
+# The replay history is bounded, while retaining the full interleaving window.
+reset_state
+probe_shared_outcomes=()
+for request_index in $(seq 0 32); do
+    probe_shared_outcomes+=(ok)
+    run_reconcile "$(request_id_for_index "$request_index")" "$output_file"
+done
+IFS=',' read -r -a request_history_items <<<"$ROUTE_STATE_REQUEST_HISTORY"
+[[ "${#request_history_items[@]}" == "32" ]] || fail "request history exceeded its bound"
 
 reset_state
 probe_shared_outcomes=(fail)

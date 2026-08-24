@@ -6,6 +6,7 @@ import {
   ELIGIBLE_ACTION,
   ELIGIBLE_RESOURCE,
   FAILOVER_SIGNAL_CLASS,
+  PHASES,
   ROUTES,
   makeDeterministicRequestId,
   parseBoolean,
@@ -41,6 +42,11 @@ const TERMINAL_COMMAND_STATUSES = new Set([
   'Terminated',
 ]);
 
+const SWITCHING_PHASES = new Set([
+  PHASES.SWITCHING_TO_DIRECT,
+  PHASES.SWITCHING_TO_SHARED,
+]);
+
 class LeaseUnavailableError extends Error {
   constructor() {
     super('failover state lease is held by another worker');
@@ -54,6 +60,15 @@ class InvalidQueueMessageError extends Error {
     super('invalid failover queue message');
     this.name = 'InvalidQueueMessageError';
     this.retryable = false;
+  }
+}
+
+class CurrentRequestDeferredError extends Error {
+  constructor() {
+    super('current request was deferred while reconciling another SSM command');
+    this.name = 'CurrentRequestDeferredError';
+    this.code = 'CURRENT_REQUEST_DEFERRED';
+    this.retryable = true;
   }
 }
 
@@ -219,9 +234,11 @@ export function createSsmObserver({
           commandId: state.ssmCommandId,
           requestId: state.ssmRequestId,
           commandComplete: true,
+          identity: state.ssmRequestIdentity,
         };
       }
       const expectedRequestId = state.ssmRequestId;
+      const expectedIdentity = state.ssmRequestIdentity;
       const invocations = await client.send(new commands.ListCommandInvocationsCommand({
         CommandId: state.ssmCommandId,
         Details: true,
@@ -234,6 +251,7 @@ export function createSsmObserver({
           controlPlaneError: 'SSM_INVOCATION_MISSING',
           commandId: state.ssmCommandId,
           requestId: expectedRequestId,
+          identity: expectedIdentity,
         };
       }
       const invocation = entries[0];
@@ -253,6 +271,7 @@ export function createSsmObserver({
           commandId: state.ssmCommandId,
           requestId: expectedRequestId,
           commandComplete: terminal,
+          identity: expectedIdentity,
         };
       }
       return {
@@ -261,7 +280,7 @@ export function createSsmObserver({
         commandId: state.ssmCommandId,
         requestId: expectedRequestId,
         commandComplete: terminal,
-        identity,
+        identity: expectedIdentity,
       };
     }
 
@@ -281,12 +300,22 @@ export function createSsmObserver({
     };
   }
 
+  observe.requiresDispatchAttemptPersistence = true;
   return { observe, sendFixedCommand };
 }
 
 function stopReason(state) {
   if (isHostTerminalPhase(state.phase)) return 'host_terminal';
   if (state.controlPlaneStatus === CONTROL_PLANE_STATUS.BLOCKED) return 'control_plane_blocked';
+  if (state.ssmDispatchAttempted === true && !state.ssmCommandId) return 'ssm_command_state_uncertain';
+  if (
+    SWITCHING_PHASES.has(state.phase)
+    && state.ssmRecoveryRequestId
+    && !state.ssmCommandId
+    && state.controlPlaneStatus !== CONTROL_PLANE_STATUS.OK
+  ) {
+    return 'transition_recovery_unavailable';
+  }
   return null;
 }
 
@@ -308,7 +337,79 @@ function requestIdForSchedule(event) {
   return makeDeterministicRequestId(identityForSchedule(event));
 }
 
-async function prepareRequest({ state, stateStore, owner, generation, now, requestId, identity }) {
+function transitionRecoveryIdentity(state) {
+  const transition = state.transition ?? {};
+  return [
+    'recovery',
+    state.phase,
+    transition.previousRoute ?? 'none',
+    transition.targetRoute ?? 'none',
+    transition.startedAt ?? 0,
+    transition.generation ?? 0,
+  ].join(':');
+}
+
+function transitionRecoveryRequestId(state) {
+  return makeDeterministicRequestId(transitionRecoveryIdentity(state));
+}
+
+function hasRecoverableTransition(state) {
+  const transition = state.transition;
+  if (!transition || transition.terminalReason !== null
+    || !Number.isSafeInteger(transition.startedAt)
+    || transition.startedAt <= 0
+    || !Number.isSafeInteger(transition.generation)
+    || transition.generation <= 0) {
+    return false;
+  }
+  if (state.phase === PHASES.SWITCHING_TO_DIRECT) {
+    return transition.previousRoute === ROUTES.SHARED && transition.targetRoute === ROUTES.DIRECT;
+  }
+  if (state.phase === PHASES.SWITCHING_TO_SHARED) {
+    return transition.previousRoute === ROUTES.DIRECT && transition.targetRoute === ROUTES.SHARED;
+  }
+  return false;
+}
+
+function shouldRecoverTransition(state, observation) {
+  return observation?.controlPlaneOk !== true
+    && observation?.controlPlaneTerminal === true
+    && !observation?.hostEnvelope
+    && SWITCHING_PHASES.has(state.phase)
+    && hasRecoverableTransition(state)
+    && state.ssmRecoveryRequestId !== transitionRecoveryRequestId(state);
+}
+
+function bindObservationOwner(state, observation, { requestId, identity }) {
+  const observed = observation ?? {};
+  const ownerRequestId = state.ssmRequestId
+    ?? observed.requestId
+    ?? observed.hostEnvelope?.requestId
+    ?? requestId;
+  const ownerIdentity = state.ssmRequestIdentity
+    ?? (state.ssmCommandId ? undefined : (observed.identity ?? identity));
+  return {
+    ...observed,
+    requestId: ownerRequestId,
+    identity: ownerIdentity,
+  };
+}
+
+function observationBelongsToRequest(observation, { requestId, identity }) {
+  return observation?.requestId === requestId
+    && (observation.identity === undefined || observation.identity === identity);
+}
+
+async function prepareRequest({
+  state,
+  stateStore,
+  owner,
+  generation,
+  now,
+  requestId,
+  identity,
+  dispatchAttempted = false,
+}) {
   if (state.ssmCommandId) return state;
   const reusable = state.ssmRequestId === requestId
     && state.ssmRequestIdentity === identity
@@ -317,12 +418,45 @@ async function prepareRequest({ state, stateStore, owner, generation, now, reque
     ...state,
     ssmRequestId: reusable ? state.ssmRequestId : requestId,
     ssmRequestIdentity: identity,
+    ssmDispatchAttempted: dispatchAttempted || state.ssmDispatchAttempted === true,
     controlPlaneStatus: CONTROL_PLANE_STATUS.IN_FLIGHT,
     controlPlaneError: null,
     updatedAt: now(),
   };
   await saveHostMirror(stateStore, next, { owner, generation, now: now() });
   return next;
+}
+
+async function prepareTransitionRecovery({
+  state,
+  stateStore,
+  owner,
+  generation,
+  now,
+  observe,
+}) {
+  const identity = transitionRecoveryIdentity(state);
+  const requestId = makeDeterministicRequestId(identity);
+  const seeded = {
+    ...state,
+    ssmCommandId: null,
+    ssmRequestId: null,
+    ssmRequestIdentity: null,
+    ssmDispatchAttempted: false,
+    ssmRecoveryRequestId: requestId,
+    ssmRecoveryIdentity: identity,
+  };
+  const prepared = await prepareRequest({
+    state: seeded,
+    stateStore,
+    owner,
+    generation,
+    now,
+    requestId,
+    identity,
+    dispatchAttempted: observe.requiresDispatchAttemptPersistence === true,
+  });
+  return { state: prepared, requestId, identity };
 }
 
 async function saveHostMirror(stateStore, state, options) {
@@ -336,12 +470,18 @@ async function saveHostMirrorAndMarkFingerprint(stateStore, state, options) {
 }
 
 function applyObservation(state, observation, { now, environment, requestId }) {
+  const ownerRequestId = state.ssmRequestId
+    ?? observation?.requestId
+    ?? observation?.hostEnvelope?.requestId
+    ?? requestId;
+  const ownerIdentity = state.ssmRequestIdentity
+    ?? (state.ssmCommandId ? undefined : observation?.identity);
   if (observation?.hostEnvelope) {
     let mirrored;
     try {
       mirrored = mirrorHostEnvelope(state, observation.hostEnvelope, now, {
         environment,
-        requestId,
+        requestId: ownerRequestId,
       });
     } catch (error) {
       if (!(error instanceof HostResultReplayError) && !(error instanceof HostEnvelopeValidationError)) {
@@ -361,8 +501,11 @@ function applyObservation(state, observation, { now, environment, requestId }) {
     const hostTerminal = isHostTerminalPhase(mirrored.envelope.phase);
     const next = {
       ...mirrored.state,
-      ssmRequestId: observation.requestId ?? requestId,
-      ssmRequestIdentity: observation.identity ?? state.ssmRequestIdentity,
+      ssmRequestId: ownerRequestId,
+      ssmRequestIdentity: ownerIdentity,
+      ssmDispatchAttempted: false,
+      ssmRecoveryRequestId: null,
+      ssmRecoveryIdentity: null,
       ssmCommandId: observation.commandComplete || hostTerminal
         ? null
         : (observation.commandId ?? state.ssmCommandId),
@@ -389,8 +532,9 @@ function applyObservation(state, observation, { now, environment, requestId }) {
           error: observation.controlPlaneError ?? 'AWS_CONTROL_PLANE_FAILURE',
           now,
         }),
-        ssmRequestId: observation.requestId ?? state.ssmRequestId ?? requestId,
-        ssmRequestIdentity: observation.identity ?? state.ssmRequestIdentity,
+        ssmRequestId: ownerRequestId,
+        ssmRequestIdentity: ownerIdentity,
+        ssmDispatchAttempted: false,
         ssmCommandId: observation.commandId ?? state.ssmCommandId,
       },
       reason: observation.controlPlaneTerminal ? 'invalid_host_result' : 'control_plane_failure',
@@ -400,8 +544,11 @@ function applyObservation(state, observation, { now, environment, requestId }) {
   return {
     state: {
       ...state,
-      ssmRequestId: observation.requestId ?? requestId,
-      ssmRequestIdentity: observation.identity ?? state.ssmRequestIdentity,
+      ssmRequestId: ownerRequestId,
+      ssmRequestIdentity: ownerIdentity,
+      ssmDispatchAttempted: observation.commandId || state.ssmCommandId
+        ? false
+        : state.ssmDispatchAttempted === true,
       ssmCommandId: observation.commandId ?? state.ssmCommandId,
       controlPlaneStatus: observation.commandComplete
         ? CONTROL_PLANE_STATUS.OK
@@ -410,6 +557,84 @@ function applyObservation(state, observation, { now, environment, requestId }) {
       updatedAt: now,
     },
     reason: observation.commandStarted ? 'host_request_started' : 'host_request_observed',
+  };
+}
+
+async function observeRequest({ observe, state, requestId, identity, trigger, message, logger }) {
+  try {
+    return await observe({ state, requestId, identity, trigger, message });
+  } catch (error) {
+    safeLog(logger, 'error', 'failover_observation_failed', {
+      requestId,
+      reason: error.code ?? 'control_plane_error',
+    });
+    return {
+      controlPlaneOk: false,
+      controlPlaneError: 'AWS_CONTROL_PLANE_FAILURE',
+      requestId: state.ssmRequestId ?? requestId,
+      identity: state.ssmRequestIdentity ?? identity,
+      commandId: state.ssmCommandId ?? undefined,
+    };
+  }
+}
+
+async function reconcileObservation({
+  state,
+  observation,
+  stateStore,
+  observe,
+  owner,
+  generation,
+  now,
+  environment,
+  requestId,
+  identity,
+  logger,
+}) {
+  let boundObservation = bindObservationOwner(state, observation, { requestId, identity });
+  let applied = applyObservation(state, boundObservation, {
+    now: now(),
+    environment,
+    requestId,
+  });
+  let nextState = applied.state;
+  let dispatchAttemptPersisted = state.ssmDispatchAttempted === true;
+
+  if (shouldRecoverTransition(state, boundObservation)) {
+    const recovery = await prepareTransitionRecovery({
+      state: nextState,
+      stateStore,
+      owner,
+      generation,
+      now,
+      observe,
+    });
+    const recoveryObservation = await observeRequest({
+      observe,
+      state: recovery.state,
+      requestId: recovery.requestId,
+      identity: recovery.identity,
+      trigger: 'recovery',
+      logger,
+    });
+    boundObservation = bindObservationOwner(recovery.state, recoveryObservation, {
+      requestId: recovery.requestId,
+      identity: recovery.identity,
+    });
+    applied = applyObservation(recovery.state, boundObservation, {
+      now: now(),
+      environment,
+      requestId: recovery.requestId,
+    });
+    nextState = applied.state;
+    dispatchAttemptPersisted = recovery.state.ssmDispatchAttempted === true;
+  }
+
+  return {
+    state: nextState,
+    observation: boundObservation,
+    applied,
+    dispatchAttemptPersisted,
   };
 }
 
@@ -465,46 +690,45 @@ async function processMessage({
       now,
       requestId,
       identity,
+      dispatchAttempted: observe.requiresDispatchAttemptPersistence === true,
     });
-
-    let observation;
-    try {
-      observation = await observe({
-        state,
-        requestId,
-        identity,
-        trigger: 'sentry',
-        message: {
-          eventId: message.eventId,
-          bodyFingerprint: message.bodyFingerprint,
-          failoverEligible: message.failoverEligible,
-          signalClass: message.signalClass,
-          action: message.action,
-          resource: message.resource,
-          environment: message.environment,
-          ruleId: message.ruleId,
-        },
-      });
-    } catch (error) {
-      safeLog(logger, 'error', 'failover_observation_failed', {
-        requestId,
-        reason: error.code ?? 'control_plane_error',
-      });
-      observation = {
-        controlPlaneOk: false,
-        controlPlaneError: 'AWS_CONTROL_PLANE_FAILURE',
-        requestId,
-        identity,
-      };
-    }
-
-    const applied = applyObservation(state, observation, {
-      now: now(),
+    const observation = await observeRequest({
+      observe,
+      state,
+      requestId,
+      identity,
+      trigger: 'sentry',
+      message: {
+        eventId: message.eventId,
+        bodyFingerprint: message.bodyFingerprint,
+        failoverEligible: message.failoverEligible,
+        signalClass: message.signalClass,
+        action: message.action,
+        resource: message.resource,
+        environment: message.environment,
+        ruleId: message.ruleId,
+      },
+      logger,
+    });
+    const reconciled = await reconcileObservation({
+      state,
+      observation,
+      stateStore,
+      observe,
+      owner,
+      generation,
+      now,
       environment: config.environment,
       requestId,
+      identity,
+      logger,
     });
-    state = applied.state;
-    if (observation?.commandId && state.ssmCommandId) {
+    state = reconciled.state;
+    if (!observationBelongsToRequest(reconciled.observation, { requestId, identity })) {
+      await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+      throw new CurrentRequestDeferredError();
+    }
+    if (reconciled.dispatchAttemptPersisted || (reconciled.observation?.commandId && state.ssmCommandId)) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
     }
     rememberMessage(state, message);
@@ -518,14 +742,14 @@ async function processMessage({
       requestId,
       phase: state.phase,
       activeRoute: state.activeRoute,
-      reason: applied.reason,
+      reason: reconciled.applied.reason,
     });
     return {
       status: 'processed',
       phase: state.phase,
       activeRoute: state.activeRoute,
       hostGeneration: state.hostGeneration,
-      reason: applied.reason,
+      reason: reconciled.applied.reason,
     };
   } catch (error) {
     if (error instanceof ReplayFingerprintExistsError) {
@@ -564,29 +788,31 @@ async function processScheduled({
       now,
       requestId,
       identity,
+      dispatchAttempted: observe.requiresDispatchAttemptPersistence === true,
     });
-    let observation;
-    try {
-      observation = await observe({ state, requestId, identity, trigger: 'schedule' });
-    } catch (error) {
-      safeLog(logger, 'error', 'failover_observation_failed', {
-        requestId,
-        reason: error.code ?? 'control_plane_error',
-      });
-      observation = {
-        controlPlaneOk: false,
-        controlPlaneError: 'AWS_CONTROL_PLANE_FAILURE',
-        requestId,
-        identity,
-      };
-    }
-    const applied = applyObservation(state, observation, {
-      now: now(),
+    const observation = await observeRequest({
+      observe,
+      state,
+      requestId,
+      identity,
+      trigger: 'schedule',
+      logger,
+    });
+    const reconciled = await reconcileObservation({
+      state,
+      observation,
+      stateStore,
+      observe,
+      owner,
+      generation,
+      now,
       environment: config.environment,
       requestId,
+      identity,
+      logger,
     });
-    state = applied.state;
-    if (observation?.commandId && state.ssmCommandId) {
+    state = reconciled.state;
+    if (reconciled.dispatchAttemptPersisted || (reconciled.observation?.commandId && state.ssmCommandId)) {
       await saveHostMirror(stateStore, state, { owner, generation, now: now() });
     }
     await saveHostMirror(stateStore, state, { owner, generation, now: now() });
@@ -594,14 +820,14 @@ async function processScheduled({
       requestId,
       phase: state.phase,
       activeRoute: state.activeRoute,
-      reason: applied.reason,
+      reason: reconciled.applied.reason,
     });
     return {
       status: 'processed',
       phase: state.phase,
       activeRoute: state.activeRoute,
       hostGeneration: state.hostGeneration,
-      reason: applied.reason,
+      reason: reconciled.applied.reason,
     };
   } finally {
     await releaseLeaseQuietly(stateStore, owner, generation, now);
