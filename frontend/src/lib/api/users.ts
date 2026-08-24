@@ -50,6 +50,16 @@ export async function rejectUser(id: string): Promise<void> {
   await api.post(`/users/${id}/reject`, {});
 }
 
-export async function updateUserRole(id: string, role: "manager" | "user"): Promise<void> {
-  await api.patch(`/users/${id}`, { role });
+export interface UpdateSystemAdminUserAccountInput {
+  role: "admin" | "manager" | "user";
+  branchIds: string[];
+  expectedRole: "admin" | "manager" | "user";
+  expectedBranchIds: string[];
+}
+
+export async function updateSystemAdminUserAccount(
+  id: string,
+  input: UpdateSystemAdminUserAccountInput,
+): Promise<void> {
+  await api.patch(`/users/${encodeURIComponent(id)}/account-assignment`, input);
 }

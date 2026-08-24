@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-20",
+  "updated": "2026-08-24",
   "purpose": "Machine-readable inventory of BabyJamJam design-system components. Agents MUST consult this before any UI work and compose ONLY these components in pages. See docs/design-system/AGENT_UI_RULES.md.",
   "docs": {
     "rules": "docs/design-system/AGENT_UI_RULES.md",
@@ -560,6 +560,23 @@
         ],
         "requiredFor": [
           "create/edit dialogs"
+        ]
+      },
+      {
+        "name": "SystemAdminAccountEditDialog",
+        "layer": "organism",
+        "import": "@/components/app/system-admin/SystemAdminAccountEditDialog",
+        "file": "frontend/src/components/app/system-admin/SystemAdminAccountEditDialog.tsx",
+        "exports": [
+          "SystemAdminAccountEditDialog",
+          "SystemAdminAccountEditInput",
+          "SystemAdminAccountEditBranchOption"
+        ],
+        "replaces": [
+          "system-admin inline account role editor"
+        ],
+        "requiredFor": [
+          "system-admin account role and branch assignment editing"
         ]
       },
       {
