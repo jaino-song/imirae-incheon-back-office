@@ -116,8 +116,8 @@ liveness.
 
 The repository copies of `deploy.sh` and `rollback.sh` are source material for
 installation only. They fail closed when invoked from the checkout. Root
-Docker/Compose execution must use the installed operator or, for the approved
-bootstrap procedure below, the matching helper under
+Docker/Compose execution must use the installed operator or, for an explicitly
+approved bootstrap, the matching protected helper under
 `/usr/local/libexec/babyjamjam-ci-operator`.
 
 Removing stale legacy files, if present, requires the same administrative
@@ -133,7 +133,7 @@ Each application deployment:
 1. selects only the requested environment file and Compose project;
 2. tags the image with the exact Git commit;
 3. validates the resolved Compose model without printing secrets;
-4. builds and starts only that environment's API and Valkey;
+4. activates the preloaded API image and starts only that environment's API and Valkey;
 5. waits for the container health check and matching public `/health` route;
 6. records current and previous healthy tags only after both checks pass.
 
