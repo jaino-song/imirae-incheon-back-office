@@ -35,6 +35,12 @@ describe("ContractsPage server-side search", () => {
   });
 });
 
+describe("ContractsPage infinite-scroll presentation", () => {
+  it("does not append placeholder rows while fetching the next page", () => {
+    expect(source).not.toContain("fetchingMoreCount");
+  });
+});
+
 describe("ContractsPage headless finalization fallback", () => {
   it("does not reopen the reviewer iframe when the backend verdict is unknown", () => {
     expect(source).toContain("let transportOutcomeUnknown = false");

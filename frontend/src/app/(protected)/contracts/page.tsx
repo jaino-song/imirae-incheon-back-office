@@ -831,7 +831,6 @@ export default function ContractsPage() {
                 hasMore={hasNextPage}
                 onLoadMore={() => fetchNextPage()}
                 isFetchingMore={isFetchingNextPage}
-                fetchingMoreCount={3}
                 render={({ item: doc, isLoading }) => {
                   const customerName = resolveCustomerName(doc);
 
@@ -960,7 +959,6 @@ export default function ContractsPage() {
                     hasMore={hasNextPage}
                     onLoadMore={() => fetchNextPage()}
                     isFetchingMore={isFetchingNextPage}
-                    fetchingMoreCount={3}
                     render={({ item: doc, isLoading }) => (
                       <ContractsListItem
                         data-component="desktop_contracts_sections_section-content_service-records-section_split-layout_list-panel_item"
