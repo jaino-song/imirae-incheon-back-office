@@ -1,18 +1,57 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 export const MAX_WEBHOOK_BYTES = 64 * 1024;
 export const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
 export const RECEIVER_DEADLINE_MS = 750;
 export const RECEIVER_QUEUE_TIMEOUT_MS = 700;
 export const DEFAULT_LEASE_MS = 55 * 1000;
-export const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
-export const DIRECT_MINIMUM_MS = 60 * 60 * 1000;
-export const ROUND_TRIP_WINDOW_MS = 6 * 60 * 60 * 1000;
-export const SHARED_FAILURE_THRESHOLD = 3;
-export const DIRECT_SUCCESS_THRESHOLD = 3;
-export const SHARED_HEALTHY_THRESHOLD = 30;
-export const EMERGENCY_SHARED_SUCCESS_THRESHOLD = 3;
-export const MAX_NORMAL_ROUND_TRIPS = 3;
+
+export const HOST_RESULT_SCHEMA_VERSION = 1;
+export const HOST_RESULT_SOURCE = 'babyjamjam-db-failover-host';
+export const HOST_RESULT_MAX_TOKEN_LENGTH = 64;
+export const HOST_RESULT_MAX_HISTORY_LENGTH = 128;
+export const HOST_RESULT_MAX_NUMBER = 99_999_999_999;
+
+export const CONTROL_PLANE_STATUS = Object.freeze({
+  OK: 'OK',
+  IN_FLIGHT: 'IN_FLIGHT',
+  DEGRADED: 'DEGRADED',
+  BLOCKED: 'BLOCKED',
+});
+
+export const HOST_RESULT_KEYS = Object.freeze([
+  'schemaVersion',
+  'source',
+  'controlPlaneOk',
+  'environment',
+  'requestId',
+  'hostGeneration',
+  'activeRoute',
+  'phase',
+  'result',
+  'sharedOk',
+  'directOk',
+  'sharedFailureCount',
+  'directSuccessCount',
+  'directFailureCount',
+  'emergencySharedSuccessCount',
+  'sharedHealthyCount',
+  'directActivatedAt',
+  'sharedHealthyStartedAt',
+  'sharedHealthyLastAt',
+  'cooldownUntil',
+  'recentNormalRoundTrips',
+  'transition',
+  'terminalReason',
+]);
+
+export const HOST_TRANSITION_KEYS = Object.freeze([
+  'previousRoute',
+  'targetRoute',
+  'startedAt',
+  'generation',
+  'terminalReason',
+]);
 
 export const ROUTES = Object.freeze({
   SHARED: 'SHARED',
@@ -43,14 +82,6 @@ export const REQUIRED_QUERY_MARKERS = Object.freeze([
 ]);
 
 export const DEFAULT_RECONCILE_CONFIG = Object.freeze({
-  sharedFailureThreshold: SHARED_FAILURE_THRESHOLD,
-  directSuccessThreshold: DIRECT_SUCCESS_THRESHOLD,
-  directMinimumMs: DIRECT_MINIMUM_MS,
-  sharedHealthyThreshold: SHARED_HEALTHY_THRESHOLD,
-  emergencySharedSuccessThreshold: EMERGENCY_SHARED_SUCCESS_THRESHOLD,
-  maxNormalRoundTrips: MAX_NORMAL_ROUND_TRIPS,
-  roundTripWindowMs: ROUND_TRIP_WINDOW_MS,
-  cooldownMs: DEFAULT_COOLDOWN_MS,
   leaseMs: DEFAULT_LEASE_MS,
 });
 
@@ -64,34 +95,70 @@ export function makeOpaqueRequestId(idFactory = randomUUID) {
   return candidate;
 }
 
+export function makeDeterministicRequestId(identity) {
+  if (typeof identity !== 'string' || identity.length === 0 || identity.length > 512) {
+    throw new TypeError('request identity must be a bounded non-empty string');
+  }
+  const digest = createHash('sha256')
+    .update('babyjamjam-db-failover-request:')
+    .update(identity)
+    .digest();
+  digest[6] = (digest[6] & 0x0f) | 0x50;
+  digest[8] = (digest[8] & 0x3f) | 0x80;
+  const hex = digest.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 export function createInitialState(now = Date.now()) {
   return {
     stateKey: 'db-failover',
     generation: 0,
+    hostGeneration: 0,
+    hostResultSchemaVersion: null,
+    hostResultSource: null,
+    resultSchemaVersion: null,
+    resultSource: null,
+    hostEnvironment: null,
     phase: PHASES.SHARED_ACTIVE,
     activeRoute: ROUTES.SHARED,
-    leaseOwner: null,
-    leaseExpiresAt: 0,
-    lastSentryEventFingerprint: null,
-    lastSentryEventAt: 0,
-    directActivatedAt: null,
-    sharedHealthySince: null,
-    sharedHealthyCount: 0,
+    result: null,
+    sharedOk: null,
+    directOk: null,
     sharedFailureCount: 0,
     directSuccessCount: 0,
     directFailureCount: 0,
     emergencySharedSuccessCount: 0,
+    sharedHealthyCount: 0,
+    directActivatedAt: 0,
+    sharedHealthyStartedAt: 0,
+    sharedHealthyLastAt: 0,
     cooldownUntil: 0,
-    recentRoundTripCount: 0,
-    recentRoundTripHistory: [],
+    recentNormalRoundTrips: [],
+    transition: {
+      previousRoute: null,
+      targetRoute: null,
+      startedAt: 0,
+      generation: 0,
+      terminalReason: null,
+    },
+    terminalPhase: null,
+    terminalReason: null,
+    lastHostResult: null,
+    lastHostObservedAt: 0,
+    lastHostObservationAt: 0,
+    lastHostEnvelope: null,
+    controlPlaneStatus: CONTROL_PLANE_STATUS.OK,
+    controlPlaneError: null,
+    leaseOwner: null,
+    leaseExpiresAt: 0,
+    lastSentryEventFingerprint: null,
+    lastSentryEventAt: 0,
     recentSentryEventFingerprints: [],
     ssmCommandId: null,
-    errorTerminalPhase: null,
-    lastErrorCode: null,
+    ssmRequestId: null,
+    ssmRequestIdentity: null,
     lastObservedAt: now,
     updatedAt: now,
-    pendingTransition: null,
-    pendingRoundTripKind: null,
   };
 }
 

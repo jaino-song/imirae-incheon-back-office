@@ -1,19 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  CONTROL_PLANE_STATUS,
   DEFAULT_RECONCILE_CONFIG,
   ELIGIBLE_ACTION,
   ELIGIBLE_RESOURCE,
   FAILOVER_SIGNAL_CLASS,
   PHASES,
   ROUTES,
-  makeOpaqueRequestId,
+  makeDeterministicRequestId,
   parseBoolean,
   parseCsv,
   safeLog,
 } from './constants.mjs';
 import {
-  ConditionalStateWriteError,
   ReplayFingerprintExistsError,
   createDynamoStateStore,
 } from './state-store.mjs';
@@ -21,11 +21,26 @@ import {
   isBodyFingerprint,
   isEligibleAlert,
   isOpaqueUuid,
+  isSafeIdentifier,
 } from './security.mjs';
 import {
+  HostResultReplayError,
+  HostEnvelopeValidationError,
+  isHostTerminalPhase,
+  markControlPlaneFailure,
+  mirrorHostEnvelope,
+  normalizeHostEnvelope,
   normalizeState,
-  reconcileState,
 } from './reconciler.mjs';
+
+const TERMINAL_COMMAND_STATUSES = new Set([
+  'Success',
+  'Cancelled',
+  'TimedOut',
+  'Failed',
+  'Undeliverable',
+  'Terminated',
+]);
 
 class LeaseUnavailableError extends Error {
   constructor() {
@@ -58,9 +73,8 @@ function defaultLogger() {
 }
 
 function readWorkerConfig(env = process.env) {
-  const enabled = parseBoolean(env.FAILOVER_ENABLED, false);
   return {
-    enabled,
+    enabled: parseBoolean(env.FAILOVER_ENABLED, false),
     environment: env.FAILOVER_ENVIRONMENT?.trim(),
     allowedResources: parseCsv(env.SENTRY_ALLOWED_RESOURCES, [ELIGIBLE_RESOURCE]),
     allowedActions: parseCsv(env.SENTRY_ALLOWED_ACTIONS, [ELIGIBLE_ACTION]),
@@ -101,12 +115,12 @@ function parseQueueMessage(record) {
 }
 
 function numericTimestamp(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value;
   if (typeof value === 'string' && value.trim()) {
     const numeric = Number(value);
-    if (Number.isFinite(numeric)) return numeric;
+    if (Number.isSafeInteger(numeric) && numeric >= 0) return numeric;
     const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) return parsed;
+    if (Number.isSafeInteger(parsed) && parsed >= 0) return parsed;
   }
   return 0;
 }
@@ -131,38 +145,26 @@ function rememberMessage(state, message) {
   if (eventAt > state.lastSentryEventAt) state.lastSentryEventAt = eventAt;
 }
 
-function normalizeStatusValue(status) {
-  if (!status || typeof status !== 'object') return null;
-  const source = status.result && typeof status.result === 'object' ? status.result : status;
-  const sharedOk = typeof source.sharedOk === 'boolean' ? source.sharedOk : null;
-  const directOk = typeof source.directOk === 'boolean' ? source.directOk : null;
-  const observedRoute = typeof (source.activeRoute ?? source.route) === 'string'
-    ? (source.activeRoute ?? source.route).toUpperCase()
-    : undefined;
-  const activeRoute = observedRoute === ROUTES.SHARED || observedRoute === ROUTES.DIRECT
-    ? observedRoute
-    : undefined;
-  const commandId = isOpaqueUuid(source.commandId) ? source.commandId : undefined;
-  if (sharedOk === null && directOk === null && !activeRoute) return null;
-  return {
-    controlPlaneOk: source.controlPlaneOk !== false,
-    sharedOk,
-    directOk,
-    activeRoute,
-    commandId,
-    observedAt: source.observedAt,
-  };
-}
-
-export function parseStatusOutput(output) {
+function oneLineJson(output) {
   if (typeof output !== 'string' || output.trim() === '') return null;
-  let parsed;
+  const trimmed = output.trim();
+  if (trimmed.includes('\n') || trimmed.includes('\r')) return null;
   try {
-    parsed = JSON.parse(output);
+    return JSON.parse(trimmed);
   } catch {
     return null;
   }
-  return normalizeStatusValue(parsed);
+}
+
+export function parseStatusOutput(output, expected = {}) {
+  const parsed = oneLineJson(output);
+  if (!parsed) return null;
+  try {
+    return normalizeHostEnvelope(parsed, expected);
+  } catch (error) {
+    if (error instanceof HostEnvelopeValidationError) return null;
+    throw error;
+  }
 }
 
 export function createSsmObserver({
@@ -204,14 +206,23 @@ export function createSsmObserver({
       TimeoutSeconds: timeoutSeconds,
     }));
     const commandId = result?.Command?.CommandId;
-    if (typeof commandId !== 'string' || commandId.length === 0) {
-      throw new Error('SSM did not return a command id');
-    }
+    if (!isSafeIdentifier(commandId)) throw new Error('SSM did not return a safe command id');
     return commandId;
   }
 
-  async function observe({ state, requestId }) {
+  async function observe({ state, requestId, identity }) {
     if (state.ssmCommandId) {
+      if (!isSafeIdentifier(state.ssmCommandId) || !isOpaqueUuid(state.ssmRequestId)) {
+        return {
+          controlPlaneOk: false,
+          controlPlaneTerminal: true,
+          controlPlaneError: 'SSM_REQUEST_ID_MISSING',
+          commandId: state.ssmCommandId,
+          requestId: state.ssmRequestId,
+          commandComplete: true,
+        };
+      }
+      const expectedRequestId = state.ssmRequestId;
       const invocations = await client.send(new commands.ListCommandInvocationsCommand({
         CommandId: state.ssmCommandId,
         Details: true,
@@ -219,36 +230,196 @@ export function createSsmObserver({
       const entries = invocations?.CommandInvocations ?? [];
       if (entries.length > 1) throw new Error('SSM target tag resolved to more than one node');
       if (entries.length === 0) {
-        return { controlPlaneOk: false, commandId: state.ssmCommandId };
+        return {
+          controlPlaneOk: false,
+          controlPlaneError: 'SSM_INVOCATION_MISSING',
+          commandId: state.ssmCommandId,
+          requestId: expectedRequestId,
+        };
       }
       const invocation = entries[0];
       const status = invocation?.CommandPlugins?.[0]?.Output
         ?? invocation?.CommandPlugins?.[0]?.OutputContent
         ?? invocation?.StandardOutputContent;
-      const terminal = ['Success', 'Cancelled', 'TimedOut', 'Failed', 'Undeliverable', 'Terminated']
-        .includes(invocation?.Status);
-      const parsed = parseStatusOutput(status);
-      if (parsed) {
+      const terminal = TERMINAL_COMMAND_STATUSES.has(invocation?.Status);
+      const envelope = parseStatusOutput(status, {
+        environment,
+        requestId: expectedRequestId,
+      });
+      if (!envelope) {
         return {
-          ...parsed,
+          controlPlaneOk: false,
+          controlPlaneTerminal: terminal,
+          controlPlaneError: terminal ? 'INVALID_HOST_RESULT' : 'HOST_RESULT_UNAVAILABLE',
           commandId: state.ssmCommandId,
+          requestId: expectedRequestId,
           commandComplete: terminal,
         };
       }
-      if (terminal) {
-        return {
-          controlPlaneOk: false,
-          commandId: state.ssmCommandId,
-          commandComplete: true,
-        };
-      }
-      return { controlPlaneOk: true, sharedOk: null, directOk: null, commandId: state.ssmCommandId };
+      return {
+        controlPlaneOk: true,
+        hostEnvelope: envelope,
+        commandId: state.ssmCommandId,
+        requestId: expectedRequestId,
+        commandComplete: terminal,
+        identity,
+      };
     }
-    const commandId = await sendFixedCommand(requestId);
-    return { controlPlaneOk: true, sharedOk: null, directOk: null, commandId };
+
+    if (!isOpaqueUuid(requestId)) throw new TypeError('SSM request id must be an opaque UUID');
+    const reusableRequestId = state.ssmRequestId === requestId
+      && state.ssmRequestIdentity === identity
+      && state.controlPlaneStatus !== CONTROL_PLANE_STATUS.BLOCKED
+      ? state.ssmRequestId
+      : requestId;
+    const commandId = await sendFixedCommand(reusableRequestId);
+    return {
+      controlPlaneOk: true,
+      commandId,
+      requestId: reusableRequestId,
+      commandStarted: true,
+      identity,
+    };
   }
 
   return { observe, sendFixedCommand };
+}
+
+function stopReason(state) {
+  if (isHostTerminalPhase(state.phase)) return 'host_terminal';
+  if (state.controlPlaneStatus === CONTROL_PLANE_STATUS.BLOCKED) return 'control_plane_blocked';
+  return null;
+}
+
+function identityForMessage(message) {
+  return `sentry:${message.bodyFingerprint}`;
+}
+
+function identityForSchedule(event) {
+  const eventId = typeof event?.id === 'string' ? event.id : '';
+  const eventTime = typeof event?.time === 'string' ? event.time : '';
+  return `schedule:${eventId}:${eventTime}`;
+}
+
+function requestIdForMessage(message) {
+  return makeDeterministicRequestId(message.bodyFingerprint);
+}
+
+function requestIdForSchedule(event) {
+  return makeDeterministicRequestId(identityForSchedule(event));
+}
+
+async function prepareRequest({ state, stateStore, owner, generation, now, requestId, identity }) {
+  if (state.ssmCommandId) return state;
+  const reusable = state.ssmRequestId === requestId
+    && state.ssmRequestIdentity === identity
+    && state.controlPlaneStatus !== CONTROL_PLANE_STATUS.BLOCKED;
+  const next = {
+    ...state,
+    ssmRequestId: reusable ? state.ssmRequestId : requestId,
+    ssmRequestIdentity: identity,
+    controlPlaneStatus: CONTROL_PLANE_STATUS.IN_FLIGHT,
+    controlPlaneError: null,
+    updatedAt: now(),
+  };
+  await saveHostMirror(stateStore, next, { owner, generation, now: now() });
+  return next;
+}
+
+async function saveHostMirror(stateStore, state, options) {
+  const method = stateStore.saveHostMirror ?? stateStore.save;
+  return method.call(stateStore, state, options);
+}
+
+async function saveHostMirrorAndMarkFingerprint(stateStore, state, options) {
+  const method = stateStore.saveHostMirrorAndMarkFingerprint ?? stateStore.saveAndMarkFingerprint;
+  return method.call(stateStore, state, options);
+}
+
+function applyObservation(state, observation, { now, environment, requestId }) {
+  if (observation?.hostEnvelope) {
+    let mirrored;
+    try {
+      mirrored = mirrorHostEnvelope(state, observation.hostEnvelope, now, {
+        environment,
+        requestId,
+      });
+    } catch (error) {
+      if (!(error instanceof HostResultReplayError) && !(error instanceof HostEnvelopeValidationError)) {
+        throw error;
+      }
+      return {
+        state: markControlPlaneFailure(state, {
+          status: observation?.commandComplete
+            ? CONTROL_PLANE_STATUS.BLOCKED
+            : CONTROL_PLANE_STATUS.DEGRADED,
+          error: error instanceof HostResultReplayError ? 'HOST_RESULT_REPLAY' : 'INVALID_HOST_RESULT',
+          now,
+        }),
+        reason: error instanceof HostResultReplayError ? 'host_result_rejected' : 'invalid_host_result',
+      };
+    }
+    const hostTerminal = isHostTerminalPhase(mirrored.envelope.phase);
+    const next = {
+      ...mirrored.state,
+      ssmRequestId: observation.requestId ?? requestId,
+      ssmRequestIdentity: observation.identity ?? state.ssmRequestIdentity,
+      ssmCommandId: observation.commandComplete || hostTerminal
+        ? null
+        : (observation.commandId ?? state.ssmCommandId),
+      controlPlaneStatus: observation.commandComplete || hostTerminal
+        ? CONTROL_PLANE_STATUS.OK
+        : CONTROL_PLANE_STATUS.IN_FLIGHT,
+      controlPlaneError: null,
+      updatedAt: now,
+    };
+    return {
+      state: next,
+      reason: mirrored.reason,
+      mirrorStatus: mirrored.status,
+    };
+  }
+
+  if (observation?.controlPlaneOk !== true) {
+    return {
+      state: {
+        ...markControlPlaneFailure(state, {
+          status: observation.controlPlaneTerminal
+            ? CONTROL_PLANE_STATUS.BLOCKED
+            : CONTROL_PLANE_STATUS.DEGRADED,
+          error: observation.controlPlaneError ?? 'AWS_CONTROL_PLANE_FAILURE',
+          now,
+        }),
+        ssmRequestId: observation.requestId ?? state.ssmRequestId ?? requestId,
+        ssmRequestIdentity: observation.identity ?? state.ssmRequestIdentity,
+        ssmCommandId: observation.commandId ?? state.ssmCommandId,
+      },
+      reason: observation.controlPlaneTerminal ? 'invalid_host_result' : 'control_plane_failure',
+    };
+  }
+
+  return {
+    state: {
+      ...state,
+      ssmRequestId: observation.requestId ?? requestId,
+      ssmRequestIdentity: observation.identity ?? state.ssmRequestIdentity,
+      ssmCommandId: observation.commandId ?? state.ssmCommandId,
+      controlPlaneStatus: observation.commandComplete
+        ? CONTROL_PLANE_STATUS.OK
+        : CONTROL_PLANE_STATUS.IN_FLIGHT,
+      controlPlaneError: null,
+      updatedAt: now,
+    },
+    reason: observation.commandStarted ? 'host_request_started' : 'host_request_observed',
+  };
+}
+
+async function releaseLeaseQuietly(stateStore, owner, generation, now) {
+  try {
+    await stateStore.releaseLease({ owner, generation, now: now() });
+  } catch {
+    // Ownership may already have expired or been replaced after a failed write.
+  }
 }
 
 async function processMessage({
@@ -258,157 +429,184 @@ async function processMessage({
   observe,
   now,
   owner,
-  idFactory,
   logger,
 }) {
   if (!isEligibleAlert(message, config)) return { status: 'ignored', reason: 'ineligible' };
   if (await stateStore.hasProcessedFingerprint(message.bodyFingerprint)) {
     return { status: 'ignored', reason: 'duplicate_event' };
   }
-  const loaded = (await stateStore.get()) ?? normalizeState(undefined, now());
-  if (loaded.phase === PHASES.BLOCKED) return { status: 'ignored', reason: 'blocked' };
+  const loaded = normalizeState((await stateStore.get()) ?? undefined, now());
+  const loadedStopReason = stopReason(loaded);
+  if (loadedStopReason) return { status: 'ignored', reason: loadedStopReason };
   if (loaded.activeRoute !== ROUTES.SHARED) return { status: 'ignored', reason: 'current_route_not_shared' };
   const beforeLeaseReason = messageAlreadyProcessed(message, loaded);
   if (beforeLeaseReason) return { status: 'ignored', reason: beforeLeaseReason };
 
-  const lease = await stateStore.acquireLease({
-    owner,
-    now: now(),
-    leaseMs: config.leaseMs,
-  });
+  const lease = await stateStore.acquireLease({ owner, now: now(), leaseMs: config.leaseMs });
   if (!lease?.acquired) throw new LeaseUnavailableError();
-
   const generation = lease.generation ?? lease.state.generation;
-  const state = normalizeState(lease.state, now());
-  const afterLeaseReason = messageAlreadyProcessed(message, state);
-  if (afterLeaseReason) {
-    await stateStore.releaseLease({ owner, generation, now: now() });
-    return { status: 'ignored', reason: afterLeaseReason };
-  }
-  if (await stateStore.hasProcessedFingerprint(message.bodyFingerprint)) {
-    await stateStore.releaseLease({ owner, generation, now: now() });
-    return { status: 'ignored', reason: 'duplicate_event' };
-  }
-  if (state.phase === PHASES.BLOCKED) {
-    await stateStore.releaseLease({ owner, generation, now: now() });
-    return { status: 'ignored', reason: 'blocked' };
-  }
-  if (state.activeRoute !== ROUTES.SHARED) {
-    await stateStore.releaseLease({ owner, generation, now: now() });
-    return { status: 'ignored', reason: 'current_route_not_shared' };
-  }
-
-  const ssmRequestId = makeOpaqueRequestId(idFactory);
-  let observation;
   try {
-    observation = await observe({
+    let state = normalizeState(lease.state, now());
+    const afterLeaseReason = messageAlreadyProcessed(message, state);
+    if (afterLeaseReason) return { status: 'ignored', reason: afterLeaseReason };
+    if (await stateStore.hasProcessedFingerprint(message.bodyFingerprint)) {
+      return { status: 'ignored', reason: 'duplicate_event' };
+    }
+    const afterLeaseStopReason = stopReason(state);
+    if (afterLeaseStopReason) return { status: 'ignored', reason: afterLeaseStopReason };
+    if (state.activeRoute !== ROUTES.SHARED) return { status: 'ignored', reason: 'current_route_not_shared' };
+
+    const identity = identityForMessage(message);
+    const requestId = requestIdForMessage(message);
+    state = await prepareRequest({
       state,
-      requestId: ssmRequestId,
-      trigger: 'sentry',
-      message: {
-        eventId: message.eventId,
-        bodyFingerprint: message.bodyFingerprint,
-        failoverEligible: message.failoverEligible,
-        signalClass: message.signalClass,
-        action: message.action,
-        resource: message.resource,
-        environment: message.environment,
-        ruleId: message.ruleId,
-      },
+      stateStore,
+      owner,
+      generation,
+      now,
+      requestId,
+      identity,
     });
-  } catch (error) {
-    safeLog(logger, 'error', 'failover_observation_failed', {
-      requestId: ssmRequestId,
-      reason: error.code ?? 'control_plane_error',
-    });
-    observation = { controlPlaneOk: false };
-  }
 
-  const result = reconcileState(state, observation, now(), config);
-  rememberMessage(result.state, message);
-  result.state.ssmCommandId = observation?.commandComplete
-    ? null
-    : (observation?.commandId ?? result.state.ssmCommandId);
-  try {
-    await stateStore.saveAndMarkFingerprint(result.state, {
+    let observation;
+    try {
+      observation = await observe({
+        state,
+        requestId,
+        identity,
+        trigger: 'sentry',
+        message: {
+          eventId: message.eventId,
+          bodyFingerprint: message.bodyFingerprint,
+          failoverEligible: message.failoverEligible,
+          signalClass: message.signalClass,
+          action: message.action,
+          resource: message.resource,
+          environment: message.environment,
+          ruleId: message.ruleId,
+        },
+      });
+    } catch (error) {
+      safeLog(logger, 'error', 'failover_observation_failed', {
+        requestId,
+        reason: error.code ?? 'control_plane_error',
+      });
+      observation = {
+        controlPlaneOk: false,
+        controlPlaneError: 'AWS_CONTROL_PLANE_FAILURE',
+        requestId,
+        identity,
+      };
+    }
+
+    const applied = applyObservation(state, observation, {
+      now: now(),
+      environment: config.environment,
+      requestId,
+    });
+    state = applied.state;
+    if (observation?.commandId && state.ssmCommandId) {
+      await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+    }
+    rememberMessage(state, message);
+    await saveHostMirrorAndMarkFingerprint(stateStore, state, {
       owner,
       generation,
       now: now(),
       fingerprint: message.bodyFingerprint,
     });
+    safeLog(logger, 'info', 'failover_reconciled', {
+      requestId,
+      phase: state.phase,
+      activeRoute: state.activeRoute,
+      reason: applied.reason,
+    });
+    return {
+      status: 'processed',
+      phase: state.phase,
+      activeRoute: state.activeRoute,
+      hostGeneration: state.hostGeneration,
+      reason: applied.reason,
+    };
   } catch (error) {
     if (error instanceof ReplayFingerprintExistsError) {
-      try {
-        await stateStore.releaseLease({ owner, generation, now: now() });
-      } catch {
-        // A competing owner may have released or replaced the lease already.
-      }
       return { status: 'ignored', reason: 'duplicate_event' };
     }
-    try {
-      await stateStore.releaseLease({ owner, generation, now: now() });
-    } catch {
-      // The conditional transaction may already have lost the lease owner.
-    }
     throw error;
+  } finally {
+    await releaseLeaseQuietly(stateStore, owner, generation, now);
   }
-  await stateStore.releaseLease({ owner, generation, now: now() });
-  safeLog(logger, 'info', 'failover_reconciled', {
-    requestId: ssmRequestId,
-    phase: result.state.phase,
-    activeRoute: result.state.activeRoute,
-    reason: result.reason,
-  });
-  return {
-    status: 'processed',
-    phase: result.state.phase,
-    activeRoute: result.state.activeRoute,
-    reason: result.reason,
-  };
 }
 
-async function processScheduled({ stateStore, config, observe, now, owner, idFactory, logger }) {
-  const lease = await stateStore.acquireLease({
-    owner,
-    now: now(),
-    leaseMs: config.leaseMs,
-  });
+async function processScheduled({
+  event,
+  stateStore,
+  config,
+  observe,
+  now,
+  owner,
+  logger,
+}) {
+  const lease = await stateStore.acquireLease({ owner, now: now(), leaseMs: config.leaseMs });
   if (!lease?.acquired) throw new LeaseUnavailableError();
   const generation = lease.generation ?? lease.state.generation;
-  const state = normalizeState(lease.state, now());
-  if (state.phase === PHASES.BLOCKED) {
-    await stateStore.releaseLease({ owner, generation, now: now() });
-    return { status: 'ignored', reason: 'blocked' };
-  }
-  const ssmRequestId = makeOpaqueRequestId(idFactory);
-  let observation;
   try {
-    observation = await observe({ state, requestId: ssmRequestId, trigger: 'schedule' });
-  } catch (error) {
-    safeLog(logger, 'error', 'failover_observation_failed', {
-      requestId: ssmRequestId,
-      reason: error.code ?? 'control_plane_error',
+    let state = normalizeState(lease.state, now());
+    const terminalReason = stopReason(state);
+    if (terminalReason) return { status: 'ignored', reason: terminalReason };
+
+    const identity = identityForSchedule(event);
+    const requestId = requestIdForSchedule(event);
+    state = await prepareRequest({
+      state,
+      stateStore,
+      owner,
+      generation,
+      now,
+      requestId,
+      identity,
     });
-    observation = { controlPlaneOk: false };
+    let observation;
+    try {
+      observation = await observe({ state, requestId, identity, trigger: 'schedule' });
+    } catch (error) {
+      safeLog(logger, 'error', 'failover_observation_failed', {
+        requestId,
+        reason: error.code ?? 'control_plane_error',
+      });
+      observation = {
+        controlPlaneOk: false,
+        controlPlaneError: 'AWS_CONTROL_PLANE_FAILURE',
+        requestId,
+        identity,
+      };
+    }
+    const applied = applyObservation(state, observation, {
+      now: now(),
+      environment: config.environment,
+      requestId,
+    });
+    state = applied.state;
+    if (observation?.commandId && state.ssmCommandId) {
+      await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+    }
+    await saveHostMirror(stateStore, state, { owner, generation, now: now() });
+    safeLog(logger, 'info', 'failover_reconciled', {
+      requestId,
+      phase: state.phase,
+      activeRoute: state.activeRoute,
+      reason: applied.reason,
+    });
+    return {
+      status: 'processed',
+      phase: state.phase,
+      activeRoute: state.activeRoute,
+      hostGeneration: state.hostGeneration,
+      reason: applied.reason,
+    };
+  } finally {
+    await releaseLeaseQuietly(stateStore, owner, generation, now);
   }
-  const result = reconcileState(state, observation, now(), config);
-  result.state.ssmCommandId = observation?.commandComplete
-    ? null
-    : (observation?.commandId ?? result.state.ssmCommandId);
-  await stateStore.save(result.state, { owner, generation, now: now() });
-  await stateStore.releaseLease({ owner, generation, now: now() });
-  safeLog(logger, 'info', 'failover_reconciled', {
-    requestId: ssmRequestId,
-    phase: result.state.phase,
-    activeRoute: result.state.activeRoute,
-    reason: result.reason,
-  });
-  return {
-    status: 'processed',
-    phase: result.state.phase,
-    activeRoute: result.state.activeRoute,
-    reason: result.reason,
-  };
 }
 
 export function createWorkerHandler({
@@ -417,11 +615,19 @@ export function createWorkerHandler({
   config = readWorkerConfig(),
   now = () => Date.now(),
   ownerFactory = (context) => context?.awsRequestId ?? `worker-${randomUUID()}`,
-  idFactory = randomUUID,
   logger = defaultLogger(),
 } = {}) {
   if (!stateStore || typeof stateStore.get !== 'function') throw new TypeError('state store is required');
   if (typeof observe !== 'function') throw new TypeError('observation provider is required');
+  if (
+    (typeof stateStore.saveHostMirror !== 'function' && typeof stateStore.save !== 'function')
+    || (
+      typeof stateStore.saveHostMirrorAndMarkFingerprint !== 'function'
+      && typeof stateStore.saveAndMarkFingerprint !== 'function'
+    )
+  ) {
+    throw new TypeError('state store write methods are required');
+  }
 
   return async function workerHandler(event, context = {}) {
     if (!config.enabled) {
@@ -433,12 +639,12 @@ export function createWorkerHandler({
     if (records.length === 0) {
       try {
         const result = await processScheduled({
+          event,
           stateStore,
           config,
           observe,
           now,
           owner,
-          idFactory,
           logger,
         });
         return { processed: 1, results: [result], batchItemFailures: [] };
@@ -462,7 +668,6 @@ export function createWorkerHandler({
           observe,
           now,
           owner,
-          idFactory,
           logger,
         });
         results.push(result);
@@ -471,11 +676,7 @@ export function createWorkerHandler({
           messageId: record?.messageId,
           reason: error.name ?? 'worker_error',
         });
-        if (error instanceof InvalidQueueMessageError || error instanceof ConditionalStateWriteError) {
-          failures.push({ itemIdentifier: record?.messageId });
-        } else {
-          failures.push({ itemIdentifier: record?.messageId });
-        }
+        failures.push({ itemIdentifier: record?.messageId });
       }
     }
     return {
@@ -534,6 +735,9 @@ export async function handler(event, context) {
 export {
   InvalidQueueMessageError,
   LeaseUnavailableError,
+  identityForMessage,
+  identityForSchedule,
   processMessage,
+  processScheduled,
   readWorkerConfig,
 };

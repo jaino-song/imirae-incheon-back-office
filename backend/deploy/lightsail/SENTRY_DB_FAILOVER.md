@@ -3,8 +3,9 @@
 This control plane is a disabled-by-default AWS SAM stack for the preview and
 production Lightsail environments. It receives an authenticated Sentry metric
 alert, durably queues only an opaque alert envelope, and lets a single leased
-worker reconcile route state once per minute. Sentry is a wake-up signal, never
-the source of a route decision.
+worker wake the host reconciler once per minute. The Lightsail host owns every
+probe, route, phase, counter, and threshold decision. Sentry is a wake-up
+signal, never the source of a route decision.
 
 The stack does not contain a database URL, database host, database credential,
 deploy command, or arbitrary shell command. The host-side fixed SSM document
@@ -15,9 +16,11 @@ root-owned command equivalent to:
 db-reconcile <environment> {{RequestId}}
 ```
 
-The worker supplies only `RequestId`, a newly generated UUID. It reads the
-document's status record or command output and mirrors safe health/route fields
-into DynamoDB.
+The worker supplies only `RequestId`, an opaque UUID derived deterministically
+from the authenticated body fingerprint or the EventBridge event identity. It
+persists both that request ID and the returned SSM command ID, validates the
+host's complete single-line result envelope, and mirrors it losslessly into
+DynamoDB. Lambda never recomputes host counters, thresholds, phases, or routes.
 
 ## Resources and environment configuration
 
@@ -121,26 +124,49 @@ deduplication and request IDs are only optimization/correlation metadata.
 The state record includes these operational fields:
 
 ```text
-generation
-phase
-activeRoute
+generation                 # DynamoDB lease/concurrency generation only
+hostGeneration             # host-owned monotonic result generation
+hostResultSchemaVersion
+hostResultSource
+phase                      # exact host phase mirror
+activeRoute                # exact host route mirror
+result                     # exact host result token
+sharedOk
+directOk
+sharedFailureCount
+directSuccessCount
+directFailureCount
+emergencySharedSuccessCount
+sharedHealthyCount
+directActivatedAt
+sharedHealthyStartedAt
+sharedHealthyLastAt
+cooldownUntil
+recentNormalRoundTrips
+transition
+terminalPhase
+terminalReason
+lastHostResult
+lastHostObservedAt
+controlPlaneStatus
+controlPlaneError
 leaseExpiresAt
 lastSentryEventFingerprint
 recentSentryEventFingerprints
-directActivatedAt
-sharedHealthySince
-sharedHealthyCount
-cooldownUntil
-recentRoundTripCount
-recentRoundTripHistory
 ssmCommandId
-errorTerminalPhase
+ssmRequestId
+ssmRequestIdentity
 ```
 
-The full implementation also records bounded fingerprint history, probe failure
-counters, last observation time, and a safe error code. The only terminal state
-is `BLOCKED`; an operator must investigate and explicitly clear the state
-before another automatic switch is possible.
+The host result schema is strict and closed: schema version `1`, source
+`babyjamjam-db-failover-host`, the configured environment, the persisted
+request UUID, uppercase route/phase values, all counters/timestamps, bounded
+normal-round-trip history, the complete transition object, and a terminal
+reason for `BLOCKED`/`DEGRADED`. Missing, extra, malformed, wrong-request,
+wrong-environment, stale, or out-of-order results are rejected without
+changing mirrored host evidence. Host terminal phases stop further SSM calls.
+AWS/SSM/Dynamo failures use `controlPlaneStatus`/`controlPlaneError` only and
+preserve the last host phase, route, counters, and terminal fields.
 
 ## State machine and gates
 
@@ -154,10 +180,11 @@ before another automatic switch is possible.
 | `SWITCHING_TO_SHARED` | Normal or emergency failback is in progress; the next status must confirm Shared. |
 | `BLOCKED` | Both routes failed, or the six-hour normal round-trip budget was exhausted. No automatic route mutation occurs. |
 
-Each one-minute observation must report safe `sharedOk`, `directOk`, and (when
-a switch is complete) `activeRoute` fields. Both routes failing immediately
-enters `BLOCKED`. AWS/SSM/DynamoDB control-plane errors enter `DEGRADED`, leave
-`activeRoute` unchanged, and never restart or redeploy the application itself.
+Each one-minute host observation reports safe `sharedOk`, `directOk`, and
+`activeRoute` fields. Both routes failing immediately enters host `BLOCKED`.
+AWS/SSM/DynamoDB control-plane errors are separate Lambda control-plane status,
+leave the last host `activeRoute` and `phase` unchanged, and never restart or
+redeploy the application itself.
 
 Normal failback requires Direct to have been active for one hour and 30
 consecutive one-minute Shared successes. A completed normal Direct→Shared cycle
@@ -182,8 +209,10 @@ The worker's `SendCommand` request has exactly these control-plane fields:
 
 It does not send a route, URL, hostname, shell command, database credential, or
 caller-controlled parameter. The worker may list command invocations to read a
-status record, but only parses safe booleans, route names, command IDs, and
-timestamps. Status output must not include credentials or connection strings.
+status record, but only accepts the exact host result envelope above. A terminal
+failed SSM command with a valid host `BLOCKED`/`DEGRADED` envelope is mirrored;
+a terminal command without a valid envelope enters a separate control-plane
+blocked state and cannot automatically re-command the host.
 
 ## Local verification
 

@@ -1,309 +1,411 @@
 import {
-  DEFAULT_RECONCILE_CONFIG,
+  CONTROL_PLANE_STATUS,
+  HOST_RESULT_KEYS,
+  HOST_RESULT_MAX_HISTORY_LENGTH,
+  HOST_RESULT_MAX_NUMBER,
+  HOST_RESULT_MAX_TOKEN_LENGTH,
+  HOST_RESULT_SCHEMA_VERSION,
+  HOST_RESULT_SOURCE,
+  HOST_TRANSITION_KEYS,
   PHASES,
   ROUTES,
+  UUID_PATTERN,
   createInitialState,
 } from './constants.mjs';
 
-function copy(value) {
+const NON_NEGATIVE_FIELDS = Object.freeze([
+  'hostGeneration',
+  'sharedFailureCount',
+  'directSuccessCount',
+  'directFailureCount',
+  'emergencySharedSuccessCount',
+  'sharedHealthyCount',
+  'directActivatedAt',
+  'sharedHealthyStartedAt',
+  'sharedHealthyLastAt',
+  'cooldownUntil',
+]);
+
+const TERMINAL_PHASES = new Set([PHASES.BLOCKED, PHASES.DEGRADED]);
+const TOKEN_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/;
+const SECRET_LIKE_PATTERN = /(secret|password|credential|bearer|api[_-]?key|access[_-]?token|https?:|arn:|postgres(?:ql)?)/i;
+
+function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
-function numberOr(value, fallback) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+function isPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
-function booleanOrNull(value) {
-  return typeof value === 'boolean' ? value : null;
+function hasExactKeys(value, keys) {
+  const expected = new Set(keys);
+  const actual = Object.keys(value);
+  return actual.length === expected.size && actual.every((key) => expected.has(key));
+}
+
+function isBoundedNonNegativeInteger(value) {
+  return Number.isSafeInteger(value)
+    && value >= 0
+    && value <= HOST_RESULT_MAX_NUMBER;
+}
+
+function isSafeNonNegativeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function isSafeToken(value) {
+  return typeof value === 'string'
+    && value.length <= HOST_RESULT_MAX_TOKEN_LENGTH
+    && TOKEN_PATTERN.test(value)
+    && !SECRET_LIKE_PATTERN.test(value);
+}
+
+function isNullableSafeToken(value) {
+  return value === null || isSafeToken(value);
+}
+
+function isNullableRoute(value) {
+  return value === null || value === ROUTES.SHARED || value === ROUTES.DIRECT;
+}
+
+function isEmptyTransition(transition) {
+  return transition.previousRoute === null
+    && transition.targetRoute === null
+    && transition.startedAt === 0
+    && transition.generation === 0;
+}
+
+function invalid(message, code = 'INVALID_HOST_RESULT') {
+  return new HostEnvelopeValidationError(message, code);
+}
+
+function validateTransition(transition) {
+  if (!isPlainObject(transition) || !hasExactKeys(transition, HOST_TRANSITION_KEYS)) {
+    throw invalid('host transition is incomplete');
+  }
+  if (!isNullableRoute(transition.previousRoute) || !isNullableRoute(transition.targetRoute)) {
+    throw invalid('host transition route is invalid');
+  }
+  if (!isBoundedNonNegativeInteger(transition.startedAt)) {
+    throw invalid('host transition start is invalid');
+  }
+  if (!isBoundedNonNegativeInteger(transition.generation)) {
+    throw invalid('host transition generation is invalid');
+  }
+  if (!isNullableSafeToken(transition.terminalReason)) {
+    throw invalid('host transition terminal reason is invalid');
+  }
+}
+
+function validatePhaseRouteTransition(envelope) {
+  const { phase, activeRoute: route, transition, terminalReason } = envelope;
+  if (TERMINAL_PHASES.has(phase)) {
+    if (!isEmptyTransition(transition) || transition.terminalReason !== terminalReason) {
+      throw invalid('terminal host result has invalid transition metadata');
+    }
+    if (!isSafeToken(terminalReason)) throw invalid('terminal host result has no reason');
+    return;
+  }
+
+  if (terminalReason !== null || transition.terminalReason !== null) {
+    throw invalid('non-terminal host result has a terminal reason');
+  }
+
+  if (phase === PHASES.SHARED_ACTIVE || phase === PHASES.DIRECT_ACTIVE) {
+    const expectedRoute = phase === PHASES.SHARED_ACTIVE ? ROUTES.SHARED : ROUTES.DIRECT;
+    if (route !== expectedRoute || !isEmptyTransition(transition)) {
+      throw invalid('active host phase has invalid route or transition');
+    }
+    return;
+  }
+
+  if (phase === PHASES.RECOVERING_SHARED) {
+    if (route !== ROUTES.DIRECT || !isEmptyTransition(transition)) {
+      throw invalid('recovering host phase has invalid route or transition');
+    }
+    return;
+  }
+
+  const switchingToDirect = phase === PHASES.SWITCHING_TO_DIRECT;
+  const switchingToShared = phase === PHASES.SWITCHING_TO_SHARED;
+  if (!switchingToDirect && !switchingToShared) throw invalid('host phase is invalid');
+
+  const previousRoute = switchingToDirect ? ROUTES.SHARED : ROUTES.DIRECT;
+  const targetRoute = switchingToDirect ? ROUTES.DIRECT : ROUTES.SHARED;
+  const activeRoute = switchingToDirect ? ROUTES.SHARED : ROUTES.DIRECT;
+  if (
+    route !== activeRoute
+    || transition.previousRoute !== previousRoute
+    || transition.targetRoute !== targetRoute
+    || transition.startedAt === 0
+    || transition.generation === 0
+    || transition.generation > envelope.hostGeneration
+  ) {
+    throw invalid('switching host phase has invalid route or transition');
+  }
+}
+
+export class HostEnvelopeValidationError extends Error {
+  constructor(message = 'invalid host result envelope', code = 'INVALID_HOST_RESULT') {
+    super(message);
+    this.name = 'HostEnvelopeValidationError';
+    this.code = code;
+    this.retryable = false;
+  }
+}
+
+export class HostResultReplayError extends Error {
+  constructor(message = 'host result generation is stale or conflicting') {
+    super(message);
+    this.name = 'HostResultReplayError';
+    this.code = 'HOST_RESULT_REPLAY';
+    this.retryable = false;
+  }
+}
+
+export function normalizeHostEnvelope(raw, { environment, requestId } = {}) {
+  if (!isPlainObject(raw) || !hasExactKeys(raw, HOST_RESULT_KEYS)) {
+    throw invalid('host result envelope is incomplete or has unexpected fields');
+  }
+  if (raw.schemaVersion !== HOST_RESULT_SCHEMA_VERSION) throw invalid('host result schema version is invalid');
+  if (raw.source !== HOST_RESULT_SOURCE) throw invalid('host result source is invalid');
+  if (raw.controlPlaneOk !== true) throw invalid('host result control-plane flag is invalid');
+  if (
+    typeof raw.environment !== 'string'
+    || raw.environment.length > HOST_RESULT_MAX_TOKEN_LENGTH
+    || !['preview', 'production'].includes(raw.environment)
+    || (environment !== undefined && raw.environment !== environment)
+  ) {
+    throw invalid('host result environment is invalid');
+  }
+  if (typeof raw.requestId !== 'string' || !UUID_PATTERN.test(raw.requestId)) {
+    throw invalid('host result request id is invalid');
+  }
+  if (requestId !== undefined && raw.requestId !== requestId) {
+    throw invalid('host result request id does not match the SSM request');
+  }
+  if (!isBoundedNonNegativeInteger(raw.hostGeneration)) throw invalid('host result generation is invalid');
+  if (!Object.values(ROUTES).includes(raw.activeRoute)) throw invalid('host result route is invalid');
+  if (!Object.values(PHASES).includes(raw.phase)) throw invalid('host result phase is invalid');
+  if (!isSafeToken(raw.result)) throw invalid('host result result token is invalid');
+  if (![null, true, false].includes(raw.sharedOk) || ![null, true, false].includes(raw.directOk)) {
+    throw invalid('host probe result is invalid');
+  }
+  for (const field of NON_NEGATIVE_FIELDS) {
+    if (!isBoundedNonNegativeInteger(raw[field])) throw invalid(`host ${field} is invalid`);
+  }
+  if (
+    !Array.isArray(raw.recentNormalRoundTrips)
+    || raw.recentNormalRoundTrips.length > HOST_RESULT_MAX_HISTORY_LENGTH
+    || raw.recentNormalRoundTrips.some((entry, index, values) => (
+      !isBoundedNonNegativeInteger(entry)
+      || (index > 0 && entry < values[index - 1])
+    ))
+  ) {
+    throw invalid('host round-trip history is invalid');
+  }
+  validateTransition(raw.transition);
+  if (!isNullableSafeToken(raw.terminalReason)) throw invalid('host terminal reason is invalid');
+  validatePhaseRouteTransition(raw);
+
+  return {
+    schemaVersion: raw.schemaVersion,
+    source: raw.source,
+    controlPlaneOk: raw.controlPlaneOk,
+    environment: raw.environment,
+    requestId: raw.requestId,
+    hostGeneration: raw.hostGeneration,
+    activeRoute: raw.activeRoute,
+    phase: raw.phase,
+    result: raw.result,
+    sharedOk: raw.sharedOk,
+    directOk: raw.directOk,
+    sharedFailureCount: raw.sharedFailureCount,
+    directSuccessCount: raw.directSuccessCount,
+    directFailureCount: raw.directFailureCount,
+    emergencySharedSuccessCount: raw.emergencySharedSuccessCount,
+    sharedHealthyCount: raw.sharedHealthyCount,
+    directActivatedAt: raw.directActivatedAt,
+    sharedHealthyStartedAt: raw.sharedHealthyStartedAt,
+    sharedHealthyLastAt: raw.sharedHealthyLastAt,
+    cooldownUntil: raw.cooldownUntil,
+    recentNormalRoundTrips: [...raw.recentNormalRoundTrips],
+    transition: { ...raw.transition },
+    terminalReason: raw.terminalReason,
+  };
+}
+
+function normalizeStateValue(value, fallback, predicate) {
+  return predicate(value) ? value : fallback;
 }
 
 export function normalizeState(state, now = Date.now()) {
   const initial = createInitialState(now);
   const normalized = { ...initial, ...(state ?? {}) };
-  normalized.generation = numberOr(normalized.generation, 0);
-  normalized.leaseExpiresAt = numberOr(normalized.leaseExpiresAt, 0);
-  normalized.lastSentryEventAt = numberOr(normalized.lastSentryEventAt, 0);
-  normalized.sharedFailureCount = numberOr(normalized.sharedFailureCount, 0);
-  normalized.directSuccessCount = numberOr(normalized.directSuccessCount, 0);
-  normalized.directFailureCount = numberOr(normalized.directFailureCount, 0);
-  normalized.emergencySharedSuccessCount = numberOr(normalized.emergencySharedSuccessCount, 0);
-  normalized.sharedHealthyCount = numberOr(normalized.sharedHealthyCount, 0);
-  normalized.cooldownUntil = numberOr(normalized.cooldownUntil, 0);
-  normalized.recentRoundTripCount = numberOr(normalized.recentRoundTripCount, 0);
-  normalized.recentRoundTripHistory = Array.isArray(normalized.recentRoundTripHistory)
-    ? normalized.recentRoundTripHistory
+  for (const obsoleteField of [
+    'errorTerminalPhase',
+    'lastErrorCode',
+    'pendingTransition',
+    'pendingRoundTripKind',
+    'recentRoundTripCount',
+    'recentRoundTripHistory',
+    'sharedHealthySince',
+    'lastSentryRequestId',
+    'recentSentryRequestIds',
+  ]) {
+    delete normalized[obsoleteField];
+  }
+  normalized.generation = normalizeStateValue(
+    normalized.generation,
+    initial.generation,
+    isSafeNonNegativeInteger,
+  );
+  normalized.leaseExpiresAt = normalizeStateValue(
+    normalized.leaseExpiresAt,
+    initial.leaseExpiresAt,
+    isSafeNonNegativeInteger,
+  );
+  normalized.leaseOwner = normalized.leaseOwner === null || typeof normalized.leaseOwner === 'string'
+    ? normalized.leaseOwner
+    : null;
+  if (!Object.values(PHASES).includes(normalized.phase)) normalized.phase = initial.phase;
+  if (!Object.values(ROUTES).includes(normalized.activeRoute)) normalized.activeRoute = initial.activeRoute;
+  normalized.hostGeneration = normalizeStateValue(
+    normalized.hostGeneration,
+    initial.hostGeneration,
+    isBoundedNonNegativeInteger,
+  );
+  for (const field of NON_NEGATIVE_FIELDS.slice(1)) {
+    normalized[field] = normalizeStateValue(normalized[field], initial[field], isBoundedNonNegativeInteger);
+  }
+  normalized.sharedOk = [null, true, false].includes(normalized.sharedOk) ? normalized.sharedOk : null;
+  normalized.directOk = [null, true, false].includes(normalized.directOk) ? normalized.directOk : null;
+  normalized.recentNormalRoundTrips = Array.isArray(normalized.recentNormalRoundTrips)
+    ? normalized.recentNormalRoundTrips.filter(isBoundedNonNegativeInteger).slice(-HOST_RESULT_MAX_HISTORY_LENGTH)
+    : [];
+  normalized.transition = isPlainObject(normalized.transition)
+    && HOST_TRANSITION_KEYS.every((key) => key in normalized.transition)
+    ? { ...normalized.transition }
+    : clone(initial.transition);
+  normalized.recentSentryEventFingerprints = Array.isArray(normalized.recentSentryEventFingerprints)
+    ? normalized.recentSentryEventFingerprints.filter((value) => typeof value === 'string').slice(-32)
     : [];
   normalized.lastSentryEventFingerprint = typeof normalized.lastSentryEventFingerprint === 'string'
     ? normalized.lastSentryEventFingerprint
     : null;
-  normalized.recentSentryEventFingerprints = Array.isArray(normalized.recentSentryEventFingerprints)
-    ? normalized.recentSentryEventFingerprints
-    : [];
-  delete normalized.lastSentryRequestId;
-  delete normalized.recentSentryRequestIds;
-  if (!Object.values(PHASES).includes(normalized.phase)) normalized.phase = PHASES.SHARED_ACTIVE;
-  if (!Object.values(ROUTES).includes(normalized.activeRoute)) normalized.activeRoute = ROUTES.SHARED;
+  normalized.lastSentryEventAt = isSafeNonNegativeInteger(normalized.lastSentryEventAt)
+    ? normalized.lastSentryEventAt
+    : 0;
+  normalized.lastObservedAt = isSafeNonNegativeInteger(normalized.lastObservedAt)
+    ? normalized.lastObservedAt
+    : now;
+  normalized.updatedAt = isSafeNonNegativeInteger(normalized.updatedAt)
+    ? normalized.updatedAt
+    : now;
+  normalized.lastHostObservedAt = isSafeNonNegativeInteger(normalized.lastHostObservedAt)
+    ? normalized.lastHostObservedAt
+    : 0;
+  normalized.lastHostObservationAt = isSafeNonNegativeInteger(normalized.lastHostObservationAt)
+    ? normalized.lastHostObservationAt
+    : normalized.lastHostObservedAt;
+  normalized.terminalPhase = Object.values(PHASES).includes(normalized.terminalPhase)
+    ? normalized.terminalPhase
+    : null;
+  normalized.terminalReason = isNullableSafeToken(normalized.terminalReason)
+    ? normalized.terminalReason
+    : null;
+  normalized.controlPlaneStatus = Object.values(CONTROL_PLANE_STATUS).includes(normalized.controlPlaneStatus)
+    ? normalized.controlPlaneStatus
+    : CONTROL_PLANE_STATUS.OK;
+  normalized.controlPlaneError = isNullableSafeToken(normalized.controlPlaneError)
+    ? normalized.controlPlaneError
+    : null;
+  normalized.lastHostEnvelope = isPlainObject(normalized.lastHostEnvelope)
+    ? clone(normalized.lastHostEnvelope)
+    : null;
   return normalized;
 }
 
-export function pruneRoundTripHistory(state, now, windowMs = DEFAULT_RECONCILE_CONFIG.roundTripWindowMs) {
-  const cutoff = now - windowMs;
-  const history = (state.recentRoundTripHistory ?? []).filter((entry) => (
-    typeof entry?.at === 'number' && entry.at >= cutoff
-  ));
-  state.recentRoundTripHistory = history;
-  state.recentRoundTripCount = history.filter((entry) => entry.kind === 'normal').length;
-  return state;
+function equalJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function hasObservedRoute(observation, route) {
-  return observation.activeRoute === route
-    || String(observation.route ?? '').toUpperCase() === route;
+export function isHostTerminalPhase(phase) {
+  return TERMINAL_PHASES.has(phase);
 }
 
-function setBlocked(state, now, reason) {
-  state.phase = PHASES.BLOCKED;
-  state.errorTerminalPhase = PHASES.BLOCKED;
-  state.lastErrorCode = reason;
-  state.pendingTransition = null;
-  state.pendingRoundTripKind = null;
-  state.updatedAt = now;
+export function mirrorHostEnvelope(inputState, rawEnvelope, now = Date.now(), expected = {}) {
+  const state = normalizeState(clone(inputState), now);
+  const envelope = normalizeHostEnvelope(rawEnvelope, expected);
+  if (envelope.hostGeneration < state.hostGeneration) throw new HostResultReplayError();
+  if (envelope.hostGeneration === state.hostGeneration) {
+    if (state.lastHostEnvelope && equalJson(state.lastHostEnvelope, envelope)) {
+      return { state, envelope, status: 'duplicate', reason: 'duplicate_host_result' };
+    }
+    if (state.lastHostEnvelope || state.hostGeneration !== 0) throw new HostResultReplayError();
+  }
+
+  const mirrored = {
+    ...state,
+    hostGeneration: envelope.hostGeneration,
+    hostResultSchemaVersion: envelope.schemaVersion,
+    hostResultSource: envelope.source,
+    resultSchemaVersion: envelope.schemaVersion,
+    resultSource: envelope.source,
+    hostEnvironment: envelope.environment,
+    phase: envelope.phase,
+    activeRoute: envelope.activeRoute,
+    result: envelope.result,
+    sharedOk: envelope.sharedOk,
+    directOk: envelope.directOk,
+    sharedFailureCount: envelope.sharedFailureCount,
+    directSuccessCount: envelope.directSuccessCount,
+    directFailureCount: envelope.directFailureCount,
+    emergencySharedSuccessCount: envelope.emergencySharedSuccessCount,
+    sharedHealthyCount: envelope.sharedHealthyCount,
+    directActivatedAt: envelope.directActivatedAt,
+    sharedHealthyStartedAt: envelope.sharedHealthyStartedAt,
+    sharedHealthyLastAt: envelope.sharedHealthyLastAt,
+    cooldownUntil: envelope.cooldownUntil,
+    recentNormalRoundTrips: [...envelope.recentNormalRoundTrips],
+    transition: { ...envelope.transition },
+    terminalPhase: isHostTerminalPhase(envelope.phase) ? envelope.phase : null,
+    terminalReason: envelope.terminalReason,
+    lastHostResult: envelope.result,
+    lastHostObservedAt: now,
+    lastHostObservationAt: now,
+    lastHostEnvelope: clone(envelope),
+    controlPlaneStatus: CONTROL_PLANE_STATUS.OK,
+    controlPlaneError: null,
+    lastObservedAt: now,
+    updatedAt: now,
+  };
+  return { state: mirrored, envelope, status: 'mirrored', reason: 'host_result_mirrored' };
+}
+
+export function markControlPlaneFailure(
+  inputState,
+  { status = CONTROL_PLANE_STATUS.DEGRADED, error = 'AWS_CONTROL_PLANE_FAILURE', now = Date.now() } = {},
+) {
+  const state = normalizeState(clone(inputState), now);
+  const safeError = isSafeToken(error) ? error : 'AWS_CONTROL_PLANE_FAILURE';
+  const nextStatus = status === CONTROL_PLANE_STATUS.BLOCKED
+    ? CONTROL_PLANE_STATUS.BLOCKED
+    : CONTROL_PLANE_STATUS.DEGRADED;
   return {
-    state,
-    action: 'none',
-    reason,
+    ...state,
+    controlPlaneStatus: nextStatus,
+    controlPlaneError: safeError,
+    updatedAt: now,
   };
 }
 
-function preserveOnControlPlaneFailure(state, now) {
-  if (state.phase !== PHASES.BLOCKED) state.phase = PHASES.DEGRADED;
-  state.lastErrorCode = 'AWS_CONTROL_PLANE_FAILURE';
-  state.updatedAt = now;
-  return {
-    state,
-    action: 'none',
-    reason: 'control_plane_failure',
-  };
-}
-
-function activateDirect(state, now, config) {
-  state.activeRoute = ROUTES.DIRECT;
-  state.phase = PHASES.DIRECT_ACTIVE;
-  state.directActivatedAt = now;
-  state.sharedHealthySince = null;
-  state.sharedHealthyCount = 0;
-  state.sharedFailureCount = 0;
-  state.directSuccessCount = 0;
-  state.directFailureCount = 0;
-  state.emergencySharedSuccessCount = 0;
-  state.cooldownUntil = now + config.cooldownMs;
-  state.pendingTransition = null;
-  state.pendingRoundTripKind = null;
-  state.lastErrorCode = null;
-  return state;
-}
-
-function activateShared(state, now, config, kind) {
-  state.activeRoute = ROUTES.SHARED;
-  state.phase = PHASES.SHARED_ACTIVE;
-  state.directActivatedAt = null;
-  state.sharedHealthySince = now;
-  state.sharedHealthyCount = 0;
-  state.sharedFailureCount = 0;
-  state.directSuccessCount = 0;
-  state.directFailureCount = 0;
-  state.emergencySharedSuccessCount = 0;
-  state.cooldownUntil = now + config.cooldownMs;
-  state.pendingTransition = null;
-  state.pendingRoundTripKind = null;
-  state.lastErrorCode = null;
-  if (kind === 'normal') {
-    state.recentRoundTripHistory.push({
-      at: now,
-      kind: 'normal',
-      from: ROUTES.DIRECT,
-      to: ROUTES.SHARED,
-    });
-  }
-  return state;
-}
-
-function directMinimumSatisfied(state, now, config) {
-  return typeof state.directActivatedAt === 'number'
-    && now - state.directActivatedAt >= config.directMinimumMs;
-}
-
-function normalFailbackAllowed(state, now, config) {
-  if (state.cooldownUntil > now) return false;
-  if (!directMinimumSatisfied(state, now, config)) return false;
-  if (state.sharedHealthyCount < config.sharedHealthyThreshold) return false;
-  return state.recentRoundTripCount < config.maxNormalRoundTrips - 1;
-}
-
-function processSwitchingToDirect(state, observation, now, config) {
-  if (hasObservedRoute(observation, ROUTES.DIRECT)) {
-    activateDirect(state, now, config);
-    return { state, action: 'none', reason: 'direct_route_confirmed' };
-  }
-  if (observation.sharedOk === false && observation.directOk === false) {
-    return setBlocked(state, now, 'BOTH_ROUTES_DOWN');
-  }
-  state.phase = PHASES.SWITCHING_TO_DIRECT;
-  state.updatedAt = now;
-  return { state, action: 'switch_to_direct', reason: 'awaiting_direct_route_confirmation' };
-}
-
-function processSwitchingToShared(state, observation, now, config) {
-  if (hasObservedRoute(observation, ROUTES.SHARED)) {
-    const kind = state.pendingRoundTripKind;
-    activateShared(state, now, config, kind);
-    pruneRoundTripHistory(state, now, config.roundTripWindowMs);
-    if (state.recentRoundTripCount >= config.maxNormalRoundTrips) {
-      return setBlocked(state, now, 'NORMAL_ROUND_TRIP_BUDGET_EXHAUSTED');
-    }
-    return { state, action: 'none', reason: 'shared_route_confirmed' };
-  }
-  if (observation.sharedOk === false && observation.directOk === false) {
-    return setBlocked(state, now, 'BOTH_ROUTES_DOWN');
-  }
-  state.phase = PHASES.SWITCHING_TO_SHARED;
-  state.updatedAt = now;
-  return { state, action: 'switch_to_shared', reason: 'awaiting_shared_route_confirmation' };
-}
-
-function processSharedActive(state, observation, now, config) {
-  if (observation.sharedOk === true) {
-    state.phase = PHASES.SHARED_ACTIVE;
-    state.sharedFailureCount = 0;
-    state.directSuccessCount = 0;
-    state.sharedHealthySince ??= now;
-    state.lastErrorCode = null;
-    state.updatedAt = now;
-    return { state, action: 'none', reason: 'shared_healthy' };
-  }
-
-  if (observation.sharedOk === false) {
-    state.sharedFailureCount += 1;
-    state.sharedHealthySince = null;
-    state.directSuccessCount = observation.directOk === true ? state.directSuccessCount + 1 : 0;
-    state.phase = PHASES.DEGRADED;
-    state.lastErrorCode = 'SHARED_ROUTE_UNHEALTHY';
-    if (
-      state.sharedFailureCount >= config.sharedFailureThreshold
-      && state.directSuccessCount >= config.directSuccessThreshold
-    ) {
-      if (state.cooldownUntil > now) {
-        state.updatedAt = now;
-        return { state, action: 'none', reason: 'switch_cooldown_active' };
-      }
-      state.phase = PHASES.SWITCHING_TO_DIRECT;
-      state.pendingTransition = ROUTES.DIRECT;
-      return { state, action: 'switch_to_direct', reason: 'shared_failure_and_direct_success_gates_met' };
-    }
-    state.updatedAt = now;
-    return { state, action: 'none', reason: 'shared_failure_gate_accumulating' };
-  }
-
-  state.phase = PHASES.DEGRADED;
-  state.sharedHealthySince = null;
-  state.updatedAt = now;
-  return { state, action: 'none', reason: 'shared_status_unavailable' };
-}
-
-function processDirectActive(state, observation, now, config) {
-  if (observation.directOk === false && observation.sharedOk === false) {
-    return setBlocked(state, now, 'BOTH_ROUTES_DOWN');
-  }
-
-  if (observation.directOk === false) {
-    state.directFailureCount += 1;
-    state.sharedHealthyCount = 0;
-    state.sharedHealthySince = null;
-    state.emergencySharedSuccessCount = observation.sharedOk === true
-      ? state.emergencySharedSuccessCount + 1
-      : 0;
-    state.phase = PHASES.DEGRADED;
-    state.lastErrorCode = 'DIRECT_ROUTE_UNHEALTHY';
-    if (state.emergencySharedSuccessCount >= config.emergencySharedSuccessThreshold) {
-      state.phase = PHASES.RECOVERING_SHARED;
-      state.pendingTransition = ROUTES.SHARED;
-      state.pendingRoundTripKind = 'emergency';
-      return { state, action: 'switch_to_shared', reason: 'emergency_failback_gate_met' };
-    }
-    state.updatedAt = now;
-    return { state, action: 'none', reason: 'direct_failure_gate_accumulating' };
-  }
-
-  if (observation.directOk === true) {
-    state.directFailureCount = 0;
-    state.emergencySharedSuccessCount = 0;
-    if (observation.sharedOk === true) {
-      state.sharedHealthySince ??= now;
-      state.sharedHealthyCount += 1;
-    } else if (observation.sharedOk === false) {
-      state.sharedHealthySince = null;
-      state.sharedHealthyCount = 0;
-    } else {
-      state.sharedHealthySince = null;
-      state.sharedHealthyCount = 0;
-    }
-    state.phase = PHASES.DIRECT_ACTIVE;
-    state.lastErrorCode = null;
-    if (normalFailbackAllowed(state, now, config)) {
-      state.phase = PHASES.SWITCHING_TO_SHARED;
-      state.pendingTransition = ROUTES.SHARED;
-      state.pendingRoundTripKind = 'normal';
-      return { state, action: 'switch_to_shared', reason: 'normal_failback_gate_met' };
-    }
-    if (
-      directMinimumSatisfied(state, now, config)
-      && state.sharedHealthyCount >= config.sharedHealthyThreshold
-      && state.recentRoundTripCount >= config.maxNormalRoundTrips - 1
-    ) {
-      return setBlocked(state, now, 'NORMAL_ROUND_TRIP_BUDGET_EXHAUSTED');
-    }
-    state.updatedAt = now;
-    return { state, action: 'none', reason: 'direct_healthy' };
-  }
-
-  state.phase = PHASES.DEGRADED;
-  state.updatedAt = now;
-  return { state, action: 'none', reason: 'direct_status_unavailable' };
-}
-
-export function reconcileState(inputState, rawObservation, now = Date.now(), overrides = {}) {
-  const config = { ...DEFAULT_RECONCILE_CONFIG, ...overrides };
-  const state = normalizeState(copy(inputState), now);
-  const observation = {
-    controlPlaneOk: rawObservation?.controlPlaneOk !== false,
-    sharedOk: booleanOrNull(rawObservation?.sharedOk),
-    directOk: booleanOrNull(rawObservation?.directOk),
-    activeRoute: rawObservation?.activeRoute,
-    route: rawObservation?.route,
-    commandId: rawObservation?.commandId,
-  };
-
-  pruneRoundTripHistory(state, now, config.roundTripWindowMs);
-  state.lastObservedAt = now;
-  state.updatedAt = now;
-  if (observation.commandId) state.ssmCommandId = observation.commandId;
-
-  if (state.phase === PHASES.BLOCKED) {
-    return { state, action: 'none', reason: 'already_blocked' };
-  }
-  if (!observation.controlPlaneOk) return preserveOnControlPlaneFailure(state, now);
-  if (observation.sharedOk === false && observation.directOk === false) {
-    return setBlocked(state, now, 'BOTH_ROUTES_DOWN');
-  }
-
-  if (state.phase === PHASES.SWITCHING_TO_DIRECT) {
-    return processSwitchingToDirect(state, observation, now, config);
-  }
-  if (state.phase === PHASES.SWITCHING_TO_SHARED || state.phase === PHASES.RECOVERING_SHARED) {
-    return processSwitchingToShared(state, observation, now, config);
-  }
-  if (state.activeRoute === ROUTES.DIRECT || state.phase === PHASES.DIRECT_ACTIVE) {
-    return processDirectActive(state, observation, now, config);
-  }
-  return processSharedActive(state, observation, now, config);
-}
+export {
+  NON_NEGATIVE_FIELDS,
+  isBoundedNonNegativeInteger,
+  isSafeNonNegativeInteger,
+  isSafeToken,
+};
