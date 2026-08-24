@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { DatabaseModule } from "infrastructure/database/database.module";
 import { AligoModule } from "module/aligo.module";
 import { MessageModule } from "module/message.module";
+import { SystemTemplateModule } from "module/system-template.module";
 import { EformsignDocModule } from "module/eformsign-doc.module";
 import { AdminServiceRecordController } from "interface/controllers/admin-service-record.controller";
 import { ServiceRecordEntryController } from "interface/controllers/service-record-entry.controller";
@@ -24,7 +25,7 @@ import { MessageAutomationIntentService } from "application/services/message-aut
  * hooks (employee-schedule + client modules) can issue and revoke links.
  */
 @Module({
-    imports: [DatabaseModule, AligoModule, MessageModule, EformsignDocModule],
+    imports: [DatabaseModule, AligoModule, MessageModule, SystemTemplateModule, EformsignDocModule],
     controllers: [ServiceRecordEntryController, ScheduleChangeController, AdminServiceRecordController],
     providers: [
         AdminServiceRecordService,

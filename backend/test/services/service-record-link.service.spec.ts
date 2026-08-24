@@ -20,18 +20,29 @@ import { IMessageTriggerJobRepository } from "domain/repositories/message-trigge
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 describe("ServiceRecordLinkService", () => {
-    const createPrisma = () => ({
-        $queryRaw: jest.fn().mockResolvedValue([{ id: "claim-1" }]),
-        employee_schedule: {
-            findUnique: jest.fn(),
-        },
-        message_trigger_job: {
-            updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-        },
-        message_trigger_rule: {
-            upsert: jest.fn().mockResolvedValue(undefined),
-        },
-    });
+    const createPrisma = () => {
+        const prisma = {
+            $executeRaw: jest.fn().mockResolvedValue(1),
+            $queryRaw: jest.fn().mockResolvedValue([{ id: "claim-1" }]),
+            $transaction: jest.fn(),
+            employee_schedule: {
+                findUnique: jest.fn(),
+            },
+            message_trigger_job: {
+                updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+            message_trigger_rule: {
+                upsert: jest.fn().mockResolvedValue(undefined),
+            },
+            system_template: {
+                findUnique: jest.fn().mockResolvedValue({ customVariables: [] }),
+            },
+        };
+        prisma.$transaction.mockImplementation(async (work: (transaction: typeof prisma) => unknown) => (
+            work(prisma)
+        ));
+        return prisma;
+    };
     const createTokenService = () => ({
         issueLink: jest.fn().mockResolvedValue({ linkToken: "efl_token" }),
         reuseActiveLink: jest.fn().mockResolvedValue(null),
@@ -347,6 +358,12 @@ describe("ServiceRecordLinkService", () => {
 
         await service.sendNow(10);
 
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+        expect(prisma.system_template.findUnique).toHaveBeenCalledWith({
+            where: { templateKey: "SERVICE_RECORD_LINK" },
+            select: { customVariables: true },
+        });
         expect(prisma.message_trigger_rule.upsert).toHaveBeenCalledWith({
             where: { id: SERVICE_RECORD_LINK_RULE_ID },
             create: {
@@ -367,6 +384,37 @@ describe("ServiceRecordLinkService", () => {
         expect(prisma.message_trigger_rule.upsert.mock.invocationCallOrder[0]).toBeLessThan(
             tokenService.issueLink.mock.invocationCallOrder[0]!,
         );
+    });
+
+    it("refuses to activate the fixed rule when a required template variable has no automatic source", async () => {
+        const prisma = createPrisma();
+        const tokenService = createTokenService();
+        const jobRepository = createJobRepository();
+        prisma.system_template.findUnique.mockResolvedValue({
+            customVariables: [
+                { key: "reservationCode", label: "예약번호", required: true },
+            ],
+        });
+        const service = new ServiceRecordLinkService(
+            prisma as unknown as PrismaService,
+            tokenService as never,
+            createConfigService() as unknown as ConfigService,
+            jobRepository as unknown as IMessageTriggerJobRepository,
+            createLogRepository() as unknown as IMessageLogRepository,
+        );
+        prisma.employee_schedule.findUnique.mockResolvedValue(createSchedule());
+
+        await expect(service.sendNow(10)).rejects.toMatchObject({
+            response: {
+                unsupportedVariables: ["reservationCode"],
+            },
+        });
+
+        expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+        expect(prisma.message_trigger_rule.upsert).not.toHaveBeenCalled();
+        expect(tokenService.reuseActiveLink).not.toHaveBeenCalled();
+        expect(tokenService.issueLink).not.toHaveBeenCalled();
+        expect(jobRepository.upsertPending).not.toHaveBeenCalled();
     });
 
     it("claims the durable automatic retry marker before issuing a token", async () => {

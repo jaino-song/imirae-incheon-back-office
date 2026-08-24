@@ -4,6 +4,7 @@ import { ClientRegistrationWizard } from "../ClientRegistrationWizard";
 const mockCreateClientMutateAsync = jest.fn();
 
 jest.mock("@/hooks/useVoucherData", () => ({
+    useAreaTemplates: () => ({ data: [], isLoading: false }),
     useVoucherYears: () => ({ data: [2026], isLoading: false }),
     useVoucherPriceInfos: (type: string) => {
         if (type === "A가1형") {

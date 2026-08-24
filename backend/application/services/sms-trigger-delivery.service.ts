@@ -64,6 +64,20 @@ export interface SmsTriggerDeliverySnapshot {
     readonly systemTemplateKey?: SystemTemplateKey;
 }
 
+interface ResolvedSmsTemplate {
+    content: string;
+    version: string;
+    hash: string;
+    requiredVariableKeys: string[];
+}
+
+class MissingSmsTemplateVariablesError extends Error {
+    constructor(readonly variableKeys: string[]) {
+        super(`SMS template is missing required values: ${variableKeys.join(", ")}`);
+        this.name = "MissingSmsTemplateVariablesError";
+    }
+}
+
 /**
  * `title` here is NOT the in-app template label. It is sent to Aligo and shown
  * to the recipient as the LMS subject line, so it is outgoing message content.
@@ -194,10 +208,6 @@ export class SmsTriggerDeliveryService {
         if (!config) {
             throw new Error(`SMS trigger template ${job.templateKey} is not supported`);
         }
-        const missingPriceInfoKeys = this.missingPriceInfoKeys(job, config);
-        if (missingPriceInfoKeys.length > 0) {
-            throw new Error(`PRICE_INFO delivery snapshot is missing required values: ${missingPriceInfoKeys.join(", ")}`);
-        }
 
         const canonical = await this.resolveCanonicalSnapshot(job, config);
         const staged = this.readStagedSnapshot(job, canonical);
@@ -219,10 +229,6 @@ export class SmsTriggerDeliveryService {
         const config = SMS_TEMPLATE_DELIVERY[job.templateKey];
         if (!config) {
             throw new Error(`SMS trigger template ${job.templateKey} is not supported`);
-        }
-        const missingPriceInfoKeys = this.missingPriceInfoKeys(job, config);
-        if (missingPriceInfoKeys.length > 0) {
-            throw new Error(`PRICE_INFO delivery snapshot is missing required values: ${missingPriceInfoKeys.join(", ")}`);
         }
         return this.resolveCanonicalSnapshot(job, config);
     }
@@ -327,16 +333,18 @@ export class SmsTriggerDeliveryService {
             return false;
         }
 
-        const missingPriceInfoKeys = this.missingPriceInfoKeys(job, config);
-        if (missingPriceInfoKeys.length > 0) {
-            job.cancel(`비용 안내 발송 건너뜀: 필수 정보 누락 (${missingPriceInfoKeys.join(", ")})`);
-            this.logger.warn(
-                `[SMS Automation] PRICE_INFO skipped for job ${job.id}: missing ${missingPriceInfoKeys.join(", ")}`,
-            );
-            return false;
+        try {
+            return await this.sendSmsJob(job, config);
+        } catch (error) {
+            if (error instanceof MissingSmsTemplateVariablesError) {
+                job.cancel(`메시지 발송 건너뜀: 필수 정보 누락 (${error.variableKeys.join(", ")})`);
+                this.logger.warn(
+                    `[SMS Automation] ${job.templateKey} skipped for job ${job.id}: missing ${error.variableKeys.join(", ")}`,
+                );
+                return false;
+            }
+            throw error;
         }
-
-        return this.sendSmsJob(job, config);
     }
 
     private async sendSmsJob(
@@ -407,6 +415,12 @@ export class SmsTriggerDeliveryService {
         const template = usesPayloadMessage
             ? this.resolvePayloadTemplate(job)
             : await this.resolveSystemTemplate(config.systemTemplateKey);
+        const missingVariableKeys = template.requiredVariableKeys.filter(
+            (key) => !baseVariables[key]?.trim(),
+        );
+        if (missingVariableKeys.length > 0) {
+            throw new MissingSmsTemplateVariablesError(missingVariableKeys);
+        }
         // Payload messages retain the legacy trim/no-render behavior in
         // resolvePayloadTemplate; editable system templates are rendered
         // byte-for-byte so approval and provider requests remain equivalent.
@@ -457,7 +471,7 @@ export class SmsTriggerDeliveryService {
 
     private async resolveSystemTemplate(
         systemTemplateKey: SystemTemplateKey | undefined,
-    ): Promise<{ content: string; version: string; hash: string }> {
+    ): Promise<ResolvedSmsTemplate> {
         if (!systemTemplateKey) {
             throw new Error("systemTemplateKey is required for templated SMS delivery");
         }
@@ -468,10 +482,22 @@ export class SmsTriggerDeliveryService {
             const updatedAt = template.updatedAt instanceof Date && !Number.isNaN(template.updatedAt.getTime())
                 ? template.updatedAt.toISOString()
                 : `content:${hash}`;
+            const requiredVariableKeys = new Set<string>([
+                ...SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey].requiredVariables
+                    .filter((variable) => variable.required)
+                    .map((variable) => variable.key),
+                ...(template.requiredVariables ?? [])
+                    .filter((variable) => variable.required)
+                    .map((variable) => variable.key),
+                ...(template.customVariables ?? [])
+                    .filter((variable) => variable.required)
+                    .map((variable) => variable.key),
+            ]);
             return {
                 content,
                 version: `${template.id || systemTemplateKey}:${updatedAt}`,
                 hash,
+                requiredVariableKeys: [...requiredVariableKeys],
             };
         } catch (error) {
             if (isTransientPrismaConnectivityError(error)) {
@@ -488,21 +514,28 @@ export class SmsTriggerDeliveryService {
             );
             const content = SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey].defaultContent;
             const hash = this.hash(content);
-            return { content, version: `registry-default:${systemTemplateKey}`, hash };
+            return {
+                content,
+                version: `registry-default:${systemTemplateKey}`,
+                hash,
+                requiredVariableKeys: SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey].requiredVariables
+                    .filter((variable) => variable.required)
+                    .map((variable) => variable.key),
+            };
         }
     }
 
-    private resolvePayloadTemplate(job: MessageTriggerJobEntity): { content: string; version: string; hash: string } {
+    private resolvePayloadTemplate(job: MessageTriggerJobEntity): ResolvedSmsTemplate {
         const content = job.payload.messageBody?.trim();
         if (!content) {
             throw new Error(`SMS payload message is missing for job ${job.id}`);
         }
         const hash = this.hash(content);
-        return { content, version: `payload:${hash}`, hash };
+        return { content, version: `payload:${hash}`, hash, requiredVariableKeys: [] };
     }
 
     private renderTemplate(template: string, variables: Record<string, string>): string {
-        return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => variables[key] ?? match);
+        return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, key) => variables[key] ?? "");
     }
 
     private async recordSmsLog(params: {
@@ -561,22 +594,6 @@ export class SmsTriggerDeliveryService {
                 params.job.payload.recipientPhone,
             ),
         );
-    }
-
-    private missingPriceInfoKeys(
-        job: MessageTriggerJobEntity,
-        config: SmsTemplateDeliveryConfig,
-    ): string[] {
-        if (config.systemTemplateKey !== SystemTemplateKey.PRICE_INFO) {
-            return [];
-        }
-
-        const variables: Record<string, string> = {
-            ...job.payload.templateVariables,
-            name: job.payload.recipientName,
-        };
-        const requiredKeys = ["fullPrice", "grant", "actualPrice", "bankName", "accNum", "duration", "type"];
-        return requiredKeys.filter((key) => !variables[key]?.trim());
     }
 
     private readStagedSnapshot(

@@ -1,13 +1,19 @@
 import { ConflictException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { MessageTriggerService } from "application/services/message-trigger.service";
 import {
+    MessageTriggerService,
+    validateMessageTriggerRule,
+} from "application/services/message-trigger.service";
+import {
+    CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+    EVENT_OFFSET_OPTIONS,
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
     MessageTriggerEventType,
     MessageTriggerOffsetType,
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { SystemTemplateKey } from "domain/constants/system-template-registry";
 import {
     SEND_HOUR_KST,
     TRIGGER_JOB_MAX_ATTEMPTS,
@@ -161,6 +167,29 @@ describe("MessageTriggerService", () => {
             ),
     });
 
+    const createSystemTemplateService = () => ({
+        getByKey: jest.fn().mockImplementation(async (templateKey: string) => ({
+            id: `template-${templateKey}`,
+            templateKey,
+            customVariables: [],
+        })),
+    });
+
+    const createTemplateAutomationLock = (prisma?: unknown) => ({
+        runExclusive: jest.fn().mockImplementation(async (
+            _templateKey: string,
+            work: (transaction: unknown) => Promise<unknown>,
+            transaction?: unknown,
+        ) => {
+            if (transaction) return work(transaction);
+            const runTransaction = (prisma as {
+                $transaction?: (operation: (transaction: unknown) => Promise<unknown>) => Promise<unknown>;
+            } | undefined)?.$transaction;
+            if (runTransaction) return runTransaction(work);
+            return work({});
+        }),
+    });
+
     const createService = () => {
         const ruleRepository = {
             findAll: jest.fn(),
@@ -204,6 +233,7 @@ describe("MessageTriggerService", () => {
                 return job;
             }),
         };
+        const writeTransaction = { message_trigger_rule: {} };
         const prisma = {
             client: {
                 findMany: jest.fn().mockResolvedValue([]),
@@ -214,9 +244,15 @@ describe("MessageTriggerService", () => {
             message_trigger_job: {
                 findMany: jest.fn().mockResolvedValue([]),
             },
+            $transaction: jest.fn().mockImplementation(
+                async (operation: (transaction: typeof writeTransaction) => Promise<unknown>) =>
+                    operation(writeTransaction),
+            ),
         };
         const messageSenderApprovalService = createMessageSenderApprovalService();
         const messageLogRepository = createMessageLogRepository();
+        const systemTemplateService = createSystemTemplateService();
+        const templateAutomationLock = createTemplateAutomationLock(prisma);
         const service = new MessageTriggerService(
             prisma as never,
             {} as never,
@@ -224,13 +260,24 @@ describe("MessageTriggerService", () => {
             ruleRepository as never,
             jobRepository as never,
             messageLogRepository as never,
+            systemTemplateService as never,
+            templateAutomationLock as never,
         );
 
         const internals = service as unknown as ServiceInternals;
         jest.spyOn(internals, "hasTriggerSchema").mockResolvedValue(true);
         jest.spyOn(internals, "rebuildJobsForRule").mockResolvedValue(undefined);
 
-        return { service, internals, prisma, ruleRepository, jobRepository, messageSenderApprovalService };
+        return {
+            service,
+            internals,
+            prisma,
+            ruleRepository,
+            jobRepository,
+            messageSenderApprovalService,
+            systemTemplateService,
+            templateAutomationLock,
+        };
     };
 
     const createDispatchService = () => {
@@ -279,6 +326,8 @@ describe("MessageTriggerService", () => {
             ruleRepository as never,
             jobRepository as never,
             messageLogRepository as never,
+            createSystemTemplateService() as never,
+            createTemplateAutomationLock(prisma) as never,
         );
 
         jest.spyOn(service as unknown as ServiceInternals, "hasTriggerSchema").mockResolvedValue(true);
@@ -304,6 +353,20 @@ describe("MessageTriggerService", () => {
             branchId,
         );
         expect(jobRepository.findUpcomingPendingByBranch).toHaveBeenCalledWith(branchId, 200);
+    });
+
+    it("rebuilds stale rule generations before loading due jobs in the same scheduler tick", async () => {
+        const { service, jobRepository } = createDispatchService();
+        const internals = service as unknown as ServiceInternals;
+        const rebuildSpy = jest.spyOn(internals, "processStaleRuleRebuilds").mockResolvedValue(undefined);
+
+        await service.dispatchDueJobs();
+
+        expect(rebuildSpy).toHaveBeenCalledTimes(1);
+        expect(jobRepository.findDuePending).toHaveBeenCalledTimes(1);
+        expect(rebuildSpy.mock.invocationCallOrder[0]!).toBeLessThan(
+            jobRepository.findDuePending.mock.invocationCallOrder[0]!,
+        );
     });
 
     it("includes manual scheduled SMS logs in the upcoming list", async () => {
@@ -506,6 +569,7 @@ describe("MessageTriggerService", () => {
                 recipientType: MessageTriggerRecipientType.CLIENT,
                 templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
             }),
+            expect.any(Object),
         );
         expect(internals.rebuildJobsForRule).toHaveBeenCalledWith(branchId, createdServiceInfo, false);
         expect(rules).toContainEqual(createdServiceInfo);
@@ -546,6 +610,7 @@ describe("MessageTriggerService", () => {
                 recipientType: MessageTriggerRecipientType.CLIENT,
                 templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
             }),
+            expect.any(Object),
         );
         expect(rules).toContainEqual(createdGreeting);
         expect(rules).toContainEqual(existingServiceInfo);
@@ -596,8 +661,14 @@ describe("MessageTriggerService", () => {
         expect(rules).toEqual([existingRule]);
     });
 
-    it("createRule returns without rebuilding jobs and marks the rule stale", async () => {
-        const { service, internals, ruleRepository, jobRepository } = createService();
+    it("createRule synchronously reconciles the new rule generation before returning", async () => {
+        const {
+            service,
+            internals,
+            ruleRepository,
+            jobRepository,
+            templateAutomationLock,
+        } = createService();
         const createdRule = createRule({
             id: "rule-created",
             name: "신규 고객 인사",
@@ -606,7 +677,30 @@ describe("MessageTriggerService", () => {
             offsetDays: 0,
             templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
         });
+        const staleRule = createRule({
+            id: createdRule.id,
+            name: createdRule.name,
+            eventType: createdRule.eventType,
+            offsetType: createdRule.offsetType,
+            offsetDays: createdRule.offsetDays,
+            templateKey: createdRule.templateKey,
+            jobsStale: true,
+            updatedAt: new Date("2026-06-01T00:00:01.000Z"),
+        });
+        const reconciledRule = createRule({
+            id: createdRule.id,
+            name: createdRule.name,
+            eventType: createdRule.eventType,
+            offsetType: createdRule.offsetType,
+            offsetDays: createdRule.offsetDays,
+            templateKey: createdRule.templateKey,
+            jobsStale: false,
+            updatedAt: staleRule.updatedAt,
+        });
         ruleRepository.create.mockResolvedValue(createdRule);
+        ruleRepository.findById
+            .mockResolvedValueOnce(staleRule)
+            .mockResolvedValueOnce(reconciledRule);
 
         const result = await service.createRule(branchId, {
             name: "신규 고객 인사",
@@ -616,10 +710,129 @@ describe("MessageTriggerService", () => {
             templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
         });
 
-        expect(result).toBe(createdRule);
-        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(createdRule.id, undefined);
-        expect(internals.rebuildJobsForRule).not.toHaveBeenCalled();
-        expect(jobRepository.cancelPendingByRuleId).not.toHaveBeenCalled();
+        expect(result).toBe(reconciledRule);
+        expect(templateAutomationLock.runExclusive).toHaveBeenCalledWith(
+            SystemTemplateKey.GREETING,
+            expect.any(Function),
+            undefined,
+        );
+        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            createdRule.id,
+            expect.any(Object),
+        );
+        expect(jobRepository.cancelPendingForRuleGeneration).toHaveBeenCalledWith(
+            branchId,
+            staleRule.id,
+            staleRule.updatedAt,
+            true,
+            "규칙 재생성",
+        );
+        expect(internals.rebuildJobsForRule).toHaveBeenCalledWith(branchId, staleRule, false);
+        expect(ruleRepository.clearJobsStaleIfUnchanged).toHaveBeenCalledWith(
+            staleRule.id,
+            staleRule.updatedAt,
+        );
+    });
+
+    it.each(["initial", "final"] as const)(
+        "returns the one persisted rule when the %s post-write reconciliation read fails",
+        async (failedRead) => {
+            const { service, ruleRepository } = createService();
+            const createdRule = createRule({
+                id: `rule-read-failure-${failedRead}`,
+                name: "중복 방지 규칙",
+                eventType: MessageTriggerEventType.CLIENT_CREATED,
+                offsetType: MessageTriggerOffsetType.IMMEDIATE,
+                offsetDays: 0,
+                templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
+            });
+            const staleRule = createRule({
+                id: createdRule.id,
+                name: createdRule.name,
+                eventType: createdRule.eventType,
+                offsetType: createdRule.offsetType,
+                offsetDays: createdRule.offsetDays,
+                templateKey: createdRule.templateKey,
+                jobsStale: true,
+                updatedAt: new Date("2026-06-01T00:00:01.000Z"),
+            });
+            ruleRepository.create.mockResolvedValue(createdRule);
+            if (failedRead === "initial") {
+                ruleRepository.findById.mockRejectedValueOnce(new Error("temporary read failure"));
+            } else {
+                ruleRepository.findById
+                    .mockResolvedValueOnce(staleRule)
+                    .mockRejectedValueOnce(new Error("temporary read failure"));
+            }
+
+            await expect(service.createRule(branchId, {
+                name: createdRule.name,
+                eventType: createdRule.eventType,
+                offsetType: createdRule.offsetType,
+                recipientType: createdRule.recipientType,
+                templateKey: createdRule.templateKey,
+            })).resolves.toBe(createdRule);
+
+            expect(ruleRepository.create).toHaveBeenCalledTimes(1);
+            expect(ruleRepository.markJobsStale).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it("rolls back the inserted rule when its stale marker fails so a retry cannot duplicate it", async () => {
+        const { service, prisma, ruleRepository } = createService();
+        const durableRules: MessageTriggerRuleEntity[] = [];
+        let failStaleMarker = true;
+        prisma.$transaction.mockImplementation(async (
+            operation: (transaction: { id: string }) => Promise<MessageTriggerRuleEntity>,
+        ) => {
+            const snapshot = [...durableRules];
+            try {
+                return await operation({ id: `tx-${prisma.$transaction.mock.calls.length}` });
+            } catch (error) {
+                durableRules.splice(0, durableRules.length, ...snapshot);
+                throw error;
+            }
+        });
+        ruleRepository.create.mockImplementation(async (
+            _branchId: string,
+            candidate: MessageTriggerRuleEntity,
+        ) => {
+            const persisted = createRule({
+                id: "rule-atomic-create",
+                name: candidate.name,
+                eventType: candidate.eventType,
+                offsetType: candidate.offsetType,
+                offsetDays: candidate.offsetDays,
+                recipientType: candidate.recipientType,
+                templateKey: candidate.templateKey,
+            });
+            durableRules.push(persisted);
+            return persisted;
+        });
+        ruleRepository.markJobsStale.mockImplementation(async () => {
+            if (failStaleMarker) {
+                failStaleMarker = false;
+                throw new Error("temporary stale-marker failure");
+            }
+        });
+        const input = {
+            name: "원자 생성 규칙",
+            eventType: MessageTriggerEventType.CLIENT_CREATED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.CLIENT,
+            templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
+        };
+
+        await expect(service.createRule(branchId, input)).rejects.toThrow(
+            "temporary stale-marker failure",
+        );
+        expect(durableRules).toHaveLength(0);
+
+        await expect(service.createRule(branchId, input)).resolves.toEqual(
+            expect.objectContaining({ id: "rule-atomic-create" }),
+        );
+        expect(durableRules).toHaveLength(1);
+        expect(prisma.$transaction).toHaveBeenCalledTimes(2);
     });
 
     it("rejects a fake template without an SMS provider when creating a rule", async () => {
@@ -650,7 +863,133 @@ describe("MessageTriggerService", () => {
         }
     });
 
-    it("updateRule batch-cancels pending jobs and marks stale without rebuilding in-request", async () => {
+    it.each([
+        MessageTriggerTemplateKey.CLIENT_WELCOME,
+        MessageTriggerTemplateKey.SERVICE_START_REMINDER,
+        MessageTriggerTemplateKey.SERVICE_END_REMINDER,
+        MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+    ])("does not expose or accept non-configurable template %s in the generic rule builder", async (templateKey) => {
+        const { service, ruleRepository } = createService();
+
+        const listedTemplateKeys = service.listTemplates({}).map((template) => template.key);
+
+        expect(listedTemplateKeys).not.toContain(templateKey);
+        await expect(service.createRule(branchId, {
+            name: "숨은 템플릿 일반 규칙",
+            eventType: MessageTriggerEventType.CLIENT_CREATED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.CLIENT,
+            templateKey,
+        })).rejects.toThrow("일반 자동 전송 규칙에서 사용할 수 없는 템플릿입니다.");
+        expect(ruleRepository.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects an active rule before persistence when its required custom variable has no automatic source", async () => {
+        const { service, ruleRepository, systemTemplateService } = createService();
+        systemTemplateService.getByKey.mockResolvedValue({
+            id: "template-service-info",
+            templateKey: "SERVICE_INFO",
+            customVariables: [
+                { key: "reservationCode", label: "예약 코드", required: true },
+            ],
+        });
+
+        await expect(service.createRule(branchId, {
+            name: "지원되지 않는 사용자 변수 규칙",
+            eventType: MessageTriggerEventType.SERVICE_START,
+            offsetType: MessageTriggerOffsetType.SAME_DAY,
+            recipientType: MessageTriggerRecipientType.CLIENT,
+            templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
+        })).rejects.toMatchObject({
+            response: expect.objectContaining({
+                unsupportedVariables: ["reservationCode"],
+            }),
+        });
+
+        expect(ruleRepository.create).not.toHaveBeenCalled();
+        expect(ruleRepository.markJobsStale).not.toHaveBeenCalled();
+    });
+
+    it("rejects list-toggle activation when a required custom variable has no automatic source", async () => {
+        const { service, ruleRepository, systemTemplateService } = createService();
+        const inactiveRule = createRule({
+            id: "rule-inactive-unsupported-variable",
+            isActive: false,
+            eventType: MessageTriggerEventType.SERVICE_START,
+            offsetType: MessageTriggerOffsetType.SAME_DAY,
+            templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
+        });
+        ruleRepository.findById.mockResolvedValue(inactiveRule);
+        systemTemplateService.getByKey.mockResolvedValue({
+            id: "template-service-info",
+            templateKey: "SERVICE_INFO",
+            customVariables: [
+                { key: "reservationCode", label: "예약 코드", required: true },
+            ],
+        });
+
+        await expect(service.updateRule(branchId, inactiveRule.id, {
+            isActive: true,
+        })).rejects.toMatchObject({
+            response: expect.objectContaining({
+                unsupportedVariables: ["reservationCode"],
+            }),
+        });
+
+        expect(ruleRepository.update).not.toHaveBeenCalled();
+        expect(ruleRepository.markJobsStale).not.toHaveBeenCalled();
+    });
+
+    it.each(
+        CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS.flatMap((templateKey) =>
+            MESSAGE_TRIGGER_TEMPLATE_CATALOG[templateKey].allowedEventTypes.flatMap((eventType) =>
+                MESSAGE_TRIGGER_TEMPLATE_CATALOG[templateKey].allowedRecipientTypes.flatMap((recipientType) =>
+                    EVENT_OFFSET_OPTIONS[eventType].map((offsetType) => ({
+                        templateKey,
+                        eventType,
+                        recipientType,
+                        offsetType,
+                    })),
+                ),
+            ),
+        ),
+    )(
+        "accepts configurable rule combination $templateKey / $eventType / $recipientType / $offsetType",
+        ({ templateKey, eventType, recipientType, offsetType }) => {
+            expect(() => validateMessageTriggerRule({
+                templateKey,
+                eventType,
+                recipientType,
+                offsetType,
+                offsetDays:
+                    offsetType === MessageTriggerOffsetType.BEFORE_DAYS
+                    || offsetType === MessageTriggerOffsetType.AFTER_DAYS
+                        ? 1
+                        : 0,
+            })).not.toThrow();
+        },
+    );
+
+    it.each(CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS)(
+        "rejects invalid employee-recipient creation for %s without persisting a rule",
+        async (templateKey) => {
+            const { service, ruleRepository } = createService();
+
+            await expect(service.createRule(branchId, {
+                name: `잘못된 ${templateKey} 규칙`,
+                eventType: MessageTriggerEventType.SERVICE_START,
+                offsetType: MessageTriggerOffsetType.SAME_DAY,
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                templateKey,
+            })).rejects.toThrow("Invalid recipient for selected event type");
+
+            expect(ruleRepository.create).not.toHaveBeenCalled();
+            expect(ruleRepository.markJobsStale).not.toHaveBeenCalled();
+        },
+    );
+
+    it("updateRule cancels the old generation and reconciles the new generation before returning", async () => {
         const { service, internals, ruleRepository, jobRepository } = createService();
         const existingRule = createRule({
             id: "rule-updated",
@@ -668,20 +1007,57 @@ describe("MessageTriggerService", () => {
             offsetDays: 0,
             templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
         });
-        ruleRepository.findById.mockResolvedValue(existingRule);
+        const staleRule = createRule({
+            id: updatedRule.id,
+            name: updatedRule.name,
+            eventType: updatedRule.eventType,
+            offsetType: updatedRule.offsetType,
+            offsetDays: updatedRule.offsetDays,
+            templateKey: updatedRule.templateKey,
+            jobsStale: true,
+            updatedAt: new Date("2026-06-01T00:00:01.000Z"),
+        });
+        const reconciledRule = createRule({
+            id: staleRule.id,
+            name: staleRule.name,
+            eventType: staleRule.eventType,
+            offsetType: staleRule.offsetType,
+            offsetDays: staleRule.offsetDays,
+            templateKey: staleRule.templateKey,
+            jobsStale: false,
+            updatedAt: staleRule.updatedAt,
+        });
+        ruleRepository.findById
+            .mockResolvedValueOnce(existingRule)
+            .mockResolvedValueOnce(staleRule)
+            .mockResolvedValueOnce(reconciledRule);
         ruleRepository.update.mockResolvedValue(updatedRule);
 
         const result = await service.updateRule(branchId, existingRule.id, {
             name: "수정된 규칙",
         });
 
-        expect(result).toBe(updatedRule);
+        expect(result).toBe(reconciledRule);
         expect(jobRepository.cancelPendingByRuleId).toHaveBeenCalledWith(
             existingRule.id,
             "Rule updated",
         );
-        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(existingRule.id);
-        expect(internals.rebuildJobsForRule).not.toHaveBeenCalled();
+        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            existingRule.id,
+            expect.any(Object),
+        );
+        expect(jobRepository.cancelPendingForRuleGeneration).toHaveBeenCalledWith(
+            branchId,
+            staleRule.id,
+            staleRule.updatedAt,
+            true,
+            "규칙 재생성",
+        );
+        expect(internals.rebuildJobsForRule).toHaveBeenCalledWith(branchId, staleRule, false);
+        expect(ruleRepository.clearJobsStaleIfUnchanged).toHaveBeenCalledWith(
+            staleRule.id,
+            staleRule.updatedAt,
+        );
     });
 
     it("uses branch-scoped CAS hooks for approved automation updates and deletes", async () => {
@@ -715,6 +1091,7 @@ describe("MessageTriggerService", () => {
             expect.objectContaining({ name: "승인된 변경" }),
             "Rule updated",
             expect.any(Date),
+            expect.any(Object),
         );
         expect(jobRepository.cancelPendingByRuleId).not.toHaveBeenCalledWith(existingRule.id, "Rule updated");
 
@@ -795,8 +1172,48 @@ describe("MessageTriggerService", () => {
         expect(ruleRepository.findInactiveDefaultRules).toHaveBeenCalledWith(50);
         expect(messageSenderApprovalService.getApprovedBranches).toHaveBeenCalledWith([branchId]);
         expect(inactiveDefault.isActive).toBe(true);
-        expect(ruleRepository.update).toHaveBeenCalledWith(branchId, inactiveDefault);
-        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(inactiveDefault.id);
+        expect(ruleRepository.update).toHaveBeenCalledWith(
+            branchId,
+            inactiveDefault,
+            expect.any(Object),
+        );
+        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            inactiveDefault.id,
+            expect.any(Object),
+        );
+    });
+
+    it("keeps a recovered default inactive when its required custom variable has no automatic source", async () => {
+        const {
+            internals,
+            ruleRepository,
+            messageSenderApprovalService,
+            systemTemplateService,
+        } = createService();
+        const approvedAt = new Date("2026-06-05T00:00:00.000Z");
+        const inactiveDefault = createRule({
+            id: "rule-default-unsupported-variable",
+            isActive: false,
+            isDefault: true,
+            branchId,
+            templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
+            updatedAt: new Date("2026-06-04T00:00:00.000Z"),
+        });
+        ruleRepository.findInactiveDefaultRules.mockResolvedValue([inactiveDefault]);
+        messageSenderApprovalService.getApprovedBranches.mockResolvedValue(new Map([[branchId, approvedAt]]));
+        systemTemplateService.getByKey.mockResolvedValue({
+            id: "template-service-info",
+            templateKey: "SERVICE_INFO",
+            customVariables: [
+                { key: "reservationCode", label: "예약 코드", required: true },
+            ],
+        });
+
+        await internals.recoverApprovedBranches();
+
+        expect(inactiveDefault.isActive).toBe(false);
+        expect(ruleRepository.update).not.toHaveBeenCalled();
+        expect(ruleRepository.markJobsStale).not.toHaveBeenCalled();
     });
 
     it("does not reactivate a default rule disabled after branch approval", async () => {
@@ -854,6 +1271,8 @@ describe("MessageTriggerService", () => {
             {} as never,
             jobRepository as never,
             messageLogRepository as never,
+            createSystemTemplateService() as never,
+            createTemplateAutomationLock() as never,
         );
 
         const greetingRule = createRule({
@@ -1161,9 +1580,16 @@ describe("MessageTriggerService", () => {
 
         await service.dispatchDueJobs();
 
-        expect(order).toEqual(["reclaim", "due", "recover", "stale"]);
-        expect(ruleRepository.update).toHaveBeenCalledWith(branchId, inactiveDefault);
-        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(inactiveDefault.id);
+        expect(order).toEqual(["reclaim", "recover", "stale", "due"]);
+        expect(ruleRepository.update).toHaveBeenCalledWith(
+            branchId,
+            inactiveDefault,
+            expect.any(Object),
+        );
+        expect(ruleRepository.markJobsStale).toHaveBeenCalledWith(
+            inactiveDefault.id,
+            expect.any(Object),
+        );
         expect(rebuildSpy).toHaveBeenCalledWith(inactiveDefault.branchId, inactiveDefault, false);
     });
 
@@ -1292,6 +1718,8 @@ describe("MessageTriggerService", () => {
                 ruleRepository as never,
                 jobRepository as never,
                 createMessageLogRepository() as never,
+                createSystemTemplateService() as never,
+                createTemplateAutomationLock() as never,
             );
             const staleRule = createRule({
                 id: "rule-stale-past-cleanup",
@@ -1556,6 +1984,40 @@ describe("MessageTriggerService", () => {
         });
     });
 
+    it.each(CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS)(
+        "builds every required %s variable from a complete client record",
+        (templateKey) => {
+            const { internals } = createService();
+            const rule = createRule({
+                eventType: MessageTriggerEventType.SERVICE_START,
+                offsetType: MessageTriggerOffsetType.BEFORE_DAYS,
+                offsetDays: 7,
+                templateKey,
+            });
+
+            const variables = internals.buildClientTemplateVariables(rule, {
+                name: "자동발송 테스트",
+                phone: "010-6621-1878",
+                type: "A가1형",
+                duration: 10,
+                startDate: new Date("2026-08-31T00:00:00.000Z"),
+                endDate: new Date("2026-09-11T00:00:00.000Z"),
+                createdAt: new Date("2026-08-24T00:00:00.000Z"),
+                fullPrice: "3000000",
+                grant: "2000000",
+                actualPrice: "1000000",
+                area: { bankAccountInfo: { bankName: "신한은행", accNum: "110-123-456789" } },
+            });
+
+            const missingRequiredVariables = MESSAGE_TRIGGER_TEMPLATE_CATALOG[templateKey]
+                .requiredVariables
+                .map((variable) => variable.key)
+                .filter((key) => !variables[key]?.trim());
+
+            expect(missingRequiredVariables).toEqual([]);
+        },
+    );
+
     const createSyncService = (clientOverrides: Partial<{
         id: number;
         name: string;
@@ -1625,6 +2087,8 @@ describe("MessageTriggerService", () => {
             ruleRepository as never,
             jobRepository as never,
             messageLogRepository as never,
+            createSystemTemplateService() as never,
+            createTemplateAutomationLock(prisma) as never,
             systemSettingService as never,
         );
         return {
@@ -1702,6 +2166,8 @@ describe("MessageTriggerService", () => {
             ruleRepository as never,
             jobRepository as never,
             messageLogRepository as never,
+            createSystemTemplateService() as never,
+            createTemplateAutomationLock(prisma) as never,
         );
         return {
             service,
@@ -1777,6 +2243,8 @@ describe("MessageTriggerService", () => {
             {} as never,
             jobRepository as never,
             createMessageLogRepository() as never,
+            createSystemTemplateService() as never,
+            createTemplateAutomationLock(prisma) as never,
         );
         const serviceInfoRule = createRule({
             id: "rule-service-info",
@@ -2519,6 +2987,7 @@ describe("MessageTriggerService", () => {
                 templateKey: MessageTriggerTemplateKey.SERVICE_INFO,
                 isDefault: true,
             }),
+            expect.any(Object),
         );
         expect(ruleRepository.create).toHaveBeenNthCalledWith(
             2,
@@ -2527,6 +2996,7 @@ describe("MessageTriggerService", () => {
                 templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
                 isDefault: true,
             }),
+            expect.any(Object),
         );
     });
 
