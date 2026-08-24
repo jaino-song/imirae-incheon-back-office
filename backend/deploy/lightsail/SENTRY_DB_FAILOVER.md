@@ -47,11 +47,13 @@ parameters. The worker role still receives only the selected document ARN and
 the selected environment tag condition.
 
 `EnableFailover` defaults to `false`. Keep it false while validating a stack or
-deploying infrastructure. The GitHub workflow requires a manual dispatch,
-explicit `enable_deploy=true`, `enable_failover=true`, and a confirmed
-read-only live Sentry rule audit; the target GitHub environment must have
-protected reviewers configured. The confirmation is only an additional human
-approval. Before AWS credentials are issued, the workflow itself performs an
+performing the Preview/Production dark deploy. The GitHub workflow requires a
+manual dispatch and explicit `enable_deploy=true`; it passes the selected
+`enable_failover` value to CloudFormation rather than silently forcing it on.
+Turning failover on additionally requires `confirm_sentry_rule_audit=true`.
+The target GitHub environment must have protected reviewers configured. The
+confirmation is only an additional human approval. For both dark deploy and
+enablement, before AWS credentials are issued the workflow performs an
 authenticated read-only fetch of every configured rule and fails closed on any
 unavailable or mismatched response.
 
@@ -240,8 +242,9 @@ SSM parameters, and static SAM/IAM contracts.
 The GitHub workflow validates, tests, builds, and packages SAM artifacts on
 repository changes. It has no automatic deployment path. Preview and production
 deployment jobs run only from manual dispatch, require both explicit enable
-inputs plus `confirm_sentry_rule_audit=true`, and use the corresponding
-protected GitHub environment. The workflow then calls Sentry's read-only
+deploy input and use the corresponding protected GitHub environment. A dark
+deploy uses `enable_failover=false`; changing it to true additionally requires
+`confirm_sentry_rule_audit=true`. The workflow then calls Sentry's read-only
 organization alert-rule detail endpoint with an environment-scoped
 `SENTRY_API_TOKEN` that has only `alerts:read` and `project:read` (or equivalent
 read-only) access. It first proves that `SENTRY_PROJECT_SLUG` maps to the exact

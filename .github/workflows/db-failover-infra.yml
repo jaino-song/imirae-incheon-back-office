@@ -31,7 +31,7 @@ on:
         required: true
         default: false
       confirm_sentry_rule_audit:
-        description: Confirm the documented read-only live Sentry metric-rule audit passed
+        description: Confirm webhook-only Sentry fields were reviewed before enabling failover
         type: boolean
         required: true
         default: false
@@ -117,8 +117,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.enable_deploy == true &&
-      inputs.enable_failover == true &&
-      inputs.confirm_sentry_rule_audit == true &&
+      (inputs.enable_failover == false || inputs.confirm_sentry_rule_audit == true) &&
       inputs.environment == 'preview'
     needs: validate-build-package
     runs-on: ubuntu-latest
@@ -130,6 +129,7 @@ jobs:
       id-token: write
     env:
       STACK_NAME: babyjamjam-preview-db-failover
+      ENABLE_FAILOVER: ${{ inputs.enable_failover }}
       AWS_ROLE_ARN: ${{ vars.AWS_FAILOVER_PREVIEW_ROLE_ARN }}
       SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
       SENTRY_CLIENT_SECRET_NAME: ${{ secrets.SENTRY_CLIENT_SECRET_NAME }}
@@ -173,7 +173,7 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               EnvironmentType=preview \
-              EnableFailover=true \
+              EnableFailover="$ENABLE_FAILOVER" \
               SentryClientSecretName="$SENTRY_CLIENT_SECRET_NAME" \
               SentryInstallationId="$SENTRY_INSTALLATION_ID" \
               SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \
@@ -185,8 +185,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.enable_deploy == true &&
-      inputs.enable_failover == true &&
-      inputs.confirm_sentry_rule_audit == true &&
+      (inputs.enable_failover == false || inputs.confirm_sentry_rule_audit == true) &&
       inputs.environment == 'production'
     needs: validate-build-package
     runs-on: ubuntu-latest
@@ -198,6 +197,7 @@ jobs:
       id-token: write
     env:
       STACK_NAME: babyjamjam-production-db-failover
+      ENABLE_FAILOVER: ${{ inputs.enable_failover }}
       AWS_ROLE_ARN: ${{ vars.AWS_FAILOVER_PRODUCTION_ROLE_ARN }}
       SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
       SENTRY_CLIENT_SECRET_NAME: ${{ secrets.SENTRY_CLIENT_SECRET_NAME }}
@@ -241,7 +241,7 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               EnvironmentType=production \
-              EnableFailover=true \
+              EnableFailover="$ENABLE_FAILOVER" \
               SentryClientSecretName="$SENTRY_CLIENT_SECRET_NAME" \
               SentryInstallationId="$SENTRY_INSTALLATION_ID" \
               SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \

@@ -18,8 +18,10 @@ test('workflow validates, tests, builds, and packages without automatic deployme
   assert.match(workflow, /sam package/);
   assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
   assert.match(workflow, /inputs\.enable_deploy == true/);
-  assert.match(workflow, /inputs\.enable_failover == true/);
+  assert.match(workflow, /inputs\.enable_failover == false \|\| inputs\.confirm_sentry_rule_audit == true/);
   assert.match(workflow, /inputs\.confirm_sentry_rule_audit == true/);
+  assert.match(workflow, /ENABLE_FAILOVER: \$\{\{ inputs\.enable_failover \}\}/);
+  assert.match(workflow, /EnableFailover="\$ENABLE_FAILOVER"/);
   assert.match(workflow, /node-version: '22'/);
   assert.match(workflow, /SentryClientSecretName/);
   assert.doesNotMatch(workflow, /SENTRY_CLIENT_SECRET_ARN|SentryClientSecretArn/);
@@ -44,6 +46,17 @@ test('each deploy job performs a live fail-closed Sentry rule audit before AWS a
     const awsAuthentication = job.indexOf('aws-actions/configure-aws-credentials');
     const deploy = job.indexOf('sam deploy');
     assert.ok(audit >= 0 && audit < awsAuthentication && awsAuthentication < deploy);
+  }
+});
+
+test('manual dark deploy is allowed while enabling failover still requires human confirmation', () => {
+  const deployConditions = [...workflow.matchAll(/deploy-(?:preview|production):[\s\S]*?if: >-([\s\S]*?)needs:/g)]
+    .map((match) => match[1]);
+  assert.equal(deployConditions.length, 2);
+  for (const condition of deployConditions) {
+    assert.match(condition, /inputs\.enable_deploy == true/);
+    assert.match(condition, /inputs\.enable_failover == false \|\| inputs\.confirm_sentry_rule_audit == true/);
+    assert.doesNotMatch(condition, /inputs\.enable_failover == true &&/);
   }
 });
 
