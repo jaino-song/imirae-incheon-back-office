@@ -1,15 +1,90 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -euo pipefail
+
+readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$SAFE_PATH"
 
 if [[ "$EUID" -ne 0 ]]; then
     echo "The Lightsail deployment script must run as root." >&2
     exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
-COMPOSE_FILE="${BACKEND_COMPOSE_FILE:-$REPOSITORY_ROOT/backend/compose.lightsail.yml}"
+readonly PROTECTED_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"
+readonly PROTECTED_COMPOSE_FILE="$PROTECTED_ARTIFACT_DIRECTORY/compose.lightsail.yml"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ "$SCRIPT_DIR" != "$PROTECTED_ARTIFACT_DIRECTORY" ]]; then
+    echo "The repository deployment helper is retired; invoke the installed CI operator or protected bundle." >&2
+    exit 1
+fi
+
+validate_protected_artifact_file() {
+    local artifact_path="$1"
+    local expected_mode="$2"
+    local path_component
+    local path_metadata
+    local path_mode
+    local path_permissions
+
+    [[ "$artifact_path" == /* && -f "$artifact_path" && ! -L "$artifact_path" ]] \
+        || {
+            echo "A required protected deployment artifact is missing or invalid." >&2
+            exit 1
+        }
+    path_component="$artifact_path"
+    while [[ "$path_component" != "/" ]]; do
+        [[ ! -L "$path_component" ]] || {
+            echo "A protected deployment artifact path contains a symbolic link." >&2
+            exit 1
+        }
+        path_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$path_component")" || {
+            echo "Unable to inspect a protected deployment artifact." >&2
+            exit 1
+        }
+        [[ "${path_metadata%%:*}" == root ]] || {
+            echo "A protected deployment artifact path is not root-owned." >&2
+            exit 1
+        }
+        path_mode="${path_metadata##*:}"
+        path_permissions="${path_mode: -3}"
+        [[ "${path_permissions:1:1}" != [2367] \
+            && "${path_permissions:2:1}" != [2367] ]] || {
+            echo "A protected deployment artifact path is group/world writable." >&2
+            exit 1
+        }
+        path_component="$(/usr/bin/dirname "$path_component")"
+    done
+    [[ "$(/usr/bin/stat -c '%U:%G:%a' "$artifact_path")" == "root:root:$expected_mode" ]] || {
+        echo "A protected deployment artifact has unexpected ownership or mode." >&2
+        exit 1
+    }
+}
+
+validate_protected_runtime_bundle() {
+    local script_path="$SCRIPT_DIR/$(/usr/bin/basename "${BASH_SOURCE[0]}")"
+
+    [[ "$script_path" == "$PROTECTED_ARTIFACT_DIRECTORY/deploy.sh" ]] || {
+        echo "The protected deployment helper path is invalid." >&2
+        exit 1
+    }
+    [[ -d "$PROTECTED_ARTIFACT_DIRECTORY" && ! -L "$PROTECTED_ARTIFACT_DIRECTORY" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' "$PROTECTED_ARTIFACT_DIRECTORY")" == root:root:700 ]] || {
+        echo "The protected CI operator artifact directory is missing or unsafe." >&2
+        exit 1
+    }
+    validate_protected_artifact_file "$script_path" 750
+    validate_protected_artifact_file "$PROTECTED_ARTIFACT_DIRECTORY/ci-operator.sh" 750
+    validate_protected_artifact_file "$PROTECTED_ARTIFACT_DIRECTORY/rollback.sh" 750
+    validate_protected_artifact_file "$PROTECTED_COMPOSE_FILE" 640
+}
+
+validate_protected_runtime_bundle
+
+if [[ -n "${BACKEND_COMPOSE_FILE:-}" && "$BACKEND_COMPOSE_FILE" != "$PROTECTED_COMPOSE_FILE" ]]; then
+    echo "BACKEND_COMPOSE_FILE must reference the protected CI operator Compose artifact." >&2
+    exit 1
+fi
+COMPOSE_FILE="$PROTECTED_COMPOSE_FILE"
 ENVIRONMENT="${1:-${LIGHTSAIL_ENVIRONMENT:-}}"
 STATE_ROOT="${LIGHTSAIL_STATE_ROOT:-/opt/babyjamjam}"
 PUBLIC_HEALTH_REQUIRED="${BACKEND_PUBLIC_HEALTH_REQUIRED:-true}"
@@ -143,12 +218,7 @@ validate_env_file_permissions() {
 validate_env_file_permissions
 
 if [[ -z "$IMAGE_TAG" ]]; then
-    IMAGE_TAG="$(git -C "$REPOSITORY_ROOT" rev-parse --verify HEAD)"
-fi
-
-if [[ "${BACKEND_SKIP_REPOSITORY_GIT_CHECK:-false}" != "true" \
-    && -n "$(git -C "$REPOSITORY_ROOT" status --porcelain --untracked-files=all)" ]]; then
-    echo "Refusing to tag a deployment from a dirty checkout." >&2
+    echo "The installed deployment helper requires BACKEND_IMAGE_TAG from the CI operator." >&2
     exit 1
 fi
 

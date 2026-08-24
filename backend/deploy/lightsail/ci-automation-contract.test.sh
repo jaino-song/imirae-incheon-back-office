@@ -56,6 +56,8 @@ assert_text_not_contains() {
 [[ -r "$INFRASTRUCTURE_TEMPLATE" ]] || fail "missing OIDC/SSM template"
 [[ -r "$INSTALLER" ]] || fail "missing CI operator installer"
 
+assert_contains "$INSTALLER" '^#!/bin/bash$' "installer must use the fixed root Bash interpreter"
+
 assert_contains "$WORKFLOW" 'packages:[[:space:]]*write' "workflow must publish the immutable image"
 assert_contains "$WORKFLOW" 'id-token:[[:space:]]*write' "deploy job must use GitHub OIDC"
 assert_contains "$WORKFLOW" 'docker/build-push-action@[0-9a-f]{40}' "Docker build action must be commit-pinned"
@@ -146,12 +148,24 @@ assert_not_contains "$CI_OPERATOR" 'run_as_deployer /usr/bin/docker' "Docker mus
 assert_not_contains "$CI_OPERATOR" 'run_as_deployer /usr/bin/docker compose' "Compose must not run as the ubuntu deployer"
 assert_contains "$DEPLOY_SCRIPT" 'DATABASE_CONNECTION_MODE' "deploy script must accept the persisted route mode"
 assert_contains "$ROLLBACK_SCRIPT" 'DATABASE_CONNECTION_MODE' "rollback script must accept the persisted route mode"
+assert_contains "$DEPLOY_SCRIPT" '^#!/bin/bash$' "deployment must use the fixed root Bash interpreter"
+assert_contains "$ROLLBACK_SCRIPT" '^#!/bin/bash$' "rollback must use the fixed root Bash interpreter"
 assert_contains "$DEPLOY_SCRIPT" 'group/world accessible' "deploy script must reject exposed backend environment files"
 assert_contains "$ROLLBACK_SCRIPT" 'group/world accessible' "rollback script must reject exposed backend environment files"
 assert_contains "$DEPLOY_SCRIPT" 'root:root mode 0600' "deploy script must require root-owned 0600 environment files"
 assert_contains "$ROLLBACK_SCRIPT" 'root:root mode 0600' "rollback script must require root-owned 0600 environment files"
 assert_contains "$DEPLOY_SCRIPT" 'must run as root' "manual deployment script must not expose an ubuntu Docker path"
 assert_contains "$ROLLBACK_SCRIPT" 'must run as root' "manual rollback script must not expose an ubuntu Docker path"
+assert_contains "$DEPLOY_SCRIPT" 'PROTECTED_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"' "deployment must pin the protected runtime bundle"
+assert_contains "$ROLLBACK_SCRIPT" 'PROTECTED_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"' "rollback must pin the protected runtime bundle"
+assert_contains "$DEPLOY_SCRIPT" 'readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' "deployment must declare the fixed operator PATH"
+assert_contains "$ROLLBACK_SCRIPT" 'readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' "rollback must declare the fixed operator PATH"
+assert_contains "$DEPLOY_SCRIPT" 'export PATH="\$SAFE_PATH"' "deployment must discard inherited PATH entries"
+assert_contains "$ROLLBACK_SCRIPT" 'export PATH="\$SAFE_PATH"' "rollback must discard inherited PATH entries"
+assert_contains "$DEPLOY_SCRIPT" 'repository deployment helper is retired' "repository deployment entrypoint must fail closed"
+assert_contains "$ROLLBACK_SCRIPT" 'repository rollback helper is retired' "repository rollback entrypoint must fail closed"
+assert_not_contains "$DEPLOY_SCRIPT" 'REPOSITORY_ROOT' "deployment must not derive a Compose file from the repository"
+assert_not_contains "$ROLLBACK_SCRIPT" 'REPOSITORY_ROOT' "rollback must not derive a Compose file from the repository"
 assert_contains "$INSTALLER" 'must not belong to the docker group' "installer must fail closed on ubuntu Docker membership"
 assert_not_contains "$INSTALLER" 'must belong to the docker group' "installer must not require ubuntu Docker membership"
 assert_not_contains "$INSTALLER" 'sudoers' "CI operator must not grant a new sudo path"
@@ -182,6 +196,26 @@ fi
     || fail "root deployment must execute the protected deploy artifact"
 [[ "$protected_runtime_functions" == *ROOT_ROLLBACK_ARTIFACT* ]] \
     || fail "root recovery must execute the protected rollback artifact"
+
+# A hostile repository helper and Compose override must be inert when invoked
+# as root. The repository entrypoints fail before Docker/Compose is resolved;
+# the installed operator is the only path that can reach the protected bundle.
+runtime_probe_root="$(mktemp -d)"
+trap 'rm -rf "$runtime_probe_root"' EXIT
+runtime_probe_marker="$runtime_probe_root/docker-called"
+runtime_probe_docker="$runtime_probe_root/docker"
+printf '%s\n' '#!/usr/bin/env bash' "printf '%s\\n' called > '$runtime_probe_marker'" >"$runtime_probe_docker"
+chmod 0755 "$runtime_probe_docker"
+printf '%s\n' 'malicious-compose' >"$runtime_probe_root/compose.lightsail.yml"
+if PATH="$runtime_probe_root:$PATH" BACKEND_COMPOSE_FILE="$runtime_probe_root/compose.lightsail.yml" \
+    "$DEPLOY_SCRIPT" preview >/dev/null 2>&1; then
+    fail "repository deployment helper unexpectedly executed"
+fi
+if PATH="$runtime_probe_root:$PATH" BACKEND_COMPOSE_FILE="$runtime_probe_root/compose.lightsail.yml" \
+    "$ROLLBACK_SCRIPT" preview deadbeef >/dev/null 2>&1; then
+    fail "repository rollback helper unexpectedly executed"
+fi
+[[ ! -e "$runtime_probe_marker" ]] || fail "repository mutation reached Docker"
 
 migration_line="$(grep -n 'if ! run_release_migrations' "$CI_OPERATOR" | cut -d: -f1)"
 activation_line="$(grep -n 'if run_deploy_script' "$CI_OPERATOR" | cut -d: -f1)"
