@@ -65,6 +65,28 @@ acquire_lock() {
     /usr/bin/flock -n 9 || die "Another preview operator command is already running."
 }
 
+read_active_route() {
+    local container_ids
+    local route_mode
+
+    # This legacy preview command runs as ubuntu and cannot read the root-only
+    # route state. The running API is the only safe route fact it can carry
+    # across a deploy or rollback; fail closed if that fact is unavailable.
+    container_ids="$(run_sanitized /usr/bin/docker ps \
+        --filter "label=com.docker.compose.project=$PREVIEW_PROJECT" \
+        --filter "label=com.docker.compose.service=api" \
+        --format '{{.ID}}')" || die "Unable to inspect the preview API route."
+    [[ -n "$container_ids" && "$container_ids" != *$'\n'* ]] \
+        || die "Preview API route is unavailable or ambiguous."
+    route_mode="$(run_sanitized /usr/bin/docker inspect \
+        --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_ids" \
+        | /usr/bin/awk -F= '$1 == "DATABASE_CONNECTION_MODE" { count += 1; value = tolower($2) } END { if (count == 0) print "shared"; else if (count == 1) print value; else exit 1 }')" \
+        || die "Preview API route is missing or invalid."
+    [[ "$route_mode" == "shared" || "$route_mode" == "direct" ]] \
+        || die "Preview API route is missing or invalid."
+    printf '%s\n' "$route_mode"
+}
+
 require_clean_worktree() {
     local worktree_path="$1"
     local dirty_state
@@ -171,22 +193,28 @@ status_preview() {
 
 deploy_preview() {
     local requested_sha="$1"
+    local route_mode
 
     acquire_lock
+    route_mode="$(read_active_route)"
     prepare_preview_worktree "$requested_sha"
-    run_sanitized "$DEPLOY_WORKTREE/backend/deploy/lightsail/deploy.sh" preview
+    run_sanitized /usr/bin/env DATABASE_CONNECTION_MODE="$route_mode" \
+        "$DEPLOY_WORKTREE/backend/deploy/lightsail/deploy.sh" preview
     status_preview
 }
 
 rollback_preview() {
     local script_root="$DEPLOY_WORKTREE"
+    local route_mode
 
     acquire_lock
+    route_mode="$(read_active_route)"
     if [[ ! -d "$script_root" ]]; then
         script_root="$REPOSITORY_ROOT"
     fi
     require_clean_worktree "$script_root"
-    run_sanitized "$script_root/backend/deploy/lightsail/rollback.sh" preview
+    run_sanitized /usr/bin/env DATABASE_CONNECTION_MODE="$route_mode" \
+        "$script_root/backend/deploy/lightsail/rollback.sh" preview
     status_preview
 }
 

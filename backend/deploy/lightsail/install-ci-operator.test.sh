@@ -28,6 +28,8 @@ assert_fails group_list_contains dock "ubuntu docker"
 grep -Fq 'root:root:750' "$INSTALLER" || fail "operator mode check must be root:root:750"
 grep -Fq 'root:root:700' "$INSTALLER" || fail "log directory mode check must be root:root:700"
 grep -Fq 'ubuntu:ubuntu:640' "$INSTALLER" || fail "shared lock mode check must allow the deploy user"
+grep -Fq 'db-route-state' "$INSTALLER" || fail "route state path must be installed per environment"
+grep -Fq 'root:root:600' "$INSTALLER" || fail "route state must remain root-owned and mode 0600"
 if grep -Eq 'sudoers|NOPASSWD' "$INSTALLER"; then
     fail "CI operator installer must not create a sudo path"
 fi

@@ -8,6 +8,7 @@ readonly SOURCE_OPERATOR="$SCRIPT_DIR/ci-operator.sh"
 readonly INSTALLED_OPERATOR="/usr/local/sbin/babyjamjam-ci-operator"
 readonly LOG_DIRECTORY="/var/log/babyjamjam-deploy"
 readonly STATE_ROOT="/opt/babyjamjam/environments"
+readonly ROUTE_STATE_FILE_NAME="db-route-state"
 readonly DEPLOY_USER="ubuntu"
 readonly DEPLOY_GROUP="ubuntu"
 
@@ -44,12 +45,65 @@ verify_host_prerequisites() {
     deploy_groups="$(/usr/bin/id -nG "$DEPLOY_USER")"
     group_list_contains docker "$deploy_groups" || die "$DEPLOY_USER must belong to the docker group."
 
-    for required_command in /usr/sbin/runuser /usr/bin/docker /usr/bin/git /usr/bin/curl /usr/bin/flock; do
+    for required_command in /usr/sbin/runuser /usr/bin/docker /usr/bin/git /usr/bin/curl /usr/bin/flock /usr/bin/timeout /usr/bin/stat /usr/bin/date /usr/bin/mktemp; do
         [[ -x "$required_command" ]] || die "Required command is missing: $required_command"
     done
 
     [[ -r "$SOURCE_OPERATOR" ]] || die "Missing operator source: $SOURCE_OPERATOR"
     /bin/bash -n "$SOURCE_OPERATOR"
+}
+
+ensure_route_state_file() {
+    local state_directory="$1"
+    local route_state_file="$state_directory/$ROUTE_STATE_FILE_NAME"
+    local temporary_file
+    local now
+    local route_state_metadata
+
+    [[ ! -L "$route_state_file" ]] || die "Route state file must not be a symbolic link: $route_state_file"
+    if [[ -e "$route_state_file" ]]; then
+        [[ -f "$route_state_file" ]] || die "Route state file is not regular: $route_state_file"
+        route_state_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$route_state_file")"
+        [[ "$route_state_metadata" == "root:root:600" ]] \
+            || die "Unexpected route state ownership or mode: $route_state_metadata"
+        return 0
+    fi
+
+    now="$(/usr/bin/date +%s)"
+    temporary_file="$(/usr/bin/mktemp "$state_directory/.db-route-state.XXXXXX")"
+    trap '/bin/unlink "$temporary_file" 2>/dev/null || true' RETURN
+    /usr/bin/chown root:root "$temporary_file"
+    /usr/bin/chmod 0600 "$temporary_file"
+    {
+        printf '%s\n' \
+            'version=1' \
+            'generation=0' \
+            'active_route=shared' \
+            'phase=SHARED_ACTIVE' \
+            'transition_started_at=0' \
+            'direct_activated_at=0' \
+            'shared_failure_count=0' \
+            'direct_success_count=0' \
+            'direct_failure_count=0' \
+            'shared_success_count=0' \
+            'emergency_shared_success_count=0' \
+            'shared_success_started_at=0' \
+            'shared_success_last_at=0' \
+            'normal_roundtrip_count=0' \
+            "roundtrip_window_started_at=$now" \
+            'last_request_id=' \
+            'last_probe_route=' \
+            'last_probe_result=none' \
+            'last_probe_at=0' \
+            'last_result=initialized' \
+            'terminal_reason='
+    } >"$temporary_file"
+    /usr/bin/chown root:root "$temporary_file"
+    /usr/bin/chmod 0600 "$temporary_file"
+    /usr/bin/mv -f "$temporary_file" "$route_state_file"
+    trap - RETURN
+    /usr/bin/chown root:root "$route_state_file"
+    /usr/bin/chmod 0600 "$route_state_file"
 }
 
 ensure_deployment_locks() {
@@ -68,6 +122,7 @@ ensure_deployment_locks() {
         [[ -f "$lock_file" ]] || die "Deployment lock is not a regular file: $lock_file"
         /bin/chown "$DEPLOY_USER:$DEPLOY_GROUP" "$lock_file"
         /bin/chmod 0640 "$lock_file"
+        ensure_route_state_file "$state_directory"
     done
 }
 
@@ -77,6 +132,8 @@ verify_installed_files() {
     local lock_metadata
     local log_metadata
     local operator_metadata
+    local route_state_file
+    local route_state_metadata
 
     [[ -x "$INSTALLED_OPERATOR" ]] || die "Installed CI operator is missing."
     [[ -d "$LOG_DIRECTORY" ]] || die "CI deployment log directory is missing."
@@ -90,11 +147,17 @@ verify_installed_files() {
 
     for environment in preview production; do
         lock_file="$STATE_ROOT/$environment/operator.lock"
+        route_state_file="$STATE_ROOT/$environment/$ROUTE_STATE_FILE_NAME"
         [[ -f "$lock_file" && ! -L "$lock_file" ]] \
             || die "Deployment lock is missing or invalid: $lock_file"
         lock_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$lock_file")"
         [[ "$lock_metadata" == "ubuntu:ubuntu:640" ]] \
             || die "Unexpected deployment lock ownership or mode: $lock_metadata"
+        [[ -f "$route_state_file" && ! -L "$route_state_file" ]] \
+            || die "Route state file is missing or invalid: $route_state_file"
+        route_state_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$route_state_file")"
+        [[ "$route_state_metadata" == "root:root:600" ]] \
+            || die "Unexpected route state ownership or mode: $route_state_metadata"
     done
 
     /bin/bash -n "$INSTALLED_OPERATOR"
