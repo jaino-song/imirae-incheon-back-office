@@ -337,6 +337,380 @@ test('persists the command ID before the replay transaction so a failed save pol
   assert.equal(store.snapshot().hostGeneration, 1);
 });
 
+test('process restart after an immediate command-ID save failure does not re-send SSM', async () => {
+  const baseStore = createMemoryStateStore({ now: BASE_TIME });
+  let failCommandMirror = true;
+  const store = {
+    ...baseStore,
+    async saveHostMirror(state, options) {
+      if (failCommandMirror && state.ssmCommandId === COMMAND_ID) {
+        failCommandMirror = false;
+        throw new ConditionalStateWriteError('simulated command-ID save failure');
+      }
+      return baseStore.saveHostMirror(state, options);
+    },
+  };
+  let sendCount = 0;
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        sendCount += 1;
+        return { Command: { CommandId: COMMAND_ID } };
+      }
+      throw new Error('the uncertain command must not be polled without a persisted ID');
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-preview',
+    environment: 'preview',
+  });
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: observer.observe,
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const first = await handler({ Records: [record()] });
+  assert.equal(first.batchItemFailures.length, 1);
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.equal(store.snapshot().ssmDispatchAttempted, true);
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  const retryHandler = createWorkerHandler({
+    stateStore: store,
+    observe: observer.observe,
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-restarted',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const retry = await retryHandler({ Records: [record({ messageId: 'sqs-retry' })] });
+  assert.equal(retry.batchItemFailures.length, 1);
+  assert.equal(retry.batchItemFailures[0].itemIdentifier, 'sqs-retry');
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  await assert.rejects(
+    () => retryHandler({ id: 'schedule-after-uncertain', time: '2026-08-24T00:01:00Z' }),
+    (error) => error.name === 'UncertainSsmStateError'
+      && error.code === 'SSM_COMMAND_STATE_UNCERTAIN',
+  );
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
+});
+
+test('a lost SendCommand response stays uncertain and never re-sends the accepted command', async () => {
+  const store = createMemoryStateStore({ now: BASE_TIME });
+  let sendCount = 0;
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        sendCount += 1;
+        throw new Error('SSM accepted command but response was lost');
+      }
+      throw new Error('the uncertain command must not be polled without a persisted ID');
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-preview',
+    environment: 'preview',
+  });
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: observer.observe,
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const first = await handler({ Records: [record()] });
+  assert.equal(first.batchItemFailures.length, 1);
+  assert.equal(first.batchItemFailures[0].itemIdentifier, 'sqs-message-1');
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().ssmDispatchAttempted, true);
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  const retry = await handler({ Records: [record({ messageId: 'sqs-retry' })] });
+  assert.equal(retry.batchItemFailures.length, 1);
+  assert.equal(retry.batchItemFailures[0].itemIdentifier, 'sqs-retry');
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  await assert.rejects(
+    () => handler({ id: 'schedule-after-lost-response', time: '2026-08-24T00:01:00Z' }),
+    (error) => error.name === 'UncertainSsmStateError'
+      && error.code === 'SSM_COMMAND_STATE_UNCERTAIN',
+  );
+  assert.equal(sendCount, 1);
+});
+
+test('defers a Sentry message while reconciling a scheduled command owned by another request', async () => {
+  const store = createMemoryStateStore({ now: BASE_TIME });
+  const sentRequestIds = [];
+  const polledCommandIds = [];
+  const commandIds = [
+    '00000000-0000-4000-8000-0000000000b1',
+    '00000000-0000-4000-8000-0000000000a1',
+  ];
+  const requestIds = new Map();
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        const requestId = command.input.Parameters.RequestId[0];
+        sentRequestIds.push(requestId);
+        const commandId = commandIds[sentRequestIds.length - 1];
+        requestIds.set(commandId, requestId);
+        return { Command: { CommandId: commandId } };
+      }
+      polledCommandIds.push(command.input.CommandId);
+      const requestId = requestIds.get(command.input.CommandId);
+      return {
+        CommandInvocations: [{
+          Status: 'Success',
+          CommandPlugins: [{ Output: `${JSON.stringify(hostEnvelope(requestId, {
+            hostGeneration: command.input.CommandId.endsWith('b1') ? 1 : 2,
+          }))}\n` }],
+        }],
+      };
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-preview',
+    environment: 'preview',
+  });
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: observer.observe,
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const schedule = { id: 'schedule-b', time: '2026-08-24T00:00:00Z' };
+  const sentryRecord = record({
+    messageId: 'sqs-a',
+    body: JSON.stringify(message({
+      eventId: 'a'.repeat(64),
+      bodyFingerprint: 'a'.repeat(64),
+    })),
+  });
+  const scheduled = await handler(schedule);
+  assert.equal(scheduled.batchItemFailures.length, 0);
+  assert.equal(store.snapshot().ssmRequestId, makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z'));
+  assert.equal(store.snapshot().ssmCommandId, commandIds[0]);
+
+  const premature = await handler({ Records: [sentryRecord] });
+  assert.equal(premature.batchItemFailures.length, 1);
+  assert.equal(premature.batchItemFailures[0].itemIdentifier, 'sqs-a');
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+  assert.equal(store.snapshot().hostGeneration, 1);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(store.snapshot().controlPlaneError, null);
+  assert.equal(store.snapshot().ssmRequestId, makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z'));
+  assert.equal(store.snapshot().ssmRequestIdentity, 'schedule:schedule-b:2026-08-24T00:00:00Z');
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.deepEqual(sentRequestIds, [makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z')]);
+  assert.deepEqual(polledCommandIds, [commandIds[0]]);
+
+  const retried = await handler({ Records: [sentryRecord] });
+  assert.equal(retried.batchItemFailures.length, 0);
+  assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), true);
+  assert.equal(store.snapshot().ssmRequestId, makeDeterministicRequestId('a'.repeat(64)));
+  assert.equal(store.snapshot().ssmCommandId, commandIds[1]);
+  assert.deepEqual(sentRequestIds, [
+    makeDeterministicRequestId('schedule:schedule-b:2026-08-24T00:00:00Z'),
+    makeDeterministicRequestId('a'.repeat(64)),
+  ]);
+
+  const completed = await handler({ id: 'schedule-a', time: '2026-08-24T00:01:00Z' });
+  assert.equal(completed.batchItemFailures.length, 0);
+  assert.equal(store.snapshot().hostGeneration, 2);
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.deepEqual(polledCommandIds, [commandIds[0], commandIds[1]]);
+});
+
+test('uses one transition-bound recovery command after an envelope-less terminal result', async () => {
+  const pendingCommandId = '00000000-0000-4000-8000-0000000000b2';
+  const recoveryCommandId = '00000000-0000-4000-8000-0000000000c2';
+  const pendingRequestId = makeDeterministicRequestId('schedule:pending-transition:2026-08-24T00:00:00Z');
+  const transition = {
+    previousRoute: ROUTES.SHARED,
+    targetRoute: ROUTES.DIRECT,
+    startedAt: 100_000,
+    generation: 1,
+    terminalReason: null,
+  };
+  const store = createMemoryStateStore({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 1,
+      phase: PHASES.SWITCHING_TO_DIRECT,
+      activeRoute: ROUTES.SHARED,
+      transition,
+      ssmCommandId: pendingCommandId,
+      ssmRequestId: pendingRequestId,
+      ssmRequestIdentity: 'schedule:pending-transition:2026-08-24T00:00:00Z',
+      controlPlaneStatus: CONTROL_PLANE_STATUS.IN_FLIGHT,
+    },
+  });
+  const sentRequestIds = [];
+  const polledCommandIds = [];
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        sentRequestIds.push(command.input.Parameters.RequestId[0]);
+        return { Command: { CommandId: recoveryCommandId } };
+      }
+      polledCommandIds.push(command.input.CommandId);
+      if (command.input.CommandId === pendingCommandId) {
+        return { CommandInvocations: [{ Status: 'Failed', CommandPlugins: [{ Output: '' }] }] };
+      }
+      const envelope = hostEnvelope(sentRequestIds[0], {
+        hostGeneration: 2,
+        result: 'stale_transition_compensated',
+      });
+      return {
+        CommandInvocations: [{
+          Status: 'Success',
+          CommandPlugins: [{ Output: `${JSON.stringify(envelope)}\n` }],
+        }],
+      };
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-preview',
+    environment: 'preview',
+  });
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: observer.observe,
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const first = await handler({ id: 'schedule-recovery-1', time: '2026-08-24T00:01:00Z' });
+  const recoveryIdentity = 'recovery:SWITCHING_TO_DIRECT:SHARED:DIRECT:100000:1';
+  const recoveryRequestId = makeDeterministicRequestId(recoveryIdentity);
+  assert.equal(first.batchItemFailures.length, 0);
+  assert.deepEqual(sentRequestIds, [recoveryRequestId]);
+  assert.deepEqual(polledCommandIds, [pendingCommandId]);
+  assert.equal(store.snapshot().phase, PHASES.SWITCHING_TO_DIRECT);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.IN_FLIGHT);
+  assert.equal(store.snapshot().ssmCommandId, recoveryCommandId);
+  assert.equal(store.snapshot().ssmRequestId, recoveryRequestId);
+  assert.equal(store.snapshot().ssmRecoveryRequestId, recoveryRequestId);
+
+  const second = await handler({ id: 'schedule-recovery-2', time: '2026-08-24T00:02:00Z' });
+  assert.equal(second.batchItemFailures.length, 0);
+  assert.deepEqual(polledCommandIds, [pendingCommandId, recoveryCommandId]);
+  assert.equal(store.snapshot().hostGeneration, 2);
+  assert.equal(store.snapshot().phase, PHASES.SHARED_ACTIVE);
+  assert.equal(store.snapshot().activeRoute, ROUTES.SHARED);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.OK);
+  assert.equal(store.snapshot().ssmCommandId, null);
+  assert.equal(store.snapshot().ssmRecoveryRequestId, null);
+});
+
+test('does not open a second transition recovery path after recovery is terminal without an envelope', async () => {
+  const pendingCommandId = '00000000-0000-4000-8000-0000000000d2';
+  const transition = {
+    previousRoute: ROUTES.SHARED,
+    targetRoute: ROUTES.DIRECT,
+    startedAt: 100_000,
+    generation: 1,
+    terminalReason: null,
+  };
+  const pendingRequestId = makeDeterministicRequestId('schedule:pending-transition:2026-08-24T00:00:00Z');
+  const store = createMemoryStateStore({
+    initialState: {
+      ...createInitialState(BASE_TIME),
+      hostGeneration: 1,
+      phase: PHASES.SWITCHING_TO_DIRECT,
+      activeRoute: ROUTES.SHARED,
+      transition,
+      ssmCommandId: pendingCommandId,
+      ssmRequestId: pendingRequestId,
+      ssmRequestIdentity: 'schedule:pending-transition:2026-08-24T00:00:00Z',
+      controlPlaneStatus: CONTROL_PLANE_STATUS.IN_FLIGHT,
+    },
+  });
+  let sendCount = 0;
+  let listCount = 0;
+  const client = {
+    async send(command) {
+      if (command.input?.Parameters) {
+        sendCount += 1;
+        return { Command: { CommandId: `00000000-0000-4000-8000-0000000000e${sendCount}` } };
+      }
+      listCount += 1;
+      if (listCount === 1) {
+        return { CommandInvocations: [{ Status: 'Failed', CommandPlugins: [{ Output: '' }] }] };
+      }
+      return { CommandInvocations: [{ Status: 'Failed', CommandPlugins: [{ Output: '' }] }] };
+    },
+  };
+  class SendCommandCommand { constructor(input) { this.input = input; } }
+  class ListCommandInvocationsCommand { constructor(input) { this.input = input; } }
+  const observer = createSsmObserver({
+    client,
+    commands: { SendCommandCommand, ListCommandInvocationsCommand },
+    documentArn: 'arn:aws:ssm:ap-northeast-2:123456789012:document/babyjamjam-preview-db-failover',
+    tagValue: 'babyjamjam-preview',
+    environment: 'preview',
+  });
+  const handler = createWorkerHandler({
+    stateStore: store,
+    observe: observer.observe,
+    config: config(),
+    now: () => BASE_TIME,
+    ownerFactory: () => 'worker-owner',
+    logger: { info() {}, warn() {}, error() {} },
+  });
+  const first = await handler({ id: 'schedule-recovery-1', time: '2026-08-24T00:01:00Z' });
+  assert.equal(first.batchItemFailures.length, 0);
+  assert.equal(sendCount, 1);
+  const recoveryCommandId = store.snapshot().ssmCommandId;
+  const second = await handler({ id: 'schedule-recovery-2', time: '2026-08-24T00:02:00Z' });
+  assert.equal(second.batchItemFailures.length, 0);
+  assert.equal(sendCount, 1);
+  assert.equal(listCount, 2);
+  assert.equal(store.snapshot().ssmCommandId, recoveryCommandId);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+});
+
 test('a mirrored Direct route prevents an eligible Shared Sentry alert from bypassing the host route', async () => {
   const { handler, observed } = harness({
     initialState: {

@@ -242,9 +242,14 @@ function normalizeStateValue(value, fallback, predicate) {
   return predicate(value) ? value : fallback;
 }
 
+function isOpaqueUuid(value) {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
 export function normalizeState(state, now = Date.now()) {
   const initial = createInitialState(now);
-  const normalized = { ...initial, ...(state ?? {}) };
+  const rawState = state ?? {};
+  const normalized = { ...initial, ...rawState };
   for (const obsoleteField of [
     'errorTerminalPhase',
     'lastErrorCode',
@@ -322,6 +327,19 @@ export function normalizeState(state, now = Date.now()) {
     : CONTROL_PLANE_STATUS.OK;
   normalized.controlPlaneError = isNullableSafeToken(normalized.controlPlaneError)
     ? normalized.controlPlaneError
+    : null;
+  const hasDispatchMarker = Object.prototype.hasOwnProperty.call(rawState, 'ssmDispatchAttempted');
+  normalized.ssmDispatchAttempted = !hasDispatchMarker || typeof rawState.ssmDispatchAttempted === 'boolean'
+    ? (hasDispatchMarker ? rawState.ssmDispatchAttempted : initial.ssmDispatchAttempted)
+    : true;
+  normalized.ssmRecoveryRequestId = isOpaqueUuid(normalized.ssmRecoveryRequestId)
+    ? normalized.ssmRecoveryRequestId
+    : null;
+  normalized.ssmRecoveryIdentity = normalized.ssmRecoveryRequestId !== null
+    && typeof normalized.ssmRecoveryIdentity === 'string'
+    && normalized.ssmRecoveryIdentity.length > 0
+    && normalized.ssmRecoveryIdentity.length <= 512
+    ? normalized.ssmRecoveryIdentity
     : null;
   normalized.lastHostEnvelope = isPlainObject(normalized.lastHostEnvelope)
     ? clone(normalized.lastHostEnvelope)
