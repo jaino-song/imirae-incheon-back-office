@@ -96,6 +96,16 @@ test_stat() {
     printf '%s:%s:%s\n' "$owner" "$group" "$mode"
 }
 
+test_inode() {
+    local path="$1"
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        "$REAL_STAT" -f '%i' "$path"
+    else
+        "$REAL_STAT" -c '%i' "$path"
+    fi
+}
+
 test_chown() {
     if [[ "$EUID" -eq 0 ]]; then
         "$REAL_CHOWN" "$@"
@@ -126,13 +136,43 @@ test_install() {
     /usr/bin/install "${arguments[@]}"
 }
 
+test_install_operator_failure() {
+    local last_argument=""
+    local argument
+
+    for argument in "$@"; do
+        last_argument="$argument"
+    done
+    [[ "$last_argument" == "$INSTALLED_OPERATOR" ]] && return 1
+    test_install "$@"
+}
+
 test_mv_failure() {
     return 1
+}
+
+test_flock() {
+    return 0
+}
+
+test_flock_failure() {
+    return 1
+}
+
+test_flock_trace() {
+    printf '%s\n' "$2" >>"$TEST_FLOCK_TRACE"
+}
+
+test_flock_mutate_operator() {
+    if [[ "$2" == 201 ]]; then
+        printf '%s\n' '# concurrent authorized installer mutation' >>"$INSTALLED_OPERATOR"
+    fi
 }
 
 CMD_STAT=test_stat
 CMD_CHOWN=test_chown
 CMD_INSTALL=test_install
+CMD_FLOCK=test_flock
 CMD_DATE="$(command -v date)"
 CMD_MV="$(command -v mv)"
 CMD_RM="$(command -v rm)"
@@ -146,10 +186,43 @@ reset_route_state_root() {
     /bin/rm -rf "$ROUTE_STATE_ROOT"
 }
 
+reset_installation_targets() {
+    /bin/rm -rf "$ROUTE_STATE_ROOT" "$STATE_ROOT" "$LOG_DIRECTORY" "$INSTALLED_OPERATOR"
+    /bin/mkdir -p "$STATE_ROOT/preview" "$STATE_ROOT/production"
+    /bin/chmod 0700 "$STATE_ROOT/preview" "$STATE_ROOT/production"
+}
+
 route_state_file() {
     local environment="$1"
 
     printf '%s/%s/%s\n' "$ROUTE_STATE_ROOT" "$environment" "$ROUTE_STATE_FILE_NAME"
+}
+
+assert_path_absent() {
+    local path="$1"
+
+    [[ ! -e "$path" && ! -L "$path" ]] || fail "path exists unexpectedly: $path"
+}
+
+assert_path_metadata_unchanged() {
+    local expected_metadata="$1"
+    local path="$2"
+
+    assert_equals "$expected_metadata" "$(test_stat -c '%U:%G:%a' "$path")"
+}
+
+make_legacy_operator() {
+    local path="$1"
+
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf '%s\n' 'set -Eeuo pipefail'
+        printf '%s\n' 'state_path="$1"'
+        printf '%s\n' '[[ -f "$state_path" && ! -L "$state_path" ]]'
+        printf '%s\n' '! grep -q "^request_history=" "$state_path"'
+        printf '%s\n' 'grep -Fxq "version=2" "$state_path"'
+    } >"$path"
+    /bin/chmod 0750 "$path"
 }
 
 assert_route_state_structure() {
@@ -554,15 +627,17 @@ fi
 run_operator_reconcile() {
     local state_path="$1"
     local request_id="$2"
+    local environment="${3:-preview}"
 
-    /bin/bash -s -- "$HOST_OPERATOR" "$state_path" "$request_id" <<'EOF'
+    /bin/bash -s -- "$HOST_OPERATOR" "$state_path" "$request_id" "$environment" <<'EOF'
 set -Eeuo pipefail
 
 operator_source="$1"
 state_path="$2"
 request_id="$3"
+environment="$4"
 source "$operator_source"
-configure_environment preview
+configure_environment "$environment"
 ROUTE_STATE_DIRECTORY="$(/usr/bin/dirname "$state_path")"
 ROUTE_STATE_FILE="$state_path"
 
@@ -647,5 +722,220 @@ printf '# replacement marker\n' >>"$INSTALLED_OPERATOR"
 main install --replace >/dev/null
 assert_file_unchanged "$preview_after_reconcile_snapshot" "$(route_state_file preview)"
 assert_equals "$history_before_install" "$(/usr/bin/sed -n 's/^request_history=//p' "$(route_state_file preview)")"
+
+legacy_operator="$TEST_ROOT/legacy-operator"
+make_legacy_operator "$legacy_operator"
+
+# A plain install must authorize replacement before it can migrate either
+# environment. Keep both legacy state files and the old executable byte-for-byte
+# intact, then prove that the old executable still accepts the legacy shape.
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks false
+for environment in preview production; do
+    legacy_request_id="$VALID_REQUEST_ID"
+    if [[ "$environment" == production ]]; then
+        legacy_request_id="223e4567-e89b-42d3-a456-426614174000"
+    fi
+    legacy_state_temp="$TEST_ROOT/$environment-legacy-state"
+    /usr/bin/sed \
+        -e '/^request_history=/d' \
+        -e "s/^last_request_id=.*/last_request_id=$legacy_request_id/" \
+        "$(route_state_file "$environment")" >"$legacy_state_temp"
+    /bin/mv "$legacy_state_temp" "$(route_state_file "$environment")"
+    /bin/chmod 0600 "$(route_state_file "$environment")"
+done
+/bin/cp "$legacy_operator" "$INSTALLED_OPERATOR"
+/bin/chmod 0750 "$INSTALLED_OPERATOR"
+preview_legacy_snapshot="$TEST_ROOT/plain-refusal-preview.snapshot"
+production_legacy_snapshot="$TEST_ROOT/plain-refusal-production.snapshot"
+old_operator_snapshot="$TEST_ROOT/plain-refusal-operator.snapshot"
+/bin/cp "$(route_state_file preview)" "$preview_legacy_snapshot"
+/bin/cp "$(route_state_file production)" "$production_legacy_snapshot"
+/bin/cp "$INSTALLED_OPERATOR" "$old_operator_snapshot"
+preview_legacy_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file preview)")"
+production_legacy_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file production)")"
+old_operator_metadata="$(test_stat -c '%U:%G:%a' "$INSTALLED_OPERATOR")"
+preview_lock_metadata="$(test_stat -c '%U:%G:%a' "$STATE_ROOT/preview/operator.lock")"
+production_lock_metadata="$(test_stat -c '%U:%G:%a' "$STATE_ROOT/production/operator.lock")"
+"$INSTALLED_OPERATOR" "$(route_state_file preview)"
+"$INSTALLED_OPERATOR" "$(route_state_file production)"
+assert_refusal_message "already exists" main install
+assert_file_unchanged "$preview_legacy_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$production_legacy_snapshot" "$(route_state_file production)"
+assert_file_unchanged "$old_operator_snapshot" "$INSTALLED_OPERATOR"
+assert_path_metadata_unchanged "$preview_legacy_metadata" "$(route_state_file preview)"
+assert_path_metadata_unchanged "$production_legacy_metadata" "$(route_state_file production)"
+assert_path_metadata_unchanged "$old_operator_metadata" "$INSTALLED_OPERATOR"
+assert_path_metadata_unchanged "$preview_lock_metadata" "$STATE_ROOT/preview/operator.lock"
+assert_path_metadata_unchanged "$production_lock_metadata" "$STATE_ROOT/production/operator.lock"
+assert_path_absent "$LOG_DIRECTORY"
+assert_no_temporary_route_state
+
+# Authorized replacement migrates both states, installs the new operator, and
+# leaves check/reconcile/reinstall paths compatible with the new schema.
+replacement_preview_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+replacement_production_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+TEST_FLOCK_TRACE="$TEST_ROOT/install-lock-order.trace"
+: >"$TEST_FLOCK_TRACE"
+printf '200\n201\n' >"$TEST_ROOT/install-lock-order.expected"
+CMD_FLOCK=test_flock_trace
+main install --replace >/dev/null
+CMD_FLOCK=test_flock
+assert_file_unchanged "$TEST_ROOT/install-lock-order.expected" "$TEST_FLOCK_TRACE"
+assert_equals "$replacement_preview_lock_inode" "$(test_inode "$STATE_ROOT/preview/operator.lock")"
+assert_equals "$replacement_production_lock_inode" "$(test_inode "$STATE_ROOT/production/operator.lock")"
+for environment in preview production; do
+    assert_route_state_structure "$environment"
+    grep -Fxq "request_history=$VALID_REQUEST_ID" "$(route_state_file "$environment")" \
+        || if [[ "$environment" == production ]]; then
+            grep -Fxq "request_history=223e4567-e89b-42d3-a456-426614174000" "$(route_state_file "$environment")" \
+                || fail "replacement did not migrate production request history"
+        else
+            fail "replacement did not migrate preview request history"
+        fi
+    assert_host_loads_route_state "$environment"
+done
+main check >/dev/null
+run_operator_reconcile "$(route_state_file preview)" "323e4567-e89b-42d3-a456-426614174000" preview
+run_operator_reconcile "$(route_state_file production)" "323e4567-e89b-42d3-a456-426614174000" production
+main install >/dev/null
+main check >/dev/null
+
+# A plain install must recheck after locking: if a concurrent authorized
+# installer changes the byte-identical operator before the snapshot phase, the
+# newer binary remains in place and legacy states are not migrated.
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks false
+for environment in preview production; do
+    race_state_temp="$TEST_ROOT/$environment-race-legacy-state"
+    /usr/bin/sed '/^request_history=/d' "$(route_state_file "$environment")" >"$race_state_temp"
+    /bin/mv "$race_state_temp" "$(route_state_file "$environment")"
+    /bin/chmod 0600 "$(route_state_file "$environment")"
+done
+/bin/cp "$HOST_OPERATOR" "$INSTALLED_OPERATOR"
+/bin/chmod 0750 "$INSTALLED_OPERATOR"
+race_preview_snapshot="$TEST_ROOT/race-preview.snapshot"
+race_production_snapshot="$TEST_ROOT/race-production.snapshot"
+race_operator_expected="$TEST_ROOT/race-operator.expected"
+/bin/cp "$(route_state_file preview)" "$race_preview_snapshot"
+/bin/cp "$(route_state_file production)" "$race_production_snapshot"
+/bin/cp "$INSTALLED_OPERATOR" "$race_operator_expected"
+printf '%s\n' '# concurrent authorized installer mutation' >>"$race_operator_expected"
+race_preview_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file preview)")"
+race_production_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file production)")"
+race_operator_metadata="$(test_stat -c '%U:%G:%a' "$INSTALLED_OPERATOR")"
+CMD_FLOCK=test_flock_mutate_operator
+assert_refusal_message "already exists" main install
+CMD_FLOCK=test_flock
+assert_file_unchanged "$race_preview_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$race_production_snapshot" "$(route_state_file production)"
+assert_file_unchanged "$race_operator_expected" "$INSTALLED_OPERATOR"
+assert_path_metadata_unchanged "$race_preview_metadata" "$(route_state_file preview)"
+assert_path_metadata_unchanged "$race_production_metadata" "$(route_state_file production)"
+assert_path_metadata_unchanged "$race_operator_metadata" "$INSTALLED_OPERATOR"
+assert_path_absent "$LOG_DIRECTORY"
+assert_no_temporary_route_state
+
+# A failure after migration must restore the old operator, both state
+# snapshots, and the intentionally missing production file as one unit.
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks false
+for environment in preview production; do
+    legacy_state_temp="$TEST_ROOT/$environment-rollback-legacy-state"
+    /usr/bin/sed \
+        -e '/^request_history=/d' \
+        -e "s/^last_request_id=.*/last_request_id=$VALID_REQUEST_ID/" \
+        "$(route_state_file "$environment")" >"$legacy_state_temp"
+    /bin/mv "$legacy_state_temp" "$(route_state_file "$environment")"
+    /bin/chmod 0600 "$(route_state_file "$environment")"
+done
+/bin/unlink "$(route_state_file production)"
+/bin/cp "$legacy_operator" "$INSTALLED_OPERATOR"
+/bin/chmod 0750 "$INSTALLED_OPERATOR"
+rollback_preview_snapshot="$TEST_ROOT/rollback-preview.snapshot"
+rollback_operator_snapshot="$TEST_ROOT/rollback-operator.snapshot"
+/bin/cp "$(route_state_file preview)" "$rollback_preview_snapshot"
+/bin/cp "$INSTALLED_OPERATOR" "$rollback_operator_snapshot"
+rollback_preview_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file preview)")"
+rollback_operator_metadata="$(test_stat -c '%U:%G:%a' "$INSTALLED_OPERATOR")"
+rollback_preview_lock_metadata="$(test_stat -c '%U:%G:%a' "$STATE_ROOT/preview/operator.lock")"
+rollback_production_lock_metadata="$(test_stat -c '%U:%G:%a' "$STATE_ROOT/production/operator.lock")"
+rollback_preview_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+rollback_production_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+original_verify_definition="$(declare -f verify_installed_files | /usr/bin/sed 's/^verify_installed_files/_original_verify_installed_files/')"
+eval "$original_verify_definition"
+verify_installed_files() {
+    return 1
+}
+assert_fails main install --replace
+eval "$original_verify_definition"
+assert_file_unchanged "$rollback_preview_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$rollback_operator_snapshot" "$INSTALLED_OPERATOR"
+assert_path_absent "$(route_state_file production)"
+assert_path_absent "$LOG_DIRECTORY"
+assert_path_metadata_unchanged "$rollback_preview_metadata" "$(route_state_file preview)"
+assert_path_metadata_unchanged "$rollback_operator_metadata" "$INSTALLED_OPERATOR"
+assert_path_metadata_unchanged "$rollback_preview_lock_metadata" "$STATE_ROOT/preview/operator.lock"
+assert_path_metadata_unchanged "$rollback_production_lock_metadata" "$STATE_ROOT/production/operator.lock"
+assert_equals "$rollback_preview_lock_inode" "$(test_inode "$STATE_ROOT/preview/operator.lock")"
+assert_equals "$rollback_production_lock_inode" "$(test_inode "$STATE_ROOT/production/operator.lock")"
+"$INSTALLED_OPERATOR" "$(route_state_file preview)"
+assert_no_temporary_route_state
+
+# The same all-or-nothing guarantee must hold when the final operator install
+# itself fails after both migration attempts.
+reset_installation_targets
+ensure_route_state_file preview
+ensure_route_state_file production
+ensure_deployment_locks false
+for environment in preview production; do
+    legacy_state_temp="$TEST_ROOT/$environment-install-rollback-state"
+    /usr/bin/sed \
+        -e '/^request_history=/d' \
+        -e "s/^last_request_id=.*/last_request_id=$VALID_REQUEST_ID/" \
+        "$(route_state_file "$environment")" >"$legacy_state_temp"
+    /bin/mv "$legacy_state_temp" "$(route_state_file "$environment")"
+    /bin/chmod 0600 "$(route_state_file "$environment")"
+done
+/bin/unlink "$(route_state_file production)"
+/bin/cp "$legacy_operator" "$INSTALLED_OPERATOR"
+/bin/chmod 0750 "$INSTALLED_OPERATOR"
+/bin/unlink "$STATE_ROOT/preview/operator.lock"
+/bin/unlink "$STATE_ROOT/production/operator.lock"
+install_failure_preview_snapshot="$TEST_ROOT/install-failure-preview.snapshot"
+install_failure_operator_snapshot="$TEST_ROOT/install-failure-operator.snapshot"
+/bin/cp "$(route_state_file preview)" "$install_failure_preview_snapshot"
+/bin/cp "$INSTALLED_OPERATOR" "$install_failure_operator_snapshot"
+CMD_INSTALL=test_install_operator_failure
+assert_fails main install --replace
+CMD_INSTALL=test_install
+assert_file_unchanged "$install_failure_preview_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$install_failure_operator_snapshot" "$INSTALLED_OPERATOR"
+assert_path_absent "$(route_state_file production)"
+assert_path_absent "$LOG_DIRECTORY"
+assert_no_temporary_route_state
+for environment in preview production; do
+    lock_file="$STATE_ROOT/$environment/operator.lock"
+    if [[ ! -f "$lock_file" || -L "$lock_file" ]]; then
+        fail "rollback did not retain a safe $environment lock file"
+    fi
+    [[ ! -s "$lock_file" ]] || fail "rollback retained non-empty $environment lock file"
+    assert_equals "ubuntu:ubuntu:640" "$(test_stat -c '%U:%G:%a' "$lock_file")"
+done
+
+# A busy environment lock fails closed before any snapshot migration.
+CMD_FLOCK=test_flock_failure
+assert_fails main install --replace
+CMD_FLOCK=test_flock
+assert_file_unchanged "$install_failure_preview_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$install_failure_operator_snapshot" "$INSTALLED_OPERATOR"
+assert_path_absent "$(route_state_file production)"
+assert_path_absent "$LOG_DIRECTORY"
 
 echo "install-ci-operator tests passed"

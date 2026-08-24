@@ -20,6 +20,7 @@ readonly DEPLOY_GROUP="ubuntu"
 readonly REQUEST_HISTORY_LIMIT="32"
 
 CMD_BASH="/bin/bash"
+CMD_CAT="/bin/cat"
 CMD_CHMOD="/bin/chmod"
 CMD_CHOWN="/usr/bin/chown"
 CMD_CMP="/usr/bin/cmp"
@@ -32,8 +33,10 @@ CMD_CURL="/usr/bin/curl"
 CMD_FLOCK="/usr/bin/flock"
 CMD_INSTALL="/usr/bin/install"
 CMD_MKTEMP="/usr/bin/mktemp"
+CMD_MKDIR="/bin/mkdir"
 CMD_MV="/usr/bin/mv"
 CMD_RM="/usr/bin/rm"
+CMD_RMDIR="/bin/rmdir"
 CMD_RUNUSER="/usr/sbin/runuser"
 CMD_STAT="/usr/bin/stat"
 CMD_TIMEOUT="/usr/bin/timeout"
@@ -41,9 +44,9 @@ CMD_UNLINK="/usr/bin/unlink"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     readonly INSTALLED_OPERATOR LOG_DIRECTORY STATE_ROOT ROUTE_STATE_ROOT
-    readonly CMD_BASH CMD_CHMOD CMD_CHOWN CMD_CMP CMD_CP CMD_DATE CMD_DIRNAME
+    readonly CMD_BASH CMD_CAT CMD_CHMOD CMD_CHOWN CMD_CMP CMD_CP CMD_DATE CMD_DIRNAME
     readonly CMD_DOCKER CMD_GIT CMD_CURL CMD_FLOCK CMD_INSTALL CMD_MKTEMP CMD_MV
-    readonly CMD_RM CMD_RUNUSER CMD_STAT CMD_TIMEOUT CMD_UNLINK
+    readonly CMD_MKDIR CMD_RM CMD_RMDIR CMD_RUNUSER CMD_STAT CMD_TIMEOUT CMD_UNLINK
 fi
 
 usage() {
@@ -84,7 +87,7 @@ verify_host_prerequisites() {
     done
 
     [[ -r "$SOURCE_OPERATOR" ]] || die "Missing operator source: $SOURCE_OPERATOR"
-    "$CMD_BASH" -n "$SOURCE_OPERATOR"
+    "$CMD_BASH" -n "$SOURCE_OPERATOR" || die "Operator source is not valid Bash."
 }
 
 validate_no_symlink_path() {
@@ -473,11 +476,14 @@ ensure_deployment_locks() {
         [[ -d "$state_directory" ]] || die "Deployment state directory is missing: $state_directory"
         [[ ! -L "$lock_file" ]] || die "Deployment lock must not be a symbolic link: $lock_file"
         if [[ ! -e "$lock_file" ]]; then
-            "$CMD_INSTALL" -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 0640 /dev/null "$lock_file"
+            "$CMD_INSTALL" -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 0640 /dev/null "$lock_file" \
+                || die "Unable to create deployment lock: $lock_file"
         fi
         [[ -f "$lock_file" ]] || die "Deployment lock is not a regular file: $lock_file"
-        "$CMD_CHOWN" "$DEPLOY_USER:$DEPLOY_GROUP" "$lock_file"
-        "$CMD_CHMOD" 0640 "$lock_file"
+        "$CMD_CHOWN" "$DEPLOY_USER:$DEPLOY_GROUP" "$lock_file" \
+            || die "Unable to set deployment lock ownership: $lock_file"
+        "$CMD_CHMOD" 0640 "$lock_file" \
+            || die "Unable to set deployment lock mode: $lock_file"
         ensure_route_state_file "$environment" "$migrate_legacy_state"
     done
 }
@@ -532,8 +538,293 @@ verify_installed_files() {
         validate_route_state_file "$route_state_file"
     done
 
-    "$CMD_BASH" -n "$INSTALLED_OPERATOR"
+    "$CMD_BASH" -n "$INSTALLED_OPERATOR" || die "Installed CI operator is not valid Bash."
     echo "Lightsail CI operator installation is valid."
+}
+
+prepare_install_transaction_locks() {
+    local environment
+    local lock_file
+
+    INSTALL_TRANSACTION_PREEXISTING_PREVIEW_LOCK=false
+    INSTALL_TRANSACTION_PREEXISTING_PRODUCTION_LOCK=false
+
+    # Acquire preview before even creating production's lock.  This gives the
+    # transaction one deterministic order and avoids a partially prepared pair
+    # of lock files that another deploy could observe as free.
+    for environment in preview production; do
+        lock_file="$STATE_ROOT/$environment/operator.lock"
+        [[ -d "$STATE_ROOT/$environment" ]] || return 1
+        [[ ! -L "$lock_file" ]] || return 1
+        if [[ -e "$lock_file" ]]; then
+            [[ -f "$lock_file" ]] || return 1
+            if [[ "$environment" == preview ]]; then
+                INSTALL_TRANSACTION_PREEXISTING_PREVIEW_LOCK=true
+            else
+                INSTALL_TRANSACTION_PREEXISTING_PRODUCTION_LOCK=true
+            fi
+        else
+            "$CMD_INSTALL" -o "$DEPLOY_USER" -g "$DEPLOY_GROUP" -m 0640 /dev/null "$lock_file" \
+                || return 1
+        fi
+
+        if [[ "$environment" == preview ]]; then
+            exec 200>>"$lock_file" || return 1
+            "$CMD_FLOCK" -n 200 || return 1
+        else
+            exec 201>>"$lock_file" || return 1
+            "$CMD_FLOCK" -n 201 || return 1
+        fi
+    done
+}
+
+release_install_transaction_locks() {
+    exec 200>&- 2>/dev/null || true
+    exec 201>&- 2>/dev/null || true
+}
+
+cleanup_prepared_install_transaction_locks() {
+    # Never unlink a lock path while its inode may still be the one held by a
+    # flock descriptor.  A newly created lock is intentionally retained as an
+    # empty, safe lock on every setup/transaction failure so a later operator
+    # cannot observe an unlocked pathname during cleanup.
+    release_install_transaction_locks
+}
+
+install_lock_prepare_exit() {
+    local exit_status="${1:-0}"
+
+    trap - EXIT
+    cleanup_prepared_install_transaction_locks
+    if [[ -n "${temporary_directory:-}" && -d "$temporary_directory" ]]; then
+        "$CMD_RM" -rf "$temporary_directory" || exit_status=1
+    fi
+    exit "$exit_status"
+}
+
+cleanup_install_operator_temp() {
+    local exit_status="${1:-0}"
+
+    if [[ -n "${temporary_directory:-}" && -d "$temporary_directory" ]]; then
+        "$CMD_RM" -rf "$temporary_directory" || exit_status=1
+    fi
+    exit "$exit_status"
+}
+
+capture_install_snapshot() {
+    local path="$1"
+    local snapshot_override="${2:-auto}"
+    local snapshot_index="${#INSTALL_TRANSACTION_SNAPSHOT_PATHS[@]}"
+    local snapshot_type
+    local metadata
+
+    [[ ! -L "$path" ]] || die "Installation path must not be a symbolic link: $path"
+    INSTALL_TRANSACTION_SNAPSHOT_PATHS+=("$path")
+
+    case "$snapshot_override" in
+        auto)
+            if [[ -f "$path" ]]; then
+                snapshot_type="file"
+            elif [[ -d "$path" ]]; then
+                snapshot_type="directory"
+            elif [[ -e "$path" ]]; then
+                die "Installation path is not a regular file or directory: $path"
+            else
+                snapshot_type="absent"
+            fi
+            ;;
+        absent)
+            snapshot_type="absent"
+            ;;
+        lock-file|created-lock)
+            [[ -f "$path" ]] || die "Installation lock is not a regular file: $path"
+            snapshot_type="$snapshot_override"
+            ;;
+        *)
+            die "Invalid installation snapshot override: $snapshot_override"
+            ;;
+    esac
+    printf '%s\n' "$snapshot_type" >"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.type"
+
+    [[ "$snapshot_type" == absent ]] && return 0
+    metadata="$("$CMD_STAT" -c '%U:%G:%a' "$path")" \
+        || die "Unable to snapshot installation path: $path"
+    printf '%s\n' "$metadata" >"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.metadata"
+    if [[ "$snapshot_type" == file || "$snapshot_type" == lock-file || "$snapshot_type" == created-lock ]]; then
+        "$CMD_CP" -p "$path" "$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.data" \
+            || die "Unable to snapshot installation file: $path"
+    fi
+}
+
+restore_install_snapshot_metadata() {
+    local path="$1"
+    local metadata="$2"
+    local owner="${metadata%%:*}"
+    local group_and_mode="${metadata#*:}"
+    local group="${group_and_mode%%:*}"
+    local mode="${metadata##*:}"
+    local restore_status=0
+
+    "$CMD_CHOWN" "$owner:$group" "$path" || restore_status=1
+    "$CMD_CHMOD" "$mode" "$path" || restore_status=1
+    return "$restore_status"
+}
+
+restore_install_snapshot_entry() {
+    local snapshot_index="$1"
+    local path="${INSTALL_TRANSACTION_SNAPSHOT_PATHS[$snapshot_index]}"
+    local snapshot_type
+    local metadata
+    local restore_status=0
+
+    snapshot_type="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.type")"
+    case "$snapshot_type" in
+        absent)
+            if [[ -L "$path" || -f "$path" ]]; then
+                "$CMD_UNLINK" "$path" || restore_status=1
+            elif [[ -d "$path" ]]; then
+                "$CMD_RMDIR" "$path" || restore_status=1
+            elif [[ -e "$path" ]]; then
+                restore_status=1
+            fi
+            ;;
+        file)
+            if [[ -L "$path" || -f "$path" ]]; then
+                "$CMD_UNLINK" "$path" || restore_status=1
+            elif [[ -e "$path" ]]; then
+                restore_status=1
+            fi
+            if (( restore_status == 0 )); then
+                "$CMD_CP" -p "$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.data" "$path" \
+                    || restore_status=1
+            fi
+            if (( restore_status == 0 )); then
+                metadata="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.metadata")"
+                restore_install_snapshot_metadata "$path" "$metadata" || restore_status=1
+            fi
+            ;;
+        lock-file|created-lock)
+            # Keep the inode that is held by the transaction flock.  Replacing
+            # this pathname with unlink+copy would leave a new, unlocked inode
+            # visible before the descriptor is released.
+            if [[ ! -f "$path" || -L "$path" ]]; then
+                restore_status=1
+            fi
+            if (( restore_status == 0 )); then
+                if ! "$CMD_CMP" -s "$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.data" "$path"; then
+                    "$CMD_CAT" "$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.data" >"$path" \
+                        || restore_status=1
+                fi
+            fi
+            if (( restore_status == 0 )); then
+                metadata="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.metadata")"
+                restore_install_snapshot_metadata "$path" "$metadata" || restore_status=1
+            fi
+            ;;
+        directory)
+            if [[ -L "$path" ]]; then
+                "$CMD_UNLINK" "$path" || restore_status=1
+            elif [[ -e "$path" && ! -d "$path" ]]; then
+                restore_status=1
+            elif [[ ! -e "$path" ]]; then
+                "$CMD_MKDIR" -p "$path" || restore_status=1
+            fi
+            if (( restore_status == 0 )); then
+                metadata="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.metadata")"
+                restore_install_snapshot_metadata "$path" "$metadata" || restore_status=1
+            fi
+            ;;
+        *)
+            restore_status=1
+            ;;
+    esac
+    return "$restore_status"
+}
+
+verify_install_snapshot_entry() {
+    local snapshot_index="$1"
+    local path="${INSTALL_TRANSACTION_SNAPSHOT_PATHS[$snapshot_index]}"
+    local snapshot_type
+    local actual_metadata
+    local expected_metadata
+
+    snapshot_type="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.type")"
+    case "$snapshot_type" in
+        absent)
+            [[ ! -e "$path" && ! -L "$path" ]]
+            ;;
+        file)
+            [[ -f "$path" && ! -L "$path" ]] \
+                && "$CMD_CMP" -s "$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.data" "$path" \
+                && expected_metadata="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.metadata")" \
+                && actual_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$path")" \
+                && [[ "$actual_metadata" == "$expected_metadata" ]]
+            ;;
+        lock-file|created-lock)
+            [[ -f "$path" && ! -L "$path" ]] \
+                && "$CMD_CMP" -s "$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.data" "$path" \
+                && expected_metadata="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.metadata")" \
+                && actual_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$path")" \
+                && [[ "$actual_metadata" == "$expected_metadata" ]]
+            ;;
+        directory)
+            [[ -d "$path" && ! -L "$path" ]] \
+                && expected_metadata="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/$snapshot_index.metadata")" \
+                && actual_metadata="$("$CMD_STAT" -c '%U:%G:%a' "$path")" \
+                && [[ "$actual_metadata" == "$expected_metadata" ]]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+verify_install_transaction_rollback() {
+    local snapshot_index
+    local path
+    local snapshot_type
+
+    for snapshot_index in "${!INSTALL_TRANSACTION_SNAPSHOT_PATHS[@]}"; do
+        verify_install_snapshot_entry "$snapshot_index" || return 1
+    done
+
+    path="$INSTALLED_OPERATOR"
+    snapshot_type="$(<"$INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY/0.type")"
+    if [[ "$snapshot_type" == file ]]; then
+        "$CMD_BASH" -n "$path" || return 1
+    fi
+}
+
+rollback_install_transaction() {
+    local rollback_status=0
+    local snapshot_index
+
+    set +e
+    for (( snapshot_index = ${#INSTALL_TRANSACTION_SNAPSHOT_PATHS[@]} - 1; snapshot_index >= 0; snapshot_index-- )); do
+        restore_install_snapshot_entry "$snapshot_index" || rollback_status=1
+    done
+    verify_install_transaction_rollback || rollback_status=1
+    return "$rollback_status"
+}
+
+install_transaction_exit() {
+    local exit_status="${1:-0}"
+
+    trap - EXIT
+    if [[ "${INSTALL_TRANSACTION_ACTIVE:-false}" == true ]]; then
+        INSTALL_TRANSACTION_ACTIVE=false
+        if rollback_install_transaction; then
+            echo "Installation failed; the previous CI operator and route states were restored." >&2
+        else
+            echo "Installation failed and transaction rollback verification failed." >&2
+            exit_status=1
+        fi
+    fi
+    release_install_transaction_locks
+    if [[ -n "${temporary_directory:-}" && -d "$temporary_directory" ]]; then
+        "$CMD_RM" -rf "$temporary_directory" || exit_status=1
+    fi
+    exit "$exit_status"
 }
 
 install_operator() (
@@ -549,10 +840,9 @@ install_operator() (
 
     require_root
     verify_host_prerequisites
-    ensure_deployment_locks true
     temporary_directory="$("$CMD_MKTEMP" -d /var/tmp/babyjamjam-ci-operator.XXXXXX)"
     operator_candidate="$temporary_directory/operator"
-    trap '"$CMD_RM" -rf "$temporary_directory"' EXIT
+    trap 'cleanup_install_operator_temp "$?"' EXIT
 
     "$CMD_INSTALL" -o root -g root -m 0750 "$SOURCE_OPERATOR" "$operator_candidate"
 
@@ -561,30 +851,60 @@ install_operator() (
     fi
 
     if [[ "$replace_existing" != "--replace" && "$had_operator" == "true" ]]; then
-        if "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR"; then
-            "$CMD_INSTALL" -d -o root -g root -m 0700 "$LOG_DIRECTORY"
-            verify_installed_files
-            return 0
+        "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR" \
+            || die "The CI operator already exists; inspect it before using install --replace."
+    fi
+
+    INSTALL_TRANSACTION_SNAPSHOT_DIRECTORY="$("$CMD_MKTEMP" -d "$temporary_directory/snapshot.XXXXXX")"
+    if ! prepare_install_transaction_locks; then
+        cleanup_prepared_install_transaction_locks
+        return 1
+    fi
+    trap 'install_lock_prepare_exit "$?"' EXIT
+
+    # Recheck after acquiring both environment locks.  A concurrent
+    # authorized installer may have changed the installed operator after the
+    # early comparison; plain install must not overwrite that newer binary.
+    if [[ "$replace_existing" != "--replace" && -e "$INSTALLED_OPERATOR" ]]; then
+        if ! "$CMD_CMP" -s "$operator_candidate" "$INSTALLED_OPERATOR"; then
+            die "The CI operator already exists; inspect it before using install --replace."
         fi
-        die "The CI operator already exists; inspect it before using install --replace."
     fi
 
-    if [[ "$had_operator" == "true" ]]; then
-        "$CMD_CP" -p "$INSTALLED_OPERATOR" "$temporary_directory/operator.previous"
+    INSTALL_TRANSACTION_SNAPSHOT_PATHS=()
+    capture_install_snapshot "$INSTALLED_OPERATOR"
+    capture_install_snapshot "$LOG_DIRECTORY"
+    capture_install_snapshot "$ROUTE_STATE_ROOT"
+    capture_install_snapshot "$ROUTE_STATE_ROOT/preview"
+    capture_install_snapshot "$ROUTE_STATE_ROOT/production"
+    capture_install_snapshot "$ROUTE_STATE_ROOT/preview/$ROUTE_STATE_FILE_NAME"
+    capture_install_snapshot "$ROUTE_STATE_ROOT/production/$ROUTE_STATE_FILE_NAME"
+    if [[ "$INSTALL_TRANSACTION_PREEXISTING_PREVIEW_LOCK" == true ]]; then
+        capture_install_snapshot "$STATE_ROOT/preview/operator.lock" lock-file
+    else
+        capture_install_snapshot "$STATE_ROOT/preview/operator.lock" created-lock
     fi
-
-    "$CMD_INSTALL" -d -o root -g root -m 0700 "$LOG_DIRECTORY"
-    "$CMD_INSTALL" -o root -g root -m 0750 "$operator_candidate" "$INSTALLED_OPERATOR"
-
-    if ! (verify_installed_files); then
-        if [[ "$had_operator" == "true" ]]; then
-            "$CMD_INSTALL" -o root -g root -m 0750 \
-                "$temporary_directory/operator.previous" "$INSTALLED_OPERATOR"
-        else
-            "$CMD_UNLINK" "$INSTALLED_OPERATOR" 2>/dev/null || true
-        fi
-        die "Installation verification failed and the previous CI operator was restored."
+    if [[ "$INSTALL_TRANSACTION_PREEXISTING_PRODUCTION_LOCK" == true ]]; then
+        capture_install_snapshot "$STATE_ROOT/production/operator.lock" lock-file
+    else
+        capture_install_snapshot "$STATE_ROOT/production/operator.lock" created-lock
     fi
+    INSTALL_TRANSACTION_ACTIVE=true
+    trap 'install_transaction_exit "$?"' EXIT
+
+    if ! ensure_deployment_locks true; then
+        return 1
+    fi
+    if ! "$CMD_INSTALL" -d -o root -g root -m 0700 "$LOG_DIRECTORY"; then
+        return 1
+    fi
+    if ! "$CMD_INSTALL" -o root -g root -m 0750 "$operator_candidate" "$INSTALLED_OPERATOR"; then
+        return 1
+    fi
+    if ! verify_installed_files; then
+        return 1
+    fi
+    INSTALL_TRANSACTION_ACTIVE=false
 )
 
 uninstall_operator() {
