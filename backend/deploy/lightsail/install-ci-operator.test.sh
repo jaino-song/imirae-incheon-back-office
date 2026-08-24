@@ -96,6 +96,16 @@ test_stat() {
     printf '%s:%s:%s\n' "$owner" "$group" "$mode"
 }
 
+test_inode() {
+    local path="$1"
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        "$REAL_STAT" -f '%i' "$path"
+    else
+        "$REAL_STAT" -c '%i' "$path"
+    fi
+}
+
 test_chown() {
     if [[ "$EUID" -eq 0 ]]; then
         "$REAL_CHOWN" "$@"
@@ -141,9 +151,22 @@ test_mv_failure() {
     return 1
 }
 
+test_flock() {
+    return 0
+}
+
+test_flock_failure() {
+    return 1
+}
+
+test_flock_trace() {
+    printf '%s\n' "$2" >>"$TEST_FLOCK_TRACE"
+}
+
 CMD_STAT=test_stat
 CMD_CHOWN=test_chown
 CMD_INSTALL=test_install
+CMD_FLOCK=test_flock
 CMD_DATE="$(command -v date)"
 CMD_MV="$(command -v mv)"
 CMD_RM="$(command -v rm)"
@@ -746,7 +769,17 @@ assert_no_temporary_route_state
 
 # Authorized replacement migrates both states, installs the new operator, and
 # leaves check/reconcile/reinstall paths compatible with the new schema.
+replacement_preview_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+replacement_production_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
+TEST_FLOCK_TRACE="$TEST_ROOT/install-lock-order.trace"
+: >"$TEST_FLOCK_TRACE"
+printf '200\n201\n' >"$TEST_ROOT/install-lock-order.expected"
+CMD_FLOCK=test_flock_trace
 main install --replace >/dev/null
+CMD_FLOCK=test_flock
+assert_file_unchanged "$TEST_ROOT/install-lock-order.expected" "$TEST_FLOCK_TRACE"
+assert_equals "$replacement_preview_lock_inode" "$(test_inode "$STATE_ROOT/preview/operator.lock")"
+assert_equals "$replacement_production_lock_inode" "$(test_inode "$STATE_ROOT/production/operator.lock")"
 for environment in preview production; do
     assert_route_state_structure "$environment"
     grep -Fxq "request_history=$VALID_REQUEST_ID" "$(route_state_file "$environment")" \
@@ -790,6 +823,8 @@ rollback_preview_metadata="$(test_stat -c '%U:%G:%a' "$(route_state_file preview
 rollback_operator_metadata="$(test_stat -c '%U:%G:%a' "$INSTALLED_OPERATOR")"
 rollback_preview_lock_metadata="$(test_stat -c '%U:%G:%a' "$STATE_ROOT/preview/operator.lock")"
 rollback_production_lock_metadata="$(test_stat -c '%U:%G:%a' "$STATE_ROOT/production/operator.lock")"
+rollback_preview_lock_inode="$(test_inode "$STATE_ROOT/preview/operator.lock")"
+rollback_production_lock_inode="$(test_inode "$STATE_ROOT/production/operator.lock")"
 original_verify_definition="$(declare -f verify_installed_files | /usr/bin/sed 's/^verify_installed_files/_original_verify_installed_files/')"
 eval "$original_verify_definition"
 verify_installed_files() {
@@ -805,6 +840,8 @@ assert_path_metadata_unchanged "$rollback_preview_metadata" "$(route_state_file 
 assert_path_metadata_unchanged "$rollback_operator_metadata" "$INSTALLED_OPERATOR"
 assert_path_metadata_unchanged "$rollback_preview_lock_metadata" "$STATE_ROOT/preview/operator.lock"
 assert_path_metadata_unchanged "$rollback_production_lock_metadata" "$STATE_ROOT/production/operator.lock"
+assert_equals "$rollback_preview_lock_inode" "$(test_inode "$STATE_ROOT/preview/operator.lock")"
+assert_equals "$rollback_production_lock_inode" "$(test_inode "$STATE_ROOT/production/operator.lock")"
 "$INSTALLED_OPERATOR" "$(route_state_file preview)"
 assert_no_temporary_route_state
 
@@ -826,6 +863,8 @@ done
 /bin/unlink "$(route_state_file production)"
 /bin/cp "$legacy_operator" "$INSTALLED_OPERATOR"
 /bin/chmod 0750 "$INSTALLED_OPERATOR"
+/bin/unlink "$STATE_ROOT/preview/operator.lock"
+/bin/unlink "$STATE_ROOT/production/operator.lock"
 install_failure_preview_snapshot="$TEST_ROOT/install-failure-preview.snapshot"
 install_failure_operator_snapshot="$TEST_ROOT/install-failure-operator.snapshot"
 /bin/cp "$(route_state_file preview)" "$install_failure_preview_snapshot"
@@ -838,5 +877,22 @@ assert_file_unchanged "$install_failure_operator_snapshot" "$INSTALLED_OPERATOR"
 assert_path_absent "$(route_state_file production)"
 assert_path_absent "$LOG_DIRECTORY"
 assert_no_temporary_route_state
+for environment in preview production; do
+    lock_file="$STATE_ROOT/$environment/operator.lock"
+    if [[ ! -f "$lock_file" || -L "$lock_file" ]]; then
+        fail "rollback did not retain a safe $environment lock file"
+    fi
+    [[ ! -s "$lock_file" ]] || fail "rollback retained non-empty $environment lock file"
+    assert_equals "ubuntu:ubuntu:640" "$(test_stat -c '%U:%G:%a' "$lock_file")"
+done
+
+# A busy environment lock fails closed before any snapshot migration.
+CMD_FLOCK=test_flock_failure
+assert_fails main install --replace
+CMD_FLOCK=test_flock
+assert_file_unchanged "$install_failure_preview_snapshot" "$(route_state_file preview)"
+assert_file_unchanged "$install_failure_operator_snapshot" "$INSTALLED_OPERATOR"
+assert_path_absent "$(route_state_file production)"
+assert_path_absent "$LOG_DIRECTORY"
 
 echo "install-ci-operator tests passed"
