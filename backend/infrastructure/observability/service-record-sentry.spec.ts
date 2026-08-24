@@ -23,12 +23,15 @@ jest.mock("@sentry/nestjs", () => ({
 }));
 
 import {
+    capturePrismaError,
     captureServiceRecordError,
     filterAndSanitizeSentryEvent,
     getSentryOptions,
     sanitizeSentryUrl,
 } from "./service-record-sentry";
 import { ServiceRecordSentryExceptionFilter } from "./service-record-sentry-exception.filter";
+
+const rawDatabaseSecret = "postgresql://user:password@db.example.test:5432/app?secret=value";
 
 describe("service-record backend Sentry contract", () => {
     beforeEach(() => {
@@ -94,6 +97,84 @@ describe("service-record backend Sentry contract", () => {
         });
     });
 
+    it("keeps database failover events on unrelated API paths without retaining secrets", () => {
+        const rawMessage = "postgresql://user:password@db.example.test:5432/app?secret=value";
+        const result = filterAndSanitizeSentryEvent(
+            {
+                type: undefined,
+                message: rawMessage,
+                tags: {
+                    feature: "database-failover",
+                    environment: "production",
+                    "db.route": "shared",
+                    "db.failover_eligible": "true",
+                    "prisma.code": "P1001",
+                    "database.host": "db.example.test",
+                    "database.message": rawMessage,
+                },
+                request: {
+                    url: "https://db.example.test/api/clients?password=secret",
+                    data: { databaseUrl: rawMessage },
+                },
+                contexts: { database: { host: "db.example.test" } },
+                extra: { databaseMessage: rawMessage },
+            },
+            { originalException: new BadRequestException() },
+        );
+
+        expect(result).toMatchObject({
+            message: "Database connectivity failure",
+            request: undefined,
+            contexts: undefined,
+            extra: undefined,
+        });
+        expect(result?.tags).toEqual({
+            feature: "database-failover",
+            environment: "production",
+            "db.route": "shared",
+            "db.failover_eligible": "true",
+            "prisma.code": "P1001",
+        });
+        expect(JSON.stringify(result)).not.toContain(rawMessage);
+        expect(JSON.stringify(result)).not.toContain("db.example.test");
+    });
+
+    it("does not weaken service-record status filtering when event signals overlap", () => {
+        expect(filterAndSanitizeSentryEvent(
+            {
+                type: undefined,
+                tags: {
+                    feature: "database-failover",
+                    "db.failover_eligible": "false",
+                    "db.route": "shared",
+                    "prisma.code": "P2024",
+                },
+                request: { url: "/service-record/context" },
+            },
+            { originalException: new BadRequestException() },
+        )).toBeNull();
+    });
+
+    it("normalizes database taxonomy tags before retaining a database event", () => {
+        const result = filterAndSanitizeSentryEvent({
+            type: undefined,
+            tags: {
+                feature: "database-failover",
+                environment: rawDatabaseSecret,
+                "db.route": rawDatabaseSecret,
+                "db.failover_eligible": "true",
+                "prisma.code": rawDatabaseSecret,
+            },
+        });
+
+        expect(result?.tags).toEqual({
+            feature: "database-failover",
+            "db.failover_eligible": "true",
+            "prisma.code": "unknown",
+        });
+        expect(JSON.stringify(result)).not.toContain(rawDatabaseSecret);
+    });
+
     it("redacts UUID path segments from URLs", () => {
         expect(
             sanitizeSentryUrl(
@@ -150,6 +231,36 @@ describe("service-record backend Sentry contract", () => {
             scheduleId: undefined,
             retryCount: 2,
         });
+    });
+
+    it("captures Prisma taxonomy with route and eligibility tags but no raw error details", () => {
+        const error = new Error("postgresql://user:password@db.example.test:5432/app?secret=value");
+        const previousEnvironment = process.env["SENTRY_ENVIRONMENT"];
+        process.env["SENTRY_ENVIRONMENT"] = "dev";
+
+        capturePrismaError(error, {
+            code: "P1001",
+            eligible: true,
+            route: "shared",
+        });
+        capturePrismaError(error, {
+            code: "P1001",
+            eligible: true,
+            route: "shared",
+        });
+
+        expect(mockCaptureException).toHaveBeenCalledTimes(1);
+        expect(mockScope.setTag).toHaveBeenCalledWith("environment", "dev");
+        expect(mockScope.setTag).toHaveBeenCalledWith("db.route", "shared");
+        expect(mockScope.setTag).toHaveBeenCalledWith("db.failover_eligible", "true");
+        expect(mockScope.setTag).toHaveBeenCalledWith("prisma.code", "P1001");
+        expect(mockCaptureException.mock.calls[0]?.[0]).toMatchObject({
+            message: "Database connectivity failure",
+        });
+        expect(JSON.stringify(mockScope.setTag.mock.calls)).not.toContain("db.example.test");
+
+        if (previousEnvironment === undefined) delete process.env["SENTRY_ENVIRONMENT"];
+        else process.env["SENTRY_ENVIRONMENT"] = previousEnvironment;
     });
 
     it("captures only service-record HTTP 5xx through the NestJS exception filter", () => {
