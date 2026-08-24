@@ -31,6 +31,14 @@ test('SAM template defines the disabled-by-default control-plane topology', () =
   assert.doesNotMatch(template, /AWS::SSM::Document/);
 });
 
+test('SAM API uses the object endpoint schema and the supported Lambda runtime', () => {
+  const api = section('FailoverApi', 'ReceiverRole');
+  assert.match(api, /EndpointConfiguration:\n\s+Type: REGIONAL/);
+  assert.doesNotMatch(api, /EndpointConfiguration:\s+REGIONAL(?:\s|$)/);
+  assert.match(template, /Globals:\n\s+Function:\n\s+Runtime: nodejs22\.x/);
+  assert.doesNotMatch(template, /Runtime:\s+nodejs20\.x/);
+});
+
 test('receiver IAM can enqueue and read only the configured Sentry secret', () => {
   const receiver = section('ReceiverRole', 'WorkerRole');
   assert.match(receiver, /sqs:SendMessage/);

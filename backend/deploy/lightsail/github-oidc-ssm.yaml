@@ -220,13 +220,13 @@ Outputs:
     Value: !Ref ProductionDeployDocument
   PreviewDbReconcileDocumentArn:
     Description: Fixed preview database-route reconcile document ARN for the failover worker policy.
-    Value: !GetAtt PreviewDbReconcileDocument.Arn
+    Value: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewDbReconcileDocument}
   PreviewDbReconcileDocumentName:
     Description: Fixed preview database-route reconcile document name for the failover worker.
     Value: !Ref PreviewDbReconcileDocument
   ProductionDbReconcileDocumentArn:
     Description: Fixed production database-route reconcile document ARN for the failover worker policy.
-    Value: !GetAtt ProductionDbReconcileDocument.Arn
+    Value: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${ProductionDbReconcileDocument}
   ProductionDbReconcileDocumentName:
     Description: Fixed production database-route reconcile document name for the failover worker.
     Value: !Ref ProductionDbReconcileDocument
