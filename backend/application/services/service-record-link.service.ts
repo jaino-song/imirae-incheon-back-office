@@ -21,7 +21,9 @@ import {
     MessageTriggerRecipientType,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { findUnsupportedRequiredMessageTriggerVariables } from "domain/constants/message-trigger-variable-sources";
 import { MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON } from "domain/constants/message-automation-policy";
+import { SystemTemplateKey } from "domain/constants/system-template-registry";
 import { MessageTriggerJobEntity } from "domain/entities/message-trigger-job.entity";
 import { MessageLogEntity } from "domain/entities/message-log.entity";
 import {
@@ -34,10 +36,24 @@ import {
 } from "domain/repositories/message-log.repository.interface";
 import { ServiceRecordTokenService } from "./service-record-token.service";
 import { ServiceRecordLifecycleService } from "./service-record-lifecycle.service";
+import { MessageTemplateAutomationLockService } from "./message-template-automation-lock.service";
 import { captureServiceRecordError } from "infrastructure/observability/service-record-sentry";
 
 const AUTOMATIC_SCHEDULING_LEASE_MINUTES = 10;
 const AUTOMATIC_SCHEDULING_RETRY_DELAY_MS = AUTOMATIC_SCHEDULING_LEASE_MINUTES * 60 * 1000;
+
+function readStoredCustomVariables(
+    value: Prisma.JsonValue | null,
+): Array<{ key: string; required: boolean }> {
+    if (!Array.isArray(value)) return [];
+
+    return value.flatMap((item) => {
+        if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+        const candidate = item as Record<string, unknown>;
+        if (typeof candidate["key"] !== "string" || typeof candidate["required"] !== "boolean") return [];
+        return [{ key: candidate["key"], required: candidate["required"] }];
+    });
+}
 
 /**
  * Issues / revokes the no-login 제공기록지 link for an assignment (BJJ-247).
@@ -56,6 +72,8 @@ export class ServiceRecordLinkService {
         private readonly jobRepository: IMessageTriggerJobRepository,
         @Inject(MESSAGE_LOG_REPOSITORY)
         private readonly logRepository: IMessageLogRepository,
+        private readonly automationLock: MessageTemplateAutomationLockService =
+            new MessageTemplateAutomationLockService(prisma),
         @Optional() private readonly lifecycleService?: ServiceRecordLifecycleService,
     ) {}
 
@@ -585,23 +603,43 @@ ${url}`;
     }
 
     private async ensureSystemRule(): Promise<void> {
-        await this.prisma.message_trigger_rule.upsert({
-            where: { id: SERVICE_RECORD_LINK_RULE_ID },
-            create: {
-                id: SERVICE_RECORD_LINK_RULE_ID,
-                branchId: null,
-                name: SERVICE_RECORD_LINK_SMS_TITLE,
-                isActive: true,
-                eventType: MessageTriggerEventType.SERVICE_START,
-                offsetType: MessageTriggerOffsetType.SAME_DAY,
-                offsetDays: 0,
-                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
-                templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
-                isDefault: false,
-                jobsStale: false,
+        await this.automationLock.runExclusive(
+            SystemTemplateKey.SERVICE_RECORD_LINK,
+            async (transaction) => {
+                const template = await transaction.system_template.findUnique({
+                    where: { templateKey: SystemTemplateKey.SERVICE_RECORD_LINK },
+                    select: { customVariables: true },
+                });
+                const unsupportedVariables = findUnsupportedRequiredMessageTriggerVariables(
+                    MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+                    readStoredCustomVariables(template?.customVariables ?? null),
+                );
+                if (unsupportedVariables.length > 0) {
+                    throw new BadRequestException({
+                        message: "활성 자동 발송 규칙에서 입력할 수 없는 필수 템플릿 변수가 있습니다.",
+                        unsupportedVariables,
+                    });
+                }
+
+                await transaction.message_trigger_rule.upsert({
+                    where: { id: SERVICE_RECORD_LINK_RULE_ID },
+                    create: {
+                        id: SERVICE_RECORD_LINK_RULE_ID,
+                        branchId: null,
+                        name: SERVICE_RECORD_LINK_SMS_TITLE,
+                        isActive: true,
+                        eventType: MessageTriggerEventType.SERVICE_START,
+                        offsetType: MessageTriggerOffsetType.SAME_DAY,
+                        offsetDays: 0,
+                        recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                        templateKey: MessageTriggerTemplateKey.SERVICE_RECORD_LINK,
+                        isDefault: false,
+                        jobsStale: false,
+                    },
+                    update: {},
+                });
             },
-            update: {},
-        });
+        );
     }
 
     private async recordPermanentFailure(params: {

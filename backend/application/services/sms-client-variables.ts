@@ -27,8 +27,8 @@ export interface SmsClientVariables {
 /**
  * Builds the full SMS template variable bag from a client (+ its area's bank account).
  * Every value is coerced to a string with a "" fallback so the renderer never leaks a
- * literal {{placeholder}}. The PRICE_INFO delivery guard separately blocks sending when
- * essential money/bank fields are blank.
+ * literal {{placeholder}}. The SMS delivery guard separately blocks sending when any
+ * required template value is blank.
  */
 export function buildSmsClientVariables(client: SmsClientVariableSource): SmsClientVariables {
     const duration = client.duration ?? null;

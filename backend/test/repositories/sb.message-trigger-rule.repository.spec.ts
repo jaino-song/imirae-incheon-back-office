@@ -112,6 +112,26 @@ describe("SbMessageTriggerRuleRepository", () => {
         );
     });
 
+    it("findActiveTemplateKeys returns only active shared-template keys across branches", async () => {
+        messageTriggerRuleModel.findMany.mockResolvedValue([
+            { templateKey: MessageTriggerTemplateKey.SERVICE_INFO },
+        ]);
+
+        const result = await repository.findActiveTemplateKeys([
+            MessageTriggerTemplateKey.SERVICE_INFO,
+        ]);
+
+        expect(messageTriggerRuleModel.findMany).toHaveBeenCalledWith({
+            where: {
+                isActive: true,
+                templateKey: { in: [MessageTriggerTemplateKey.SERVICE_INFO] },
+            },
+            select: { templateKey: true },
+            distinct: ["templateKey"],
+        });
+        expect(result).toEqual([MessageTriggerTemplateKey.SERVICE_INFO]);
+    });
+
     it("markJobsStale sets jobsStale true for the rule id", async () => {
         messageTriggerRuleModel.updateMany.mockResolvedValue({ count: 1 });
 

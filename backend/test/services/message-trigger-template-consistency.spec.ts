@@ -1,8 +1,10 @@
 import { SMS_TEMPLATE_DELIVERY } from "application/services/sms-trigger-delivery.service";
 import {
+    CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS as BACKEND_CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
     MESSAGE_TRIGGER_TEMPLATE_CATALOG,
     MessageTriggerTemplateKey,
 } from "domain/constants/message-trigger-catalog";
+import { MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS } from "domain/constants/message-trigger-variable-sources";
 import { SYSTEM_TEMPLATE_REGISTRY } from "domain/constants/system-template-registry";
 // Reaches across the package boundary on purpose: this file's whole job is to
 // prove packages/shared's UI label map and the backend digest catalog cannot
@@ -11,8 +13,17 @@ import { SYSTEM_TEMPLATE_REGISTRY } from "domain/constants/system-template-regis
 // narrow vendored subset (backend/vendor/shared-agent, agent-only) and does not
 // carry message/presentation, so this cannot go through the package name.
 import { MESSAGE_TEMPLATE_LABELS } from "../../../packages/shared/src/message/presentation";
+import {
+    CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS as SHARED_CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+} from "../../../packages/shared/src/types/message";
 
 describe("SMS trigger template consistency", () => {
+    it("keeps the frontend and backend configurable SMS template lists identical", () => {
+        expect(BACKEND_CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS).toEqual(
+            SHARED_CONFIGURABLE_SMS_TRIGGER_TEMPLATE_KEYS,
+        );
+    });
+
     it.each(
         Object.values(MESSAGE_TRIGGER_TEMPLATE_CATALOG)
             .filter((item) => item.providers.sms)
@@ -23,6 +34,7 @@ describe("SMS trigger template consistency", () => {
 
         const systemTemplateKey = delivery?.systemTemplateKey;
         expect(systemTemplateKey).toBeDefined();
+        expect(catalogItem.providers.sms?.templateKey).toBe(systemTemplateKey);
         const registryEntry = systemTemplateKey ? SYSTEM_TEMPLATE_REGISTRY[systemTemplateKey] : undefined;
         expect(registryEntry).toBeDefined();
 
@@ -36,6 +48,13 @@ describe("SMS trigger template consistency", () => {
             .map((variable) => variable.key)
             .filter((key) => !availableVariables.has(key));
         expect(missingVariables).toEqual([]);
+
+        const automaticVariables = new Set(MESSAGE_TRIGGER_AUTOMATIC_VARIABLE_KEYS[templateKey]);
+        const unsupportedRegistryVariables = (registryEntry?.requiredVariables ?? [])
+            .filter((variable) => variable.required)
+            .map((variable) => variable.key)
+            .filter((key) => !automaticVariables.has(key));
+        expect(unsupportedRegistryVariables).toEqual([]);
     });
 });
 
