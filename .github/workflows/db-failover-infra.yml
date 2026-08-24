@@ -67,7 +67,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Run dependency-free control-plane tests
         working-directory: ${{ env.CONTROL_PLANE_DIR }}
@@ -136,6 +136,7 @@ jobs:
       SENTRY_INSTALLATION_ID: ${{ vars.SENTRY_INSTALLATION_ID }}
       SENTRY_ORGANIZATION_ID: ${{ vars.SENTRY_ORGANIZATION_ID }}
       SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
+      SENTRY_PROJECT_SLUG: ${{ vars.SENTRY_PROJECT_SLUG }}
       SENTRY_RULE_IDS: ${{ vars.SENTRY_RULE_IDS }}
     steps:
       - name: Checkout
@@ -145,20 +146,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
+      - name: Perform read-only live Sentry rule audit
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        env:
+          SENTRY_API_TOKEN: ${{ secrets.SENTRY_API_TOKEN }}
+          SENTRY_EXPECTED_ENVIRONMENT: preview
+        run: node scripts/audit-sentry-rule.mjs
       - name: Authenticate to the protected preview environment
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
-      - name: Enforce read-only live Sentry rule audit gate
-        env:
-          RULE_AUDIT_CONFIRMED: ${{ inputs.confirm_sentry_rule_audit }}
-        run: |
-          set -euo pipefail
-          test "$RULE_AUDIT_CONFIRMED" = true
-          echo 'Read-only live Sentry rule audit confirmed; no Sentry mutation is performed by this workflow.'
       - name: Build and deploy preview stack
         working-directory: ${{ env.CONTROL_PLANE_DIR }}
         run: |
@@ -204,6 +204,7 @@ jobs:
       SENTRY_INSTALLATION_ID: ${{ vars.SENTRY_INSTALLATION_ID }}
       SENTRY_ORGANIZATION_ID: ${{ vars.SENTRY_ORGANIZATION_ID }}
       SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
+      SENTRY_PROJECT_SLUG: ${{ vars.SENTRY_PROJECT_SLUG }}
       SENTRY_RULE_IDS: ${{ vars.SENTRY_RULE_IDS }}
     steps:
       - name: Checkout
@@ -213,20 +214,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
+      - name: Perform read-only live Sentry rule audit
+        working-directory: ${{ env.CONTROL_PLANE_DIR }}
+        env:
+          SENTRY_API_TOKEN: ${{ secrets.SENTRY_API_TOKEN }}
+          SENTRY_EXPECTED_ENVIRONMENT: production
+        run: node scripts/audit-sentry-rule.mjs
       - name: Authenticate to the protected production environment
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
-      - name: Enforce read-only live Sentry rule audit gate
-        env:
-          RULE_AUDIT_CONFIRMED: ${{ inputs.confirm_sentry_rule_audit }}
-        run: |
-          set -euo pipefail
-          test "$RULE_AUDIT_CONFIRMED" = true
-          echo 'Read-only live Sentry rule audit confirmed; no Sentry mutation is performed by this workflow.'
       - name: Build and deploy production stack
         working-directory: ${{ env.CONTROL_PLANE_DIR }}
         run: |
