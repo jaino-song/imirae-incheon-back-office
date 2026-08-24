@@ -2,14 +2,12 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 import {
   ELIGIBLE_ACTION,
-  ELIGIBLE_ISSUE_CODES,
   ELIGIBLE_RESOURCE,
   EXPECTED_METRIC_AGGREGATE,
   EXPECTED_METRIC_THRESHOLD,
   EXPECTED_METRIC_TIME_WINDOW_MINUTES,
   FAILOVER_SIGNAL_CLASS,
   MAX_WEBHOOK_BYTES,
-  REQUIRED_QUERY_MARKERS,
   ROUTES,
   UUID_PATTERN,
   WEBHOOK_TIMESTAMP_TOLERANCE_MS,
@@ -23,11 +21,11 @@ const TIMESTAMP_HEADERS = Object.freeze([
 ]);
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
-const EXACT_ELIGIBLE_PRISMA_TERMS = new Set(
-  ELIGIBLE_ISSUE_CODES.map((code) => `prisma.code:${code}`),
-);
-const PRISMA_CODE_FIELD_PATTERN = /prisma[._-]?code\s*[:=]/i;
-const PRISMA_CODE_TOKEN_PATTERN = /P[0-9]{4}/i;
+const EXACT_FAILOVER_QUERIES = new Set([
+  'prisma.code:P1001 db.failover_eligible:true db.route:shared',
+  'prisma.code:P1017 db.failover_eligible:true db.route:shared',
+  '(prisma.code:P1001 OR prisma.code:P1017) db.failover_eligible:true db.route:shared',
+]);
 
 function getHeader(headers, name) {
   if (!headers || typeof headers !== 'object') return undefined;
@@ -150,22 +148,9 @@ function projectIdentifiers(value) {
     ));
 }
 
-function queryContainsMarker(query, marker) {
-  if (typeof query !== 'string') return false;
-  const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|[^A-Za-z0-9_.:-])${escapedMarker}(?=$|[^A-Za-z0-9_.:-])`).test(query);
-}
-
 export function isFailoverEligibleQuery(query) {
   if (typeof query !== 'string' || query.trim() === '') return false;
-  if (!REQUIRED_QUERY_MARKERS.every((marker) => queryContainsMarker(query, marker))) return false;
-
-  const queryTerms = query.trim().split(/\s+/);
-  const prismaCodeTerms = queryTerms.filter((term) => (
-    PRISMA_CODE_FIELD_PATTERN.test(term) || PRISMA_CODE_TOKEN_PATTERN.test(term)
-  ));
-  return prismaCodeTerms.length > 0
-    && prismaCodeTerms.every((term) => EXACT_ELIGIBLE_PRISMA_TERMS.has(term));
+  return EXACT_FAILOVER_QUERIES.has(query.trim().replace(/\s+/g, ' '));
 }
 
 function consistentScopeValue(objects, key) {
