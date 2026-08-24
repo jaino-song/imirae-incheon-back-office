@@ -11,7 +11,7 @@ readonly IMAGE_REPOSITORY="ghcr.io/jaino-song/babyjamjam-admin-backend"
 readonly LOCAL_IMAGE_REPOSITORY="babyjamjam-backend"
 readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 readonly ROUTE_STATE_FILE_NAME="db-route-state"
-readonly ROUTE_STATE_FORMAT_VERSION="1"
+readonly ROUTE_STATE_FORMAT_VERSION="2"
 readonly DB_PROBE_TIMEOUT_SECONDS="5"
 readonly DIRECT_MINIMUM_HOLD_SECONDS="3600"
 readonly SHARED_FAILBACK_SUCCESS_LIMIT="30"
@@ -20,7 +20,10 @@ readonly SHARED_FAILURE_LIMIT="3"
 readonly DIRECT_SUCCESS_LIMIT="3"
 readonly NORMAL_ROUNDTRIP_LIMIT="2"
 readonly NORMAL_ROUNDTRIP_WINDOW_SECONDS="21600"
-readonly SHARED_PROBE_INTERVAL_TOLERANCE_SECONDS="120"
+readonly HOST_ROUTE_COOLDOWN_SECONDS="300"
+readonly SHARED_PROBE_MIN_INTERVAL_SECONDS="45"
+readonly SHARED_PROBE_MAX_INTERVAL_SECONDS="90"
+readonly SHARED_FAILBACK_MIN_ELAPSED_SECONDS="1740"
 readonly UUID_PATTERN='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
 readonly READY_NODE_SCRIPT='fetch("http://127.0.0.1:3001/health/ready").then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));'
 readonly PROBE_NODE_SCRIPT='const { PrismaClient } = require("@prisma/client");
@@ -217,21 +220,26 @@ write_route_state() {
         printf 'generation=%s\n' "$ROUTE_STATE_GENERATION"
         printf 'active_route=%s\n' "$ROUTE_STATE_ACTIVE_ROUTE"
         printf 'phase=%s\n' "$ROUTE_STATE_PHASE"
+        printf 'transition_previous_route=%s\n' "$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE"
+        printf 'transition_target_route=%s\n' "$ROUTE_STATE_TRANSITION_TARGET_ROUTE"
         printf 'transition_started_at=%s\n' "$ROUTE_STATE_TRANSITION_STARTED_AT"
+        printf 'transition_generation=%s\n' "$ROUTE_STATE_TRANSITION_GENERATION"
         printf 'direct_activated_at=%s\n' "$ROUTE_STATE_DIRECT_ACTIVATED_AT"
         printf 'shared_failure_count=%s\n' "$ROUTE_STATE_SHARED_FAILURE_COUNT"
         printf 'direct_success_count=%s\n' "$ROUTE_STATE_DIRECT_SUCCESS_COUNT"
         printf 'direct_failure_count=%s\n' "$ROUTE_STATE_DIRECT_FAILURE_COUNT"
-        printf 'shared_success_count=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_COUNT"
         printf 'emergency_shared_success_count=%s\n' "$ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT"
-        printf 'shared_success_started_at=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_STARTED_AT"
-        printf 'shared_success_last_at=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_LAST_AT"
-        printf 'normal_roundtrip_count=%s\n' "$ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT"
-        printf 'roundtrip_window_started_at=%s\n' "$ROUTE_STATE_ROUNDTRIP_WINDOW_STARTED_AT"
+        printf 'shared_healthy_count=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_COUNT"
+        printf 'shared_healthy_started_at=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_STARTED_AT"
+        printf 'shared_healthy_last_at=%s\n' "$ROUTE_STATE_SHARED_SUCCESS_LAST_AT"
+        printf 'normal_roundtrip_history=%s\n' "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY"
+        printf 'cooldown_until=%s\n' "$ROUTE_STATE_COOLDOWN_UNTIL"
         printf 'last_request_id=%s\n' "$ROUTE_STATE_LAST_REQUEST_ID"
         printf 'last_probe_route=%s\n' "$ROUTE_STATE_LAST_PROBE_ROUTE"
         printf 'last_probe_result=%s\n' "$ROUTE_STATE_LAST_PROBE_RESULT"
         printf 'last_probe_at=%s\n' "$ROUTE_STATE_LAST_PROBE_AT"
+        printf 'last_shared_ok=%s\n' "$ROUTE_STATE_LAST_SHARED_OK"
+        printf 'last_direct_ok=%s\n' "$ROUTE_STATE_LAST_DIRECT_OK"
         printf 'last_result=%s\n' "$ROUTE_STATE_LAST_RESULT"
         printf 'terminal_reason=%s\n' "$ROUTE_STATE_TERMINAL_REASON"
     } >"$temporary_file"; then
@@ -254,21 +262,26 @@ initialize_route_state() {
     ROUTE_STATE_GENERATION="0"
     ROUTE_STATE_ACTIVE_ROUTE="shared"
     ROUTE_STATE_PHASE="SHARED_ACTIVE"
+    ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE=""
+    ROUTE_STATE_TRANSITION_TARGET_ROUTE=""
     ROUTE_STATE_TRANSITION_STARTED_AT="0"
+    ROUTE_STATE_TRANSITION_GENERATION="0"
     ROUTE_STATE_DIRECT_ACTIVATED_AT="0"
     ROUTE_STATE_SHARED_FAILURE_COUNT="0"
     ROUTE_STATE_DIRECT_SUCCESS_COUNT="0"
     ROUTE_STATE_DIRECT_FAILURE_COUNT="0"
-    ROUTE_STATE_SHARED_SUCCESS_COUNT="0"
     ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT="0"
+    ROUTE_STATE_SHARED_SUCCESS_COUNT="0"
     ROUTE_STATE_SHARED_SUCCESS_STARTED_AT="0"
     ROUTE_STATE_SHARED_SUCCESS_LAST_AT="0"
-    ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT="0"
-    ROUTE_STATE_ROUNDTRIP_WINDOW_STARTED_AT="$now"
+    ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY=""
+    ROUTE_STATE_COOLDOWN_UNTIL="0"
     ROUTE_STATE_LAST_REQUEST_ID=""
     ROUTE_STATE_LAST_PROBE_ROUTE=""
     ROUTE_STATE_LAST_PROBE_RESULT="none"
     ROUTE_STATE_LAST_PROBE_AT="0"
+    ROUTE_STATE_LAST_SHARED_OK="null"
+    ROUTE_STATE_LAST_DIRECT_OK="null"
     ROUTE_STATE_LAST_RESULT="initialized"
     ROUTE_STATE_TERMINAL_REASON=""
     write_route_state
@@ -299,21 +312,26 @@ set_route_state_defaults() {
     ROUTE_STATE_GENERATION=""
     ROUTE_STATE_ACTIVE_ROUTE=""
     ROUTE_STATE_PHASE=""
+    ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE=""
+    ROUTE_STATE_TRANSITION_TARGET_ROUTE=""
     ROUTE_STATE_TRANSITION_STARTED_AT=""
+    ROUTE_STATE_TRANSITION_GENERATION=""
     ROUTE_STATE_DIRECT_ACTIVATED_AT=""
     ROUTE_STATE_SHARED_FAILURE_COUNT=""
     ROUTE_STATE_DIRECT_SUCCESS_COUNT=""
     ROUTE_STATE_DIRECT_FAILURE_COUNT=""
-    ROUTE_STATE_SHARED_SUCCESS_COUNT=""
     ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT=""
+    ROUTE_STATE_SHARED_SUCCESS_COUNT=""
     ROUTE_STATE_SHARED_SUCCESS_STARTED_AT=""
     ROUTE_STATE_SHARED_SUCCESS_LAST_AT=""
-    ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT=""
-    ROUTE_STATE_ROUNDTRIP_WINDOW_STARTED_AT=""
+    ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY=""
+    ROUTE_STATE_COOLDOWN_UNTIL=""
     ROUTE_STATE_LAST_REQUEST_ID=""
     ROUTE_STATE_LAST_PROBE_ROUTE=""
     ROUTE_STATE_LAST_PROBE_RESULT=""
     ROUTE_STATE_LAST_PROBE_AT=""
+    ROUTE_STATE_LAST_SHARED_OK=""
+    ROUTE_STATE_LAST_DIRECT_OK=""
     ROUTE_STATE_LAST_RESULT=""
     ROUTE_STATE_TERMINAL_REASON=""
 }
@@ -326,6 +344,25 @@ validate_state_timestamp() {
     [[ "${1:-}" =~ ^0$|^[1-9][0-9]{0,11}$ ]]
 }
 
+validate_state_boolean() {
+    [[ "${1:-}" == "true" || "${1:-}" == "false" || "${1:-}" == "null" ]]
+}
+
+validate_state_history() {
+    local history="${1:-}"
+    local item
+    local previous="0"
+
+    [[ -z "$history" ]] && return 0
+    [[ "$history" =~ ^(0|[1-9][0-9]{0,11})(,(0|[1-9][0-9]{0,11}))*$ ]] || return 1
+    IFS=',' read -r -a history_items <<<"$history"
+    for item in "${history_items[@]}"; do
+        validate_state_timestamp "$item" || return 1
+        (( item >= previous )) || return 1
+        previous="$item"
+    done
+}
+
 validate_state_value() {
     local state_key="$1"
     local state_value="$2"
@@ -334,14 +371,20 @@ validate_state_value() {
         version)
             [[ "$state_value" == "$ROUTE_STATE_FORMAT_VERSION" ]]
             ;;
-        generation|shared_failure_count|direct_success_count|direct_failure_count|shared_success_count|emergency_shared_success_count|normal_roundtrip_count)
+        generation|transition_generation|shared_failure_count|direct_success_count|direct_failure_count|emergency_shared_success_count|shared_healthy_count)
             validate_state_counter "$state_value"
             ;;
-        transition_started_at|direct_activated_at|shared_success_started_at|shared_success_last_at|roundtrip_window_started_at|last_probe_at)
+        transition_started_at|direct_activated_at|shared_healthy_started_at|shared_healthy_last_at|cooldown_until|last_probe_at)
             validate_state_timestamp "$state_value"
             ;;
-        active_route|last_probe_route)
+        transition_previous_route|transition_target_route|active_route|last_probe_route)
             [[ -z "$state_value" ]] || is_route "$state_value"
+            ;;
+        normal_roundtrip_history)
+            validate_state_history "$state_value"
+            ;;
+        last_shared_ok|last_direct_ok)
+            validate_state_boolean "$state_value"
             ;;
         phase)
             [[ "$state_value" == "SHARED_ACTIVE" \
@@ -368,6 +411,7 @@ load_route_state() {
     local state_key
     local state_value
     local state_line
+    local required_state_key
     local seen_state_keys=" "
 
     ensure_route_state
@@ -387,28 +431,45 @@ load_route_state() {
             generation) ROUTE_STATE_GENERATION="$state_value" ;;
             active_route) ROUTE_STATE_ACTIVE_ROUTE="$state_value" ;;
             phase) ROUTE_STATE_PHASE="$state_value" ;;
+            transition_previous_route) ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE="$state_value" ;;
+            transition_target_route) ROUTE_STATE_TRANSITION_TARGET_ROUTE="$state_value" ;;
             transition_started_at) ROUTE_STATE_TRANSITION_STARTED_AT="$state_value" ;;
+            transition_generation) ROUTE_STATE_TRANSITION_GENERATION="$state_value" ;;
             direct_activated_at) ROUTE_STATE_DIRECT_ACTIVATED_AT="$state_value" ;;
             shared_failure_count) ROUTE_STATE_SHARED_FAILURE_COUNT="$state_value" ;;
             direct_success_count) ROUTE_STATE_DIRECT_SUCCESS_COUNT="$state_value" ;;
             direct_failure_count) ROUTE_STATE_DIRECT_FAILURE_COUNT="$state_value" ;;
-            shared_success_count) ROUTE_STATE_SHARED_SUCCESS_COUNT="$state_value" ;;
             emergency_shared_success_count) ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT="$state_value" ;;
-            shared_success_started_at) ROUTE_STATE_SHARED_SUCCESS_STARTED_AT="$state_value" ;;
-            shared_success_last_at) ROUTE_STATE_SHARED_SUCCESS_LAST_AT="$state_value" ;;
-            normal_roundtrip_count) ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT="$state_value" ;;
-            roundtrip_window_started_at) ROUTE_STATE_ROUNDTRIP_WINDOW_STARTED_AT="$state_value" ;;
+            shared_healthy_count) ROUTE_STATE_SHARED_SUCCESS_COUNT="$state_value" ;;
+            shared_healthy_started_at) ROUTE_STATE_SHARED_SUCCESS_STARTED_AT="$state_value" ;;
+            shared_healthy_last_at) ROUTE_STATE_SHARED_SUCCESS_LAST_AT="$state_value" ;;
+            normal_roundtrip_history) ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY="$state_value" ;;
+            cooldown_until) ROUTE_STATE_COOLDOWN_UNTIL="$state_value" ;;
             last_request_id) ROUTE_STATE_LAST_REQUEST_ID="$state_value" ;;
             last_probe_route) ROUTE_STATE_LAST_PROBE_ROUTE="$state_value" ;;
             last_probe_result) ROUTE_STATE_LAST_PROBE_RESULT="$state_value" ;;
             last_probe_at) ROUTE_STATE_LAST_PROBE_AT="$state_value" ;;
+            last_shared_ok) ROUTE_STATE_LAST_SHARED_OK="$state_value" ;;
+            last_direct_ok) ROUTE_STATE_LAST_DIRECT_OK="$state_value" ;;
             last_result) ROUTE_STATE_LAST_RESULT="$state_value" ;;
             terminal_reason) ROUTE_STATE_TERMINAL_REASON="$state_value" ;;
         esac
     done <"$ROUTE_STATE_FILE"
 
+    for required_state_key in \
+        version generation active_route phase transition_previous_route \
+        transition_target_route transition_started_at transition_generation \
+        direct_activated_at shared_failure_count direct_success_count \
+        direct_failure_count emergency_shared_success_count shared_healthy_count \
+        shared_healthy_started_at shared_healthy_last_at normal_roundtrip_history \
+        cooldown_until last_request_id last_probe_route last_probe_result \
+        last_probe_at last_shared_ok last_direct_ok last_result terminal_reason; do
+        [[ "$seen_state_keys" == *" $required_state_key "* ]] \
+            || die "Route state is missing key: $required_state_key"
+    done
+
     [[ "$ROUTE_STATE_VERSION" == "$ROUTE_STATE_FORMAT_VERSION" ]] \
-        || die "Route state version is missing."
+        || die "Unsupported route state version; refusing implicit migration."
     validate_state_counter "$ROUTE_STATE_GENERATION" \
         || die "Route state generation is missing."
     is_route "$ROUTE_STATE_ACTIVE_ROUTE" \
@@ -416,19 +477,49 @@ load_route_state() {
     [[ -n "$ROUTE_STATE_PHASE" && -n "$ROUTE_STATE_LAST_RESULT" ]] \
         || die "Route state phase or result is missing."
     [[ -n "$ROUTE_STATE_TRANSITION_STARTED_AT" \
+        && -n "$ROUTE_STATE_TRANSITION_GENERATION" \
         && -n "$ROUTE_STATE_DIRECT_ACTIVATED_AT" \
         && -n "$ROUTE_STATE_SHARED_FAILURE_COUNT" \
         && -n "$ROUTE_STATE_DIRECT_SUCCESS_COUNT" \
         && -n "$ROUTE_STATE_DIRECT_FAILURE_COUNT" \
-        && -n "$ROUTE_STATE_SHARED_SUCCESS_COUNT" \
         && -n "$ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT" \
         && -n "$ROUTE_STATE_SHARED_SUCCESS_STARTED_AT" \
         && -n "$ROUTE_STATE_SHARED_SUCCESS_LAST_AT" \
-        && -n "$ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT" \
-        && -n "$ROUTE_STATE_ROUNDTRIP_WINDOW_STARTED_AT" \
+        && -n "$ROUTE_STATE_SHARED_SUCCESS_COUNT" \
+        && -n "$ROUTE_STATE_COOLDOWN_UNTIL" \
         && -n "$ROUTE_STATE_LAST_PROBE_RESULT" \
-        && -n "$ROUTE_STATE_LAST_PROBE_AT" ]] \
+        && -n "$ROUTE_STATE_LAST_PROBE_AT" \
+        && -n "$ROUTE_STATE_LAST_SHARED_OK" \
+        && -n "$ROUTE_STATE_LAST_DIRECT_OK" ]] \
         || die "Route state is incomplete."
+
+    case "$ROUTE_STATE_PHASE" in
+        SWITCHING_TO_DIRECT)
+            [[ "$ROUTE_STATE_ACTIVE_ROUTE" == "shared" \
+                && "$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE" == "shared" \
+                && "$ROUTE_STATE_TRANSITION_TARGET_ROUTE" == "direct" \
+                && "$ROUTE_STATE_TRANSITION_STARTED_AT" != "0" \
+                && "$ROUTE_STATE_TRANSITION_GENERATION" != "0" \
+                && "$ROUTE_STATE_TRANSITION_GENERATION" -le "$ROUTE_STATE_GENERATION" ]] \
+                || die "Invalid Shared-to-Direct transition metadata."
+            ;;
+        SWITCHING_TO_SHARED)
+            [[ "$ROUTE_STATE_ACTIVE_ROUTE" == "direct" \
+                && "$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE" == "direct" \
+                && "$ROUTE_STATE_TRANSITION_TARGET_ROUTE" == "shared" \
+                && "$ROUTE_STATE_TRANSITION_STARTED_AT" != "0" \
+                && "$ROUTE_STATE_TRANSITION_GENERATION" != "0" \
+                && "$ROUTE_STATE_TRANSITION_GENERATION" -le "$ROUTE_STATE_GENERATION" ]] \
+                || die "Invalid Direct-to-Shared transition metadata."
+            ;;
+        *)
+            [[ -z "$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE" \
+                && -z "$ROUTE_STATE_TRANSITION_TARGET_ROUTE" \
+                && "$ROUTE_STATE_TRANSITION_STARTED_AT" == "0" \
+                && "$ROUTE_STATE_TRANSITION_GENERATION" == "0" ]] \
+                || die "Unexpected transition metadata outside switching phase."
+            ;;
+    esac
 }
 
 reset_shared_success_window() {
@@ -607,7 +698,8 @@ recreate_api_for_route() {
         LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK" \
         VALKEY_DATA_VOLUME="$VALKEY_DATA_VOLUME" \
         /usr/bin/docker compose -f "$COMPOSE_FILE" \
-        up -d --no-deps --force-recreate api
+        up -d --no-deps --force-recreate api \
+        >/dev/null 2>&1
 }
 
 load_current_release_identity() {
@@ -787,18 +879,74 @@ reconcile_output() {
     local shared_ok="${RECONCILE_SHARED_OK:-null}"
     local direct_ok="${RECONCILE_DIRECT_OK:-null}"
     local active_route
+    local history_json
+    local previous_route_json
+    local target_route_json
+    local terminal_reason_json
 
     is_route "$ROUTE_STATE_ACTIVE_ROUTE" || die "Invalid active route for reconcile output."
     active_route="$(printf '%s' "$ROUTE_STATE_ACTIVE_ROUTE" | /usr/bin/tr '[:lower:]' '[:upper:]')"
 
     is_state_token "$result" || die "Invalid reconcile result."
+    [[ "$ROUTE_STATE_PHASE" == "SHARED_ACTIVE" \
+        || "$ROUTE_STATE_PHASE" == "SWITCHING_TO_DIRECT" \
+        || "$ROUTE_STATE_PHASE" == "DIRECT_ACTIVE" \
+        || "$ROUTE_STATE_PHASE" == "RECOVERING_SHARED" \
+        || "$ROUTE_STATE_PHASE" == "SWITCHING_TO_SHARED" \
+        || "$ROUTE_STATE_PHASE" == "BLOCKED" \
+        || "$ROUTE_STATE_PHASE" == "DEGRADED" ]] \
+        || die "Invalid reconcile phase."
     [[ "$shared_ok" == "true" || "$shared_ok" == "false" || "$shared_ok" == "null" ]] \
         || die "Invalid shared probe result."
     [[ "$direct_ok" == "true" || "$direct_ok" == "false" || "$direct_ok" == "null" ]] \
         || die "Invalid direct probe result."
-    printf '{"controlPlaneOk":true,"environment":"%s","requestId":"%s","activeRoute":"%s","phase":"%s","result":"%s","sharedOk":%s,"directOk":%s}\n' \
-        "$DEPLOY_ENVIRONMENT" "$RECONCILE_REQUEST_ID" "$active_route" \
-        "$ROUTE_STATE_PHASE" "$result" "$shared_ok" "$direct_ok"
+
+    if [[ -n "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY" ]]; then
+        history_json="[$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY]"
+    else
+        history_json="[]"
+    fi
+    if [[ -n "$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE" ]]; then
+        previous_route_json="\"$(printf '%s' "$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE" | /usr/bin/tr '[:lower:]' '[:upper:]')\""
+    else
+        previous_route_json="null"
+    fi
+    if [[ -n "$ROUTE_STATE_TRANSITION_TARGET_ROUTE" ]]; then
+        target_route_json="\"$(printf '%s' "$ROUTE_STATE_TRANSITION_TARGET_ROUTE" | /usr/bin/tr '[:lower:]' '[:upper:]')\""
+    else
+        target_route_json="null"
+    fi
+    if [[ -n "$ROUTE_STATE_TERMINAL_REASON" ]]; then
+        terminal_reason_json="\"$ROUTE_STATE_TERMINAL_REASON\""
+    else
+        terminal_reason_json="null"
+    fi
+
+    ROUTE_STATE_LAST_RESULT="$result"
+    ROUTE_STATE_LAST_SHARED_OK="$shared_ok"
+    ROUTE_STATE_LAST_DIRECT_OK="$direct_ok"
+    if [[ "${RECONCILE_OUTPUT_PERSIST:-true}" == "true" ]]; then
+        write_route_state
+    fi
+
+    printf '{"schemaVersion":1,"source":"babyjamjam-db-failover-host","controlPlaneOk":true,"environment":"%s","requestId":"%s","hostGeneration":%s,"activeRoute":"%s","phase":"%s","result":"%s","sharedOk":%s,"directOk":%s,"sharedFailureCount":%s,"directSuccessCount":%s,"directFailureCount":%s,"emergencySharedSuccessCount":%s,"sharedHealthyCount":%s,"directActivatedAt":%s,"sharedHealthyStartedAt":%s,"sharedHealthyLastAt":%s,"cooldownUntil":%s,"recentNormalRoundTrips":%s,"transition":{"previousRoute":%s,"targetRoute":%s,"startedAt":%s,"generation":%s,"terminalReason":%s},"terminalReason":%s}\n' \
+        "$DEPLOY_ENVIRONMENT" "$RECONCILE_REQUEST_ID" "$ROUTE_STATE_GENERATION" \
+        "$active_route" "$ROUTE_STATE_PHASE" "$result" "$shared_ok" "$direct_ok" \
+        "$ROUTE_STATE_SHARED_FAILURE_COUNT" "$ROUTE_STATE_DIRECT_SUCCESS_COUNT" \
+        "$ROUTE_STATE_DIRECT_FAILURE_COUNT" "$ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT" \
+        "$ROUTE_STATE_SHARED_SUCCESS_COUNT" "$ROUTE_STATE_DIRECT_ACTIVATED_AT" \
+        "$ROUTE_STATE_SHARED_SUCCESS_STARTED_AT" "$ROUTE_STATE_SHARED_SUCCESS_LAST_AT" \
+        "$ROUTE_STATE_COOLDOWN_UNTIL" "$history_json" "$previous_route_json" \
+        "$target_route_json" "$ROUTE_STATE_TRANSITION_STARTED_AT" \
+        "$ROUTE_STATE_TRANSITION_GENERATION" "$terminal_reason_json" \
+        "$terminal_reason_json"
+}
+
+clear_transition_metadata() {
+    ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE=""
+    ROUTE_STATE_TRANSITION_TARGET_ROUTE=""
+    ROUTE_STATE_TRANSITION_STARTED_AT="0"
+    ROUTE_STATE_TRANSITION_GENERATION="0"
 }
 
 mark_reconcile_blocked() {
@@ -808,7 +956,7 @@ mark_reconcile_blocked() {
     ROUTE_STATE_PHASE="BLOCKED"
     ROUTE_STATE_TERMINAL_REASON="$reason"
     ROUTE_STATE_LAST_RESULT="$reason"
-    ROUTE_STATE_TRANSITION_STARTED_AT="0"
+    clear_transition_metadata
     write_route_state
     reconcile_output "$reason"
     return 1
@@ -821,51 +969,100 @@ mark_reconcile_degraded() {
     ROUTE_STATE_PHASE="DEGRADED"
     ROUTE_STATE_TERMINAL_REASON="$reason"
     ROUTE_STATE_LAST_RESULT="$reason"
-    ROUTE_STATE_TRANSITION_STARTED_AT="0"
+    clear_transition_metadata
     write_route_state
     reconcile_output "$reason"
     return 1
 }
 
-reset_roundtrip_window_if_expired() {
+prune_normal_roundtrip_history() {
     local now="$1"
-    local window_start="$ROUTE_STATE_ROUNDTRIP_WINDOW_STARTED_AT"
+    local cutoff
+    local item
+    local pruned_history=""
 
     validate_state_timestamp "$now" || die "Invalid current timestamp."
-    validate_state_timestamp "$window_start" || die "Invalid roundtrip window timestamp."
-    if (( now < window_start || now - window_start >= NORMAL_ROUNDTRIP_WINDOW_SECONDS )); then
-        ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT="0"
-        ROUTE_STATE_ROUNDTRIP_WINDOW_STARTED_AT="$now"
+    validate_state_history "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY" \
+        || die "Invalid normal roundtrip history."
+    cutoff=$((now - NORMAL_ROUNDTRIP_WINDOW_SECONDS))
+    if [[ -n "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY" ]]; then
+        IFS=',' read -r -a roundtrip_history_items <<<"$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY"
+        for item in "${roundtrip_history_items[@]}"; do
+            if (( item >= cutoff )); then
+                if [[ -n "$pruned_history" ]]; then
+                    pruned_history+=",$item"
+                else
+                    pruned_history="$item"
+                fi
+            fi
+        done
     fi
+    ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY="$pruned_history"
 }
 
 reserve_normal_roundtrip() {
     local now="$1"
+    local history_count=0
 
-    reset_roundtrip_window_if_expired "$now"
-    if (( ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT >= NORMAL_ROUNDTRIP_LIMIT )); then
+    prune_normal_roundtrip_history "$now"
+    if [[ -n "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY" ]]; then
+        IFS=',' read -r -a roundtrip_history_items <<<"$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY"
+        history_count="${#roundtrip_history_items[@]}"
+    fi
+    if (( history_count >= NORMAL_ROUNDTRIP_LIMIT )); then
         mark_reconcile_blocked "transition_budget_exhausted"
         return 1
     fi
-    ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT=$((ROUTE_STATE_NORMAL_ROUNDTRIP_COUNT + 1))
+    if [[ -n "$ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY" ]]; then
+        ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY+=",$now"
+    else
+        ROUTE_STATE_NORMAL_ROUNDTRIP_HISTORY="$now"
+    fi
     return 0
 }
 
 record_shared_success() {
     local now="$1"
     local previous_success_at="$ROUTE_STATE_SHARED_SUCCESS_LAST_AT"
+    local elapsed
 
     validate_state_timestamp "$now" || die "Invalid shared probe timestamp."
     validate_state_timestamp "$previous_success_at" || die "Invalid shared success timestamp."
-    if [[ "$previous_success_at" == "0" ]] \
-        || (( now <= previous_success_at )) \
-        || (( now - previous_success_at > SHARED_PROBE_INTERVAL_TOLERANCE_SECONDS )); then
+    ROUTE_STATE_SHARED_SUCCESS_ACCEPTED="false"
+    ROUTE_STATE_SHARED_SUCCESS_RESET="false"
+    if [[ "$previous_success_at" == "0" ]]; then
         ROUTE_STATE_SHARED_SUCCESS_COUNT="1"
         ROUTE_STATE_SHARED_SUCCESS_STARTED_AT="$now"
+        ROUTE_STATE_SHARED_SUCCESS_LAST_AT="$now"
+        ROUTE_STATE_SHARED_SUCCESS_ACCEPTED="true"
+        return 0
+    fi
+    if (( now <= previous_success_at )); then
+        if (( now == previous_success_at )); then
+            return 0
+        fi
+        ROUTE_STATE_SHARED_SUCCESS_COUNT="1"
+        ROUTE_STATE_SHARED_SUCCESS_STARTED_AT="$now"
+        ROUTE_STATE_SHARED_SUCCESS_LAST_AT="$now"
+        ROUTE_STATE_SHARED_SUCCESS_ACCEPTED="true"
+        ROUTE_STATE_SHARED_SUCCESS_RESET="true"
+        return 0
+    fi
+    elapsed=$((now - previous_success_at))
+    if (( elapsed < SHARED_PROBE_MIN_INTERVAL_SECONDS )); then
+        return 0
+    fi
+    if (( elapsed > SHARED_PROBE_MAX_INTERVAL_SECONDS )); then
+        ROUTE_STATE_SHARED_SUCCESS_COUNT="1"
+        ROUTE_STATE_SHARED_SUCCESS_STARTED_AT="$now"
+        ROUTE_STATE_SHARED_SUCCESS_LAST_AT="$now"
+        ROUTE_STATE_SHARED_SUCCESS_ACCEPTED="true"
+        ROUTE_STATE_SHARED_SUCCESS_RESET="true"
     else
         ROUTE_STATE_SHARED_SUCCESS_COUNT=$((ROUTE_STATE_SHARED_SUCCESS_COUNT + 1))
+        ROUTE_STATE_SHARED_SUCCESS_LAST_AT="$now"
+        ROUTE_STATE_SHARED_SUCCESS_ACCEPTED="true"
     fi
-    ROUTE_STATE_SHARED_SUCCESS_LAST_AT="$now"
 }
 
 transition_route() {
@@ -878,6 +1075,14 @@ transition_route() {
     is_route "$target_route" || die "Invalid target route."
     [[ "$previous_route" != "$target_route" ]] || die "Route transition is a no-op."
     now="$(current_epoch)"
+    if [[ "$target_route" == "direct" ]] \
+        && (( ROUTE_STATE_COOLDOWN_UNTIL > now )); then
+        ROUTE_STATE_LAST_RESULT="no_switch_cooldown_active"
+        ROUTE_STATE_TERMINAL_REASON=""
+        write_route_state
+        reconcile_output "no_switch_cooldown_active"
+        return 0
+    fi
     if [[ "$target_route" == "direct" ]]; then
         reserve_normal_roundtrip "$now" || return 1
     fi
@@ -892,7 +1097,10 @@ transition_route() {
         transition_phase="SWITCHING_TO_SHARED"
     fi
     ROUTE_STATE_PHASE="$transition_phase"
+    ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE="$previous_route"
+    ROUTE_STATE_TRANSITION_TARGET_ROUTE="$target_route"
     ROUTE_STATE_TRANSITION_STARTED_AT="$now"
+    ROUTE_STATE_TRANSITION_GENERATION="$ROUTE_STATE_GENERATION"
     ROUTE_STATE_LAST_RESULT="transition_started"
     ROUTE_STATE_TERMINAL_REASON=""
     write_route_state
@@ -915,15 +1123,15 @@ transition_route() {
             ROUTE_STATE_DIRECT_FAILURE_COUNT="0"
             reset_shared_success_window
         fi
-        ROUTE_STATE_TRANSITION_STARTED_AT="0"
-        ROUTE_STATE_GENERATION=$((ROUTE_STATE_GENERATION + 1))
+        ROUTE_STATE_COOLDOWN_UNTIL=$((now + HOST_ROUTE_COOLDOWN_SECONDS))
+        clear_transition_metadata
         ROUTE_STATE_LAST_RESULT="route_switched"
         write_route_state
         reconcile_output "route_switched"
         return 0
     fi
 
-    ROUTE_STATE_PHASE="$([[ "$previous_route" == "direct" ]] && echo SWITCHING_TO_DIRECT || echo SWITCHING_TO_SHARED)"
+    ROUTE_STATE_PHASE="$transition_phase"
     ROUTE_STATE_LAST_RESULT="compensation_started"
     write_route_state
     if recreate_api_for_route "$previous_route" \
@@ -934,8 +1142,7 @@ transition_route() {
         ROUTE_STATE_DIRECT_SUCCESS_COUNT="0"
         ROUTE_STATE_DIRECT_FAILURE_COUNT="0"
         reset_shared_success_window
-        ROUTE_STATE_TRANSITION_STARTED_AT="0"
-        ROUTE_STATE_GENERATION=$((ROUTE_STATE_GENERATION + 1))
+        clear_transition_metadata
         ROUTE_STATE_LAST_RESULT="transition_failed_compensated"
         ROUTE_STATE_TERMINAL_REASON=""
         write_route_state
@@ -945,6 +1152,74 @@ transition_route() {
 
     ROUTE_STATE_ACTIVE_ROUTE="$previous_route"
     mark_reconcile_degraded "compensation_failed"
+}
+
+compensate_stale_transition() {
+    local previous_route="$ROUTE_STATE_TRANSITION_PREVIOUS_ROUTE"
+    local target_route="$ROUTE_STATE_TRANSITION_TARGET_ROUTE"
+    local transition_generation="$ROUTE_STATE_TRANSITION_GENERATION"
+    local transition_phase="$ROUTE_STATE_PHASE"
+
+    if [[ "$transition_phase" == "SWITCHING_TO_DIRECT" ]]; then
+        [[ "$ROUTE_STATE_ACTIVE_ROUTE" == "shared" \
+            && "$previous_route" == "shared" \
+            && "$target_route" == "direct" ]] \
+            || {
+                mark_reconcile_degraded "stale_transition_compensation_failed"
+                return 1
+            }
+    elif [[ "$transition_phase" == "SWITCHING_TO_SHARED" ]]; then
+        [[ "$ROUTE_STATE_ACTIVE_ROUTE" == "direct" \
+            && "$previous_route" == "direct" \
+            && "$target_route" == "shared" ]] \
+            || {
+                mark_reconcile_degraded "stale_transition_compensation_failed"
+                return 1
+            }
+    else
+        mark_reconcile_degraded "stale_transition_compensation_failed"
+        return 1
+    fi
+    [[ "$transition_generation" -le "$ROUTE_STATE_GENERATION" \
+        && "$ROUTE_STATE_TRANSITION_STARTED_AT" != "0" ]] \
+        || {
+            mark_reconcile_degraded "stale_transition_compensation_failed"
+            return 1
+        }
+
+    load_current_release_identity
+    [[ "$CURRENT_ROUTE_IMAGE_TAG" != "missing" \
+        && "$CURRENT_ROUTE_IMAGE_DIGEST" != "missing" ]] \
+        || {
+            mark_reconcile_degraded "stale_transition_compensation_failed"
+            return 1
+        }
+
+    ROUTE_STATE_LAST_RESULT="stale_transition_compensation_started"
+    write_route_state
+    if recreate_api_for_route "$previous_route" \
+        && verify_api_runtime "$previous_route"; then
+        ROUTE_STATE_ACTIVE_ROUTE="$previous_route"
+        if [[ "$previous_route" == "direct" ]]; then
+            ROUTE_STATE_PHASE="DIRECT_ACTIVE"
+        else
+            ROUTE_STATE_PHASE="SHARED_ACTIVE"
+            ROUTE_STATE_DIRECT_ACTIVATED_AT="0"
+        fi
+        ROUTE_STATE_SHARED_FAILURE_COUNT="0"
+        ROUTE_STATE_DIRECT_SUCCESS_COUNT="0"
+        ROUTE_STATE_DIRECT_FAILURE_COUNT="0"
+        reset_shared_success_window
+        clear_transition_metadata
+        ROUTE_STATE_TERMINAL_REASON=""
+        ROUTE_STATE_LAST_RESULT="stale_transition_compensated"
+        write_route_state
+        reconcile_output "stale_transition_compensated"
+        return 0
+    fi
+
+    ROUTE_STATE_ACTIVE_ROUTE="$previous_route"
+    mark_reconcile_degraded "stale_transition_compensation_failed"
 }
 
 reconcile_shared_active() {
@@ -1029,7 +1304,13 @@ reconcile_direct_active() {
     else
         record_probe_result direct failed "$now"
         if [[ "$shared_probe_ok" == "true" ]]; then
-            ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT=$((ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT + 1))
+            if [[ "$ROUTE_STATE_SHARED_SUCCESS_ACCEPTED" == "true" ]]; then
+                if [[ "$ROUTE_STATE_SHARED_SUCCESS_RESET" == "true" ]]; then
+                    ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT="1"
+                else
+                    ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT=$((ROUTE_STATE_EMERGENCY_SHARED_SUCCESS_COUNT + 1))
+                fi
+            fi
         fi
     fi
 
@@ -1052,7 +1333,11 @@ reconcile_direct_active() {
     fi
     if [[ "$direct_probe_ok" == "true" && "$shared_probe_ok" == "true" \
         && "$direct_hold_elapsed" == "true" \
-        && "$ROUTE_STATE_SHARED_SUCCESS_COUNT" -ge "$SHARED_FAILBACK_SUCCESS_LIMIT" ]]; then
+        && "$ROUTE_STATE_SHARED_SUCCESS_COUNT" -ge "$SHARED_FAILBACK_SUCCESS_LIMIT" \
+        && "$ROUTE_STATE_SHARED_SUCCESS_STARTED_AT" != "0" \
+        && "$ROUTE_STATE_SHARED_SUCCESS_LAST_AT" != "0" \
+        && $((now - ROUTE_STATE_SHARED_SUCCESS_STARTED_AT)) -ge "$SHARED_FAILBACK_MIN_ELAPSED_SECONDS" \
+        && "$ROUTE_STATE_COOLDOWN_UNTIL" -le "$now" ]]; then
         transition_route direct shared
         return $?
     fi
@@ -1097,33 +1382,35 @@ db_reconcile() {
     load_route_state
     RECONCILE_SHARED_OK=null
     RECONCILE_DIRECT_OK=null
+    RECONCILE_OUTPUT_PERSIST=true
 
-    if [[ "$ROUTE_STATE_LAST_REQUEST_ID" == "$request_id" \
-        && "$ROUTE_STATE_PHASE" != SWITCHING_* \
-        && "$ROUTE_STATE_PHASE" != "RECOVERING_SHARED" ]]; then
-        reconcile_output "duplicate_request"
+    if [[ "$ROUTE_STATE_LAST_REQUEST_ID" == "$request_id" ]]; then
+        RECONCILE_SHARED_OK="$ROUTE_STATE_LAST_SHARED_OK"
+        RECONCILE_DIRECT_OK="$ROUTE_STATE_LAST_DIRECT_OK"
+        RECONCILE_OUTPUT_PERSIST=false
+        reconcile_output "$ROUTE_STATE_LAST_RESULT"
         return 0
     fi
+
+    validate_backend_env_file
+    now="$(current_epoch)"
+    prune_normal_roundtrip_history "$now"
+    ROUTE_STATE_GENERATION=$((ROUTE_STATE_GENERATION + 1))
+    ROUTE_STATE_LAST_REQUEST_ID="$request_id"
+    ROUTE_STATE_LAST_RESULT="reconcile_started"
+    write_route_state
+
     if [[ "$ROUTE_STATE_PHASE" == "BLOCKED" || "$ROUTE_STATE_PHASE" == "DEGRADED" ]]; then
-        ROUTE_STATE_LAST_REQUEST_ID="$request_id"
         ROUTE_STATE_LAST_RESULT="terminal_state"
         write_route_state
         reconcile_output "terminal_state"
         return 0
     fi
-    if [[ "$ROUTE_STATE_PHASE" == SWITCHING_* ]]; then
-        ROUTE_STATE_LAST_REQUEST_ID="$request_id"
-        mark_reconcile_blocked "stale_transition"
-        return 1
-    fi
-
-    validate_backend_env_file
-    now="$(current_epoch)"
-    RECONCILE_REQUEST_ID="$request_id"
-    ROUTE_STATE_LAST_REQUEST_ID="$request_id"
-    ROUTE_STATE_LAST_RESULT="reconcile_started"
     ROUTE_STATE_TERMINAL_REASON=""
-    write_route_state
+    if [[ "$ROUTE_STATE_PHASE" == SWITCHING_* ]]; then
+        compensate_stale_transition
+        return $?
+    fi
 
     case "$ROUTE_STATE_ACTIVE_ROUTE" in
         shared)
