@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   ELIGIBLE_RESOURCE,
+  FAILOVER_SIGNAL_CLASS,
   RECEIVER_QUEUE_TIMEOUT_MS,
   safeLog,
 } from './constants.mjs';
@@ -74,13 +75,15 @@ function secretFromValue(value) {
 }
 
 export function buildQueueMessage(event, { requestId, receivedAt }) {
+  const bodyFingerprint = event.bodyFingerprint ?? event.eventId;
   return {
-    eventId: event.eventId,
-    issueCode: event.issueCode,
+    eventId: bodyFingerprint,
+    bodyFingerprint,
+    failoverEligible: true,
+    signalClass: FAILOVER_SIGNAL_CLASS,
     action: event.action,
     resource: event.resource,
     environment: event.environment,
-    route: event.route,
     ruleId: event.ruleId,
     eventAt: event.timestamp,
     requestId,
@@ -176,10 +179,6 @@ export function createReceiverHandler({
       safeLog(logger, 'info', 'sentry_webhook_ignored', { requestId, reason: 'resource_not_allowed' });
       return response(202, { accepted: false });
     }
-    if (normalized.resource && normalized.resource !== hookResource) {
-      safeLog(logger, 'info', 'sentry_webhook_ignored', { requestId, reason: 'resource_mismatch' });
-      return response(202, { accepted: false });
-    }
     normalized.resource = hookResource;
     const allowlist = isAllowedSentryEvent(normalized, effectiveConfig);
     if (!allowlist.allowed) {
@@ -222,7 +221,6 @@ export function createReceiverHandler({
     safeLog(logger, 'info', 'sentry_webhook_enqueued', {
       requestId,
       eventId: normalized.eventId,
-      issueCode: normalized.issueCode,
     });
     return response(202, { accepted: true, requestId });
   };

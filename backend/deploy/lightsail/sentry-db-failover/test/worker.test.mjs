@@ -16,6 +16,9 @@ function config(overrides = {}) {
     enabled: true,
     environment: 'preview',
     allowedResources: ['metric_alert'],
+    allowedActions: ['critical'],
+    allowedRoutes: ['SHARED'],
+    ruleIds: ['rule-1'],
     stateKey: 'db-failover/preview',
     sharedFailureThreshold: 3,
     directSuccessThreshold: 3,
@@ -32,12 +35,13 @@ function config(overrides = {}) {
 
 function message(overrides = {}) {
   return {
-    eventId: 'event-1',
-    issueCode: 'P1001',
+    eventId: 'a'.repeat(64),
+    bodyFingerprint: 'a'.repeat(64),
+    failoverEligible: true,
+    signalClass: 'db_failover',
     action: 'critical',
     resource: 'metric_alert',
     environment: 'preview',
-    route: 'SHARED',
     ruleId: 'rule-1',
     eventAt: BASE_TIME,
     requestId: 'sentry-request-1',
@@ -82,24 +86,35 @@ test('wakes reconciliation for eligible Sentry messages without passing a route 
   assert.equal(observed[0].trigger, 'sentry');
   assert.equal(observed[0].requestId, IDS[0]);
   assert.deepEqual(observed[0].message, {
-    eventId: 'event-1',
-    issueCode: 'P1001',
+    eventId: 'a'.repeat(64),
+    bodyFingerprint: 'a'.repeat(64),
+    failoverEligible: true,
+    signalClass: 'db_failover',
     action: 'critical',
     resource: 'metric_alert',
+    environment: 'preview',
+    ruleId: 'rule-1',
   });
 });
 
-test('deduplicates replayed request IDs and rejects out-of-order events', async () => {
+test('deduplicates a body fingerprint even when Request-ID and timestamp change', async () => {
   const { handler, observed } = harness();
   const first = await handler({ Records: [record()] });
   assert.equal(first.processed, 1);
-  const duplicate = await handler({ Records: [record({ messageId: 'sqs-message-2' })] });
-  assert.equal(duplicate.results[0].reason, 'duplicate_request');
+  const duplicate = await handler({ Records: [record({
+    messageId: 'sqs-message-2',
+    body: JSON.stringify(message({
+      requestId: 'sentry-request-2',
+      eventAt: BASE_TIME + 1_000,
+    })),
+  })] });
+  assert.equal(duplicate.results[0].reason, 'duplicate_event');
   assert.equal(observed.length, 1);
 
   const older = await handler({ Records: [
     { messageId: 'sqs-message-3', body: JSON.stringify(message({
-      eventId: 'event-old',
+      eventId: 'b'.repeat(64),
+      bodyFingerprint: 'b'.repeat(64),
       requestId: 'sentry-request-old',
       eventAt: BASE_TIME - 1,
     })) },
@@ -108,23 +123,28 @@ test('deduplicates replayed request IDs and rejects out-of-order events', async 
   assert.equal(observed.length, 1);
 });
 
-test('does not wake reconciliation for P2024, non-DB, direct-route, or wrong-environment messages', async (t) => {
-  for (const overrides of [
-    { issueCode: 'P2024' },
-    { resource: 'http' },
-    { route: 'DIRECT' },
-    { environment: 'production' },
-    { action: 'issue_alert' },
+test('does not wake reconciliation for ineligible signals or wrong resource/action/environment', async (t) => {
+  for (const [overrides, malformed] of [
+    [{ failoverEligible: false }, true],
+    [{ signalClass: 'other_signal' }, true],
+    [{ resource: 'http' }, false],
+    [{ environment: 'production' }, false],
+    [{ action: 'issue_alert' }, false],
+    [{ ruleId: 'other-rule' }, false],
   ]) {
     await t.test(JSON.stringify(overrides), async () => {
       const { handler, observed } = harness();
       const result = await handler({ Records: [
         { messageId: `sqs-${JSON.stringify(overrides)}`, body: JSON.stringify(message(overrides)) },
       ] });
-      assert.equal(result.processed, 1);
-      assert.equal(result.results[0].status, 'ignored');
+      assert.equal(result.processed, malformed ? 0 : 1);
+      if (malformed) {
+        assert.equal(result.batchItemFailures.length, 1);
+      } else {
+        assert.equal(result.results[0].status, 'ignored');
+        assert.equal(result.batchItemFailures.length, 0);
+      }
       assert.equal(observed.length, 0);
-      assert.equal(result.batchItemFailures.length, 0);
     });
   }
 });
@@ -138,7 +158,7 @@ test('does not let a Sentry wake-up bypass the current direct-route guard', asyn
     },
   });
   const result = await handler({ Records: [record({
-    body: JSON.stringify(message({ route: undefined })),
+    body: JSON.stringify(message({ requestId: 'sentry-request-direct-route' })),
   })] });
   assert.equal(result.results[0].reason, 'current_route_not_shared');
   assert.equal(observed.length, 0);

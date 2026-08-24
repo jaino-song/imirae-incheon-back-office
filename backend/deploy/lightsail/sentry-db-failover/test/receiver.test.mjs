@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import test from 'node:test';
 
 import { createReceiverHandler } from '../src/receiver.mjs';
 
 const NOW = Date.parse('2026-08-24T00:00:00.000Z');
 const SECRET = 'local-test-client-secret';
+const INSTALLATION_UUID = '00000000-0000-4000-8000-000000000010';
+const DB_FAILOVER_QUERY = 'prisma.code:[P1001,P1017] db.failover_eligible:true db.route:shared';
 
 function config(overrides = {}) {
   return {
     enabled: true,
-    installationId: 'install-1',
+    installationId: INSTALLATION_UUID,
     organizationId: 'org-1',
     projectId: 'project-1',
     environment: 'preview',
@@ -18,39 +20,50 @@ function config(overrides = {}) {
     allowedResources: ['metric_alert'],
     allowedActions: ['critical'],
     allowedRoutes: ['SHARED'],
-    issueCodes: ['P1001', 'P1017'],
     ...overrides,
   };
 }
 
-function payload(overrides = {}) {
+function payload({ metricAlert = {}, alertRule = {}, installation = {}, ...overrides } = {}) {
   return {
-    event_id: 'evt-1',
-    installation_id: 'install-1',
-    organization_id: 'org-1',
-    project_id: 'project-1',
-    environment: 'preview',
-    rule_id: 'rule-1',
-    resource: 'metric_alert',
     action: 'critical',
-    issue_code: 'P1001',
-    route: 'SHARED',
-    timestamp: new Date(NOW).toISOString(),
+    installation: {
+      uuid: INSTALLATION_UUID,
+      ...installation,
+    },
+    data: {
+      metric_alert: {
+        id: 'metric-alert-1',
+        organization_id: 'org-1',
+        projects: [{ id: 'project-1' }],
+        alert_rule: {
+          id: 'rule-1',
+          organization_id: 'org-1',
+          projects: [{ id: 'project-1' }],
+          environment: 'preview',
+          query: DB_FAILOVER_QUERY,
+          ...alertRule,
+        },
+        ...metricAlert,
+      },
+    },
     ...overrides,
   };
 }
 
-function request(body, overrides = {}) {
+function request(body, { headers = {}, signature, ...overrides } = {}) {
   const raw = typeof body === 'string' ? body : JSON.stringify(body);
-  const signature = createHmac('sha256', SECRET).update(raw).digest('hex');
+  const computedSignature = signature === null
+    ? undefined
+    : (signature ?? createHmac('sha256', SECRET).update(raw).digest('hex'));
   return {
     ...overrides,
     headers: {
       'Request-ID': 'request-1',
       'Sentry-Hook-Timestamp': String(NOW),
       'Sentry-Hook-Resource': 'metric_alert',
-      'Sentry-Hook-Signature': signature,
-      ...overrides.headers,
+      'Sentry-Hook-Signature': computedSignature,
+      ...headers,
     },
     body: raw,
   };
@@ -73,19 +86,30 @@ function createHarness({ sendMessage = async () => {}, handlerConfig = config() 
   return { handler, calls };
 }
 
-test('enqueues an allowlisted metric alert with a FIFO deduplication key', async () => {
+test('accepts the official metric-alert shape after signed boundary checks', async () => {
   const { handler, calls } = createHarness();
-  const result = await handler(request(payload()));
+  const body = payload();
+  const result = await handler(request(body));
+  const fingerprint = createHash('sha256').update(JSON.stringify(body)).digest('hex');
+
   assert.equal(result.statusCode, 202);
   assert.equal(JSON.parse(result.body).accepted, true);
   assert.equal(calls.length, 1);
   const input = calls[0];
   assert.equal(input.MessageGroupId, 'preview');
-  assert.equal(input.MessageDeduplicationId, 'evt-1');
+  assert.equal(input.MessageDeduplicationId, fingerprint);
   const message = JSON.parse(input.MessageBody);
-  assert.equal(message.issueCode, 'P1001');
-  assert.equal(message.route, 'SHARED');
+  assert.equal(message.eventId, fingerprint);
+  assert.equal(message.bodyFingerprint, fingerprint);
+  assert.equal(message.failoverEligible, true);
+  assert.equal(message.signalClass, 'db_failover');
+  assert.equal(message.action, 'critical');
+  assert.equal(message.resource, 'metric_alert');
+  assert.equal(message.environment, 'preview');
+  assert.equal(message.ruleId, 'rule-1');
   assert.equal(message.requestId, 'request-1');
+  assert.equal('issueCode' in message, false);
+  assert.equal('route' in message, false);
   assert.equal(Object.values(message).some((value) => String(value).includes('sqs.example.invalid')), false);
   assert.equal(Object.values(message).some((value) => String(value).includes(SECRET)), false);
 });
@@ -104,7 +128,7 @@ test('rejects a missing or tampered HMAC before parsing the event', async (t) =>
   }
 });
 
-test('rejects a missing timestamp header and a timestamp older than five minutes', async (t) => {
+test('rejects a missing timestamp header and a timestamp older than five minutes', async () => {
   const missing = createHarness();
   const missingResult = await missing.handler(request(payload(), {
     headers: { 'Sentry-Hook-Timestamp': undefined },
@@ -120,6 +144,7 @@ test('rejects a missing timestamp header and a timestamp older than five minutes
     headers: {
       'Request-ID': 'request-stale',
       'Sentry-Hook-Timestamp': String(NOW - (5 * 60 * 1000) - 1),
+      'Sentry-Hook-Resource': 'metric_alert',
       'Sentry-Hook-Signature': staleSignature,
     },
   });
@@ -127,9 +152,9 @@ test('rejects a missing timestamp header and a timestamp older than five minutes
   assert.equal(stale.calls.length, 0);
 });
 
-test('rejects a body over 64 KiB and parsed-body events', async (t) => {
+test('rejects a body over 64 KiB and parsed-body events', async () => {
   const oversized = createHarness();
-  const body = `${JSON.stringify(payload({ event_id: 'large' }))}${'x'.repeat(64 * 1024)}`;
+  const body = `${JSON.stringify(payload())}${'x'.repeat(64 * 1024)}`;
   const result = await oversized.handler({ body, headers: {} });
   assert.equal(result.statusCode, 413);
   assert.equal(oversized.calls.length, 0);
@@ -140,21 +165,62 @@ test('rejects a body over 64 KiB and parsed-body events', async (t) => {
   assert.equal(parsed.calls.length, 0);
 });
 
-test('ignores wrong allowlists and non-metric actions without queueing', async (t) => {
-  for (const overrides of [
-    { organization_id: 'other-org' },
-    { project_id: 'other-project' },
-    { environment: 'production' },
-    { rule_id: 'other-rule' },
-    { resource: 'http' },
-    { action: 'issue_alert' },
-    { action: 'resolved' },
-    { issue_code: 'P2024' },
-    { route: 'DIRECT' },
-  ]) {
-    await t.test(JSON.stringify(overrides), async () => {
+test('rejects missing and wrong official installation, organization, project, environment, and rule values', async (t) => {
+  const cases = [
+    ['missing installation uuid', payload({ installation: { uuid: undefined } })],
+    ['wrong installation uuid', payload({ installation: { uuid: 'other-installation' } })],
+    ['missing metric alert id', payload({ metricAlert: { id: undefined } })],
+    ['missing metric alert organization', payload({ metricAlert: { organization_id: undefined } })],
+    ['wrong metric alert organization', payload({ metricAlert: { organization_id: 'other-org' } })],
+    ['missing rule organization', payload({ alertRule: { organization_id: undefined } })],
+    ['wrong rule organization', payload({ alertRule: { organization_id: 'other-org' } })],
+    ['missing metric alert project membership', payload({ metricAlert: { projects: [] } })],
+    ['wrong metric alert project membership', payload({ metricAlert: { projects: [{ id: 'other-project' }] } })],
+    ['missing rule project membership', payload({ alertRule: { projects: [] } })],
+    ['wrong rule project membership', payload({ alertRule: { projects: [{ id: 'other-project' }] } })],
+    ['missing environment', payload({ alertRule: { environment: undefined } })],
+    ['wrong environment', payload({ alertRule: { environment: 'production' } })],
+    ['missing rule id', payload({ alertRule: { id: undefined } })],
+    ['wrong rule id', payload({ alertRule: { id: 'other-rule' } })],
+  ];
+
+  for (const [name, body] of cases) {
+    await t.test(name, async () => {
       const { handler, calls } = createHarness();
-      const result = await handler(request(payload(overrides)));
+      const result = await handler(request(body));
+      assert.equal(result.statusCode, 202);
+      assert.equal(JSON.parse(result.body).accepted, false);
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test('requires the metric-alert resource header and fixed action allowlists', async (t) => {
+  for (const [name, body, headers] of [
+    ['non-critical action', payload({ action: 'resolved' }), {}],
+    ['missing resource header', payload(), { 'Sentry-Hook-Resource': undefined }],
+    ['wrong resource header', payload(), { 'Sentry-Hook-Resource': 'issue' }],
+  ]) {
+    await t.test(name, async () => {
+      const { handler, calls } = createHarness();
+      const result = await handler(request(body, { headers }));
+      assert.equal(result.statusCode, 202);
+      assert.equal(JSON.parse(result.body).accepted, false);
+      assert.equal(calls.length, 0);
+    });
+  }
+});
+
+test('rejects P2024 queries and queries missing either eligibility marker', async (t) => {
+  const cases = [
+    ['P2024 query', 'prisma.code:P2024 db.failover_eligible:true db.route:shared'],
+    ['missing eligibility marker', 'prisma.code:[P1001,P1017] db.route:shared'],
+    ['missing shared-route marker', 'prisma.code:[P1001,P1017] db.failover_eligible:true'],
+  ];
+  for (const [name, query] of cases) {
+    await t.test(name, async () => {
+      const { handler, calls } = createHarness();
+      const result = await handler(request(payload({ alertRule: { query } })));
       assert.equal(result.statusCode, 202);
       assert.equal(JSON.parse(result.body).accepted, false);
       assert.equal(calls.length, 0);
@@ -207,34 +273,23 @@ test('does not enqueue when the kill switch is disabled after authentication', a
   assert.equal(calls.length, 0);
 });
 
-test('uses the official nested metric-alert rule/incident fields and requires the resource header', async () => {
+test('reuses the signed body fingerprint when Request-ID and timestamp headers change', async () => {
   const { handler, calls } = createHarness();
-  const result = await handler(request({
-    event_id: 'evt-nested',
-    data: {
-      metric_alert: {
-        alert_rule: {
-          id: 'rule-1',
-          organization: { id: 'org-1' },
-          project: { id: 'project-1' },
-          environment: 'preview',
-        },
-        incident: { short_id: 'P1017' },
-      },
-      installation_id: 'install-1',
-      environment: 'preview',
+  const first = request(payload());
+  const replay = request(first.body, {
+    signature: first.headers['Sentry-Hook-Signature'],
+    headers: {
+      'Request-ID': 'request-2',
+      'Sentry-Hook-Timestamp': String(NOW + 1_000),
     },
-    action: 'critical',
-    timestamp: new Date(NOW).toISOString(),
-  }));
-  assert.equal(result.statusCode, 202);
-  assert.equal(JSON.parse(result.body).accepted, true);
-  assert.equal(calls.length, 1);
+  });
 
-  const missingResource = createHarness();
-  const missingResourceResult = await missingResource.handler(request(payload(), {
-    headers: { 'Sentry-Hook-Resource': undefined },
-  }));
-  assert.equal(missingResourceResult.statusCode, 202);
-  assert.equal(missingResource.calls.length, 0);
+  const firstResult = await handler(first);
+  const replayResult = await handler(replay);
+  assert.equal(firstResult.statusCode, 202);
+  assert.equal(replayResult.statusCode, 202);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].MessageDeduplicationId, calls[1].MessageDeduplicationId);
+  assert.equal(JSON.parse(calls[0].MessageBody).requestId, 'request-1');
+  assert.equal(JSON.parse(calls[1].MessageBody).requestId, 'request-2');
 });
