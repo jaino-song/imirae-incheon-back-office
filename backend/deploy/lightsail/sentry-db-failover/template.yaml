@@ -76,7 +76,7 @@ Conditions:
 
 Globals:
   Function:
-    Runtime: nodejs20.x
+    Runtime: nodejs22.x
     Architectures: [x86_64]
     Environment:
       Variables:
@@ -136,7 +136,8 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref EnvironmentType
-      EndpointConfiguration: REGIONAL
+      EndpointConfiguration:
+        Type: REGIONAL
       MinimumCompressionSize: 1024
       TracingEnabled: true
 
