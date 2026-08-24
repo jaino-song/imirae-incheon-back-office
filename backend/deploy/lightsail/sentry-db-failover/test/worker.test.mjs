@@ -393,10 +393,21 @@ test('process restart after an immediate command-ID save failure does not re-sen
     logger: { info() {}, warn() {}, error() {} },
   });
   const retry = await retryHandler({ Records: [record({ messageId: 'sqs-retry' })] });
-  assert.equal(retry.batchItemFailures.length, 0);
-  assert.equal(retry.results[0].reason, 'ssm_command_state_uncertain');
+  assert.equal(retry.batchItemFailures.length, 1);
+  assert.equal(retry.batchItemFailures[0].itemIdentifier, 'sqs-retry');
   assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
   assert.equal(await store.hasProcessedFingerprint('a'.repeat(64)), false);
+
+  await assert.rejects(
+    () => retryHandler({ id: 'schedule-after-uncertain', time: '2026-08-24T00:01:00Z' }),
+    (error) => error.name === 'UncertainSsmStateError'
+      && error.code === 'SSM_COMMAND_STATE_UNCERTAIN',
+  );
+  assert.equal(sendCount, 1);
+  assert.equal(store.snapshot().controlPlaneStatus, CONTROL_PLANE_STATUS.BLOCKED);
+  assert.equal(store.snapshot().controlPlaneError, 'SSM_COMMAND_STATE_UNCERTAIN');
 });
 
 test('defers a Sentry message while reconciling a scheduled command owned by another request', async () => {

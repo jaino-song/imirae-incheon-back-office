@@ -46,6 +46,8 @@ const SWITCHING_PHASES = new Set([
   PHASES.SWITCHING_TO_DIRECT,
   PHASES.SWITCHING_TO_SHARED,
 ]);
+const UNCERTAIN_SSM_STATE_REASON = 'ssm_command_state_uncertain';
+const UNCERTAIN_SSM_STATE_ERROR = 'SSM_COMMAND_STATE_UNCERTAIN';
 
 class LeaseUnavailableError extends Error {
   constructor() {
@@ -68,6 +70,15 @@ class CurrentRequestDeferredError extends Error {
     super('current request was deferred while reconciling another SSM command');
     this.name = 'CurrentRequestDeferredError';
     this.code = 'CURRENT_REQUEST_DEFERRED';
+    this.retryable = true;
+  }
+}
+
+class UncertainSsmStateError extends Error {
+  constructor() {
+    super(UNCERTAIN_SSM_STATE_ERROR);
+    this.name = 'UncertainSsmStateError';
+    this.code = UNCERTAIN_SSM_STATE_ERROR;
     this.retryable = true;
   }
 }
@@ -305,9 +316,9 @@ export function createSsmObserver({
 }
 
 function stopReason(state) {
+  if (isUncertainSsmState(state)) return UNCERTAIN_SSM_STATE_REASON;
   if (isHostTerminalPhase(state.phase)) return 'host_terminal';
   if (state.controlPlaneStatus === CONTROL_PLANE_STATUS.BLOCKED) return 'control_plane_blocked';
-  if (state.ssmDispatchAttempted === true && !state.ssmCommandId) return 'ssm_command_state_uncertain';
   if (
     SWITCHING_PHASES.has(state.phase)
     && state.ssmRecoveryRequestId
@@ -317,6 +328,26 @@ function stopReason(state) {
     return 'transition_recovery_unavailable';
   }
   return null;
+}
+
+function isUncertainSsmState(state) {
+  return (state.ssmDispatchAttempted === true && !state.ssmCommandId)
+    || (state.controlPlaneStatus === CONTROL_PLANE_STATUS.BLOCKED
+      && state.controlPlaneError === UNCERTAIN_SSM_STATE_ERROR);
+}
+
+function markUncertainSsmState(state, now) {
+  return markControlPlaneFailure(state, {
+    status: CONTROL_PLANE_STATUS.BLOCKED,
+    error: UNCERTAIN_SSM_STATE_ERROR,
+    now,
+  });
+}
+
+async function failClosedForUncertainSsmState({ stateStore, state, owner, generation, now }) {
+  const blocked = markUncertainSsmState(state, now());
+  await saveHostMirror(stateStore, blocked, { owner, generation, now: now() });
+  throw new UncertainSsmStateError();
 }
 
 function identityForMessage(message) {
@@ -661,10 +692,14 @@ async function processMessage({
   }
   const loaded = normalizeState((await stateStore.get()) ?? undefined, now());
   const loadedStopReason = stopReason(loaded);
-  if (loadedStopReason) return { status: 'ignored', reason: loadedStopReason };
-  if (loaded.activeRoute !== ROUTES.SHARED) return { status: 'ignored', reason: 'current_route_not_shared' };
-  const beforeLeaseReason = messageAlreadyProcessed(message, loaded);
-  if (beforeLeaseReason) return { status: 'ignored', reason: beforeLeaseReason };
+  if (loadedStopReason && loadedStopReason !== UNCERTAIN_SSM_STATE_REASON) {
+    return { status: 'ignored', reason: loadedStopReason };
+  }
+  if (loadedStopReason !== UNCERTAIN_SSM_STATE_REASON) {
+    if (loaded.activeRoute !== ROUTES.SHARED) return { status: 'ignored', reason: 'current_route_not_shared' };
+    const beforeLeaseReason = messageAlreadyProcessed(message, loaded);
+    if (beforeLeaseReason) return { status: 'ignored', reason: beforeLeaseReason };
+  }
 
   const lease = await stateStore.acquireLease({ owner, now: now(), leaseMs: config.leaseMs });
   if (!lease?.acquired) throw new LeaseUnavailableError();
@@ -677,6 +712,9 @@ async function processMessage({
       return { status: 'ignored', reason: 'duplicate_event' };
     }
     const afterLeaseStopReason = stopReason(state);
+    if (afterLeaseStopReason === UNCERTAIN_SSM_STATE_REASON) {
+      await failClosedForUncertainSsmState({ stateStore, state, owner, generation, now });
+    }
     if (afterLeaseStopReason) return { status: 'ignored', reason: afterLeaseStopReason };
     if (state.activeRoute !== ROUTES.SHARED) return { status: 'ignored', reason: 'current_route_not_shared' };
 
@@ -776,6 +814,9 @@ async function processScheduled({
   try {
     let state = normalizeState(lease.state, now());
     const terminalReason = stopReason(state);
+    if (terminalReason === UNCERTAIN_SSM_STATE_REASON) {
+      await failClosedForUncertainSsmState({ stateStore, state, owner, generation, now });
+    }
     if (terminalReason) return { status: 'ignored', reason: terminalReason };
 
     const identity = identityForSchedule(event);

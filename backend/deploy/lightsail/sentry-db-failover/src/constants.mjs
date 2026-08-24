@@ -157,6 +157,9 @@ export function createInitialState(now = Date.now()) {
     ssmCommandId: null,
     ssmRequestId: null,
     ssmRequestIdentity: null,
+    ssmDispatchAttempted: false,
+    ssmRecoveryRequestId: null,
+    ssmRecoveryIdentity: null,
     lastObservedAt: now,
     updatedAt: now,
   };

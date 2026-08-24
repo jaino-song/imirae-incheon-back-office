@@ -67,6 +67,29 @@ if (!Number.isInteger(transition.startedAt) || transition.startedAt < 0 || !Numb
 ' || fail "invalid reconcile envelope: $envelope"
 }
 
+assert_worker_parser_accepts() {
+    local envelope="$1"
+    local expected_request_id="$2"
+
+    printf '%s' "$envelope" | \
+    PARSER_EXPECTED_REQUEST_ID="$expected_request_id" \
+    PARSER_MODULE="$SCRIPT_DIR/sentry-db-failover/src/worker.mjs" \
+    node --input-type=module -e '
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const { parseStatusOutput } = await import(pathToFileURL(process.env.PARSER_MODULE).href);
+const raw = fs.readFileSync(0, "utf8");
+const parsed = parseStatusOutput(raw, {
+  environment: "preview",
+  requestId: process.env.PARSER_EXPECTED_REQUEST_ID,
+});
+if (!parsed || parsed.environment !== "preview" || parsed.requestId !== process.env.PARSER_EXPECTED_REQUEST_ID) {
+  throw new Error("worker parser rejected the host envelope");
+}
+' || fail "worker parser rejected ci-operator output"
+}
+
 [[ -r "$OPERATOR_SCRIPT" ]] || fail "missing CI operator: $OPERATOR_SCRIPT"
 
 # shellcheck source=backend/deploy/lightsail/ci-operator.sh
@@ -259,6 +282,7 @@ run_reconcile "$valid_uuid" "$output_file"
 [[ "$RUN_STATUS" -eq 0 && "$ROUTE_STATE_GENERATION" == "1" ]] || fail "first reconcile did not allocate generation one"
 first_output="$RUN_OUTPUT"
 assert_complete_envelope "$first_output"
+assert_worker_parser_accepts "$first_output" "$valid_uuid"
 run_reconcile "$second_uuid" "$output_file"
 [[ "$RUN_STATUS" -eq 0 && "$ROUTE_STATE_GENERATION" == "2" ]] || fail "new reconcile did not increment generation"
 second_output="$RUN_OUTPUT"
