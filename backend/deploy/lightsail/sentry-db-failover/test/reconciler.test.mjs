@@ -59,26 +59,31 @@ function initial(overrides = {}) {
 test('normalizes persisted SSM dispatch and recovery markers fail closed', () => {
   const defaults = normalizeState({}, NOW);
   assert.equal(defaults.ssmDispatchAttempted, false);
+  assert.equal(defaults.ssmRetryPending, false);
   assert.equal(defaults.ssmRecoveryRequestId, null);
   assert.equal(defaults.ssmRecoveryIdentity, null);
 
   const malformed = normalizeState({
     ...createInitialState(NOW),
     ssmDispatchAttempted: 'true',
+    ssmRetryPending: 'true',
     ssmRecoveryRequestId: 'not-a-uuid',
     ssmRecoveryIdentity: 42,
   }, NOW);
   assert.equal(malformed.ssmDispatchAttempted, true);
+  assert.equal(malformed.ssmRetryPending, false);
   assert.equal(malformed.ssmRecoveryRequestId, null);
   assert.equal(malformed.ssmRecoveryIdentity, null);
 
   const valid = normalizeState({
     ...createInitialState(NOW),
     ssmDispatchAttempted: true,
+    ssmRetryPending: true,
     ssmRecoveryRequestId: REQUEST_ID,
     ssmRecoveryIdentity: 'recovery:SWITCHING_TO_DIRECT:SHARED:DIRECT:100:1',
   }, NOW);
   assert.equal(valid.ssmDispatchAttempted, true);
+  assert.equal(valid.ssmRetryPending, true);
   assert.equal(valid.ssmRecoveryRequestId, REQUEST_ID);
   assert.equal(valid.ssmRecoveryIdentity, 'recovery:SWITCHING_TO_DIRECT:SHARED:DIRECT:100:1');
 });

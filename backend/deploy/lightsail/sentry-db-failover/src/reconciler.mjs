@@ -7,6 +7,10 @@ import {
   HOST_RESULT_SCHEMA_VERSION,
   HOST_RESULT_SOURCE,
   HOST_TRANSITION_KEYS,
+  LOCK_DEFERRED_KEYS,
+  LOCK_DEFERRED_MAX_RETRY_AFTER_SECONDS,
+  LOCK_DEFERRED_SCHEMA_VERSION,
+  LOCK_DEFERRED_SOURCE,
   PHASES,
   ROUTES,
   UUID_PATTERN,
@@ -166,6 +170,19 @@ export class HostResultReplayError extends Error {
   }
 }
 
+export class LockDeferralValidationError extends Error {
+  constructor(message = 'invalid lock deferral envelope') {
+    super(message);
+    this.name = 'LockDeferralValidationError';
+    this.code = 'INVALID_LOCK_DEFERRAL';
+    this.retryable = false;
+  }
+}
+
+function invalidLockDeferral(message) {
+  return new LockDeferralValidationError(message);
+}
+
 export function normalizeHostEnvelope(raw, { environment, requestId } = {}) {
   if (!isPlainObject(raw) || !hasExactKeys(raw, HOST_RESULT_KEYS)) {
     throw invalid('host result envelope is incomplete or has unexpected fields');
@@ -235,6 +252,50 @@ export function normalizeHostEnvelope(raw, { environment, requestId } = {}) {
     recentNormalRoundTrips: [...raw.recentNormalRoundTrips],
     transition: { ...raw.transition },
     terminalReason: raw.terminalReason,
+  };
+}
+
+export function normalizeLockDeferral(raw, { environment, requestId } = {}) {
+  if (!isPlainObject(raw) || !hasExactKeys(raw, LOCK_DEFERRED_KEYS)) {
+    throw invalidLockDeferral('lock deferral envelope is incomplete or has unexpected fields');
+  }
+  if (raw.schemaVersion !== LOCK_DEFERRED_SCHEMA_VERSION) {
+    throw invalidLockDeferral('lock deferral schema version is invalid');
+  }
+  if (raw.source !== LOCK_DEFERRED_SOURCE) throw invalidLockDeferral('lock deferral source is invalid');
+  if (raw.controlPlaneOk !== true) throw invalidLockDeferral('lock deferral control-plane flag is invalid');
+  if (
+    typeof raw.environment !== 'string'
+    || !['preview', 'production'].includes(raw.environment)
+    || (environment !== undefined && raw.environment !== environment)
+  ) {
+    throw invalidLockDeferral('lock deferral environment is invalid');
+  }
+  if (typeof raw.requestId !== 'string' || !UUID_PATTERN.test(raw.requestId)) {
+    throw invalidLockDeferral('lock deferral request id is invalid');
+  }
+  if (requestId !== undefined && raw.requestId !== requestId) {
+    throw invalidLockDeferral('lock deferral request id does not match the SSM request');
+  }
+  if (raw.status !== 'DEFERRED') throw invalidLockDeferral('lock deferral status is invalid');
+  if (raw.reason !== 'operator_lock_busy') throw invalidLockDeferral('lock deferral reason is invalid');
+  if (
+    !Number.isSafeInteger(raw.retryAfterSeconds)
+    || raw.retryAfterSeconds < 1
+    || raw.retryAfterSeconds > LOCK_DEFERRED_MAX_RETRY_AFTER_SECONDS
+  ) {
+    throw invalidLockDeferral('lock deferral retry interval is invalid');
+  }
+
+  return {
+    schemaVersion: raw.schemaVersion,
+    source: raw.source,
+    controlPlaneOk: raw.controlPlaneOk,
+    environment: raw.environment,
+    requestId: raw.requestId,
+    status: raw.status,
+    reason: raw.reason,
+    retryAfterSeconds: raw.retryAfterSeconds,
   };
 }
 
@@ -332,6 +393,10 @@ export function normalizeState(state, now = Date.now()) {
   normalized.ssmDispatchAttempted = !hasDispatchMarker || typeof rawState.ssmDispatchAttempted === 'boolean'
     ? (hasDispatchMarker ? rawState.ssmDispatchAttempted : initial.ssmDispatchAttempted)
     : true;
+  const hasRetryMarker = Object.prototype.hasOwnProperty.call(rawState, 'ssmRetryPending');
+  normalized.ssmRetryPending = hasRetryMarker && typeof rawState.ssmRetryPending === 'boolean'
+    ? rawState.ssmRetryPending
+    : initial.ssmRetryPending;
   normalized.ssmRecoveryRequestId = isOpaqueUuid(normalized.ssmRecoveryRequestId)
     ? normalized.ssmRecoveryRequestId
     : null;

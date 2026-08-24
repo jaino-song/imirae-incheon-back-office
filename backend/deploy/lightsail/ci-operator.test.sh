@@ -26,6 +26,7 @@ assert_equals() {
 }
 
 [[ -r "$OPERATOR_SCRIPT" ]] || fail "missing CI operator: $OPERATOR_SCRIPT"
+assert_equals '#!/bin/bash' "$(head -n 1 "$OPERATOR_SCRIPT")"
 
 # shellcheck source=backend/deploy/lightsail/ci-operator.sh
 source "$OPERATOR_SCRIPT"
@@ -33,6 +34,10 @@ source "$OPERATOR_SCRIPT"
 valid_sha="432bc4840b9a44a3357a442c9ef93b7cc9f41459"
 valid_digest="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 valid_uuid="123e4567-e89b-12d3-a456-426614174000"
+
+grep -Fq '/usr/bin/flock -E "$LOCK_CONTENTION_EXIT_STATUS" -w "$wait_seconds" 9' "$OPERATOR_SCRIPT" \
+    || fail "db-reconcile lock acquisition must use explicit -E with bounded -w"
+assert_equals "75" "$LOCK_CONTENTION_EXIT_STATUS"
 
 validate_invocation status preview
 validate_invocation status production
@@ -251,6 +256,43 @@ for runtime_failure_mode in route_mismatch scheduler_malformed route_malformed r
 done
 rm -f "$CURRENT_DIGEST_FILE"
 
+# The typed contention boundary is portable to non-Linux CI: the real flock
+# exercise below is supplemental, while this contract test proves that only
+# status 75 can produce a deferral and all other failures return without any
+# route-state access or stdout envelope.
+(
+    configure_environment preview
+    lock_route_calls=0
+    ensure_route_state() {
+        lock_route_calls=$((lock_route_calls + 1))
+        fail "lock contention read route state"
+    }
+    load_route_state() {
+        lock_route_calls=$((lock_route_calls + 1))
+        fail "lock contention loaded route state"
+    }
+    acquire_lock() { return 75; }
+
+    lock_deferral_output="$(db_reconcile "$valid_uuid")"
+    assert_equals \
+        '{"schemaVersion":1,"source":"babyjamjam-db-failover-lock","controlPlaneOk":true,"environment":"preview","requestId":"123e4567-e89b-12d3-a456-426614174000","status":"DEFERRED","reason":"operator_lock_busy","retryAfterSeconds":5}' \
+        "$lock_deferral_output"
+    assert_equals "0" "$lock_route_calls"
+
+    acquire_lock() {
+        echo "simulated flock runtime failure" >&2
+        return 74
+    }
+    set +e
+    invalid_output="$(db_reconcile "$valid_uuid" 2>/dev/null)"
+    invalid_status=$?
+    set -e
+    assert_equals "74" "$invalid_status"
+    assert_equals "" "$invalid_output"
+    assert_equals "0" "$lock_route_calls"
+)
+echo "Portable lock-contention contract tests passed"
+
 # Exercise the host-boundary checks on the Linux deployment host where GNU
 # stat and root ownership are available. macOS local runs retain the static
 # contract checks above and report this host-only harness as skipped.
@@ -306,6 +348,76 @@ if [[ "$(uname -s)" == Linux && "$EUID" -eq 0 ]]; then
 
     rm -rf "$boundary_root"
     echo "Linux environment-boundary tests passed"
+
+    # A real host lock held by another process defers only db-reconcile. The
+    # route-state functions deliberately fail if the bounded contention path
+    # reads or mutates them.
+    (
+        lock_test_root="$(mktemp -d /opt/babyjamjam-lock-contention.XXXXXX)"
+        lock_test_state="$lock_test_root/state"
+        lock_test_file="$lock_test_state/operator.lock"
+        lock_test_route_directory="$lock_test_root/route"
+        lock_test_route_file="$lock_test_route_directory/$ROUTE_STATE_FILE_NAME"
+        mkdir -m 0700 "$lock_test_state"
+        install -o root -g root -m 0600 /dev/null "$lock_test_file"
+        configure_environment preview
+        STATE_DIRECTORY="$lock_test_state"
+        DEPLOY_LOCK_FILE="$lock_test_file"
+        ROUTE_STATE_DIRECTORY="$lock_test_route_directory"
+        ROUTE_STATE_FILE="$lock_test_route_file"
+        ensure_route_state() { fail "lock contention read route state"; }
+        load_route_state() { fail "lock contention loaded route state"; }
+
+        exec 8>>"$lock_test_file"
+        /usr/bin/flock -n 8 || fail "could not hold real test lock"
+        lock_deferral_output="$(db_reconcile "$valid_uuid" 2>"$lock_test_root/contention.stderr")"
+        assert_equals 0 "$?"
+        assert_equals \
+            '{"schemaVersion":1,"source":"babyjamjam-db-failover-lock","controlPlaneOk":true,"environment":"preview","requestId":"123e4567-e89b-12d3-a456-426614174000","status":"DEFERRED","reason":"operator_lock_busy","retryAfterSeconds":5}' \
+            "$lock_deferral_output"
+        [[ ! -e "$lock_test_route_file" ]] || fail "lock contention created route state"
+        [[ ! -d "$lock_test_route_directory" ]] || fail "lock contention created route state directory"
+        [[ "$(wc -l <"$lock_test_root/contention.stderr")" -eq 0 ]] \
+            || fail "lock contention emitted unexpected stderr"
+        exec 8>&-
+        exec 9>&-
+
+        assert_invalid_lock() {
+            local invalid_output
+            local invalid_status
+
+            set +e
+            invalid_output="$(db_reconcile "$valid_uuid" 2>"$lock_test_root/invalid.stderr")"
+            invalid_status=$?
+            set -e
+            [[ "$invalid_status" -ne 0 ]] || fail "invalid lock was accepted"
+            [[ -z "$invalid_output" ]] || fail "invalid lock emitted a deferral envelope"
+            [[ "$(wc -l <"$lock_test_root/invalid.stderr")" -gt 0 ]] \
+                || fail "invalid lock did not fail closed"
+        }
+
+        rm -f "$lock_test_file"
+        assert_invalid_lock
+
+        install -o root -g root -m 0600 /dev/null "$lock_test_file"
+        ln -s "$lock_test_file" "$lock_test_root/lock-target"
+        rm -f "$lock_test_file"
+        ln -s "$lock_test_root/lock-target" "$lock_test_file"
+        assert_invalid_lock
+        rm -f "$lock_test_file" "$lock_test_root/lock-target"
+
+        install -o root -g root -m 0640 /dev/null "$lock_test_file"
+        assert_invalid_lock
+        rm -f "$lock_test_file"
+
+        install -o root -g root -m 0600 /dev/null "$lock_test_file"
+        if /usr/bin/id ubuntu >/dev/null 2>&1; then
+            chown ubuntu:ubuntu "$lock_test_file"
+            assert_invalid_lock
+        fi
+        rm -rf "$lock_test_root"
+    )
+    echo "Linux lock-contention tests passed"
 else
     echo "Linux environment-boundary tests skipped on this host"
 fi
