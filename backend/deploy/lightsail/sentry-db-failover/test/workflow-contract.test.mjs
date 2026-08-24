@@ -18,10 +18,15 @@ test('workflow validates, tests, builds, and packages without automatic deployme
   assert.match(workflow, /sam package/);
   assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
   assert.match(workflow, /inputs\.enable_deploy == true/);
-  assert.match(workflow, /inputs\.enable_failover == false \|\| inputs\.confirm_sentry_rule_audit == true/);
+  assert.match(workflow, /inputs\.enable_failover == false/);
   assert.match(workflow, /inputs\.confirm_sentry_rule_audit == true/);
+  assert.match(workflow, /inputs\.confirm_alarm_topic == true/);
+  assert.match(workflow, /vars\.DB_FAILOVER_ALARM_TOPIC_ARN != ''/);
   assert.match(workflow, /ENABLE_FAILOVER: \$\{\{ inputs\.enable_failover \}\}/);
   assert.match(workflow, /EnableFailover="\$ENABLE_FAILOVER"/);
+  assert.match(workflow, /AlarmTopicArn="\$ALARM_TOPIC_ARN"/);
+  assert.match(workflow, /ManagedNodeTagValue="\$MANAGED_NODE_TAG_VALUE"/);
+  assert.match(workflow, /MANAGED_NODE_TAG_VALUE: babyjamjam-admin-server/);
   assert.match(workflow, /node-version: '22'/);
   assert.match(workflow, /SentryClientSecretName/);
   assert.doesNotMatch(workflow, /SENTRY_CLIENT_SECRET_ARN|SentryClientSecretArn/);
@@ -55,7 +60,10 @@ test('manual dark deploy is allowed while enabling failover still requires human
   assert.equal(deployConditions.length, 2);
   for (const condition of deployConditions) {
     assert.match(condition, /inputs\.enable_deploy == true/);
-    assert.match(condition, /inputs\.enable_failover == false \|\| inputs\.confirm_sentry_rule_audit == true/);
+    assert.match(condition, /inputs\.enable_failover == false/);
+    assert.match(condition, /inputs\.confirm_sentry_rule_audit == true/);
+    assert.match(condition, /inputs\.confirm_alarm_topic == true/);
+    assert.match(condition, /vars\.DB_FAILOVER_ALARM_TOPIC_ARN != ''/);
     assert.doesNotMatch(condition, /inputs\.enable_failover == true &&/);
   }
 });

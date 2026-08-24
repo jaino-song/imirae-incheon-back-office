@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - 'backend/deploy/lightsail/sentry-db-failover/**'
+      - 'backend/deploy/lightsail/github-oidc-ssm.yaml'
       - 'backend/deploy/lightsail/SENTRY_DB_FAILOVER.md'
       - '.github/workflows/db-failover-infra.yml'
   push:
     branches: [main, dev, preview]
     paths:
       - 'backend/deploy/lightsail/sentry-db-failover/**'
+      - 'backend/deploy/lightsail/github-oidc-ssm.yaml'
       - 'backend/deploy/lightsail/SENTRY_DB_FAILOVER.md'
       - '.github/workflows/db-failover-infra.yml'
   workflow_dispatch:
@@ -32,6 +34,11 @@ on:
         default: false
       confirm_sentry_rule_audit:
         description: Confirm webhook-only Sentry fields were reviewed before enabling failover
+        type: boolean
+        required: true
+        default: false
+      confirm_alarm_topic:
+        description: Confirm the configured SNS destination will receive failover alarms
         type: boolean
         required: true
         default: false
@@ -117,7 +124,14 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.enable_deploy == true &&
-      (inputs.enable_failover == false || inputs.confirm_sentry_rule_audit == true) &&
+      (
+        inputs.enable_failover == false ||
+        (
+          inputs.confirm_sentry_rule_audit == true &&
+          inputs.confirm_alarm_topic == true &&
+          vars.DB_FAILOVER_ALARM_TOPIC_ARN != ''
+        )
+      ) &&
       inputs.environment == 'preview'
     needs: validate-build-package
     runs-on: ubuntu-latest
@@ -138,6 +152,8 @@ jobs:
       SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
       SENTRY_PROJECT_SLUG: ${{ vars.SENTRY_PROJECT_SLUG }}
       SENTRY_RULE_IDS: ${{ vars.SENTRY_RULE_IDS }}
+      ALARM_TOPIC_ARN: ${{ vars.DB_FAILOVER_ALARM_TOPIC_ARN }}
+      MANAGED_NODE_TAG_VALUE: babyjamjam-admin-server
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -174,6 +190,8 @@ jobs:
             --parameter-overrides \
               EnvironmentType=preview \
               EnableFailover="$ENABLE_FAILOVER" \
+              ManagedNodeTagValue="$MANAGED_NODE_TAG_VALUE" \
+              AlarmTopicArn="$ALARM_TOPIC_ARN" \
               SentryClientSecretName="$SENTRY_CLIENT_SECRET_NAME" \
               SentryInstallationId="$SENTRY_INSTALLATION_ID" \
               SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \
@@ -185,7 +203,14 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.enable_deploy == true &&
-      (inputs.enable_failover == false || inputs.confirm_sentry_rule_audit == true) &&
+      (
+        inputs.enable_failover == false ||
+        (
+          inputs.confirm_sentry_rule_audit == true &&
+          inputs.confirm_alarm_topic == true &&
+          vars.DB_FAILOVER_ALARM_TOPIC_ARN != ''
+        )
+      ) &&
       inputs.environment == 'production'
     needs: validate-build-package
     runs-on: ubuntu-latest
@@ -206,6 +231,8 @@ jobs:
       SENTRY_PROJECT_ID: ${{ vars.SENTRY_PROJECT_ID }}
       SENTRY_PROJECT_SLUG: ${{ vars.SENTRY_PROJECT_SLUG }}
       SENTRY_RULE_IDS: ${{ vars.SENTRY_RULE_IDS }}
+      ALARM_TOPIC_ARN: ${{ vars.DB_FAILOVER_ALARM_TOPIC_ARN }}
+      MANAGED_NODE_TAG_VALUE: babyjamjam-admin-server
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -242,6 +269,8 @@ jobs:
             --parameter-overrides \
               EnvironmentType=production \
               EnableFailover="$ENABLE_FAILOVER" \
+              ManagedNodeTagValue="$MANAGED_NODE_TAG_VALUE" \
+              AlarmTopicArn="$ALARM_TOPIC_ARN" \
               SentryClientSecretName="$SENTRY_CLIENT_SECRET_NAME" \
               SentryInstallationId="$SENTRY_INSTALLATION_ID" \
               SentryOrganizationId="$SENTRY_ORGANIZATION_ID" \

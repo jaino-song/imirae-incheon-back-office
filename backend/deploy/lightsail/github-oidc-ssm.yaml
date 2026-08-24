@@ -9,7 +9,9 @@ Parameters:
   ManagedNodeTagValue:
     Type: String
     Default: babyjamjam-admin-server
-    Description: DeploymentTarget tag on the single SSM managed Lightsail node.
+    AllowedValues:
+      - babyjamjam-admin-server
+    Description: Fixed DeploymentTarget tag on the single shared SSM managed Lightsail node.
     AllowedPattern: "^[A-Za-z0-9._:/=+@-]{1,128}$"
 
 Resources:

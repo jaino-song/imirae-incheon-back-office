@@ -31,29 +31,35 @@ DynamoDB. Lambda never recomputes host counters, thresholds, phases, or routes.
 - an encrypted FIFO SQS queue and encrypted FIFO DLQ;
 - a single-concurrency worker Lambda and one-minute EventBridge schedule;
 - a retained, point-in-time-recoverable DynamoDB state table; and
-- Lambda, SQS, and DLQ CloudWatch alarms with an optional SNS topic ARN.
+- API Gateway 5XX, Lambda, SQS, DLQ, and persisted terminal-state CloudWatch
+  alarms with an optional SNS topic ARN for dark deploys.
 
 The `EnvironmentType` parameter is restricted to `preview` and `production`.
-The mapping supplies separate state keys, Sentry environments, managed-node
-tag values, and fixed document names:
+The mapping supplies separate state keys, Sentry environments, and fixed
+document names. Both environments use the one existing managed Lightsail
+node, whose shared `DeploymentTarget` tag is fixed to
+`babyjamjam-admin-server`:
 
-| Environment | Fixed document name | Managed-node tag value | State key |
+| Environment | Fixed document name | Shared DeploymentTarget | State key |
 | --- | --- | --- | --- |
-| `preview` | `babyjamjam-preview-db-failover` | `babyjamjam-preview` | `db-failover/preview` |
-| `production` | `babyjamjam-production-db-failover` | `babyjamjam-production` | `db-failover/production` |
+| `preview` | `babyjamjam-preview-db-failover` | `babyjamjam-admin-server` | `db-failover/preview` |
+| `production` | `babyjamjam-production-db-failover` | `babyjamjam-admin-server` | `db-failover/production` |
 
-An exact document ARN and managed-node tag value can be supplied as
-parameters. The worker role still receives only the selected document ARN and
-the selected environment tag condition.
+An exact fixed document ARN can be supplied as a parameter. The worker role
+still receives only the selected environment document ARN and the shared
+`DeploymentTarget` condition; it does not require an `Environment` tag.
 
 `EnableFailover` defaults to `false`. Keep it false while validating a stack or
 performing the Preview/Production dark deploy. The GitHub workflow requires a
 manual dispatch and explicit `enable_deploy=true`; it passes the selected
 `enable_failover` value to CloudFormation rather than silently forcing it on.
-Turning failover on additionally requires `confirm_sentry_rule_audit=true`.
-The target GitHub environment must have protected reviewers configured. The
-confirmation is only an additional human approval. For both dark deploy and
-enablement, before AWS credentials are issued the workflow performs an
+Turning failover on additionally requires `confirm_sentry_rule_audit=true`,
+`confirm_alarm_topic=true`, and a non-empty
+`DB_FAILOVER_ALARM_TOPIC_ARN` repository variable. The CloudFormation
+parameter rule independently rejects `EnableFailover=true` without an
+`AlarmTopicArn`. The target GitHub environment must have protected reviewers
+configured. The confirmations are only additional human approvals. For both
+dark deploy and enablement, before AWS credentials are issued the workflow performs an
 authenticated read-only fetch of every configured rule and fails closed on any
 unavailable or mismatched response.
 
@@ -111,6 +117,12 @@ return generic `503`. A successful durable enqueue returns `202`; invalid input
 returns `4xx`. A valid event while the kill switch is off is acknowledged with
 `202` and is not queued, avoiding Sentry retries while the stack is
 intentionally disabled.
+
+Unexpected receiver failures are converted to a generic `503` response with no
+internal detail. The API Gateway `5XXError` alarm uses the stable API name
+`babyjamjam-<environment>-db-failover` and the fixed environment stage, so
+handled 5XX responses remain observable without depending only on Lambda
+invocation errors.
 
 The receiver logs only a correlation/request ID, body fingerprint, and a stable
 rejection reason. It never logs the body, signature, secret, queue URL, route
@@ -207,8 +219,7 @@ The worker's `SendCommand` request has exactly these control-plane fields:
 {
   "DocumentName": "the fixed preview or production document ARN",
   "Targets": [
-    {"Key": "tag:DeploymentTarget", "Values": ["the exact environment value"]},
-    {"Key": "tag:Environment", "Values": ["preview or production"]}
+    {"Key": "tag:DeploymentTarget", "Values": ["babyjamjam-admin-server"]}
   ],
   "Parameters": {"RequestId": ["opaque UUID"]}
 }
@@ -220,6 +231,14 @@ status record, but only accepts the exact host result envelope above. A terminal
 failed SSM command with a valid host `BLOCKED`/`DEGRADED` envelope is mirrored;
 a terminal command without a valid envelope enters a separate control-plane
 blocked state and cannot automatically re-command the host.
+
+After the terminal state is persisted, the worker emits one secret-free
+CloudWatch Embedded Metric Format record in namespace
+`BabyJamJam/DbFailover`, metric `TerminalState`, with dimensions
+`Environment` and `StateType` (`HOST` or `CONTROL_PLANE`). The corresponding
+CloudWatch alarms monitor those exact dimensions. A valid terminal host result
+and a terminal control-plane result are handled successes; they do not rely on
+Lambda `Errors` to become visible.
 
 ## Local verification
 
@@ -237,14 +256,16 @@ replay beyond 32 events, transaction failure/retry, duplicate races, lease expir
 conditional state transitions, exact P1001/P1017 query eligibility and bypass
 rejection, P2024 rejection,
 switch/failback budgets, both-down blocking, control-plane preservation, fixed
-SSM parameters, and static SAM/IAM contracts.
+SSM parameters, terminal-state metric emission, shared-node cross-stack drift,
+and static SAM/IAM contracts.
 
 The GitHub workflow validates, tests, builds, and packages SAM artifacts on
 repository changes. It has no automatic deployment path. Preview and production
 deployment jobs run only from manual dispatch, require both explicit enable
 deploy input and use the corresponding protected GitHub environment. A dark
 deploy uses `enable_failover=false`; changing it to true additionally requires
-`confirm_sentry_rule_audit=true`. The workflow then calls Sentry's read-only
+`confirm_sentry_rule_audit=true`, `confirm_alarm_topic=true`, and
+`DB_FAILOVER_ALARM_TOPIC_ARN`. The workflow then calls Sentry's read-only
 organization alert-rule detail endpoint with an environment-scoped
 `SENTRY_API_TOKEN` that has only `alerts:read` and `project:read` (or equivalent
 read-only) access. It first proves that `SENTRY_PROJECT_SLUG` maps to the exact

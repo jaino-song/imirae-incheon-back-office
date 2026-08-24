@@ -435,6 +435,28 @@ test('returns 503 when the configured secret has no usable value', async () => {
   assert.equal(calls.length, 0);
 });
 
+test('returns a sanitized 5xx response when an unexpected receiver failure is handled', async () => {
+  const logs = [];
+  const handler = createReceiverHandler({
+    config: config(),
+    queueUrl: 'https://sqs.example.invalid/failover.fifo',
+    getClientSecret: async () => SECRET,
+    sendMessage: async () => {},
+    now: () => { throw new Error('secret-bearing internal detail'); },
+    logger: {
+      info() {},
+      warn() {},
+      error(fields) { logs.push(fields); },
+    },
+  });
+  const result = await handler(request(payload()));
+  assert.equal(result.statusCode, 503);
+  assert.deepEqual(JSON.parse(result.body), { accepted: false });
+  assert.equal(logs[0].event, 'sentry_receiver_failed');
+  assert.equal('message' in logs[0], false);
+  assert.doesNotMatch(JSON.stringify(logs), /secret-bearing internal detail/);
+});
+
 test('keeps the 750 ms end-to-end budget by timing out a slow queue send', async () => {
   let abortSignal;
   const handler = createReceiverHandler({
