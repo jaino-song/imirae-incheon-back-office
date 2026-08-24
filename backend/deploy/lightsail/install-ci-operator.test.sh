@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALLER="$SCRIPT_DIR/install-ci-operator.sh"
+HOST_OPERATOR="$SCRIPT_DIR/ci-operator.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -33,6 +34,7 @@ assert_file_unchanged() {
 }
 
 [[ -r "$INSTALLER" ]] || fail "missing CI operator installer: $INSTALLER"
+[[ -r "$HOST_OPERATOR" ]] || fail "missing CI operator host implementation: $HOST_OPERATOR"
 
 # shellcheck source=backend/deploy/lightsail/install-ci-operator.sh
 source "$INSTALLER"
@@ -53,6 +55,7 @@ INSTALLED_OPERATOR="$TEST_ROOT/operator"
 
 REAL_CHOWN="$(command -v chown)"
 REAL_STAT="$(command -v stat)"
+VALID_REQUEST_ID="123e4567-e89b-12d3-a456-426614174000"
 
 test_stat() {
     local format_flag="$1"
@@ -160,6 +163,113 @@ assert_no_temporary_route_state() {
     [[ -z "$temporary_path" ]] || fail "temporary route state was left behind: $temporary_path"
 }
 
+assert_v2_initial_state() {
+    local environment="$1"
+    local route_state_path
+    local actual_state
+    local expected_state
+
+    route_state_path="$(route_state_file "$environment")"
+    actual_state="$(<"$route_state_path")"
+    expected_state="$(printf '%s\n' \
+        'version=2' \
+        'generation=0' \
+        'active_route=shared' \
+        'phase=SHARED_ACTIVE' \
+        'transition_previous_route=' \
+        'transition_target_route=' \
+        'transition_started_at=0' \
+        'transition_generation=0' \
+        'direct_activated_at=0' \
+        'shared_failure_count=0' \
+        'direct_success_count=0' \
+        'direct_failure_count=0' \
+        'emergency_shared_success_count=0' \
+        'shared_healthy_count=0' \
+        'shared_healthy_started_at=0' \
+        'shared_healthy_last_at=0' \
+        'normal_roundtrip_history=' \
+        'cooldown_until=0' \
+        'last_request_id=' \
+        'last_probe_route=' \
+        'last_probe_result=none' \
+        'last_probe_at=0' \
+        'last_shared_ok=null' \
+        'last_direct_ok=null' \
+        'last_result=initialized' \
+        'terminal_reason=')"
+    assert_equals "$expected_state" "$actual_state"
+    if grep -Eq '^(normal_roundtrip_count|roundtrip_window_started_at|shared_success_count)=' "$route_state_path"; then
+        fail "v1-only route state key was emitted: $route_state_path"
+    fi
+}
+
+assert_complete_healthy_envelope() {
+    local environment="$1"
+    local envelope="$2"
+
+    printf '%s\n' "$envelope" | node -e '
+const raw = require("node:fs").readFileSync(0, "utf8").trim();
+if (!raw || raw.split(/\r?\n/).length !== 1) throw new Error("envelope must be one JSON line");
+const value = JSON.parse(raw);
+const required = [
+  "schemaVersion", "source", "controlPlaneOk", "environment", "requestId", "hostGeneration",
+  "activeRoute", "phase", "result", "sharedOk", "directOk", "sharedFailureCount",
+  "directSuccessCount", "directFailureCount", "emergencySharedSuccessCount", "sharedHealthyCount",
+  "directActivatedAt", "sharedHealthyStartedAt", "sharedHealthyLastAt", "cooldownUntil",
+  "recentNormalRoundTrips", "transition", "terminalReason",
+];
+for (const key of required) if (!(key in value)) throw new Error(`missing ${key}`);
+if (value.schemaVersion !== 1 || value.source !== "babyjamjam-db-failover-host" || value.controlPlaneOk !== true) throw new Error("bad envelope identity");
+if (value.environment !== process.argv[1] || value.result !== "healthy") throw new Error("bad healthy envelope state");
+if (!Number.isInteger(value.hostGeneration) || value.hostGeneration !== 0) throw new Error("bad generation");
+if (value.activeRoute !== "SHARED" || value.phase !== "SHARED_ACTIVE") throw new Error("bad initial route");
+for (const key of ["sharedFailureCount", "directSuccessCount", "directFailureCount", "emergencySharedSuccessCount", "sharedHealthyCount", "directActivatedAt", "sharedHealthyStartedAt", "sharedHealthyLastAt", "cooldownUntil"]) {
+  if (!Number.isInteger(value[key]) || value[key] < 0) throw new Error(`bad nonnegative field ${key}`);
+}
+if (value.sharedOk !== null || value.directOk !== null) throw new Error("bad initial probe booleans");
+if (!Array.isArray(value.recentNormalRoundTrips) || value.recentNormalRoundTrips.length !== 0) throw new Error("bad empty history");
+if (value.transition.previousRoute !== null || value.transition.targetRoute !== null || value.transition.startedAt !== 0 || value.transition.generation !== 0 || value.transition.terminalReason !== null) throw new Error("bad empty transition");
+if (value.terminalReason !== null) throw new Error("bad terminal reason");
+' "$environment" || fail "invalid healthy envelope for $environment: $envelope"
+}
+
+assert_host_loads_route_state() {
+    local environment="$1"
+    local route_state_path
+    local envelope
+
+    route_state_path="$(route_state_file "$environment")"
+    envelope="$(/bin/bash -c '
+        set -Eeuo pipefail
+        source "$1"
+        configure_environment "$2"
+        ensure_route_state() { :; }
+        ROUTE_STATE_FILE="$3"
+        load_route_state
+        RECONCILE_REQUEST_ID="$4"
+        RECONCILE_OUTPUT_PERSIST=false
+        reconcile_output healthy
+    ' _ "$HOST_OPERATOR" "$environment" "$route_state_path" "$VALID_REQUEST_ID")" \
+        || fail "host could not load installer state for $environment"
+    assert_complete_healthy_envelope "$environment" "$envelope"
+}
+
+assert_refusal_message() {
+    local expected_message="$1"
+    shift
+    local output
+    local status
+
+    set +e
+    output="$("$@" 2>&1 >/dev/null)"
+    status=$?
+    set -e
+    [[ "$status" -ne 0 ]] || fail "expected command to fail: $*"
+    [[ "$output" == *"$expected_message"* ]] \
+        || fail "expected '$expected_message' in refusal output, got '$output'"
+}
+
 assert_owner_refusal() {
     local path="$1"
     local environment="$2"
@@ -196,6 +306,11 @@ grep -Fq 'ensure_route_state_directory' "$INSTALLER" \
     || fail "installer must create and validate dedicated route state directories"
 grep -Fq 'root:root:600' "$INSTALLER" \
     || fail "route state must remain root-owned and mode 0600"
+grep -Fq "'version=2'" "$INSTALLER" \
+    || fail "fresh route state must use v2"
+if grep -Eq 'normal_roundtrip_count|roundtrip_window_started_at|(^|[^A-Za-z0-9_])shared_success_count([^A-Za-z0-9_]|$)' "$INSTALLER"; then
+    fail "installer must not validate or emit v1-only route state keys"
+fi
 if grep -Eq 'sudoers|NOPASSWD' "$INSTALLER"; then
     fail "CI operator installer must not create a sudo path"
 fi
@@ -203,6 +318,8 @@ fi
 reset_route_state_root
 ensure_route_state_file preview
 assert_route_state_structure preview
+assert_v2_initial_state preview
+assert_host_loads_route_state preview
 preview_snapshot="$TEST_ROOT/preview.snapshot"
 /bin/cp "$(route_state_file preview)" "$preview_snapshot"
 ensure_route_state_file preview
@@ -210,10 +327,50 @@ assert_file_unchanged "$preview_snapshot" "$(route_state_file preview)"
 
 ensure_route_state_file production
 assert_route_state_structure production
+assert_v2_initial_state production
+assert_host_loads_route_state production
 production_snapshot="$TEST_ROOT/production.snapshot"
 /bin/cp "$(route_state_file production)" "$production_snapshot"
 ensure_route_state_file production
 assert_file_unchanged "$production_snapshot" "$(route_state_file production)"
+
+missing_key_snapshot="$TEST_ROOT/missing-key.snapshot"
+/usr/bin/sed '/^cooldown_until=/d' "$(route_state_file preview)" >"$missing_key_snapshot"
+/bin/mv "$missing_key_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+/bin/cp "$(route_state_file preview)" "$missing_key_snapshot"
+assert_refusal_message "Route state is incomplete." ensure_route_state_file preview
+assert_file_unchanged "$missing_key_snapshot" "$(route_state_file preview)"
+
+/bin/cp "$preview_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+ensure_route_state_file preview
+duplicate_key_snapshot="$TEST_ROOT/duplicate-key.snapshot"
+printf 'cooldown_until=0\n' >>"$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+/bin/cp "$(route_state_file preview)" "$duplicate_key_snapshot"
+assert_refusal_message "Duplicate route state key." ensure_route_state_file preview
+assert_file_unchanged "$duplicate_key_snapshot" "$(route_state_file preview)"
+
+/bin/cp "$preview_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+ensure_route_state_file preview
+unknown_key_snapshot="$TEST_ROOT/unknown-key.snapshot"
+printf 'unknown_key=value\n' >>"$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+/bin/cp "$(route_state_file preview)" "$unknown_key_snapshot"
+assert_refusal_message "Invalid route state value." ensure_route_state_file preview
+assert_file_unchanged "$unknown_key_snapshot" "$(route_state_file preview)"
+
+/bin/cp "$preview_snapshot" "$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+ensure_route_state_file preview
+v1_snapshot="$TEST_ROOT/v1.snapshot"
+printf 'version=1\n' >"$(route_state_file preview)"
+/bin/chmod 0600 "$(route_state_file preview)"
+/bin/cp "$(route_state_file preview)" "$v1_snapshot"
+assert_refusal_message "Invalid route state value." ensure_route_state_file preview
+assert_file_unchanged "$v1_snapshot" "$(route_state_file preview)"
 
 printf 'not-a-route-state\n' >"$(route_state_file preview)"
 /bin/chmod 0600 "$(route_state_file preview)"
