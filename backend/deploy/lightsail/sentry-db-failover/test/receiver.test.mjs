@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { createReceiverHandler } from '../src/receiver.mjs';
 
@@ -88,6 +93,120 @@ function createHarness({ sendMessage = async () => {}, handlerConfig = config() 
     logger: { info() {}, warn() {}, error() {} },
   });
   return { handler, calls };
+}
+
+function coldAwsLoaderSource({ delayMs, neverResolve }) {
+  const delay = neverResolve
+    ? 'await new Promise(() => {});'
+    : `await new Promise((resolve) => setTimeout(resolve, ${delayMs}));`;
+  const sqsModule = `${delay}
+globalThis.__receiverInitCounts = globalThis.__receiverInitCounts ?? { sqs: 0, secrets: 0 };
+export class SQSClient {
+  constructor() {
+    globalThis.__receiverInitCounts.sqs += 1;
+  }
+  send() {
+    return Promise.resolve({});
+  }
+}
+export class SendMessageCommand {
+  constructor(input) {
+    this.input = input;
+  }
+}`;
+  const secretsModule = `${delay}
+globalThis.__receiverInitCounts = globalThis.__receiverInitCounts ?? { sqs: 0, secrets: 0 };
+export class SecretsManagerClient {
+  constructor() {
+    globalThis.__receiverInitCounts.secrets += 1;
+  }
+  send() {
+    return Promise.resolve({ SecretString: '${SECRET}' });
+  }
+}
+export class GetSecretValueCommand {
+  constructor(input) {
+    this.input = input;
+  }
+}`;
+  return `
+const modules = new Map([
+  ['@aws-sdk/client-sqs', ${JSON.stringify(sqsModule)}],
+  ['@aws-sdk/client-secrets-manager', ${JSON.stringify(secretsModule)}],
+]);
+
+export async function resolve(specifier, context, nextResolve) {
+  const source = modules.get(specifier);
+  if (source === undefined) return nextResolve(specifier, context);
+  return {
+    shortCircuit: true,
+    url: \`data:text/javascript;charset=utf-8,\${encodeURIComponent(source)}\`,
+  };
+}
+`;
+}
+
+async function runExportedColdPath({
+  delayMs = 0,
+  neverResolve = false,
+  concurrent = false,
+  observeAfterMs = 0,
+} = {}) {
+  const directory = await mkdtemp(join(tmpdir(), 'sentry-receiver-cold-'));
+  const loaderPath = join(directory, 'aws-loader.mjs');
+  const scriptPath = join(directory, 'invoke-handler.mjs');
+  const receiverUrl = new URL('../src/receiver.mjs', import.meta.url).href;
+  const requestCount = concurrent ? 2 : 1;
+  await writeFile(loaderPath, coldAwsLoaderSource({ delayMs, neverResolve }));
+  await writeFile(scriptPath, `
+import { handler } from ${JSON.stringify(receiverUrl)};
+
+const startedAt = Date.now();
+const results = await Promise.all(Array.from({ length: ${requestCount} }, () => (
+  handler({ body: '', headers: {} }, {})
+)));
+const elapsed = Date.now() - startedAt;
+if (${observeAfterMs} > 0) await new Promise((resolve) => setTimeout(resolve, ${observeAfterMs}));
+const output = {
+  elapsed,
+  statuses: results.map(({ statusCode }) => statusCode),
+  bodies: results.map(({ body }) => JSON.parse(body)),
+  initCounts: globalThis.__receiverInitCounts ?? null,
+};
+process.stdout.write(JSON.stringify(output), () => process.exit(0));
+`);
+
+  try {
+    const child = spawn(process.execPath, ['--experimental-loader', loaderPath, scriptPath], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    const exitCode = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error(`cold-path child timed out; stderr: ${stderr}`));
+      }, 2_000);
+      child.once('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.once('exit', (code, signal) => {
+        clearTimeout(timeout);
+        resolve({ code, signal });
+      });
+    });
+    assert.equal(exitCode.code, 0, `cold-path child failed (${exitCode.signal}): ${stderr}`);
+    return JSON.parse(stdout);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 test('accepts the official metric-alert shape after signed boundary checks', async () => {
@@ -317,21 +436,35 @@ test('returns 503 when the configured secret has no usable value', async () => {
 });
 
 test('keeps the 750 ms end-to-end budget by timing out a slow queue send', async () => {
-  const { handler } = createHarness({
-    sendMessage: () => new Promise(() => {}),
+  let abortSignal;
+  const handler = createReceiverHandler({
+    config: config(),
+    queueUrl: 'https://sqs.example.invalid/failover.fifo',
+    getClientSecret: async () => SECRET,
+    sendMessage: (_input, { abortSignal: signal } = {}) => {
+      abortSignal = signal;
+      return new Promise(() => {});
+    },
+    now: () => NOW,
+    logger: { info() {}, warn() {}, error() {} },
   });
   const startedAt = Date.now();
   const result = await handler(request(payload()));
   const elapsed = Date.now() - startedAt;
   assert.equal(result.statusCode, 504);
+  assert.equal(abortSignal?.aborted, true);
   assert.ok(elapsed < 800, `receiver exceeded total deadline: ${elapsed}ms`);
 });
 
 test('enforces one end-to-end deadline around a never-resolving secret fetch', async () => {
+  let abortSignal;
   const handler = createReceiverHandler({
     config: config(),
     queueUrl: 'https://sqs.example.invalid/failover.fifo',
-    getClientSecret: () => new Promise(() => {}),
+    getClientSecret: ({ signal } = {}) => {
+      abortSignal = signal;
+      return new Promise(() => {});
+    },
     sendMessage: async () => {},
     now: () => NOW,
     logger: { info() {}, warn() {}, error() {} },
@@ -341,7 +474,34 @@ test('enforces one end-to-end deadline around a never-resolving secret fetch', a
   const elapsed = Date.now() - startedAt;
   assert.equal(result.statusCode, 504);
   assert.deepEqual(JSON.parse(result.body), { accepted: false });
+  assert.equal(abortSignal?.aborted, true);
   assert.ok(elapsed < 800, `receiver exceeded total deadline: ${elapsed}ms`);
+});
+
+test('bounds the exported handler when cold AWS client initialization is delayed', async () => {
+  const result = await runExportedColdPath({ delayMs: 900, observeAfterMs: 250 });
+
+  assert.deepEqual(result.statuses, [504]);
+  assert.deepEqual(result.bodies, [{ accepted: false }]);
+  assert.deepEqual(result.initCounts, { sqs: 0, secrets: 0 });
+  assert.ok(result.elapsed < 800, `exported receiver exceeded total deadline: ${result.elapsed}ms`);
+});
+
+test('bounds the exported handler when cold AWS client initialization never resolves', async () => {
+  const result = await runExportedColdPath({ neverResolve: true });
+
+  assert.deepEqual(result.statuses, [504]);
+  assert.deepEqual(result.bodies, [{ accepted: false }]);
+  assert.equal(result.initCounts, null);
+  assert.ok(result.elapsed < 800, `exported receiver exceeded total deadline: ${result.elapsed}ms`);
+});
+
+test('shares one cold initialization promise across concurrent exported requests', async () => {
+  const result = await runExportedColdPath({ delayMs: 10, concurrent: true });
+
+  assert.deepEqual(result.statuses, [401, 401]);
+  assert.deepEqual(result.initCounts, { sqs: 1, secrets: 1 });
+  assert.ok(result.elapsed < 800, `concurrent cold requests exceeded total deadline: ${result.elapsed}ms`);
 });
 
 test('does not enqueue when the kill switch is disabled after authentication', async () => {

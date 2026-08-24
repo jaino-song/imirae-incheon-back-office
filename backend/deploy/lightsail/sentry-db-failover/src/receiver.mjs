@@ -70,6 +70,36 @@ function withRemainingBudget(operation, { controller, remainingMs }) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+function createReceiverDeadline({
+  deadlineMs = RECEIVER_DEADLINE_MS,
+  monotonicNow = () => performance.now(),
+  startedAt,
+  deadlineAt,
+  deadlineController,
+} = {}) {
+  const controller = deadlineController ?? new AbortController();
+  const start = Number.isFinite(startedAt) ? startedAt : monotonicNow();
+  const end = Number.isFinite(deadlineAt) ? deadlineAt : start + deadlineMs;
+  const remainingMs = () => Math.max(0, end - monotonicNow());
+  const ensureBudget = () => {
+    if (remainingMs() <= 0 || controller.signal.aborted) {
+      controller.abort();
+      throw new ReceiverDeadlineError();
+    }
+  };
+  return {
+    controller,
+    startedAt: start,
+    deadlineAt: end,
+    remainingMs,
+    ensureBudget,
+  };
+}
+
+function isDeadlineExceeded(error, controller) {
+  return error instanceof ReceiverDeadlineError || controller.signal.aborted;
+}
+
 function secretFromValue(value) {
   if (typeof value === 'string' && value.length > 0) {
     try {
@@ -128,16 +158,19 @@ export function createReceiverHandler({
     ruleIds: Array.isArray(config?.ruleIds) ? config.ruleIds : defaults.ruleIds,
   };
 
-  return async function receiverHandler(event, context = {}) {
-    const startedAt = monotonicNow();
-    const deadlineController = new AbortController();
-    const remainingMs = () => Math.max(0, deadlineMs - (monotonicNow() - startedAt));
-    const ensureBudget = () => {
-      if (remainingMs() <= 0 || deadlineController.signal.aborted) {
-        deadlineController.abort();
-        throw new ReceiverDeadlineError();
-      }
-    };
+  return async function receiverHandler(event, context = {}, invocation = {}) {
+    const deadline = createReceiverDeadline({
+      deadlineMs,
+      monotonicNow,
+      startedAt: invocation?.startedAt,
+      deadlineAt: invocation?.deadlineAt,
+      deadlineController: invocation?.deadlineController,
+    });
+    const {
+      controller: deadlineController,
+      remainingMs,
+      ensureBudget,
+    } = deadline;
     const receivedAt = now();
     const candidateRequestId = getRequestHeader(
       event?.headers,
@@ -157,7 +190,7 @@ export function createReceiverHandler({
       rawBody = extractRawBody(event);
       ensureBudget();
     } catch (error) {
-      if (error instanceof ReceiverDeadlineError) {
+      if (isDeadlineExceeded(error, deadlineController)) {
         safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
         return response(504, { accepted: false });
       }
@@ -179,7 +212,7 @@ export function createReceiverHandler({
       ));
       ensureBudget();
     } catch (error) {
-      if (error instanceof ReceiverDeadlineError) {
+      if (isDeadlineExceeded(error, deadlineController)) {
         safeLog(logger, 'error', 'sentry_receiver_deadline_exceeded', { requestId });
         return response(504, { accepted: false });
       }
@@ -304,9 +337,9 @@ export function createReceiverHandler({
     } catch (error) {
       safeLog(logger, 'error', 'sentry_queue_send_failed', {
         requestId,
-        reason: error instanceof ReceiverDeadlineError ? 'timeout' : 'error',
+        reason: isDeadlineExceeded(error, deadlineController) ? 'timeout' : 'error',
       });
-      return response(error instanceof ReceiverDeadlineError ? 504 : 503, { accepted: false });
+      return response(isDeadlineExceeded(error, deadlineController) ? 504 : 503, { accepted: false });
     }
 
     safeLog(logger, 'info', 'sentry_webhook_enqueued', {
@@ -317,13 +350,16 @@ export function createReceiverHandler({
   };
 }
 
-async function createDefaultReceiverHandler() {
+async function createDefaultReceiverHandler({ signal } = {}) {
   const [{ SQSClient, SendMessageCommand }, { SecretsManagerClient, GetSecretValueCommand }] = await Promise.all([
     import('@aws-sdk/client-sqs'),
     import('@aws-sdk/client-secrets-manager'),
   ]);
+  if (signal?.aborted) throw new ReceiverDeadlineError();
   const sqs = new SQSClient({});
+  if (signal?.aborted) throw new ReceiverDeadlineError();
   const secrets = new SecretsManagerClient({});
+  if (signal?.aborted) throw new ReceiverDeadlineError();
   const secretName = process.env.SENTRY_CLIENT_SECRET_NAME;
   const queueUrl = process.env.FAILOVER_QUEUE_URL;
   let cachedSecret;
@@ -350,8 +386,39 @@ async function createDefaultReceiverHandler() {
 
 let defaultHandlerPromise;
 
+function getDefaultReceiverHandler({ signal } = {}) {
+  if (defaultHandlerPromise) return defaultHandlerPromise;
+  const initialization = createDefaultReceiverHandler({ signal });
+  const trackedInitialization = initialization.catch((error) => {
+    if (defaultHandlerPromise === trackedInitialization) defaultHandlerPromise = undefined;
+    throw error;
+  });
+  defaultHandlerPromise = trackedInitialization;
+  return defaultHandlerPromise;
+}
+
 export async function handler(event, context) {
-  defaultHandlerPromise ??= createDefaultReceiverHandler();
-  const receiver = await defaultHandlerPromise;
-  return receiver(event, context);
+  const deadline = createReceiverDeadline();
+  try {
+    deadline.ensureBudget();
+    const receiver = await withRemainingBudget(
+      () => getDefaultReceiverHandler({ signal: deadline.controller.signal }),
+      {
+        controller: deadline.controller,
+        remainingMs: deadline.remainingMs(),
+      },
+    );
+    deadline.ensureBudget();
+    return await receiver(event, context, {
+      startedAt: deadline.startedAt,
+      deadlineAt: deadline.deadlineAt,
+      deadlineController: deadline.controller,
+    });
+  } catch (error) {
+    if (isDeadlineExceeded(error, deadline.controller)) {
+      deadline.controller.abort();
+      return response(504, { accepted: false });
+    }
+    return response(503, { accepted: false });
+  }
 }
