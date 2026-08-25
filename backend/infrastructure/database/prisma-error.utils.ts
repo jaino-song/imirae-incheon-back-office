@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 const TRANSIENT_PRISMA_CONNECTIVITY_CODES = new Set(["P1001", "P1017", "P2024"]);
+const PRISMA_FAILOVER_ELIGIBLE_CODES = new Set(["P1001", "P1017"]);
 const TRANSIENT_PRISMA_MESSAGE_PATTERNS = [
     "Timed out fetching a new connection from the connection pool",
     "Can't reach database server",
@@ -24,6 +25,12 @@ function toErrorWithMessage(error: unknown): { code?: string; message: string } 
         return { code: error.code, message: error.message };
     }
 
+    if (error instanceof Prisma.PrismaClientInitializationError) {
+        return error.errorCode
+            ? { code: error.errorCode, message: error.message }
+            : { message: error.message };
+    }
+
     if (error instanceof Error) {
         const maybeCode = "code" in error && typeof error.code === "string" ? error.code : undefined;
         return { code: maybeCode, message: error.message };
@@ -43,6 +50,11 @@ function toErrorWithMessage(error: unknown): { code?: string; message: string } 
 
 export function getPrismaErrorCode(error: unknown): string | null {
     return toErrorWithMessage(error).code ?? null;
+}
+
+export function isPrismaFailoverEligible(error: unknown): boolean {
+    const code = getPrismaErrorCode(error);
+    return code !== null && PRISMA_FAILOVER_ELIGIBLE_CODES.has(code);
 }
 
 export function summarizePrismaError(error: unknown): string {

@@ -1,0 +1,13 @@
+{
+  "name": "babyjamjam-sentry-db-failover",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "audit:sentry-rule": "node scripts/audit-sentry-rule.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

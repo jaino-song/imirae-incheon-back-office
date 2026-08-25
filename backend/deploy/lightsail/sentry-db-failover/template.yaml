@@ -1,0 +1,486 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  Disabled-by-default Sentry signal receiver and deterministic Lightsail database
+  failover reconciler. The worker can invoke only the fixed environment document.
+
+Parameters:
+  EnvironmentType:
+    Type: String
+    Default: preview
+    AllowedValues: [preview, production]
+    Description: Environment whose fixed SSM document and operator command are used.
+  EnableFailover:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: Explicit kill switch. Keep false until the environment has been approved.
+  SentryClientSecretName:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    MaxLength: 512
+    AllowedPattern: '^[A-Za-z0-9/_+=.@-]+$'
+    Description: Same-account, same-region Secrets Manager name containing the Sentry client secret.
+  SentryInstallationId:
+    Type: String
+    Default: ''
+  SentryOrganizationId:
+    Type: String
+    Default: ''
+  SentryProjectId:
+    Type: String
+    Default: ''
+  SentryRuleIds:
+    Type: String
+    Default: ''
+    Description: Comma-separated exact Sentry rule IDs.
+  SentryAllowedResources:
+    Type: String
+    Default: metric_alert
+    Description: Comma-separated exact resource values accepted from Sentry.
+  SentryAllowedActions:
+    Type: String
+    Default: critical
+  SentryAllowedRoutes:
+    Type: String
+    Default: SHARED
+  FailoverDocumentArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:[A-Za-z0-9-]+:ssm:[A-Za-z0-9-]+:[0-9]{12}:document/babyjamjam-(preview|production)-db-failover$'
+    Description: Optional exact ARN override for the environment's fixed reconcile document.
+  ManagedNodeTagValue:
+    Type: String
+    Default: babyjamjam-admin-server
+    AllowedValues: [babyjamjam-admin-server]
+    Description: Fixed DeploymentTarget tag on the single shared SSM managed Lightsail node.
+  AlarmTopicArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:[A-Za-z0-9-]+:sns:[A-Za-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}$'
+    Description: Optional SNS topic ARN for control-plane alarms.
+
+Mappings:
+  EnvironmentConfig:
+    preview:
+      SentryEnvironment: preview
+      FailoverDocumentName: babyjamjam-preview-db-failover
+      StateKey: db-failover/preview
+    production:
+      SentryEnvironment: production
+      FailoverDocumentName: babyjamjam-production-db-failover
+      StateKey: db-failover/production
+
+Conditions:
+  HasFailoverDocumentArn: !Not [!Equals [!Ref FailoverDocumentArn, '']]
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, '']]
+
+Rules:
+  AlarmTopicRequiredWhenFailoverEnabled:
+    RuleCondition: !Equals [!Ref EnableFailover, 'true']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AlarmTopicArn, '']]
+        AssertDescription: AlarmTopicArn must be configured before enabling failover.
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [x86_64]
+    Environment:
+      Variables:
+        FAILOVER_ENABLED: !Ref EnableFailover
+        FAILOVER_ENVIRONMENT: !Ref EnvironmentType
+        FAILOVER_STATE_KEY: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, StateKey]
+        SENTRY_INSTALLATION_ID: !Ref SentryInstallationId
+        SENTRY_ORGANIZATION_ID: !Ref SentryOrganizationId
+        SENTRY_PROJECT_ID: !Ref SentryProjectId
+        SENTRY_RULE_IDS: !Ref SentryRuleIds
+        SENTRY_ENVIRONMENT: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, SentryEnvironment]
+        SENTRY_ALLOWED_RESOURCES: !Ref SentryAllowedResources
+        SENTRY_ALLOWED_ACTIONS: !Ref SentryAllowedActions
+        SENTRY_ALLOWED_ROUTES: !Ref SentryAllowedRoutes
+
+Resources:
+  FailoverDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  FailoverQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      VisibilityTimeout: 120
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FailoverDlq.Arn
+        maxReceiveCount: 5
+
+  FailoverStateTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      AttributeDefinitions:
+        - AttributeName: stateKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: stateKey
+          KeyType: HASH
+
+  FailoverApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub babyjamjam-${EnvironmentType}-db-failover
+      StageName: !Ref EnvironmentType
+      EndpointConfiguration:
+        Type: REGIONAL
+      MinimumCompressionSize: 1024
+      TracingEnabled: true
+
+  ReceiverRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: receiver-queue-and-sentry-secret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteReceiverLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*
+              - Sid: EnqueueOnlyFailoverMessages
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt FailoverQueue.Arn
+              - Sid: ReadOnlySentryClientSecret
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SentryClientSecretName}-??????
+              - Sid: ReadWriteOnlyDisabledReplayFingerprints
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !GetAtt FailoverStateTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys:
+                      - replay/*
+
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: worker-state-and-fixed-reconcile-document
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteWorkerLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*
+              - Sid: ReadWriteOnlyFailoverState
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:TransactWriteItems
+                Resource: !GetAtt FailoverStateTable.Arn
+              - Sid: ConsumeOnlyFailoverQueue
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt FailoverQueue.Arn
+              - Sid: InvokeOnlyFixedEnvironmentDocument
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !If
+                    - HasFailoverDocumentArn
+                    - !Ref FailoverDocumentArn
+                    - !Sub
+                      - arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${DocumentName}
+                      - DocumentName: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, FailoverDocumentName]
+              - Sid: InvokeOnlySharedDeploymentTarget
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:managed-instance/*
+                Condition:
+                  StringEquals:
+                    ssm:resourceTag/DeploymentTarget: !Ref ManagedNodeTagValue
+              - Sid: ObserveOnlyCommandStatus
+                Effect: Allow
+                Action: ssm:ListCommandInvocations
+                Resource: '*'
+              - Sid: NeverMutateDocuments
+                Effect: Deny
+                Action:
+                  - ssm:CreateDocument
+                  - ssm:UpdateDocument
+                  - ssm:UpdateDocumentDefaultVersion
+                  - ssm:DeleteDocument
+                Resource: '*'
+
+  ReceiverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: src/receiver.handler
+      Role: !GetAtt ReceiverRole.Arn
+      Timeout: 5
+      MemorySize: 256
+      AutoPublishAlias: live
+      ProvisionedConcurrencyConfig:
+        ProvisionedConcurrentExecutions: 2
+      Environment:
+        Variables:
+          FAILOVER_QUEUE_URL: !Ref FailoverQueue
+          FAILOVER_STATE_TABLE_NAME: !Ref FailoverStateTable
+          SENTRY_CLIENT_SECRET_NAME: !Ref SentryClientSecretName
+      Events:
+        SentryWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref FailoverApi
+            Path: /sentry/webhook
+            Method: post
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: src/worker.handler
+      Role: !GetAtt WorkerRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          FAILOVER_STATE_TABLE_NAME: !Ref FailoverStateTable
+          FAILOVER_DOCUMENT_ARN: !If
+            - HasFailoverDocumentArn
+            - !Ref FailoverDocumentArn
+            - !Sub
+              - arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${DocumentName}
+              - DocumentName: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, FailoverDocumentName]
+          FAILOVER_MANAGED_NODE_TAG_VALUE: !Ref ManagedNodeTagValue
+      Events:
+        FailoverMessages:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt FailoverQueue.Arn
+            BatchSize: 1
+            MaximumBatchingWindowInSeconds: 0
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+        MinuteReconciler:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Enabled: true
+            Name: !Sub babyjamjam-${EnvironmentType}-db-failover-reconciler
+
+  ReceiverApi5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: API Gateway returned a 5XX response from the Sentry receiver.
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub babyjamjam-${EnvironmentType}-db-failover
+        - Name: Stage
+          Value: !Ref EnvironmentType
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  ReceiverErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Sentry receiver errors; inspect signature, secret, and queue health.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ReceiverFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  HostTerminalStateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Host persisted a terminal BLOCKED or DEGRADED database failover state.
+      Namespace: BabyJamJam/DbFailover
+      MetricName: TerminalState
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentType
+        - Name: StateType
+          Value: HOST
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  ControlPlaneTerminalStateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Control plane persisted a terminal blocked database failover state.
+      Namespace: BabyJamJam/DbFailover
+      MetricName: TerminalState
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentType
+        - Name: StateType
+          Value: CONTROL_PLANE
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  ControlPlaneDegradedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Control-plane reconciliation entered a nonterminal DEGRADED state; inspect AWS/SSM access.
+      Namespace: BabyJamJam/DbFailover
+      MetricName: ControlPlaneDegraded
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentType
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  WorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reconciler errors; route state is preserved on control-plane failure.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref WorkerFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  QueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Failover message has waited too long for the single worker.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt FailoverQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 120
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+  DeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Failover message reached the dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt FailoverDlq.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref 'AWS::NoValue']
+
+Outputs:
+  WebhookUrl:
+    Description: API Gateway Sentry webhook URL.
+    Value: !Sub https://${FailoverApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${EnvironmentType}/sentry/webhook
+  QueueArn:
+    Description: FIFO queue receiving validated Sentry signals.
+    Value: !GetAtt FailoverQueue.Arn
+  StateTableName:
+    Description: DynamoDB table containing the conditional failover state.
+    Value: !Ref FailoverStateTable
+  FailoverEnabled:
+    Description: Current kill-switch value; false is the safe default.
+    Value: !Ref EnableFailover
+  FixedFailoverDocumentArn:
+    Description: Exact environment-specific SSM reconcile document used by the worker.
+    Value: !If
+      - HasFailoverDocumentArn
+      - !Ref FailoverDocumentArn
+      - !Sub
+        - arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${DocumentName}
+        - DocumentName: !FindInMap [EnvironmentConfig, !Ref EnvironmentType, FailoverDocumentName]
+  ManagedNodeTagValue:
+    Description: Fixed shared managed-node DeploymentTarget tag value used by the worker.
+    Value: !Ref ManagedNodeTagValue

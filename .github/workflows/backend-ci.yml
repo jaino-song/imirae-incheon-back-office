@@ -386,6 +386,9 @@ jobs:
           restart_count="$(read_status_value restart_count)"
           schedulers_enabled="$(read_status_value schedulers_enabled)"
           public_health="$(read_status_value public_health)"
+          db_route="$(read_status_value db_route)"
+          runtime_route="$(read_status_value runtime_route)"
+          db_readiness="$(read_status_value db_readiness)"
 
           [[ "$deployed_environment" == "$DEPLOY_ENVIRONMENT" ]]
           [[ "$deployed_tag" == "$GITHUB_SHA" ]]
@@ -394,6 +397,9 @@ jobs:
           [[ "$restart_count" == "0" ]]
           [[ "$schedulers_enabled" == "$EXPECTED_SCHEDULERS_ENABLED" ]]
           [[ "$public_health" == "ok" ]]
+          [[ "$db_route" == "shared" || "$db_route" == "direct" ]]
+          [[ "$runtime_route" == "$db_route" ]]
+          [[ "$db_readiness" == "ok" ]]
 
           printf '%s\n' \
             "environment=$deployed_environment" \
@@ -402,4 +408,7 @@ jobs:
             "container_health=$container_health" \
             "restart_count=$restart_count" \
             "schedulers_enabled=$schedulers_enabled" \
-            "public_health=$public_health"
+            "public_health=$public_health" \
+            "db_route=$db_route" \
+            "runtime_route=$runtime_route" \
+            "db_readiness=$db_readiness"
