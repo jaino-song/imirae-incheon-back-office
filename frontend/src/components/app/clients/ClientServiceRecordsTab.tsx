@@ -109,10 +109,18 @@ function ClientServiceRecordsTabContent({
         ?? assignments[0]
         ?? null;
     const [pendingResendAssignment, setPendingResendAssignment] = useState<ServiceRecordAssignment | null>(null);
-    const [sendingScheduleId, setSendingScheduleId] = useState<number | null>(null);
+    const [sendingSchedule, setSendingSchedule] = useState<{
+        scheduleId: number;
+        isResend: boolean;
+    } | null>(null);
+
+    const getSendingState = (assignment: ServiceRecordAssignment) => ({
+        scheduleId: assignment.scheduleId,
+        isResend: assignment.link.status === "sent" || assignment.link.status === "failed",
+    });
 
     const sendLink = async (assignment: ServiceRecordAssignment): Promise<boolean> => {
-        setSendingScheduleId(assignment.scheduleId);
+        setSendingSchedule(getSendingState(assignment));
         try {
             const result = await sendLinkMutation.mutateAsync({
                 scheduleId: assignment.scheduleId,
@@ -134,7 +142,7 @@ function ClientServiceRecordsTabContent({
             });
             return false;
         } finally {
-            setSendingScheduleId(null);
+            setSendingSchedule(null);
         }
     };
 
@@ -206,9 +214,13 @@ function ClientServiceRecordsTabContent({
                             {activeAssignment ? (
                                 <LinkStatusCard
                                     assignment={activeAssignment}
-                                    isPending={sendingScheduleId === activeAssignment.scheduleId
+                                    isPending={sendingSchedule?.scheduleId === activeAssignment.scheduleId
                                         || (sendLinkMutation.isPending
                                             && sendLinkMutation.variables?.scheduleId === activeAssignment.scheduleId)}
+                                    isSendingResend={Boolean(
+                                        sendingSchedule?.scheduleId === activeAssignment.scheduleId
+                                        && sendingSchedule.isResend,
+                                    )}
                                     onSendLink={() => void handleSendLink(activeAssignment)}
                                     showStatusBadge={false}
                                 />
@@ -253,9 +265,13 @@ function ClientServiceRecordsTabContent({
                         )}
                         <LinkStatusCard
                             assignment={assignment}
-                            isPending={sendingScheduleId === assignment.scheduleId
+                            isPending={sendingSchedule?.scheduleId === assignment.scheduleId
                                 || (sendLinkMutation.isPending
                                     && sendLinkMutation.variables?.scheduleId === assignment.scheduleId)}
+                            isSendingResend={Boolean(
+                                sendingSchedule?.scheduleId === assignment.scheduleId
+                                && sendingSchedule.isResend,
+                            )}
                             onSendLink={() => void handleSendLink(assignment)}
                         />
                         <ServiceRecordHeaderCard
@@ -475,11 +491,13 @@ function getRecordStatusMeta(status: string): {
 function LinkStatusCard({
     assignment,
     isPending,
+    isSendingResend = false,
     onSendLink,
     showStatusBadge = true,
 }: {
     assignment: ServiceRecordAssignment;
     isPending: boolean;
+    isSendingResend?: boolean;
     onSendLink: () => void;
     showStatusBadge?: boolean;
 }) {
@@ -487,6 +505,7 @@ function LinkStatusCard({
     const { link, employee } = assignment;
     const statusMeta = LINK_STATUS_META[link.status];
     const isResend = link.status === "sent" || link.status === "failed";
+    const usesResendLayout = isResend || isSendingResend;
 
     return (
         <InfoCard
@@ -503,7 +522,7 @@ function LinkStatusCard({
             <ServiceRecordInfoRow label="메시지 최근 발송" value={formatDateTimeKo(link.lastSentAt)} />
             <ServiceRecordInfoRow label="제공기록지 본인 인증" value={<TokenVerificationValue assignment={assignment} />} />
             <div className="mt-[calc(14px*var(--glint-ui-scale,1))] flex flex-wrap items-center justify-end gap-[calc(12px*var(--glint-ui-scale,1))]">
-                {!isResend && (
+                {!usesResendLayout && (
                     <p className="min-w-[200px] flex-1 text-[calc(11.5px*var(--glint-ui-scale,1))] leading-6 text-v3-text-muted">
                         서비스 시작일 15:00에 자동 발송됩니다. 지금 바로 보내려면 수동 전송하세요.
                     </p>
@@ -512,7 +531,7 @@ function LinkStatusCard({
                     type="button"
                     variant="positive"
                     size="sm"
-                    width={isResend ? "lg" : undefined}
+                    width={usesResendLayout ? "lg" : undefined}
                     disabled={isPending}
                     onClick={onSendLink}
                     data-component={isResend

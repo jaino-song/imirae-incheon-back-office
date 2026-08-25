@@ -210,6 +210,62 @@ describe("ClientServiceRecordsTab", () => {
         });
     });
 
+    it("presends the manual-send layout while sending, then switches to resend after refresh", async () => {
+        let resolveSend!: (value: {
+            ok: boolean;
+            jobId: string;
+            status: "sent";
+            scheduledFor: string;
+        }) => void;
+        mutateAsync.mockImplementation(() => new Promise((resolve) => {
+            resolveSend = resolve;
+        }));
+
+        const assignment = createAssignment(1, "none");
+        const { rerender } = render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "링크 수동 전송" }));
+
+        const sendingButton = screen.getByRole("button", { name: "발송 중..." });
+        expect(sendingButton).toBeDisabled();
+        expect(sendingButton).not.toHaveAttribute("data-width", "lg");
+        expect(screen.getByText(/서비스 시작일 15:00에 자동 발송됩니다/)).toBeInTheDocument();
+
+        resolveSend({
+            ok: true,
+            jobId: "job-manual",
+            status: "sent",
+            scheduledFor: "2026-07-01T15:00:00+09:00",
+        });
+
+        await waitFor(() => {
+            expect(toast).toHaveBeenCalledWith({
+                variant: "success",
+                description: "제공기록지 링크를 보냈어요",
+            });
+        });
+
+        rerender(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [createAssignment(1, "sent")] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        const resendButton = screen.getByRole("button", { name: "메시지 재전송" });
+        expect(resendButton).toHaveAttribute("data-width", "lg");
+        expect(screen.queryByText(/서비스 시작일 15:00에 자동 발송됩니다/)).not.toBeInTheDocument();
+    });
+
     it("labels rejected manual sends as failures while preserving the server detail", async () => {
         mutateAsync.mockRejectedValue({
             response: {
