@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { ClientServiceRecordsTab } from "../ClientServiceRecordsTab";
 import type {
@@ -55,10 +55,31 @@ function createAssignment(
     };
 }
 
+function createSession(sessionIndex: number): ServiceRecordSession {
+    const serviceDate = sessionIndex === 1 ? "2026-07-01" : "2026-07-02";
+    return {
+        sessionIndex,
+        serviceDate: `${serviceDate}T00:00:00.000Z`,
+        locked: false,
+        submittedAt: null,
+        updatedAt: `${serviceDate}T10:00:00.000Z`,
+        answers: {},
+        etcService: null,
+        notes: null,
+        paymentConfirmed: false,
+        hasMomApproval: false,
+    };
+}
+
 describe("ClientServiceRecordsTab", () => {
     beforeEach(() => {
         mutateAsync.mockReset();
         toast.mockReset();
+    });
+
+    afterEach(() => {
+        jest.useRealTimers();
+        jest.restoreAllMocks();
     });
 
     it("keeps the service-record card containers mounted while loading", () => {
@@ -260,6 +281,83 @@ describe("ClientServiceRecordsTab", () => {
         expect(screen.getByText("예정일 2026.09.29")).toBeInTheDocument();
         expect(screen.queryByText("예정일 2026.09.24")).not.toBeInTheDocument();
     });
+
+    it("shows an alert from 18:00 KST on the second service date when sessions one and two are unwritten", () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+        const assignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+        };
+
+        const { container } = render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.getByRole("alert")).toHaveTextContent("제공기록지 작성 확인이 필요해요");
+        expect(screen.getByRole("alert")).toHaveTextContent(
+            "2회차 서비스 제공일 오후 6시가 지났지만 1·2회차 제공기록이 작성되지 않았어요",
+        );
+        expect(
+            container.querySelector(`[data-component="${TEST_COMPONENT}_sessions_missing-record-alert"]`),
+        ).toBeInTheDocument();
+    });
+
+    it("reveals the missing-record alert at 18:00 KST while the service-record tab stays open", () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-07-02T17:59:59+09:00"));
+        const assignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+        act(() => {
+            jest.advanceTimersByTime(1_000);
+        });
+
+        expect(screen.getByRole("alert")).toHaveTextContent("제공기록지 작성 확인이 필요해요");
+    });
+
+    it.each([1, 2])(
+        "keeps the missing-record alert hidden when session %s already has a record",
+        (sessionIndex) => {
+            jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+            const assignment = {
+                ...createAssignment(1, "sent"),
+                endDate: "2026-07-02T00:00:00.000Z",
+                totalSessions: 2,
+                sessions: [createSession(sessionIndex)],
+            };
+
+            render(
+                <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                    overview={{ assignments: [assignment] }}
+                    clientId={100}
+                    isLoading={false}
+                    isError={false}
+                />,
+            );
+
+            expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        },
+    );
 
     it("shows actual-period slots separately from preserved outside-period records", () => {
         const assignment = createAssignment(1, "none");

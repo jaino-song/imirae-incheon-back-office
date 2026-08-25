@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
     formatSignatureStatus,
     getServiceRecordStatusMeta,
@@ -12,6 +12,7 @@ import { formatDateTimeKo } from "@babyjamjam/shared/utils/date";
 import { DetailEmptyState, InfoCard, InfoRow } from "@/components/app/v3";
 import { TwoButtonModal } from "@/components/app/ui/TwoButtonModal";
 import { StatusPill } from "@/components/app/ui/status-badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,6 +49,10 @@ interface ClientServiceRecordsTabProps {
 
 const ClientServiceRecordsDataComponentContext = createContext<string | null>(null);
 const SEND_LINK_FAILURE_DESCRIPTION = "제공기록지 링크 발송에 실패했어요";
+const MISSING_RECORD_ALERT_SESSION_COUNT = 2;
+const MISSING_RECORD_ALERT_HOUR_KST = 18;
+const KOREA_UTC_OFFSET = "+09:00";
+const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
 
 function useClientServiceRecordsDataComponent(...parts: string[]): string {
     const root = useContext(ClientServiceRecordsDataComponentContext);
@@ -551,6 +556,11 @@ function ServiceSessionsCard({
         () => buildSessionSlots(startDate, configuredSessions, activeSessions),
         [activeSessions, configuredSessions, startDate],
     );
+    const missingRecordAlertThreshold = useMemo(
+        () => getMissingRecordAlertThreshold(slots),
+        [slots],
+    );
+    const showMissingRecordAlert = useIsThresholdReached(missingRecordAlertThreshold);
     const lockedCount = activeSessions.filter((session) => session.locked).length;
     const draftCount = activeSessions.filter((session) => !session.locked).length;
     const totalSessions = slots.length;
@@ -588,6 +598,21 @@ function ServiceSessionsCard({
                     </div>
                 }
             >
+                {showMissingRecordAlert ? (
+                    <Alert
+                        data-component={`${dataComponent}_missing-record-alert`}
+                        variant="warning"
+                        className="mb-[calc(12px*var(--glint-ui-scale,1))]"
+                    >
+                        <AlertTitle data-component={`${dataComponent}_missing-record-alert_title`}>
+                            제공기록지 작성 확인이 필요해요
+                        </AlertTitle>
+                        <AlertDescription data-component={`${dataComponent}_missing-record-alert_description`}>
+                            2회차 서비스 제공일 오후 6시가 지났지만 1·2회차 제공기록이 작성되지 않았어요.
+                            제공인력에게 작성 여부를 확인해 주세요.
+                        </AlertDescription>
+                    </Alert>
+                ) : null}
                 <div data-component={`${dataComponent}_list`} className="mt-[calc(8px*var(--glint-ui-scale,1))]">
                     {slots.map((slot, index) => (
                         <SessionRow
@@ -995,6 +1020,42 @@ function buildSessionSlots(
             expectedDate: getExpectedSessionDate(startDate, sessionIndex),
         };
     });
+}
+
+function getMissingRecordAlertThreshold(slots: SessionSlot[]): number | null {
+    const firstSessions = slots.slice(0, MISSING_RECORD_ALERT_SESSION_COUNT);
+    if (
+        firstSessions.length < MISSING_RECORD_ALERT_SESSION_COUNT
+        || firstSessions.some((slot) => slot.record !== null)
+    ) {
+        return null;
+    }
+
+    const secondSessionDate = firstSessions[MISSING_RECORD_ALERT_SESSION_COUNT - 1]?.expectedDate;
+    if (!secondSessionDate) return null;
+
+    const threshold = Date.parse(
+        `${secondSessionDate}T${String(MISSING_RECORD_ALERT_HOUR_KST).padStart(2, "0")}:00:00${KOREA_UTC_OFFSET}`,
+    );
+    return Number.isNaN(threshold) ? null : threshold;
+}
+
+function useIsThresholdReached(threshold: number | null): boolean {
+    const [now, setNow] = useState(() => Date.now());
+    const isThresholdReached = threshold !== null && now >= threshold;
+
+    useEffect(() => {
+        if (threshold === null || isThresholdReached) return;
+
+        const currentTime = Date.now();
+        const timer = window.setTimeout(
+            () => setNow(Date.now()),
+            Math.max(0, Math.min(threshold - currentTime, MAX_TIMEOUT_DELAY_MS)),
+        );
+        return () => window.clearTimeout(timer);
+    }, [isThresholdReached, now, threshold]);
+
+    return isThresholdReached;
 }
 
 function partitionSessionsByPeriod(
