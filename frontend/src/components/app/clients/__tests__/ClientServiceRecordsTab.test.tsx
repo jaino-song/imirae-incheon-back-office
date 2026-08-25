@@ -359,6 +359,59 @@ describe("ClientServiceRecordsTab", () => {
         },
     );
 
+    it("keeps the missing-record alert hidden for replaced assignments when the active assignment is written", () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+        const replacedAssignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+            replaced: true,
+        };
+        const activeAssignment = {
+            ...createAssignment(2, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+            sessions: [createSession(1)],
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [replacedAssignment, activeAssignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("shows one missing-record alert for the active assignment when replaced and active assignments are unwritten", () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+        const replacedAssignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+            replaced: true,
+        };
+        const activeAssignment = {
+            ...createAssignment(2, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [replacedAssignment, activeAssignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.getAllByRole("alert")).toHaveLength(1);
+    });
+
     it("shows actual-period slots separately from preserved outside-period records", () => {
         const assignment = createAssignment(1, "none");
         const outsideSession: ServiceRecordSession = {

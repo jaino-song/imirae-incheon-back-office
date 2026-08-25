@@ -267,6 +267,10 @@ function ClientServiceRecordsTabContent({
                             endDate={assignment.endDate}
                             totalSessions={assignment.totalSessions}
                             sessions={assignment.sessions}
+                            enableMissingRecordAlert={
+                                !assignment.replaced
+                                && assignment.scheduleId === activeAssignment?.scheduleId
+                            }
                             isRefreshing={isRefreshing}
                             onRefresh={onRefresh}
                         />
@@ -532,6 +536,7 @@ function ServiceSessionsCard({
     endDate,
     totalSessions: configuredSessions,
     sessions,
+    enableMissingRecordAlert = true,
     isRefreshing,
     onRefresh,
 }: {
@@ -539,6 +544,7 @@ function ServiceSessionsCard({
     endDate: string | null;
     totalSessions: number;
     sessions: ServiceRecordSession[];
+    enableMissingRecordAlert?: boolean;
     isRefreshing: boolean;
     onRefresh?: () => void;
 }) {
@@ -557,8 +563,8 @@ function ServiceSessionsCard({
         [activeSessions, configuredSessions, startDate],
     );
     const missingRecordAlertThreshold = useMemo(
-        () => getMissingRecordAlertThreshold(slots),
-        [slots],
+        () => enableMissingRecordAlert ? getMissingRecordAlertThreshold(slots) : null,
+        [enableMissingRecordAlert, slots],
     );
     const showMissingRecordAlert = useIsThresholdReached(missingRecordAlertThreshold);
     const lockedCount = activeSessions.filter((session) => session.locked).length;
