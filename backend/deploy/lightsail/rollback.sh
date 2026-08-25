@@ -1,10 +1,92 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPOSITORY_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
-COMPOSE_FILE="$REPOSITORY_ROOT/backend/compose.lightsail.yml"
+readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$SAFE_PATH"
+
+if [[ "$EUID" -ne 0 ]]; then
+    echo "The Lightsail rollback script must run as root." >&2
+    exit 1
+fi
+
+readonly PROTECTED_ARTIFACT_DIRECTORY="/usr/local/libexec/babyjamjam-ci-operator"
+readonly PROTECTED_COMPOSE_FILE="$PROTECTED_ARTIFACT_DIRECTORY/compose.lightsail.yml"
+readonly PROTECTED_COMPOSE_ENV_FILE="/dev/null"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ "$SCRIPT_DIR" != "$PROTECTED_ARTIFACT_DIRECTORY" ]]; then
+    echo "The repository rollback helper is retired; invoke the installed CI operator or protected bundle." >&2
+    exit 1
+fi
+
+validate_protected_artifact_file() {
+    local artifact_path="$1"
+    local expected_mode="$2"
+    local path_component
+    local path_metadata
+    local path_mode
+    local path_permissions
+
+    [[ "$artifact_path" == /* && -f "$artifact_path" && ! -L "$artifact_path" ]] \
+        || {
+            echo "A required protected rollback artifact is missing or invalid." >&2
+            exit 1
+        }
+    path_component="$artifact_path"
+    while [[ "$path_component" != "/" ]]; do
+        [[ ! -L "$path_component" ]] || {
+            echo "A protected rollback artifact path contains a symbolic link." >&2
+            exit 1
+        }
+        path_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$path_component")" || {
+            echo "Unable to inspect a protected rollback artifact." >&2
+            exit 1
+        }
+        [[ "${path_metadata%%:*}" == root ]] || {
+            echo "A protected rollback artifact path is not root-owned." >&2
+            exit 1
+        }
+        path_mode="${path_metadata##*:}"
+        path_permissions="${path_mode: -3}"
+        [[ "${path_permissions:1:1}" != [2367] \
+            && "${path_permissions:2:1}" != [2367] ]] || {
+            echo "A protected rollback artifact path is group/world writable." >&2
+            exit 1
+        }
+        path_component="$(/usr/bin/dirname "$path_component")"
+    done
+    [[ "$(/usr/bin/stat -c '%U:%G:%a' "$artifact_path")" == "root:root:$expected_mode" ]] || {
+        echo "A protected rollback artifact has unexpected ownership or mode." >&2
+        exit 1
+    }
+}
+
+validate_protected_runtime_bundle() {
+    local script_path="$SCRIPT_DIR/$(/usr/bin/basename "${BASH_SOURCE[0]}")"
+
+    [[ "$script_path" == "$PROTECTED_ARTIFACT_DIRECTORY/rollback.sh" ]] || {
+        echo "The protected rollback helper path is invalid." >&2
+        exit 1
+    }
+    [[ -d "$PROTECTED_ARTIFACT_DIRECTORY" && ! -L "$PROTECTED_ARTIFACT_DIRECTORY" \
+        && "$(/usr/bin/stat -c '%U:%G:%a' "$PROTECTED_ARTIFACT_DIRECTORY")" == root:root:700 ]] || {
+        echo "The protected CI operator artifact directory is missing or unsafe." >&2
+        exit 1
+    }
+    validate_protected_artifact_file "$script_path" 750
+    validate_protected_artifact_file "$PROTECTED_ARTIFACT_DIRECTORY/ci-operator.sh" 750
+    validate_protected_artifact_file "$PROTECTED_ARTIFACT_DIRECTORY/deploy.sh" 750
+    validate_protected_artifact_file "$PROTECTED_COMPOSE_FILE" 640
+}
+
+validate_protected_runtime_bundle
+cd "$PROTECTED_ARTIFACT_DIRECTORY"
+
+if [[ -n "${BACKEND_COMPOSE_FILE:-}" && "$BACKEND_COMPOSE_FILE" != "$PROTECTED_COMPOSE_FILE" ]]; then
+    echo "BACKEND_COMPOSE_FILE must reference the protected CI operator Compose artifact." >&2
+    exit 1
+fi
+COMPOSE_FILE="$PROTECTED_COMPOSE_FILE"
 ENVIRONMENT="${1:-${LIGHTSAIL_ENVIRONMENT:-}}"
 REQUESTED_TAG="${2:-}"
 STATE_ROOT="${LIGHTSAIL_STATE_ROOT:-/opt/babyjamjam}"
@@ -35,6 +117,7 @@ ENV_FILE="${BACKEND_ENV_FILE:-$STATE_DIRECTORY/backend.env}"
 CURRENT_TAG_FILE="$STATE_DIRECTORY/current-image-tag"
 PREVIOUS_TAG_FILE="$STATE_DIRECTORY/previous-image-tag"
 TARGET_TAG="$REQUESTED_TAG"
+DATABASE_CONNECTION_MODE="${DATABASE_CONNECTION_MODE:-shared}"
 PUBLIC_HEALTH_URL="${BACKEND_PUBLIC_HEALTH_URL:-$DEFAULT_PUBLIC_HEALTH_URL}"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-babyjamjam-backend-$ENVIRONMENT}"
 NETWORK_ALIAS="${BACKEND_NETWORK_ALIAS:-api-$ENVIRONMENT}"
@@ -67,6 +150,73 @@ read_environment_value() {
     ' "$ENV_FILE"
 }
 
+validate_env_file_permissions() {
+    local path_prefix
+    local path_without_root
+    local path_component
+    local path_type
+    local path_metadata
+    local path_owner
+    local path_group
+    local path_mode
+    local path_permissions
+    local -a path_components
+
+    [[ "$ENV_FILE" == /* ]] || {
+        echo "Backend environment file path must be absolute." >&2
+        exit 1
+    }
+    path_without_root="${ENV_FILE#/}"
+    [[ -n "$path_without_root" ]] || {
+        echo "Backend environment file path must name a regular file." >&2
+        exit 1
+    }
+    IFS='/' read -r -a path_components <<<"$path_without_root"
+    path_prefix="/"
+    for path_component in "${path_components[@]}"; do
+        case "$path_component" in
+            ''|.) continue ;;
+            ..)
+                echo "Backend environment file path must not contain '..'." >&2
+                exit 1
+                ;;
+        esac
+        path_prefix="${path_prefix%/}/$path_component"
+        if [[ ! -e "$path_prefix" || -L "$path_prefix" ]]; then
+            echo "Backend environment path component is missing or invalid." >&2
+            exit 1
+        fi
+        path_type="$(/usr/bin/stat -c '%F' "$path_prefix")"
+        path_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$path_prefix")"
+        path_owner="${path_metadata%%:*}"
+        path_group="${path_metadata#*:}"
+        path_group="${path_group%%:*}"
+        path_mode="${path_metadata##*:}"
+        if [[ "$path_owner:$path_group" != "root:root" ]]; then
+            echo "Backend environment path component is not root-owned." >&2
+            exit 1
+        fi
+        if [[ "$path_prefix" == "$ENV_FILE" ]]; then
+            if [[ "$path_type" != "regular file" || "$path_metadata" != "root:root:600" ]]; then
+                echo "Backend environment file must be root:root mode 0600." >&2
+                exit 1
+            fi
+        else
+            path_permissions="${path_mode: -3}"
+            if [[ "$path_type" != "directory" \
+                || "${path_permissions:1:1}" == [2367] \
+                || "${path_permissions:2:1}" == [2367] ]]; then
+                echo "Backend environment file is group/world accessible or has an unsafe ancestor." >&2
+                exit 1
+            fi
+        fi
+    done
+    [[ "$path_prefix" == "$ENV_FILE" ]] || {
+        echo "Backend environment file path must name a regular file." >&2
+        exit 1
+    }
+}
+
 if [[ -z "$TARGET_TAG" && -r "$PREVIOUS_TAG_FILE" ]]; then
     TARGET_TAG="$(<"$PREVIOUS_TAG_FILE")"
 fi
@@ -76,10 +226,7 @@ if [[ -z "$TARGET_TAG" ]]; then
     exit 1
 fi
 
-if [[ ! -r "$ENV_FILE" ]]; then
-    echo "Backend environment file is not readable: $ENV_FILE" >&2
-    exit 1
-fi
+validate_env_file_permissions
 
 if ! command -v curl >/dev/null 2>&1; then
     echo "curl is required to verify the public backend health route." >&2
@@ -93,6 +240,11 @@ fi
 
 if [[ "$PRESERVE_PREVIOUS_TAG" != "true" && "$PRESERVE_PREVIOUS_TAG" != "false" ]]; then
     echo "BACKEND_ROLLBACK_PRESERVE_PREVIOUS_TAG must be true or false." >&2
+    exit 1
+fi
+
+if [[ "$DATABASE_CONNECTION_MODE" != "shared" && "$DATABASE_CONNECTION_MODE" != "direct" ]]; then
+    echo "DATABASE_CONNECTION_MODE must be shared or direct." >&2
     exit 1
 fi
 
@@ -119,6 +271,7 @@ export BACKEND_NETWORK_ALIAS="$NETWORK_ALIAS"
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 export LIGHTSAIL_EDGE_NETWORK="$EDGE_NETWORK"
 export VALKEY_DATA_VOLUME
+export DATABASE_CONNECTION_MODE
 
 if ! docker network inspect "$EDGE_NETWORK" >/dev/null 2>&1; then
     echo "The shared edge network does not exist: $EDGE_NETWORK" >&2
@@ -130,10 +283,16 @@ if ! docker volume inspect "$VALKEY_DATA_VOLUME" >/dev/null 2>&1; then
     exit 1
 fi
 
-docker compose -f "$COMPOSE_FILE" config --quiet
-docker compose -f "$COMPOSE_FILE" up -d --no-build api
+docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" config --quiet >/dev/null 2>&1
+docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" up -d --no-build api >/dev/null 2>&1
 
-api_container_id="$(docker compose -f "$COMPOSE_FILE" ps -q api)"
+api_container_id="$(docker compose --env-file "$PROTECTED_COMPOSE_ENV_FILE" \
+    --project-directory "$PROTECTED_ARTIFACT_DIRECTORY" \
+    -f "$COMPOSE_FILE" ps -q api)"
 if [[ -z "$api_container_id" ]]; then
     echo "The API container was not created." >&2
     exit 1
@@ -149,7 +308,6 @@ for _attempt in $(seq 1 30); do
     fi
 
     if [[ "$health_status" == "unhealthy" || "$health_status" == "exited" || "$health_status" == "dead" ]]; then
-        docker compose -f "$COMPOSE_FILE" logs --tail 100 api >&2
         echo "Rollback failed with API state: $health_status" >&2
         exit 1
     fi
@@ -158,7 +316,6 @@ for _attempt in $(seq 1 30); do
 done
 
 if [[ "$api_is_healthy" != "true" ]]; then
-    docker compose -f "$COMPOSE_FILE" logs --tail 100 api >&2
     echo "Rollback timed out waiting for the API health check." >&2
     exit 1
 fi
@@ -174,7 +331,6 @@ for _attempt in $(seq 1 30); do
 done
 
 if [[ "$public_route_is_healthy" != "true" ]]; then
-    docker compose -f "$COMPOSE_FILE" logs --tail 100 api >&2
     echo "Rollback timed out waiting for the public health check: $PUBLIC_HEALTH_URL" >&2
     exit 1
 fi

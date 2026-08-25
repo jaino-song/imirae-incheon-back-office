@@ -10,36 +10,25 @@ fail() {
     exit 1
 }
 
-assert_fails() {
-    if ("$@") >/dev/null 2>&1; then
-        fail "expected command to fail: $*"
-    fi
+assert_retired() {
+    local command_status
+    local output
+
+    set +e
+    output="$("$INSTALL_SCRIPT" "$@" 2>&1)"
+    command_status=$?
+    set -e
+    [[ "$command_status" -ne 0 ]] || fail "legacy installer unexpectedly succeeded: $*"
+    [[ "$output" == *"legacy preview operator is retired"* ]] \
+        || fail "missing retirement refusal for: $*"
 }
 
-if [[ ! -r "$INSTALL_SCRIPT" ]]; then
-    fail "missing installer: $INSTALL_SCRIPT"
+[[ -r "$INSTALL_SCRIPT" ]] || fail "missing legacy installer shim"
+if grep -Eq 'docker group|runuser|docker[[:space:]]|compose|deploy\.sh|rollback\.sh' "$INSTALL_SCRIPT"; then
+    fail "legacy installer must not retain an alternate Docker/deploy path"
 fi
 
-# shellcheck source=backend/deploy/lightsail/install-operator.sh
-source "$INSTALL_SCRIPT"
+assert_retired install
+assert_retired check
 
-group_list_contains docker "ubuntu docker"
-assert_fails group_list_contains docker "ubuntu users"
-validate_group_membership "agent-lightsail-operator" "ubuntu docker"
-assert_fails validate_group_membership "agent-lightsail-operator docker" "ubuntu docker"
-assert_fails validate_group_membership "agent-lightsail-operator" "ubuntu users"
-
-sudoers_rule="$(render_sudoers)"
-
-[[ "$sudoers_rule" == *"agent-lightsail-operator ALL=(ubuntu) NOPASSWD: NOSETENV: BABYJAMJAM_PREVIEW_OPERATOR"* ]] \
-    || fail "operator-to-ubuntu sudo rule is missing"
-[[ "$sudoers_rule" == *"NOPASSWD: NOSETENV: BABYJAMJAM_PREVIEW_OPERATOR"* ]] \
-    || fail "sudo environment injection must be disabled"
-[[ "$sudoers_rule" == *"/usr/local/sbin/babyjamjam-preview-operator"* ]] \
-    || fail "preview operator command is missing"
-[[ "$sudoers_rule" != *"ALL=(ALL)"* ]] || fail "generic sudo access must not be granted"
-[[ "$sudoers_rule" != *"deploy.sh"* ]] || fail "raw deploy script must not be granted"
-[[ "$sudoers_rule" != *"rollback.sh"* ]] || fail "raw rollback script must not be granted"
-[[ "$sudoers_rule" != *"production"* ]] || fail "production access must not be granted"
-
-echo "install-operator tests passed"
+echo "install-operator retirement tests passed"

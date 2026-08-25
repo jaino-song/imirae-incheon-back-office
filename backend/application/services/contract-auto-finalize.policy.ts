@@ -1,5 +1,5 @@
 /**
- * Selection policy for the nightly contract auto-finalize run, kept pure so the
+ * Selection policy for the daily contract auto-finalize run, kept pure so the
  * date boundaries — the part of this feature most likely to be wrong — are unit
  * tested without a scheduler or a database in the frame.
  */
@@ -23,10 +23,9 @@ export type AutoFinalizeVerdict =
     };
 
 /**
- * A contract is due the first KST midnight AFTER its end date: end date the 9th
- * → eligible from the 10th (endDate < todayKst), never on the 9th itself. The
- * activation date fences out the pre-launch backlog: contracts that ended
- * before the feature was turned on stay manual forever.
+ * A contract is due at the 17:00 KST run on its end date. Contracts missed by a
+ * delayed or unavailable scheduler remain eligible on later runs, while the
+ * activation date fences out the pre-launch backlog permanently.
  */
 export function evaluateAutoFinalize(
     contract: Pick<ReviewStageContract, "contractEndDate" | "autoFinalizeAttempts">,
@@ -41,7 +40,7 @@ export function evaluateAutoFinalize(
     if (contract.contractEndDate < context.sinceDate) {
         return { eligible: false, reason: "before-activation" };
     }
-    if (contract.contractEndDate >= context.todayKst) {
+    if (contract.contractEndDate > context.todayKst) {
         return { eligible: false, reason: "end-date-not-passed" };
     }
     return { eligible: true };

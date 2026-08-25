@@ -13,15 +13,12 @@ describe("evaluateAutoFinalize", () => {
         );
     }
 
-    it("is due the first midnight after the end date (end date 9th, today 10th)", () => {
-        expect(verdict("2026-08-09")).toEqual({ eligible: true });
+    it("is due on the end date for the 17:00 KST run", () => {
+        expect(verdict("2026-08-10")).toEqual({ eligible: true });
     });
 
-    it("is NOT due on the end date itself (end date 10th, today 10th)", () => {
-        expect(verdict("2026-08-10")).toEqual({
-            eligible: false,
-            reason: "end-date-not-passed",
-        });
+    it("catches up a contract whose end-date run was missed", () => {
+        expect(verdict("2026-08-09")).toEqual({ eligible: true });
     });
 
     it("is not due for a future end date", () => {
@@ -38,7 +35,7 @@ describe("evaluateAutoFinalize", () => {
         });
     });
 
-    it("includes a contract ending exactly on the activation date, once passed", () => {
+    it("includes a contract ending exactly on the activation date", () => {
         expect(verdict("2026-08-08")).toEqual({ eligible: true });
     });
 

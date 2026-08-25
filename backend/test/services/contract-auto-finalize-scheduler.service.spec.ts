@@ -1,4 +1,9 @@
-import { ContractAutoFinalizeSchedulerService, CONTRACT_AUTO_FINALIZE_FAILED_NOTIFICATION_TYPE } from "application/services/contract-auto-finalize-scheduler.service";
+import {
+    ContractAutoFinalizeSchedulerService,
+    CONTRACT_AUTO_FINALIZE_CRON,
+    CONTRACT_AUTO_FINALIZE_FAILED_NOTIFICATION_TYPE,
+    CONTRACT_AUTO_FINALIZE_TIME_ZONE,
+} from "application/services/contract-auto-finalize-scheduler.service";
 import type { ReviewStageContract } from "domain/repositories/eformsign-doc.repository.interface";
 import { isoDateInKorea } from "domain/utils/business-days";
 
@@ -52,6 +57,11 @@ describe("ContractAutoFinalizeSchedulerService", () => {
         );
     });
 
+    it("runs every day at 17:00 KST", () => {
+        expect(CONTRACT_AUTO_FINALIZE_CRON).toBe("0 17 * * *");
+        expect(CONTRACT_AUTO_FINALIZE_TIME_ZONE).toBe("Asia/Seoul");
+    });
+
     it("does nothing while the kill-switch is off", async () => {
         configValues["CONTRACT_AUTO_FINALIZE_ENABLED"] = undefined;
         await service.autoFinalizeDueContracts();
@@ -79,7 +89,7 @@ describe("ContractAutoFinalizeSchedulerService", () => {
     });
 
     it("enqueues a due contract with its stored end date prefilled", async () => {
-        const due = contract();
+        const due = contract({ contractEndDate: isoDateInKorea() });
         repository.findReviewStageContracts.mockResolvedValue([due]);
 
         await service.autoFinalizeDueContracts();
@@ -111,8 +121,9 @@ describe("ContractAutoFinalizeSchedulerService", () => {
     });
 
     it("skips ineligible contracts: future end date, missing end date, exhausted retries", async () => {
+        const tomorrowKst = isoDateInKorea(new Date(Date.now() + 24 * 60 * 60 * 1000));
         repository.findReviewStageContracts.mockResolvedValue([
-            contract({ documentId: "future", contractEndDate: isoDateInKorea() }),
+            contract({ documentId: "future", contractEndDate: tomorrowKst }),
             contract({ documentId: "no-date", contractEndDate: null }),
             contract({ documentId: "exhausted", autoFinalizeAttempts: 3 }),
         ]);

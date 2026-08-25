@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { ClientServiceRecordsTab } from "../ClientServiceRecordsTab";
 import type {
@@ -55,10 +55,31 @@ function createAssignment(
     };
 }
 
+function createSession(sessionIndex: number): ServiceRecordSession {
+    const serviceDate = sessionIndex === 1 ? "2026-07-01" : "2026-07-02";
+    return {
+        sessionIndex,
+        serviceDate: `${serviceDate}T00:00:00.000Z`,
+        locked: false,
+        submittedAt: null,
+        updatedAt: `${serviceDate}T10:00:00.000Z`,
+        answers: {},
+        etcService: null,
+        notes: null,
+        paymentConfirmed: false,
+        hasMomApproval: false,
+    };
+}
+
 describe("ClientServiceRecordsTab", () => {
     beforeEach(() => {
         mutateAsync.mockReset();
         toast.mockReset();
+    });
+
+    afterEach(() => {
+        jest.useRealTimers();
+        jest.restoreAllMocks();
     });
 
     it("keeps the service-record card containers mounted while loading", () => {
@@ -134,6 +155,49 @@ describe("ClientServiceRecordsTab", () => {
         );
     });
 
+    it("keeps card containers mounted while replacing only text values during refresh", () => {
+        const assignment = createAssignment(1, "none");
+        const { container, rerender } = render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+                isRefreshing={false}
+                isTextRefreshing={false}
+            />,
+        );
+
+        const linkCard = container.querySelector<HTMLElement>(
+            `[data-component="${TEST_COMPONENT}_overview-grid_link-card"]`,
+        );
+        const sessionsCard = container.querySelector<HTMLElement>(
+            `[data-component="${TEST_COMPONENT}_sessions"]`,
+        );
+
+        expect(linkCard).toHaveTextContent("제공1");
+        expect(sessionsCard).toBeInTheDocument();
+
+        rerender(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+                isRefreshing={false}
+                isTextRefreshing
+            />,
+        );
+
+        expect(linkCard).toBeInTheDocument();
+        expect(sessionsCard).toBeInTheDocument();
+        expect(linkCard).not.toHaveTextContent("제공1");
+        expect(linkCard).toHaveTextContent("제공인력 이름");
+        expect(linkCard).toHaveTextContent("링크 수동 전송");
+        expect(container.querySelectorAll('[data-slot="skeleton"].animate-pulse').length)
+            .toBeGreaterThan(0);
+    });
+
     it("renders the main link states", () => {
         const overview: ServiceRecordOverview = {
             assignments: [
@@ -187,6 +251,62 @@ describe("ClientServiceRecordsTab", () => {
             variant: "success",
             description: "제공기록지 링크를 보냈어요",
         });
+    });
+
+    it("presends the manual-send layout while sending, then switches to resend after refresh", async () => {
+        let resolveSend!: (value: {
+            ok: boolean;
+            jobId: string;
+            status: "sent";
+            scheduledFor: string;
+        }) => void;
+        mutateAsync.mockImplementation(() => new Promise((resolve) => {
+            resolveSend = resolve;
+        }));
+
+        const assignment = createAssignment(1, "none");
+        const { rerender } = render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "링크 수동 전송" }));
+
+        const sendingButton = screen.getByRole("button", { name: "발송 중..." });
+        expect(sendingButton).toBeDisabled();
+        expect(sendingButton).not.toHaveAttribute("data-width", "lg");
+        expect(screen.getByText(/서비스 시작일 15:00에 자동 발송됩니다/)).toBeInTheDocument();
+
+        resolveSend({
+            ok: true,
+            jobId: "job-manual",
+            status: "sent",
+            scheduledFor: "2026-07-01T15:00:00+09:00",
+        });
+
+        await waitFor(() => {
+            expect(toast).toHaveBeenCalledWith({
+                variant: "success",
+                description: "제공기록지 링크를 보냈어요",
+            });
+        });
+
+        rerender(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [createAssignment(1, "sent")] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        const resendButton = screen.getByRole("button", { name: "메시지 재전송" });
+        expect(resendButton).toHaveAttribute("data-width", "lg");
+        expect(screen.queryByText(/서비스 시작일 15:00에 자동 발송됩니다/)).not.toBeInTheDocument();
     });
 
     it("labels rejected manual sends as failures while preserving the server detail", async () => {
@@ -259,6 +379,136 @@ describe("ClientServiceRecordsTab", () => {
         expect(screen.getByText("예정일 2026.09.23")).toBeInTheDocument();
         expect(screen.getByText("예정일 2026.09.29")).toBeInTheDocument();
         expect(screen.queryByText("예정일 2026.09.24")).not.toBeInTheDocument();
+    });
+
+    it("shows an alert from 18:00 KST on the second service date when sessions one and two are unwritten", () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+        const assignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+        };
+
+        const { container } = render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.getByRole("alert")).toHaveTextContent("제공기록지 작성 확인이 필요해요");
+        expect(screen.getByRole("alert")).toHaveTextContent(
+            "2회차 서비스 제공일 오후 6시가 지났지만 1·2회차 제공기록이 작성되지 않았어요",
+        );
+        expect(
+            container.querySelector(`[data-component="${TEST_COMPONENT}_sessions_missing-record-alert"]`),
+        ).toBeInTheDocument();
+    });
+
+    it("reveals the missing-record alert at 18:00 KST while the service-record tab stays open", () => {
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date("2026-07-02T17:59:59+09:00"));
+        const assignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+        act(() => {
+            jest.advanceTimersByTime(1_000);
+        });
+
+        expect(screen.getByRole("alert")).toHaveTextContent("제공기록지 작성 확인이 필요해요");
+    });
+
+    it.each([1, 2])(
+        "keeps the missing-record alert hidden when session %s already has a record",
+        (sessionIndex) => {
+            jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+            const assignment = {
+                ...createAssignment(1, "sent"),
+                endDate: "2026-07-02T00:00:00.000Z",
+                totalSessions: 2,
+                sessions: [createSession(sessionIndex)],
+            };
+
+            render(
+                <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                    overview={{ assignments: [assignment] }}
+                    clientId={100}
+                    isLoading={false}
+                    isError={false}
+                />,
+            );
+
+            expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        },
+    );
+
+    it("keeps the missing-record alert hidden for replaced assignments when the active assignment is written", () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+        const replacedAssignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+            replaced: true,
+        };
+        const activeAssignment = {
+            ...createAssignment(2, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+            sessions: [createSession(1)],
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [replacedAssignment, activeAssignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("shows one missing-record alert for the active assignment when replaced and active assignments are unwritten", () => {
+        jest.spyOn(Date, "now").mockReturnValue(new Date("2026-07-02T18:00:00+09:00").getTime());
+        const replacedAssignment = {
+            ...createAssignment(1, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+            replaced: true,
+        };
+        const activeAssignment = {
+            ...createAssignment(2, "sent"),
+            endDate: "2026-07-02T00:00:00.000Z",
+            totalSessions: 2,
+        };
+
+        render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [replacedAssignment, activeAssignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+            />,
+        );
+
+        expect(screen.getAllByRole("alert")).toHaveLength(1);
     });
 
     it("shows actual-period slots separately from preserved outside-period records", () => {

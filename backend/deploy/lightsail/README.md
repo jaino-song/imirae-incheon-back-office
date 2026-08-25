@@ -41,9 +41,10 @@ Keep the repository and environment state in these locations:
         └── previous-image-tag
 ```
 
-Create the environment directories for the dedicated deployment account and
-keep each `backend.env` file at mode `0600`. The account that runs the deploy
-scripts must be able to read them. Never commit either file or print its full
+Create the environment directories as a root-owned, non-writable boundary and
+keep each `backend.env` file exactly `root:root` mode `0600`. The root-only CI
+operator reads the files for fixed Docker/Compose operations; Git and worktree
+maintenance remains under `ubuntu`. Never commit either file or print its full
 contents into a terminal transcript.
 
 Production and preview must use their corresponding Railway environment values,
@@ -86,64 +87,45 @@ Environment-branch automation is documented in
 uses short-lived GitHub OIDC credentials to invoke fixed AWS Systems Manager
 documents, and keeps production behind a GitHub environment approval gate.
 
-The restricted SSH operator below remains available for approved diagnostics
-and manual preview recovery. It is independent of the root-only SSM operator.
+The former ubuntu/Docker-group preview operator is retired. Do not install or
+use `install-operator.sh`; its install and check commands fail closed, and its
+uninstall command only removes stale legacy files. There is no alternate SSH
+deploy, rollback, or status path.
 
-### Restricted agent operator
-
-Install the preview-only operator once from an administrative shell on the
+Install the root-only operator once from an administrative shell on the
 Lightsail host:
 
 ```bash
-sudo gpasswd --delete agent-lightsail-operator docker
-sudo backend/deploy/lightsail/install-operator.sh install
-sudo backend/deploy/lightsail/install-operator.sh check
+sudo backend/deploy/lightsail/install-ci-operator.sh install
+sudo backend/deploy/lightsail/install-ci-operator.sh check
 ```
 
-The installer copies a root-owned command to
-`/usr/local/sbin/babyjamjam-preview-operator` and adds one sudoers rule. The
-`agent-lightsail-operator` Linux user may run only that command as `ubuntu`; it
-does not receive general sudo, Docker group membership, or direct access to
-`backend.env`. Removing the Docker group membership is mandatory because direct
-Docker access is equivalent to host administrative access.
+The CI operator refuses to run while `ubuntu` belongs to the Docker group.
+Git fetch/worktree operations run with a sanitized `ubuntu` environment, while
+fixed Docker, Compose, and environment-file operations use only the atomically
+installed `root:root` artifact bundle under
+`/usr/local/libexec/babyjamjam-ci-operator`; the operator never executes or
+parses a deployment helper or Compose definition from the `ubuntu`-owned
+repository/worktree. Installation, replacement, validation, rollback, and
+uninstall cover the complete bundle. Status and deployment output contains
+only secret-free release, route, readiness, and health fields. A successful
+status includes matching `db_route` and `runtime_route` values plus
+`db_readiness=ok`; it also verifies one API container, scheduler ownership,
+image tag/digest identity, internal and public `/health/ready`, and public
+liveness.
 
-Agents use the fixed SSH alias and the restricted command:
+The repository copies of `deploy.sh` and `rollback.sh` are source material for
+installation only. They fail closed when invoked from the checkout. Root
+Docker/Compose execution must use the installed operator or, for an explicitly
+approved bootstrap, the matching protected helper under
+`/usr/local/libexec/babyjamjam-ci-operator`.
 
-```bash
-ssh agent-lightsail-operator \
-  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator status'
-
-ssh agent-lightsail-operator \
-  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator deploy <full-preview-commit-sha>'
-
-ssh agent-lightsail-operator \
-  'sudo -n -u ubuntu /usr/local/sbin/babyjamjam-preview-operator rollback'
-```
-
-The deploy command accepts exactly one 40-character commit and requires it to
-equal the freshly fetched `origin/preview` commit. It builds from a clean,
-detached preview deployment worktree, clears caller-controlled Git, Docker,
-Compose, and Lightsail environment variables, runs the existing health-gated
-deployment script, and reports only non-secret status fields. Rollback is
-limited to the previously recorded healthy preview image. Production is not a
-valid operator command.
-
-Removing this capability requires the same administrative access used for
-installation:
+Removing stale legacy files, if present, requires the same administrative
+access:
 
 ```bash
 sudo backend/deploy/lightsail/install-operator.sh uninstall
-```
-
-Installing, replacing, uninstalling, deploying, or rolling back is a
-state-changing operation and still requires the approval gate in the shared
-Lightsail agent-operator runbook.
-
-Run from a clean repository checkout at the exact commit to deploy:
-
-```bash
-backend/deploy/lightsail/deploy.sh preview
-backend/deploy/lightsail/deploy.sh production
+sudo backend/deploy/lightsail/install-ci-operator.sh uninstall
 ```
 
 Each application deployment:
@@ -151,83 +133,50 @@ Each application deployment:
 1. selects only the requested environment file and Compose project;
 2. tags the image with the exact Git commit;
 3. validates the resolved Compose model without printing secrets;
-4. builds and starts only that environment's API and Valkey;
+4. activates the preloaded API image and starts only that environment's API and Valkey;
 5. waits for the container health check and matching public `/health` route;
 6. records current and previous healthy tags only after both checks pass.
 
-Deploy the shared edge only when the routing configuration changes:
-
-```bash
-backend/deploy/lightsail/deploy-edge.sh
-```
-
-The edge script validates the Caddyfile before replacement and requires both
-production and preview public health routes to pass afterward.
+The repository `deploy-edge.sh`, edge Compose file, and Caddyfile are not root
+runtime inputs. That legacy helper is retired and fails closed. Database route
+failover does not redeploy the edge: both public routes keep their existing API
+upstreams. Any future Caddy or edge-network change requires its own reviewed,
+root-owned protected bundle and rollback procedure before execution.
 
 Use `BACKEND_PUBLIC_HEALTH_REQUIRED=false` only for the one-time bootstrap
 before Caddy can route to a new environment. That mode verifies internal API
 health but deliberately does not record a healthy deployment.
 
-Use `BACKEND_BUILD_IMAGE=false` only when the exact commit-tagged image has
-already been built locally. The script refuses the request if that image is
-missing.
+The protected helper always requires `BACKEND_BUILD_IMAGE=false` and an exact
+commit-tagged image that is already present locally. It never builds from the
+repository or from the installed Compose file's relative build context. Normal
+releases pull and verify the immutable image through the CI operator first.
+Every protected Compose call also uses `/dev/null` as its explicit interpolation
+env file and pins the protected artifact directory as the Compose project
+directory, so an inherited working-directory `.env` cannot alter the runtime.
 
-## One-time migration from the single stack
+## Legacy single-stack migration
 
-Perform this in a low-traffic window. Keep the legacy production stack and its
-environment file intact until the new production and preview routes are proven.
-
-1. Create both environment directories and populate their `backend.env` files.
-   Start with schedulers disabled in both new files while the legacy production
-   API remains the scheduler owner.
-2. Start both isolated app stacks without changing public routing:
-
-   ```bash
-   BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh production
-   BACKEND_PUBLIC_HEALTH_REQUIRED=false backend/deploy/lightsail/deploy.sh preview
-   ```
-
-3. Identify the legacy Caddy container by its Compose project and service
-   labels. Require exactly one match, stop only that container, then run
-   `deploy-edge.sh`. If the shared edge does not pass both health checks, stop
-   it and restart the identified legacy Caddy container immediately.
-4. Once both new public routes are healthy, identify and stop only the legacy
-   production API container. This ends its scheduler ownership without deleting
-   the legacy production Valkey or TLS volumes.
-5. Set `SCHEDULERS_ENABLED=true` in the new production file, then activate the
-   already-built image and record both environments:
-
-   ```bash
-   BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh production
-   BACKEND_BUILD_IMAGE=false backend/deploy/lightsail/deploy.sh preview
-   ```
-
-6. Verify scheduler activity only on production, confirm both public routes,
-   and observe CPU, memory, restarts, and application errors before removing any
-   stopped legacy containers. The new production Valkey starts with a cold
-   cache; durable jobs remain in PostgreSQL. Never delete the legacy production
-   Valkey or Caddy volumes during this migration.
-
-The production API is briefly recreated when scheduler ownership is enabled.
-The production CPU limit is `1.5` cores and `2 GB`; preview is capped at
-`0.5` core and `1 GB`. Each Valkey and Caddy is capped separately. These are
-guardrails against preview starving production, not separate capacity. Avoid
-simultaneous environment builds during peak traffic.
+The old repository-driven edge migration procedure is retired and must not be
+replayed. The current failover work assumes the production and preview edge
+routes already exist. Rebuilding or migrating that edge is a separate,
+externally approved infrastructure task because it changes public routing and
+requires a protected Caddy artifact plus an independently rehearsed rollback.
 
 ## Rollback
 
 Roll back one environment to its previously recorded healthy image:
 
 ```bash
-backend/deploy/lightsail/rollback.sh production
-backend/deploy/lightsail/rollback.sh preview
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh production
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh preview
 ```
 
 Or choose a locally available image tag:
 
 ```bash
-backend/deploy/lightsail/rollback.sh production <git-commit-sha>
-backend/deploy/lightsail/rollback.sh preview <git-commit-sha>
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh production <git-commit-sha>
+sudo /usr/local/libexec/babyjamjam-ci-operator/rollback.sh preview <git-commit-sha>
 ```
 
 Rollback changes only the selected API container and verifies its matching

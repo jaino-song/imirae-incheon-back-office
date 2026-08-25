@@ -30,15 +30,21 @@ approval gate before execution.
    `https://token.actions.githubusercontent.com` with audience
    `sts.amazonaws.com`. Reuse an existing provider rather than creating a
    duplicate.
-2. Deploy `github-oidc-ssm.yaml`, passing the existing provider ARN and one
-   unique `ManagedNodeTagValue`. Keep the CloudFormation stack as the source of
-   truth for roles and SSM documents.
+2. Deploy `github-oidc-ssm.yaml`, passing the existing provider ARN and the
+   fixed `ManagedNodeTagValue=babyjamjam-admin-server`. Keep the CloudFormation
+   stack as the source of truth for roles, the shared managed-node tag, and SSM
+   documents.
 3. Create a short-lived Systems Manager hybrid activation using the stack's
    `ManagedNodeServiceRoleName`. Attach the same `DeploymentTarget` tag, install
    the SSM agent on the Lightsail host, verify exactly one online managed node,
    then expire or delete the activation. Never record the activation code or ID
    in this repository or CI logs.
-4. On the host, install the root-only command and verify its metadata:
+4. Before installation, migrate `/opt/babyjamjam` and each
+   `environments/<environment>` directory to a non-symlink, root-owned,
+   group/world-non-writable boundary. Keep each `backend.env` exactly
+   `root:root` mode `0600`; the installer and operator fail closed rather than
+   silently repairing an unsafe secret boundary. Then install the root-only
+   command and its protected artifact bundle and verify their metadata:
 
    ```bash
    sudo backend/deploy/lightsail/install-ci-operator.sh install
@@ -46,8 +52,12 @@ approval gate before execution.
    ```
 
    Installation also creates or repairs the shared per-environment lock files
-   as `ubuntu:ubuntu` mode `0640`; both the restricted preview operator and the
-   root CI operator refuse to deploy when that lock contract is invalid.
+   as `root:root` mode `0600` and transactionally installs the operator,
+   deploy helper, rollback helper, and Compose definition under
+   `/usr/local/libexec/babyjamjam-ci-operator`. The root CI operator refuses to
+   deploy when that bundle, the lock contract, or the root-owned
+   environment-file boundary is invalid. `ubuntu` must not belong to the
+   Docker group.
 
 5. Publish the first image, connect the GHCR package to this repository, and
    set the package visibility to public. Public visibility is required because
@@ -86,16 +96,20 @@ image label matches that commit. Before changing the running container, it runs
 database configuration. A migration failure leaves the current application
 image running. Release migrations must remain backward-compatible because a
 successful database migration cannot be automatically undone if later runtime
-activation fails. It records digest state only after deployment, container
-checks, scheduler checks, and the public health check succeed.
+activation fails. It records digest state only after the full runtime invariant
+succeeds: one API container, the authoritative route and exact
+`DATABASE_CONNECTION_MODE`, scheduler ownership, health/restart, image
+tag/digest identity, internal and public `/health/ready`, and public liveness.
 
 If deployment or verification fails, the operator immediately invokes the
 existing rollback script with the recorded known-good commit image, preserves
 the prior rollback-tag history, restores the prior digest state, and verifies
-the recovered runtime. CI deployment and the existing preview operator share
-one per-environment lock so they cannot change the same runtime concurrently.
-Detailed output is kept in a root-only host log; GitHub receives only a failure
-status and safe release fields.
+the recovered runtime. The root CI operator holds one per-environment lock so
+concurrent commands cannot change the same runtime. Detailed output is kept in
+a root-only host log; GitHub receives only a failure status and safe release
+fields. The status contract includes `db_route`, `runtime_route`, and
+`db_readiness=ok`; the workflow requires the two routes to match and rejects
+any missing or non-`ok` readiness value.
 
 ## Disable and roll back the automation
 

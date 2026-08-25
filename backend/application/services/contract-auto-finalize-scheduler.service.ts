@@ -21,6 +21,8 @@ import {
 } from "./contract-auto-finalize.policy";
 
 export const CONTRACT_AUTO_FINALIZE_FAILED_NOTIFICATION_TYPE = "contract-auto-finalize-failed";
+export const CONTRACT_AUTO_FINALIZE_CRON = "0 17 * * *";
+export const CONTRACT_AUTO_FINALIZE_TIME_ZONE = "Asia/Seoul";
 
 // Queue production is fast and documents run strictly serially, so the run
 // budget still leaves room for a large same-day backlog without overlapping ticks.
@@ -28,10 +30,11 @@ const MAX_RUN_MS = 30 * 60 * 1000;
 const DB_COOLDOWN_MS = 5 * 60 * 1000;
 
 /**
- * Nightly producer for maternity contracts stuck at the provider-review stage
- * (070): the first KST midnight after a contract's stored end date, enqueue the
- * worker's "검토 완료 확인" job with that end date prefilled. The existing
- * document attempt counter remains the terminal provider-failure budget; queue
+ * Daily producer for maternity contracts stuck at the provider-review stage
+ * (070): at 17:00 KST on the contract's stored end date, enqueue the worker's
+ * "검토 완료 확인" job with that end date prefilled. Missed runs catch up on a
+ * later day. The existing document attempt counter remains the terminal
+ * provider-failure budget; queue
  * retries and queue infrastructure failures do not consume it.
  */
 @Injectable()
@@ -54,7 +57,7 @@ export class ContractAutoFinalizeSchedulerService {
         private readonly notificationService: NotificationService,
     ) {}
 
-    @Cron("0 0 * * *", { timeZone: "Asia/Seoul" })
+    @Cron(CONTRACT_AUTO_FINALIZE_CRON, { timeZone: CONTRACT_AUTO_FINALIZE_TIME_ZONE })
     async autoFinalizeDueContracts(): Promise<void> {
         if (this.configService.get<string>("CONTRACT_AUTO_FINALIZE_ENABLED") !== "true") {
             return;
