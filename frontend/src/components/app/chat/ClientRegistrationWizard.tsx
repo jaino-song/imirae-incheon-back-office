@@ -22,6 +22,13 @@ import { AlertCircle } from "lucide-react";
 import { useVoucherPriceInfos, useVoucherYears } from "@/hooks/useVoucherData";
 import { useCreateClient } from "@/hooks/useClients";
 import type { CreateClientDto } from "@/lib/client/types";
+import {
+    buildCanonicalClientRegistrationBasics,
+    formatKoreanPhoneNumber,
+    getCanonicalClientRegistrationError,
+    isValidCompactDateInput,
+    parseCompactDateInput,
+} from "@/lib/client/client-registration-formats";
 import voucherOptions from "@/components/app/messages/templates/json/voucher.json";
 
 export type CreatedClient = {
@@ -37,43 +44,10 @@ const steps = ["기본 정보", "바우처 정보", "설정"] as const;
 
 const WIZARD_MIN_HEIGHT_PX = 520;
 
-function formatPhoneNumber(value: string): string {
-    const digits = value.replace(/\D/g, "");
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
-}
-
 function formatPrice(price: string): string {
     const num = parseInt(price.replace(/[,원\s]/g, ""), 10);
     if (Number.isNaN(num)) return price;
     return num.toLocaleString("ko-KR");
-}
-
-function parseCompactDateInput(value: string): string {
-    return value.replace(/\D/g, "").slice(0, 6);
-}
-
-function normalizeCompactDateForSubmit(value: string): string {
-    const compactDate = parseCompactDateInput(value);
-    if (compactDate.length !== 6) return value;
-
-    const yearPrefix = Number(compactDate.slice(0, 2)) >= 70 ? "19" : "20";
-    return `${yearPrefix}${compactDate.slice(0, 2)}-${compactDate.slice(2, 4)}-${compactDate.slice(4, 6)}`;
-}
-
-function isValidCompactDateInput(value: string): boolean {
-    const compactDate = parseCompactDateInput(value);
-    if (compactDate.length !== 6) return false;
-
-    const normalizedDate = normalizeCompactDateForSubmit(compactDate);
-    const date = new Date(`${normalizedDate}T00:00:00`);
-    return (
-        !Number.isNaN(date.getTime()) &&
-        date.getFullYear() === Number(normalizedDate.slice(0, 4)) &&
-        date.getMonth() + 1 === Number(normalizedDate.slice(5, 7)) &&
-        date.getDate() === Number(normalizedDate.slice(8, 10))
-    );
 }
 
 export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizardProps) {
@@ -174,7 +148,11 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
     };
 
     const handleSubmit = async () => {
-        if (!name.trim()) return;
+        const basicsError = getCanonicalClientRegistrationError({ name, phone, birthday, address, dueDate });
+        if (basicsError) {
+            setSubmitError(basicsError);
+            return;
+        }
 
         if (voucherClient && !isVoucherInfoComplete) {
             setSubmitError("바우처 정보를 입력해주세요.");
@@ -186,11 +164,13 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
 
         try {
             const payload: Record<string, unknown> = {
-                name: name.trim(),
-                phone: phone.trim(),
-                birthday: birthday.trim(),
-                address: address.trim(),
-                dueDate: normalizeCompactDateForSubmit(dueDate.trim()),
+                ...buildCanonicalClientRegistrationBasics({
+                    name,
+                    phone,
+                    birthday,
+                    address,
+                    dueDate,
+                }),
                 careCenter,
                 voucherClient,
                 breastPump,
@@ -271,7 +251,7 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
                             <Input
                                 id="phone"
                                 value={phone}
-                                onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                                onChange={(e) => setPhone(formatKoreanPhoneNumber(e.target.value))}
                                 placeholder="010-1234-5678"
                                 maxLength={13}
                             />
@@ -281,7 +261,7 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
                             <Input
                                 id="birthday"
                                 value={birthday}
-                                onChange={(e) => setBirthday(e.target.value)}
+                                onChange={(e) => setBirthday(parseCompactDateInput(e.target.value))}
                                 placeholder="YYMMDD"
                                 maxLength={6}
                             />
