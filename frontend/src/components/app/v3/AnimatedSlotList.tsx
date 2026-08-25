@@ -113,6 +113,7 @@ export function AnimatedSlotList<T>({
       ref={listRef}
       data-component={dataComponent}
       data-slot="animated-slot-list"
+      data-source-component="AnimatedSlotList"
       className={cn("relative -mx-2 flex flex-col gap-2 px-2", className)}
     >
       {Array.from({ length: slotCount }, (_, index) => {
@@ -210,16 +211,34 @@ export function AnimatedSlotList<T>({
         );
       })}
 
-      {hasMore && !isFetchingMore && (
-        <div ref={sentinelRef} className="h-1" aria-hidden="true" />
-      )}
-
-      {isFetchingMore && (
-        <div className="flex justify-center py-4">
-          <Loader2 className="w-5 h-5 animate-spin text-v3-primary" />
+      {hasMore || isFetchingMore ? (
+        <div
+          ref={sentinelRef}
+          data-component={dataComponent ? `${dataComponent}_fetch-more` : undefined}
+          data-slot="fetch-more"
+          className="relative flex h-8 shrink-0 items-center justify-center"
+        >
+          <div
+            data-component={
+              dataComponent ? `${dataComponent}_fetch-more_indicator` : undefined
+            }
+            data-slot="fetching-more-indicator"
+            data-state={isFetchingMore ? "loading" : "idle"}
+            role="status"
+            aria-live="polite"
+            aria-hidden={!isFetchingMore}
+            className={cn(
+              "pointer-events-none flex items-center justify-center transition-opacity duration-200 motion-reduce:transition-none",
+              isFetchingMore ? "opacity-100 delay-200" : "opacity-0 delay-0",
+            )}
+          >
+            <span className={cn(isFetchingMore && "animate-spin motion-reduce:animate-none")}>
+              <Loader2 className="h-5 w-5 text-v3-primary" aria-hidden="true" />
+            </span>
+            <span className="sr-only">목록을 더 불러오는 중</span>
+          </div>
         </div>
-      )}
-
+      ) : null}
     </div>
   );
 }
