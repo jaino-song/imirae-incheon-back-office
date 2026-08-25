@@ -276,6 +276,40 @@ describe("DocumentController (Integration)", () => {
         );
     });
 
+    it("should let an owner publish an upload to only the current branch", async () => {
+        fileStorage.upload.mockResolvedValue("https://example.test/signed-contract.pdf");
+        documentService.create.mockResolvedValue(createDocumentEntity("branch-1", null));
+
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "contract")
+            .field("visibilityScope", "branch")
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
+
+        expect(response.status).toBe(201);
+        expect(response.body.visibilityScope).toBe("branch");
+        expect(documentService.create).toHaveBeenCalledWith(
+            "branch-1",
+            expect.objectContaining({ uploadedby: "user-1", visibilityScope: "branch" }),
+        );
+    });
+
+    it("should refuse a non-owner that requests owner-wide visibility", async () => {
+        tenantGlobalRole = "admin";
+
+        const response = await request(app.getHttpServer())
+            .post("/documents/upload")
+            .field("name", "Contract")
+            .field("categoryId", "contract")
+            .field("visibilityScope", "all_branches")
+            .attach("file", Buffer.from("%PDF-1.4"), "contract.pdf");
+
+        expect(response.status).toBe(403);
+        expect(fileStorage.upload).not.toHaveBeenCalled();
+        expect(documentService.create).not.toHaveBeenCalled();
+    });
+
     it("should expose the authoritative storage capabilities", async () => {
         const response = await request(app.getHttpServer()).get("/documents/capabilities");
 

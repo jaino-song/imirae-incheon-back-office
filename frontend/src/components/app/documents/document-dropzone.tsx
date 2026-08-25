@@ -3,7 +3,7 @@
 import { useCallback, useState, useEffect } from "react";
 import Image from "next/image";
 import { useDocumentCategories } from "@/hooks/use-document-categories";
-import { CloudUpload, FileText, X, ImageIcon, File, Loader2 } from "lucide-react";
+import { CloudUpload, FileText, X, ImageIcon, File, Loader2, Globe2 } from "lucide-react";
 import { useLocale } from "@/providers/LocaleProvider";
 import { t } from "@/lib/i18n/translations";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -14,6 +14,7 @@ import { TitleSelectMolecule } from "@/components/ui/title-select-molecule";
 import { TitleTextareaMolecule } from "@/components/ui/title-textarea-molecule";
 import { TitleTextInputMolecule } from "@/components/ui/title-text-input-molecule";
 import { TitleDescChildrenMolecule } from "@/components/app/ui/TitleDescChildrenMolecule";
+import { FormSwitchRow } from "@/components/app/ui/form-section";
 import {
   TemplateFieldGrid,
   TemplateFieldGridItem,
@@ -24,6 +25,7 @@ import {
   documentUploadAcceptValue,
   formatFileSizeLimit,
   validateDocumentUploadCandidate,
+  type DocumentVisibilityScope,
   type DocumentUploadCapabilities,
 } from "@babyjamjam/shared/file-storage";
 
@@ -39,6 +41,8 @@ const INLINE_PREVIEW_IMAGE_MIME_TYPES = new Set([
 ]);
 const DOCUMENT_FIELD_LABEL_CLASS_NAME =
   "text-[0.72rem] font-semibold uppercase tracking-[0.08em] text-v3-text-muted";
+const DOCUMENT_VISIBILITY_ICON_CLASS_NAME = "h-3.5 w-3.5 shrink-0 text-v3-primary";
+const DOCUMENT_VISIBILITY_TEXT_CLASS_NAME = "text-[0.75rem] font-semibold leading-5";
 const DOCUMENT_UPLOAD_CARD_CLASS_NAME = "rounded-[20px] bg-v3-dim-white p-5";
 const DOCUMENT_TEXTAREA_CLASS_NAME =
   "min-h-[calc(72px*var(--glint-ui-scale,1))] rounded-[16px] border-[1.5px] border-v3-border bg-white px-4 py-3 text-[0.85rem] text-v3-dark shadow-none transition-all focus-visible:border-v3-primary focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:shadow-[0_0_0_3px_hsla(214,100%,34%,0.08)]";
@@ -60,6 +64,7 @@ interface DocumentDropzoneProps {
     description?: string;
     categoryId: string;
     tags: string[];
+    visibilityScope: DocumentVisibilityScope;
   }) => Promise<void>;
   isLoading?: boolean;
   uploadProgress?: number;
@@ -89,6 +94,9 @@ export function DocumentDropzone({
   const [category, setCategory] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [publishToAllBranches, setPublishToAllBranches] = useState(
+    capabilities.uploadVisibilityScope === "all_branches",
+  );
 
   const locale = useLocale();
   const { data: categories = [] } = useDocumentCategories();
@@ -115,6 +123,7 @@ export function DocumentDropzone({
 
       setValidationError(null);
       setSelectedFile(file);
+      setPublishToAllBranches(capabilities.uploadVisibilityScope === "all_branches");
 
       const fileNameWithoutExt =
         file.name.substring(0, file.name.lastIndexOf(".")) || file.name;
@@ -127,7 +136,7 @@ export function DocumentDropzone({
         setPreviewUrl(null);
       }
     },
-    [validateFile]
+    [capabilities.uploadVisibilityScope, validateFile]
   );
 
   const handleDragOver = useCallback(
@@ -222,6 +231,10 @@ export function DocumentDropzone({
       description: description || undefined,
       categoryId: category,
       tags,
+      visibilityScope:
+        publishToAllBranches && capabilities.uploadVisibilityScope === "all_branches"
+          ? "all_branches"
+          : "branch",
     });
   };
 
@@ -303,14 +316,6 @@ export function DocumentDropzone({
       data-source-component="DocumentDropzone"
       className="w-full space-y-5"
     >
-      <div
-        data-component={`${dataComponent}_visibility-notice`}
-        className="rounded-[16px] border border-v3-border bg-v3-primary-light px-4 py-3 text-[0.76rem] font-semibold leading-5 text-v3-primary"
-      >
-        {capabilities.uploadVisibilityScope === "all_branches"
-          ? "오너가 올리는 파일은 모든 지점에서 볼 수 있습니다."
-          : "이 파일은 현재 지점에서만 볼 수 있습니다."}
-      </div>
       {validationError && (
         <Alert
           variant="destructive"
@@ -374,19 +379,12 @@ export function DocumentDropzone({
           <p className="max-w-xl text-[0.74rem] leading-5 text-v3-text-muted">
             PDF·이미지·한글은 화면에서 확인할 수 있고, 오피스·압축 파일은 안전하게 내려받아 확인합니다.
           </p>
-          <Badge
-            variant="outline"
-            className={cn(
-              "border-v3-border bg-v3-dim-white px-3 py-1 text-[0.68rem] font-semibold",
-              capabilities.uploadVisibilityScope === "all_branches"
-                ? "text-v3-primary"
-                : "text-v3-text-muted"
-            )}
-          >
-            {capabilities.uploadVisibilityScope === "all_branches"
-              ? "오너 업로드 · 모든 지점에 공개"
-              : "현재 지점에만 공개"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Globe2 className={DOCUMENT_VISIBILITY_ICON_CLASS_NAME} />
+            <span className={`${DOCUMENT_VISIBILITY_TEXT_CLASS_NAME} text-v3-primary`}>
+              공개 범위를 업로드 전에 선택할 수 있습니다
+            </span>
+          </div>
         </label>
       ) : (
         <div className="space-y-5">
@@ -538,6 +536,30 @@ export function DocumentDropzone({
                       ))}
                     </div>
                   )}
+                </TemplateFieldGridItem>
+
+                <TemplateFieldGridItem
+                  className="sm:col-span-2"
+                  dataComponent={`${dataComponent}_upload-form_details_visibility-field`}
+                >
+                  <FormSwitchRow
+                    data-component={`${dataComponent}_upload-form_details_visibility`}
+                    copyDataComponent={`${dataComponent}_upload-form_details_visibility-copy`}
+                    titleDataComponent={`${dataComponent}_upload-form_details_visibility-title`}
+                    descriptionDataComponent={`${dataComponent}_upload-form_details_visibility-description`}
+                    buttonDataComponent={`${dataComponent}_upload-form_details_visibility-switch`}
+                    thumbDataComponent={`${dataComponent}_upload-form_details_visibility-thumb`}
+                    title="모든 지점에 공개"
+                    description={
+                      publishToAllBranches
+                        ? "모든 지점에서 이 파일을 볼 수 있어요"
+                        : "현재 지점에서만 이 파일을 볼 수 있어요"
+                    }
+                    checked={publishToAllBranches}
+                    onToggle={() => setPublishToAllBranches((value) => !value)}
+                    disabled={isLoading || capabilities.uploadVisibilityScope !== "all_branches"}
+                    buttonAriaLabel="모든 지점에 공개"
+                  />
                 </TemplateFieldGridItem>
 
                 <TemplateFieldGridItem

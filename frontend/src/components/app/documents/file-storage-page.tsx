@@ -25,6 +25,7 @@ import { AddCategoryModal } from "@/components/app/documents/add-category-modal"
 import { formatDate } from "@/components/app/documents/document-list";
 import { getFileFormatLabel, isHangulDocument } from "@/components/app/documents/document-preview-utils";
 import { toast } from "@/hooks/use-toast";
+import type { DocumentVisibilityScope } from "@babyjamjam/shared/file-storage";
 
 const FILES_UPLOAD_FORM_ID = "files-upload-form";
 const DocumentPreviewModal = dynamic(
@@ -96,7 +97,7 @@ export function FileStoragePage() {
     return doc.categoryLabel ?? categories.find(c => c.id === doc.categoryId)?.label ?? "미분류";
   }
 
-  const handleUpload = async (params: { file: File; name: string; description?: string; categoryId: string; tags: string[] }) => {
+  const handleUpload = async (params: { file: File; name: string; description?: string; categoryId: string; tags: string[]; visibilityScope: DocumentVisibilityScope }) => {
     try {
       setUploadProgress(0);
       await uploadMutation.mutateAsync({ ...params, onProgress: (p: number) => setUploadProgress(p) });

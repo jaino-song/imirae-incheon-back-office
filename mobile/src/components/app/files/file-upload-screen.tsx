@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
+  Globe2,
   File as FileIcon,
   FileSpreadsheet,
   FileText,
@@ -16,6 +17,7 @@ import { useDocumentCategories } from "@/hooks/use-document-categories";
 import { useDocumentUploadCapabilities, useUploadDocument } from "@/hooks/use-documents";
 import { useNavigationPending } from "@/hooks/use-navigation-pending";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
 import {
   DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
   documentUploadAcceptValue,
@@ -106,6 +108,9 @@ export function FileUploadScreen() {
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [publishToAllBranches, setPublishToAllBranches] = useState(
+    capabilities.uploadVisibilityScope === "all_branches",
+  );
 
   const { data: fetchedCategories = [] } = useDocumentCategories();
 
@@ -153,8 +158,9 @@ export function FileUploadScreen() {
       setRelatedCustomer(nextCustomer);
       setDescription("");
       setTags(nextCategory ? inferTags(file.name, nextCategory.label) : []);
+      setPublishToAllBranches(capabilities.uploadVisibilityScope === "all_branches");
     },
-    [categories, selectedCategory, validateFile]
+    [capabilities.uploadVisibilityScope, categories, selectedCategory, validateFile]
   );
 
   const handleFileInputChange = useCallback(
@@ -199,6 +205,9 @@ export function FileUploadScreen() {
         description: description.trim() || undefined,
         categoryId: selectedCategory.id,
         tags: Array.from(new Set([...tags, relatedCustomer.trim()].filter(Boolean))).slice(0, MAX_DOCUMENT_TAGS),
+        visibilityScope: publishToAllBranches && capabilities.uploadVisibilityScope === "all_branches"
+          ? "all_branches"
+          : "branch",
         onProgress: setUploadProgress,
       });
       toast({ description: "문서를 업로드했어요", variant: "success" });
@@ -237,12 +246,11 @@ export function FileUploadScreen() {
         )}
 
         <div
-          data-component="mobile_files-upload_screen_root_scroll_visibility-notice"
+          data-component="mobile_files-upload_screen_root_scroll_visibility-hint"
           className={styles.visibilityNotice}
         >
-          {capabilities.uploadVisibilityScope === "all_branches"
-            ? "오너가 올리는 파일은 모든 지점에서 볼 수 있습니다."
-            : "이 파일은 현재 지점에서만 볼 수 있습니다."}
+          <Globe2 size={14} strokeWidth={2.5} />
+          공개 범위를 업로드 전에 선택할 수 있습니다
         </div>
 
         <div
@@ -368,6 +376,27 @@ export function FileUploadScreen() {
         </section>
 
         <section data-component="mobile_files-upload_screen_root_scroll_metadata-card" className={styles.formCard}>
+          <div
+            data-component="mobile_files-upload_screen_root_scroll_metadata-card_visibility-row"
+            className={styles.switchRow}
+          >
+            <div data-component="mobile_files-upload_screen_root_scroll_metadata-card_visibility-row_copy">
+              <strong data-component="mobile_files-upload_screen_root_scroll_metadata-card_visibility-row_title" className={styles.switchTitle}>
+                모든 지점에 공개
+              </strong>
+              <span data-component="mobile_files-upload_screen_root_scroll_metadata-card_visibility-row_description" className={styles.switchDescription}>
+                {publishToAllBranches ? "모든 지점에서 이 파일을 볼 수 있어요" : "현재 지점에서만 이 파일을 볼 수 있어요"}
+              </span>
+            </div>
+            <Switch
+              data-component="mobile_files-upload_screen_root_scroll_metadata-card_visibility-row_switch"
+              thumbDataComponent="mobile_files-upload_screen_root_scroll_metadata-card_visibility-row_switch-thumb"
+              checked={publishToAllBranches}
+              onCheckedChange={setPublishToAllBranches}
+              aria-label="모든 지점에 공개"
+              disabled={isUploading || capabilities.uploadVisibilityScope !== "all_branches"}
+            />
+          </div>
           <div data-component="mobile_files-upload_screen_root_scroll_metadata-card_customer-row" className={styles.formRow}>
             <label htmlFor="related-customer" className={styles.formLabel}>
               관련 고객

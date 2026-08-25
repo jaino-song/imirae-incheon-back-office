@@ -105,6 +105,9 @@
 }
 
 .visibilityNotice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid hsl(var(--v3-border));
   border-radius: 14px;
   background: hsl(var(--v3-primary-light));
@@ -113,6 +116,36 @@
   font-weight: 700;
   line-height: 1.45;
   padding: 10px 12px;
+}
+
+.switchRow {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1.5px solid hsl(var(--v3-border));
+  border-radius: 14px;
+  background: hsl(var(--v3-dim-white));
+}
+
+.switchTitle {
+  display: block;
+  color: hsl(var(--v3-dark));
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.switchDescription {
+  display: block;
+  margin-top: 3px;
+  color: hsl(var(--v3-text-muted));
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .dropzone {

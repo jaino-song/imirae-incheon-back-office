@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import {
     DEFAULT_DOCUMENT_UPLOAD_CAPABILITIES,
+    type DocumentVisibilityScope,
     type DocumentUploadCapabilities,
 } from "@babyjamjam/shared/file-storage";
 
@@ -32,6 +33,7 @@ export interface UploadDocumentParams {
     description?: string;
     categoryId: string;
     tags?: string[];
+    visibilityScope: DocumentVisibilityScope;
     onProgress?: (progress: number) => void;
 }
 
@@ -103,6 +105,7 @@ export function useUploadDocument() {
             description,
             categoryId,
             tags,
+            visibilityScope,
             onProgress,
         }: UploadDocumentParams) => {
             const formData = new FormData();
@@ -110,6 +113,7 @@ export function useUploadDocument() {
             if (name) formData.append("name", name);
             if (description) formData.append("description", description);
             formData.append("categoryId", categoryId);
+            formData.append("visibilityScope", visibilityScope);
             if (tags) formData.append("tags", JSON.stringify(tags));
 
             const { data } = await api.post<Document>("/file-storage/files", formData, {

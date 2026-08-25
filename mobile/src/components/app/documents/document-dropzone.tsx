@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import type { DocumentVisibilityScope } from "@babyjamjam/shared/file-storage";
 import {
   Select,
   SelectContent,
@@ -37,6 +39,7 @@ interface DocumentDropzoneProps {
     description?: string;
     categoryId: string;
     tags: string[];
+    visibilityScope: DocumentVisibilityScope;
   }) => Promise<void>;
   isLoading?: boolean;
   uploadProgress?: number;
@@ -48,6 +51,8 @@ export function DocumentDropzone({
   isLoading = false,
   uploadProgress = 0,
 }: DocumentDropzoneProps) {
+  const canPublishToAllBranches = true;
+  const [publishToAllBranches, setPublishToAllBranches] = useState(canPublishToAllBranches);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -92,6 +97,7 @@ export function DocumentDropzone({
 
       setValidationError(null);
       setSelectedFile(file);
+      setPublishToAllBranches(canPublishToAllBranches);
 
       const fileNameWithoutExt =
         file.name.substring(0, file.name.lastIndexOf(".")) || file.name;
@@ -104,7 +110,7 @@ export function DocumentDropzone({
         setPreviewUrl(null);
       }
     },
-    [validateFile]
+    [canPublishToAllBranches, validateFile]
   );
 
   const handleDragOver = useCallback(
@@ -187,6 +193,7 @@ export function DocumentDropzone({
       description: description || undefined,
       categoryId: category,
       tags,
+      visibilityScope: publishToAllBranches ? "all_branches" : "branch",
     });
   };
 
@@ -285,6 +292,23 @@ export function DocumentDropzone({
           </div>
 
           <div className="flex flex-col gap-4">
+            <div className="flex min-h-[54px] items-center justify-between gap-3 rounded-[14px] border-[1.5px] border-border bg-background p-3">
+              <div>
+                <p className="text-sm font-bold leading-tight text-foreground">모든 지점에 공개</p>
+                <p className="mt-[3px] text-xs font-semibold text-muted-foreground">
+                  {publishToAllBranches ? "모든 지점에서 이 파일을 볼 수 있어요" : "현재 지점에서만 이 파일을 볼 수 있어요"}
+                </p>
+              </div>
+              <Switch
+                data-component={`${dataComponent}_visibility-switch`}
+                thumbDataComponent={`${dataComponent}_visibility-switch-thumb`}
+                checked={publishToAllBranches}
+                onCheckedChange={setPublishToAllBranches}
+                aria-label="모든 지점에 공개"
+                disabled={isLoading || !canPublishToAllBranches}
+              />
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="doc-name">문서 제목 *</Label>
               <Input

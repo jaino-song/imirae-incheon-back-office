@@ -128,6 +128,28 @@ describe("file-storage API routes", () => {
     expect(forwardedFormData.get("name")).toBe("Document");
   });
 
+  it("forwards a validated upload visibility scope to the backend", async () => {
+    mockPost.mockResolvedValue({ status: 201, data: { id: "doc-1" } });
+
+    const response = await uploadFile(
+      createUploadRequest({ visibilityScope: "branch" }),
+    );
+
+    expect(response.status).toBe(201);
+    const forwardedFormData = mockPost.mock.calls[0][1] as FormData;
+    expect(forwardedFormData.get("visibilityScope")).toBe("branch");
+  });
+
+  it("rejects an invalid upload visibility scope before proxying", async () => {
+    const response = await uploadFile(
+      createUploadRequest({ visibilityScope: "everywhere" }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid upload metadata" });
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
   it("sanitizes an upstream validation error body instead of passing it through", async () => {
     mockPost.mockRejectedValue({
       response: {

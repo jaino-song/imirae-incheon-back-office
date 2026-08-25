@@ -24,6 +24,7 @@ const uploadMetadataSchema = z.object({
     description: z.string().max(2000).optional(),
     categoryId: z.string().trim().min(1).max(100).optional(),
     tags: z.string().max(2000).optional(),
+    visibilityScope: z.enum(["branch", "all_branches"]).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
             description: formData.get("description") ?? undefined,
             categoryId: formData.get("categoryId") ?? undefined,
             tags: formData.get("tags") ?? undefined,
+            visibilityScope: formData.get("visibilityScope") ?? undefined,
         });
         if (!metadataResult.success) {
             return NextResponse.json(
@@ -90,11 +92,12 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const { name, description, categoryId, tags } = metadataResult.data;
+        const { name, description, categoryId, tags, visibilityScope } = metadataResult.data;
         if (name) backendFormData.append("name", name);
         if (description) backendFormData.append("description", description);
         if (categoryId) backendFormData.append("categoryId", categoryId);
         if (tags) backendFormData.append("tags", tags);
+        if (visibilityScope) backendFormData.append("visibilityScope", visibilityScope);
 
         const response = await serverAPIClient.post("/documents/upload", backendFormData, {
             timeout: 120000,

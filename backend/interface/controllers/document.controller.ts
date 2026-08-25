@@ -178,6 +178,14 @@ export class DocumentController {
         if (validationError) throw new BadRequestException(validationError);
 
         const verifiedTenant = requireDocumentTenant(tenant);
+        const isOwner = verifiedTenant.globalRole === "owner";
+        const requestedVisibilityScope = dto.visibilityScope ??
+            (isOwner ? DOCUMENT_VISIBILITY_SCOPE.ALL_BRANCHES : DOCUMENT_VISIBILITY_SCOPE.BRANCH);
+
+        if (requestedVisibilityScope === DOCUMENT_VISIBILITY_SCOPE.ALL_BRANCHES && !isOwner) {
+            throw new ForbiddenException("only owners can publish documents to all branches");
+        }
+
         const documentName = dto.name?.trim() || file.originalname;
         if (documentName.length > 255) {
             throw new BadRequestException("document name must be 255 characters or fewer");
@@ -206,9 +214,7 @@ export class DocumentController {
                 storagepath: storagePath,
                 branchid: branchId,
                 uploadedby: verifiedTenant.userId,
-                visibilityScope: verifiedTenant.globalRole === "owner"
-                    ? DOCUMENT_VISIBILITY_SCOPE.ALL_BRANCHES
-                    : DOCUMENT_VISIBILITY_SCOPE.BRANCH,
+                visibilityScope: requestedVisibilityScope,
             });
         } catch (error) {
             // The object is already in storage, so a failed insert (claimed
