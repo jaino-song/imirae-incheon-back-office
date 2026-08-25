@@ -155,6 +155,49 @@ describe("ClientServiceRecordsTab", () => {
         );
     });
 
+    it("keeps card containers mounted while replacing only text values during refresh", () => {
+        const assignment = createAssignment(1, "none");
+        const { container, rerender } = render(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+                isRefreshing={false}
+                isTextRefreshing={false}
+            />,
+        );
+
+        const linkCard = container.querySelector<HTMLElement>(
+            `[data-component="${TEST_COMPONENT}_overview-grid_link-card"]`,
+        );
+        const sessionsCard = container.querySelector<HTMLElement>(
+            `[data-component="${TEST_COMPONENT}_sessions"]`,
+        );
+
+        expect(linkCard).toHaveTextContent("제공1");
+        expect(sessionsCard).toBeInTheDocument();
+
+        rerender(
+            <ClientServiceRecordsTab data-component={TEST_COMPONENT}
+                overview={{ assignments: [assignment] }}
+                clientId={100}
+                isLoading={false}
+                isError={false}
+                isRefreshing={false}
+                isTextRefreshing
+            />,
+        );
+
+        expect(linkCard).toBeInTheDocument();
+        expect(sessionsCard).toBeInTheDocument();
+        expect(linkCard).not.toHaveTextContent("제공1");
+        expect(linkCard).toHaveTextContent("제공인력 이름");
+        expect(linkCard).toHaveTextContent("링크 수동 전송");
+        expect(container.querySelectorAll('[data-slot="skeleton"].animate-pulse').length)
+            .toBeGreaterThan(0);
+    });
+
     it("renders the main link states", () => {
         const overview: ServiceRecordOverview = {
             assignments: [

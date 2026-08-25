@@ -133,7 +133,9 @@ export function useUpdateClient() {
 
       await queryClient.invalidateQueries({ queryKey: clientKeys.all });
       await queryClient.invalidateQueries({ queryKey: messageTriggerKeys.upcoming() });
-      await queryClient.invalidateQueries({ queryKey: serviceRecordKeys.clientOverview(id) });
+      await queryClient.refetchQueries({
+        queryKey: serviceRecordKeys.clientOverview(id),
+      });
     },
   });
 }

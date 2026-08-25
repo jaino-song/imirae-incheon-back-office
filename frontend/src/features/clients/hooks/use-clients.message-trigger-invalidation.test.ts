@@ -11,6 +11,7 @@ jest.mock("@tanstack/react-query", () => ({
 
 describe("client mutation message job invalidation", () => {
   const invalidateQueries = jest.fn();
+  const refetchQueries = jest.fn();
   const setQueriesData = jest.fn();
   const setQueryData = jest.fn();
 
@@ -19,6 +20,7 @@ describe("client mutation message job invalidation", () => {
     (useMutation as jest.Mock).mockImplementation((options) => options);
     (useQueryClient as jest.Mock).mockReturnValue({
       invalidateQueries,
+      refetchQueries,
       setQueriesData,
       setQueryData,
     });
@@ -34,7 +36,7 @@ describe("client mutation message job invalidation", () => {
     });
   });
 
-  it("invalidates upcoming jobs after updating a client", async () => {
+  it("invalidates upcoming jobs and refetches service records after updating a client", async () => {
     const mutation = useUpdateClient() as unknown as {
       onSuccess: (client: { id: number }, variables: { id: number }) => Promise<void>;
     };
@@ -44,7 +46,7 @@ describe("client mutation message job invalidation", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: messageTriggerKeys.upcoming(),
     });
-    expect(invalidateQueries).toHaveBeenCalledWith({
+    expect(refetchQueries).toHaveBeenCalledWith({
       queryKey: serviceRecordKeys.clientOverview(42),
     });
   });

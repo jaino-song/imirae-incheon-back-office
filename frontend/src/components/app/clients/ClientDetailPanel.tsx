@@ -979,6 +979,7 @@ function ClientDetailPanelBody({
                                         serviceRecordsQuery.isFetching
                                         && !serviceRecordsQuery.isLoading
                                     }
+                                    isTextRefreshing={serviceRecordsQuery.isRefetching}
                                     onRefresh={() => void serviceRecordsQuery.refetch()}
                                 />
                             ),
