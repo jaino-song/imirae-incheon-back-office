@@ -6,12 +6,15 @@ import {
     NotFoundException,
     NotImplementedException,
 } from "@nestjs/common";
+import { plainToInstance } from "class-transformer";
+import { validate as validateDto } from "class-validator";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { ClientService } from "application/services/client.service";
 import { normalizePhone } from "application/utils/normalize-phone";
 import { PROPOSAL_FIELDS } from "application/services/call-extraction.prompt";
 import {
     ConfirmDraftDto,
+    ConfirmNewClientFieldsDto,
     ConfirmNewClientDraftDto,
     PatchClientDraftDto,
 } from "interface/dto/call-inbox.dto";
@@ -27,6 +30,26 @@ export class CallInboxService {
         private readonly prismaService: PrismaService,
         private readonly clientService: ClientService,
     ) {}
+
+    private async validateNewClientFields(rawFields: unknown): Promise<ConfirmNewClientFieldsDto> {
+        if (rawFields === null || typeof rawFields !== "object" || Array.isArray(rawFields)) {
+            throw new BadRequestException("fields is required for NEW_CLIENT");
+        }
+
+        const fields = plainToInstance(ConfirmNewClientFieldsDto, rawFields);
+        const errors = await validateDto(fields, {
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            forbidUnknownValues: true,
+        });
+        if (errors.length > 0) {
+            const messages = errors.flatMap((error) => Object.values(error.constraints ?? {}));
+            throw new BadRequestException({
+                message: messages.length > 0 ? messages : ["Invalid NEW_CLIENT fields"],
+            });
+        }
+        return fields;
+    }
 
     // ── call records ──────────────────────────────────────────────
 
@@ -250,7 +273,11 @@ export class CallInboxService {
         if (draft.type !== "NEW_CLIENT") {
             throw new NotImplementedException("CLIENT_UPDATE confirm ships in Phase 2");
         }
-        return this.confirmNewClientWithDraft(branchId, userId, id, draft, dto);
+        const fields = await this.validateNewClientFields(dto.fields);
+        return this.confirmNewClientWithDraft(branchId, userId, id, draft, {
+            ...dto,
+            fields,
+        });
     }
 
     /** Claim a pending draft under a target-version lock before confirmation side effects. */
@@ -262,13 +289,24 @@ export class CallInboxService {
         expectedTargetVersion: string,
     ) {
         const prepared = await this.prismaService.$transaction(async (transaction) => {
+            // Validate NEW_CLIENT input before acquiring the row lock. The
+            // second read below still protects the target-version check from
+            // a concurrent draft change between validation and locking.
+            const observed = await transaction.client_draft.findFirst({ where: { id, branchId } });
+            if (!observed || observed.status !== "PENDING" || draftTargetVersion(observed) !== expectedTargetVersion) {
+                throw new ConflictException("Draft changed after approval; review a new proposal");
+            }
+            const newClientFields = observed.type === "NEW_CLIENT"
+                ? await this.validateNewClientFields(dto.fields)
+                : undefined;
+
             await this.lockDraftForUpdate(transaction, branchId, id);
             const current = await transaction.client_draft.findFirst({ where: { id, branchId } });
             if (!current || current.status !== "PENDING" || draftTargetVersion(current) !== expectedTargetVersion) {
                 throw new ConflictException("Draft changed after approval; review a new proposal");
             }
-            if (current.type === "NEW_CLIENT" && (!dto.fields || typeof dto.fields !== "object")) {
-                throw new BadRequestException("fields is required for NEW_CLIENT");
+            if (current.type === "NEW_CLIENT" && newClientFields === undefined) {
+                throw new ConflictException("Draft changed after approval; review a new proposal");
             }
             const clientUpdateChanges = current.type === "CLIENT_UPDATE"
                 ? this.prepareClientUpdateChanges(current, dto.changes)
@@ -281,12 +319,12 @@ export class CallInboxService {
                 data: { status: "CONFIRMING", confirmingStartedAt: new Date() },
             });
             if (locked.count !== 1) throw new ConflictException("Draft already reviewed");
-            return { draft: current, clientUpdateChanges };
+            return { draft: current, clientUpdateChanges, newClientFields };
         });
 
         if (prepared.draft.type === "NEW_CLIENT") {
             return this.confirmNewClientWithDraft(branchId, userId, id, prepared.draft, {
-                fields: dto.fields as Record<string, unknown>,
+                fields: prepared.newClientFields!,
                 suppressGreetingSms: dto.suppressGreetingSms,
             }, true);
         }
@@ -301,7 +339,7 @@ export class CallInboxService {
         userId: string,
         id: string,
         draft: { callRecordId: string },
-        dto: { fields: Record<string, unknown>; suppressGreetingSms?: boolean },
+        dto: { fields: ConfirmNewClientFieldsDto; suppressGreetingSms?: boolean },
         alreadyLocked = false,
     ) {
         // optimistic lock BEFORE side effects: only one caller flips PENDING→CONFIRMING.
@@ -319,28 +357,28 @@ export class CallInboxService {
 
         let createdClientId: number | null = null;
         try {
-            const fields = dto.fields as Record<string, unknown>;
+            const fields = dto.fields;
             const client = await this.clientService.create(branchId, {
-                name: String(fields["name"] ?? ""),
-                address: (fields["address"] as string | null | undefined) ?? null,
-                phone: (fields["phone"] as string | null | undefined) ?? null,
-                type: (fields["type"] as string | null | undefined) ?? null,
-                duration: (fields["duration"] as number | null | undefined) ?? null,
-                fullPrice: (fields["fullPrice"] as string | null | undefined) ?? null,
-                grant: (fields["grant"] as string | null | undefined) ?? null,
-                actualPrice: (fields["actualPrice"] as string | null | undefined) ?? null,
-                startDate: (fields["startDate"] as string | null | undefined) ?? null,
-                endDate: (fields["endDate"] as string | null | undefined) ?? null,
-                careCenter: Boolean(fields["careCenter"]),
-                voucherClient: Boolean(fields["voucherClient"]),
-                birthday: (fields["birthday"] as string | null | undefined) ?? null,
-                dueDate: (fields["dueDate"] as string | null | undefined) ?? null,
-                birthDate: (fields["birthDate"] as string | null | undefined) ?? null,
-                serviceStatus: (fields["serviceStatus"] as string | null | undefined) ?? null,
-                breastPump: Boolean(fields["breastPump"]),
-                areaId: (fields["areaId"] as string | null | undefined) ?? null,
-                primaryEmployeeId: (fields["primaryEmployeeId"] as number | null | undefined) ?? null,
-                secondaryEmployeeId: (fields["secondaryEmployeeId"] as number | null | undefined) ?? null,
+                name: fields.name,
+                address: fields.address ?? null,
+                phone: fields.phone ?? null,
+                type: fields.type ?? null,
+                duration: fields.duration ?? null,
+                fullPrice: fields.fullPrice ?? null,
+                grant: fields.grant ?? null,
+                actualPrice: fields.actualPrice ?? null,
+                startDate: fields.startDate ?? null,
+                endDate: fields.endDate ?? null,
+                careCenter: fields.careCenter ?? false,
+                voucherClient: fields.voucherClient ?? false,
+                birthday: fields.birthday ?? null,
+                dueDate: fields.dueDate ?? null,
+                birthDate: fields.birthDate ?? null,
+                serviceStatus: fields.serviceStatus ?? null,
+                breastPump: fields.breastPump ?? false,
+                areaId: fields.areaId ?? null,
+                primaryEmployeeId: fields.primaryEmployeeId ?? null,
+                secondaryEmployeeId: fields.secondaryEmployeeId ?? null,
                 suppressGreetingSms: dto.suppressGreetingSms ?? false,
             });
             createdClientId = client.id;
@@ -382,11 +420,9 @@ export class CallInboxService {
     async confirm(branchId: string, userId: string, id: string, dto: ConfirmDraftDto) {
         const draft = await this.requirePendingDraft(branchId, id);
         if (draft.type === "NEW_CLIENT") {
-            if (!dto.fields || typeof dto.fields !== "object") {
-                throw new BadRequestException("fields is required for NEW_CLIENT");
-            }
+            const fields = await this.validateNewClientFields(dto.fields);
             return this.confirmNewClientWithDraft(branchId, userId, id, draft, {
-                fields: dto.fields,
+                fields,
                 suppressGreetingSms: dto.suppressGreetingSms,
             });
         }
