@@ -198,6 +198,12 @@ function stableViolationRecords(records) {
     .map(([, record]) => record);
 }
 
+function sortedViolationRecords(records) {
+  return (records ?? [])
+    .map(normalizeViolationRecord)
+    .sort((left, right) => compareStrings(recordIdentity(left), recordIdentity(right)));
+}
+
 function isIdentityPlatform(value) {
   if (Array.isArray(value)) {
     return true;
@@ -256,6 +262,92 @@ function serializeIdentityPlatform(records) {
   }
 
   return stableSort(grouped);
+}
+
+function rawPlatformCounts(violations) {
+  const counts = new Map();
+  const records = Array.isArray(violations)
+    ? violations.map(normalizeViolationRecord)
+    : identityRecords(violations);
+
+  for (const record of records) {
+    const key = `${record.file}\u001f${record.ruleId}`;
+    const existing = counts.get(key);
+    counts.set(key, {
+      file: record.file,
+      ruleId: record.ruleId,
+      count: (existing?.count ?? 0) + 1,
+    });
+  }
+
+  return counts;
+}
+
+function legacyCapMap(legacyPlatform) {
+  const caps = new Map();
+
+  for (const [file, rules] of Object.entries(legacyPlatform ?? {})) {
+    const normalizedFile = normalizeRepoRelativePath(file);
+    for (const [ruleId, cap] of Object.entries(rules ?? {})) {
+      const key = `${normalizedFile}\u001f${ruleId}`;
+      if (caps.has(key) && caps.get(key) !== cap) {
+        throw new Error(
+          `Cannot migrate: legacy baseline has conflicting caps for ${normalizedFile} ${ruleId}.`,
+        );
+      }
+      caps.set(key, cap);
+    }
+  }
+
+  return caps;
+}
+
+export function migrateLegacyBaseline(current, legacyBaseline, platforms = VALID_PLATFORMS) {
+  const migrated = { ...legacyBaseline };
+
+  for (const platform of platforms) {
+    const legacyPlatform = legacyBaseline?.[platform];
+    if (!legacyPlatform || Array.isArray(legacyPlatform)) {
+      throw new Error(`Cannot migrate ${platform}: legacy baseline is missing.`);
+    }
+
+    const currentRecords = identityRecords(current?.[platform] ?? []);
+    const currentCounts = rawPlatformCounts(current?.[platform] ?? []);
+    const legacyCaps = legacyCapMap(legacyPlatform);
+
+    for (const [key, current] of currentCounts) {
+      const legacyCap = legacyCaps.get(key);
+
+      if (legacyCap === undefined) {
+        throw new Error(
+          `Cannot migrate ${platform}: current finding ${current.file} ${current.ruleId} ` +
+            "is not covered by the legacy baseline.",
+        );
+      }
+
+      if (!Number.isInteger(legacyCap) || legacyCap < 0) {
+        throw new Error(
+          `Cannot migrate ${platform}: legacy cap for ${current.file} ${current.ruleId} ` +
+            "must be a non-negative integer.",
+        );
+      }
+
+      if (current.count > legacyCap) {
+        throw new Error(
+          `Cannot migrate ${platform}: current count ${current.count} for ${current.file} ` +
+            `${current.ruleId} exceeds legacy cap ${legacyCap}.`,
+        );
+      }
+    }
+
+    migrated[platform] = serializeIdentityPlatform(currentRecords);
+  }
+
+  if (VALID_PLATFORMS.every((platform) => platforms.includes(platform))) {
+    migrated.version = IDENTITY_BASELINE_VERSION;
+  }
+
+  return migrated;
 }
 
 export function violationIdentity({
@@ -375,7 +467,7 @@ function collectPlatformViolations(platform) {
     }
   }
 
-  return stableViolationRecords(violations);
+  return sortedViolationRecords(violations);
 }
 
 function collectViolations(platforms) {
@@ -584,7 +676,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const platforms = args.platform ? [args.platform] : VALID_PLATFORMS;
   const current = collectViolations(platforms);
-  const baseline = readBaseline();
+  let baseline = readBaseline();
   const comparison = compareViolations(current, baseline, platforms);
 
   if (args.update) {
@@ -595,11 +687,24 @@ function main() {
       );
     }
 
-    for (const platform of platforms) {
-      baseline[platform] = serializeIdentityPlatform(current[platform] ?? []);
+    const legacyPlatforms =
+      baseline.version === IDENTITY_BASELINE_VERSION
+        ? []
+        : platforms.filter((platform) => !isIdentityPlatform(baseline[platform]));
+    if (legacyPlatforms.length > 0) {
+      baseline = migrateLegacyBaseline(current, baseline, legacyPlatforms);
     }
 
-    if (VALID_PLATFORMS.every((platform) => isIdentityPlatform(baseline[platform]))) {
+    for (const platform of platforms) {
+      if (!legacyPlatforms.includes(platform)) {
+        baseline[platform] = serializeIdentityPlatform(current[platform] ?? []);
+      }
+    }
+
+    if (
+      baseline.version === IDENTITY_BASELINE_VERSION ||
+      VALID_PLATFORMS.every((platform) => isIdentityPlatform(baseline[platform]))
+    ) {
       baseline.version = IDENTITY_BASELINE_VERSION;
     }
 
