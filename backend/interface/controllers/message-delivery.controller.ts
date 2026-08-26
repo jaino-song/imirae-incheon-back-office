@@ -4,6 +4,7 @@ import {
     Body,
     Controller,
     Logger,
+    NotFoundException,
     Post,
     ServiceUnavailableException,
     UseGuards,
@@ -37,6 +38,7 @@ export class MessageDeliveryController {
     ) {
         const triggerType = dto.triggerType ?? "immediate";
         const branchId = tenant.branchId ?? "";
+        await this.assertClientBelongsToBranch(branchId, dto.clientId);
         this.logger.log(
             `[SMS] Request received: branchId=${branchId || "unknown"}, triggerType=${triggerType}, recipientCount=${this.countSmsRecipients(dto.receiver)}`,
         );
@@ -181,6 +183,21 @@ export class MessageDeliveryController {
                 nextRetryAt: null,
             },
         });
+    }
+
+    private async assertClientBelongsToBranch(
+        branchId: string,
+        clientId?: number,
+    ): Promise<void> {
+        if (clientId === undefined) return;
+
+        const client = await this.prisma.client.findFirst({
+            where: { id: clientId, branchId },
+            select: { id: true },
+        });
+        if (!client) {
+            throw new NotFoundException("Client not found for branch");
+        }
     }
 
     private async updateSmsLogFromResult(
