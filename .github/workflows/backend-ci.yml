@@ -91,8 +91,8 @@ jobs:
           AGENT_RELEASE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           AGENT_CUTOVER_MANIFEST_JSON: ${{ secrets.AGENT_CUTOVER_MANIFEST_JSON }}
 
-      - name: Protect legacy surfaces without protected evidence on pull requests
-        if: github.event_name == 'pull_request'
+      - name: Protect legacy surfaces without protected evidence on pull requests or merge queue
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         run: pnpm --filter ./backend run agent:cutover:guard
         env:
           AGENT_RELEASE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
