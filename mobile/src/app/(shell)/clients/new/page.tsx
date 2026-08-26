@@ -15,6 +15,7 @@ import {
   useAllVoucherPrices,
   useOutOfPocketPriceInfos,
   useVoucherPriceInfos,
+  useVoucherYears,
   type VoucherPriceInfo,
 } from "@/hooks/useVoucherData";
 import type { CreateClientDto, ServiceStatus, UpdateClientDto } from "@/lib/client/types";
@@ -43,6 +44,7 @@ import { parsePositiveIntQueryParam } from "@/lib/query-params";
 import { buildClientEditPrefillFromEformsignDocument } from "@/lib/eformsign/client-prefill";
 import { eformsignApi } from "@/services/api";
 import { cn } from "@/lib/utils";
+import { resolveVoucherLookupYear } from "./voucher-year";
 import styles from "./page.module.css";
 
 const PHONE_DUPLICATE_CHECK_MAX_RETRIES = 3;
@@ -199,7 +201,27 @@ export default function NewClientPage() {
   const updateClient = useUpdateClient();
   const { data: editingClient } = useClient(editingClientId ?? 0);
   const { data: employees = [], isLoading: isEmployeesLoading } = useEmployees();
-  const voucherLookupYear = isEditMode ? new Date().getFullYear() : undefined;
+  const store = useClientWizardStore();
+  const {
+    currentStep,
+    pricesManuallyEdited,
+    voucherYear,
+    setField,
+    setCurrentStep,
+    setPricesManuallyEdited,
+    setVoucherYear,
+    reset,
+  } = store;
+  const { data: voucherYears = [] } = useVoucherYears();
+  const resolvedVoucherYear = useMemo(
+    () => voucherYear ?? resolveVoucherLookupYear(store.endDate, voucherYears),
+    [store.endDate, voucherYear, voucherYears],
+  );
+  const voucherYearOptions = useMemo(
+    () => voucherYears.map((year) => ({ value: String(year), label: `${year}년` })),
+    [voucherYears],
+  );
+  const voucherLookupYear = isEditMode ? resolvedVoucherYear : undefined;
   const {
     data: allVoucherPrices = [],
     isLoading: isAllVoucherPricesLoading,
@@ -209,9 +231,6 @@ export default function NewClientPage() {
   const prefillClient = useClientDialogStore((s) => s.prefillClient);
   const clearPrefillName = useClientDialogStore((s) => s.clearPrefillName);
   const clearPrefillClient = useClientDialogStore((s) => s.clearPrefillClient);
-
-  const store = useClientWizardStore();
-  const { currentStep, pricesManuallyEdited, setField, setCurrentStep, setPricesManuallyEdited, reset } = store;
 
   const [isEmployeeDialogOpen, setIsEmployeeDialogOpen] = useState(false);
   const [employeeDialogTarget, setEmployeeDialogTarget] = useState<"primary" | "secondary" | null>(null);
@@ -531,7 +550,10 @@ export default function NewClientPage() {
     };
   }, [phoneDigits, isUsingOriginalPhone]);
 
-  const { data: voucherPriceInfos, isLoading: isPriceLoading } = useVoucherPriceInfos(store.type || "");
+  const { data: voucherPriceInfos, isLoading: isPriceLoading } = useVoucherPriceInfos(
+    store.type || "",
+    resolvedVoucherYear,
+  );
   const {
     data: outOfPocketPriceInfos,
     isLoading: isOutOfPocketPriceLoading,
@@ -643,6 +665,17 @@ export default function NewClientPage() {
 
   const handleTypeChange = (newType: string) => {
     setField("type", newType);
+    setField("duration", null);
+    if (!pricesManuallyEdited) {
+      setField("fullPrice", "");
+      setField("grant", "");
+      setField("actualPrice", "");
+    }
+  };
+
+  const handleVoucherYearChange = (newYear: string) => {
+    const parsedYear = Number(newYear);
+    setVoucherYear(Number.isNaN(parsedYear) ? null : parsedYear);
     setField("duration", null);
     if (!pricesManuallyEdited) {
       setField("fullPrice", "");
@@ -938,6 +971,14 @@ export default function NewClientPage() {
                     <div className={styles.formCardTitle} data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_card-title">
                       {store.voucherClient ? "바우처" : "자부담"}
                     </div>
+                    {store.voucherClient ? <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-year-field" label="바우처 연도">
+                      <FormNativeSelect
+                        data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-year-field_select-wrap"
+                        value={resolvedVoucherYear.toString()}
+                        onValueChange={handleVoucherYearChange}
+                        options={voucherYearOptions}
+                      />
+                    </Field> : null}
                     {store.voucherClient ? <Field data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field" label="바우처 유형">
                       <FormNativeSelect
                         data-component="mobile_clients-new_screen_root_page_wizard_form-scroll_voucher-card_voucher-type-field_select-wrap"
