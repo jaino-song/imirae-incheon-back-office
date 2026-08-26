@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
+import { CreateEmployeeUsecase } from "application/usecases/employee/create-employee.usecase";
+
 import {
     EformsignContractClientPrefillCandidate,
     extractEformsignContractClientPrefillCandidate,
@@ -7,6 +9,7 @@ import {
     toEformsignDocumentDetail,
 } from "application/utils/eformsign-contract-client-candidate";
 import { normalizePhone } from "application/utils/normalize-phone";
+import { countBusinessDaysKr } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
 
 /**
@@ -48,7 +51,10 @@ export interface EformsignContractClientCandidateResponse {
  */
 @Injectable()
 export class GetContractClientCandidateUsecase {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly createEmployee: CreateEmployeeUsecase,
+    ) {}
 
     async execute(
         documentId: string,
@@ -75,8 +81,12 @@ export class GetContractClientCandidateUsecase {
         const employeeIds = candidate
             ? await this.resolveProviderEmployeeIds(candidate, branchId)
             : { primaryEmployeeId: null, secondaryEmployeeId: null };
+        const resolvedProvider = {
+            primary: employeeIds.primaryEmployeeId !== null,
+            secondary: employeeIds.secondaryEmployeeId !== null,
+        };
         const voucherSelection = candidate
-            ? await this.resolveVoucherSelection(candidate)
+            ? await this.resolveVoucherSelection(candidate, resolvedProvider.primary)
             : null;
         if (!candidate) {
             return {
@@ -113,8 +123,8 @@ export class GetContractClientCandidateUsecase {
             startDate: toDateOnly(candidate.startDate),
             endDate: toDateOnly(candidate.endDate),
             ...employeeIds,
-            type: voucherSelection?.type ?? candidate.type,
-            duration: voucherSelection?.duration ?? candidate.duration,
+                type: voucherSelection?.type ?? candidate.type,
+                duration: voucherSelection?.duration ?? candidate.duration,
             fullPrice: candidate.fullPrice,
             grant: candidate.grant,
             actualPrice: candidate.actualPrice,
@@ -169,19 +179,60 @@ export class GetContractClientCandidateUsecase {
         };
 
         return {
-            primaryEmployeeId: resolve(providers[0]!),
+            primaryEmployeeId:
+                resolve(providers[0]!) ?? await this.createMissingProvider(branchId, providers[0]!),
             secondaryEmployeeId: resolve(providers[1]!),
         };
     }
 
+    private async createMissingProvider(
+        branchId: string,
+        provider: { name: string | null; phone: string | null },
+    ): Promise<number | null> {
+        if (!branchId || !provider.name || !provider.phone) return null;
+
+        try {
+            const employee = await this.createEmployee.execute(
+                branchId,
+                provider.name.trim(),
+                ["미지정"],
+                formatNormalizedKoreanPhone(provider.phone),
+                "스탠다드",
+                true,
+            );
+            return employee.id;
+        } catch (error) {
+            // A concurrent registration can win the unique phone constraint. Re-read
+            // the canonical row instead of failing the read-only-looking prefill.
+            if (!(error instanceof Error && error.message.includes("Unique constraint"))) throw error;
+            const existing = await this.prisma.employee.findFirst({
+                where: {
+                    branchId,
+                    phone: normalizePhone(provider.phone) ?? undefined,
+                    deletedAt: null,
+                },
+                select: { id: true },
+            });
+            return existing?.id ?? null;
+        }
+    }
+
     private async resolveVoucherSelection(
         candidate: EformsignContractClientPrefillCandidate,
+        hasResolvedPrimaryProvider = false,
     ): Promise<{ type: string; duration: number } | null> {
         if (!candidate.voucherClient || (candidate.type && candidate.duration)) return null;
         const year = (candidate.startDate ?? candidate.endDate)?.getUTCFullYear();
         const amounts = [candidate.fullPrice, candidate.grant, candidate.actualPrice]
             .filter((value): value is string => Boolean(value));
         if (!year || amounts.length < 2) return null;
+
+        const businessDayDuration = candidate.startDate && candidate.endDate
+            ? countBusinessDaysKr(
+                candidate.startDate.toISOString().slice(0, 10),
+                candidate.endDate.toISOString().slice(0, 10),
+            )
+            : null;
 
         const priceRows = await this.prisma.voucher_price_info.findMany({
             where: { year },
@@ -197,6 +248,7 @@ export class GetContractClientCandidateUsecase {
             if (!row.type || row.duration == null) return false;
             if (candidate.type && row.type !== candidate.type) return false;
             if (candidate.duration && Number(row.duration) !== candidate.duration) return false;
+            if (!candidate.duration && !hasResolvedPrimaryProvider && businessDayDuration && Number(row.duration) !== businessDayDuration) return false;
             return (
                 (!candidate.fullPrice || numericAmount(row.fullPrice) === candidate.fullPrice)
                 && (!candidate.grant || numericAmount(row.grant) === candidate.grant)
