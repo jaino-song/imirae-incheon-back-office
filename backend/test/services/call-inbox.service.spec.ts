@@ -1,10 +1,12 @@
 import { BadRequestException, ConflictException, NotFoundException, NotImplementedException } from "@nestjs/common";
 import { CallInboxService } from "application/services/call-inbox.service";
+import { ConfirmDraftDto, ConfirmNewClientDraftDto } from "interface/dto/call-inbox.dto";
 import { createHash } from "node:crypto";
 
 describe("CallInboxService", () => {
     const prisma = {
         $transaction: jest.fn(),
+        $queryRawUnsafe: jest.fn(),
         call_record: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
         client_draft: {
             findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn(),
@@ -54,6 +56,109 @@ describe("CallInboxService", () => {
         }));
         expect(prisma.call_record.update).toHaveBeenCalledWith(expect.objectContaining({
             data: expect.objectContaining({ matchedClientId: 77 }),
+        }));
+    });
+
+    const expectNoNewClientSideEffects = () => {
+        expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+        expect(prisma.client_draft.update).not.toHaveBeenCalled();
+        expect(prisma.call_record.update).not.toHaveBeenCalled();
+        expect(clientService.create).not.toHaveBeenCalled();
+    };
+
+    it("confirmNewClient: rejects an empty or whitespace-only name before claiming the draft", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(
+            service.confirmNewClient("branch-1", "user-1", "draft-1", {
+                fields: { name: "   ", careCenter: false, voucherClient: false, breastPump: false },
+            }),
+        ).rejects.toThrow(BadRequestException);
+
+        expectNoNewClientSideEffects();
+    });
+
+    it.each(["careCenter", "voucherClient", "breastPump"])(
+        "confirmNewClient: rejects a string boolean for %s before claiming the draft",
+        async (field) => {
+            prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+            await expect(
+                service.confirmNewClient("branch-1", "user-1", "draft-1", {
+                    fields: {
+                        name: "김서연",
+                        careCenter: false,
+                        voucherClient: true,
+                        breastPump: false,
+                        [field]: "false",
+                    },
+                }),
+            ).rejects.toThrow(BadRequestException);
+
+            expectNoNewClientSideEffects();
+        },
+    );
+
+    it.each([
+        ["invalid date", { dueDate: "tomorrow" }],
+        ["invalid calendar birthday", { birthday: "260231" }],
+        ["invalid service status", { serviceStatus: "not-a-status" }],
+        ["invalid area form", { areaId: 123 }],
+        ["invalid numeric form", { duration: "7" }],
+        ["invalid phone form", { phone: { value: "01012345678" } }],
+        ["invalid pricing form", { fullPrice: 12345 }],
+        ["unknown nested key", { unexpected: "reject-me" }],
+    ])("confirmNewClient: rejects %s before any durable mutation", async (_label, invalidField) => {
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(
+            service.confirmNewClient("branch-1", "user-1", "draft-1", {
+                fields: {
+                    name: "김서연",
+                    careCenter: false,
+                    voucherClient: true,
+                    breastPump: false,
+                    ...invalidField,
+                } as unknown as ConfirmNewClientDraftDto["fields"],
+            } as ConfirmNewClientDraftDto),
+        ).rejects.toThrow(BadRequestException);
+
+        expectNoNewClientSideEffects();
+    });
+
+    it("confirmNewClient: accepts explicit booleans while optional fields remain omitted", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.create.mockResolvedValue({ id: 77 });
+
+        await expect(service.confirmNewClient("branch-1", "user-1", "draft-1", {
+            fields: { name: "김서연", voucherClient: true, breastPump: false },
+        })).resolves.toEqual({ clientId: 77 });
+
+        expect(clientService.create).toHaveBeenCalledWith("branch-1", expect.objectContaining({
+            name: "김서연",
+            careCenter: false,
+            voucherClient: true,
+            breastPump: false,
+        }));
+    });
+
+    it("confirmNewClient: preserves false defaults when optional booleans are omitted", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.create.mockResolvedValue({ id: 77 });
+
+        await expect(service.confirmNewClient("branch-1", "user-1", "draft-1", {
+            fields: { name: "김서연" },
+        })).resolves.toEqual({ clientId: 77 });
+
+        expect(clientService.create).toHaveBeenCalledWith("branch-1", expect.objectContaining({
+            careCenter: false,
+            voucherClient: false,
+            breastPump: false,
         }));
     });
 
@@ -354,12 +459,40 @@ describe("CallInboxService", () => {
         });
     });
 
+    describe("confirmApprovedTarget NEW_CLIENT validation", () => {
+        const expectedVersion = () => createHash("sha256").update(JSON.stringify(pendingDraft)).digest("hex");
+
+        it("rejects malformed fields before claiming the approved draft", async () => {
+            prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+            clientService.create.mockResolvedValue({ id: 77 });
+
+            await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                fields: { name: "김서연", voucherClient: "false" },
+            } as unknown as ConfirmDraftDto, expectedVersion())).rejects.toThrow(BadRequestException);
+
+            expectNoNewClientSideEffects();
+            expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+        });
+    });
+
     it("confirm dispatch: NEW_CLIENT without fields → 400", async () => {
         prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
 
         await expect(
             service.confirm("branch-1", "user-1", "draft-1", { changes: { startDate: "2026-06-23" } }),
         ).rejects.toThrow(BadRequestException);
+    });
+
+    it("confirm dispatch: malformed NEW_CLIENT fields are rejected before claiming the draft", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(service.confirm("branch-1", "user-1", "draft-1", {
+            fields: { name: "김서연", careCenter: "false" },
+        } as unknown as ConfirmDraftDto)).rejects.toThrow(BadRequestException);
+
+        expectNoNewClientSideEffects();
     });
 
     it("confirm dispatch: CLIENT_UPDATE without changes → 400", async () => {
