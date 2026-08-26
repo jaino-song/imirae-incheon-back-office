@@ -7,7 +7,7 @@ host. The host does not build application images.
 
 | Branch | Deployment credential | Runtime | Approval |
 |---|---|---|---|
-| `preview` | branch-scoped preview role | preview backend | automatic after CI |
+| `preview` | branch-scoped preview role | preview backend | automatic after CI, or manual dispatch from `preview` |
 | `main` | branch-scoped production role | production backend | `production` environment required reviewer |
 
 The deploy job receives temporary AWS credentials through GitHub OIDC. Its
@@ -21,6 +21,41 @@ preview and production roles can each invoke only their fixed SSM document on a
 managed node with the configured `DeploymentTarget` tag. The workflow refuses
 to send a command unless that tag resolves to exactly one online managed node.
 
+Manual workflow dispatch is deployment-capable only when the selected ref is
+exactly `preview` and the required `deploy_preview` input is enabled. A manual
+run on any other ref performs CI without building or deploying a Lightsail
+image. Manual dispatch never enters the production deployment lane.
+
+## Location-independent IAM preview operations
+
+The `agent-lightsail-operator` IAM user can inspect and deploy Preview from any
+network through Systems Manager after this template is applied. Public SSH is
+not involved. The stack attaches an inline policy to the existing
+`agent-lightsail-operators` group that can invoke only the fixed Preview status
+and deploy documents, only against the managed node carrying the configured
+`DeploymentTarget` tag. It cannot invoke the production document or the
+general-purpose `AWS-RunShellScript` document.
+
+Set the non-secret document names from the matching CloudFormation outputs in
+the calling shell, then run the repository operator:
+
+```bash
+export AWS_PREVIEW_STATUS_DOCUMENT_NAME='<PreviewStatusDocumentName output>'
+export AWS_PREVIEW_DEPLOY_DOCUMENT_NAME='<PreviewDeployDocumentName output>'
+
+backend/deploy/lightsail/agent-preview-ssm.sh status
+backend/deploy/lightsail/agent-preview-ssm.sh deploy \
+  '<full preview commit SHA>' \
+  '<immutable sha256 image digest>'
+```
+
+The operator pins profile `agent-lightsail-operator`, region `ap-northeast-2`,
+and the Preview deployment target. It rejects malformed release identities,
+unexpected IAM principals, multiple or offline managed nodes, non-healthy
+runtime output, production, arbitrary SSM documents, and SSH fallback. The
+deploy candidate must already have been built and published by the GitHub image
+job; this command never builds an image on the host.
+
 ## One-time activation checklist
 
 Every step below changes external state and requires the Lightsail operational
@@ -33,7 +68,9 @@ approval gate before execution.
 2. Deploy `github-oidc-ssm.yaml`, passing the existing provider ARN and the
    fixed `ManagedNodeTagValue=babyjamjam-admin-server`. Keep the CloudFormation
    stack as the source of truth for roles, the shared managed-node tag, and SSM
-   documents.
+   documents. Because the template declares named IAM resources, include
+   CloudFormation capability `CAPABILITY_NAMED_IAM`. Applying or updating this
+   stack is a separate AWS state change and requires its own exact approval.
 3. Create a short-lived Systems Manager hybrid activation using the stack's
    `ManagedNodeServiceRoleName`. Attach the same `DeploymentTarget` tag, install
    the SSM agent on the Lightsail host, verify exactly one online managed node,
@@ -74,6 +111,12 @@ approval gate before execution.
    - `AWS_PRODUCTION_DEPLOY_ROLE_ARN`
    - `AWS_PRODUCTION_DEPLOY_DOCUMENT_NAME`
    - `LIGHTSAIL_SSM_TARGET_TAG`
+
+   Record `PreviewStatusDocumentName` as the non-secret local
+   `AWS_PREVIEW_STATUS_DOCUMENT_NAME` value for the IAM operator. Updating the
+   stack also attaches `AgentLightsailPreviewSsmDeployment` to the existing
+   `agent-lightsail-operators` group; verify the group exists before applying
+   the stack.
 
 8. Run the workflow manually on a non-deploying branch to validate CI, then
    merge through `dev` to `preview`. Verify image provenance, container health,

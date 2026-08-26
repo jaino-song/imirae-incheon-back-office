@@ -13,6 +13,12 @@ Parameters:
       - babyjamjam-admin-server
     Description: Fixed DeploymentTarget tag on the single shared SSM managed Lightsail node.
     AllowedPattern: "^[A-Za-z0-9._:/=+@-]{1,128}$"
+  AgentOperatorGroupName:
+    Type: String
+    Default: agent-lightsail-operators
+    AllowedValues:
+      - agent-lightsail-operators
+    Description: Existing least-privilege IAM group allowed to invoke only preview SSM documents.
 
 Resources:
   ManagedNodeServiceRole:
@@ -52,6 +58,23 @@ Resources:
               timeoutSeconds: "1800"
               runCommand:
                 - '/usr/local/sbin/babyjamjam-ci-operator deploy preview "{{ CommitSha }}" "{{ ImageDigest }}"'
+
+  PreviewStatusDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Read the validated BabyJamJam preview backend status.
+        mainSteps:
+          - action: aws:runShellScript
+            name: readPreviewStatus
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - '/usr/local/sbin/babyjamjam-ci-operator status preview'
 
   ProductionDeployDocument:
     Type: AWS::SSM::Document
@@ -201,6 +224,36 @@ Resources:
                   - ssm:ListCommandInvocations
                 Resource: "*"
 
+  AgentPreviewSsmPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AgentLightsailPreviewSsmDeployment
+      Groups:
+        - !Ref AgentOperatorGroupName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: UseFixedPreviewDocuments
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewDeployDocument}
+              - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${PreviewStatusDocument}
+          - Sid: TargetPreviewDeploymentNode
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:managed-instance/*
+            Condition:
+              StringEquals:
+                "ssm:resourceTag/DeploymentTarget": !Ref ManagedNodeTagValue
+          - Sid: ObservePreviewCommand
+            Effect: Allow
+            Action:
+              - ssm:DescribeInstanceInformation
+              - ssm:GetCommandInvocation
+              - ssm:ListCommandInvocations
+            Resource: "*"
+
 Outputs:
   DeploymentTargetTagValue:
     Description: Set as the LIGHTSAIL_SSM_TARGET_TAG GitHub repository variable.
@@ -214,6 +267,9 @@ Outputs:
   PreviewDeployDocumentName:
     Description: Set as the AWS_PREVIEW_DEPLOY_DOCUMENT_NAME GitHub repository variable.
     Value: !Ref PreviewDeployDocument
+  PreviewStatusDocumentName:
+    Description: Set as AWS_PREVIEW_STATUS_DOCUMENT_NAME for the IAM preview operator.
+    Value: !Ref PreviewStatusDocument
   ProductionDeployRoleArn:
     Description: Set as the AWS_PRODUCTION_DEPLOY_ROLE_ARN GitHub repository variable.
     Value: !GetAtt ProductionDeployRole.Arn

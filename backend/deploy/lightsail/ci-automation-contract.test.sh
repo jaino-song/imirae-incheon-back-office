@@ -12,6 +12,7 @@ DEPLOY_SCRIPT="$SCRIPT_DIR/deploy.sh"
 EDGE_SCRIPT="$SCRIPT_DIR/deploy-edge.sh"
 CI_OPERATOR="$SCRIPT_DIR/ci-operator.sh"
 PREVIEW_OPERATOR="$SCRIPT_DIR/operator-preview.sh"
+AGENT_SSM_OPERATOR="$SCRIPT_DIR/agent-preview-ssm.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -69,6 +70,7 @@ assert_compose_env_isolation() {
 
 [[ -r "$INFRASTRUCTURE_TEMPLATE" ]] || fail "missing OIDC/SSM template"
 [[ -r "$INSTALLER" ]] || fail "missing CI operator installer"
+[[ -r "$AGENT_SSM_OPERATOR" ]] || fail "missing IAM preview SSM operator"
 
 assert_contains "$INSTALLER" '^#!/bin/bash$' "installer must use the fixed root Bash interpreter"
 
@@ -80,6 +82,11 @@ assert_contains "$WORKFLOW" 'persist-credentials:[[:space:]]*false' "checkout cr
 assert_contains "$WORKFLOW" 'cache-to:[[:space:]]*type=gha' "workflow must cache Docker layers"
 assert_contains "$WORKFLOW" 'aws ssm send-command' "workflow must deploy through SSM"
 assert_contains "$WORKFLOW" 'aws ssm describe-instance-information' "workflow must preflight a unique online SSM node"
+assert_contains "$WORKFLOW" 'StandardErrorContent' "workflow must retrieve sanitized SSM failure diagnostics"
+assert_contains "$WORKFLOW" 'workflow_dispatch:' "workflow must expose a manual dispatch surface"
+assert_contains "$WORKFLOW" 'deploy_preview:' "manual deployment must require an explicit preview input"
+assert_contains "$WORKFLOW" "github\.event_name == 'workflow_dispatch'.*github\.ref_name == 'preview'" "manual deployment must be preview-only"
+assert_not_contains "$WORKFLOW" "github\.event_name == 'workflow_dispatch'.*github\.ref_name == 'main'" "manual dispatch must not deploy production"
 assert_contains "$WORKFLOW" 'max-concurrency[[:space:]]+1' "SSM must execute on at most one target at a time"
 assert_contains "$WORKFLOW" 'schedulers_enabled' "deployment verification must check scheduler ownership"
 assert_contains "$WORKFLOW" 'environment:[[:space:]]*$' "workflow must use GitHub environments"
@@ -111,6 +118,10 @@ assert_contains "$INFRASTRUCTURE_TEMPLATE" 'allowedPattern:[[:space:]]*"\^\[0-9a
 assert_contains "$INFRASTRUCTURE_TEMPLATE" 'allowedPattern:[[:space:]]*"\^sha256:\[0-9a-f\]\{64\}\$"' "SSM document must validate image digest"
 assert_contains "$INFRASTRUCTURE_TEMPLATE" '/usr/local/sbin/babyjamjam-ci-operator deploy preview' "preview document must fix the target environment"
 assert_contains "$INFRASTRUCTURE_TEMPLATE" '/usr/local/sbin/babyjamjam-ci-operator deploy production' "production document must fix the target environment"
+assert_contains "$INFRASTRUCTURE_TEMPLATE" 'PreviewStatusDocument:' "preview status document must be defined"
+assert_contains "$INFRASTRUCTURE_TEMPLATE" '/usr/local/sbin/babyjamjam-ci-operator status preview' "preview status document must fix the target environment"
+assert_contains "$INFRASTRUCTURE_TEMPLATE" 'AgentPreviewSsmPolicy:' "agent IAM policy must be source-controlled"
+assert_contains "$INFRASTRUCTURE_TEMPLATE" 'AgentOperatorGroupName:' "agent IAM group must be a fixed template parameter"
 assert_contains "$INFRASTRUCTURE_TEMPLATE" 'PreviewDbReconcileDocument:' "preview reconcile document must be defined"
 assert_contains "$INFRASTRUCTURE_TEMPLATE" 'ProductionDbReconcileDocument:' "production reconcile document must be defined"
 assert_contains "$INFRASTRUCTURE_TEMPLATE" 'Name:[[:space:]]*babyjamjam-preview-db-failover' "preview reconcile document name must be fixed for the worker"
@@ -126,8 +137,23 @@ assert_contains "$INFRASTRUCTURE_TEMPLATE" 'allowedPattern:[[:space:]]*"\^\[0-9a
 assert_not_contains "$INFRASTRUCTURE_TEMPLATE" 'db-reconcile.*CommitSha\|db-reconcile.*ImageDigest' "reconcile documents must not accept deployment parameters"
 preview_deploy_role_section="$(sed -n '/^  PreviewDeployRole:/,/^  ProductionDeployRole:/p' "$INFRASTRUCTURE_TEMPLATE")"
 production_deploy_role_section="$(sed -n '/^  ProductionDeployRole:/,/^Outputs:/p' "$INFRASTRUCTURE_TEMPLATE")"
+agent_preview_policy_section="$(sed -n '/^  AgentPreviewSsmPolicy:/,/^Outputs:/p' "$INFRASTRUCTURE_TEMPLATE")"
 assert_text_not_contains "$preview_deploy_role_section" 'DbReconcileDocument' "preview deploy role must not gain failover document access"
 assert_text_not_contains "$production_deploy_role_section" 'DbReconcileDocument' "production deploy role must not gain failover document access"
+assert_text_contains "$agent_preview_policy_section" 'PreviewDeployDocument' "agent policy must allow the fixed preview deploy document"
+assert_text_contains "$agent_preview_policy_section" 'PreviewStatusDocument' "agent policy must allow the fixed preview status document"
+assert_text_contains "$agent_preview_policy_section" 'ssm:resourceTag/DeploymentTarget' "agent policy must retain target tag scoping"
+assert_text_not_contains "$agent_preview_policy_section" 'ProductionDeployDocument|AWS-RunShellScript' "agent policy must not allow production or arbitrary shell documents"
+
+assert_contains "$AGENT_SSM_OPERATOR" '^#!/usr/bin/env bash$' "IAM preview SSM operator must use env bash"
+assert_contains "$AGENT_SSM_OPERATOR" 'agent-lightsail-operator' "IAM preview SSM operator must pin the least-privilege profile"
+assert_contains "$AGENT_SSM_OPERATOR" 'ap-northeast-2' "IAM preview SSM operator must pin the region"
+assert_contains "$AGENT_SSM_OPERATOR" 'AWS_PREVIEW_DEPLOY_DOCUMENT_NAME' "IAM preview SSM operator must require the fixed deploy document"
+assert_contains "$AGENT_SSM_OPERATOR" 'AWS_PREVIEW_STATUS_DOCUMENT_NAME' "IAM preview SSM operator must require the fixed status document"
+assert_contains "$AGENT_SSM_OPERATOR" 'refs/heads/preview:refs/remotes/origin/preview' "IAM preview SSM operator must refresh the exact preview ref"
+assert_contains "$AGENT_SSM_OPERATOR" 'ssm send-command' "IAM preview SSM operator must use SSM"
+assert_contains "$AGENT_SSM_OPERATOR" 'StandardErrorContent' "IAM preview SSM operator must retrieve sanitized failure diagnostics"
+assert_not_contains "$AGENT_SSM_OPERATOR" 'AWS-RunShellScript|production|ssh[[:space:]]' "IAM preview SSM operator must not expose arbitrary shell, production, or SSH"
 
 assert_contains "$INSTALLER" 'root:root' "CI operator must remain root-owned"
 assert_contains "$INSTALLER" '0750' "CI operator must not be executable by unprivileged users"
