@@ -23,6 +23,7 @@ jest.mock("@sentry/nestjs", () => ({
 }));
 
 import {
+    captureBackendError,
     capturePrismaError,
     captureServiceRecordError,
     filterAndSanitizeSentryEvent,
@@ -38,9 +39,10 @@ describe("service-record backend Sentry contract", () => {
         jest.clearAllMocks();
     });
 
-    it("keeps service-record 5xx and drops 4xx or unrelated failures", () => {
+    it("keeps actionable 5xx failures and drops expected 4xx failures", () => {
         const serviceRecordEvent: ErrorEvent = {
             type: undefined,
+            tags: { feature: "service-records", operation: "context" },
             request: { url: "/service-record/context?token=secret" },
         };
 
@@ -48,6 +50,7 @@ describe("service-record backend Sentry contract", () => {
             serviceRecordEvent,
             { originalException: new ServiceUnavailableException() },
         )).toMatchObject({
+            tags: { feature: "service-records", operation: "context" },
             request: {
                 url: "/service-record/context",
                 data: undefined,
@@ -60,9 +63,100 @@ describe("service-record backend Sentry contract", () => {
             { originalException: new BadRequestException() },
         )).toBeNull();
         expect(filterAndSanitizeSentryEvent(
-            { type: undefined, request: { url: "/clients" } },
+            {
+                type: undefined,
+                message: "backend failure email=person@example.com password=secret",
+                tags: {
+                    feature: "clients",
+                    operation: "list",
+                    email: "person@example.com",
+                },
+                user: { id: "client-1", email: "person@example.com" },
+                request: {
+                    url: "/clients?email=person@example.com&token=secret",
+                    data: { password: "secret", body: "raw request body" },
+                    query_string: "email=person@example.com&token=secret",
+                    cookies: { session: "secret" },
+                    env: { DATABASE_URL: rawDatabaseSecret },
+                    headers: {
+                        authorization: "Bearer secret",
+                        "user-agent": "test",
+                    },
+                },
+                contexts: {
+                    request: { phone: "01012345678", detail: "raw detail" },
+                },
+                extra: { databaseUrl: rawDatabaseSecret },
+            },
             { originalException: new ServiceUnavailableException() },
-        )).toBeNull();
+        )).toMatchObject({
+            message: "Backend failure",
+            tags: { feature: "backend", operation: "list" },
+            user: undefined,
+            request: {
+                url: "/clients",
+                data: undefined,
+                query_string: undefined,
+                cookies: undefined,
+                env: undefined,
+                headers: {
+                    authorization: "[Filtered]",
+                    "user-agent": "test",
+                },
+            },
+        });
+
+        const genericResult = filterAndSanitizeSentryEvent(
+            {
+                type: undefined,
+                message: "backend failure email=person@example.com password=secret",
+                request: { url: "/clients?email=person@example.com&token=secret" },
+            },
+            { originalException: new ServiceUnavailableException() },
+        );
+        expect(JSON.stringify(genericResult)).not.toContain("person@example.com");
+        expect(JSON.stringify(genericResult)).not.toContain("password=secret");
+        expect(JSON.stringify(genericResult)).not.toContain("db.example.test");
+    });
+
+    it("redacts generic exception details while retaining safe stack metadata", () => {
+        const result = filterAndSanitizeSentryEvent(
+            {
+                type: undefined,
+                exception: {
+                    values: [{
+                        type: "Error",
+                        value: "password=secret email=person@example.com",
+                        stacktrace: {
+                            frames: [{
+                                filename: "/app/backend/clients.controller.ts",
+                                function: "listClients",
+                                lineno: 42,
+                                vars: { password: "secret", body: "private" },
+                            }],
+                        },
+                    }],
+                },
+                request: { url: "/clients/77" },
+            },
+            { originalException: new ServiceUnavailableException() },
+        );
+
+        expect(result).not.toBeNull();
+        expect(result?.exception?.values?.[0]).toMatchObject({
+            value: "Backend failure",
+            stacktrace: {
+                frames: [{
+                    filename: "/app/backend/clients.controller.ts",
+                    function: "listClients",
+                    lineno: 42,
+                    vars: undefined,
+                }],
+            },
+        });
+        expect(JSON.stringify(result)).not.toContain("person@example.com");
+        expect(JSON.stringify(result)).not.toContain("password=secret");
+        expect(JSON.stringify(result)).not.toContain("private");
     });
 
     it("removes request PII and access tokens from accepted events", () => {
@@ -233,6 +327,27 @@ describe("service-record backend Sentry contract", () => {
         });
     });
 
+    it("captures a non-service backend failure once with safe taxonomy", () => {
+        const error = new Error("private backend details");
+        captureBackendError(error, {
+            operation: "http",
+            handled: false,
+            statusCode: 503,
+        });
+        captureBackendError(error, {
+            operation: "different-operation",
+            handled: true,
+        });
+
+        expect(mockCaptureException).toHaveBeenCalledTimes(1);
+        expect(mockScope.setTag).toHaveBeenCalledWith("feature", "backend");
+        expect(mockScope.setTag).toHaveBeenCalledWith("operation", "http");
+        expect(mockScope.setTag).toHaveBeenCalledWith("status_code", "503");
+        expect(mockCaptureException.mock.calls[0]?.[0]).toMatchObject({
+            message: "Backend failure",
+        });
+    });
+
     it("captures Prisma taxonomy with route and eligibility tags but no raw error details", () => {
         const error = new Error("postgresql://user:password@db.example.test:5432/app?secret=value");
         const previousEnvironment = process.env["SENTRY_ENVIRONMENT"];
@@ -263,7 +378,7 @@ describe("service-record backend Sentry contract", () => {
         else process.env["SENTRY_ENVIRONMENT"] = previousEnvironment;
     });
 
-    it("captures only service-record HTTP 5xx through the NestJS exception filter", () => {
+    it("captures HTTP 5xx through the NestJS exception filter but not expected 4xx", () => {
         const reply = jest.fn();
         const filter = new ServiceRecordSentryExceptionFilter({
             httpAdapter: {
@@ -272,7 +387,7 @@ describe("service-record backend Sentry contract", () => {
                 isHeadersSent: jest.fn(() => false),
             },
         } as unknown as HttpAdapterHost);
-        const host = {
+        const serviceRecordHost = {
             getType: () => "http",
             getArgByIndex: (index: number) => index === 0
                 ? { originalUrl: "/service-record/context", url: "/service-record/context" }
@@ -286,12 +401,28 @@ describe("service-record backend Sentry contract", () => {
             }),
         } as unknown as ArgumentsHost;
 
-        filter.catch(new ServiceUnavailableException(), host);
-        filter.catch(new BadRequestException(), host);
+        const genericHost = {
+            getType: () => "http",
+            getArgByIndex: (index: number) => index === 0
+                ? { originalUrl: "/clients", url: "/clients" }
+                : {},
+            switchToHttp: () => ({
+                getRequest: () => ({
+                    originalUrl: "/clients",
+                    url: "/clients",
+                }),
+                getResponse: () => ({}),
+            }),
+        } as unknown as ArgumentsHost;
 
-        expect(mockCaptureException).toHaveBeenCalledTimes(1);
+        filter.catch(new ServiceUnavailableException(), serviceRecordHost);
+        filter.catch(new BadRequestException(), serviceRecordHost);
+        filter.catch(new ServiceUnavailableException(), genericHost);
+        filter.catch(new BadRequestException(), genericHost);
+
+        expect(mockCaptureException).toHaveBeenCalledTimes(2);
         expect(mockScope.setTag).toHaveBeenCalledWith("status_code", "503");
-        expect(reply).toHaveBeenCalledTimes(2);
+        expect(reply).toHaveBeenCalledTimes(4);
     });
 
     it("samples service-record performance at 10 percent in production", () => {
@@ -304,6 +435,27 @@ describe("service-record backend Sentry contract", () => {
             attributes: {},
             inheritOrSampleWith: (rate: number) => rate,
         })).toBe(0.1);
+
+        expect(options.tracesSampler?.({
+            name: "GET /clients/:id",
+            attributes: {},
+            inheritOrSampleWith: (rate: number) => rate,
+        })).toBe(0.1);
+
+        expect(options.beforeSendTransaction?.({
+            type: "transaction",
+            transaction: "GET /clients/77?email=person@example.com",
+            request: { url: "/clients/77?email=person@example.com" },
+        }, {})).toMatchObject({
+            transaction: "GET /clients/77",
+            request: { url: "/clients/77" },
+        });
+
+        expect(options.beforeSendTransaction?.({
+            type: "transaction",
+            transaction: "GET /clients/77",
+            contexts: { response: { status_code: 400 } },
+        }, {})).toBeNull();
 
         if (previousEnvironment === undefined) delete process.env["SENTRY_ENVIRONMENT"];
         else process.env["SENTRY_ENVIRONMENT"] = previousEnvironment;
