@@ -158,7 +158,7 @@ export class ServiceRecordEntryService {
 
     /**
      * Create/update one session record. Sessions are filled in order; submitted sessions
-     * remain editable until finalization, while their service date and first signature stay immutable.
+     * are immutable after client approval and locking.
      */
     async upsertSession(ctx: ServiceRecordTokenContext, sessionIndex: number, dto: UpsertSessionDto, lock: boolean) {
         const aggregate = await this.resolveCase(ctx);
@@ -205,8 +205,8 @@ export class ServiceRecordEntryService {
                     },
                 },
             });
-            if (existing?.locked && existing.serviceDate.getTime() !== serviceDate.getTime()) {
-                throw new BadRequestException({ code: "SERVICE_DATE_IMMUTABLE" });
+            if (existing?.locked) {
+                throw new ConflictException({ code: "SERVICE_RECORD_SESSION_LOCKED" });
             }
 
             if (sessionIndex > 1) {
