@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { refreshAppAuthSession } from "@/lib/api/client";
 import { safeStorageGetItem, safeStorageRemoveItem, safeStorageSetItem } from "@/lib/safe-storage";
+import { extractClientRegistrationDraft } from "@/lib/client/client-registration-extraction";
 
 export interface ChatMessage {
     role: "user" | "assistant";
@@ -14,6 +15,13 @@ export interface ChatMessage {
         clientName?: string;
         documentStatus?: string | null;
         serviceStatus?: string | null;
+        registrationDraft?: {
+            name?: string;
+            phone?: string;
+            birthday?: string;
+            address?: string;
+            dueDate?: string;
+        };
         type: "clientRegistrationWizard" | "clientRegistrationSuccess" | "contractSendWizard" | "contractStatusWizard" | "contractStatusResponse";
     };
 }
@@ -119,6 +127,21 @@ const WIZARD_MARKERS: Record<string, ChatMessage["ui"]> = {
     "[계약서 전송 위자드 표시됨]": { type: "contractSendWizard" },
     "[계약서 상태 조회 위자드 표시됨]": { type: "contractStatusWizard" },
 };
+
+const CLIENT_REGISTRATION_TRIGGER = /산모\s*등록|고객\s*등록/;
+
+function clientRegistrationAssistantContent(draft: ReturnType<typeof extractClientRegistrationDraft>): string {
+    const labels = {
+        phone: "연락처",
+        birthday: "생년월일 (YYMMDD)",
+        address: "주소",
+        dueDate: "출산 예정일 (YYMMDD)",
+    } as const;
+
+    return draft.missingFields.length === 0
+        ? "[산모 등록 위자드 표시됨]"
+        : `[산모 등록 위자드 표시됨] ${draft.missingFields.map((field) => `${labels[field]} 알려주세요.`).join(" ")}`;
+}
 
 function restoreMessageUI(msg: ChatMessage): ChatMessage {
     if (msg.role !== "assistant") return msg;
@@ -303,8 +326,9 @@ export function useChatStream(): UseChatStreamReturn {
         setLastMessage(trimmed);
 
         // Local command intercepts (no SSE call)
-        if (trimmed === "산모 등록") {
+        if (CLIENT_REGISTRATION_TRIGGER.test(trimmed)) {
             const ts = new Date().toISOString();
+            const draft = extractClientRegistrationDraft(trimmed);
             setError(null);
             setIsToolExecuting(false);
             setCurrentTool(null);
@@ -319,11 +343,11 @@ export function useChatStream(): UseChatStreamReturn {
                     role: "assistant",
                     content: "",
                     timestamp: ts,
-                    ui: { type: "clientRegistrationWizard" },
+                    ui: { registrationDraft: draft, type: "clientRegistrationWizard" },
                 },
             ]);
             // persist to backend (fire and forget)
-            persistMessage(trimmed, "[산모 등록 위자드 표시됨]");
+            persistMessage(trimmed, clientRegistrationAssistantContent(draft));
             setState("idle");
             return;
         }

@@ -22,6 +22,7 @@ import { AlertCircle } from "lucide-react";
 import { useVoucherPriceInfos, useVoucherYears } from "@/hooks/useVoucherData";
 import { useCreateClient } from "@/hooks/useClients";
 import type { CreateClientDto } from "@/lib/client/types";
+import type { ClientRegistrationDraft } from "@/lib/client/client-registration-extraction";
 import {
     buildCanonicalClientRegistrationBasics,
     formatKoreanPhoneNumber,
@@ -37,6 +38,7 @@ export type CreatedClient = {
 };
 
 interface ClientRegistrationWizardProps {
+    initialDraft?: ClientRegistrationDraft;
     onCreated?: (client: CreatedClient) => void;
 }
 
@@ -50,15 +52,18 @@ function formatPrice(price: string): string {
     return num.toLocaleString("ko-KR");
 }
 
-export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizardProps) {
+export function ClientRegistrationWizard({
+    initialDraft,
+    onCreated,
+}: ClientRegistrationWizardProps) {
     const createClientMutation = useCreateClient();
     const [activeStep, setActiveStep] = useState(0);
 
-    const [name, setName] = useState("");
-    const [phone, setPhone] = useState("");
-    const [birthday, setBirthday] = useState("");
-    const [address, setAddress] = useState("");
-    const [dueDate, setDueDate] = useState("");
+    const [name, setName] = useState(initialDraft?.name ?? "");
+    const [phone, setPhone] = useState(initialDraft?.phone ? formatKoreanPhoneNumber(initialDraft.phone) : "");
+    const [birthday, setBirthday] = useState(initialDraft?.birthday ?? "");
+    const [address, setAddress] = useState(initialDraft?.address ?? "");
+    const [dueDate, setDueDate] = useState(initialDraft?.dueDate ?? "");
 
     const [voucherClient, setVoucherClient] = useState(true);
     const { data: voucherYears = [], isLoading: isVoucherYearsLoading } = useVoucherYears();
@@ -209,7 +214,9 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
                     산모 등록
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                    필요한 정보만 빠르게 입력해 등록할 수 있어요.
+                    {initialDraft
+                        ? "대화에서 받은 정보를 채웠어요. 부족한 항목을 입력해 주세요."
+                        : "필요한 정보만 빠르게 입력해 등록할 수 있어요."}
                 </p>
             </div>
 
