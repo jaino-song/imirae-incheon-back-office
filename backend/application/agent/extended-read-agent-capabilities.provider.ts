@@ -273,8 +273,14 @@ export class ExtendedReadAgentCapabilitiesProvider implements AgentCapabilityPro
                         throw new AgentActionCertainFailureError("Target changed after approval; review a new proposal");
                     }
                     if (name.endsWith("markRead")) {
+                        const existingRecord = existing && typeof existing === "object" && !Array.isArray(existing)
+                            ? existing as Record<string, unknown>
+                            : null;
+                        if (existingRecord?.["readAt"] !== null && existingRecord?.["readAt"] !== undefined) {
+                            return { status: "updated", id: input.id };
+                        }
                         const updated = await transactionModel.updateMany({
-                            where: { branchId: context.principal.branchId, id: input.id },
+                            where: { branchId: context.principal.branchId, id: input.id, readAt: null },
                             data: { readAt: new Date() },
                         });
                         if (updated.count !== 1) throw new AgentActionCertainFailureError("Target is no longer available");
