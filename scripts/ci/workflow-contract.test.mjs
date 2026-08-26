@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { test } from "node:test";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,33 @@ const WORKSPACE_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..
 
 async function readWorkflow(fileName) {
     return readFile(resolve(WORKSPACE_ROOT, ".github/workflows", fileName), "utf8");
+}
+
+async function workflowFiles() {
+    const names = await readdir(resolve(WORKSPACE_ROOT, ".github/workflows"));
+    return names.filter((name) => name.endsWith(".yml") || name.endsWith(".yaml")).sort();
+}
+
+function externalActionReferences(workflow, fileName) {
+    return workflow.split("\n").flatMap((line, index) => {
+        const match = line.match(/^\s*(?:-\s+)?uses:\s+([^\s#]+)(?:\s+#\s*(.*))?$/);
+        if (!match || match[1].startsWith("./")) {
+            return [];
+        }
+
+        return [{ fileName, line: index + 1, reference: match[1], comment: match[2]?.trim() ?? "" }];
+    });
+}
+
+function externalServiceImages(workflow, fileName) {
+    return workflow.split("\n").flatMap((line, index) => {
+        const match = line.match(/^\s*image:\s+([^\s#]+)(?:\s+#\s*(.*))?$/);
+        if (!match || match[1].startsWith("./")) {
+            return [];
+        }
+
+        return [{ fileName, line: index + 1, reference: match[1], comment: match[2]?.trim() ?? "" }];
+    });
 }
 
 function jobBlock(workflow, jobId, fileName) {
@@ -183,6 +210,30 @@ test("full-flow gate invokes only the local stubbed harness with bounded runtime
     assert.doesNotMatch(workflow, /secrets\./, "stubbed full-flow CI must not require provider secrets");
     assert.doesNotMatch(workflow, /continue-on-error:/, "full-flow failures must remain visible");
     assertUsesPinnedActions(workflow, "backend-full-flow-ci.yml");
+});
+
+test("all external workflow actions and service images use immutable references with release labels", async () => {
+    const files = await workflowFiles();
+    const workflows = await Promise.all(files.map(async (fileName) => ({
+        fileName,
+        content: await readWorkflow(fileName),
+    })));
+    const actions = workflows.flatMap(({ fileName, content }) => externalActionReferences(content, fileName));
+    const images = workflows.flatMap(({ fileName, content }) => externalServiceImages(content, fileName));
+
+    assert.ok(actions.length > 0, "workflow inventory must contain external actions");
+    for (const action of actions) {
+        const atIndex = action.reference.lastIndexOf("@");
+        assert.ok(atIndex > 0, `${action.fileName}:${action.line} action must pin a ref: ${action.reference}`);
+        assert.match(action.reference.slice(atIndex + 1), /^[0-9a-f]{40}$/, `${action.fileName}:${action.line} action ref must be a full commit SHA`);
+        assert.match(action.comment, /^v?[0-9]+(?:\.[0-9]+)+(?:[-+][A-Za-z0-9.-]+)?$/, `${action.fileName}:${action.line} action SHA must retain its human-readable release tag comment`);
+    }
+
+    assert.ok(images.length > 0, "workflow inventory must contain service images");
+    for (const image of images) {
+        assert.match(image.reference, /^[^@\s]+@sha256:[0-9a-f]{64}$/, `${image.fileName}:${image.line} service image must pin a full digest`);
+        assert.match(image.comment, /^[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$/, `${image.fileName}:${image.line} image digest must retain its human-readable release tag comment`);
+    }
 });
 
 test("database patch credentials are step-scoped and never reach setup or installation", async () => {
