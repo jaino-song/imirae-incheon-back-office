@@ -36,6 +36,7 @@ on:
       - 'pnpm-workspace.yaml'
       - 'scripts/ci/**'
       - '.github/workflows/mobile-unit-ci.yml'
+  merge_group:
 
 permissions:
   contents: read
@@ -66,7 +67,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Workflow contract tests
-        run: node --test scripts/ci/workflow-contract.test.mjs
+        run: node --test scripts/ci/workflow-contract.test.mjs scripts/ci/aggregate-gate.test.mjs
 
       - name: Unit tests
         run: pnpm --filter ./mobile test
