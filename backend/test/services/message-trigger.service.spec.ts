@@ -2764,6 +2764,67 @@ describe("MessageTriggerService", () => {
         );
     });
 
+    it("cancels the old pending assignment job before rebuilding the current schedule generation", async () => {
+        jest.useFakeTimers().setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
+        try {
+            const employeeRule = createRule({
+                id: "rule-employee-update",
+                eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+                offsetType: MessageTriggerOffsetType.IMMEDIATE,
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+            });
+            const pendingOldGeneration = createJob({
+                id: "job-employee-old-generation",
+                ruleId: employeeRule.id,
+                employeeScheduleId: 77,
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+            });
+            const sync = createEmployeeSyncService({
+                startDate: new Date("2026-08-04T00:00:00.000Z"),
+            });
+            sync.ruleRepository.findActiveByEventTypes.mockResolvedValue([employeeRule]);
+            sync.jobRepository.findPendingByRuleIdsAndEmployeeScheduleId.mockResolvedValue([
+                pendingOldGeneration,
+            ]);
+
+            await sync.service.syncEmployeeAssignmentRulesForSchedule(branchId, 77, true);
+
+            expect(pendingOldGeneration.status).toBe("canceled");
+            expect(pendingOldGeneration.cancelReason).toBe("Employee assignment changed");
+            expect(sync.jobRepository.upsertPending).toHaveBeenCalledTimes(1);
+            const rebuilt = sync.jobRepository.upsertPending.mock.calls[0]?.[0] as MessageTriggerJobEntity;
+            expect(rebuilt).toMatchObject({
+                employeeScheduleId: 77,
+                recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+                scheduledFor: new Date("2026-08-01T00:00:00.000Z"),
+                payload: {
+                    employeeId: 30,
+                    templateVariables: { serviceStartDate: "2026-08-04" },
+                },
+            });
+            const cancellationCall = sync.jobRepository.cancelPendingForRuleGeneration.mock.invocationCallOrder[0];
+            const rebuildCall = sync.jobRepository.upsertPending.mock.invocationCallOrder[0];
+            expect(cancellationCall).toBeDefined();
+            expect(rebuildCall).toBeDefined();
+            expect(cancellationCall!).toBeLessThan(rebuildCall!);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it("does not cancel or rebuild assignment jobs while sender approval is absent", async () => {
+        const sync = createEmployeeSyncService();
+        sync.messageSenderApprovalService.isApproved.mockResolvedValue(false);
+
+        await sync.service.syncEmployeeAssignmentRulesForSchedule(branchId, 77, true);
+
+        expect(sync.prisma.employee_schedule.findFirst).not.toHaveBeenCalled();
+        expect(sync.jobRepository.cancelPendingForRuleGeneration).not.toHaveBeenCalled();
+        expect(sync.jobRepository.upsertPending).not.toHaveBeenCalled();
+    });
+
     it("re-approving a schedule change for the same employee does not create a second assignment job", async () => {
         const employeeRule = createRule({
             id: "rule-employee-assigned",

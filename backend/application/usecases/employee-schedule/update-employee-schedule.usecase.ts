@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
 
@@ -21,9 +22,10 @@ export class UpdateEmployeeScheduleUsecase {
     async execute(
         branchid: string,
         id: number,
-        updates: UpdateEmployeeScheduleParams
+        updates: UpdateEmployeeScheduleParams,
+        transaction?: Prisma.TransactionClient,
     ): Promise<EmployeeScheduleEntity> {
-        const schedule = await this.employeeScheduleRepository.findById(branchid, id);
+        const schedule = await this.employeeScheduleRepository.findById(branchid, id, transaction);
         if (!schedule) {
             throw new NotFoundException(`Employee schedule with id ${id} not found`);
         }
@@ -39,6 +41,6 @@ export class UpdateEmployeeScheduleUsecase {
             updates.replaced ?? schedule.replaced,
         );
 
-        return this.employeeScheduleRepository.update(branchid, updated);
+        return this.employeeScheduleRepository.update(branchid, updated, transaction);
     }
 }

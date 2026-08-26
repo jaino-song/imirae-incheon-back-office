@@ -9,8 +9,12 @@ import type { Prisma } from "@prisma/client";
 export class SbEmployeeScheduleRepository implements IEmployeeScheduleRepository {
     constructor(private readonly prismaService: PrismaService) {}
 
-    async findById(branchid: string, id: number): Promise<EmployeeScheduleEntity | null> {
-        const schedule = await this.prismaService.employee_schedule.findFirst({
+    async findById(
+        branchid: string,
+        id: number,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<EmployeeScheduleEntity | null> {
+        const schedule = await (transaction ?? this.prismaService).employee_schedule.findFirst({
             where: { id, branchId: branchid },
         });
         return schedule ? EmployeeScheduleMapper.toDomain(schedule) : null;
@@ -65,15 +69,20 @@ export class SbEmployeeScheduleRepository implements IEmployeeScheduleRepository
         return EmployeeScheduleMapper.toDomain(created);
     }
 
-    async update(branchid: string, schedule: EmployeeScheduleEntity): Promise<EmployeeScheduleEntity> {
-        const result = await this.prismaService.employee_schedule.updateMany({
+    async update(
+        branchid: string,
+        schedule: EmployeeScheduleEntity,
+        transaction?: Prisma.TransactionClient,
+    ): Promise<EmployeeScheduleEntity> {
+        const client = transaction ?? this.prismaService;
+        const result = await client.employee_schedule.updateMany({
             where: { id: schedule.id, branchId: branchid },
             data: EmployeeScheduleMapper.toPrismaUpdate(schedule),
         });
         if (result.count === 0) {
             throw new Error("Employee schedule not found for branch");
         }
-        const updated = await this.prismaService.employee_schedule.findFirst({
+        const updated = await client.employee_schedule.findFirst({
             where: { id: schedule.id, branchId: branchid },
         });
         if (!updated) {
