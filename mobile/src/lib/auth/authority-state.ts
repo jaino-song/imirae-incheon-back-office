@@ -36,6 +36,9 @@ export async function resetAuthorityState(
   useTemplateStore.getState().reset();
 
   if (typeof window !== "undefined") {
+    // The chat-session id is an identity-owned handle to persisted business
+    // conversation state; retaining it could make the next account request it.
+    window.localStorage.removeItem("ai_chat_session_id");
     // The agent session id is an identity-owned handle to persisted business
     // conversation state; retaining it could make the next account request it.
     window.sessionStorage.removeItem("agent_session_id");

@@ -22,6 +22,7 @@ function seedIdentityA(queryClient: QueryClient) {
     variableValues: { clientName: "A's client", phone: "010-1111-1111" },
     templates: [{ id: "template-a" } as never],
   });
+  window.localStorage.setItem("ai_chat_session_id", "chat-session-a");
   window.sessionStorage.setItem("agent_session_id", "session-a");
 }
 
@@ -60,6 +61,7 @@ describe("resetAuthorityState", () => {
       templates: [],
       isLoading: false,
     });
+    expect(window.localStorage.getItem("ai_chat_session_id")).toBeNull();
     expect(window.sessionStorage.getItem("agent_session_id")).toBeNull();
 
     queryClient.setQueryData(["authUser"], { id: "user-b", role: "member" });
