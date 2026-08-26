@@ -13,6 +13,7 @@ import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { AligoService } from "application/services/aligo.service";
 import { SendSmsMessageDto } from "interface/dto/message-delivery.dto";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
+import { parseKstSchedule } from "application/utils/kst-schedule";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { SMS_DELIVERY_RETRY_DELAY_MS } from "domain/entities/message-log.entity";
 
@@ -260,24 +261,15 @@ export class MessageDeliveryController {
         scheduledDate?: string,
         scheduledTime?: string,
     ) {
-        if (!scheduledDate || !scheduledTime) {
-            return;
+        const scheduledAt = parseKstSchedule(scheduledDate, scheduledTime);
+        if (!scheduledAt) {
+            throw new BadRequestException("예약 발송 일시 형식이 올바르지 않습니다.");
         }
-
-        const scheduledAtMs = this.parseKstSchedule(scheduledDate, scheduledTime);
-        if (scheduledAtMs - Date.now() < ALIGO_SCHEDULE_MIN_LEAD_MS) {
+        if (scheduledAt.getTime() - Date.now() < ALIGO_SCHEDULE_MIN_LEAD_MS) {
             throw new BadRequestException(
                 "예약 발송은 한국시간 기준 현재 시각보다 10분 이후만 등록할 수 있습니다.",
             );
         }
-    }
-
-    private parseKstSchedule(date: string, time: string): number {
-        const scheduledAt = new Date(`${date}T${time}:00+09:00`).getTime();
-        if (Number.isNaN(scheduledAt)) {
-            throw new BadRequestException("예약 발송 일시 형식이 올바르지 않습니다.");
-        }
-        return scheduledAt;
     }
 
     private formatErrorMessage(error: unknown): string {

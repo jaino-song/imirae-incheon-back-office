@@ -9,6 +9,7 @@ import { CurrentTenant, TenantGuard } from "infrastructure/tenant";
 import { JwtGuard } from "infrastructure/auth/jwt.guard";
 import { Response } from "express";
 import { parseInteger } from "interface/parse-integer";
+import { parseBooleanQuery } from "interface/parse-boolean";
 import {
     AccessTokenRequestDto,
     DeleteDocumentsRequestDto,
@@ -64,20 +65,6 @@ function throwHttpOrInternalError(error: unknown): never {
         { error: message },
         HttpStatus.INTERNAL_SERVER_ERROR
     );
-}
-
-function parseBooleanQuery(value: string | undefined, name: string, defaultValue: boolean): boolean {
-    if (value === undefined || value === "") {
-        return defaultValue;
-    }
-    if (value === "true") {
-        return true;
-    }
-    if (value === "false") {
-        return false;
-    }
-
-    throw new BadRequestException(`${name} must be true or false`);
 }
 
 type DownloadFileType = "document" | "audit_trail";
@@ -482,7 +469,7 @@ export class EformsignController {
             const parsedSkip = parseInteger(skip, "skip", { defaultValue: 0, min: 0 });
             const templateMatch = parseTemplateMatch(templateMatchValue);
             const statusCategory = parseStatusCategory(statusCategoryValue);
-            const excludeDeleted = excludeDeletedValue === "true";
+            const excludeDeleted = parseBooleanQuery(excludeDeletedValue, "excludeDeleted", false);
             const displayStatus = parseDisplayStatus(displayStatusValue);
             const branchId = tenant.branchId ?? "";
 
@@ -521,7 +508,7 @@ export class EformsignController {
     ) {
         try {
             const templateMatch = parseTemplateMatch(templateMatchValue);
-            const excludeDeleted = excludeDeletedValue === "true";
+            const excludeDeleted = parseBooleanQuery(excludeDeletedValue, "excludeDeleted", false);
             const branchId = tenant.branchId ?? "";
             // 인천점(본사)은 다른 지점 소유분 제외 전체, 그 외 지점은 보유 문서 전체를 모은다.
             // 목록과 같은 "all" 스냅샷을 공유해 StatsBar 카운터와 목록이 항상 같은 세대를 본다.
