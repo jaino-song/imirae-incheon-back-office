@@ -18,6 +18,9 @@ on:
     branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
   merge_group:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: frontend · type-check · lint · test · build
@@ -31,6 +34,7 @@ jobs:
           # depth-1 checkout has no history for it to resolve and the gate
           # would silently skip.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
