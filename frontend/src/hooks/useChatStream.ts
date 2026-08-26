@@ -10,7 +10,11 @@ export interface ChatMessage {
     content: string;
     timestamp: string;
     isStreaming?: boolean;
-    ui?: {
+        employeeDraft?: {
+            name?: string;
+            phone?: string;
+        };
+        ui?: {
         clientId?: number;
         clientName?: string;
         documentStatus?: string | null;
@@ -329,6 +333,7 @@ export function useChatStream(): UseChatStreamReturn {
         if (CLIENT_REGISTRATION_TRIGGER.test(trimmed)) {
             const ts = new Date().toISOString();
             const draft = extractClientRegistrationDraft(trimmed);
+            const employeeName = draft.employeeName;
             setError(null);
             setIsToolExecuting(false);
             setCurrentTool(null);
@@ -343,7 +348,10 @@ export function useChatStream(): UseChatStreamReturn {
                     role: "assistant",
                     content: "",
                     timestamp: ts,
-                    ui: { registrationDraft: draft, type: "clientRegistrationWizard" },
+                    ui: {
+                        registrationDraft: { ...draft, employeeName: undefined },
+                        type: "clientRegistrationWizard",
+                    },
                 },
             ]);
             // persist to backend (fire and forget)

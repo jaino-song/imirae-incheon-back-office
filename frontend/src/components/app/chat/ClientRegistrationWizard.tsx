@@ -20,6 +20,12 @@ import {
 } from "@/components/ui/select";
 import { AlertCircle } from "lucide-react";
 import { useVoucherPriceInfos, useVoucherYears } from "@/hooks/useVoucherData";
+import {
+    useCreateEmployee,
+    useEmployees,
+    type CreateEmployeeDto,
+    type Employee,
+} from "@/hooks/useEmployees";
 import { useCreateClient } from "@/hooks/useClients";
 import type { CreateClientDto } from "@/lib/client/types";
 import type { ClientRegistrationDraft } from "@/lib/client/client-registration-extraction";
@@ -31,6 +37,7 @@ import {
     parseCompactDateInput,
 } from "@/lib/client/client-registration-formats";
 import voucherOptions from "@/components/app/messages/templates/json/voucher.json";
+import { WORK_AREAS, normalizeEmployeeGrade } from "@/components/app/employees/employee-form.constants";
 
 export type CreatedClient = {
     id: number;
@@ -57,6 +64,8 @@ export function ClientRegistrationWizard({
     onCreated,
 }: ClientRegistrationWizardProps) {
     const createClientMutation = useCreateClient();
+    const createEmployeeMutation = useCreateEmployee();
+    const { data: employees = [] } = useEmployees();
     const [activeStep, setActiveStep] = useState(0);
 
     const [name, setName] = useState(initialDraft?.name ?? "");
@@ -64,6 +73,12 @@ export function ClientRegistrationWizard({
     const [birthday, setBirthday] = useState(initialDraft?.birthday ?? "");
     const [address, setAddress] = useState(initialDraft?.address ?? "");
     const [dueDate, setDueDate] = useState(initialDraft?.dueDate ?? "");
+
+    const [isRegisteringEmployee, setIsRegisteringEmployee] = useState(false);
+    const [employeeName, setEmployeeName] = useState(initialDraft?.employeeName ?? "");
+    const [employeePhone, setEmployeePhone] = useState("");
+    const [employeeGrade, setEmployeeGrade] = useState("스탠다드");
+    const [employeeWorkArea, setEmployeeWorkArea] = useState<string>(WORK_AREAS[0]);
 
     const [voucherClient, setVoucherClient] = useState(true);
     const { data: voucherYears = [], isLoading: isVoucherYearsLoading } = useVoucherYears();
@@ -99,22 +114,20 @@ export function ClientRegistrationWizard({
         grant.trim().length > 0 &&
         actualPrice.trim().length > 0;
 
+    const matchedEmployee = employees.find((candidate: Employee) => candidate.name === employeeName.trim());
+    const needsEmployeeRegistration = Boolean(employeeName) && !matchedEmployee;
+
     const canGoNext = useMemo(() => {
         if (activeStep === 0) {
-            return (
-                name.trim().length > 0 &&
-                phone.trim().length > 0 &&
-                birthday.trim().length > 0 &&
-                address.trim().length > 0 &&
-                isValidCompactDateInput(dueDate)
-            );
+            return Boolean(name.trim() && phone.trim() && birthday.trim() && address.trim())
+                && (isValidCompactDateInput(dueDate) || initialDraft?.skippedFields?.includes("dueDate"));
         }
         if (activeStep === 1) {
             if (!voucherClient) return true;
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, name, phone, birthday, address, dueDate, initialDraft?.skippedFields, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
@@ -181,6 +194,8 @@ export function ClientRegistrationWizard({
                 breastPump,
             };
 
+            if (!isValidCompactDateInput(dueDate)) delete payload.dueDate;
+
             if (voucherClient) {
                 payload.type = voucherType;
 
@@ -196,11 +211,32 @@ export function ClientRegistrationWizard({
 
             const created = await createClientMutation.mutateAsync({
                 ...payload,
-                primaryEmployeeId: null,
+                primaryEmployeeId: employees.find((employee: Employee) => employee.name === employeeName)?.id ?? null,
             } as CreateClientDto);
             onCreated?.(created);
         } catch (e) {
             const msg = e instanceof Error ? e.message : "등록에 실패했습니다.";
+            setSubmitError(msg);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleEmployeeSubmit = async () => {
+        if (employeeName.trim().length < 2 || employeePhone.replace(/\D/g, "").length !== 11 || !employeeWorkArea) return;
+
+        setIsSubmitting(true);
+        try {
+            await createEmployeeMutation.mutateAsync({
+                name: employeeName.trim(),
+                workArea: [employeeWorkArea],
+                phone: employeePhone.replace(/\D/g, ""),
+                grade: normalizeEmployeeGrade(employeeGrade),
+                openToNextWork: true,
+            } satisfies CreateEmployeeDto);
+            setIsRegisteringEmployee(false);
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : "제공인력 등록에 실패했습니다.";
             setSubmitError(msg);
         } finally {
             setIsSubmitting(false);
@@ -230,7 +266,7 @@ export function ClientRegistrationWizard({
 
             <div data-component="desktop_chat_page_wizard-registration_steps" className="flex-1 min-h-0">
                 {/* Step 1: Basic Info */}
-                {activeStep === 0 && (
+                {activeStep === 0 && !isRegisteringEmployee && (
                     <div className="grid gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="name">이름</Label>
@@ -281,6 +317,56 @@ export function ClientRegistrationWizard({
                                 value={address}
                                 onChange={(e) => setAddress(e.target.value)}
                             />
+                        </div>
+                    </div>
+                )}
+
+                {isRegisteringEmployee && (
+                    <div className="grid gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="employee-name">제공인력 이름</Label>
+                            <Input
+                                id="employee-name"
+                                value={employeeName}
+                                onChange={(e) => setEmployeeName(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="employee-phone">연락처</Label>
+                            <Input
+                                id="employee-phone"
+                                value={employeePhone}
+                                onChange={(e) => setEmployeePhone(formatKoreanPhoneNumber(e.target.value))}
+                                placeholder="010-1234-5678"
+                                maxLength={13}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="employee-grade">등급</Label>
+                            <Select value={employeeGrade} onValueChange={setEmployeeGrade}>
+                                <SelectTrigger id="employee-grade" aria-label="등급">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {["프리미엄", "베스트", "스탠다드"].map((grade) => (
+                                        <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="employee-work-area">근무 가능 지역</Label>
+                            <Select value={employeeWorkArea} onValueChange={setEmployeeWorkArea}>
+                                <SelectTrigger id="employee-work-area" aria-label="근무 가능 지역">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {WORK_AREAS.map((area) => (
+                                        <SelectItem key={area} value={area}>{area}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
                 )}
@@ -436,10 +522,20 @@ export function ClientRegistrationWizard({
 
                 {activeStep < steps.length - 1 ? (
                     <Button
-                        onClick={handleNext}
-                        disabled={!canGoNext || isSubmitting}
+                        onClick={() => {
+                            if (!isRegisteringEmployee && needsEmployeeRegistration) {
+                                setIsRegisteringEmployee(true);
+                                return;
+                            }
+                            if (isRegisteringEmployee) {
+                                void handleEmployeeSubmit();
+                                return;
+                            }
+                            handleNext();
+                        }}
+                        disabled={isRegisteringEmployee || !canGoNext || isSubmitting}
                     >
-                        다음
+                        {isRegisteringEmployee ? "제공인력 등록" : "다음"}
                     </Button>
                 ) : (
                     <Button
