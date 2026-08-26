@@ -1,12 +1,22 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { AligoService } from "application/services/aligo.service";
 import { MessageSenderApprovalService } from "application/services/message-sender-approval.service";
+import { parseKstSchedule } from "application/utils/kst-schedule";
 import { maskPhone } from "application/utils/mask";
 import { MessageLogEntity, SMS_DELIVERY_RETRY_DELAY_MS } from "domain/entities/message-log.entity";
 import {
     MESSAGE_LOG_REPOSITORY,
     IMessageLogRepository,
 } from "domain/repositories/message-log.repository.interface";
+
+const INVALID_RETRY_SCHEDULE_REASON =
+    "예약 발송 일시 형식이 올바르지 않아 재시도하지 않았습니다. 예약일과 예약시간을 확인해 주세요.";
+
+interface RetrySchedule {
+    scheduledDate?: string;
+    scheduledTime?: string;
+    scheduledAtMs: number | null;
+}
 
 @Injectable()
 export class SmsRetryService {
@@ -38,6 +48,14 @@ export class SmsRetryService {
     }
 
     async retry(sourceLog: MessageLogEntity): Promise<MessageLogEntity | null> {
+        const schedule = this.parseRetrySchedule(sourceLog);
+        if (!schedule) {
+            sourceLog.markRetrySuperseded(INVALID_RETRY_SCHEDULE_REASON);
+            await this.logRepository.update(sourceLog);
+            this.logger.warn(`[Retry] SMS log ${sourceLog.id} has an invalid historical schedule; retry stopped`);
+            return sourceLog;
+        }
+
         const retryLog = await this.logRepository.startRetryAttempt(
             sourceLog,
             this.createRetryAttempt(sourceLog),
@@ -64,15 +82,10 @@ export class SmsRetryService {
         }
 
         try {
-            const rawScheduledDate = this.stringVariable(retryLog, "scheduledDate");
-            const rawScheduledTime = this.stringVariable(retryLog, "scheduledTime");
-            const scheduleInstantMs = rawScheduledDate && rawScheduledTime
-                ? this.parseKstScheduleMs(rawScheduledDate, rawScheduledTime)
-                : null;
-            const isScheduledInFuture = scheduleInstantMs !== null && scheduleInstantMs > Date.now();
+            const isScheduledInFuture = schedule.scheduledAtMs !== null && schedule.scheduledAtMs > Date.now();
 
-            const scheduledDate = isScheduledInFuture ? rawScheduledDate : undefined;
-            const scheduledTime = isScheduledInFuture ? rawScheduledTime : undefined;
+            const scheduledDate = isScheduledInFuture ? schedule.scheduledDate : undefined;
+            const scheduledTime = isScheduledInFuture ? schedule.scheduledTime : undefined;
 
             const result = await this.aligoService.sendSms({
                 senderPhone: this.stringVariable(retryLog, "senderPhone"),
@@ -156,11 +169,35 @@ export class SmsRetryService {
         );
     }
 
-    private parseKstScheduleMs(date: string, time: string): number | null {
-        const isoDate = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
-        const isoTime = `${time.slice(0, 2)}:${time.slice(2, 4)}`;
-        const ms = new Date(`${isoDate}T${isoTime}:00+09:00`).getTime();
-        return Number.isNaN(ms) ? null : ms;
+    private parseRetrySchedule(log: MessageLogEntity): RetrySchedule | null {
+        const rawDate: unknown = log.variables["scheduledDate"];
+        const rawTime: unknown = log.variables["scheduledTime"];
+        const isExplicitlyScheduled = log.variables["triggerType"] === "scheduled";
+        const hasDate = rawDate !== undefined && rawDate !== null;
+        const hasTime = rawTime !== undefined && rawTime !== null;
+
+        if (!hasDate && !hasTime) {
+            return isExplicitlyScheduled ? null : { scheduledAtMs: null };
+        }
+        if (!hasDate || !hasTime || typeof rawDate !== "string" || typeof rawTime !== "string") {
+            return null;
+        }
+        if (!/^\d{8}$/.test(rawDate) || !/^\d{4}$/.test(rawTime)) {
+            return null;
+        }
+
+        const isoDate = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
+        const isoTime = `${rawTime.slice(0, 2)}:${rawTime.slice(2, 4)}`;
+        const scheduledAt = parseKstSchedule(isoDate, isoTime);
+        if (!scheduledAt) {
+            return null;
+        }
+
+        return {
+            scheduledDate: rawDate,
+            scheduledTime: rawTime,
+            scheduledAtMs: scheduledAt.getTime(),
+        };
     }
 
     private markSmsRetryRejected(log: MessageLogEntity, errorMessage: string): void {
