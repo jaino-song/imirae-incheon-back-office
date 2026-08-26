@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Matches } from "class-validator";
+import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Matches, ValidateIf } from "class-validator";
 import { SERVICE_STATUS_VALUES } from "domain/value-objects/service-status.vo";
 
 export class CreateClientDto {
@@ -102,7 +102,7 @@ export class CreateClientDto {
 }
 
 export class UpdateClientDto {
-    @IsOptional()
+    @ValidateIf((_, value) => value !== undefined)
     @IsString()
     name?: string;
 
@@ -154,7 +154,7 @@ export class UpdateClientDto {
     @IsBoolean()
     careCenter?: boolean | null;
 
-    @IsOptional()
+    @ValidateIf((_, value) => value !== undefined)
     @IsBoolean()
     voucherClient?: boolean;
 
@@ -175,7 +175,7 @@ export class UpdateClientDto {
     @IsIn(SERVICE_STATUS_VALUES)
     serviceStatus?: string | null;
 
-    @IsOptional()
+    @ValidateIf((_, value) => value !== undefined)
     @IsBoolean()
     breastPump?: boolean;
 

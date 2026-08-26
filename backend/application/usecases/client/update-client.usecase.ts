@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { ClientEntity } from "domain/entities/client.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
 import type { Prisma } from "@prisma/client";
@@ -44,6 +44,7 @@ export class UpdateClientUsecase {
         id: number,
         updates: UpdateClientParams
     ): Promise<ClientEntity> {
+        assertNonNullableClientPatch(updates);
         const client = await this.clientRepository.findById(branchid, id);
         if (!client) {
             throw new NotFoundException(`Client with id ${id} not found`);
@@ -65,6 +66,7 @@ export class UpdateClientUsecase {
         expectedTargetVersion: string,
         transaction?: Prisma.TransactionClient,
     ): Promise<ClientEntity> {
+        assertNonNullableClientPatch(updates);
         const updated = await this.clientRepository.updateIfTargetVersion(
             branchid,
             id,
@@ -77,5 +79,13 @@ export class UpdateClientUsecase {
         // repository performed the existence check and target comparison while
         // holding the row lock; do not add an unlocked read or update fallback.
         throw new ClientTargetVersionMismatchError();
+    }
+}
+
+function assertNonNullableClientPatch(updates: UpdateClientParams): void {
+    for (const field of ["name", "voucherClient", "breastPump"] as const) {
+        if (Object.prototype.hasOwnProperty.call(updates, field) && updates[field] === null) {
+            throw new BadRequestException(`${field} cannot be null`);
+        }
     }
 }

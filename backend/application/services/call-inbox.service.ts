@@ -18,6 +18,7 @@ import {
     ConfirmNewClientDraftDto,
     PatchClientDraftDto,
 } from "interface/dto/call-inbox.dto";
+import { UpdateClientDto } from "interface/dto/client.dto";
 import { createHash } from "node:crypto";
 
 const DRAFT_STATUSES = ["PENDING", "CONFIRMED", "DISCARDED"] as const;
@@ -299,6 +300,9 @@ export class CallInboxService {
             const newClientFields = observed.type === "NEW_CLIENT"
                 ? await this.validateNewClientFields(dto.fields)
                 : undefined;
+            const clientUpdateChanges = observed.type === "CLIENT_UPDATE"
+                ? await this.prepareClientUpdateChanges(observed, dto.changes)
+                : undefined;
 
             await this.lockDraftForUpdate(transaction, branchId, id);
             const current = await transaction.client_draft.findFirst({ where: { id, branchId } });
@@ -308,9 +312,6 @@ export class CallInboxService {
             if (current.type === "NEW_CLIENT" && newClientFields === undefined) {
                 throw new ConflictException("Draft changed after approval; review a new proposal");
             }
-            const clientUpdateChanges = current.type === "CLIENT_UPDATE"
-                ? this.prepareClientUpdateChanges(current, dto.changes)
-                : undefined;
             if (current.type !== "NEW_CLIENT" && current.type !== "CLIENT_UPDATE") {
                 throw new BadRequestException(`Unknown draft type: ${current.type}`);
             }
@@ -369,7 +370,9 @@ export class CallInboxService {
                 actualPrice: fields.actualPrice ?? null,
                 startDate: fields.startDate ?? null,
                 endDate: fields.endDate ?? null,
-                careCenter: fields.careCenter ?? false,
+                // Omission keeps the historical new-client default, while an
+                // explicit null remains a clear for this nullable column.
+                careCenter: fields.careCenter === undefined ? false : fields.careCenter,
                 voucherClient: fields.voucherClient ?? false,
                 birthday: fields.birthday ?? null,
                 dueDate: fields.dueDate ?? null,
@@ -448,7 +451,7 @@ export class CallInboxService {
         // after PENDING→CONFIRMING and could strand the claim outside rollback.
         const filteredChanges = alreadyLocked
             ? rawChanges
-            : this.prepareClientUpdateChanges(draft, rawChanges);
+            : await this.prepareClientUpdateChanges(draft, rawChanges);
         // `prepareClientUpdateChanges` validates this for the ordinary path;
         // the approved path supplies the same invariant from its locked
         // transaction. Do not rethrow after the claim has been committed.
@@ -502,10 +505,10 @@ export class CallInboxService {
         }
     }
 
-    private prepareClientUpdateChanges(
+    private async prepareClientUpdateChanges(
         draft: { clientId: number | null },
         rawChanges: unknown,
-    ): Record<string, unknown> {
+    ): Promise<Record<string, unknown>> {
         if (draft.clientId == null) {
             throw new ConflictException("고객 연결이 필요합니다");
         }
@@ -515,10 +518,37 @@ export class CallInboxService {
         const allowedSet = new Set<string>(PROPOSAL_FIELDS);
         const filteredChanges: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(rawChanges)) {
-            if (allowedSet.has(key)) filteredChanges[key] = value;
+            // JSON omission and an explicit null are different operations. An
+            // own property whose value is undefined cannot be sent over the
+            // wire, so treat it as omitted as well and never forward it to the
+            // update path.
+            if (allowedSet.has(key) && value !== undefined) filteredChanges[key] = value;
         }
         if (Object.keys(filteredChanges).length === 0) {
             throw new BadRequestException("No valid fields remain after allowlist filtering");
+        }
+
+        for (const field of ["name", "voucherClient", "breastPump"] as const) {
+            if (Object.prototype.hasOwnProperty.call(filteredChanges, field) && filteredChanges[field] === null) {
+                throw new BadRequestException(`${field} cannot be null`);
+            }
+        }
+
+        // Reuse the canonical client-update validators after allowlist
+        // filtering. Unknown fields remain intentionally ignored for the
+        // call-inbox contract, while malformed allowed fields fail before the
+        // draft claim or any client/message side effect.
+        const candidate = plainToInstance(UpdateClientDto, filteredChanges);
+        const errors = await validateDto(candidate, {
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            forbidUnknownValues: true,
+        });
+        if (errors.length > 0) {
+            const messages = errors.flatMap((error) => Object.values(error.constraints ?? {}));
+            throw new BadRequestException({
+                message: messages.length > 0 ? messages : ["Invalid CLIENT_UPDATE changes"],
+            });
         }
         return filteredChanges;
     }

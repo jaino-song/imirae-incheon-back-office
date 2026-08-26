@@ -162,6 +162,42 @@ describe("CallInboxService", () => {
         }));
     });
 
+    it("confirmNewClient: preserves an explicit nullable careCenter clear instead of applying the omitted default", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.create.mockResolvedValue({ id: 77 });
+
+        await expect(service.confirmNewClient("branch-1", "user-1", "draft-1", {
+            fields: { name: "김서연", careCenter: null, voucherClient: true, breastPump: false },
+        })).resolves.toEqual({ clientId: 77 });
+
+        expect(clientService.create).toHaveBeenCalledWith("branch-1", expect.objectContaining({
+            careCenter: null,
+            voucherClient: true,
+            breastPump: false,
+        }));
+    });
+
+    it.each(["name", "voucherClient", "breastPump"])(
+        "confirmNewClient: rejects an explicit null for non-nullable %s before claiming the draft",
+        async (field) => {
+            prisma.client_draft.findFirst.mockResolvedValue(pendingDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+            await expect(service.confirmNewClient("branch-1", "user-1", "draft-1", {
+                fields: {
+                    name: "김서연",
+                    careCenter: false,
+                    voucherClient: true,
+                    breastPump: false,
+                    [field]: null,
+                },
+            } as unknown as ConfirmNewClientDraftDto)).rejects.toThrow(BadRequestException);
+
+            expectNoNewClientSideEffects();
+        },
+    );
+
     it("confirmNewClient: passes 출산일 to ClientService.create", async () => {
         // The create call maps fields one by one, so a column left out of that
         // mapping is silently dropped even when the reviewer filled it in.
@@ -288,6 +324,46 @@ describe("CallInboxService", () => {
         });
     });
 
+    it("confirmClientUpdate: omission preserves the target field while explicit null clears it", async () => {
+        prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.update.mockResolvedValue({});
+        prisma.client_draft.update.mockResolvedValue({});
+
+        await service.confirm("branch-1", "user-1", "draft-1", {
+            changes: { name: "새 이름" },
+        });
+        expect(clientService.update).toHaveBeenNthCalledWith(1, "branch-1", 142, { name: "새 이름" });
+
+        jest.clearAllMocks();
+        prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+        prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+        clientService.update.mockResolvedValue({});
+        prisma.client_draft.update.mockResolvedValue({});
+
+        await service.confirm("branch-1", "user-1", "draft-1", {
+            changes: { birthDate: null },
+        });
+        expect(clientService.update).toHaveBeenNthCalledWith(1, "branch-1", 142, { birthDate: null });
+    });
+
+    it.each(["name", "voucherClient", "breastPump"])(
+        "confirmClientUpdate: rejects an explicit null for non-nullable %s before claiming",
+        async (field) => {
+            prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+            prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+            await expect(service.confirm("branch-1", "user-1", "draft-1", {
+                changes: { [field]: null },
+            })).rejects.toThrow(BadRequestException);
+
+            expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+            expect(prisma.client_draft.update).not.toHaveBeenCalled();
+            expect(prisma.call_record.update).not.toHaveBeenCalled();
+            expect(clientService.update).not.toHaveBeenCalled();
+        },
+    );
+
     it("confirmClientUpdate: 409 when no client linked — clientId check happens BEFORE lock", async () => {
         const unlinkeddraft = { ...clientUpdateDraft, clientId: null };
         prisma.client_draft.findFirst.mockResolvedValue(unlinkeddraft);
@@ -381,6 +457,22 @@ describe("CallInboxService", () => {
             expect(clientService.update).not.toHaveBeenCalled();
         });
 
+        it.each(["name", "voucherClient", "breastPump"])(
+            "rejects a null non-nullable %s before the approved-target lock",
+            async (field) => {
+                prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
+                prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
+
+                await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
+                    changes: { [field]: null },
+                }, expectedVersion())).rejects.toThrow(BadRequestException);
+
+                expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+                expect(prisma.client_draft.updateMany).not.toHaveBeenCalled();
+                expect(clientService.update).not.toHaveBeenCalled();
+            },
+        );
+
         it("rejects an unknown draft type before claiming the draft", async () => {
             const draft = { ...clientUpdateDraft, type: "UNSUPPORTED" };
             prisma.client_draft.findFirst.mockResolvedValue(draft);
@@ -427,11 +519,11 @@ describe("CallInboxService", () => {
         it("rolls a claimed draft back to PENDING when the client update fails", async () => {
             prisma.client_draft.findFirst.mockResolvedValue(clientUpdateDraft);
             prisma.client_draft.updateMany.mockResolvedValue({ count: 1 });
-            clientService.update.mockRejectedValue(new Error("serviceStatus invalid"));
+            clientService.update.mockRejectedValue(new Error("client update failed"));
 
             await expect(service.confirmApprovedTarget("branch-1", "user-1", "draft-1", {
-                changes: { serviceStatus: "invalid" },
-            }, expectedVersion())).rejects.toThrow("serviceStatus invalid");
+                changes: { startDate: "2026-06-23" },
+            }, expectedVersion())).rejects.toThrow("client update failed");
 
             expect(prisma.client_draft.update).toHaveBeenCalledWith({
                 where: { id: "draft-1" },

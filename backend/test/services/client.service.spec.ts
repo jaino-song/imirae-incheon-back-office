@@ -1402,6 +1402,47 @@ describe("ClientService", () => {
                 }));
             });
 
+            it.each([
+                ["address", "address"],
+                ["phone", "phone"],
+                ["type", "type"],
+                ["duration", "duration"],
+                ["fullPrice", "fullPrice"],
+                ["grant", "grant"],
+                ["actualPrice", "actualPrice"],
+                ["startDate", "startDate"],
+                ["endDate", "endDate"],
+                ["careCenter", "careCenter"],
+                ["birthday", "birthday"],
+                ["dueDate", "dueDate"],
+                ["birthDate", "birthDate"],
+                ["serviceStatus", "serviceStatus"],
+                ["eDocId", "eDocId"],
+                ["areaId", "areaId"],
+            ])("writes explicit null for nullable %s instead of treating it as omission", async (field, dataKey) => {
+                findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+
+                await service.update(branchId, 1, { [field]: null } as never);
+
+                expect(prismaService.client.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+                    where: { id: 1, branchId },
+                    data: expect.objectContaining({ [dataKey]: null }),
+                }));
+            });
+
+            it.each(["name", "voucherClient", "breastPump"])(
+                "rejects null for non-nullable %s before opening the transaction",
+                async (field) => {
+                    findClientByIdUsecase.execute.mockResolvedValue(createClientEntity());
+
+                    await expect(service.update(branchId, 1, { [field]: null } as never))
+                        .rejects.toBeInstanceOf(BadRequestException);
+
+                    expect(prismaService.$transaction).not.toHaveBeenCalled();
+                    expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+                },
+            );
+
             it("sets birthDate to a parsed Date when a value is provided", async () => {
                 // Arrange
                 const existingClient = createClientEntity();
