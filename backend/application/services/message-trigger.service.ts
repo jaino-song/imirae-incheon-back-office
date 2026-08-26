@@ -107,6 +107,9 @@ const MISSING_CATCH_UP_PREDECESSOR_CANCEL_REASON = "보충 발송 이전 순위 
 const USER_REQUESTED_CANCEL_REASON = "사용자가 발송을 취소함";
 const CANCEL_JOB_CONFLICT_MESSAGE = "이미 발송되었거나 취소할 수 없는 상태입니다";
 const MS_PER_MINUTE = 60 * 1000;
+// Aligo aborts a provider request after 30 seconds. Keep the schedule lock
+// alive through that provider deadline and the durable delivery-log write.
+const EMPLOYEE_ASSIGNMENT_PROVIDER_FENCE_TIMEOUT_MS = 35_000;
 
 function normalizeMessageTriggerOffsetDays(
     offsetType: MessageTriggerOffsetType,
@@ -1883,17 +1886,32 @@ export class MessageTriggerService {
 
         job.markProcessing();
         if (job.templateKey === MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED && job.employeeScheduleId !== null) {
-            const fence = await this.fenceEmployeeAssignmentBeforeProviderSend(job);
-            if (fence.kind === "lost") {
-                return;
+            const shouldPersist = await this.prisma.$transaction(async (transaction) => {
+                const fence = await this.fenceEmployeeAssignmentBeforeProviderSend(job, transaction);
+                if (fence.kind === "lost") {
+                    return false;
+                }
+                if (fence.kind === "stale") {
+                    job.cancel(fence.reason);
+                    return true;
+                }
+                await this.deliverClaimedJob(job);
+                return true;
+            }, {
+                maxWait: 5_000,
+                timeout: EMPLOYEE_ASSIGNMENT_PROVIDER_FENCE_TIMEOUT_MS,
+            });
+            if (shouldPersist) {
+                await this.persistTriggerJobStatus(job, "persist dispatched employee assignment trigger job");
             }
-            if (fence.kind === "stale") {
-                job.cancel(fence.reason);
-                await this.persistTriggerJobStatus(job, "persist stale employee assignment trigger job");
-                return;
-            }
+            return;
         }
 
+        await this.deliverClaimedJob(job);
+        await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
+    }
+
+    private async deliverClaimedJob(job: MessageTriggerJobEntity): Promise<void> {
         try {
             const sent = await this.deliveryService.sendJob(job);
             if (sent) {
@@ -1908,19 +1926,20 @@ export class MessageTriggerService {
                 job.markFailed(error instanceof Error ? error.message : String(error));
             }
         }
-
-        await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
     }
 
     /**
      * Re-read the claimed job and its schedule immediately before provider
      * invocation. BJJ-35 fences pending rows in the schedule update
      * transaction, but a row already claimed as `processing` needs this final
-     * source check as well. A lost claim is left untouched so a concurrent
-     * user cancel or retry transition is never overwritten.
+     * source check as well. When called in a transaction, the schedule row is
+     * locked before this read and remains locked through provider invocation.
+     * A lost claim is left untouched so a concurrent user cancel or retry
+     * transition is never overwritten.
      */
     private async fenceEmployeeAssignmentBeforeProviderSend(
         job: MessageTriggerJobEntity,
+        transaction?: Prisma.TransactionClient,
     ): Promise<PreProviderSendFenceResult> {
         const employeeScheduleId = job.employeeScheduleId;
         if (employeeScheduleId === null) return { kind: "lost" };
@@ -1939,7 +1958,24 @@ export class MessageTriggerService {
             return { kind: "lost" };
         }
 
-        const schedule = await this.prisma.employee_schedule.findFirst({
+        if (transaction) {
+            const lockedSchedule = await transaction.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+                SELECT id
+                FROM "employee_schedule"
+                WHERE id = ${employeeScheduleId}
+                  AND "branch_id" = ${job.branchId}::uuid
+                FOR UPDATE
+            `);
+            if (lockedSchedule.length === 0) {
+                return {
+                    kind: "stale",
+                    reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+                };
+            }
+        }
+
+        const scheduleClient = transaction ?? this.prisma;
+        const schedule = await scheduleClient.employee_schedule.findFirst({
             where: {
                 id: employeeScheduleId,
                 branchId: job.branchId,

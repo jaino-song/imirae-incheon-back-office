@@ -318,13 +318,27 @@ describe("MessageTriggerService", () => {
         };
         const messageSenderApprovalService = createMessageSenderApprovalService();
         const messageLogRepository = createMessageLogRepository();
+        const employeeScheduleFindFirst = jest.fn().mockResolvedValue(null);
+        type DispatchTransaction = {
+            $queryRaw: jest.Mock;
+            employee_schedule: { findFirst: jest.Mock };
+        };
+        const transaction: DispatchTransaction = {
+            $queryRaw: jest.fn().mockResolvedValue([{ id: 77 }]),
+            employee_schedule: {
+                findFirst: employeeScheduleFindFirst,
+            },
+        };
         const prisma = {
             message_trigger_job: {
                 findUnique: jest.fn().mockResolvedValue(null),
             },
             employee_schedule: {
-                findFirst: jest.fn().mockResolvedValue(null),
+                findFirst: employeeScheduleFindFirst,
             },
+            $transaction: jest.fn().mockImplementation(
+                async (operation: (transaction: DispatchTransaction) => Promise<unknown>) => operation(transaction),
+            ),
         };
         const service = new MessageTriggerService(
             prisma as never,
@@ -347,6 +361,7 @@ describe("MessageTriggerService", () => {
             messageLogRepository,
             messageSenderApprovalService,
             prisma,
+            transaction,
         };
     };
 
@@ -1447,6 +1462,10 @@ describe("MessageTriggerService", () => {
             events.push("claim");
             return true;
         });
+        dispatcher.transaction.$queryRaw.mockImplementation(async () => {
+            events.push("schedule-lock");
+            return [{ id: schedule.id }];
+        });
         dispatcher.prisma.employee_schedule.findFirst.mockImplementation(async () => {
             events.push("schedule-read");
             return schedule;
@@ -1458,9 +1477,125 @@ describe("MessageTriggerService", () => {
 
         await dispatcher.service.dispatchDueJobs();
 
-        expect(events).toEqual(["claim", "job-read", "schedule-read", "provider"]);
+        expect(events).toEqual(["claim", "job-read", "schedule-lock", "schedule-read", "provider"]);
         expect(dispatcher.deliveryService.sendJob).toHaveBeenCalledWith(job);
         expect(job.status).toBe("sent");
+    });
+
+    it("does not let a concurrent schedule replacement commit while the fenced provider call is in flight", async () => {
+        const builder = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-lock",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const schedule = createEmployeeSchedule();
+        const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, schedule)!;
+        const dispatcher = createDispatchService();
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(schedule);
+
+        let transactionOpen = false;
+        let releaseTransaction!: () => void;
+        const transactionReleased = new Promise<void>((resolve) => {
+            releaseTransaction = resolve;
+        });
+        dispatcher.prisma.$transaction.mockImplementation(async (operation: (transaction: typeof dispatcher.transaction) => Promise<unknown>) => {
+            transactionOpen = true;
+            try {
+                return await operation(dispatcher.transaction);
+            } finally {
+                transactionOpen = false;
+                releaseTransaction();
+            }
+        });
+
+        let providerEntered!: () => void;
+        const providerStarted = new Promise<void>((resolve) => {
+            providerEntered = resolve;
+        });
+        let replacementAttempted!: () => void;
+        const replacementStarted = new Promise<void>((resolve) => {
+            replacementAttempted = resolve;
+        });
+        let allowProviderReturn!: () => void;
+        const providerReleased = new Promise<void>((resolve) => {
+            allowProviderReturn = resolve;
+        });
+        let replacementCommitted = false;
+        dispatcher.deliveryService.sendJob.mockImplementation(async () => {
+            providerEntered();
+            await replacementStarted;
+            await providerReleased;
+            return true;
+        });
+
+        const dispatchPromise = dispatcher.service.dispatchDueJobs();
+        await providerStarted;
+        const replacementPromise = (async () => {
+            replacementAttempted();
+            if (transactionOpen) await transactionReleased;
+            schedule.replaced = true;
+            replacementCommitted = true;
+        })();
+        await replacementStarted;
+        await Promise.resolve();
+
+        expect(transactionOpen).toBe(true);
+        expect(replacementCommitted).toBe(false);
+
+        allowProviderReturn();
+        await dispatchPromise;
+        await replacementPromise;
+
+        expect(replacementCommitted).toBe(true);
+        expect(dispatcher.deliveryService.sendJob).toHaveBeenCalledWith(job);
+        expect(job.status).toBe("sent");
+    });
+
+    it("cancels without a provider call when a replacement commits before the dispatcher acquires the schedule lock", async () => {
+        const builder = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-replacement-wins",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const schedule = createEmployeeSchedule();
+        const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, schedule)!;
+        const dispatcher = createDispatchService();
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(schedule);
+
+        let lockWaitStarted!: () => void;
+        const lockWait = new Promise<void>((resolve) => {
+            lockWaitStarted = resolve;
+        });
+        let replacementCommitted!: () => void;
+        const replacementDone = new Promise<void>((resolve) => {
+            replacementCommitted = resolve;
+        });
+        dispatcher.transaction.$queryRaw.mockImplementation(async () => {
+            lockWaitStarted();
+            await replacementDone;
+            return [{ id: schedule.id }];
+        });
+
+        const dispatchPromise = dispatcher.service.dispatchDueJobs();
+        await lockWait;
+        schedule.replaced = true;
+        replacementCommitted();
+        await dispatchPromise;
+
+        expect(dispatcher.deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(job.status).toBe("canceled");
+        expect(job.sentAt).toBeNull();
+        expect(dispatcher.jobRepository.update).toHaveBeenCalledWith(job);
     });
 
     it.each([
