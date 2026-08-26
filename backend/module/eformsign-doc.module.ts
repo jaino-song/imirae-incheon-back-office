@@ -68,7 +68,9 @@ import { EformsignDocumentJobService } from "application/services/eformsign-docu
 import { EformsignDocumentJobWorkerService } from "application/services/eformsign-document-job-worker.service";
 import { EformsignDocumentJobReconciliationService } from "application/services/eformsign-document-job-reconciliation.service";
 import { EFORMSIGN_DOCUMENT_JOB_REPOSITORY } from "domain/repositories/eformsign-document-job.repository.interface";
+import { EMPLOYEE_REPOSITORY } from "domain/repositories/employee.repository.interface";
 import { SbEformsignDocumentJobRepository } from "infrastructure/database/repositories/sb.eformsign-document-job.repository";
+import { SbEmployeeRepository } from "infrastructure/database/repositories/sb.employee.repository";
 
 @Module({
     imports: [
@@ -150,6 +152,10 @@ import { SbEformsignDocumentJobRepository } from "infrastructure/database/reposi
         {
             provide: CLIENT_REPOSITORY,
             useClass: SbClientRepository,
+        },
+        {
+            provide: EMPLOYEE_REPOSITORY,
+            useClass: SbEmployeeRepository,
         },
         {
             provide: EFORMSIGN_DOCUMENT_JOB_REPOSITORY,
