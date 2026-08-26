@@ -131,25 +131,28 @@ export class ClientEntity {
     }
 
     update(props: UpdateClientProps): void {
-        this.name = props.name ?? this.name;
-        this.address = props.address ?? this.address;
-        this.phone = props.phone ?? this.phone;
-        this.type = props.type ?? this.type;
-        this.duration = props.duration ?? this.duration;
-        this.fullPrice = props.fullPrice ?? this.fullPrice;
-        this.grant = props.grant ?? this.grant;
-        this.actualPrice = props.actualPrice ?? this.actualPrice;
-        this.startDate = props.startDate ?? this.startDate;
-        this.endDate = props.endDate ?? this.endDate;
-        this.careCenter = props.careCenter ?? this.careCenter;
-        this.voucherClient = props.voucherClient ?? this.voucherClient;
-        this.birthday = props.birthday ?? this.birthday;
-        this.dueDate = props.dueDate ?? this.dueDate;
-        if ("birthDate" in props) this.birthDate = props.birthDate ?? null;
-        this.serviceStatus = props.serviceStatus ?? this.serviceStatus;
-        this.breastPump = props.breastPump ?? this.breastPump;
-        this.eDocId = props.eDocId ?? this.eDocId;
-        if ("areaId" in props) this.areaId = props.areaId ?? null;
+        // Optional means omitted/preserve; null is an explicit clear for a
+        // nullable column. Checking against undefined keeps those states
+        // distinct without spreading a partial patch over persisted values.
+        if (props.name !== undefined) this.name = props.name;
+        if (props.address !== undefined) this.address = props.address;
+        if (props.phone !== undefined) this.phone = props.phone;
+        if (props.type !== undefined) this.type = props.type;
+        if (props.duration !== undefined) this.duration = props.duration;
+        if (props.fullPrice !== undefined) this.fullPrice = props.fullPrice;
+        if (props.grant !== undefined) this.grant = props.grant;
+        if (props.actualPrice !== undefined) this.actualPrice = props.actualPrice;
+        if (props.startDate !== undefined) this.startDate = props.startDate;
+        if (props.endDate !== undefined) this.endDate = props.endDate;
+        if (props.careCenter !== undefined) this.careCenter = props.careCenter;
+        if (props.voucherClient !== undefined) this.voucherClient = props.voucherClient;
+        if (props.birthday !== undefined) this.birthday = props.birthday;
+        if (props.dueDate !== undefined) this.dueDate = props.dueDate;
+        if (props.birthDate !== undefined) this.birthDate = props.birthDate;
+        if (props.serviceStatus !== undefined) this.serviceStatus = props.serviceStatus;
+        if (props.breastPump !== undefined) this.breastPump = props.breastPump;
+        if (props.eDocId !== undefined) this.eDocId = props.eDocId;
+        if (props.areaId !== undefined) this.areaId = props.areaId;
     }
 
     /**

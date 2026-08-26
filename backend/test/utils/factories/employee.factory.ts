@@ -10,7 +10,7 @@ export interface CreateEmployeeFactoryParams {
     phone?: string;
     grade?: string;
     openToNextWork?: boolean;
-    registeredDate?: Date;
+    registeredDate?: Date | null;
 }
 
 export class EmployeeFactory {
@@ -25,7 +25,7 @@ export class EmployeeFactory {
             params.phone ?? "010-9876-5432",
             params.grade ?? "프리미엄",
             params.openToNextWork ?? true,
-            params.registeredDate ?? new Date("2023-01-15"),
+            params.registeredDate === undefined ? new Date("2023-01-15") : params.registeredDate,
         );
     }
 

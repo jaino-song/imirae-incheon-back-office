@@ -128,6 +128,7 @@ export class MockEmployeeRepository implements IEmployeeRepository {
     async findByRegisteredDate(_branchid: string, registeredDate: Date): Promise<EmployeeEntity[]> {
         return Array.from(this.employees.values()).filter(
             employee =>
+                employee.registeredDate !== null &&
                 employee.registeredDate.toDateString() === registeredDate.toDateString(),
         );
     }
@@ -139,6 +140,7 @@ export class MockEmployeeRepository implements IEmployeeRepository {
     ): Promise<EmployeeEntity[]> {
         return Array.from(this.employees.values()).filter(
             employee =>
+                employee.registeredDate !== null &&
                 employee.registeredDate >= startDate &&
                 employee.registeredDate <= endDate,
         );

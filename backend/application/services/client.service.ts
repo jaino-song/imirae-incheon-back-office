@@ -1391,6 +1391,12 @@ export class ClientService {
             throw new NotFoundException(`Client with id ${id} not found`);
         }
 
+        for (const field of ["name", "voucherClient", "breastPump"] as const) {
+            if (Object.prototype.hasOwnProperty.call(params, field) && params[field] === null) {
+                throw new BadRequestException(`${field} cannot be null`);
+            }
+        }
+
         const hasRequestedUpdate = Object.values(params).some((value) => value !== undefined);
         if (!hasRequestedUpdate) {
             const existingPhone = normalizePhone(existingClient.phone);
@@ -1423,10 +1429,8 @@ export class ClientService {
         // rather than with a raw `new Date`: that reads "2026-08" as 1 August
         // and hands anything it cannot parse to Prisma as an Invalid Date. Both
         // become a 400 here instead, and before the transaction opens.
-        const dueDateUpdate = params.dueDate ? parseClientDate(params.dueDate) : undefined;
-        const birthDateUpdate = params.birthDate === undefined
-            ? undefined
-            : (params.birthDate ? parseClientDate(params.birthDate) : null);
+        const dueDateUpdate = params.dueDate === undefined ? undefined : parseClientDate(params.dueDate);
+        const birthDateUpdate = params.birthDate === undefined ? undefined : parseClientDate(params.birthDate);
         await this.serviceRecordLifecycleService?.validatePeriodChange({
             clientId: id,
             startDate: startDateUpdate,
@@ -1516,23 +1520,23 @@ export class ClientService {
                 where: { id, branchId: branchid },
                 data: {
                     name: params.name,
-                    address: params.address ?? undefined,
+                    address: params.address === undefined ? undefined : params.address,
                     phone: params.phone === undefined ? undefined : params.phone,
                     type: normalizedPricing?.type,
-                    duration: params.duration ?? undefined,
+                    duration: params.duration === undefined ? undefined : params.duration,
                     fullPrice: normalizedPricing?.fullPrice,
                     grant: normalizedPricing?.grant,
                     actualPrice: normalizedPricing?.actualPrice,
                     startDate: startDateUpdate,
                     endDate: endDateUpdate,
-                    careCenter: params.careCenter ?? undefined,
+                    careCenter: params.careCenter === undefined ? undefined : params.careCenter,
                     voucherClient: params.voucherClient,
-                    birthday: params.birthday ?? undefined,
+                    birthday: params.birthday === undefined ? undefined : params.birthday,
                     dueDate: dueDateUpdate,
                     birthDate: birthDateUpdate,
                     serviceStatus: params.serviceStatus === undefined ? undefined : params.serviceStatus,
                     breastPump: params.breastPump,
-                    eDocId: params.eDocId ?? undefined,
+                    eDocId: params.eDocId === undefined ? undefined : params.eDocId,
                     areaId: params.areaId === undefined ? undefined : params.areaId,
                 },
             });

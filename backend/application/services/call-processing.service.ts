@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import {
@@ -16,6 +16,7 @@ import { extractPhoneCandidates, normalizePhone } from "application/utils/normal
 
 const BOOLEAN_FIELDS = new Set(["careCenter", "voucherClient", "breastPump"]);
 const NUMBER_FIELDS = new Set(["duration"]);
+const NON_NULLABLE_FIELDS = new Set(["name", "voucherClient", "breastPump"]);
 const ALLOWED_FIELDS = new Set<string>(PROPOSAL_FIELDS);
 
 @Injectable()
@@ -60,8 +61,21 @@ export class CallProcessingService {
         }
 
         const callerPhone = this.resolveCallerPhone(extraction, record.fileName);
+        let proposals: ExtractionProposal[];
+        try {
+            proposals = this.sanitizeProposals(extraction.proposals);
+        } catch (error) {
+            this.logger.warn(`Extraction validation failed for ${callRecordId}: ${error}`);
+            await this.prismaService.call_record.update({
+                where: { id: callRecordId },
+                data: {
+                    processingStatus: "FAILED",
+                    failureReason: `extraction validation: ${String(error).slice(0, 950)}`,
+                },
+            }).catch(() => undefined);
+            return;
+        }
         const matchedClientId = await this.matchClient(record.branchId, callerPhone);
-        const proposals = this.sanitizeProposals(extraction.proposals);
 
         try {
             await this.prismaService.$transaction(async (tx) => {
@@ -133,6 +147,9 @@ export class CallProcessingService {
         const sanitized: ExtractionProposal[] = [];
         for (const proposal of proposals) {
             if (!ALLOWED_FIELDS.has(proposal.field)) continue;
+            if (proposal.value === null && NON_NULLABLE_FIELDS.has(proposal.field)) {
+                throw new BadRequestException(`${proposal.field} is non-nullable`);
+            }
             let value: string | number | boolean | null = proposal.value;
             if (typeof value === "string") {
                 if (BOOLEAN_FIELDS.has(proposal.field)) {

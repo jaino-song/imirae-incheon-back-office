@@ -1,4 +1,5 @@
 import { EMPLOYEE_STATUS_LABELS } from "@babyjamjam/shared/constants/employee-status";
+import { parseDateForDisplay } from "@babyjamjam/shared/utils/date";
 
 import type { Employee, EmployeeStatus } from "@/hooks/useEmployees";
 
@@ -34,13 +35,25 @@ const UNKNOWN_EMPLOYEE_GROUP: EmployeeGroup = {
 };
 
 // "최근 활동순" 정렬 키 — employees는 활동 timestamp가 없어 등록일(registeredDate) 기준, 동률은 최신 id.
-function employeeRecency(e: Employee): number {
-  const t = e.registeredDate ? new Date(e.registeredDate).getTime() : NaN;
-  return Number.isFinite(t) ? t : 0;
+// Unknown dates are kept as a separate, deterministic last group; they must not
+// be represented as the Unix epoch because that would turn missing data into a
+// fabricated chronology.
+function employeeRecency(e: Employee): number | null {
+  return parseDateForDisplay(e.registeredDate)?.getTime() ?? null;
 }
 
 export function buildAllEmployeeRowsForList(employees: Employee[]): Employee[] {
-  return [...employees].sort((a, b) => employeeRecency(b) - employeeRecency(a) || b.id - a.id);
+  return [...employees].sort((a, b) => {
+    const aRecency = employeeRecency(a);
+    const bRecency = employeeRecency(b);
+
+    if (aRecency === null || bRecency === null) {
+      if (aRecency === null && bRecency === null) return b.id - a.id;
+      return aRecency === null ? 1 : -1;
+    }
+
+    return bRecency - aRecency || b.id - a.id;
+  });
 }
 
 export function groupForEmployee(e: Employee): EmployeeGroup {

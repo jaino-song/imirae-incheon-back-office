@@ -260,36 +260,42 @@ export default function SelectBranchPage() {
         >
             <div data-component="desktop_select-branch_list" className="flex w-full flex-1 flex-col gap-3">
                 {paginatedBranches.map((org) => (
-                    <Card
+                    <Button
                         key={org.id}
-                        className={`cursor-pointer rounded-[24px] border-[1.35px] border-v3-border bg-white shadow-[0_4px_24px_hsla(214,50%,20%,0.06)] transition-all duration-300 ease-in-out hover:-translate-y-1 hover:border-v3-primary/35 hover:shadow-[0_12px_48px_hsla(214,50%,20%,0.12)] ${
+                        data-component="desktop_select-branch_list_card"
+                        className={`h-auto min-h-0 w-full justify-start rounded-[24px] border-[1.35px] border-v3-border bg-white p-0 text-left font-normal shadow-[0_4px_24px_hsla(214,50%,20%,0.06)] transition-all duration-300 ease-in-out hover:-translate-y-1 hover:border-v3-primary/35 hover:shadow-[0_12px_48px_hsla(214,50%,20%,0.12)] ${
                             selecting ? "opacity-60 cursor-not-allowed" : ""
                         }`}
+                        type="button"
+                        variant="ghost"
+                        aria-label={`${org.name} 지점 선택`}
+                        aria-busy={selecting ? "true" : undefined}
+                        disabled={Boolean(selecting)}
                         onClick={() => !selecting && handleSelectBranch(org.id)}
                     >
-                        <CardContent className="p-4">
-                            <div data-component="desktop_select-branch_list_card-row" className="flex items-center justify-between gap-4">
-                                <div data-component="desktop_select-branch_list_card-row_main" className="flex items-center gap-3">
+                        <span className="block w-full p-4">
+                            <span data-component="desktop_select-branch_list_card-row" className="flex items-center justify-between gap-4">
+                                <span data-component="desktop_select-branch_list_card-row_main" className="flex items-center gap-3">
                                     <Avatar className="h-11 w-11 rounded-[18px] bg-[linear-gradient(180deg,hsl(214,100%,34%),hsl(214,92%,28%))] ring-1 ring-v3-primary/15">
                                         <AvatarFallback className="rounded-[18px] bg-transparent text-primary-foreground">
                                             <Building2 className="w-5 h-5" />
                                         </AvatarFallback>
                                     </Avatar>
-                                    <div data-component="desktop_select-branch_list_card-row_main_text" className="flex min-w-0 flex-col gap-1">
-                                        <h3 className="text-base font-semibold tracking-[-0.02em] text-v3-dark">
+                                    <span data-component="desktop_select-branch_list_card-row_main_text" className="flex min-w-0 flex-col gap-1">
+                                        <span className="text-base font-semibold tracking-[-0.02em] text-v3-dark">
                                             {org.name}
-                                        </h3>
+                                        </span>
                                         {org.description && (
-                                            <p className="text-sm leading-5 text-v3-text-muted">
+                                            <span className="text-sm leading-5 text-v3-text-muted">
                                                 {org.description}
-                                            </p>
+                                            </span>
                                         )}
-                                    </div>
-                                </div>
+                                    </span>
+                                </span>
                                 {selecting === org.id ? (
-                                    <div data-component="desktop_select-branch_list_card-row_spinner" className="flex h-8 w-8 items-center justify-center rounded-full bg-v3-primary/10">
+                                    <span data-component="desktop_select-branch_list_card-row_spinner" className="flex h-8 w-8 items-center justify-center rounded-full bg-v3-primary/10">
                                         <Spinner size="sm" className="text-v3-primary" />
-                                    </div>
+                                    </span>
                                 ) : (
                                     <Badge
                                         variant={getRoleBadgeVariant(org.role)}
@@ -298,9 +304,9 @@ export default function SelectBranchPage() {
                                         {getRoleLabel(org.role)}
                                     </Badge>
                                 )}
-                            </div>
-                        </CardContent>
-                    </Card>
+                            </span>
+                        </span>
+                    </Button>
                 ))}
             </div>
             <FooterNavigation
