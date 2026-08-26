@@ -45,8 +45,8 @@ export function useMarkConsultationInquiryAsRead() {
             );
             return data;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: consultationInquiryQueryKeys.all });
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: consultationInquiryQueryKeys.all });
         },
     });
 }
