@@ -527,6 +527,11 @@ export interface ClientRegistrationPolicy {
 
 export type ClientRegistrationPolicyPatch = Partial<ClientRegistrationPolicy>;
 
+export interface NotificationPreferencesResponse {
+    emailNotificationsEnabled: boolean;
+    updatedAt?: string;
+}
+
 export const settingsApi = {
     getClientRegistrationPolicy: async (): Promise<ClientRegistrationPolicy> => {
         const { data } = await api.get("/settings/client-registration-policy");
@@ -554,6 +559,18 @@ export const settingsApi = {
     },
     requestMessageSenderApproval: async (): Promise<MessageSenderApprovalResponse> => {
         const { data } = await api.post("/settings/message-sender-approval", {});
+        return data;
+    },
+    getNotificationPreferences: async (): Promise<NotificationPreferencesResponse> => {
+        const { data } = await api.get("/settings/notification-preferences");
+        return data;
+    },
+    updateNotificationPreferences: async (
+        emailNotificationsEnabled: boolean,
+    ): Promise<NotificationPreferencesResponse> => {
+        const { data } = await api.put("/settings/notification-preferences", {
+            emailNotificationsEnabled,
+        });
         return data;
     },
 }

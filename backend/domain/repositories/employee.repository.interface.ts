@@ -10,6 +10,26 @@ export interface ActiveClientByEmployee {
     serviceStatus: string | null;
 }
 
+export type EmployeeWorkHistoryStatus = "completed" | "replaced";
+
+export interface EmployeeWorkHistoryByEmployee {
+    scheduleId: number;
+    clientId: number;
+    clientName: string;
+    role: "primary" | "secondary";
+    startDate: Date;
+    endDate: Date;
+    status: EmployeeWorkHistoryStatus;
+}
+
+export interface PaginatedEmployeeWorkHistory {
+    data: EmployeeWorkHistoryByEmployee[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+}
+
 export interface IEmployeeRepository {
     findById(branchid: string, id: number): Promise<EmployeeEntity | null>;
     /**
@@ -46,6 +66,12 @@ export interface IEmployeeRepository {
     delete(branchid: string, id: number): Promise<void>;
     hasActiveAssignments?(branchid: string, id: number): Promise<boolean>;
     findActiveClientsByEmployee?(branchid: string, id: number): Promise<ActiveClientByEmployee[]>;
+    findWorkHistoryByEmployee?(
+        branchid: string,
+        id: number,
+        page: number,
+        limit: number,
+    ): Promise<PaginatedEmployeeWorkHistory>;
     findAll(branchid: string): Promise<EmployeeEntity[]>;
     findByWorkArea(branchid: string, workArea: string): Promise<EmployeeEntity[]>;
     findByGrade(branchid: string, grade: string): Promise<EmployeeEntity[]>;

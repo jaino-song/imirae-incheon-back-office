@@ -4,6 +4,7 @@ export * from "./delete-employee.usecase";
 export * from "./find-employee-by-id.usecase";
 export * from "./list-employees-by-grade.usecase";
 export * from "./list-active-clients-by-employee.usecase";
+export * from "./list-work-history-by-employee.usecase";
 export * from "./list-employees-by-open-status.usecase";
 export * from "./list-employees-by-registered-date-range.usecase";
 export * from "./list-employees-by-registered-date.usecase";

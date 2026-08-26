@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import { MoreVertical, SquarePen, Trash2 } from "lucide-react";
 
+import { ErrorFallback } from "@/components/app/ui/error-fallback";
+import { ListEmptyState } from "@/components/app/v3";
 import {
   type Employee,
   type EmployeeStatus,
   useDeleteEmployee,
-  useEmployeeActiveClients,
+  useEmployeeActiveClients, useEmployeeWorkHistory,
 } from "@/hooks/useEmployees";
 import { useInfiniteEmployees } from "@/hooks/useInfiniteEmployees";
 import { useListInfiniteScroll } from "@/hooks/useListInfiniteScroll";
@@ -44,9 +46,7 @@ import {
   MobileDetailTabPanel,
 } from "@/components/app/mobile-redesign/detail-sheet";
 import "@/components/app/mobile-redesign/redesign.css";
-import {
-  getOpenToNextWorkLabel,
-} from "@babyjamjam/shared/constants/employee-status";
+import { getOpenToNextWorkLabel } from "@babyjamjam/shared/constants/employee-status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@babyjamjam/shared";
 import {
@@ -114,7 +114,7 @@ function EmployeeDetailContent({
   const availabilityTone = employee.openToNextWork ? "green" : "muted";
   const unknownDateLabel = t(locale, "employees.form.registered-date-unknown");
   const { data: activeClients = [], isLoading: isActiveClientsLoading } =
-    useEmployeeActiveClients(employee.id);
+    useEmployeeActiveClients(employee.id); const { history: workHistory, isLoading: isWorkHistoryLoading, isError: isWorkHistoryError, refetch: refetchWorkHistory, hasNextPage: hasMoreWorkHistory, fetchNextPage: fetchMoreWorkHistory, isFetchingNextPage: isFetchingMoreWorkHistory } = useEmployeeWorkHistory(employee.id);
 
   return (
     <MobileDetailPage data-component="mobile_employees_detail-sheet_stack_detail-page_body" name="employees">
@@ -248,12 +248,50 @@ function EmployeeDetailContent({
         data-component="mobile_employees_detail-sheet_stack_detail-page_body_tab-panel-3"
       >
         <InfoCard data-component="mobile_employees_detail-panel_info-card-4" title="이전 담당">
-          <div
-            className="detail-empty-state"
-            data-component="mobile_employees_detail-panel_info-card-4_empty"
-          >
-            근무 내역이 없습니다.
-          </div>
+          {isWorkHistoryLoading ? (
+            <ListRowsSkeleton
+              data-component="mobile_employees_detail-panel_info-card-4_loading"
+              rowCount={2}
+              rightLines={1}
+            />
+          ) : isWorkHistoryError ? (
+            <ErrorFallback
+              title="근무 내역을 불러오지 못했어요"
+              description="잠시 후 다시 시도해 주세요."
+              onReset={() => void refetchWorkHistory()}
+              resetLabel="다시 시도"
+              className="min-h-0 px-0 py-4"
+            />
+          ) : workHistory.length > 0 ? (
+            <>
+              {workHistory.map((assignment) => (
+                <div
+                  key={assignment.scheduleId}
+                  data-component="mobile_employees_detail-panel_info-card-4_history-row"
+                >
+                  <DocRow
+                    initial={employeeInitial(assignment.clientName)}
+                    title={assignment.clientName}
+                    meta={`${formatDateForDisplay(assignment.startDate)} ~ ${formatDateForDisplay(assignment.endDate)} · ${assignment.role === "primary" ? "주담당" : "부담당"}`}
+                    badge={assignment.status === "replaced" ? "교체됨" : "종료"}
+                    tone={assignment.status === "replaced" ? "orange" : "muted"}
+                  />
+                </div>
+              ))}
+              {hasMoreWorkHistory ? (
+                <ListLoadMoreButton
+                  data-component="mobile_employees_detail-panel_info-card-4_load-more"
+                  onLoadMore={() => void fetchMoreWorkHistory()}
+                  isLoading={isFetchingMoreWorkHistory}
+                />
+              ) : null}
+            </>
+          ) : (
+            <ListEmptyState
+              name="mobile_employees_detail-panel_info-card-4_empty"
+              message="근무 내역이 없습니다."
+            />
+          )}
         </InfoCard>
       </MobileDetailTabPanel>
     </MobileDetailPage>

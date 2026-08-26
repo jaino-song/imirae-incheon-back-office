@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellRing, Mail, Send, type LucideIcon } from "lucide-react";
 
 import { Switch } from "@/components/ui/switch";
@@ -9,8 +9,8 @@ import { useGetAuthUser } from "@/hooks/useGetAuthUser";
 import { usePushNotification } from "@/hooks/usePushNotification";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api/client";
-import { safeStorageGetItem, safeStorageSetItem } from "@/lib/safe-storage";
 import { useInitialUser } from "@/providers/UserProvider";
+import { settingsApi } from "@/services/api";
 import {
   NOTIFICATION_EMAIL_ENABLED,
   PWA_NOTIFICATIONS_ENABLED,
@@ -23,7 +23,6 @@ const NOTIFICATION_SETTINGS_SCROLL = `${NOTIFICATION_SETTINGS_BASE}_content_card
 const NOTIFICATION_SETTINGS_CHANNEL_SECTION = `${NOTIFICATION_SETTINGS_SCROLL}_channel-section`;
 const NOTIFICATION_SETTINGS_ADMIN_SECTION = `${NOTIFICATION_SETTINGS_SCROLL}_admin-section`;
 
-const EMAIL_NOTIFICATION_STORAGE_PREFIX = "settings:email-notifications";
 const NOTIFICATION_ROUTE_BODY_CLASS = "mobile-all-route";
 
 interface BroadcastResult {
@@ -40,10 +39,6 @@ interface NotificationSettingsRowProps {
   description: ReactNode;
   rightContent?: ReactNode;
   className?: string;
-}
-
-function emailNotificationStorageKey(userId: string) {
-  return `${EMAIL_NOTIFICATION_STORAGE_PREFIX}:${userId}`;
 }
 
 function NotificationSettingsRow({
@@ -87,12 +82,12 @@ function NotificationSettingsRow({
 }
 
 export default function NotificationPage() {
-  const [emailNotifications, setEmailNotifications] = useState(NOTIFICATION_EMAIL_ENABLED);
   const [isAppNotificationUpdating, setIsAppNotificationUpdating] = useState(false);
 
   const { toast } = useToast();
   const initialUser = useInitialUser();
   const { data: user } = useGetAuthUser({ initialData: initialUser });
+  const queryClient = useQueryClient();
   const {
     isSupported: isAppNotificationSupported,
     isSubscribed: isAppNotificationEnabled,
@@ -104,7 +99,30 @@ export default function NotificationPage() {
   } = usePushNotification();
   const isOwner = user?.role === "owner";
   const accountEmail = user?.email?.trim() ?? "";
-  const emailNotificationStorageId = user?.id ?? "";
+  const emailNotificationUserId = user?.id ?? "";
+  const notificationPreferencesQueryKey = [
+    "settings",
+    "notification-preferences",
+    emailNotificationUserId,
+  ] as const;
+  const notificationPreferencesQuery = useQuery({
+    queryKey: notificationPreferencesQueryKey,
+    queryFn: settingsApi.getNotificationPreferences,
+    enabled: Boolean(emailNotificationUserId),
+  });
+  const updateNotificationPreferencesMutation = useMutation({
+    mutationFn: settingsApi.updateNotificationPreferences,
+    onSuccess: (data) => {
+      queryClient.setQueryData(notificationPreferencesQueryKey, data);
+    },
+    onError: () => {
+      toast({
+        title: "이메일 알림 설정을 저장하지 못했어요",
+        description: "이전 설정을 유지합니다",
+        variant: "destructive",
+      });
+    },
+  });
   const appNotificationDisabled =
     isAppNotificationLoading
     || isAppNotificationUpdating
@@ -122,9 +140,15 @@ export default function NotificationPage() {
         : "앱에서 중요한 업무 알림을 받지 않습니다.";
   const emailNotificationDescription = !NOTIFICATION_EMAIL_ENABLED
     ? "이메일 알림은 현재 비활성화되어 있습니다."
-    : accountEmail
-    ? `${accountEmail}로 주요 알림을 받습니다.`
-    : "현재 계정 이메일을 불러오는 중입니다.";
+    : !accountEmail
+      ? "현재 계정 이메일을 불러오는 중입니다."
+      : notificationPreferencesQuery.isFetching
+        ? "이메일 알림 설정을 불러오는 중입니다."
+        : notificationPreferencesQuery.isError
+          ? "이메일 알림 설정을 불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          : updateNotificationPreferencesMutation.isError
+            ? "이메일 알림 설정을 저장하지 못했어요. 이전 설정을 유지합니다."
+            : `${accountEmail}로 주요 알림을 받습니다.`;
 
   const testNotificationMutation = useMutation({
     mutationFn: async () => {
@@ -166,14 +190,7 @@ export default function NotificationPage() {
   };
 
   const handleEmailNotificationChange = (checked: boolean) => {
-    setEmailNotifications(checked);
-    if (emailNotificationStorageId) {
-      safeStorageSetItem(
-        "local",
-        emailNotificationStorageKey(emailNotificationStorageId),
-        checked ? "true" : "false",
-      );
-    }
+    updateNotificationPreferencesMutation.mutate(checked);
   };
 
   useEffect(() => {
@@ -183,19 +200,6 @@ export default function NotificationPage() {
       document.body.classList.remove(NOTIFICATION_ROUTE_BODY_CLASS);
     };
   }, []);
-
-  useEffect(() => {
-    if (!emailNotificationStorageId) return;
-
-    window.requestAnimationFrame(() => {
-      const stored = safeStorageGetItem(
-        "local",
-        emailNotificationStorageKey(emailNotificationStorageId),
-      );
-      if (stored === null) return;
-      setEmailNotifications(stored === "true");
-    });
-  }, [emailNotificationStorageId]);
 
   return (
     <section
@@ -259,9 +263,20 @@ export default function NotificationPage() {
                   <label className="flex h-[44px] w-[44px] cursor-pointer items-center justify-center" htmlFor="notif-email">
                     <Switch
                       id="notif-email"
-                      checked={NOTIFICATION_EMAIL_ENABLED && emailNotifications && Boolean(accountEmail)}
+                      checked={
+                        NOTIFICATION_EMAIL_ENABLED
+                        && Boolean(accountEmail)
+                        && notificationPreferencesQuery.data?.emailNotificationsEnabled === true
+                      }
                       onCheckedChange={handleEmailNotificationChange}
-                      disabled={!NOTIFICATION_EMAIL_ENABLED || !accountEmail}
+                      disabled={
+                        !NOTIFICATION_EMAIL_ENABLED
+                        || !accountEmail
+                        || !emailNotificationUserId
+                        || notificationPreferencesQuery.isFetching
+                        || notificationPreferencesQuery.isError
+                        || updateNotificationPreferencesMutation.isPending
+                      }
                       aria-label="이메일 알림 설정"
                     />
                   </label>

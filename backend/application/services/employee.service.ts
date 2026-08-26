@@ -6,6 +6,7 @@ import {
     DeleteEmployeeUsecase,
     FindEmployeeByIdUsecase,
     ListActiveClientsByEmployeeUsecase,
+    ListWorkHistoryByEmployeeUsecase,
     ListEmployeesByGradeUsecase,
     ListEmployeesByOpenStatusUsecase,
     ListEmployeesByRegisteredDateRangeUsecase,
@@ -21,6 +22,7 @@ import {
     ActiveClientByEmployee,
     EMPLOYEE_REPOSITORY,
     IEmployeeRepository,
+    PaginatedEmployeeWorkHistory,
 } from "domain/repositories/employee.repository.interface";
 import { normalizePhone } from "application/utils/normalize-phone";
 
@@ -39,6 +41,7 @@ export class EmployeeService {
         private readonly createEmployeeUsecase: CreateEmployeeUsecase,
         private readonly findEmployeeByIdUsecase: FindEmployeeByIdUsecase,
         private readonly listActiveClientsByEmployeeUsecase: ListActiveClientsByEmployeeUsecase,
+        private readonly listWorkHistoryByEmployeeUsecase: ListWorkHistoryByEmployeeUsecase,
         private readonly updateEmployeeUsecase: UpdateEmployeeUsecase,
         private readonly deleteEmployeeUsecase: DeleteEmployeeUsecase,
         private readonly listEmployeesUsecase: ListEmployeesUsecase,
@@ -79,6 +82,15 @@ export class EmployeeService {
 
     listActiveClients(branchid: string, id: number): Promise<ActiveClientByEmployee[]> {
         return this.listActiveClientsByEmployeeUsecase.execute(branchid, id);
+    }
+
+    listWorkHistory(
+        branchid: string,
+        id: number,
+        page: number,
+        limit: number,
+    ): Promise<PaginatedEmployeeWorkHistory> {
+        return this.listWorkHistoryByEmployeeUsecase.execute(branchid, id, page, limit);
     }
 
     async update(branchid: string, id: number, params: EmployeeUpdateParams): Promise<EmployeeEntity> {

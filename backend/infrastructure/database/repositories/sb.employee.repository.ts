@@ -2,7 +2,9 @@ import { Injectable } from "@nestjs/common";
 import { deriveEmployeeStatus, EmployeeEntity } from "domain/entities/employee.entity";
 import {
     ActiveClientByEmployee,
+    EmployeeWorkHistoryByEmployee,
     IEmployeeRepository,
+    PaginatedEmployeeWorkHistory,
 } from "domain/repositories/employee.repository.interface";
 import { PrismaService } from "infrastructure/database/prisma.service";
 import { EmployeeMapper } from "infrastructure/database/mapper/employee.mapper";
@@ -175,6 +177,64 @@ export class SbEmployeeRepository implements IEmployeeRepository {
             endDate: schedule.client.endDate,
             serviceStatus: schedule.client.serviceStatus,
         }));
+    }
+
+    async findWorkHistoryByEmployee(
+        branchid: string,
+        id: number,
+        page: number,
+        limit: number,
+    ): Promise<PaginatedEmployeeWorkHistory> {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const where: Prisma.employee_scheduleWhereInput = {
+            branchId: branchid,
+            client: { branchId: branchid },
+            OR: [
+                { primaryEmployeeId: id },
+                { secondaryEmployeeId: id },
+            ],
+            AND: [{ OR: [{ replaced: true }, { endDate: { lt: today } }] }],
+        };
+        const [schedules, total] = await Promise.all([
+            this.prismaService.employee_schedule.findMany({
+                where,
+                skip: (page - 1) * limit,
+                take: limit,
+                select: {
+                    id: true,
+                    primaryEmployeeId: true,
+                    secondaryEmployeeId: true,
+                    startDate: true,
+                    endDate: true,
+                    replaced: true,
+                    client: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+                orderBy: [{ startDate: "desc" }, { id: "desc" }],
+            }),
+            this.prismaService.employee_schedule.count({ where }),
+        ]);
+
+        return {
+            data: schedules.map((schedule): EmployeeWorkHistoryByEmployee => ({
+                scheduleId: schedule.id,
+                clientId: schedule.client.id,
+                clientName: schedule.client.name,
+                role: schedule.primaryEmployeeId === id ? "primary" : "secondary",
+                startDate: schedule.startDate,
+                endDate: schedule.endDate,
+                status: schedule.replaced ? "replaced" : "completed",
+            })),
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
+        };
     }
 
     async findAll(branchid: string): Promise<EmployeeEntity[]> {
