@@ -16,6 +16,7 @@ on:
   # merges as eternally "expected" when the paths don't match.
   pull_request:
     branches: [ main, dev, preview, "feature/**", "fix/**", "ci/**" ]
+  merge_group:
 
 permissions:
   contents: read
