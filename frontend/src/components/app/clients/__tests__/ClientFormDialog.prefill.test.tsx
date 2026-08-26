@@ -67,6 +67,28 @@ jest.mock("@/components/app/employees/EmployeeFormDialog", () => ({
     EmployeeFormDialog: () => null,
 }));
 
+jest.mock("../EmployeeAutocomplete", () => ({
+    EmployeeAutocomplete: ({
+        label,
+        value,
+        onChange,
+    }: {
+        label: string;
+        value: number | null;
+        onChange: (id: number | null, employee?: unknown) => void;
+    }) => (
+        <div>
+            <span>{label}</span>
+            <input
+                aria-label={`${label} 값`}
+                value={value ?? ""}
+                readOnly
+            />
+            <button type="button" onClick={() => onChange(17)}>select</button>
+        </div>
+    ),
+}));
+
 jest.mock("@/lib/api/client", () => ({
     api: {
         get: jest.fn(),
@@ -185,5 +207,35 @@ describe("ClientFormDialog prefill", () => {
         );
 
         await waitFor(() => expect(screen.getByLabelText("연락처")).toHaveValue("010-9876-5432"));
+    });
+
+    it("keeps employee and voucher selections supplied as create-mode prefill", async () => {
+        render(
+            <ClientFormDialog
+                open
+                onClose={jest.fn()}
+                prefill={{
+                    voucherClient: true,
+                    primaryEmployeeId: 17,
+                    secondaryEmployeeId: 23,
+                    type: "A가1형",
+                    duration: 10,
+                    startDate: "2026-08-10",
+                    fullPrice: "1464000",
+                    grant: "1002000",
+                    actualPrice: "462000",
+                }}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(screen.getByLabelText("주 담당 인력 값")).toHaveValue("17");
+            expect(screen.getByLabelText("보조 담당 인력 값")).toHaveValue("23");
+            expect(screen.getAllByLabelText(/바우처 유형/)[0]).toHaveValue("A가1형");
+            expect(screen.getByLabelText("서비스 기간")).toHaveValue("10");
+        });
+        expect(screen.getByLabelText("총 서비스 금액")).toHaveValue("1,464,000");
+        expect(screen.getByLabelText("정부지원금")).toHaveValue("1,002,000");
+        expect(screen.getByLabelText("본인부담금")).toHaveValue("462,000");
     });
 });
