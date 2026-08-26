@@ -21,6 +21,12 @@ import {
 import { AlertCircle } from "lucide-react";
 import { useVoucherPriceInfos, useVoucherYears } from "@/hooks/useVoucherData";
 import { useCreateClient } from "@/hooks/useClients";
+import { formatKoreanPhoneNumber } from "@/lib/phone";
+import {
+    CLIENT_REGISTRATION_ERROR_MESSAGES,
+    isStrictIsoDate,
+    isValidClientBirthdayInput,
+} from "@/lib/client/client-registration-formats";
 import type { CreateClientDto } from "@/lib/client/types";
 import voucherOptions from "@/components/app/messages/templates/json/voucher.json";
 
@@ -36,13 +42,6 @@ interface ClientRegistrationWizardProps {
 const steps = ["기본 정보", "바우처 정보", "설정"] as const;
 
 const WIZARD_MIN_HEIGHT_PX = 520;
-
-function formatPhoneNumber(value: string): string {
-    const digits = value.replace(/\D/g, "");
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
-}
 
 function formatPrice(price: string): string {
     const num = parseInt(price.replace(/[,원\s]/g, ""), 10);
@@ -94,22 +93,23 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
         grant.trim().length > 0 &&
         actualPrice.trim().length > 0;
 
+    const isBasicsValid =
+        name.trim().length > 0 &&
+        phone.replace(/\D/g, "").length === 11 &&
+        birthday.replace(/\D/g, "").length === 6 &&
+        address.trim().length > 0 &&
+        isStrictIsoDate(dueDate);
+
     const canGoNext = useMemo(() => {
         if (activeStep === 0) {
-            return (
-                name.trim().length > 0 &&
-                phone.trim().length > 0 &&
-                birthday.trim().length > 0 &&
-                address.trim().length > 0 &&
-                dueDate.trim().length > 0
-            );
+            return isBasicsValid;
         }
         if (activeStep === 1) {
             if (!voucherClient) return true;
             return isVoucherInfoComplete;
         }
         return true;
-    }, [activeStep, name, phone, birthday, address, dueDate, voucherClient, isVoucherInfoComplete]);
+    }, [activeStep, isBasicsValid, voucherClient, isVoucherInfoComplete]);
 
     const handleNext = () => {
         if (!canGoNext) return;
@@ -148,7 +148,16 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
     };
 
     const handleSubmit = async () => {
-        if (!name.trim()) return;
+        if (!isBasicsValid) {
+            setSubmitError(
+                !name.trim() ? "이름을 입력해 주세요."
+                : phone.replace(/\D/g, "").length !== 11 ? "연락처는 11자리 휴대폰 번호여야 합니다."
+                : !isValidClientBirthdayInput(birthday) ? CLIENT_REGISTRATION_ERROR_MESSAGES.birthday
+                : !address.trim() ? "주소를 입력해 주세요."
+                : CLIENT_REGISTRATION_ERROR_MESSAGES.dueDate,
+            );
+            return;
+        }
 
         if (voucherClient && !isVoucherInfoComplete) {
             setSubmitError("바우처 정보를 입력해주세요.");
@@ -161,10 +170,10 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
         try {
             const payload: Record<string, unknown> = {
                 name: name.trim(),
-                phone: phone.trim(),
-                birthday: birthday.trim(),
+                phone: formatKoreanPhoneNumber(phone),
+                birthday: birthday,
                 address: address.trim(),
-                dueDate: dueDate.trim(),
+                dueDate: dueDate,
                 careCenter,
                 voucherClient,
                 breastPump,
@@ -242,7 +251,7 @@ export function ClientRegistrationWizard({ onCreated }: ClientRegistrationWizard
                             <Input
                                 id="phone"
                                 value={phone}
-                                onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                                onChange={(e) => setPhone(formatKoreanPhoneNumber(e.target.value))}
                                 placeholder="010-1234-5678"
                                 maxLength={13}
                             />

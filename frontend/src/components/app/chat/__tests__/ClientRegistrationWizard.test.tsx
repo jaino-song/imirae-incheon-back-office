@@ -34,6 +34,11 @@ jest.mock("@/hooks/useClients", () => ({
     }),
 }));
 
+jest.mock("@/hooks/useEmployees", () => ({
+    useCreateEmployee: () => ({ mutateAsync: jest.fn(), isPending: false }),
+    useEmployees: () => ({ data: [] }),
+}));
+
 describe("ClientRegistrationWizard", () => {
     beforeEach(() => {
         mockCreateClientMutateAsync.mockReset();
@@ -97,6 +102,47 @@ describe("ClientRegistrationWizard", () => {
 
         expect(onCreated).toHaveBeenCalledWith({ id: 123, name: "홍길동" });
     }, 15000);
+
+    test("seeds fields extracted from the chat request", () => {
+        render(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                }}
+                onCreated={jest.fn()}
+            />,
+        );
+
+        expect(screen.getByLabelText("이름")).toHaveValue("홍길동");
+        expect(screen.getByLabelText("연락처")).toHaveValue("010-1234-5678");
+        expect(screen.getByLabelText("생년월일")).toHaveValue("900101");
+        expect(screen.getByLabelText("주소")).toHaveValue("인천 연수구");
+        expect(screen.getByText("대화에서 받은 정보를 채웠어요. 부족한 항목을 입력해 주세요."))
+            .toBeInTheDocument();
+    });
+
+    test("opens inline employee registration when the mentioned employee is not registered", async () => {
+        render(
+            <ClientRegistrationWizard
+                initialDraft={{
+                    name: "홍길동",
+                    phone: "01012345678",
+                    birthday: "900101",
+                    address: "인천 연수구",
+                    dueDate: "260201",
+                    employeeName: "김제공",
+                }}
+                onCreated={jest.fn()}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "다음" }));
+
+        expect(await screen.findByLabelText("제공인력 이름")).toHaveValue("김제공");
+    });
 
     test("shows inline error on API failure", async () => {
         mockCreateClientMutateAsync.mockRejectedValue(new Error("등록 실패"));

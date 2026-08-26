@@ -53,6 +53,9 @@ import {
 } from "@/components/app/eformsign/HeadlessProgressStepper";
 
 import { formatIsoDateInput } from "@/lib/date/format-iso-input";
+import {
+    isValidClientBirthdayInput,
+} from "@/lib/client/client-registration-formats";
 
 // 한국 공휴일 (대체공휴일 포함). 발급 가능 연도 기준 2026~2027 hardcode — 매년 갱신 필요.
 // 출처: 공공데이터포털 특일정보 / 인사혁신처 공고. 음력 기반 명절은 다음 양력 변환:
@@ -1180,13 +1183,14 @@ export const ContractCreationForm = ({
   };
 
   const isStep1Valid = Boolean(name.trim() && phone.trim() && area);
+  const isBirthdayValid = !birthday || isValidClientBirthdayInput(birthday);
   const isEmployee1Valid = employeeId !== null;
   const isEmployee2Valid = !showEmployee2 || employee2Id !== null;
   const isStep2Valid = isEmployee1Valid && isEmployee2Valid;
   const isStep3Valid = Boolean(voucherType && voucherDuration && fullPrice && grant && actualPrice);
   // endDate는 이용자 서명 후 직원이 Step 3에서 사후 입력하므로 발급 시점에는 옵셔널.
   const isStep4Valid = Boolean(startDate && paymentDate);
-  const isCurrentStepValid = [isStep1Valid, isStep2Valid, isStep3Valid, isStep4Valid][activeStep] ?? true;
+  const isCurrentStepValid = [isStep1Valid && isBirthdayValid, isStep2Valid, isStep3Valid, isStep4Valid][activeStep] ?? true;
   const requiredFieldProgressText = `필수 항목 11개 중 ${
     [
       Boolean(name.trim()),
@@ -1220,6 +1224,9 @@ export const ContractCreationForm = ({
   const getStepValidationMessage = (step: number): string | null => {
     if (step === 0 && !isStep1Valid) {
       return "고객 정보와 계약서를 선택해 주세요.";
+    }
+    if (step === 0 && !isBirthdayValid) {
+      return "생년월일은 유효한 YYMMDD 6자리여야 합니다.";
     }
     if (step === 1 && !isStep2Valid) {
       return "제공인력 정보를 모두 입력해 주세요.";
