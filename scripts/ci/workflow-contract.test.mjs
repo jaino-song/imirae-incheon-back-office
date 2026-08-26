@@ -231,7 +231,7 @@ test("mobile pull-request E2E uses only a run-scoped dummy JWT", async () => {
     );
 });
 
-test("backend pull requests cannot receive the protected cutover manifest", async () => {
+test("backend pull requests and merge queues cannot receive the protected cutover manifest", async () => {
     const fileName = "backend-ci.yml";
     const workflow = await readWorkflow(fileName);
     const job = jobBlock(workflow, "verify", fileName);
@@ -242,18 +242,47 @@ test("backend pull requests cannot receive the protected cutover manifest", asyn
     const manifestSecretSteps = steps.filter((step) => step.join("\n").includes("secrets.AGENT_CUTOVER_MANIFEST_JSON"));
     assert.equal(manifestSecretSteps.length, 1, `${fileName} must expose the protected manifest in exactly one trusted step`);
     const trustedCutoverStep = manifestSecretSteps[0];
-    const pullRequestCutoverStep = cutoverSteps.find((step) => !step.join("\n").includes("secrets.AGENT_CUTOVER_MANIFEST_JSON"));
+    const untrustedCutoverStep = cutoverSteps.find((step) => !step.join("\n").includes("secrets.AGENT_CUTOVER_MANIFEST_JSON"));
     assert.ok(trustedCutoverStep, `${fileName} must retain a protected-evidence cutover guard`);
-    assert.ok(pullRequestCutoverStep, `${fileName} must retain a secret-free pull-request cutover guard`);
+    assert.ok(untrustedCutoverStep, `${fileName} must retain a secret-free pull-request and merge-queue cutover guard`);
     assert.match(trustedCutoverStep.join("\n"), /if:\s+github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/);
-    assert.match(pullRequestCutoverStep.join("\n"), /if:\s+github\.event_name == 'pull_request'/);
+    assert.match(untrustedCutoverStep.join("\n"), /if:\s+github\.event_name == 'pull_request' \|\| github\.event_name == 'merge_group'/);
     assert.match(trustedCutoverStep.join("\n"), /secrets\.AGENT_CUTOVER_MANIFEST_JSON/);
-    assert.doesNotMatch(pullRequestCutoverStep.join("\n"), /secrets\./);
+    assert.match(untrustedCutoverStep.join("\n"), /AGENT_RELEASE_CANDIDATE_SHA:\s+\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
+    assert.doesNotMatch(untrustedCutoverStep.join("\n"), /secrets\./);
     assert.doesNotMatch(
         job.join("\n"),
         /^      [A-Z0-9_]+:.*secrets\.AGENT_CUTOVER_MANIFEST_JSON/m,
         `${fileName} must not expose the cutover manifest at job scope`,
     );
+});
+
+test("PR-controlled frontend and mobile lanes use explicit read-only permissions and no persisted checkout token", async () => {
+    const lanes = [
+        ["mobile-ci.yml", "verify"],
+        ["frontend-ci.yml", "verify"],
+        ["playwright.yml", "test"],
+    ];
+
+    for (const [fileName, jobId] of lanes) {
+        const workflow = await readWorkflow(fileName);
+        const job = jobBlock(workflow, jobId, fileName);
+        const checkoutStep = stepBlocks(job, jobId, fileName).find((step) => step.some((line) => line.includes("actions/checkout@")));
+
+        assert.match(workflow, /^permissions:\n  contents: read\n/m, `${fileName} must default the workflow token to read-only contents access`);
+        assert.doesNotMatch(workflow, /^ {2,}[A-Za-z-]+: write$/m, `${fileName} must not grant a writable workflow token`);
+        assert.ok(checkoutStep, `${fileName} ${jobId} must checkout the repository`);
+        assert.match(checkoutStep.join("\n"), /persist-credentials: false/, `${fileName} ${jobId} checkout must not persist the workflow token`);
+    }
+
+    const mobileWorkflow = await readWorkflow("mobile-ci.yml");
+    const verifyJob = jobBlock(mobileWorkflow, "verify", "mobile-ci.yml").join("\n");
+    const e2eJob = jobBlock(mobileWorkflow, "e2e", "mobile-ci.yml");
+    const e2eText = e2eJob.join("\n");
+
+    assert.doesNotMatch(verifyJob, /pull-requests:\s+/, "mobile verify must not receive an unnecessary pull-requests token scope");
+    assert.match(e2eText, /^    permissions:\n      contents: read\n      pull-requests: read$/m, "mobile E2E must scope PR file-list access to its own job");
+    assert.match(e2eText, /repos\/\$\{\{ github\.repository \}\}\/pulls\/\$\{\{ github\.event\.pull_request\.number \}\}\/files/);
 });
 
 test("database failover validation has no OIDC token while deploy jobs retain OIDC", async () => {
