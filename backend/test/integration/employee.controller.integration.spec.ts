@@ -402,6 +402,18 @@ describe("EmployeeController (Integration)", () => {
                 expect(employeeService.findByOpenStatus).toHaveBeenCalledWith(expect.any(String), true);
             });
         });
+
+        it.each(["garbage", "TRUE", "1"])(
+            "should reject an invalid openToNextWork value (%s) before calling the service",
+            async (openToNextWork) => {
+                const response = await request(app.getHttpServer())
+                    .get("/employees/open-status")
+                    .query({ openToNextWork });
+
+                expect(response.status).toBe(400);
+                expect(employeeService.findByOpenStatus).not.toHaveBeenCalled();
+            },
+        );
     });
 
     // ============================================
