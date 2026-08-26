@@ -321,10 +321,15 @@ pnpm --filter ./backend generate
 pnpm --filter ./backend db:migrate
 ```
 
-Optional development seed:
+No general-purpose development database seed is supported. The historical
+`backend/prisma/seed.ts` entrypoint is not maintained, so `db:seed` fails fast
+instead of pretending to seed data.
+
+For isolated test databases only, use one of the scoped fixtures:
 
 ```bash
-pnpm --filter ./backend db:seed
+pnpm --filter ./backend db:seed:e2e
+pnpm --filter ./backend db:seed:auth-e2e
 ```
 
 Use `db:migrate:deploy` only for controlled deployment environments. Do not use it as a substitute
