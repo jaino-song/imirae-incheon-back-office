@@ -50,6 +50,7 @@ describe("EmployeeController (Integration)", () => {
             findByRegisteredDateRange: jest.fn(),
             findAllOpenToNextWork: jest.fn(),
             listActiveClients: jest.fn(),
+            listWorkHistory: jest.fn(),
             checkPhoneExists: jest.fn(),
             changeOpenStatus: jest.fn(),
             update: jest.fn(),
@@ -298,6 +299,34 @@ describe("EmployeeController (Integration)", () => {
   },
 ]
 `);
+        });
+    });
+
+    describe("GET /employees/:id/work-history", () => {
+        it("validates pagination and passes the selected branch to the service", async () => {
+            employeeService.listWorkHistory.mockResolvedValue({
+                data: [],
+                total: 0,
+                page: 2,
+                limit: 10,
+                totalPages: 0,
+            });
+
+            const response = await request(app.getHttpServer())
+                .get("/employees/7/work-history")
+                .query({ page: "2", limit: "10" });
+
+            expect(response.status).toBe(200);
+            expect(employeeService.listWorkHistory).toHaveBeenCalledWith("org-1", 7, 2, 10);
+        });
+
+        it("rejects invalid pagination before calling the service", async () => {
+            const response = await request(app.getHttpServer())
+                .get("/employees/7/work-history")
+                .query({ page: "0", limit: "10" });
+
+            expect(response.status).toBe(400);
+            expect(employeeService.listWorkHistory).not.toHaveBeenCalled();
         });
     });
 

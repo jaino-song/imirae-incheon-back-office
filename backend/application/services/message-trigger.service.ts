@@ -240,10 +240,80 @@ interface ClientTriggerSource {
     area?: { bankAccountInfo: { bankName: string | null; accNum: string | null } | null } | null;
 }
 
+interface EmployeeAssignmentScheduleSource {
+    id: number;
+    branchId: string | null;
+    clientId: number;
+    workAddress: string;
+    startDate: Date;
+    endDate: Date;
+    replaced: boolean;
+    primaryEmployeeId: number;
+    secondaryEmployeeId: number | null;
+    client: { id: number; name: string };
+    primaryEmployee: { id: number; name: string; phone: string } | null;
+    secondaryEmployee: { id: number; name: string; phone: string } | null;
+}
+
+type EmployeeAssignmentScheduleFingerprintSource = Pick<
+    EmployeeAssignmentScheduleSource,
+    | "id"
+    | "branchId"
+    | "clientId"
+    | "workAddress"
+    | "startDate"
+    | "endDate"
+    | "replaced"
+    | "primaryEmployeeId"
+    | "secondaryEmployeeId"
+> & Partial<Pick<EmployeeAssignmentScheduleSource, "client" | "primaryEmployee" | "secondaryEmployee">>;
+
+function employeeAssignmentEmployeeFingerprint(
+    employee: EmployeeAssignmentScheduleSource["primaryEmployee"] | undefined,
+): { id: number; name: string; phone: string } | null {
+    if (!employee) return null;
+    return { id: employee.id, name: employee.name, phone: employee.phone };
+}
+
+/**
+ * A schedule has no version column. Persisting this opaque source fingerprint
+ * in the assignment job lets the dispatcher reject a claimed job built from
+ * any older schedule/assignment generation without copying address data into
+ * the provider payload.
+ */
+function employeeAssignmentScheduleFingerprint(
+    schedule: EmployeeAssignmentScheduleFingerprintSource,
+    recipientType: MessageTriggerRecipientType,
+): string {
+    return createHash("sha256").update(JSON.stringify({
+        version: "employee-assignment-source-v1",
+        recipientType,
+        id: schedule.id,
+        branchId: schedule.branchId,
+        clientId: schedule.clientId,
+        client: schedule.client
+            ? { id: schedule.client.id, name: schedule.client.name }
+            : null,
+        workAddress: schedule.workAddress,
+        startDate: schedule.startDate.toISOString(),
+        endDate: schedule.endDate.toISOString(),
+        replaced: schedule.replaced,
+        primaryEmployeeId: schedule.primaryEmployeeId,
+        secondaryEmployeeId: schedule.secondaryEmployeeId,
+        primaryEmployee: employeeAssignmentEmployeeFingerprint(schedule.primaryEmployee),
+        secondaryEmployee: employeeAssignmentEmployeeFingerprint(schedule.secondaryEmployee),
+    })).digest("hex");
+}
+
 type ClientRuleJobCandidate = {
     rule: MessageTriggerRuleEntity;
     job: MessageTriggerJobEntity;
 };
+
+type PreProviderSendFenceResult =
+    | { kind: "allow" }
+    | { kind: "stale"; reason: string }
+    | { kind: "lost" };
 
 @Injectable()
 export class MessageTriggerService {
@@ -1292,16 +1362,7 @@ export class MessageTriggerService {
 
     private buildEmployeeAssignmentJob(
         rule: MessageTriggerRuleEntity,
-        schedule: {
-            id: number;
-            clientId: number;
-            startDate: Date;
-            primaryEmployeeId: number;
-            secondaryEmployeeId: number | null;
-            client: { id: number; name: string };
-            primaryEmployee: { id: number; name: string; phone: string } | null;
-            secondaryEmployee: { id: number; name: string; phone: string } | null;
-        },
+        schedule: EmployeeAssignmentScheduleSource,
     ): MessageTriggerJobEntity | null {
         const employee =
             rule.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE
@@ -1326,6 +1387,7 @@ export class MessageTriggerService {
                 clientName: schedule.client.name,
                 employeeId: employee.id,
                 employeeName: employee.name,
+                employeeScheduleFingerprint: employeeAssignmentScheduleFingerprint(schedule, rule.recipientType),
                 memberId,
                 recipientName: employee.name,
                 recipientPhone: employee.phone,
@@ -1814,6 +1876,18 @@ export class MessageTriggerService {
         }
 
         job.markProcessing();
+        if (job.templateKey === MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED && job.employeeScheduleId !== null) {
+            const fence = await this.fenceEmployeeAssignmentBeforeProviderSend(job);
+            if (fence.kind === "lost") {
+                return;
+            }
+            if (fence.kind === "stale") {
+                job.cancel(fence.reason);
+                await this.persistTriggerJobStatus(job, "persist stale employee assignment trigger job");
+                return;
+            }
+        }
+
         try {
             const sent = await this.deliveryService.sendJob(job);
             if (sent) {
@@ -1830,6 +1904,97 @@ export class MessageTriggerService {
         }
 
         await this.persistTriggerJobStatus(job, "persist dispatched trigger job");
+    }
+
+    /**
+     * Re-read the claimed job and its schedule immediately before provider
+     * invocation. BJJ-35 fences pending rows in the schedule update
+     * transaction, but a row already claimed as `processing` needs this final
+     * source check as well. A lost claim is left untouched so a concurrent
+     * user cancel or retry transition is never overwritten.
+     */
+    private async fenceEmployeeAssignmentBeforeProviderSend(
+        job: MessageTriggerJobEntity,
+    ): Promise<PreProviderSendFenceResult> {
+        const employeeScheduleId = job.employeeScheduleId;
+        if (employeeScheduleId === null) return { kind: "lost" };
+        const currentJob = await this.jobRepository.findById(job.id);
+        if (
+            !currentJob
+            || currentJob.status !== "processing"
+            || currentJob.branchId !== job.branchId
+            || currentJob.ruleId !== job.ruleId
+            || currentJob.clientId !== job.clientId
+            || currentJob.employeeScheduleId !== employeeScheduleId
+            || currentJob.recipientType !== job.recipientType
+            || currentJob.templateKey !== job.templateKey
+            || currentJob.payload.employeeScheduleFingerprint !== job.payload.employeeScheduleFingerprint
+        ) {
+            return { kind: "lost" };
+        }
+
+        const schedule = await this.prisma.employee_schedule.findFirst({
+            where: {
+                id: employeeScheduleId,
+                branchId: job.branchId,
+            },
+            select: {
+                id: true,
+                branchId: true,
+                clientId: true,
+                workAddress: true,
+                startDate: true,
+                endDate: true,
+                replaced: true,
+                primaryEmployeeId: true,
+                secondaryEmployeeId: true,
+                client: { select: { id: true, name: true } },
+                primaryEmployee: { select: { id: true, name: true, phone: true } },
+                secondaryEmployee: { select: { id: true, name: true, phone: true } },
+            },
+        });
+
+        if (!schedule || schedule.branchId !== job.branchId || schedule.clientId !== job.clientId) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const fingerprint = job.payload.employeeScheduleFingerprint;
+        if (fingerprint) {
+            return employeeAssignmentScheduleFingerprint(schedule, job.recipientType) === fingerprint
+                ? { kind: "allow" }
+                : {
+                    kind: "stale",
+                    reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+                };
+        }
+
+        // Jobs created before the fingerprint was introduced remain
+        // dispatchable when their message-visible assignment still matches.
+        // They cannot prove address/end-date/replacement equality, so newly
+        // generated jobs always use the stronger fingerprint path above.
+        const expectedEmployeeId = job.payload.employeeId;
+        const currentEmployeeId = job.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE
+            ? schedule.primaryEmployeeId
+            : schedule.secondaryEmployeeId;
+        if (typeof expectedEmployeeId !== "number" || expectedEmployeeId !== currentEmployeeId) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedStartDate = job.payload.templateVariables["serviceStartDate"];
+        if (expectedStartDate && this.formatDate(schedule.startDate) !== expectedStartDate) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        return { kind: "allow" };
     }
 
     private shouldSkipPreStartCatchUp(

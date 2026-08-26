@@ -241,6 +241,99 @@ describe("SbEmployeeRepository", () => {
         });
     });
 
+    describe("findWorkHistoryByEmployee", () => {
+        it("queries only branch-scoped ended or replaced schedules and maps safe history fields", async () => {
+            employeeScheduleModel.findMany.mockResolvedValue([
+                {
+                    id: 22,
+                    primaryEmployeeId: 3,
+                    secondaryEmployeeId: 7,
+                    startDate: new Date("2025-01-01T00:00:00.000Z"),
+                    endDate: new Date("2025-06-30T00:00:00.000Z"),
+                    replaced: true,
+                    client: { id: 11, name: "박서연" },
+                },
+                {
+                    id: 21,
+                    primaryEmployeeId: 7,
+                    secondaryEmployeeId: null,
+                    startDate: new Date("2024-01-01T00:00:00.000Z"),
+                    endDate: new Date("2024-12-31T00:00:00.000Z"),
+                    replaced: false,
+                    client: { id: 10, name: "김민지" },
+                },
+            ]);
+            employeeScheduleModel.count.mockResolvedValue(2);
+
+            const result = await repository.findWorkHistoryByEmployee(branchId, 7, 2, 10);
+
+            expect(employeeScheduleModel.findMany).toHaveBeenCalledWith({
+                where: {
+                    branchId,
+                    client: { branchId },
+                    OR: [
+                        { primaryEmployeeId: 7 },
+                        { secondaryEmployeeId: 7 },
+                    ],
+                    AND: [{ OR: [{ replaced: true }, { endDate: { lt: expect.any(Date) } }] }],
+                },
+                skip: 10,
+                take: 10,
+                select: {
+                    id: true,
+                    primaryEmployeeId: true,
+                    secondaryEmployeeId: true,
+                    startDate: true,
+                    endDate: true,
+                    replaced: true,
+                    client: { select: { id: true, name: true } },
+                },
+                orderBy: [{ startDate: "desc" }, { id: "desc" }],
+            });
+            expect(employeeScheduleModel.count).toHaveBeenCalledWith({
+                where: expect.objectContaining({ branchId, client: { branchId } }),
+            });
+            expect(result).toEqual({
+                data: [
+                    {
+                        scheduleId: 22,
+                        clientId: 11,
+                        clientName: "박서연",
+                        role: "secondary",
+                        startDate: new Date("2025-01-01T00:00:00.000Z"),
+                        endDate: new Date("2025-06-30T00:00:00.000Z"),
+                        status: "replaced",
+                    },
+                    {
+                        scheduleId: 21,
+                        clientId: 10,
+                        clientName: "김민지",
+                        role: "primary",
+                        startDate: new Date("2024-01-01T00:00:00.000Z"),
+                        endDate: new Date("2024-12-31T00:00:00.000Z"),
+                        status: "completed",
+                    },
+                ],
+                total: 2,
+                page: 2,
+                limit: 10,
+                totalPages: 1,
+            });
+        });
+
+        it("uses schedule/client branch predicates so cross-branch history cannot leak", async () => {
+            employeeScheduleModel.findMany.mockResolvedValue([]);
+            employeeScheduleModel.count.mockResolvedValue(0);
+
+            await repository.findWorkHistoryByEmployee(branchId, 7, 1, 20);
+
+            const findManyWhere = employeeScheduleModel.findMany.mock.calls[0]?.[0]?.where;
+            const countWhere = employeeScheduleModel.count.mock.calls[0]?.[0]?.where;
+            expect(findManyWhere).toEqual(expect.objectContaining({ branchId, client: { branchId } }));
+            expect(countWhere).toEqual(expect.objectContaining({ branchId, client: { branchId } }));
+        });
+    });
+
     // ============================================
     // findAll
     // ============================================
