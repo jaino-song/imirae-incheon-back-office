@@ -21,10 +21,15 @@ class KoinHelper {
     private init() {}
 
     private lazy var secureStorage: IosSecureStorage = IosSecureStorage()
-    private lazy var anonymousApiClient: ApiClient = ApiClient(tokenProvider: nil)
+    private lazy var apiBaseURL: String = IOSApiEndpointConfiguration.requireBaseURL()
+    private lazy var anonymousApiClient: ApiClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: nil)
     private lazy var authService: AuthServiceImpl = AuthServiceImpl(apiClient: anonymousApiClient)
-    private lazy var authManager: AuthManager = AuthManager(authService: authService, secureStorage: secureStorage)
-    private lazy var authenticatedApiClient: ApiClient = ApiClient(tokenProvider: authManager)
+    private lazy var authManager: AuthManager = AuthManager(
+        authService: authService,
+        secureStorage: secureStorage,
+        apiBaseUrl: apiBaseURL
+    )
+    private lazy var authenticatedApiClient: ApiClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: authManager)
 
     private lazy var clientService: ClientServiceImpl = ClientServiceImpl(apiClient: authenticatedApiClient)
     private lazy var employeeService: EmployeeServiceImpl = EmployeeServiceImpl(apiClient: authenticatedApiClient)

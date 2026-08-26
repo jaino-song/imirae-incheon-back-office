@@ -9,4 +9,9 @@ describe("frontend select-branch navigation lifecycle", () => {
     expect(source).toContain("keepLoadingForNavigation = await handleSelectBranch");
     expect(source).toContain("if (!keepLoadingForNavigation)");
   });
+
+  it("resets authority state before changing the selected branch", () => {
+    expect(source).toContain('import { resetAuthorityState } from "@/lib/auth/authority-state"');
+    expect(source).toContain("await resetAuthorityState(queryClient)");
+  });
 });

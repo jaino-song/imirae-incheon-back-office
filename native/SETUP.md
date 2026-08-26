@@ -9,6 +9,7 @@
 - **Android:** A committed Gradle/Kotlin Multiplatform project is present under `native/`. The Android application module is `androidApp`.
 - **Shared module:** `shared` declares Android, iOS device, and iOS simulator framework targets.
 - **iOS:** SwiftUI source files and `Info.plist` are present under `native/iosApp/iosApp/`, but no Xcode project or workspace is committed. There is therefore no repository-backed iOS app build, signing, or run workflow yet.
+- **iOS API endpoint:** The existing `API_BASE_URL` build setting is read through `Info.plist` and validated before any shared client is constructed. The committed source intentionally provides no endpoint value for iOS; an Xcode target must supply this setting for each artifact. Unresolved, cleartext, local/private, and Android-emulator values fail closed at startup.
 - **Push and OAuth:** Android libraries and source hooks exist, but provider configuration is not committed and the iOS Kakao action is still a TODO. Treat those integrations as unverified.
 
 ## Prerequisites
@@ -122,6 +123,8 @@ find iosApp -maxdepth 2 \( -name '*.xcodeproj' -o -name '*.xcworkspace' \) -prin
 The command currently produces no output. Do not create an Xcode project, invent build settings, or treat the Swift source tree as a packaged app as part of setup documentation.
 
 No iOS deployment target is declared in committed Xcode configuration. The committed `Info.plist` uses Xcode build variables for the bundle identifier and version, so it does not establish a concrete bundle ID, signing team, scheme, framework search path, or deployment target.
+
+The committed `Info.plist` also maps the existing `API_BASE_URL` build setting to the shared runtime configuration. Supply an explicit HTTPS value from the external Xcode target or generated build settings for each debug, staging, and release artifact. Do not replace it with Android's `http://10.0.2.2:3001` alias: that value is accepted only by Android debug composition. If the setting is absent or remains as `$(API_BASE_URL)`, iOS startup stops before creating an API or authentication client.
 
 ### Generate the shared framework
 

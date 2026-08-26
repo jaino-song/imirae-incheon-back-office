@@ -7,6 +7,7 @@ import { Building2, Check } from "lucide-react";
 import { useInitialUser } from "@/providers/UserProvider";
 import { useLocale } from "@/providers/LocaleProvider";
 import { t } from "@/lib/i18n/translations";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 import { logout } from "@/app/(shell)/logout/actions";
 import { getUserBranches, setCurrentBranch } from "./actions";
 import "@/components/app/mobile-redesign/redesign.css";
@@ -46,6 +47,7 @@ export default function SelectBranchPage() {
   const confirmSelectBranch = useCallback(async (branchId: string): Promise<boolean> => {
     setSubmitting(true);
     try {
+      await resetAuthorityState();
       const result = await setCurrentBranch(branchId);
       if (!result.success) {
         setError(result.error || "지점 선택에 실패했습니다.");
@@ -108,6 +110,7 @@ export default function SelectBranchPage() {
     // them, and the middleware bounces authenticated users straight back
     // from /login. The server action clears them properly.
     try {
+      await resetAuthorityState();
       await logout();
       window.location.replace("/login");
     } catch (err) {

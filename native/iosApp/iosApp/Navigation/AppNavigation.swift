@@ -33,6 +33,7 @@ struct AppNavigation: View {
     var body: some View {
         NavigationStack(path: $path) {
             LoginView(
+                viewModel: authWrapper,
                 onNavigateToRegister: { path.append(AppRoute.register) },
                 onNavigateToForgotPassword: { path.append(AppRoute.forgotPassword) },
                 onNavigateToVerifyEmail: { path.append(AppRoute.verifyEmail) },
@@ -50,7 +51,11 @@ struct AppNavigation: View {
                 case .verifyEmail:
                     VerifyEmailView(onNavigateToLogin: { path = NavigationPath() })
                 case .selectBranch:
-                    SelectBranchView(branches: [], onNavigateToDashboard: { path = NavigationPath(); path.append(AppRoute.dashboard) })
+                    SelectBranchView(
+                        viewModel: authWrapper,
+                        onNavigateToDashboard: { path = NavigationPath(); path.append(AppRoute.dashboard) },
+                        onNavigateToLogin: { path = NavigationPath() }
+                    )
                 case .dashboard:
                     DashboardView(
                         onNavigateToClients: { path.append(AppRoute.clientList) },
@@ -98,6 +103,7 @@ struct AppNavigation: View {
                     AdminFeedbackView()
                 case .login:
                     LoginView(
+                        viewModel: authWrapper,
                         onNavigateToRegister: { path.append(AppRoute.register) },
                         onNavigateToForgotPassword: { path.append(AppRoute.forgotPassword) },
                         onNavigateToVerifyEmail: { path.append(AppRoute.verifyEmail) },
@@ -120,10 +126,15 @@ private final class IOSFeatureDependencyContainer {
 
     private init() {
         let secureStorage = IosSecureStorage()
-        let anonymousClient = ApiClient(tokenProvider: nil)
+        let apiBaseURL = IOSApiEndpointConfiguration.requireBaseURL()
+        let anonymousClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: nil)
         let authService = AuthServiceImpl(apiClient: anonymousClient)
-        let authManager = AuthManager(authService: authService, secureStorage: secureStorage)
-        let authenticatedClient = ApiClient(tokenProvider: authManager)
+        let authManager = AuthManager(
+            authService: authService,
+            secureStorage: secureStorage,
+            apiBaseUrl: apiBaseURL
+        )
+        let authenticatedClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: authManager)
 
         self.templateService = TemplateServiceImpl(apiClient: authenticatedClient)
         self.chatService = ChatServiceImpl(apiClient: authenticatedClient)

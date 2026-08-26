@@ -16,4 +16,12 @@ describe("mobile select-branch navigation lifecycle", () => {
     expect(source).toContain("if (isPageBusy) return");
     expect(source).toContain('disabled={isPageBusy}');
   });
+
+  it("resets authority state before changing the selected branch or logging out", () => {
+    expect(source).toContain('import { resetAuthorityState } from "@/lib/auth/authority-state"');
+    const resetIndex = source.indexOf("await resetAuthorityState();");
+    const branchIndex = source.indexOf("const result = await setCurrentBranch");
+    expect(resetIndex).toBeGreaterThanOrEqual(0);
+    expect(branchIndex).toBeGreaterThan(resetIndex);
+  });
 });

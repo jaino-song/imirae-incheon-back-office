@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import SelectBranchPage from "./page";
 import { getUserBranches, setCurrentBranch } from "./actions";
+import { resetAuthorityState } from "@/lib/auth/authority-state";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -19,6 +20,10 @@ jest.mock("next/navigation", () => ({
 
 jest.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ clear: mockClear }),
+}));
+
+jest.mock("@/lib/auth/authority-state", () => ({
+  resetAuthorityState: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/components/auth/auth-panel", () => ({
@@ -41,6 +46,7 @@ jest.mock("@/components/auth/auth-panel", () => ({
 
 const mockedGetUserBranches = jest.mocked(getUserBranches);
 const mockedSetCurrentBranch = jest.mocked(setCurrentBranch);
+const mockedResetAuthorityState = jest.mocked(resetAuthorityState);
 
 const branches = [
   {
@@ -61,6 +67,7 @@ const branches = [
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockedResetAuthorityState.mockResolvedValue(undefined);
   mockedGetUserBranches.mockResolvedValue({ success: true, branches });
   mockedSetCurrentBranch.mockResolvedValue({ success: true });
 });
@@ -102,7 +109,11 @@ describe("SelectBranchPage branch action accessibility", () => {
 
     fireEvent.click(firstOption);
 
+    await waitFor(() => expect(mockedResetAuthorityState).toHaveBeenCalledWith({ clear: mockClear }));
     await waitFor(() => expect(mockedSetCurrentBranch).toHaveBeenCalledWith("branch-a"));
+    expect(mockedResetAuthorityState.mock.invocationCallOrder[0]).toBeLessThan(
+      mockedSetCurrentBranch.mock.invocationCallOrder[0],
+    );
     expect(mockedSetCurrentBranch).toHaveBeenCalledTimes(1);
     expect(firstOption).toBeDisabled();
     expect(secondOption).toBeDisabled();

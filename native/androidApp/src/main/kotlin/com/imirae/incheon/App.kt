@@ -7,6 +7,9 @@ import com.imirae.incheon.di.sharedModules
 import com.imirae.incheon.logging.SafeLogger
 import com.imirae.incheon.notification.FCMService
 import com.imirae.incheon.notification.NotificationManager
+import com.imirae.incheon.network.ApiBuildVariant
+import com.imirae.incheon.network.ApiEndpointConfiguration
+import com.imirae.incheon.network.ApiEndpointPlatform
 import com.imirae.incheon.recording.CallRecordingManager
 import com.imirae.incheon.viewmodel.AdminViewModel
 import com.imirae.incheon.viewmodel.ChatViewModel
@@ -55,9 +58,14 @@ class ImiraeApplication : Application() {
         )
 
         if (GlobalContext.getOrNull() == null) {
+            val apiBaseUrl = ApiEndpointConfiguration.resolve(
+                rawUrl = BuildConfig.API_BASE_URL,
+                platform = ApiEndpointPlatform.ANDROID_EMULATOR,
+                buildVariant = if (BuildConfig.DEBUG) ApiBuildVariant.DEBUG else ApiBuildVariant.RELEASE,
+            )
             startKoin {
                 androidContext(this@ImiraeApplication)
-                properties(mapOf("API_BASE_URL" to BuildConfig.API_BASE_URL))
+                properties(mapOf("API_BASE_URL" to apiBaseUrl))
                 modules(sharedModules + androidModule + phaseFiveAndSixModule)
             }
         }
