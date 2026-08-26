@@ -115,6 +115,41 @@ describe("ExtendedReadAgentCapabilitiesProvider", () => {
         expect(documents.deleteMetadataAfterStorageDeletion).toHaveBeenCalledWith("branch-a", "doc-a");
     });
 
+    it("marks an unread approved consultation once with the canonical unread predicate", async () => {
+        const { models, consultations, capabilities } = setup();
+        const markRead = capabilities.find((entry) => entry.meta.name === "consultations.markRead")!;
+        const unread = { id: "inquiry-a", updatedAt: new Date("2026-08-04T01:00:00.000Z"), readAt: null };
+        models.consultation_inquiry.findFirst.mockResolvedValue(unread);
+        models.consultation_inquiry.updateMany.mockResolvedValue({ count: 1 });
+
+        const proposal = await markRead.inspect!(context, { id: "inquiry-a" });
+
+        await expect(markRead.executeApprovedTarget!(context, { id: "inquiry-a" }, proposal.targetVersion!))
+            .resolves.toEqual({ status: "updated", id: "inquiry-a" });
+        expect(models.consultation_inquiry.updateMany).toHaveBeenCalledTimes(1);
+        expect(models.consultation_inquiry.updateMany).toHaveBeenCalledWith({
+            where: { branchId: "branch-a", id: "inquiry-a", readAt: null },
+            data: { readAt: expect.any(Date) },
+        });
+        expect(consultations.markRead).not.toHaveBeenCalled();
+    });
+
+    it("preserves an already-read approved consultation without a second write or service side effect", async () => {
+        const { models, consultations, capabilities } = setup();
+        const markRead = capabilities.find((entry) => entry.meta.name === "consultations.markRead")!;
+        const firstReadAt = new Date("2026-08-04T01:02:03.000Z");
+        const alreadyRead = { id: "inquiry-a", updatedAt: new Date("2026-08-04T01:00:00.000Z"), readAt: firstReadAt };
+        models.consultation_inquiry.findFirst.mockResolvedValue(alreadyRead);
+
+        const proposal = await markRead.inspect!(context, { id: "inquiry-a" });
+
+        await expect(markRead.executeApprovedTarget!(context, { id: "inquiry-a" }, proposal.targetVersion!))
+            .resolves.toEqual({ status: "updated", id: "inquiry-a" });
+        expect(models.consultation_inquiry.updateMany).not.toHaveBeenCalled();
+        expect(consultations.markRead).not.toHaveBeenCalled();
+        expect(alreadyRead.readAt).toBe(firstReadAt);
+    });
+
     it("keeps file reconciliation read-only while metadata still exists", async () => {
         const { models, documents, capabilities } = setup();
         models.document.findFirst.mockResolvedValue({ id: "doc-a", updatedAt: new Date() });
