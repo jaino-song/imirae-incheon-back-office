@@ -34,7 +34,7 @@ sealed class BranchesUiState {
 class AuthManager(
     private val authService: AuthService,
     private val secureStorage: SecureStorage,
-    private val apiBaseUrl: String = "http://10.0.2.2:3001",
+    private val apiBaseUrl: String,
 ) : TokenProvider {
     private val sessionPolicy = SessionPolicy(secureStorage)
     private val stepUpAuth = StepUpAuth(secureStorage)

@@ -126,10 +126,15 @@ private final class IOSFeatureDependencyContainer {
 
     private init() {
         let secureStorage = IosSecureStorage()
-        let anonymousClient = ApiClient(tokenProvider: nil)
+        let apiBaseURL = IOSApiEndpointConfiguration.requireBaseURL()
+        let anonymousClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: nil)
         let authService = AuthServiceImpl(apiClient: anonymousClient)
-        let authManager = AuthManager(authService: authService, secureStorage: secureStorage)
-        let authenticatedClient = ApiClient(tokenProvider: authManager)
+        let authManager = AuthManager(
+            authService: authService,
+            secureStorage: secureStorage,
+            apiBaseUrl: apiBaseURL
+        )
+        let authenticatedClient = ApiClient(baseUrl: apiBaseURL, tokenProvider: authManager)
 
         self.templateService = TemplateServiceImpl(apiClient: authenticatedClient)
         self.chatService = ChatServiceImpl(apiClient: authenticatedClient)

@@ -29,10 +29,16 @@ interface TokenProvider {
 }
 
 class ApiClient(
-    private val baseUrl: String = "http://10.0.2.2:3001",
+    private val baseUrl: String,
     private val tokenProviderLazy: Lazy<TokenProvider?> = lazy { null },
     val rateLimitHandler: RateLimitHandler = RateLimitHandler(),
 ) {
+    /** Convenience constructor for Swift, which cannot construct Kotlin Lazy values directly. */
+    constructor(baseUrl: String, tokenProvider: TokenProvider?) : this(
+        baseUrl = baseUrl,
+        tokenProviderLazy = lazy { tokenProvider },
+    )
+
     private val tokenProvider: TokenProvider? get() = tokenProviderLazy.value
     val json = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
