@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import {
     getClientAutomationIntentDedupeKey,
     getScheduleAutomationIntentDedupeKey,
+    EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
     MESSAGE_AUTOMATION_INTENT_RETRY_REASON,
     MESSAGE_AUTOMATION_INTENT_RULE_ID,
     MessageAutomationIntentKind,
@@ -24,6 +25,7 @@ interface PersistIntentParams {
     includePast: boolean;
     suppressGreeting: boolean;
     intentAt: Date;
+    replaceExisting: boolean;
 }
 
 export async function persistClientMessageAutomationIntent(
@@ -43,6 +45,7 @@ export async function persistClientMessageAutomationIntent(
         templateKey: MessageTriggerTemplateKey.CLIENT_GREETING,
         dedupeKey: getClientAutomationIntentDedupeKey(params.branchId, params.clientId),
         kind: "client",
+        replaceExisting: false,
     });
 }
 
@@ -54,6 +57,7 @@ export async function persistScheduleMessageAutomationIntent(
         scheduleId: number;
         includePast: boolean;
         intentAt: Date;
+        replaceExisting?: boolean;
     },
 ): Promise<void> {
     await persistMessageAutomationIntent(transaction, {
@@ -67,6 +71,7 @@ export async function persistScheduleMessageAutomationIntent(
         includePast: params.includePast,
         suppressGreeting: false,
         intentAt: params.intentAt,
+        replaceExisting: params.replaceExisting ?? false,
     });
 }
 
@@ -74,6 +79,24 @@ async function persistMessageAutomationIntent(
     transaction: Prisma.TransactionClient,
     params: PersistIntentParams,
 ): Promise<void> {
+    if (params.replaceExisting && params.employeeScheduleId !== null) {
+        await transaction.message_trigger_job.updateMany({
+            where: {
+                branchId: params.branchId,
+                employeeScheduleId: params.employeeScheduleId,
+                templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+                status: "pending",
+                canceledByUser: false,
+            },
+            data: {
+                status: "canceled",
+                canceledAt: params.intentAt,
+                cancelReason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+                nextAttemptAt: null,
+            },
+        });
+    }
+
     await transaction.message_trigger_rule.upsert({
         where: { id: MESSAGE_AUTOMATION_INTENT_RULE_ID },
         create: {
@@ -100,6 +123,7 @@ async function persistMessageAutomationIntent(
             intentKind: params.kind,
             includePast: String(params.includePast),
             suppressGreeting: String(params.suppressGreeting),
+            replaceExisting: String(params.replaceExisting),
         },
     } satisfies Prisma.InputJsonObject;
     await transaction.message_trigger_job.upsert({

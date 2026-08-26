@@ -59,6 +59,7 @@ export class MessageAutomationIntentService {
             scheduleId: number;
             includePast: boolean;
             intentAt: Date;
+            replaceExisting?: boolean;
         },
     ): Promise<void> {
         await persistScheduleMessageAutomationIntent(transaction, params);
@@ -81,6 +82,7 @@ export class MessageAutomationIntentService {
         branchId: string;
         scheduleId: number;
         includePast: boolean;
+        replaceExisting?: boolean;
     }): Promise<boolean> {
         const dedupeKey = getScheduleAutomationIntentDedupeKey(params.branchId, params.scheduleId);
         const claimId = await this.claimIntent(dedupeKey);
@@ -95,7 +97,7 @@ export class MessageAutomationIntentService {
                 params.branchId,
                 params.scheduleId,
                 params.includePast,
-                { preserveExisting: true },
+                { preserveExisting: params.replaceExisting !== true },
             );
             if (!(await this.isBranchApproved(params.branchId))) {
                 await this.releaseIntent(claimId);
@@ -219,6 +221,7 @@ export class MessageAutomationIntentService {
         const variables = this.readTemplateVariables(candidate.payload);
         const kind = variables["intentKind"];
         const includePast = variables["includePast"] === "true";
+        const replaceExisting = variables["replaceExisting"] === "true";
         if (kind === "client" && candidate.clientId !== null) {
             return this.fulfillClientIntent({
                 branchId: candidate.branchId,
@@ -232,6 +235,7 @@ export class MessageAutomationIntentService {
                 branchId: candidate.branchId,
                 scheduleId: candidate.employeeScheduleId,
                 includePast,
+                replaceExisting,
             });
         }
         if (

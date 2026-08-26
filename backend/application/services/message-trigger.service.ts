@@ -25,6 +25,7 @@ import {
 } from "domain/constants/message-trigger-catalog";
 import { findUnsupportedRequiredMessageTriggerVariables } from "domain/constants/message-trigger-variable-sources";
 import { SystemTemplateKey } from "domain/constants/system-template-registry";
+import { EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON } from "domain/constants/message-automation-intent";
 import {
     MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON,
     PAST_OCCURRENCE_GRACE_MS,
@@ -72,7 +73,7 @@ interface UpsertRuleParams {
 
 export interface MessageTriggerIntentSyncOptions {
     stableBatchAt: Date;
-    preserveExisting: true;
+    preserveExisting: boolean;
 }
 
 type MessageTriggerRuleValidationParams = Pick<
@@ -952,7 +953,7 @@ export class MessageTriggerService {
                 branchId,
                 rules,
                 employeeScheduleId,
-                "Employee assignment changed",
+                EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
             );
         }
 
