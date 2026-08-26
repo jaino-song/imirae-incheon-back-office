@@ -63,6 +63,7 @@ import { ReconcileCompletedMirroredEformsignDocUsecase } from "application/useca
 import { EformsignAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/eformsign-agent-capabilities.provider";
 import { ContractExternalAgentCapabilitiesProvider } from "application/usecases/eformsign-doc/contract-external-agent-capabilities.provider";
 import { FindClientByIdUsecase } from "application/usecases/client/find-client-by-id.usecase";
+import { CreateEmployeeUsecase } from "application/usecases/employee/create-employee.usecase";
 import { EformsignDocumentJobService } from "application/services/eformsign-document-job.service";
 import { EformsignDocumentJobWorkerService } from "application/services/eformsign-document-job-worker.service";
 import { EformsignDocumentJobReconciliationService } from "application/services/eformsign-document-job-reconciliation.service";
@@ -79,6 +80,7 @@ import { SbEformsignDocumentJobRepository } from "infrastructure/database/reposi
     ],
     controllers: [EformsignDocController],
     providers: [
+        CreateEmployeeUsecase,
         // Use cases - Local DB
         FindEformsignDocByIdUsecase,
         FindEformsignDocByDocumentIdUsecase,
