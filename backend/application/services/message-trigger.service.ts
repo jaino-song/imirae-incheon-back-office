@@ -1018,7 +1018,11 @@ export class MessageTriggerService {
             MessageTriggerEventType.EMPLOYEE_ASSIGNED,
         ]);
 
-        if (!intentOptions?.preserveExisting) {
+        // A replaced schedule is terminal for employee-assignment automation.
+        // Even an intent replay that normally preserves an existing generation
+        // must cancel any pending assignment before returning, and must not
+        // create a replacement for the retired schedule.
+        if (!intentOptions?.preserveExisting || schedule.replaced) {
             await this.cancelPendingJobsForEmployeeSchedule(
                 branchId,
                 rules,
@@ -1026,6 +1030,8 @@ export class MessageTriggerService {
                 EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
             );
         }
+
+        if (schedule.replaced) return;
 
         for (const rule of rules) {
             const job = this.buildEmployeeAssignmentJob(rule, schedule);
@@ -1961,6 +1967,16 @@ export class MessageTriggerService {
             };
         }
 
+        // Replacement is a terminal source state. This explicit check is
+        // required for legacy jobs because they predate the source
+        // fingerprint and cannot otherwise prove replacement equality.
+        if (schedule.replaced) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
         const fingerprint = job.payload.employeeScheduleFingerprint;
         if (fingerprint) {
             return employeeAssignmentScheduleFingerprint(schedule, job.recipientType) === fingerprint
@@ -1971,10 +1987,6 @@ export class MessageTriggerService {
                 };
         }
 
-        // Jobs created before the fingerprint was introduced remain
-        // dispatchable when their message-visible assignment still matches.
-        // They cannot prove address/end-date/replacement equality, so newly
-        // generated jobs always use the stronger fingerprint path above.
         const expectedEmployeeId = job.payload.employeeId;
         const currentEmployeeId = job.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE
             ? schedule.primaryEmployeeId
@@ -1986,8 +1998,67 @@ export class MessageTriggerService {
             };
         }
 
+        const currentEmployee = job.recipientType === MessageTriggerRecipientType.PRIMARY_EMPLOYEE
+            ? schedule.primaryEmployee
+            : schedule.secondaryEmployee;
+        const expectedEmployeeName = job.payload.employeeName ?? job.payload.recipientName;
+        if (expectedEmployeeName && expectedEmployeeName !== currentEmployee?.name) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const currentEmployeePhone = normalizePhone(currentEmployee?.phone);
+        const expectedRecipientPhones = [job.recipientPhone, job.payload.recipientPhone]
+            .filter((phone): phone is string => Boolean(phone));
+        if (expectedRecipientPhones.some((phone) => normalizePhone(phone) !== currentEmployeePhone)) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedClientNames = [
+            job.payload.clientName,
+            job.payload.templateVariables["clientName"],
+        ].filter((name): name is string => Boolean(name));
+        if (expectedClientNames.some((name) => name !== schedule.client.name)) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedTemplateEmployeeName = job.payload.templateVariables["employeeName"];
+        if (expectedTemplateEmployeeName && expectedTemplateEmployeeName !== currentEmployee?.name) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
         const expectedStartDate = job.payload.templateVariables["serviceStartDate"];
         if (expectedStartDate && this.formatDate(schedule.startDate) !== expectedStartDate) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        // Some pre-fingerprint jobs may already carry additional source
+        // snapshots. Compare them when present; old payloads without these
+        // keys remain compatible but are protected by the checks above.
+        const expectedEndDate = job.payload.templateVariables["serviceEndDate"];
+        if (expectedEndDate && this.formatDate(schedule.endDate) !== expectedEndDate) {
+            return {
+                kind: "stale",
+                reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,
+            };
+        }
+
+        const expectedWorkAddress = job.payload.templateVariables["workAddress"];
+        if (expectedWorkAddress && schedule.workAddress !== expectedWorkAddress) {
             return {
                 kind: "stale",
                 reason: EMPLOYEE_ASSIGNMENT_AUTOMATION_CHANGED_CANCEL_REASON,

@@ -5,6 +5,7 @@ import { json } from "express";
 import request from "supertest";
 
 import { ClientService } from "application/services/client.service";
+import { EmployeeScheduleService } from "application/services/employee-schedule.service";
 import { MessageAutomationIntentService } from "application/services/message-automation-intent.service";
 import { MessageTriggerService } from "application/services/message-trigger.service";
 import { ServiceRecordFinalizationService } from "application/services/service-record-finalization.service";
@@ -49,6 +50,7 @@ describeE2E("BJJ-275 full connected flow", () => {
     let app: INestApplication;
     let prisma: PrismaService;
     let clientService: ClientService;
+    let employeeScheduleService: EmployeeScheduleService;
     let messageAutomationIntentService: MessageAutomationIntentService;
     let messageTriggerService: MessageTriggerService;
     let finalizationService: ServiceRecordFinalizationService;
@@ -91,6 +93,7 @@ describeE2E("BJJ-275 full connected flow", () => {
 
         prisma = app.get(PrismaService);
         clientService = app.get(ClientService, { strict: false });
+        employeeScheduleService = app.get(EmployeeScheduleService, { strict: false });
         messageAutomationIntentService = app.get(MessageAutomationIntentService, { strict: false });
         messageTriggerService = app.get(MessageTriggerService, { strict: false });
         finalizationService = app.get(ServiceRecordFinalizationService);
@@ -516,6 +519,61 @@ describeE2E("BJJ-275 full connected flow", () => {
         } finally {
             clientSyncSpy?.mockRestore();
             serviceRecordSchedulingSpy?.mockRestore();
+            if (fixture) await cleanupScheduleFixture(fixture);
+            if (employeeAssignmentRule) await cleanupEmployeeAssignmentRule(employeeAssignmentRule);
+        }
+    }, 30_000);
+
+    it("cancels assignment automation and does not rebuild it when a schedule is replaced", async () => {
+        let fixture: ScheduleFixture | undefined;
+        let employeeAssignmentRule: { id: string; created: boolean } | undefined;
+        try {
+            employeeAssignmentRule = await ensureEmployeeAssignmentRule("자동화-대체-종료");
+            fixture = await createAutomationEnabledSchedule("자동화-대체-종료");
+
+            // Reconcile once so the assertion always starts with a persisted
+            // pending assignment generation, even when schedule creation was
+            // intentionally configured not to await its automation intent.
+            await messageTriggerService.syncEmployeeAssignmentRulesForSchedule(
+                BRANCH_ID,
+                fixture.scheduleId,
+                true,
+            );
+            const beforeReplacement = await prisma.message_trigger_job.findMany({
+                where: {
+                    employeeScheduleId: fixture.scheduleId,
+                    ruleId: employeeAssignmentRule.id,
+                    status: "pending",
+                },
+                select: { id: true, dedupeKey: true },
+            });
+            expect(beforeReplacement.length).toBeGreaterThan(0);
+
+            await employeeScheduleService.update(BRANCH_ID, fixture.scheduleId, { replaced: true });
+
+            const assignmentJobs = await prisma.message_trigger_job.findMany({
+                where: {
+                    employeeScheduleId: fixture.scheduleId,
+                    ruleId: employeeAssignmentRule.id,
+                },
+                select: { id: true, dedupeKey: true, status: true, sentAt: true, canceledByUser: true },
+            });
+            expect(assignmentJobs).toHaveLength(beforeReplacement.length);
+            expect(assignmentJobs.every((job) => job.status === "canceled")).toBe(true);
+            expect(assignmentJobs.every((job) => job.sentAt === null)).toBe(true);
+            expect(assignmentJobs.every((job) => job.canceledByUser === false)).toBe(true);
+            expect(await prisma.message_trigger_job.count({
+                where: {
+                    employeeScheduleId: fixture.scheduleId,
+                    ruleId: employeeAssignmentRule.id,
+                    status: { in: ["pending", "processing"] },
+                },
+            })).toBe(0);
+            await expect(prisma.employee_schedule.findUniqueOrThrow({
+                where: { id: fixture.scheduleId },
+                select: { replaced: true },
+            })).resolves.toEqual({ replaced: true });
+        } finally {
             if (fixture) await cleanupScheduleFixture(fixture);
             if (employeeAssignmentRule) await cleanupEmployeeAssignmentRule(employeeAssignmentRule);
         }

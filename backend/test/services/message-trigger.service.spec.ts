@@ -1514,6 +1514,112 @@ describe("MessageTriggerService", () => {
         expect(dispatcher.jobRepository.update).toHaveBeenCalledWith(job);
     });
 
+    it("refuses a legacy assignment job when the schedule has been replaced", async () => {
+        const dispatcher = createDispatchService();
+        const job = createJob({
+            id: "legacy-replaced-assignment",
+            employeeScheduleId: 77,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            recipientPhone: "010-1111-2222",
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+            payload: {
+                clientId: 1,
+                clientName: "김산모",
+                employeeId: 30,
+                employeeName: "홍제공",
+                memberId: "employee:30",
+                recipientName: "홍제공",
+                recipientPhone: "010-1111-2222",
+                templateVariables: {
+                    employeeName: "홍제공",
+                    clientName: "김산모",
+                    serviceStartDate: "2026-07-15",
+                },
+            },
+        });
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(
+            createEmployeeSchedule({ replaced: true }),
+        );
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(dispatcher.deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(job.status).toBe("canceled");
+        expect(job.sentAt).toBeNull();
+        expect(dispatcher.jobRepository.update).toHaveBeenCalledWith(job);
+    });
+
+    it("refuses a legacy assignment job when an existing recipient field is stale", async () => {
+        const dispatcher = createDispatchService();
+        const job = createJob({
+            id: "legacy-stale-recipient-assignment",
+            employeeScheduleId: 77,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            recipientPhone: "010-1111-2222",
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+            payload: {
+                clientId: 1,
+                clientName: "김산모",
+                employeeId: 30,
+                employeeName: "이전 담당자명",
+                memberId: "employee:30",
+                recipientName: "이전 담당자명",
+                recipientPhone: "010-1111-2222",
+                templateVariables: {
+                    employeeName: "이전 담당자명",
+                    clientName: "김산모",
+                    serviceStartDate: "2026-07-15",
+                },
+            },
+        });
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(createEmployeeSchedule());
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(dispatcher.deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(job.status).toBe("canceled");
+        expect(job.sentAt).toBeNull();
+        expect(dispatcher.jobRepository.update).toHaveBeenCalledWith(job);
+    });
+
+    it("delivers an unchanged legacy assignment job", async () => {
+        const dispatcher = createDispatchService();
+        const job = createJob({
+            id: "legacy-valid-assignment",
+            employeeScheduleId: 77,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            recipientPhone: "010-1111-2222",
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+            payload: {
+                clientId: 1,
+                clientName: "김산모",
+                employeeId: 30,
+                employeeName: "홍제공",
+                memberId: "employee:30",
+                recipientName: "홍제공",
+                recipientPhone: "010-1111-2222",
+                templateVariables: {
+                    employeeName: "홍제공",
+                    clientName: "김산모",
+                    serviceStartDate: "2026-07-15",
+                },
+            },
+        });
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(createEmployeeSchedule());
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(dispatcher.deliveryService.sendJob).toHaveBeenCalledWith(job);
+        expect(job.status).toBe("sent");
+        expect(job.sentAt).not.toBeNull();
+    });
+
     it("does not overwrite a claimed job when the final job read observes a concurrent cancellation", async () => {
         const builder = createService();
         const employeeRule = createRule({
@@ -2998,6 +3104,35 @@ describe("MessageTriggerService", () => {
         } finally {
             jest.useRealTimers();
         }
+    });
+
+    it("cancels but does not rebuild assignment jobs for a replaced schedule", async () => {
+        const employeeRule = createRule({
+            id: "rule-employee-replaced",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const pendingAssignment = createJob({
+            id: "job-employee-replaced",
+            ruleId: employeeRule.id,
+            employeeScheduleId: 77,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const sync = createEmployeeSyncService({ replaced: true });
+        sync.ruleRepository.findActiveByEventTypes.mockResolvedValue([employeeRule]);
+        sync.jobRepository.findPendingByRuleIdsAndEmployeeScheduleId.mockResolvedValue([
+            pendingAssignment,
+        ]);
+
+        await sync.service.syncEmployeeAssignmentRulesForSchedule(branchId, 77, true);
+
+        expect(pendingAssignment.status).toBe("canceled");
+        expect(pendingAssignment.cancelReason).toBe("Employee assignment changed");
+        expect(sync.jobRepository.upsertPending).not.toHaveBeenCalled();
+        expect(sync.jobRepository.upsertPendingForRuleGeneration).not.toHaveBeenCalled();
     });
 
     it("does not cancel or rebuild assignment jobs while sender approval is absent", async () => {
