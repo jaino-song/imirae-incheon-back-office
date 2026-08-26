@@ -65,25 +65,40 @@ export class AIChatController {
         res.setHeader("X-Accel-Buffering", "no");
         res.flushHeaders();
 
+        const streamAbortController = new AbortController();
+        const abortStream = (): void => {
+            streamAbortController.abort(new Error("AI chat client disconnected"));
+        };
+        res.once("close", abortStream);
+
         try {
             const stream = this.aiChatService.chatStream(
                 dto.sessionId,
                 userId,
                 dto.message,
                 tenant.branchId ?? "",
+                streamAbortController.signal,
             );
 
             for await (const chunk of stream) {
+                if (streamAbortController.signal.aborted) {
+                    return;
+                }
                 const eventType = chunk.type === "error" ? "error" : "message";
                 res.write(`event: ${eventType}\ndata: ${JSON.stringify(chunk)}\n\n`);
             }
 
             res.end();
         } catch (error) {
+            if (streamAbortController.signal.aborted) {
+                return;
+            }
             this.logger.error(`Stream error: ${error}`);
             const errorMessage = error instanceof Error ? error.message : "Unknown error";
             res.write(`event: error\ndata: ${JSON.stringify({ type: "error", error: errorMessage })}\n\n`);
             res.end();
+        } finally {
+            res.off("close", abortStream);
         }
     }
 
