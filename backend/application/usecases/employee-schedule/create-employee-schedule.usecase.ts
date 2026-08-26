@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
 import { EMPLOYEE_SCHEDULE_REPOSITORY, IEmployeeScheduleRepository } from "domain/repositories/employee-schedule.repository.interface";
 import { Prisma } from "@prisma/client";
@@ -29,6 +29,14 @@ export class CreateEmployeeScheduleUsecase {
         transaction?: Prisma.TransactionClient,
     ): Promise<EmployeeScheduleEntity> {
         const persist = async (tx: Prisma.TransactionClient): Promise<EmployeeScheduleEntity> => {
+            const client = await tx.client.findFirst({
+                where: { id: params.clientId, branchId: branchid },
+                select: { id: true },
+            });
+            if (!client) {
+                throw new NotFoundException("Client not found for branch");
+            }
+
             const employeeIds = [params.primaryEmployeeId, params.secondaryEmployeeId]
                 .filter((employeeId): employeeId is number => employeeId !== null);
             const employeeIdsToLock = [...new Set(employeeIds)].sort((left, right) => left - right);

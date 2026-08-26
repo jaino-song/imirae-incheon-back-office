@@ -61,7 +61,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
     env:
       SAM_PACKAGE_BUCKET: ${{ vars.SAM_PACKAGE_BUCKET }}
       SAM_PACKAGE_ROLE_ARN: ${{ vars.AWS_FAILOVER_PACKAGE_ROLE_ARN }}

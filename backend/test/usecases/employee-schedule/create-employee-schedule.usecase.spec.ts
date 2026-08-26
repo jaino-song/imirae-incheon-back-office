@@ -30,6 +30,9 @@ describe("CreateEmployeeScheduleUsecase assignment eligibility", () => {
     const createHarness = (employees: EmployeeCandidate[]) => {
         const transaction = {
             $queryRaw: jest.fn().mockResolvedValue([]),
+            client: {
+                findFirst: jest.fn().mockResolvedValue({ id: baseParams.clientId }),
+            },
             employee: {
                 findMany: jest.fn().mockResolvedValue(employees),
             },
@@ -101,6 +104,22 @@ describe("CreateEmployeeScheduleUsecase assignment eligibility", () => {
             expect.any(EmployeeScheduleEntity),
             transaction,
         );
+    });
+
+    it("refuses a client outside the authenticated branch before locking employees or creating a schedule", async () => {
+        const { usecase, transaction, employeeScheduleRepository } = createHarness([eligible()]);
+        transaction.client.findFirst.mockResolvedValue(null);
+
+        await expect(usecase.execute(branchId, baseParams, transaction as never))
+            .rejects.toThrow("Client not found for branch");
+
+        expect(transaction.client.findFirst).toHaveBeenCalledWith({
+            where: { id: baseParams.clientId, branchId },
+            select: { id: true },
+        });
+        expect(transaction.$queryRaw).not.toHaveBeenCalled();
+        expect(transaction.employee.findMany).not.toHaveBeenCalled();
+        expect(employeeScheduleRepository.create).not.toHaveBeenCalled();
     });
 
     it("creates a schedule when both eligible employees are assigned", async () => {

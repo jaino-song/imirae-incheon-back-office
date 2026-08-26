@@ -134,7 +134,8 @@ jobs:
       # not real secrets (the CI backend never talks to real eformsign).
       EFORMSIGN_COMPANY_ID: e2e-stub-company
       EFORMSIGN_WEBHOOK_SECRET: e2e-dummy-webhook-${{ github.run_id }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      # PR-controlled E2E code gets only a per-run dummy; no repository JWT secret.
+      JWT_SECRET: e2e-dummy-jwt-signing-key-at-least-32-${{ github.run_id }}
       AUTH_EMAIL_TOKEN_HMAC_SECRET: e2e-dummy-email-hmac-${{ github.run_id }}
       EMAIL_TRANSPORT: smtp
       SMTP_HOST: localhost

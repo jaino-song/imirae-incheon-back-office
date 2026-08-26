@@ -289,12 +289,19 @@ describe("EmployeeScheduleService assignment eligibility", () => {
         openToNextWork: true,
     });
 
-    const createHarness = (employees: EmployeeCandidate[]) => {
+    const createHarness = (
+        employees: EmployeeCandidate[],
+        client: { id: number } | null = { id: 100 },
+    ) => {
         const employee = {
             findMany: jest.fn().mockResolvedValue(employees),
         };
+        const clientRepository = {
+            findFirst: jest.fn().mockResolvedValue(client),
+        };
         const transaction = {
             $queryRaw: jest.fn().mockResolvedValue([]),
+            client: clientRepository,
             employee,
         };
         const prisma = {
@@ -358,6 +365,7 @@ describe("EmployeeScheduleService assignment eligibility", () => {
             messageAutomationIntentService,
             serviceRecordLinkService,
             serviceRecordLifecycleService,
+            clientRepository,
         };
     };
 
@@ -425,5 +433,35 @@ describe("EmployeeScheduleService assignment eligibility", () => {
         expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledTimes(1);
         expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledTimes(1);
         expect(serviceRecordLifecycleService.ensureForClient).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a client outside the authenticated branch before schedule, automation, or service-record side effects", async () => {
+        const {
+            service,
+            clientRepository,
+            scheduleRepository,
+            messageAutomationIntentService,
+            serviceRecordLinkService,
+            serviceRecordLifecycleService,
+        } = createHarness([eligible()], null);
+
+        await expect(service.create(branchId, {
+            clientId: 100,
+            primaryEmployeeId: 2,
+            secondaryEmployeeId: null,
+            workAddress: "서울",
+            startDate: "2026-08-01",
+            endDate: "2026-08-31",
+        })).rejects.toThrow("Client not found for branch");
+
+        expect(clientRepository.findFirst).toHaveBeenCalledWith({
+            where: { id: 100, branchId },
+            select: { id: true },
+        });
+        expect(scheduleRepository.create).not.toHaveBeenCalled();
+        expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
+        expect(messageAutomationIntentService.fulfillScheduleIntent).not.toHaveBeenCalled();
+        expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
+        expect(serviceRecordLifecycleService.ensureForClient).not.toHaveBeenCalled();
     });
 });
