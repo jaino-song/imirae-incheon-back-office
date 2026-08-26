@@ -33,6 +33,7 @@ struct AppNavigation: View {
     var body: some View {
         NavigationStack(path: $path) {
             LoginView(
+                viewModel: authWrapper,
                 onNavigateToRegister: { path.append(AppRoute.register) },
                 onNavigateToForgotPassword: { path.append(AppRoute.forgotPassword) },
                 onNavigateToVerifyEmail: { path.append(AppRoute.verifyEmail) },
@@ -50,7 +51,11 @@ struct AppNavigation: View {
                 case .verifyEmail:
                     VerifyEmailView(onNavigateToLogin: { path = NavigationPath() })
                 case .selectBranch:
-                    SelectBranchView(branches: [], onNavigateToDashboard: { path = NavigationPath(); path.append(AppRoute.dashboard) })
+                    SelectBranchView(
+                        viewModel: authWrapper,
+                        onNavigateToDashboard: { path = NavigationPath(); path.append(AppRoute.dashboard) },
+                        onNavigateToLogin: { path = NavigationPath() }
+                    )
                 case .dashboard:
                     DashboardView(
                         onNavigateToClients: { path.append(AppRoute.clientList) },
@@ -98,6 +103,7 @@ struct AppNavigation: View {
                     AdminFeedbackView()
                 case .login:
                     LoginView(
+                        viewModel: authWrapper,
                         onNavigateToRegister: { path.append(AppRoute.register) },
                         onNavigateToForgotPassword: { path.append(AppRoute.forgotPassword) },
                         onNavigateToVerifyEmail: { path.append(AppRoute.verifyEmail) },
