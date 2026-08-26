@@ -1,4 +1,5 @@
 import { EmployeeScheduleService } from "application/services/employee-schedule.service";
+import { CreateEmployeeScheduleUsecase } from "application/usecases/employee-schedule/create-employee-schedule.usecase";
 import { EmployeeScheduleEntity } from "domain/entities/employee-schedule.entity";
 
 describe("EmployeeScheduleService", () => {
@@ -178,5 +179,160 @@ describe("EmployeeScheduleService", () => {
         });
 
         expect(serviceRecordLinkService.extendExpiryForEndDate).not.toHaveBeenCalled();
+    });
+});
+
+describe("EmployeeScheduleService assignment eligibility", () => {
+    type EmployeeCandidate = {
+        id: number;
+        branchId: string;
+        deletedAt: Date | null;
+        openToNextWork: boolean;
+    };
+
+    const branchId = "branch-a";
+    const eligible = (id = 2): EmployeeCandidate => ({
+        id,
+        branchId,
+        deletedAt: null,
+        openToNextWork: true,
+    });
+
+    const createHarness = (employees: EmployeeCandidate[]) => {
+        const employee = {
+            findMany: jest.fn().mockResolvedValue(employees),
+        };
+        const transaction = {
+            $queryRaw: jest.fn().mockResolvedValue([]),
+            employee,
+        };
+        const prisma = {
+            employee,
+            $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)),
+        };
+        const scheduleRepository = {
+            create: jest.fn().mockResolvedValue(new EmployeeScheduleEntity(
+                10,
+                100,
+                2,
+                null,
+                "서울",
+                new Date("2026-08-01T00:00:00.000Z"),
+                new Date("2026-08-31T00:00:00.000Z"),
+                false,
+            )),
+        };
+        const createUsecase = new CreateEmployeeScheduleUsecase(
+            scheduleRepository as never,
+            prisma as never,
+        );
+        const findUsecase = { execute: jest.fn() };
+        const listUsecase = { execute: jest.fn() };
+        const listByPrimaryUsecase = { execute: jest.fn() };
+        const listBySecondaryUsecase = { execute: jest.fn() };
+        const updateUsecase = { execute: jest.fn() };
+        const deleteUsecase = { execute: jest.fn() };
+        const messageAutomationIntentService = {
+            persistScheduleIntent: jest.fn().mockResolvedValue(undefined),
+            fulfillScheduleIntent: jest.fn().mockResolvedValue(undefined),
+        };
+        const serviceRecordLinkService = {
+            scheduleForServiceStart: jest.fn().mockResolvedValue(undefined),
+        };
+        const serviceRecordLifecycleService = {
+            ensureForClient: jest.fn().mockResolvedValue(undefined),
+        };
+        messageAutomationIntentService.fulfillScheduleIntent.mockImplementation(
+            ({ scheduleId }: { scheduleId: number }) => serviceRecordLinkService.scheduleForServiceStart(scheduleId),
+        );
+
+        const service = new EmployeeScheduleService(
+            createUsecase,
+            findUsecase as never,
+            listUsecase as never,
+            listByPrimaryUsecase as never,
+            listBySecondaryUsecase as never,
+            updateUsecase as never,
+            deleteUsecase as never,
+            prisma as never,
+            messageAutomationIntentService as never,
+            serviceRecordLinkService as never,
+            serviceRecordLifecycleService as never,
+        );
+
+        return {
+            service,
+            employee,
+            scheduleRepository,
+            messageAutomationIntentService,
+            serviceRecordLinkService,
+            serviceRecordLifecycleService,
+        };
+    };
+
+    const invalidCases: Array<[string, EmployeeCandidate[], number, number | null]> = [
+        ["wrong branch", [{ ...eligible(), branchId: "branch-b" }], 2, null],
+        ["soft deleted", [{ ...eligible(), deletedAt: new Date("2026-01-01T00:00:00.000Z") }], 2, null],
+        ["unavailable", [{ ...eligible(), openToNextWork: false }], 2, null],
+        ["missing", [], 999, null],
+        ["wrong branch secondary", [eligible(), { ...eligible(3), branchId: "branch-b" }], 2, 3],
+        ["soft deleted secondary", [eligible(), { ...eligible(3), deletedAt: new Date("2026-01-01T00:00:00.000Z") }], 2, 3],
+        ["unavailable secondary", [eligible(), { ...eligible(3), openToNextWork: false }], 2, 3],
+        ["missing secondary", [eligible()], 2, 999],
+        ["same employee in both roles", [eligible()], 2, 2],
+    ];
+
+    it.each(invalidCases)(
+        "refuses %s without schedule, automation, or service-record residue",
+        async (_label, employees, primaryEmployeeId, secondaryEmployeeId) => {
+            const {
+                service,
+                employee,
+                scheduleRepository,
+                messageAutomationIntentService,
+                serviceRecordLinkService,
+                serviceRecordLifecycleService,
+            } = createHarness(employees);
+            const promise = service.create(branchId, {
+                clientId: 100,
+                primaryEmployeeId,
+                secondaryEmployeeId,
+                workAddress: "서울",
+                startDate: "2026-08-01",
+                endDate: "2026-08-31",
+            });
+
+            await expect(promise).rejects.toThrow();
+            expect(employee.findMany).toHaveBeenCalled();
+            expect(scheduleRepository.create).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.fulfillScheduleIntent).not.toHaveBeenCalled();
+            expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
+            expect(serviceRecordLifecycleService.ensureForClient).not.toHaveBeenCalled();
+        },
+    );
+
+    it("creates an eligible primary and secondary assignment before post-commit side effects", async () => {
+        const {
+            service,
+            scheduleRepository,
+            messageAutomationIntentService,
+            serviceRecordLinkService,
+            serviceRecordLifecycleService,
+        } = createHarness([eligible(), eligible(3)]);
+
+        await expect(service.create(branchId, {
+            clientId: 100,
+            primaryEmployeeId: 2,
+            secondaryEmployeeId: 3,
+            workAddress: "서울",
+            startDate: "2026-08-01",
+            endDate: "2026-08-31",
+        })).resolves.toBeDefined();
+
+        expect(scheduleRepository.create).toHaveBeenCalledTimes(1);
+        expect(messageAutomationIntentService.persistScheduleIntent).toHaveBeenCalledTimes(1);
+        expect(serviceRecordLinkService.scheduleForServiceStart).toHaveBeenCalledTimes(1);
+        expect(serviceRecordLifecycleService.ensureForClient).toHaveBeenCalledTimes(1);
     });
 });

@@ -70,7 +70,12 @@ describe("ClientService", () => {
             },
             employee: {
                 findMany: jest.fn().mockImplementation(({ where }) =>
-                    Promise.resolve(where.id.in.map((id: number) => ({ id }))),
+                    Promise.resolve(where.id.in.map((id: number) => ({
+                        id,
+                        branchId: where.branchId ?? "org-1",
+                        deletedAt: null,
+                        openToNextWork: true,
+                    }))),
                 ),
             },
             client: {
@@ -2867,6 +2872,114 @@ describe("ClientService", () => {
                     .toThrow("Client with id 999 not found");
             });
         });
+    });
+
+    describe("assignment eligibility refusal", () => {
+        type EmployeeCandidate = {
+            id: number;
+            branchId: string;
+            deletedAt: Date | null;
+            openToNextWork: boolean;
+        };
+
+        const eligible = (id = 2): EmployeeCandidate => ({
+            id,
+            branchId,
+            deletedAt: null,
+            openToNextWork: true,
+        });
+
+        const invalidCases: Array<[
+            string,
+            EmployeeCandidate[],
+            number,
+            number | null,
+        ]> = [
+            ["wrong branch", [], 2, null],
+            ["soft deleted", [{ ...eligible(2), deletedAt: new Date("2026-01-01T00:00:00.000Z") }], 2, null],
+            ["unavailable", [{ ...eligible(2), openToNextWork: false }], 2, null],
+            ["missing", [], 999, null],
+            ["wrong branch secondary", [eligible(2), { ...eligible(3), branchId: "branch-b" }], 2, 3],
+            ["soft deleted secondary", [eligible(2), { ...eligible(3), deletedAt: new Date("2026-01-01T00:00:00.000Z") }], 2, 3],
+            ["unavailable secondary", [eligible(2), { ...eligible(3), openToNextWork: false }], 2, 3],
+            ["missing secondary", [eligible(2)], 2, 999],
+            ["same employee in both roles", [eligible(2)], 2, 2],
+        ];
+
+        const expectNoAssignmentResidue = () => {
+            expect(prismaService.employee_schedule.update).not.toHaveBeenCalled();
+            expect(prismaService.employee_schedule.create).not.toHaveBeenCalled();
+            expect(prismaService.client.updateMany).not.toHaveBeenCalled();
+            expect(createClientUsecase.execute).not.toHaveBeenCalled();
+            expect(createClientUsecase.executeWithInitialSchedule).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistClientIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.persistScheduleIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.fulfillClientIntent).not.toHaveBeenCalled();
+            expect(messageAutomationIntentService.fulfillScheduleIntent).not.toHaveBeenCalled();
+            expect(triggerService.syncClientRulesForClient).not.toHaveBeenCalled();
+            expect(triggerService.syncEmployeeAssignmentRulesForSchedule).not.toHaveBeenCalled();
+            expect(serviceRecordLinkService.revoke).not.toHaveBeenCalled();
+            expect(serviceRecordLinkService.scheduleForServiceStart).not.toHaveBeenCalled();
+            expect(serviceRecordLifecycleService.ensureForClient).not.toHaveBeenCalled();
+        };
+
+        it.each(invalidCases)(
+            "refuses %s during client assignment without writes or side effects",
+            async (_label, employees, primaryEmployeeId, secondaryEmployeeId) => {
+                prismaService.employee.findMany.mockResolvedValue(employees);
+
+                await expect(service.create(branchId, {
+                    name: "Invalid Assignment",
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    careCenter: false,
+                    voucherClient: true,
+                    breastPump: false,
+                })).rejects.toBeInstanceOf(BadRequestException);
+
+                expectNoAssignmentResidue();
+            },
+        );
+
+        it.each(invalidCases)(
+            "refuses %s during client reassignment before replacing the current schedule",
+            async (_label, employees, primaryEmployeeId, secondaryEmployeeId) => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                prismaService.employee_schedule.findFirst.mockResolvedValue({
+                    id: 10,
+                    clientId: existingClient.id,
+                    primaryEmployeeId: 1,
+                    secondaryEmployeeId: null,
+                });
+                prismaService.employee.findMany.mockResolvedValue(employees);
+
+                await expect(service.update(branchId, existingClient.id, {
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                })).rejects.toBeInstanceOf(BadRequestException);
+
+                expectNoAssignmentResidue();
+            },
+        );
+
+        it.each(invalidCases)(
+            "refuses %s during replacement before changing client status",
+            async (_label, employees, primaryEmployeeId, secondaryEmployeeId) => {
+                const existingClient = createClientEntity();
+                findClientByIdUsecase.execute.mockResolvedValue(existingClient);
+                prismaService.employee.findMany.mockResolvedValue(employees);
+
+                await expect(service.requestReplacement(
+                    branchId,
+                    existingClient.id,
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                )).rejects.toBeInstanceOf(BadRequestException);
+
+                expectNoAssignmentResidue();
+            },
+        );
     });
 
     // ============================================

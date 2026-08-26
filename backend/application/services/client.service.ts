@@ -25,6 +25,11 @@ import {
     mergeAndValidateClientServicePeriod,
     parseClientDate,
 } from "application/usecases/client/client-write-validation";
+import {
+    assertEmployeeAssignmentEligibility,
+    assertEmployeeAssignmentShape,
+    type EmployeeAssignmentCandidate,
+} from "application/policies/employee-assignment-eligibility.policy";
 import { ClientEntity } from "domain/entities/client.entity";
 import { EFORMSIGN_DOCUMENT_KIND } from "domain/entities/eformsign-doc.entity";
 import { CLIENT_REPOSITORY, IClientRepository } from "domain/repositories/client.repository.interface";
@@ -766,31 +771,41 @@ export class ClientService {
         branchid: string,
         primaryEmployeeId: number | null,
         secondaryEmployeeId: number | null,
+        transaction: Prisma.TransactionClient,
     ): Promise<void> {
-        if (primaryEmployeeId === null) {
-            if (secondaryEmployeeId !== null) {
-                throw new BadRequestException("primary employee is required when a secondary employee is selected");
-            }
-            return;
-        }
-        if (primaryEmployeeId === secondaryEmployeeId) {
-            throw new BadRequestException("주담당과 부담당은 같은 직원일 수 없습니다.");
-        }
+        assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
+        if (primaryEmployeeId === null) return;
 
         const employeeIds = [primaryEmployeeId, secondaryEmployeeId].filter(
             (employeeId): employeeId is number => employeeId !== null,
         );
-        const employees = await this.prismaService.employee.findMany({
+        const employeeIdsToLock = [...new Set(employeeIds)].sort((left, right) => left - right);
+        await transaction.$queryRaw(Prisma.sql`
+            SELECT "id"
+            FROM "employee"
+            WHERE "id" IN (${Prisma.join(employeeIdsToLock)})
+              AND "branch_id" = ${branchid}::uuid
+            ORDER BY "id"
+            FOR UPDATE
+        `);
+        const employees: EmployeeAssignmentCandidate[] = await transaction.employee.findMany({
             where: {
                 id: { in: employeeIds },
                 branchId: branchid,
-                deletedAt: null,
             },
-            select: { id: true },
+            select: {
+                id: true,
+                branchId: true,
+                deletedAt: true,
+                openToNextWork: true,
+            },
         });
-        if (employees.length !== employeeIds.length) {
-            throw new BadRequestException("selected employees must belong to the client branch");
-        }
+        assertEmployeeAssignmentEligibility(
+            branchid,
+            primaryEmployeeId,
+            secondaryEmployeeId,
+            employees,
+        );
     }
 
     private async syncEmployeeAssignment(branchid: string, params: {
@@ -820,13 +835,19 @@ export class ClientService {
             return { createdScheduleId: null, replacedScheduleId: null };
         }
 
-        await this.assertAllowedEmployees(branchid, newPrimaryEmployeeId, newSecondaryEmployeeId);
+        assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId);
         if (newPrimaryEmployeeId === null) {
             throw new BadRequestException("primary employee is required to create an assignment");
         }
 
         const intentAt = new Date();
         const newSchedule = await this.prismaService.$transaction(async (transaction) => {
+            await this.assertAllowedEmployees(
+                branchid,
+                newPrimaryEmployeeId,
+                newSecondaryEmployeeId,
+                transaction,
+            );
             if (currentSchedule) {
                 await transaction.employee_schedule.update({
                     where: { id: currentSchedule.id },
@@ -992,13 +1013,19 @@ export class ClientService {
 
         const primaryEmployeeId = params.primaryEmployeeId ?? null;
         const secondaryEmployeeId = params.secondaryEmployeeId ?? null;
-        await this.assertAllowedEmployees(branchid, primaryEmployeeId, secondaryEmployeeId);
+        assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
 
         let client: ClientEntity;
         let createdScheduleId: number | null = null;
         const automationIntentAt = new Date();
         if (primaryEmployeeId !== null) {
             const result = await this.prismaService.$transaction(async (transaction) => {
+                await this.assertAllowedEmployees(
+                    branchid,
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    transaction,
+                );
                 const created = await this.createClientUsecase.executeWithInitialSchedule(branchid, createParams, {
                     primaryEmployeeId,
                     secondaryEmployeeId,
@@ -1443,7 +1470,7 @@ export class ClientService {
             const secondaryEmployeeId = params.secondaryEmployeeId !== undefined
                 ? params.secondaryEmployeeId
                 : currentSchedule?.secondaryEmployeeId ?? null;
-            await this.assertAllowedEmployees(branchid, primaryEmployeeId, secondaryEmployeeId);
+            assertEmployeeAssignmentShape(primaryEmployeeId, secondaryEmployeeId);
             assignmentChanged = primaryEmployeeId !== (currentSchedule?.primaryEmployeeId ?? null)
                 || secondaryEmployeeId !== (currentSchedule?.secondaryEmployeeId ?? null);
         }
@@ -1457,6 +1484,12 @@ export class ClientService {
                 if (primaryEmployeeId === null) {
                     throw new BadRequestException("primary employee is required to create an assignment");
                 }
+                await this.assertAllowedEmployees(
+                    branchid,
+                    primaryEmployeeId,
+                    secondaryEmployeeId,
+                    transaction,
+                );
                 if (currentSchedule) {
                     await transaction.employee_schedule.update({
                         where: { id: currentSchedule.id },
@@ -1612,11 +1645,7 @@ export class ClientService {
         if (!client) {
             throw new NotFoundException(`Client with id ${clientId} not found`);
         }
-        await this.assertAllowedEmployees(
-            branchid,
-            newPrimaryEmployeeId,
-            newSecondaryEmployeeId ?? null,
-        );
+        assertEmployeeAssignmentShape(newPrimaryEmployeeId, newSecondaryEmployeeId ?? null);
 
         mergeAndValidateClientServicePeriod(client, {});
         const replacementStartDate = new Date();
@@ -1629,6 +1658,12 @@ export class ClientService {
 
         let replacedScheduleId: number | null = null;
         const replacementSchedule = await this.prismaService.$transaction(async (transaction) => {
+            await this.assertAllowedEmployees(
+                branchid,
+                newPrimaryEmployeeId,
+                newSecondaryEmployeeId ?? null,
+                transaction,
+            );
             const updateResult = await transaction.client.updateMany({
                 where: { id: clientId, branchId: branchid },
                 data: { serviceStatus: SERVICE_STATUS.REPLACEMENT_REQUESTED },
