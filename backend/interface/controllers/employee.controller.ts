@@ -95,6 +95,21 @@ export class EmployeeController {
         );
     }
 
+    @Get(":id/work-history")
+    listWorkHistory(
+        @CurrentTenant() tenant: { branchId?: string },
+        @Param("id") id: string,
+        @Query("page") page?: string,
+        @Query("limit") limit?: string,
+    ) {
+        return this.employeeService.listWorkHistory(
+            tenant.branchId ?? "",
+            parseInteger(id, "id", { min: 1 }),
+            parseInteger(page, "page", { defaultValue: 1, min: 1 }),
+            parseInteger(limit, "limit", { defaultValue: 20, min: 1, max: 100 }),
+        );
+    }
+
     @Patch("open-status")
     changeOpenStatus(
         @CurrentTenant() tenant: { branchId?: string },
