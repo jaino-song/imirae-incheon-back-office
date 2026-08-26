@@ -12,7 +12,7 @@ export class EmployeeEntity {
         public phone: string,
         public grade: string,
         public openToNextWork: boolean,
-        public registeredDate: Date,
+        public registeredDate: Date | null,
         public birthday?: string,
         public readonly deletedAt?: Date,
     ) {}
@@ -51,7 +51,7 @@ export class EmployeeEntity {
         phone: string,
         grade: string,
         openToNextWork: boolean,
-        registeredDate?: Date,
+        registeredDate?: Date | null,
         birthday?: string,
     ): EmployeeEntity {
         return new EmployeeEntity(
@@ -61,7 +61,7 @@ export class EmployeeEntity {
             phone,
             grade,
             openToNextWork,
-            registeredDate ?? new Date(),
+            registeredDate ?? null,
             birthday,
         );
     }
@@ -77,7 +77,7 @@ export class EmployeeEntity {
         phone: string,
         grade: string,
         openToNextWork: boolean,
-        registeredDate: Date,
+        registeredDate: Date | null,
         birthday?: string,
         deletedAt?: Date,
     ): EmployeeEntity {

@@ -89,8 +89,8 @@ function employeeMeta(e: Employee) {
   return employeePrimaryArea(e);
 }
 
-function formatRegisteredDate(value: string | null | undefined): string {
-  return formatDateForDisplay(value);
+function formatRegisteredDate(value: string | null | undefined, fallback: string): string {
+  return formatDateForDisplay(value, fallback);
 }
 
 type DetailTabId = "basic" | "clients" | "history";
@@ -108,9 +108,11 @@ function EmployeeDetailContent({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const locale = useLocale();
   const group = groupForEmployee(employee);
   const availability = getOpenToNextWorkLabel(employee.openToNextWork);
   const availabilityTone = employee.openToNextWork ? "green" : "muted";
+  const unknownDateLabel = t(locale, "employees.form.registered-date-unknown");
   const { data: activeClients = [], isLoading: isActiveClientsLoading } =
     useEmployeeActiveClients(employee.id);
 
@@ -197,7 +199,10 @@ function EmployeeDetailContent({
           />
         </InfoCard>
         <InfoCard data-component="mobile_employees_detail-panel_info-card-2" title="등록 정보" delay={60}>
-          <InfoRow label="등록일" value={formatRegisteredDate(employee.registeredDate)} />
+          <InfoRow
+            label={t(locale, "employees.form.registered-date")}
+            value={formatRegisteredDate(employee.registeredDate, unknownDateLabel)}
+          />
         </InfoCard>
       </MobileDetailTabPanel>
 

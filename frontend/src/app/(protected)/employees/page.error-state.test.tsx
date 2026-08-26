@@ -52,10 +52,12 @@ jest.mock("@/components/app/v3", () => ({
     items,
     isLoading,
     render,
+    onSlotClick,
   }: {
     items: unknown[];
     isLoading: boolean;
     render: (props: { item?: unknown; isLoading: boolean }) => ReactNode;
+    onSlotClick?: (item: unknown) => void;
   }) => (
     <div>
       {isLoading ? (
@@ -64,7 +66,7 @@ jest.mock("@/components/app/v3", () => ({
         </div>
       ) : (
         items.map((item, index) => (
-          <div key={index}>{render({ item, isLoading: false })}</div>
+          <div key={index} onClick={() => onSlotClick?.(item)}>{render({ item, isLoading: false })}</div>
         ))
       )}
     </div>
@@ -157,6 +159,26 @@ describe("EmployeesPage employee list query states", () => {
     expect(screen.getByText("홍길동")).toBeInTheDocument();
     expect(screen.queryByText("등록된 직원이 없습니다")).not.toBeInTheDocument();
     expect(screen.queryByText("직원 목록을 불러오지 못했습니다")).not.toBeInTheDocument();
+  });
+
+  it("renders a localized unknown value when registration date is unavailable", () => {
+    const employeeWithoutRegisteredDate = {
+      ...employee,
+      registeredDate: null,
+    } as unknown as Employee;
+    mockedUseInfiniteEmployees.mockReturnValue(
+      makeQueryResult({
+        employees: [employeeWithoutRegisteredDate],
+        allEmployees: [employeeWithoutRegisteredDate],
+        filteredCount: 1,
+      }),
+    );
+
+    render(<EmployeesPage />);
+
+    fireEvent.click(screen.getByText("홍길동"));
+
+    expect(screen.getByText(/알 수 없음/)).toBeInTheDocument();
   });
 
   it("shows a safe accessible retry action when the employee query fails", () => {
