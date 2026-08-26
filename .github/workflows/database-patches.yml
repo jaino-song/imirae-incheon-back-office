@@ -18,6 +18,9 @@ on:
       - 'backend/prisma/**'
       - '.github/workflows/database-patches.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: database-patches-${{ inputs.target || github.ref_name }}
   cancel-in-progress: false
@@ -31,12 +34,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: dev
-    env:
-      DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
-      DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -54,6 +56,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check database secrets
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "DEV_DATABASE_URL or DEVELOPMENT_DATABASE_URL secret is required."
@@ -67,168 +72,284 @@ jobs:
 
       - name: Apply message schema compatibility patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713120000_repair_message_table_renames/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709000000_message_automation_hardening/migration.sql
 
       - name: Apply eformsign document relation patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709100000_link_eformsign_and_message_relations/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709110000_add_message_log_recipient_snapshot/migration.sql
 
       - name: Verify eformsign document relation patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-relations.sql
 
       - name: Apply client-owned service-record patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713000000_add_client_service_record_case/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713110000_align_service_record_case_schema/migration.sql
 
       - name: Verify client-owned service-record patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-service-record-cases.sql
 
       - name: Apply user approval + token-version patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713100000_add_user_approval_and_token_version/migration.sql
 
       - name: Verify user approval + token-version patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-user-approval.sql
 
       - name: Apply auth session + outbox patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717090000_add_auth_sessions/migration.sql
 
       - name: Verify auth session + outbox patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-auth-sessions.sql
 
       - name: Apply service-record mom signature patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260715140000_add_client_signature_to_service_record_day/migration.sql
 
       - name: Apply feedback to service-record rename patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260716090000_rename_feedback_to_service_record/migration.sql
 
       - name: Apply employee/client hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
 
       - name: Verify employee/client hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
 
       - name: Apply client pre-booking status patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717120000_add_client_pre_booking_status/migration.sql
 
       - name: Verify client pre-booking status patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-pre-booking-status.sql
 
       - name: Apply branch owner nullable patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260721090000_make_branch_owner_nullable/migration.sql
 
       - name: Apply out-of-pocket price info patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260722123000_add_out_of_pocket_price_info/migration.sql
 
       - name: Verify out-of-pocket price info patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-out-of-pocket-price-info.sql
 
       - name: Preserve electronic documents on client deletion
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260723090000_preserve_electronic_documents_on_client_delete/migration.sql
 
       - name: Verify client deletion document preservation
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-delete-document-preservation.sql
 
       - name: Apply eformsign document name and number patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260728120000_add_eformsign_doc_document_name_and_number/migration.sql
 
       - name: Verify eformsign document name and number patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-document-name-and-number.sql
 
       - name: Apply eformsign list display columns patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260728140000_add_eformsign_doc_list_display_columns/migration.sql
 
       - name: Verify eformsign list display columns patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-list-display-columns.sql
 
       - name: Apply eformsign local source-of-truth patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260729120000_add_eformsign_local_source_of_truth/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260730040000_add_eformsign_doc_permanent_purge_intent/migration.sql
 
       - name: Verify eformsign local source-of-truth patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
 
       - name: Apply client birth date patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
 
       - name: Verify client birth date patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
 
       - name: Apply agent copilot tables patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
 
       - name: Apply agent action identity hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
 
       - name: Apply agent action result delivery patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
 
       - name: Apply agent action effect receipt patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
 
       - name: Verify agent copilot tables patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
 
       - name: Apply document category branch scope patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
 
       - name: Verify document category branch scope patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
 
       - name: Apply eformsign doc auto-finalize tracking patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
       - name: Apply eformsign document jobs patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260813000000_add_eformsign_document_jobs/migration.sql
 
       - name: Verify eformsign document jobs patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
 
       - name: Apply message trigger job canceled-by-user patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DEV_DIRECT_URL || secrets.DEVELOPMENT_DIRECT_URL || secrets.DEV_DATABASE_URL || secrets.DEVELOPMENT_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
-
   apply-preview:
     name: apply preview database patches
     if: >-
@@ -237,12 +358,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: preview
-    env:
-      DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
-      DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -260,6 +380,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check database secrets
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "PREVIEW_DATABASE_URL secret is required."
@@ -273,12 +396,18 @@ jobs:
 
       - name: Apply message schema compatibility patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: |
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713120000_repair_message_table_renames/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260709000000_message_automation_hardening/migration.sql
 
       - name: Apply idempotent database patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: |
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --stdin <<'SQL'
           ALTER TABLE "client" ALTER COLUMN "care_center" DROP NOT NULL;
@@ -312,6 +441,9 @@ jobs:
 
       - name: Verify database patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: |
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --stdin <<'SQL'
           DO $$
@@ -404,82 +536,139 @@ jobs:
 
       - name: Apply eformsign document relation patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: |
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260709100000_link_eformsign_and_message_relations/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260709110000_add_message_log_recipient_snapshot/migration.sql
 
       - name: Verify eformsign document relation patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-relations.sql
 
       - name: Apply client-owned service-record patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: |
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713000000_add_client_service_record_case/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713110000_align_service_record_case_schema/migration.sql
 
       - name: Verify client-owned service-record patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-service-record-cases.sql
 
       - name: Apply user approval + token-version patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260713100000_add_user_approval_and_token_version/migration.sql
 
       - name: Verify user approval + token-version patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-user-approval.sql
 
       - name: Apply auth session + outbox patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260717090000_add_auth_sessions/migration.sql
 
       - name: Verify auth session + outbox patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-auth-sessions.sql
 
       - name: Apply service-record mom signature patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260715140000_add_client_signature_to_service_record_day/migration.sql
 
       - name: Apply feedback to service-record rename patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260716090000_rename_feedback_to_service_record/migration.sql
 
       - name: Apply employee/client hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
 
       - name: Verify employee/client hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
 
       - name: Apply client pre-booking status patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260717120000_add_client_pre_booking_status/migration.sql
 
       - name: Verify client pre-booking status patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-client-pre-booking-status.sql
 
       - name: Apply branch owner nullable patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260721090000_make_branch_owner_nullable/migration.sql
 
       - name: Apply out-of-pocket price info patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260722123000_add_out_of_pocket_price_info/migration.sql
 
       - name: Verify out-of-pocket price info patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-out-of-pocket-price-info.sql
 
       - name: Preserve electronic documents on client deletion
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260723090000_preserve_electronic_documents_on_client_delete/migration.sql
 
       - name: Verify client deletion document preservation
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-client-delete-document-preservation.sql
 
       # One-shot data/policy patch — runs ONLY when manually dispatched (target=preview),
@@ -487,11 +676,17 @@ jobs:
       - name: Activate Incheon district branches + rename HQ (manual)
         if: github.event_name == 'workflow_dispatch'
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/activate-incheon-districts-and-rename-hq.sql
 
       - name: Verify Incheon districts operational (manual)
         if: github.event_name == 'workflow_dispatch'
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-incheon-districts-operational.sql
 
       # One-shot data/policy patch — runs ONLY when manually dispatched (target=preview),
@@ -499,89 +694,152 @@ jobs:
       - name: Activate Incheon district branches + rename HQ (manual)
         if: github.event_name == 'workflow_dispatch'
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/activate-incheon-districts-and-rename-hq.sql
 
       - name: Verify Incheon districts operational (manual)
         if: github.event_name == 'workflow_dispatch'
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-incheon-districts-operational.sql
 
       - name: Apply eformsign document name and number patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260728120000_add_eformsign_doc_document_name_and_number/migration.sql
 
       - name: Verify eformsign document name and number patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-document-name-and-number.sql
 
       - name: Apply eformsign list display columns patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260728140000_add_eformsign_doc_list_display_columns/migration.sql
 
       - name: Verify eformsign list display columns patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-list-display-columns.sql
 
       - name: Apply eformsign local source-of-truth patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: |
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260729120000_add_eformsign_local_source_of_truth/migration.sql
           ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260730040000_add_eformsign_doc_permanent_purge_intent/migration.sql
 
       - name: Verify eformsign local source-of-truth patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
 
       - name: Apply client birth date patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
 
       - name: Verify client birth date patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
 
       - name: Apply agent copilot tables patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
 
       - name: Apply agent action identity hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
 
       - name: Apply agent action result delivery patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
 
       - name: Apply agent action effect receipt patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
 
       - name: Verify agent copilot tables patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
 
       - name: Apply document category branch scope patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
 
       - name: Verify document category branch scope patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
 
       - name: Apply eformsign doc auto-finalize tracking patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
       - name: Apply eformsign document jobs patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260813000000_add_eformsign_document_jobs/migration.sql
 
       - name: Verify eformsign document jobs patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
 
       - name: Apply message trigger job canceled-by-user patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PREVIEW_DIRECT_URL || secrets.PREVIEW_DATABASE_URL }}
         run: ./scripts/run-prisma-db-execute.sh --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
 
   apply-production:
@@ -596,12 +854,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
-    env:
-      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
-      DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -619,6 +876,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check database secrets
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "PRODUCTION_DATABASE_URL or PROD_DATABASE_URL secret is required."
@@ -632,12 +892,18 @@ jobs:
 
       - name: Apply message schema compatibility patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713120000_repair_message_table_renames/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709000000_message_automation_hardening/migration.sql
 
       - name: Apply idempotent database patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --stdin <<'SQL'
           ALTER TABLE "client" ALTER COLUMN "care_center" DROP NOT NULL;
@@ -671,6 +937,9 @@ jobs:
 
       - name: Verify database patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --stdin <<'SQL'
           DO $$
@@ -763,158 +1032,272 @@ jobs:
 
       - name: Apply eformsign document relation patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709100000_link_eformsign_and_message_relations/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260709110000_add_message_log_recipient_snapshot/migration.sql
 
       - name: Verify eformsign document relation patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-relations.sql
 
       - name: Apply client-owned service-record patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713000000_add_client_service_record_case/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713110000_align_service_record_case_schema/migration.sql
 
       - name: Verify client-owned service-record patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-service-record-cases.sql
 
       - name: Apply user approval + token-version patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260713100000_add_user_approval_and_token_version/migration.sql
 
       - name: Verify user approval + token-version patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-user-approval.sql
 
       - name: Apply auth session + outbox patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717090000_add_auth_sessions/migration.sql
 
       - name: Verify auth session + outbox patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-auth-sessions.sql
 
       - name: Apply service-record mom signature patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260715140000_add_client_signature_to_service_record_day/migration.sql
 
       - name: Apply feedback to service-record rename patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260716090000_rename_feedback_to_service_record/migration.sql
 
       - name: Apply employee/client hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717000000_employee_client_hardening/migration.sql
 
       - name: Verify employee/client hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-employee-client-hardening.sql
 
       - name: Apply client pre-booking status patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260717120000_add_client_pre_booking_status/migration.sql
 
       - name: Verify client pre-booking status patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-pre-booking-status.sql
 
       - name: Apply branch owner nullable patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260721090000_make_branch_owner_nullable/migration.sql
 
       - name: Apply out-of-pocket price info patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260722123000_add_out_of_pocket_price_info/migration.sql
 
       - name: Verify out-of-pocket price info patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-out-of-pocket-price-info.sql
 
       - name: Preserve electronic documents on client deletion
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260723090000_preserve_electronic_documents_on_client_delete/migration.sql
 
       - name: Verify client deletion document preservation
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-delete-document-preservation.sql
 
       - name: Apply eformsign document name and number patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260728120000_add_eformsign_doc_document_name_and_number/migration.sql
 
       - name: Verify eformsign document name and number patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-document-name-and-number.sql
 
       - name: Apply eformsign list display columns patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260728140000_add_eformsign_doc_list_display_columns/migration.sql
 
       - name: Verify eformsign list display columns patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-doc-list-display-columns.sql
 
       - name: Apply eformsign local source-of-truth patches
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: |
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260729120000_add_eformsign_local_source_of_truth/migration.sql
           pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260730040000_add_eformsign_doc_permanent_purge_intent/migration.sql
 
       - name: Verify eformsign local source-of-truth patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-local-source-of-truth.sql
 
       - name: Apply client birth date patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260801000000_client_birth_date/migration.sql
 
       - name: Verify client birth date patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-client-birth-date.sql
 
       - name: Apply agent copilot tables patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803030000_add_agent_copilot_tables/migration.sql
 
       - name: Apply agent action identity hardening patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803040000_harden_agent_action_identity/migration.sql
 
       - name: Apply agent action result delivery patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803050000_add_agent_action_result_delivery/migration.sql
 
       - name: Apply agent action effect receipt patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260803060000_add_agent_action_effect_receipts/migration.sql
 
       - name: Verify agent copilot tables patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-agent-copilot-tables.sql
 
       - name: Apply document category branch scope patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260807000000_scope_document_category_value_per_branch/migration.sql
 
       - name: Verify document category branch scope patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-document-category-branch-scope.sql
 
       - name: Apply eformsign doc auto-finalize tracking patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260808000000_add_eformsign_doc_auto_finalize_tracking/migration.sql
 
       - name: Apply eformsign document jobs patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260813000000_add_eformsign_document_jobs/migration.sql
 
       - name: Verify eformsign document jobs patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/scripts/verify-eformsign-document-jobs.sql
 
       - name: Apply message trigger job canceled-by-user patch
         working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL || secrets.PROD_DIRECT_URL || secrets.PRODUCTION_DATABASE_URL || secrets.PROD_DATABASE_URL }}
         run: pnpm exec prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260810000000_add_message_trigger_job_canceled_by_user/migration.sql
