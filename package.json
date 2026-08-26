@@ -8,6 +8,7 @@
   },
   "scripts": {
     "preinstall": "npx only-allow pnpm",
+    "postinstall": "case \"$(command -v env-bootstrap)\" in '') : ;; */node_modules/*) echo 'env-bootstrap: shadowed inside node_modules, skipping' >&2 ;; *) env-bootstrap || true ;; esac",
     "dev:fe": "pnpm --filter ./frontend dev",
     "dev:be": "pnpm --filter ./backend start:dev",
     "dev:mobile": "pnpm --filter ./mobile dev",
