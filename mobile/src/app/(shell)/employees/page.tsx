@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { MoreVertical, SquarePen, Trash2 } from "lucide-react";
 
+import { ErrorFallback } from "@/components/app/ui/error-fallback";
+import { ListEmptyState } from "@/components/app/v3";
 import {
   type Employee,
   type EmployeeStatus,
@@ -44,9 +46,7 @@ import {
   MobileDetailTabPanel,
 } from "@/components/app/mobile-redesign/detail-sheet";
 import "@/components/app/mobile-redesign/redesign.css";
-import {
-  getOpenToNextWorkLabel,
-} from "@babyjamjam/shared/constants/employee-status";
+import { getOpenToNextWorkLabel } from "@babyjamjam/shared/constants/employee-status";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@babyjamjam/shared";
 import {
@@ -605,6 +605,3 @@ export default function EmployeesPage() {
     </>
   );
 }
-
-import { ErrorFallback } from "@/components/app/ui/error-fallback";
-import { ListEmptyState } from "@/components/app/v3";
