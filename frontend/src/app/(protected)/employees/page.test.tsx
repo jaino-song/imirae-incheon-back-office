@@ -22,4 +22,11 @@ describe("EmployeesPage deletion conflicts", () => {
       'label: EMPLOYEE_STATUS_LABELS.unavailable, counter: "명", colorIndex: 0',
     );
   });
+
+  it("counts derived work status separately from next-work availability", () => {
+    expect(source).toContain('working: allEmployees.filter((e: Employee) => e.status === "working").length');
+    expect(source).toContain('available: allEmployees.filter((e: Employee) => e.status === "available").length');
+    expect(source).toContain('unavailable: allEmployees.filter((e: Employee) => e.status === "unavailable").length');
+    expect(source).toContain("OPEN_TO_NEXT_WORK_LABELS");
+  });
 });
