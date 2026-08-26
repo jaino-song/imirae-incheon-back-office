@@ -426,6 +426,7 @@
       "grade": "Grade",
       "open-to-next-work": "Available for Next Work",
       "registered-date": "Registered Date",
+      "registered-date-unknown": "Unknown",
       "phone-required": "Please enter a phone number",
       "work-area-required": "Please select at least one work area",
       "error-phone-duplicate": "This phone number is already registered. Please enter a different phone number.",

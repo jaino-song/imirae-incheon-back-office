@@ -70,10 +70,7 @@ describe("EmployeeEntity", () => {
             expect(employee.name).toBe("테스트 직원");
         });
 
-        it("should default registeredDate to now when not provided", () => {
-            // Arrange
-            const before = new Date();
-
+        it("should preserve an omitted registeredDate as null", () => {
             // Act
             const employee = EmployeeEntity.create(
                 "테스트 직원",
@@ -83,11 +80,8 @@ describe("EmployeeEntity", () => {
                 false,
             );
 
-            const after = new Date();
-
             // Assert
-            expect(employee.registeredDate.getTime()).toBeGreaterThanOrEqual(before.getTime());
-            expect(employee.registeredDate.getTime()).toBeLessThanOrEqual(after.getTime());
+            expect(employee.registeredDate).toBeNull();
         });
 
         it("should use provided registeredDate when specified", () => {
