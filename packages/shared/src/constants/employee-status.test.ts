@@ -1,5 +1,6 @@
 import {
     EMPLOYEE_STATUS_LABELS,
+    deriveEmployeeStatus,
     getOpenToNextWorkLabel,
     OPEN_TO_NEXT_WORK_LABELS,
 } from "./employee-status";
@@ -29,4 +30,18 @@ describe("OPEN_TO_NEXT_WORK_LABELS / getOpenToNextWorkLabel", () => {
         expect(getOpenToNextWorkLabel(true)).toBe("배정 가능");
         expect(getOpenToNextWorkLabel(false)).toBe("배정 불가");
     });
+});
+
+describe("deriveEmployeeStatus", () => {
+    it.each([
+        [true, true, "working"],
+        [true, false, "working"],
+        [false, true, "available"],
+        [false, false, "unavailable"],
+    ] as const)(
+        "derives status from active assignment before availability",
+        (hasActiveAssignment, openToNextWork, expected) => {
+            expect(deriveEmployeeStatus(hasActiveAssignment, openToNextWork)).toBe(expected);
+        },
+    );
 });

@@ -37,7 +37,12 @@ import { EformsignApiDocumentResponse } from "domain/repositories/eformsign.clie
 import { normalizeClientPricing } from "domain/services/client-pricing";
 import { addBusinessDaysKr, diffBusinessDaysKr, isoDateInKorea } from "domain/utils/business-days";
 import { PrismaService } from "infrastructure/database/prisma.service";
-import { computeServiceStatus, SERVICE_STATUS, ServiceStatusType } from "domain/value-objects/service-status.vo";
+import {
+    computeServiceStatus,
+    isAutomaticServiceStatusTransitionAllowed,
+    SERVICE_STATUS,
+    ServiceStatusType,
+} from "domain/value-objects/service-status.vo";
 import { MessageTriggerService } from "./message-trigger.service";
 import { MessageAutomationIntentService } from "./message-automation-intent.service";
 import { ServiceRecordLinkService } from "./service-record-link.service";
@@ -1099,7 +1104,7 @@ export class ClientService {
 
     async findAll(branchid: string): Promise<ClientWithEmployees[]> {
         const clients = await this.listClientsUsecase.execute(branchid);
-        return this.attachEmployeesToClients(clients);
+        return this.attachEmployeesToClients(clients, branchid);
     }
 
     async findAllPaginated(
@@ -1114,7 +1119,7 @@ export class ClientService {
             limit,
             search
         );
-        const clientsWithEmployees = await this.attachEmployeesToClients(result.data);
+        const clientsWithEmployees = await this.attachEmployeesToClients(result.data, branchid);
         return {
             data: clientsWithEmployees,
             total: result.total,
@@ -1136,7 +1141,7 @@ export class ClientService {
         const client = await this.findClientByIdUsecase.execute(branchid, id);
         if (!client) return null;
 
-        const [withEmployees] = await this.attachEmployeesToClients([client]);
+        const [withEmployees] = await this.attachEmployeesToClients([client], branchid);
         return withEmployees ?? null;
     }
 
@@ -1173,14 +1178,17 @@ export class ClientService {
                 clients = [];
         }
 
-        return this.attachEmployeesToClients(clients);
+        return this.attachEmployeesToClients(clients, branchid);
     }
 
     /**
      * Helper method to attach employee info to clients and compute service status
      * Implements lazy update: computes status on access and updates DB if changed
      */
-    private async attachEmployeesToClients(clients: ClientEntity[]): Promise<ClientWithEmployees[]> {
+    private async attachEmployeesToClients(
+        clients: ClientEntity[],
+        branchid: string,
+    ): Promise<ClientWithEmployees[]> {
         if (clients.length === 0) return [];
 
         const clientIds = clients.map(c => c.id);
@@ -1218,7 +1226,11 @@ export class ClientService {
         const latestContractMap = await this.findLatestContractByClientId(clientIds);
 
         // Compute and update service status for each client (lazy update strategy)
-        const clientsNeedingUpdate: { id: number; newStatus: ServiceStatusType }[] = [];
+        const clientsNeedingUpdate: {
+            id: number;
+            expectedServiceStatus: string | null;
+            newStatus: ServiceStatusType;
+        }[] = [];
 
         const result = clients.map(client => {
             const schedule = scheduleMap.get(client.id);
@@ -1232,8 +1244,12 @@ export class ClientService {
             );
 
             // Track clients that need status update in DB
-            if (client.serviceStatus !== computedStatus) {
-                clientsNeedingUpdate.push({ id: client.id, newStatus: computedStatus });
+            if (isAutomaticServiceStatusTransitionAllowed(client.serviceStatus, computedStatus)) {
+                clientsNeedingUpdate.push({
+                    id: client.id,
+                    expectedServiceStatus: client.serviceStatus,
+                    newStatus: computedStatus,
+                });
             }
             const latestContract = latestContractMap.get(client.id);
             const documentStatus = latestContract?.permanentPurgeRequestedAt != null
@@ -1316,7 +1332,7 @@ export class ClientService {
 
         // Batch update clients whose status changed (non-blocking)
         if (clientsNeedingUpdate.length > 0) {
-            this.updateServiceStatusesInBackground(clientsNeedingUpdate);
+            this.updateServiceStatusesInBackground(branchid, clientsNeedingUpdate);
         }
 
         return result;
@@ -1327,18 +1343,28 @@ export class ClientService {
      * Does not block the main response
      */
     private updateServiceStatusesInBackground(
-        updates: { id: number; newStatus: ServiceStatusType }[]
+        branchid: string,
+        updates: {
+            id: number;
+            expectedServiceStatus: string | null;
+            newStatus: ServiceStatusType;
+        }[],
     ): void {
         // Use Promise.allSettled to handle each update independently
         Promise.allSettled(
-            updates.map(async ({ id, newStatus }) => {
+            updates.map(async ({ id, expectedServiceStatus, newStatus }) => {
                 try {
-                    await this.prismaService.client.update({
-                        where: { id },
-                        data: { serviceStatus: newStatus },
-                        select: { id: true },
-                    });
-                    this.logger.debug(`Updated client ${id} service status to ${newStatus}`);
+                    const result = await this.clientRepository.updateServiceStatusIfCurrent(
+                        branchid,
+                        id,
+                        expectedServiceStatus,
+                        newStatus,
+                    );
+                    if (result === "updated") {
+                        this.logger.debug(`Updated client ${id} service status to ${newStatus}`);
+                    } else {
+                        this.logger.debug(`Skipped stale client ${id} service status update`);
+                    }
                 } catch (error) {
                     this.logger.warn(`Failed to update client ${id} service status: ${error}`);
                 }

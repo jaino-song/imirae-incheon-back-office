@@ -287,67 +287,87 @@ describe("SbEmployeeRepository", () => {
         });
 
         describe("status computation", () => {
-            it("should return status = 'unavailable' when openToNextWork is false", async () => {
-                // Arrange
+            it.each([
+                ["active primary schedule and open", { openToNextWork: true, primaryEmployeeSchedules: [{ id: 1 }] }, "working", true],
+                ["active primary schedule and closed", { openToNextWork: false, primaryEmployeeSchedules: [{ id: 1 }] }, "working", false],
+                ["active secondary schedule and open", { openToNextWork: true, secondaryEmployeeSchedules: [{ id: 2 }] }, "working", true],
+                ["active secondary schedule and closed", { openToNextWork: false, secondaryEmployeeSchedules: [{ id: 2 }] }, "working", false],
+                ["no active schedule and open", { openToNextWork: true }, "available", true],
+                ["no active schedule and closed", { openToNextWork: false }, "unavailable", false],
+            ] as const)(
+                "should derive %s from active assignment before availability",
+                async (_caseName, overrides, expectedStatus, expectedOpenToNextWork) => {
+                    const row = createEmployeeRow(overrides);
+                    employeeModel.findMany.mockResolvedValue([row]);
+
+                    const result = await repository.findAll(branchId);
+
+                    expect(result).toHaveLength(1);
+                    expect(result[0]).toMatchObject({
+                        status: expectedStatus,
+                        openToNextWork: expectedOpenToNextWork,
+                    });
+                },
+            );
+
+            it("should request only current unreplaced schedules and exclude soft-deleted employees", async () => {
+                const activeRow = createEmployeeRow({ id: 1, openToNextWork: true });
+                const deletedRow = createEmployeeRow({ id: 2, deletedAt: new Date("2026-01-01T00:00:00.000Z") });
+                employeeModel.findMany.mockResolvedValue([activeRow]);
+
+                const result = await repository.findAll(branchId);
+
+                const query = employeeModel.findMany.mock.calls[0]?.[0];
+                expect(query).toEqual({
+                    where: { branchId, deletedAt: null },
+                    include: {
+                        primaryEmployeeSchedules: {
+                            where: {
+                                startDate: { lte: expect.any(Date) },
+                                endDate: { gte: expect.any(Date) },
+                                replaced: false,
+                            },
+                            take: 1,
+                        },
+                        secondaryEmployeeSchedules: {
+                            where: {
+                                startDate: { lte: expect.any(Date) },
+                                endDate: { gte: expect.any(Date) },
+                                replaced: false,
+                            },
+                            take: 1,
+                        },
+                    },
+                });
+                expect(result.map((employee) => employee.id)).toEqual([activeRow.id]);
+                expect(result.map((employee) => employee.id)).not.toContain(deletedRow.id);
+            });
+
+            it("should treat ended and replaced schedules excluded by the active query as no active assignment", async () => {
                 const row = createEmployeeRow({
                     openToNextWork: false,
-                    primaryEmployeeSchedules: [{ id: 1 }],
+                    primaryEmployeeSchedules: [],
+                    secondaryEmployeeSchedules: [],
                 });
                 employeeModel.findMany.mockResolvedValue([row]);
 
-                // Act
                 const result = await repository.findAll(branchId);
 
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("unavailable");
-            });
-
-            it("should return status = 'working' when has active primary schedule", async () => {
-                // Arrange
-                const row = createEmployeeRow({
-                    openToNextWork: true,
-                    primaryEmployeeSchedules: [{ id: 1 }],
+                expect(result[0]).toMatchObject({
+                    status: "unavailable",
+                    openToNextWork: false,
                 });
-                employeeModel.findMany.mockResolvedValue([row]);
-
-                // Act
-                const result = await repository.findAll(branchId);
-
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("working");
-            });
-
-            it("should return status = 'working' when has active secondary schedule", async () => {
-                // Arrange
-                const row = createEmployeeRow({
-                    openToNextWork: true,
-                    secondaryEmployeeSchedules: [{ id: 1 }],
-                });
-                employeeModel.findMany.mockResolvedValue([row]);
-
-                // Act
-                const result = await repository.findAll(branchId);
-
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("working");
-            });
-
-            it("should return status = 'available' when openToNextWork is true and no schedules", async () => {
-                // Arrange
-                const row = createEmployeeRow({
-                    openToNextWork: true,
-                });
-                employeeModel.findMany.mockResolvedValue([row]);
-
-                // Act
-                const result = await repository.findAll(branchId);
-
-                // Assert
-                expect(result).toHaveLength(1);
-                expect(result[0]?.status).toBe("available");
+                const query = employeeModel.findMany.mock.calls[0]?.[0];
+                expect(query).toEqual(expect.objectContaining({
+                    include: expect.objectContaining({
+                        primaryEmployeeSchedules: expect.objectContaining({
+                            where: expect.objectContaining({ replaced: false }),
+                        }),
+                        secondaryEmployeeSchedules: expect.objectContaining({
+                            where: expect.objectContaining({ replaced: false }),
+                        }),
+                    }),
+                }));
             });
         });
     });

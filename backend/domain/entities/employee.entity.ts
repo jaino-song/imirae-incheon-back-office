@@ -1,8 +1,22 @@
-// Employee status type - computed from openToNextWork and active schedules
+// Employee status type - active schedules take precedence over availability.
 export type EmployeeStatus = 'available' | 'working' | 'unavailable';
 
+/**
+ * Derive current work status from the authoritative inputs. An active
+ * assignment describes current work; availability only describes whether a
+ * new assignment may be accepted when no work is active.
+ */
+export function deriveEmployeeStatus(
+    hasActiveAssignment: boolean,
+    openToNextWork: boolean,
+): EmployeeStatus {
+    if (hasActiveAssignment) return 'working';
+    return openToNextWork ? 'available' : 'unavailable';
+}
+
 export class EmployeeEntity {
-    // Computed status field (not persisted, set by repository)
+    // Computed status field (not persisted, set by repository); an active
+    // assignment is working even when openToNextWork is false.
     public status?: EmployeeStatus;
 
     constructor(

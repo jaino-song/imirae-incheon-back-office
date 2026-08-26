@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { EmployeeEntity } from "domain/entities/employee.entity";
+import { deriveEmployeeStatus, EmployeeEntity } from "domain/entities/employee.entity";
 import {
     ActiveClientByEmployee,
     IEmployeeRepository,
@@ -206,15 +206,13 @@ export class SbEmployeeRepository implements IEmployeeRepository {
         return employees.map((emp) => {
             const entity = EmployeeMapper.toDomain(emp);
 
-            if (!entity.openToNextWork) {
-                entity.status = "unavailable";
-            } else {
-                const hasPrimarySchedule =
-                    emp.primaryEmployeeSchedules.length > 0;
-                const hasSecondarySchedule =
-                    emp.secondaryEmployeeSchedules.length > 0;
-                entity.status = hasPrimarySchedule || hasSecondarySchedule ? "working" : "available";
-            }
+            const hasActiveAssignment =
+                emp.primaryEmployeeSchedules.length > 0 ||
+                emp.secondaryEmployeeSchedules.length > 0;
+            entity.status = deriveEmployeeStatus(
+                hasActiveAssignment,
+                entity.openToNextWork,
+            );
 
             return entity;
         });
