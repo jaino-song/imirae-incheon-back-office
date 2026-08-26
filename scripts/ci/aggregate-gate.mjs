@@ -87,10 +87,9 @@ export const COMPONENT_GATES = Object.freeze([
             ".github/workflows/shared-contracts-ci.yml",
         ],
     },
-    // These names describe the native workflows that exist under
-    // native/.github/workflows. GitHub only executes workflows under the
-    // repository-root .github/workflows directory, so a native change fails
-    // closed until those workflows are promoted to live root workflows.
+    // These names describe the root-discoverable native workflows. They are
+    // selected only when a native path changes and are observed by the
+    // aggregate workflow_run trigger.
     {
         workflow: "Native Android CI",
         jobs: ["Android CI", "SCA Scan"],

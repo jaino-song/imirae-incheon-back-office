@@ -31,8 +31,12 @@ describe("MessageTriggerService", () => {
     const branchId = "branch-1";
     type EmployeeAssignmentScheduleSource = {
         id: number;
+        branchId: string | null;
         clientId: number;
+        workAddress: string;
         startDate: Date;
+        endDate: Date;
+        replaced: boolean;
         primaryEmployeeId: number;
         secondaryEmployeeId: number | null;
         client: { id: number; name: string };
@@ -317,6 +321,9 @@ describe("MessageTriggerService", () => {
         const prisma = {
             message_trigger_job: {
                 findUnique: jest.fn().mockResolvedValue(null),
+            },
+            employee_schedule: {
+                findFirst: jest.fn().mockResolvedValue(null),
             },
         };
         const service = new MessageTriggerService(
@@ -1403,6 +1410,181 @@ describe("MessageTriggerService", () => {
         expect(result.status).toBe("sent");
     });
 
+    it("binds employee-assignment jobs to the schedule source generation", () => {
+        const { internals } = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-fence",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const job = internals.buildEmployeeAssignmentJob(employeeRule, createEmployeeSchedule());
+
+        expect((job?.payload as unknown as Record<string, unknown>)["employeeScheduleFingerprint"])
+            .toEqual(expect.any(String));
+    });
+
+    it("performs the schedule fence after claim and before sending an unchanged assignment", async () => {
+        const builder = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-accept",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const schedule = createEmployeeSchedule();
+        const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, schedule)!;
+        const dispatcher = createDispatchService();
+        const events: string[] = [];
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockImplementation(async () => {
+            events.push("job-read");
+            return job;
+        });
+        dispatcher.jobRepository.claimPendingWithRuleFence.mockImplementation(async () => {
+            events.push("claim");
+            return true;
+        });
+        dispatcher.prisma.employee_schedule.findFirst.mockImplementation(async () => {
+            events.push("schedule-read");
+            return schedule;
+        });
+        dispatcher.deliveryService.sendJob.mockImplementation(async () => {
+            events.push("provider");
+            return true;
+        });
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(events).toEqual(["claim", "job-read", "schedule-read", "provider"]);
+        expect(dispatcher.deliveryService.sendJob).toHaveBeenCalledWith(job);
+        expect(job.status).toBe("sent");
+    });
+
+    it.each([
+        ["start date", { startDate: new Date("2026-07-16T00:00:00.000Z") }],
+        ["end date", { endDate: new Date("2026-08-16T00:00:00.000Z") }],
+        ["work address", { workAddress: "서울 강남구" }],
+        ["replacement state", { replaced: true }],
+        ["employee assignment", {
+            primaryEmployeeId: 31,
+            primaryEmployee: { id: 31, name: "박신규", phone: "010-2222-3333" },
+        }],
+        ["branch ownership", { branchId: "branch-2" }],
+    ] as const)("refuses a claimed assignment when the schedule %s changed", async (_label, change) => {
+        const builder = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-stale",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const originalSchedule = createEmployeeSchedule();
+        const currentSchedule = createEmployeeSchedule(change);
+        const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, originalSchedule)!;
+        const dispatcher = createDispatchService();
+        const events: string[] = [];
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockImplementation(async () => {
+            events.push("job-read");
+            return job;
+        });
+        dispatcher.jobRepository.claimPendingWithRuleFence.mockImplementation(async () => {
+            events.push("claim");
+            return true;
+        });
+        dispatcher.prisma.employee_schedule.findFirst.mockImplementation(async () => {
+            events.push("schedule-read");
+            return currentSchedule;
+        });
+        dispatcher.deliveryService.sendJob.mockImplementation(async () => {
+            events.push("provider");
+            return true;
+        });
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(events).toEqual(["claim", "job-read", "schedule-read"]);
+        expect(dispatcher.deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(job.status).toBe("canceled");
+        expect(job.sentAt).toBeNull();
+        expect(dispatcher.jobRepository.update).toHaveBeenCalledWith(job);
+    });
+
+    it("does not overwrite a claimed job when the final job read observes a concurrent cancellation", async () => {
+        const builder = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-lost",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, createEmployeeSchedule())!;
+        const dispatcher = createDispatchService();
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue({
+            ...job,
+            status: "canceled",
+            canceledAt: new Date("2026-08-01T00:00:00.000Z"),
+            cancelReason: "사용자가 발송을 취소함",
+        } as MessageTriggerJobEntity);
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(dispatcher.deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(dispatcher.prisma.employee_schedule.findFirst).not.toHaveBeenCalled();
+        expect(dispatcher.jobRepository.update).not.toHaveBeenCalled();
+    });
+
+    it("leaves a claimed assignment retryable when the final schedule read fails", async () => {
+        const builder = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-read-failure",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, createEmployeeSchedule())!;
+        const dispatcher = createDispatchService();
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.prisma.employee_schedule.findFirst.mockRejectedValue(new Error("schedule read failed"));
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(dispatcher.deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(dispatcher.jobRepository.update).not.toHaveBeenCalled();
+        expect(job.status).toBe("processing");
+    });
+
+    it("refuses a claimed assignment when its schedule was deleted", async () => {
+        const builder = createService();
+        const employeeRule = createRule({
+            id: "rule-employee-pre-send-deleted",
+            eventType: MessageTriggerEventType.EMPLOYEE_ASSIGNED,
+            offsetType: MessageTriggerOffsetType.IMMEDIATE,
+            recipientType: MessageTriggerRecipientType.PRIMARY_EMPLOYEE,
+            templateKey: MessageTriggerTemplateKey.EMPLOYEE_ASSIGNED,
+        });
+        const job = builder.internals.buildEmployeeAssignmentJob(employeeRule, createEmployeeSchedule())!;
+        const dispatcher = createDispatchService();
+        dispatcher.jobRepository.findDuePending.mockResolvedValue([job]);
+        dispatcher.jobRepository.findById.mockResolvedValue(job);
+        dispatcher.prisma.employee_schedule.findFirst.mockResolvedValue(null);
+
+        await dispatcher.service.dispatchDueJobs();
+
+        expect(dispatcher.deliveryService.sendJob).not.toHaveBeenCalled();
+        expect(job.status).toBe("canceled");
+        expect(job.sentAt).toBeNull();
+        expect(dispatcher.jobRepository.update).toHaveBeenCalledWith(job);
+    });
+
     it("cancels an existing pending job once its scheduled time is at least 24 hours old", async () => {
         jest.useFakeTimers().setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
         try {
@@ -2105,8 +2287,12 @@ describe("MessageTriggerService", () => {
         overrides: Partial<EmployeeAssignmentScheduleSource> = {},
     ): EmployeeAssignmentScheduleSource => ({
         id: 77,
+        branchId,
         clientId: 1,
+        workAddress: "인천 미추홀구",
         startDate: new Date("2026-07-15T00:00:00.000Z"),
+        endDate: new Date("2026-08-15T00:00:00.000Z"),
+        replaced: false,
         primaryEmployeeId: 30,
         secondaryEmployeeId: null,
         client: { id: 1, name: "김산모" },

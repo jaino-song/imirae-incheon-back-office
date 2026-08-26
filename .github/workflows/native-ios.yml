@@ -1,0 +1,93 @@
+name: Native iOS CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - "native/**"
+  pull_request:
+    branches: [main, dev, preview]
+    paths:
+      - "native/**"
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  ios_ci:
+    name: iOS CI
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Verify setup documentation freshness
+        run: bash native/scripts/setup-doc-freshness.test.sh
+
+      - name: Validate native workflow contract
+        run: node scripts/ci/native-workflow-contract.test.mjs
+
+      - name: Compile and test shared KMP targets
+        working-directory: native
+        run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 :shared:allTests --stacktrace --no-daemon
+
+      - name: Verify iOS build metadata
+        shell: bash
+        working-directory: native
+        run: |
+          set -euo pipefail
+          workspace_path="$(find iosApp -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          project_path="$(find iosApp -maxdepth 1 -name '*.xcodeproj' -print -quit)"
+          if [[ -z "$workspace_path" && -z "$project_path" ]]; then
+            echo "::error::No Xcode project or workspace is committed under native/iosApp; iOS CI cannot run"
+            exit 1
+          fi
+          if [[ -n "$workspace_path" ]]; then
+            printf 'IOS_BUILD_KIND=workspace\nIOS_BUILD_PATH=%s\n' "$workspace_path" >> "$GITHUB_ENV"
+          else
+            printf 'IOS_BUILD_KIND=project\nIOS_BUILD_PATH=%s\n' "$project_path" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build and test iOS app
+        working-directory: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${IOS_BUILD_KIND}" == "workspace" ]]; then
+            xcodebuild -workspace "${IOS_BUILD_PATH}" -scheme "${IOS_SCHEME:-iosApp}" -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' test
+          else
+            xcodebuild -project "${IOS_BUILD_PATH}" -scheme "${IOS_SCHEME:-iosApp}" -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' test
+          fi
+
+      - name: Upload iOS build logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-ios-ci-build
+          path: native/shared/build
+          if-no-files-found: ignore
+
+  sca_scan:
+    name: SCA Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy file system scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: native
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"

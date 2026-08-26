@@ -1125,13 +1125,13 @@
     },
     "mobile/src/app/(shell)/notification/page.tsx": {
       "ui-architecture/no-page-local-components": [
-        "49:10-49:33|pageLocalComponent"
+        "44:10-44:33|pageLocalComponent"
       ],
       "ui-architecture/no-page-style-constants": [
-        "27:7-27:36|pageStyleConstant"
+        "26:7-26:36|pageStyleConstant"
       ],
       "ui-architecture/no-raw-ui-in-pages": [
-        "285:21-291:22|rawUiElement"
+        "300:21-306:22|rawUiElement"
       ]
     },
     "mobile/src/app/(shell)/page.tsx": {
