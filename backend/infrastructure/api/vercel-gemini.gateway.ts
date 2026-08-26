@@ -57,7 +57,9 @@ export class VercelGeminiGateway {
         return apiKey;
     }
 
-    private createGoogleProvider() {
+    // Protected so deterministic tests can supply a local provider without
+    // making a network request or requiring a live Gemini credential.
+    protected createGoogleProvider() {
         return createGoogleGenerativeAI({
             apiKey: this.getApiKey(),
         });
