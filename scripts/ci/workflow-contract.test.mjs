@@ -212,6 +212,62 @@ test("full-flow gate invokes only the local stubbed harness with bounded runtime
     assertUsesPinnedActions(workflow, "backend-full-flow-ci.yml");
 });
 
+test("mobile pull-request E2E uses only a run-scoped dummy JWT", async () => {
+    const fileName = "mobile-ci.yml";
+    const workflow = await readWorkflow(fileName);
+    const job = jobBlock(workflow, "e2e", fileName);
+    const jobText = job.join("\n");
+
+    assert.match(jobText, /github\.event_name == 'pull_request'/);
+    assert.match(
+        jobText,
+        /JWT_SECRET:\s+e2e-dummy-jwt-signing-key-at-least-32-\$\{\{\s*github\.run_id\s*\}\}/,
+        `${fileName} pull-request E2E must use a per-run dummy JWT`,
+    );
+    assert.doesNotMatch(
+        jobText,
+        /secrets\.JWT_SECRET/,
+        `${fileName} pull-request E2E must not expose the repository JWT secret`,
+    );
+});
+
+test("backend pull requests cannot receive the protected cutover manifest", async () => {
+    const fileName = "backend-ci.yml";
+    const workflow = await readWorkflow(fileName);
+    const job = jobBlock(workflow, "verify", fileName);
+    const steps = stepBlocks(job, "verify", fileName);
+    const cutoverSteps = steps.filter((step) => step.join("\n").includes("agent:cutover:guard"));
+
+    assert.equal(cutoverSteps.length, 2, `${fileName} must retain trusted and PR-safe cutover guard steps`);
+    const manifestSecretSteps = steps.filter((step) => step.join("\n").includes("secrets.AGENT_CUTOVER_MANIFEST_JSON"));
+    assert.equal(manifestSecretSteps.length, 1, `${fileName} must expose the protected manifest in exactly one trusted step`);
+    const trustedCutoverStep = manifestSecretSteps[0];
+    const pullRequestCutoverStep = cutoverSteps.find((step) => !step.join("\n").includes("secrets.AGENT_CUTOVER_MANIFEST_JSON"));
+    assert.ok(trustedCutoverStep, `${fileName} must retain a protected-evidence cutover guard`);
+    assert.ok(pullRequestCutoverStep, `${fileName} must retain a secret-free pull-request cutover guard`);
+    assert.match(trustedCutoverStep.join("\n"), /if:\s+github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/);
+    assert.match(pullRequestCutoverStep.join("\n"), /if:\s+github\.event_name == 'pull_request'/);
+    assert.match(trustedCutoverStep.join("\n"), /secrets\.AGENT_CUTOVER_MANIFEST_JSON/);
+    assert.doesNotMatch(pullRequestCutoverStep.join("\n"), /secrets\./);
+    assert.doesNotMatch(
+        job.join("\n"),
+        /^      [A-Z0-9_]+:.*secrets\.AGENT_CUTOVER_MANIFEST_JSON/m,
+        `${fileName} must not expose the cutover manifest at job scope`,
+    );
+});
+
+test("database failover validation has no OIDC token while deploy jobs retain OIDC", async () => {
+    const fileName = "db-failover-infra.yml";
+    const workflow = await readWorkflow(fileName);
+    const validationJob = jobBlock(workflow, "validate-build-package", fileName).join("\n");
+
+    assert.doesNotMatch(validationJob, /id-token:\s*write/);
+    for (const environment of ["preview", "production"]) {
+        const deployJob = jobBlock(workflow, `deploy-${environment}`, fileName).join("\n");
+        assert.match(deployJob, /id-token:\s*write/, `${fileName} ${environment} deploy must retain OIDC`);
+    }
+});
+
 test("all external workflow actions and service images use immutable references with release labels", async () => {
     const files = await workflowFiles();
     const workflows = await Promise.all(files.map(async (fileName) => ({

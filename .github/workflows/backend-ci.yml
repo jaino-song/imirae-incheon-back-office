@@ -85,10 +85,17 @@ jobs:
         run: pnpm --filter ./backend run agent:manifest:check
 
       - name: Protect legacy surfaces until D13 cutover evidence is complete
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: pnpm --filter ./backend run agent:cutover:guard
         env:
           AGENT_RELEASE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           AGENT_CUTOVER_MANIFEST_JSON: ${{ secrets.AGENT_CUTOVER_MANIFEST_JSON }}
+
+      - name: Protect legacy surfaces without protected evidence on pull requests
+        if: github.event_name == 'pull_request'
+        run: pnpm --filter ./backend run agent:cutover:guard
+        env:
+          AGENT_RELEASE_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Lint
         run: pnpm --filter ./backend run lint
