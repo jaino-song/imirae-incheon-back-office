@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import shared
 
 /// APNs delegate for iOS push notification handling.
 /// Manages token registration, foreground/background/terminated notification handling.
@@ -17,8 +18,8 @@ class APNsDelegate: NSObject, UNUserNotificationCenterDelegate {
             options: [.alert, .badge, .sound]
         ) { granted, error in
             DispatchQueue.main.async {
-                if let error = error {
-                    print("[APNs] Permission error: \(error.localizedDescription)")
+                if error != nil {
+                    SafeLogger.shared.notificationPermissionFailed()
                     completion(false)
                     return
                 }
@@ -30,13 +31,12 @@ class APNsDelegate: NSObject, UNUserNotificationCenterDelegate {
     // MARK: - Token Registration
 
     func didRegisterForRemoteNotifications(deviceToken: Data) {
-        let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-        print("[APNs] Device token: \(token)")
+        SafeLogger.shared.apnsRegistered()
         // TODO: Register token with NotificationManager via KMP bridge
     }
 
     func didFailToRegisterForRemoteNotifications(error: Error) {
-        print("[APNs] Registration failed: \(error.localizedDescription)")
+        SafeLogger.shared.apnsRegistrationFailed()
     }
 
     // MARK: - UNUserNotificationCenterDelegate
@@ -47,8 +47,7 @@ class APNsDelegate: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        let userInfo = notification.request.content.userInfo
-        print("[APNs] Foreground notification: \(userInfo)")
+        SafeLogger.shared.notificationReceived()
 
         // Show banner even in foreground
         completionHandler([.banner, .badge, .sound])
@@ -61,7 +60,7 @@ class APNsDelegate: NSObject, UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        print("[APNs] Notification tapped: \(userInfo)")
+        SafeLogger.shared.notificationTapped()
 
         // Extract deep link and route
         if let deepLink = userInfo["deepLink"] as? String ?? userInfo["link"] as? String {
