@@ -1,7 +1,8 @@
 import SwiftUI
+import shared
 
 struct LoginView: View {
-    @StateObject private var viewModel = AuthViewModelWrapper()
+    @ObservedObject var viewModel: AuthViewModelWrapper
     @State private var email = ""
     @State private var password = ""
     @State private var emailError: String?
@@ -13,6 +14,22 @@ struct LoginView: View {
     var onNavigateToVerifyEmail: () -> Void = {}
     var onNavigateToDashboard: () -> Void = {}
     var onNavigateToSelectBranch: () -> Void = {}
+
+    init(
+        viewModel: AuthViewModelWrapper = AuthViewModelWrapper(),
+        onNavigateToRegister: @escaping () -> Void = {},
+        onNavigateToForgotPassword: @escaping () -> Void = {},
+        onNavigateToVerifyEmail: @escaping () -> Void = {},
+        onNavigateToDashboard: @escaping () -> Void = {},
+        onNavigateToSelectBranch: @escaping () -> Void = {}
+    ) {
+        _viewModel = ObservedObject(wrappedValue: viewModel)
+        self.onNavigateToRegister = onNavigateToRegister
+        self.onNavigateToForgotPassword = onNavigateToForgotPassword
+        self.onNavigateToVerifyEmail = onNavigateToVerifyEmail
+        self.onNavigateToDashboard = onNavigateToDashboard
+        self.onNavigateToSelectBranch = onNavigateToSelectBranch
+    }
 
     var body: some View {
         ScrollView {
