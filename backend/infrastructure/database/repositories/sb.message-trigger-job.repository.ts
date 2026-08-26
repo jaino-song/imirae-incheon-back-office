@@ -18,6 +18,7 @@ import {
 } from "domain/constants/message-trigger-catalog";
 import { MESSAGE_AUTOMATION_INTENT_RULE_ID } from "domain/constants/message-automation-intent";
 import { MESSAGE_SENDER_APPROVAL_REQUIRED_CANCEL_REASON } from "domain/constants/message-automation-policy";
+import { SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON } from "domain/constants/service-record-link-message";
 
 type MessageTriggerJobPrismaRow = {
     id: string;
@@ -582,6 +583,52 @@ export class SbMessageTriggerJobRepository implements IMessageTriggerJobReposito
 
     async upsertPending(job: MessageTriggerJobEntity): Promise<MessageTriggerJobEntity> {
         return this.upsertPendingWithClient(this.prisma, job);
+    }
+
+    async promoteAutomaticSchedulingClaim(
+        markerId: string,
+        expectedClaimVersion: string,
+        job: MessageTriggerJobEntity,
+    ): Promise<MessageTriggerJobEntity | null> {
+        // Automatic service-record scheduling uses a failed row as a durable
+        // lease. It must not go through upsertPending: ordinary failed rows
+        // belong to provider-delivery retry and are intentionally immutable.
+        // The marker id plus full-precision updated_at value form the CAS that
+        // prevents an expired owner from reviving a newer claim.
+        if (!job.branchId || job.employeeScheduleId === null || !expectedClaimVersion) return null;
+
+        const rows = await this.prisma.$queryRaw<MessageTriggerJobRawRow[]>(Prisma.sql`
+            UPDATE "message_trigger_job"
+            SET status = 'pending',
+                scheduled_for = ${job.scheduledFor},
+                sent_at = NULL,
+                canceled_at = NULL,
+                cancel_reason = NULL,
+                canceled_by_user = false,
+                client_id = ${job.clientId},
+                employee_schedule_id = ${job.employeeScheduleId},
+                recipient_type = ${job.recipientType},
+                recipient_phone = ${job.recipientPhone},
+                template_key = ${job.templateKey},
+                payload = ${JSON.stringify(job.payload)}::jsonb,
+                attempts = 0,
+                next_attempt_at = NULL,
+                updated_at = clock_timestamp()
+            WHERE id = ${markerId}
+              AND branch_id = ${job.branchId}::uuid
+              AND rule_id = ${job.ruleId}
+              AND client_id = ${job.clientId}
+              AND employee_schedule_id = ${job.employeeScheduleId}
+              AND dedupe_key = ${job.dedupeKey}
+              AND status = 'failed'
+              AND cancel_reason = ${SERVICE_RECORD_LINK_SCHEDULING_RETRY_REASON}
+              AND canceled_by_user = false
+              AND updated_at = ${expectedClaimVersion}::timestamptz
+            RETURNING *;
+        `);
+
+        const [row] = rows;
+        return row ? this.rawRowToDomain(row) : null;
     }
 
     async upsertPendingForRuleGeneration(
