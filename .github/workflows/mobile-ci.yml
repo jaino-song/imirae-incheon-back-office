@@ -16,6 +16,7 @@ on:
   # merges as eternally "expected" when the paths don't match.
   pull_request:
     branches: [ main, dev, preview, "feature/**", "fix/**" ]
+  merge_group:
 
 jobs:
   verify:
@@ -108,7 +109,11 @@ jobs:
   # must stay truthful (red when it fails) for the signal to be worth anything.
   e2e:
     name: playwright e2e (advisory · real backend)
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'merge_group' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     needs: verify
     # 90: the full 266-test suite against the real stack needs headroom —
     # two 60-minute runs were cancelled mid-suite before any report upload.

@@ -1,0 +1,58 @@
+name: CI Aggregate Gate
+
+on:
+  # Create the stable required context for ordinary pull requests and merge
+  # queue entries. Child workflows also emit workflow_run completions below;
+  # those rerun this gate as each component finishes.
+  pull_request:
+    branches: [main, dev, preview]
+  merge_group:
+    types: [checks_requested]
+  workflow_run:
+    workflows:
+      - Backend CI
+      - Backend Full Flow CI
+      - Frontend CI
+      - Mobile CI
+      - Mobile Unit CI
+      - Frontend Playwright Auth Lifecycle
+      - Security Review
+      - Shared Contracts CI
+      - Native Android CI
+      - Native iOS CI
+    types: [completed]
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-aggregate-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  aggregate:
+    name: ci aggregate gate
+    # workflow_run also observes push completions because the child workflows
+    # serve branch CI. Only PR and merge-queue runs are release gates.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.event == 'pull_request' ||
+      github.event.workflow_run.event == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted aggregate evaluator
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # workflow_run executes from the default branch; use that same
+          # trusted revision for PR/merge-queue events instead of head code.
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Evaluate component gates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/aggregate-gate.mjs
