@@ -87,6 +87,8 @@ test("required merge-queue child workflows are mounted without path filters", as
         "playwright.yml",
         "security.yml",
         "shared-contracts-ci.yml",
+        "native-android.yml",
+        "native-ios.yml",
     ];
     for (const fileName of requiredFiles) {
         const workflow = await readFile(resolve(WORKSPACE_ROOT, ".github/workflows", fileName), "utf8");
